@@ -1106,14 +1106,12 @@ def test_the_board_template_follows_adr_0001() -> None:
     fields = {field.name: field for field in template.fields}
     assert (
         [option.name for option in fields["Status"].options],
-        fields["Status"].options[0].replaces,
         {"Category", "Milestone"} & set(fields),
         [view.name for view in template.views if "Category" in view.model_dump_json()],
         [option.name for option in fields["Value"].options],
         [option.name for option in fields["Effort"].options],
     ) == (
         ["New", "Ready", "In Progress", "In Review", "Done", "Blocked"],
-        ["Backlog", "Todo"],
         set(),
         [],
         ["High", "Medium", "Low"],

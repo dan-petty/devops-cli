@@ -140,7 +140,7 @@ feedback loop that changes what it does once the defects are gone:
 3. **Continuous self-hardening**: each struggle, failure, inconsistency, bad pattern or useful
    idea becomes an issue (`devops gh issues create`), and a check that fails when the problem
    returns guards it. A rule goes into [`AGENTS.md`](../AGENTS.md) only when no check is possible.
-   `docs/ROADMAP.md` is rendered from GitHub at the cut and never edited in an item's pull request
+   The roadmap lives on GitHub, never in a document
    ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)).
 
 ---
@@ -875,7 +875,7 @@ models; the gate never runs it.
 
 9. **Planning documents** never enter a corpus, since they have no injection site. Measure them
    with a known-negative run from each checkout, where every finding is a false positive:
-   `devops review benchmark docs/ROADMAP.md CHANGELOG.md docs/agent/tasks -n 3`.
+   `devops review benchmark CHANGELOG.md docs/agent/tasks -n 3`.
 
 The prompt digest covers `ai/tasks/` and `ai/personas/`, not `.devops/review.md`, so the
 conventions swap in steps 3 and 4 is part of measuring B, not an option. To isolate the prompt

@@ -4,7 +4,9 @@ All tests run in-memory without network or cluster access, testing due evaluatio
 schedule persistence, clone management, service wiring, and MCP integration. The clone cases run
 real `git` against bare remotes in `tmp_path`, with the session's `gh api user` login answered
 at the process edge (#1366). The last cases run the GitHub store over `GitHubFake`, a fake at
-the `gh` process edge, to count a round's board reads (#1361).
+the `gh` process edge, to count a round's board reads (#1361). The table holds the status lane's
+metrics row and the model lane's intake and refine rows; every clone tracks origin's default
+branch.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -33,13 +35,12 @@ from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
-    CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
-    CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+    CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_RELEASE,
+    CONST_SERVICE_LANE_STATUS,
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
     CONST_URL_GITHUB_STATUS_SUMMARY,
 )
@@ -51,7 +52,6 @@ from devops_cli.exceptions.git import (
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
 )
-from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import (
@@ -64,12 +64,11 @@ from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake_model import ModelProposal, ProposalRequest, UnusableProposalError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.reprioritize import current_release
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     MODEL_LANE_ROWS,
-    RELEASE_LANE_ROWS,
     SERVICE_JOBS,
+    STATUS_LANE_ROWS,
     JobOutcome,
     JobRow,
     _run_intake_adapter,
@@ -83,17 +82,7 @@ from devops_cli.roadmap.run import (
     service_job,
     service_pause_until,
 )
-from devops_cli.roadmap.store import (
-    Change,
-    ChangeKind,
-    CloseReason,
-    FieldOption,
-    FieldSpec,
-    GitHubState,
-    ItemField,
-    Release,
-    RoadmapStore,
-)
+from devops_cli.roadmap.store import CloseReason, GitHubState, ItemField, RoadmapStore
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -106,24 +95,22 @@ from tests.web_fakes import StubWeb
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 REPO = "example/roadmap"
-RELEASE = "v0.2.26"
-RELEASE_BRANCH = f"release/{RELEASE}"
+# An open planning bucket: a milestone with any title, which no job reads as a version.
+PLANNED = "2026-11-05"
 COMMIT_IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.com")
-# GitHub's `release` `published` webhook, a ship's hint (#1360).
-SHIP_HINT = CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS[1]
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+OPENED = CONST_ROADMAP_INTAKE_BATCH_KEYS[0]
+POLL_KEY = ("poll", "", "")
 runner = CliRunner()
 
 
 @pytest.fixture
 def seeded_store(roadmap_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
-    """Seeded roadmap store with current release and board configuration."""
+    """The roadmap every command opens, with a closed and an open milestone."""
     roadmap_store._roadmap.clock = lambda: NOW - timedelta(minutes=10)
     roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
-    person = roadmap_store.as_actor("alice")
-    person.create_release("v0.2.25", state=GitHubState.CLOSED)
-    person.create_release(RELEASE)
-    person.create_release("v0.2.27")
+    roadmap_store.seed_milestone("Docs pass", state=GitHubState.CLOSED)
+    roadmap_store.seed_milestone(PLANNED)
     return roadmap_store
 
 
@@ -166,9 +153,9 @@ def _advance_bare_remote(bare: Path, branch: str, *, onto: str = "main") -> str:
     return commit
 
 
-def _make_bare_remote(tmp_path: Path, *, with_release_branch: bool = True) -> Path:
-    """A bare remote whose HEAD names `main`, with one commit on `main` and, unless told otherwise,
-    a later one on release/v0.2.26."""
+def _make_bare_remote(tmp_path: Path, *, other_branch: str | None = None) -> Path:
+    """A bare remote whose HEAD names `main`, with one commit on `main` and, when asked, a later
+    one on `other_branch`."""
     bare = tmp_path / "remote.git"
     _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
     empty_tree = subprocess.run(
@@ -180,8 +167,8 @@ def _make_bare_remote(tmp_path: Path, *, with_release_branch: bool = True) -> Pa
         "refs/heads/main",
         _git(bare, *COMMIT_IDENTITY, "commit-tree", empty_tree, "-m", "init"),
     )
-    if with_release_branch:
-        _advance_bare_remote(bare, RELEASE_BRANCH)
+    if other_branch is not None:
+        _advance_bare_remote(bare, other_branch)
     return bare
 
 
@@ -192,22 +179,17 @@ def _clone_head(clone_path: Path) -> tuple[str, str]:
 
 
 @pytest.fixture
-def release_remote(tmp_path: Path) -> Path:
-    """A bare remote holding `main` and a later commit on the current release's branch."""
+def main_remote(tmp_path: Path) -> Path:
+    """A bare remote holding only `main`."""
     return _make_bare_remote(tmp_path)
 
 
 @pytest.fixture
-def main_only_remote(tmp_path: Path) -> Path:
-    """A bare remote holding only `main`, as between a ship and the next release's start."""
-    return _make_bare_remote(tmp_path, with_release_branch=False)
-
-
-@pytest.fixture
-def dangling_head_remote(release_remote: Path) -> Path:
-    """A bare remote whose HEAD names `main`, which it lacks: it holds only the release branch."""
-    _git(release_remote, "update-ref", "-d", "refs/heads/main")
-    return release_remote
+def dangling_head_remote(tmp_path: Path) -> Path:
+    """A bare remote whose HEAD names `main`, which it lacks: it holds only a topic branch."""
+    bare = _make_bare_remote(tmp_path, other_branch="feat/topic")
+    _git(bare, "update-ref", "-d", "refs/heads/main")
+    return bare
 
 
 @pytest.fixture
@@ -236,146 +218,125 @@ def child_argvs(
     yield argvs
 
 
-def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
-    """Assert ordered tuple of jobs that run across due table conditions."""
-    person = seeded_store.as_actor("alice")
-    curr_item = person.seed_issue("Current release bug", release=RELEASE, on_board=True)
-    other_item = person.seed_issue("Backlog item", release=None, on_board=True)
+REPO_DIR = Path("roadmap") / "example" / "roadmap"
+HALF_HOUR_AGO = NOW - timedelta(minutes=30)
 
-    def _eval(
+
+def _stamp(tmp_path: Path, **last_success: datetime) -> None:
+    """Write each job's last success to the repository's `schedule.json`, and nothing else."""
+    path = tmp_path / REPO_DIR / "schedule.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stamps = {job: at.isoformat() for job, at in last_success.items()}
+    path.write_text(json.dumps(stamps), encoding="utf-8")
+
+
+def _recorded(
+    ran: list[str], name: str, job: Callable[..., JobOutcome] | None = None
+) -> Callable[..., JobOutcome]:
+    """A job that adds `name` to `ran` and then runs `job`, or does nothing when `job` is None."""
+
+    def run(**kwargs: Any) -> JobOutcome:
+        ran.append(name)
+        return job(**kwargs) if job else JobOutcome()
+
+    return run
+
+
+def _schedule(tmp_path: Path) -> dict[str, str]:
+    """The repository's `schedule.json`."""
+    return cast(
+        dict[str, str],
+        json.loads((tmp_path / REPO_DIR / "schedule.json").read_text(encoding="utf-8")),
+    )
+
+
+def _poll_round(
+    store: RoadmapStore,
+    tmp_path: Path,
+    *,
+    now: datetime = NOW,
+    table: Sequence[JobRow] | None = None,
+    batch: dict[tuple[str, str, str], int] | None = None,
+) -> tuple[str, ...]:
+    """The jobs one round runs at `now`, on the Service's poll unless `batch` says otherwise."""
+    return run_due_jobs(
+        REPO,
+        store,
+        batch={POLL_KEY: 1} if batch is None else batch,
+        table=build_stub_table() if table is None else table,
+        data_dir=tmp_path,
+        now=now,
+    )
+
+
+# ── The due table ─────────────────────────────────────────────────────────────
+
+
+def test_the_table_runs_metrics_then_intake_then_refine_and_names_no_release_job() -> None:
+    """The status lane's metrics row runs first, then the model lane's intake and refine; no
+    row closes items, cuts or starts a release (#1360)."""
+    assert (
+        [row.name for row in DEFAULT_DUE_TABLE],
+        DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS),
+        sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
+    ) == (["metrics", "intake", "refine"], True, ["issues"])
+
+
+def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
+    """Intake is due by its hour, a first run, an opened issue's webhook and a reopen a poll
+    reads; a close, a label and the store's own write make nothing due. Intake placing a
+    critical fix or a P0 item makes refine due in the same round."""
+    person = seeded_store.as_actor("alice")
+    planned_item = person.seed_issue("Planned bug", milestone=PLANNED, on_board=True)
+    other_item = person.seed_issue("Backlog item", on_board=True)
+    t59, t61 = NOW - timedelta(minutes=59), NOW - timedelta(minutes=61)
+
+    def due(
         batch: dict[tuple[str, str, str], int] | None = None,
-        schedule_init: dict[str, str] | None = None,
+        *,
+        stamps: dict[str, datetime] | None = None,
         table: Sequence[JobRow] | None = None,
     ) -> tuple[str, ...]:
-        sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-        if schedule_init is not None:
-            sched_file.parent.mkdir(parents=True, exist_ok=True)
-            sched_file.write_text(json.dumps(schedule_init), encoding="utf-8")
-        elif sched_file.exists():
-            sched_file.unlink()
-        tbl = table if table is not None else build_stub_table()
-        return run_due_jobs(
-            REPO,
-            seeded_store,
-            batch=batch,
-            table=tbl,
-            data_dir=tmp_path,
-            now=NOW,
-        )
+        _stamp(tmp_path, **({"intake": t59} if stamps is None else stamps))
+        return _poll_round(seeded_store, tmp_path, table=table, batch=batch or {})
 
-    t59 = (NOW - timedelta(minutes=59)).isoformat()
-    t61 = (NOW - timedelta(minutes=61)).isoformat()
-
-    c_59 = _eval(schedule_init={"intake": t59, "close": t59, "reprioritize": t59})
-    c_61 = _eval(schedule_init={"intake": t61, "close": t59, "reprioritize": t59})
-    c_no_run = _eval(schedule_init={})
-
-    c_webhook_opened = _eval(
-        batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
-    )
-
+    hour = (due(), due(stamps={"intake": t61}), due(stamps={}))
+    opened = due({OPENED: 1})
     person.close_by_hand(other_item, CloseReason.COMPLETED)
     person.reopen_issue(other_item)
-    c_reopened = _eval(
-        batch={("poll", "", ""): 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
-    )
-
+    reopened = due({POLL_KEY: 1})
     seeded_store._roadmap.changes.clear()
-    person.close_issue(curr_item, CloseReason.COMPLETED, "Done")
-    c_closed_curr = _eval(
-        batch={("poll", "", ""): 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
-    )
-
+    person.close_by_hand(planned_item, CloseReason.COMPLETED)
+    closed = due({POLL_KEY: 1})
     seeded_store._roadmap.changes.clear()
     person.add_label(other_item, "enhancement")
-    c_labeled_outside = _eval(
-        batch={("poll", "", ""): 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
-    )
-
+    labeled = due({POLL_KEY: 1})
     seeded_store._roadmap.changes.clear()
-    seeded_store.close_issue(curr_item, CloseReason.COMPLETED, "Done")
-    c_store_actor = _eval(
-        batch={("poll", "", ""): 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
-    )
-
-    tbl_close_hit = build_stub_table({"close": lambda **_: JobOutcome(closed_items=(curr_item,))})
-    tbl_close_miss = build_stub_table({"close": lambda **_: JobOutcome(closed_items=())})
-    c_close_hit = _eval(
-        batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
-        table=tbl_close_hit,
-    )
-    c_close_miss = _eval(
-        batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
-        table=tbl_close_miss,
-    )
-
-    tbl_crit = build_stub_table(
+    seeded_store.close_by_hand(other_item, CloseReason.COMPLETED)
+    own = due({POLL_KEY: 1})
+    critical = build_stub_table(
         {
             "intake": lambda **_: JobOutcome(placed_critical_or_p0=True),
-            "close": lambda **_: JobOutcome(),
-            "reprioritize": lambda **_: JobOutcome(),
             "refine": lambda **_: JobOutcome(),
         }
     )
-    c_refine_intake = _eval(
-        batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
-        table=tbl_crit,
+    quiet = build_stub_table(
+        {"intake": lambda **_: JobOutcome(), "refine": lambda **_: JobOutcome()}
     )
-
-    tbl_reprio = build_stub_table(
-        {
-            "intake": lambda **_: JobOutcome(),
-            "close": lambda **_: JobOutcome(closed_items=(curr_item,)),
-            "reprioritize": lambda **_: JobOutcome(),
-            "refine": lambda **_: JobOutcome(),
-        }
+    every = {"intake": t59, "refine": t59}
+    cascade = (
+        due({OPENED: 1}, stamps=every, table=critical),
+        due({OPENED: 1}, stamps=every, table=quiet),
+        due(stamps=every, table=quiet),
     )
-    c_refine_reprio = _eval(
-        batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
-        table=tbl_reprio,
-    )
-    c_refine_idle = _eval(
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
-        table=tbl_reprio,
-    )
-
-    assert (
-        c_59,
-        c_61,
-        c_no_run,
-        c_webhook_opened,
-        c_reopened,
-        c_closed_curr,
-        c_labeled_outside,
-        c_store_actor,
-        c_close_hit,
-        c_close_miss,
-        c_refine_intake,
-        c_refine_reprio,
-        c_refine_idle,
-    ) == (
-        (),
-        ("intake",),
-        ("reprioritize", "intake"),
+    assert (hour, opened, reopened, closed, labeled, own, cascade) == (
+        ((), ("intake",), ("intake",)),
         ("intake",),
         ("intake",),
-        ("reprioritize",),
         (),
         (),
-        ("close", "reprioritize"),
-        ("close",),
-        ("intake", "refine"),
-        ("close", "reprioritize", "refine"),
         (),
+        (("intake", "refine"), ("intake",), ()),
     )
 
 
@@ -384,166 +345,53 @@ def test_webhook_or_poll_identical_and_oldest_cutoff(
 ) -> None:
     """Webhook and poll batches identify same REOPENED trigger with 1 changes_since call."""
     person = seeded_store.as_actor("alice")
-    num = person.seed_issue("Item 1", release=None, on_board=True, state=GitHubState.CLOSED)
+    num = person.seed_issue("Item 1", on_board=True, state=GitHubState.CLOSED)
     person.reopen_issue(num)
+    sched = {"intake": NOW - timedelta(minutes=30)}
 
-    t30 = (NOW - timedelta(minutes=30)).isoformat()
-    t40 = (NOW - timedelta(minutes=40)).isoformat()
-    sched = {"intake": t30, "close": t40, "reprioritize": t30}
-
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    sched_file.parent.mkdir(parents=True, exist_ok=True)
-    sched_file.write_text(json.dumps(sched), encoding="utf-8")
-
+    _stamp(tmp_path, **sched)
     spy_wh = StoreSpy(seeded_store)
-    res_wh = run_due_jobs(
-        REPO,
-        spy_wh,  # type: ignore[arg-type]
-        batch={("webhook", "issues", "reopened"): 1},
-        table=build_stub_table(),
-        data_dir=tmp_path,
-        now=NOW,
-    )
+    res_wh = _poll_round(spy_wh, tmp_path, batch={("webhook", "issues", "reopened"): 1})
     calls_wh = spy_wh.calls.count("changes_since")
 
-    sched_file.write_text(json.dumps(sched), encoding="utf-8")
+    _stamp(tmp_path, **sched)
     spy_poll = StoreSpy(seeded_store)
-    res_poll = run_due_jobs(
-        REPO,
-        spy_poll,  # type: ignore[arg-type]
-        batch={("poll", "", ""): 1},
-        table=build_stub_table(),
-        data_dir=tmp_path,
-        now=NOW,
-    )
+    res_poll = _poll_round(spy_poll, tmp_path)
     calls_poll = spy_poll.calls.count("changes_since")
 
-    assert (res_wh, calls_wh, res_poll, calls_poll) == (
-        ("intake",),
-        1,
-        ("intake",),
-        1,
-    )
+    assert (res_wh, calls_wh, res_poll, calls_poll) == (("intake",), 1, ("intake",), 1)
 
 
 def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
-    """With 4-job stub table, close and reprioritize run before intake and refine, cross-job
-    outcomes cascade and a job's own change triggers nothing (#1360)."""
-    person = seeded_store.as_actor("alice")
-    curr_item = person.seed_issue("Bug", release=RELEASE, on_board=True)
-
+    """A first round runs metrics, then intake, then refine; with every row run within the hour,
+    intake that places a critical fix brings refine in, and a round whose only change is the
+    store's own runs nothing (#1360)."""
     calls: list[str] = []
 
     def make_runner(name: str, outcome: JobOutcome) -> Callable[..., JobOutcome]:
-        def r(**_: Any) -> JobOutcome:
+        def run(**_: Any) -> JobOutcome:
             calls.append(name)
             return outcome
 
-        return r
+        return run
 
-    all_stubs = {
-        "intake": make_runner("intake", JobOutcome()),
-        "close": make_runner("close", JobOutcome()),
-        "reprioritize": make_runner("reprioritize", JobOutcome()),
-        "refine": make_runner("refine", JobOutcome()),
-    }
-    table_all = build_stub_table(all_stubs)
-    res_all = run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={
-            CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1,
-            CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1,
-            SHIP_HINT: 1,
-        },
-        table=table_all,
-        data_dir=tmp_path,
-        now=NOW,
-    )
-
-    t59 = (NOW - timedelta(minutes=59)).isoformat()
-    sched = {"intake": t59, "close": t59, "reprioritize": t59, "refine": t59}
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    sched_file.write_text(json.dumps(sched), encoding="utf-8")
-
-    close_hit_table = build_stub_table(
-        {"close": make_runner("close", JobOutcome(closed_items=(curr_item,)))}
-    )
-    res_close_hit = run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
-        table=close_hit_table,
-        data_dir=tmp_path,
-        now=NOW,
-    )
-
-    intake_crit_table = build_stub_table(
+    stubs = {name: make_runner(name, JobOutcome()) for name in ("metrics", "intake", "refine")}
+    first = _poll_round(seeded_store, tmp_path, table=build_stub_table(stubs), batch={OPENED: 1})
+    t59 = NOW - timedelta(minutes=59)
+    _stamp(tmp_path, metrics=NOW - timedelta(minutes=5), intake=t59, refine=t59)
+    critical = build_stub_table(
         {"intake": make_runner("intake", JobOutcome(placed_critical_or_p0=True))},
         include_refine=True,
     )
-    res_intake_crit = run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        table=intake_crit_table,
-        data_dir=tmp_path,
-        now=NOW,
+    cascaded = _poll_round(seeded_store, tmp_path, table=critical, batch={OPENED: 1})
+    _stamp(tmp_path, metrics=NOW - timedelta(minutes=5), intake=t59, refine=t59)
+    seeded_store.close_by_hand(
+        seeded_store.seed_issue("Closed by the job", on_board=True), CloseReason.COMPLETED
     )
-
-    reprio_write_table = build_stub_table(
-        {
-            "reprioritize": make_runner(
-                "reprioritize",
-                JobOutcome(
-                    changes=(
-                        Change(
-                            kind=ChangeKind.CLOSED,
-                            number=curr_item,
-                            actor=seeded_store._actor,
-                            at=NOW,
-                        ),
-                    )
-                ),
-            )
-        }
-    )
-    sched_file.write_text(json.dumps(sched), encoding="utf-8")
-    person.close_issue(curr_item, CloseReason.COMPLETED, "Done")
-    run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={("poll", "", ""): 1},
-        table=reprio_write_table,
-        data_dir=tmp_path,
-        now=NOW,
-    )
-    seeded_store._roadmap.changes = [
-        Change(
-            kind=ChangeKind.CLOSED,
-            number=curr_item,
-            actor=seeded_store._actor,
-            at=NOW,
-            release=RELEASE,
-        )
-    ]
-    res_second_call = run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={("poll", "", ""): 1},
-        table=reprio_write_table,
-        data_dir=tmp_path,
-        now=NOW,
-    )
-
-    assert (
-        res_all,
-        res_close_hit,
-        res_intake_crit,
-        res_second_call,
-    ) == (
-        ("close", "reprioritize", "intake", "refine"),
-        ("close", "reprioritize"),
+    own = _poll_round(seeded_store, tmp_path, table=build_stub_table(stubs))
+    assert (first, calls[:3], cascaded, own) == (
+        ("metrics", "intake", "refine"),
+        ["metrics", "intake", "refine"],
         ("intake", "refine"),
         (),
     )
@@ -552,16 +400,13 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
 def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With no reprioritize run in the round, refine is due 60 min after its last success, not
-    at 59, and on a first run; the CLI's dry run lists it (#1515)."""
+    """Refine is due 60 min after its last success, not at 59, and on a first run; the CLI's dry
+    run lists it (#1515)."""
     table = build_stub_table(include_refine=True)
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    sched_file.parent.mkdir(parents=True)
 
     def schedule(refine_age: timedelta | None, now: datetime) -> None:
-        others = {job: now - timedelta(minutes=59) for job in ("close", "reprioritize", "intake")}
-        ages = others | ({} if refine_age is None else {"refine": now - refine_age})
-        sched_file.write_text(json.dumps({job: at.isoformat() for job, at in ages.items()}))
+        ages = {"intake": now - timedelta(minutes=59)}
+        _stamp(tmp_path, **ages, **({} if refine_age is None else {"refine": now - refine_age}))
 
     def due(refine_age: timedelta | None) -> tuple[str, ...]:
         schedule(refine_age, NOW)
@@ -587,51 +432,23 @@ def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
 def test_failure_isolation_and_cli_exit(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Failed stub allows subsequent jobs to run, preserves schedule cutoff, and CLI exits 1."""
+    """A failed stub lets the next job run, keeps its own schedule stamp unwritten, and the CLI
+    exits 1 naming it."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    person = seeded_store.as_actor("alice")
-    person.seed_issue("Item 1", release=RELEASE, on_board=True)
-
     ran_jobs: list[str] = []
 
     def failing_intake(**_: Any) -> JobOutcome:
         ran_jobs.append("intake")
         raise RuntimeError("Intake failed")
 
-    def ok_reprio(**_: Any) -> JobOutcome:
-        ran_jobs.append("reprioritize")
+    def ok_refine(**_: Any) -> JobOutcome:
+        ran_jobs.append("refine")
         return JobOutcome()
 
-    table = build_stub_table({"intake": failing_intake, "reprioritize": ok_reprio})
-
+    table = build_stub_table({"intake": failing_intake, "refine": ok_refine})
     with pytest.raises(RoadmapRunError) as exc_info:
-        run_due_jobs(
-            REPO,
-            seeded_store,
-            batch={
-                CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1,
-                SHIP_HINT: 1,
-            },
-            table=table,
-            data_dir=tmp_path,
-            now=NOW,
-        )
-
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    sched_data = json.loads(sched_file.read_text(encoding="utf-8"))
-
-    with pytest.raises(RoadmapRunError):
-        run_due_jobs(
-            REPO,
-            seeded_store,
-            batch={
-                CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1,
-                SHIP_HINT: 1,
-            },
-            table=table,
-            data_dir=tmp_path,
-            now=NOW,
-        )
+        _poll_round(seeded_store, tmp_path, table=table, batch={OPENED: 1})
+    sched_data = _schedule(tmp_path)
 
     def failing_adapter(*_: Any, **__: Any) -> JobOutcome:
         raise RoadmapRunError("Crash", failed_jobs=("intake",))
@@ -641,271 +458,252 @@ def test_failure_isolation_and_cli_exit(
 
     assert (
         exc_info.value.failed_jobs,
-        tuple(ran_jobs[:2]),
+        tuple(ran_jobs),
         "intake" not in sched_data,
-        "reprioritize" in sched_data,
+        "refine" in sched_data,
         res.exit_code,
         "intake" in res.output,
-    ) == (
-        ("intake",),
-        ("reprioritize", "intake"),
-        True,
-        True,
-        1,
-        True,
-    )
+    ) == (("intake",), ("intake", "refine"), True, True, 1, True)
 
 
 def test_state_file_persistence(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
     """Schedule records success time; subsequent run 30m later sees intake not due."""
     tbl = build_stub_table({"intake": lambda **_: JobOutcome()})
-    run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        table=tbl,
-        data_dir=tmp_path,
-        now=NOW,
+    _poll_round(seeded_store, tmp_path, table=tbl, batch={OPENED: 1})
+    data = _schedule(tmp_path)
+    second_due = _poll_round(
+        seeded_store, tmp_path, table=tbl, batch={}, now=NOW + timedelta(minutes=30)
     )
-
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    data = json.loads(sched_file.read_text(encoding="utf-8"))
-
-    t30 = NOW + timedelta(minutes=30)
-    second_due = run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={},
-        table=tbl,
-        data_dir=tmp_path,
-        now=t30,
-    )
-
     assert ("intake" in data, second_due) == (True, ())
 
 
-def test_release_read_failure_propagates_closed(
+def test_a_failed_read_of_the_changes_propagates_closed(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failure reading releases from the store propagates rather than being swallowed as None."""
+    """A failure reading the changes a poll judges propagates rather than being taken as no
+    change."""
 
-    def broken_releases() -> tuple[Any, ...]:
-        raise RuntimeError("GitHub API timeout during releases read")
+    def broken_changes(*_: Any, **__: Any) -> list[Any]:
+        raise RuntimeError("GitHub API timeout during the events read")
 
-    monkeypatch.setattr(seeded_store, "releases", broken_releases)
-    tbl = build_stub_table({"intake": lambda **_: JobOutcome()})
-    with pytest.raises(RuntimeError, match="GitHub API timeout during releases read"):
-        run_due_jobs(
-            REPO,
-            seeded_store,
-            batch={("webhook", "issues", "opened"): 1},
-            table=tbl,
-            data_dir=tmp_path,
-            now=NOW,
-        )
+    monkeypatch.setattr(seeded_store, "changes_since", broken_changes)
+    with pytest.raises(RuntimeError, match="GitHub API timeout during the events read"):
+        _poll_round(seeded_store, tmp_path, table=build_stub_table())
 
 
-def _current_release(store: InMemoryRoadmapStore) -> Release:
-    """The seeded store's current release, v0.2.26."""
-    return next(r for r in store.releases() if r.title == RELEASE)
+def test_intake_left_with_fresh_candidates_runs_at_the_next_poll_and_its_record_fails_closed(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """The record's pending flag makes intake due with nothing else due, even with no trigger
+    at all; a record that cannot be read makes it due too, and reading it raises, naming it."""
+    _stamp(tmp_path, intake=HALF_HOUR_AGO)
+    record = tmp_path / REPO_DIR / "intake.json"
+    record.write_text(json.dumps({"pending": False}), encoding="utf-8")
+    settled = _poll_round(seeded_store, tmp_path)
+    record.write_text(json.dumps({"pending": True}), encoding="utf-8")
+    pending = (_poll_round(seeded_store, tmp_path, batch={}), _poll_round(seeded_store, tmp_path))
+    record.write_text("{not json", encoding="utf-8")
+    unreadable = _poll_round(seeded_store, tmp_path)
+    with pytest.raises(RoadmapRunError, match=r"intake\.json .* Repair it, or remove it"):
+        read_intake_record(record)
+    assert (settled, pending, unreadable) == ((), (("intake",), ("intake",)), ("intake",))
+
+
+def test_idle_records_zero_or_one_store_calls(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
+    _stamp(tmp_path, intake=HALF_HOUR_AGO, refine=HALF_HOUR_AGO, metrics=NOW - timedelta(minutes=5))
+    spy_idle = StoreSpy(seeded_store)
+    res_idle = run_due_jobs(REPO, spy_idle, batch={}, data_dir=tmp_path, now=NOW)
+    spy_poll = StoreSpy(seeded_store)
+    res_poll = run_due_jobs(REPO, spy_poll, batch={POLL_KEY: 1}, data_dir=tmp_path, now=NOW)
+    assert (res_idle, len(spy_idle.calls), res_poll, spy_poll.calls) == (
+        (),
+        0,
+        (),
+        ["changes_since"],
+    )
+
+
+def test_no_prompt_and_cli_modes(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stub called with no confirm argument; CLI without confirm or with dry-run runs none."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    received_args: list[dict[str, Any]] = []
+
+    def stub_runner(**kwargs: Any) -> JobOutcome:
+        received_args.append(kwargs)
+        return JobOutcome()
+
+    tbl = build_stub_table({"intake": stub_runner})
+    _poll_round(seeded_store, tmp_path, table=tbl, batch={OPENED: 1})
+    had_confirm = "confirm" in received_args[0] if received_args else True
+
+    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", tbl):
+        res_plain = runner.invoke(roadmap_app, ["run", "-R", REPO])
+        res_dry = runner.invoke(roadmap_app, ["run", "--dry-run", "--confirm", "-R", REPO])
+        received_args.clear()
+        res_confirm = runner.invoke(roadmap_app, ["run", "--confirm", "-R", REPO])
+        confirm_called = len(received_args) > 0
+
+    assert (
+        had_confirm,
+        res_plain.exit_code,
+        "Due:" in res_plain.output,
+        res_dry.exit_code,
+        "Due:" in res_dry.output,
+        res_confirm.exit_code,
+        confirm_called,
+    ) == (False, 0, True, 0, True, 0, True)
+
+
+def test_service_wiring(
+    seeded_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`devops serve --service` passes the two lanes' jobs, and the reader of the time a refused
+    round names (#1400), to create_service_app. Each lane's job opens the store and runs its own
+    rows in its own clone (#1532)."""
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", f'["{REPO}"]')
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "devops-cli")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", f'{{"{REPO}":"secret-1"}}')
+
+    with patch("uvicorn.run") as mock_uvicorn:
+        res = runner.invoke(serve_app, ["--service"])
+        fastapi_app = mock_uvicorn.call_args[0][0]()
+
+    batch = TriggerBatch(repo=REPO, counts={OPENED: 1}, first_at=NOW, last_at=NOW)
+    with patch("devops_cli.roadmap.run.run_due_jobs") as mock_run:
+        for lane_job in SERVICE_JOBS.values():
+            lane_job(batch)
+
+    lanes = [
+        (call.args[0], call.kwargs["table"], call.kwargs["clone_dirname"])
+        for call in mock_run.call_args_list
+    ]
+    assert (
+        res.exit_code,
+        fastapi_app.state.jobs is SERVICE_JOBS,
+        list(SERVICE_JOBS),
+        fastapi_app.state.pause_until is service_pause_until,
+        REPO in roadmap_store_repos,
+        lanes,
+        [[row.name for row in rows] for rows in (STATUS_LANE_ROWS, MODEL_LANE_ROWS)],
+    ) == (
+        0,
+        True,
+        [CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_MODEL],
+        True,
+        True,
+        [
+            (REPO, STATUS_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
+            (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
+        ],
+        [["metrics"], ["intake", "refine"]],
+    )
+
+
+def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
+    """FastMCP roadmap_run returns due tuple, mutates nothing, and calls no stub."""
+    from devops_cli.ai.mcp import server as mcp_server
+
+    seeded_store.seed_issue("An item", on_board=True)
+    items_before = [it.model_dump() for it in seeded_store.items()]
+    writes_before = seeded_store.job_writes()
+
+    def in_process(cmd: list[str], **_: object) -> str:
+        return runner.invoke(roadmap_app, cmd[4:]).output
+
+    with patch.object(mcp_server, "_run_mcp_cmd", side_effect=in_process):
+        due = roadmap_run(repo=REPO)
+
+    assert (
+        isinstance(due, str),
+        [it.model_dump() for it in seeded_store.items()] == items_before,
+        seeded_store.job_writes() == writes_before,
+    ) == (True, True, True)
+
+
+# ── The clone ─────────────────────────────────────────────────────────────────
 
 
 def test_checkouts_git_management(
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
-    release_remote: Path,
+    main_remote: Path,
     child_argvs: list[list[str]],
 ) -> None:
-    """Clones to expected path, tracks remote tip, sets identity, fails clone-dependent jobs:
-    close, refine and metrics, which walks the clone's release tags (#1358)."""
-    bare = release_remote
+    """Clones to the expected path, tracks origin's default branch as it moves, sets the
+    identity, and fails the clone-dependent jobs, metrics and refine, when origin is gone; intake
+    needs no clone and still runs (#1358)."""
     data_dir = tmp_path / "data"
-
-    cur = _current_release(seeded_store)
-    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
-
+    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(main_remote))
     expected_clone = data_dir / "roadmap" / "example" / "roadmap" / "clone"
     user_name = _git(clone_path, "config", "user.name")
     user_email = _git(clone_path, "config", "user.email")
-
-    new_rev = _advance_bare_remote(bare, RELEASE_BRANCH, onto=RELEASE_BRANCH)
-    ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
+    new_rev = _advance_bare_remote(main_remote, "main")
+    ensure_checkout(REPO, data_dir, remote_url=str(main_remote))
     head = _clone_head(clone_path)
-
-    shutil.rmtree(bare)
+    shutil.rmtree(main_remote)
     shutil.rmtree(clone_path)
 
-    ran_intake = False
-    ran_reprio = False
-    called_close = False
-    called_refine = False
-    called_metrics = False
+    ran: list[str] = []
 
-    def stub_intake(**_: Any) -> JobOutcome:
-        nonlocal ran_intake
-        ran_intake = True
-        return JobOutcome()
-
-    def stub_reprio(**_: Any) -> JobOutcome:
-        nonlocal ran_reprio
-        ran_reprio = True
-        return JobOutcome()
-
-    def stub_close(**_: Any) -> JobOutcome:
-        nonlocal called_close
-        called_close = True
-        return JobOutcome()
-
-    def stub_refine(**_: Any) -> JobOutcome:
-        nonlocal called_refine
-        called_refine = True
-        return JobOutcome()
-
-    def stub_metrics(**_: Any) -> JobOutcome:
-        nonlocal called_metrics
-        called_metrics = True
-        return JobOutcome()
+    def stub(name: str) -> Callable[..., JobOutcome]:
+        return _recorded(ran, name)
 
     fail_table = build_stub_table(
-        {
-            "intake": stub_intake,
-            "close": stub_close,
-            "reprioritize": stub_reprio,
-            "refine": stub_refine,
-            "metrics": stub_metrics,
-        },
-        needs_clone=True,
+        {name: stub(name) for name in ("metrics", "intake", "refine")}, needs_clone=True
     )
-
     with pytest.raises(RoadmapRunError) as exc_info:
         run_due_jobs(
             REPO,
             seeded_store,
-            batch={
-                CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1,
-                CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1,
-                SHIP_HINT: 1,
-            },
+            batch={OPENED: 1},
             table=fail_table,
             data_dir=data_dir,
-            remote_url=str(bare),
+            remote_url=str(main_remote),
             now=NOW,
         )
-
     assert (
         clone_path == expected_clone,
         user_name,
         user_email,
         head,
-        ran_intake,
-        ran_reprio,
-        called_close,
-        called_refine,
-        called_metrics,
+        ran,
         exc_info.value.failed_jobs,
     ) == (
         True,
         "test-bot",
         "test-bot@users.noreply.github.com",
-        (new_rev, RELEASE_BRANCH),
-        True,
-        True,
-        False,
-        False,
-        False,
-        ("close", "metrics", "refine"),
+        (new_rev, "main"),
+        ["intake"],
+        ("metrics", "refine"),
     )
 
 
-def _checkout_info_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """The INFO lines the checkout logged."""
-    return [
+def test_checkout_tracks_the_default_branch_whatever_other_branches_origin_holds(
+    tmp_path: Path, child_argvs: list[list[str]], caplog: pytest.LogCaptureFixture
+) -> None:
+    """Another branch on origin is never tracked: the clone follows origin's default branch as
+    it moves, and logs nothing about a branch choice."""
+    remote = _make_bare_remote(tmp_path, other_branch="feat/1-other")
+    data_dir = tmp_path / "data"
+    first_tip = _git(remote, "rev-parse", "main")
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        clone_path = ensure_checkout(REPO, data_dir, remote_url=str(remote))
+        first = _clone_head(clone_path)
+        new_tip = _advance_bare_remote(remote, "main")
+        ensure_checkout(REPO, data_dir, remote_url=str(remote))
+    infos = [
         record.getMessage()
         for record in caplog.records
         if record.name == "devops_cli.roadmap.run" and record.levelno == logging.INFO
     ]
-
-
-def test_checkout_tracks_the_default_branch_until_the_release_branch_exists(
-    seeded_store: InMemoryRoadmapStore,
-    tmp_path: Path,
-    main_only_remote: Path,
-    child_argvs: list[list[str]],
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A current release with no branch on origin gets `main` and one INFO line; once origin has
-    the release branch, the next checkout tracks it (#1366)."""
-    data_dir = tmp_path / "data"
-    cur = _current_release(seeded_store)
-    main_tip = _git(main_only_remote, "rev-parse", "main")
-
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
-        clone_path = ensure_checkout(
-            REPO, data_dir, remote_url=str(main_only_remote), current_rel=cur
-        )
-        before_branch = _clone_head(clone_path)
-        release_tip = _advance_bare_remote(main_only_remote, RELEASE_BRANCH)
-        ensure_checkout(REPO, data_dir, remote_url=str(main_only_remote), current_rel=cur)
-
-    names_release_and_default = [
-        all(name in line for name in (REPO, RELEASE, "main"))
-        for line in _checkout_info_lines(caplog)
-    ]
-    assert (
-        before_branch,
-        _clone_head(clone_path),
-        names_release_and_default,
-        _git(clone_path, "config", "user.name"),
-    ) == ((main_tip, "main"), (release_tip, RELEASE_BRANCH), [True], "test-bot")
-
-
-def test_checkout_returns_to_the_default_branch_when_origin_deletes_the_release_branch(
-    seeded_store: InMemoryRoadmapStore,
-    tmp_path: Path,
-    release_remote: Path,
-    child_argvs: list[list[str]],
-) -> None:
-    """A ship deletes the release branch while its release is still current: the pruning fetch
-    drops the stale remote-tracking ref and the clone tracks `main` (#1366)."""
-    data_dir = tmp_path / "data"
-    cur = _current_release(seeded_store)
-    main_tip, release_tip = _git(release_remote, "rev-parse", "main", RELEASE_BRANCH).splitlines()
-
-    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
-    on_release = _clone_head(clone_path)
-    _git(release_remote, "update-ref", "-d", f"refs/heads/{RELEASE_BRANCH}")
-    ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
-    stale_ref = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{RELEASE_BRANCH}"],
-        cwd=clone_path,
-        capture_output=True,
-        check=False,
-    )
-
-    assert (on_release, _clone_head(clone_path), stale_ref.returncode) == (
-        (release_tip, RELEASE_BRANCH),
-        (main_tip, "main"),
-        1,
-    )
-
-
-def test_checkout_follows_the_default_branch_while_no_release_is_open(
-    tmp_path: Path,
-    main_only_remote: Path,
-    child_argvs: list[list[str]],
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """With no open release the clone tracks `main` as it moves, and logs nothing (#1366)."""
-    data_dir = tmp_path / "data"
-    first_tip = _git(main_only_remote, "rev-parse", "main")
-
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
-        clone_path = ensure_checkout(REPO, data_dir, remote_url=str(main_only_remote))
-        first = _clone_head(clone_path)
-        new_tip = _advance_bare_remote(main_only_remote, "main")
-        ensure_checkout(REPO, data_dir, remote_url=str(main_only_remote))
-
-    assert (first, _clone_head(clone_path), _checkout_info_lines(caplog)) == (
+    assert (first, _clone_head(clone_path), infos) == (
         (first_tip, "main"),
         (new_tip, "main"),
         [],
@@ -913,28 +711,24 @@ def test_checkout_follows_the_default_branch_while_no_release_is_open(
 
 
 def test_checkout_raises_when_the_fetch_fails_and_keeps_the_branch_it_had(
-    seeded_store: InMemoryRoadmapStore,
-    tmp_path: Path,
-    release_remote: Path,
-    child_argvs: list[list[str]],
+    tmp_path: Path, main_remote: Path, child_argvs: list[list[str]]
 ) -> None:
-    """An unreachable origin raises GitOperationError with git's reason; the clone does not fall
-    back to the default branch (#1366)."""
+    """An unreachable origin raises GitOperationError with git's reason; the clone keeps the
+    commit it had (#1366)."""
     data_dir = tmp_path / "data"
-    cur = _current_release(seeded_store)
-    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
-    on_release = _clone_head(clone_path)
-    shutil.rmtree(release_remote)
+    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(main_remote))
+    before = _clone_head(clone_path)
+    shutil.rmtree(main_remote)
 
     with pytest.raises(GitOperationError) as raised:
-        ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
+        ensure_checkout(REPO, data_dir, remote_url=str(main_remote))
 
     message = str(raised.value)
     assert (
         "git fetch --prune origin failed" in message,
         "does not appear to be a git repository" in message,
         _clone_head(clone_path),
-    ) == (True, True, on_release)
+    ) == (True, True, before)
 
 
 def _commit_file(bare: Path, branch: str, content: str, *, parent: str | None = None) -> str:
@@ -961,47 +755,35 @@ def _commit_file(bare: Path, branch: str, content: str, *, parent: str | None = 
 
 
 def test_checkout_discards_a_tracked_change_a_failed_job_left_in_the_clone(
-    seeded_store: InMemoryRoadmapStore,
-    tmp_path: Path,
-    child_argvs: list[list[str]],
+    tmp_path: Path, child_argvs: list[list[str]]
 ) -> None:
-    """A cut that fails after writing its files leaves a tracked change in the clone. The next
+    """A job that fails after writing a file leaves a tracked change in the clone. The next
     checkout still moves to origin's tip and drops the change, instead of failing every later
     round until a person cleans the clone (#1366)."""
     bare = tmp_path / "remote.git"
     _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
-    main_tip = _commit_file(bare, "main", "main\n")
-    _commit_file(bare, RELEASE_BRANCH, "release\n", parent=main_tip)
+    first = _commit_file(bare, "main", "main\n")
     data_dir = tmp_path / "data"
-    cur = _current_release(seeded_store)
-    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
-    (clone_path / "f.txt").write_text("left by a failed cut\n")
-    _git(bare, "update-ref", "-d", f"refs/heads/{RELEASE_BRANCH}")
+    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(bare))
+    (clone_path / "f.txt").write_text("left by a failed job\n")
+    tip = _commit_file(bare, "main", "next\n", parent=first)
 
-    ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
+    ensure_checkout(REPO, data_dir, remote_url=str(bare))
 
     assert (
         _clone_head(clone_path),
         (clone_path / "f.txt").read_text(),
         _git(clone_path, "status", "--porcelain"),
-    ) == ((main_tip, "main"), "main\n", "")
+    ) == ((tip, "main"), "next\n", "")
 
 
 def test_checkout_raises_when_origin_head_names_no_branch(
-    seeded_store: InMemoryRoadmapStore,
-    tmp_path: Path,
-    dangling_head_remote: Path,
-    child_argvs: list[list[str]],
+    tmp_path: Path, dangling_head_remote: Path, child_argvs: list[list[str]]
 ) -> None:
-    """A remote whose HEAD names a branch it lacks has no default branch to fall back to, so the
-    checkout raises GitOperationError with git's reason instead of guessing one (#1366)."""
+    """A remote whose HEAD names a branch it lacks has no default branch, so the checkout raises
+    GitOperationError with git's reason instead of guessing one (#1366)."""
     with pytest.raises(GitOperationError) as raised:
-        ensure_checkout(
-            REPO,
-            tmp_path / "data",
-            remote_url=str(dangling_head_remote),
-            current_rel=_current_release(seeded_store),
-        )
+        ensure_checkout(REPO, tmp_path / "data", remote_url=str(dangling_head_remote))
 
     message = str(raised.value)
     assert (
@@ -1013,7 +795,7 @@ def test_checkout_raises_when_origin_head_names_no_branch(
 def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
-    release_remote: Path,
+    main_remote: Path,
     github_api: GitHubApiFake,
 ) -> None:
     """When `GET /user` fails, the clone rows and the change filter fail closed without fallback.
@@ -1023,11 +805,10 @@ def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
     during change filtering rather than filtering with `devops-cli` (#1409).
     """
     github_api.route("GET", "/user", github_json({"message": "Bad credentials"}, status=401))
-    cur = _current_release(seeded_store)
     data_dir = tmp_path / "data"
 
     with pytest.raises(GitHubUnauthenticatedError):
-        ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
+        ensure_checkout(REPO, data_dir, remote_url=str(main_remote))
 
     clone_dir = data_dir / "roadmap" / REPO / CONST_ROADMAP_RUN_CLONE_DIRNAME
     if (clone_dir / ".git").exists():
@@ -1046,8 +827,8 @@ def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
             seeded_store,
             table=table,
             data_dir=data_dir,
-            remote_url=str(release_remote),
-            batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
+            remote_url=str(main_remote),
+            batch={OPENED: 1},
         )
     assert "refine" in exc_info.value.failed_jobs
 
@@ -1059,22 +840,21 @@ def test_clone_and_change_filter_fail_closed_when_login_lookup_fails(
             store_without_actor,
             table=table,
             data_dir=data_dir,
-            remote_url=str(release_remote),
-            batch={("poll", "", ""): 1},
+            remote_url=str(main_remote),
+            batch={POLL_KEY: 1},
         )
 
 
-def test_a_round_after_a_ship_runs_its_clone_jobs_on_the_default_branch(
+def test_a_rounds_clone_jobs_share_one_clone_on_the_default_branch(
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
-    main_only_remote: Path,
+    main_remote: Path,
     child_argvs: list[list[str]],
 ) -> None:
-    """The round that sees a ship runs close before reprioritize starts the release, so the
-    release has no branch yet: close and refine share one clone on `main`, and nothing fails.
-    The dry run of the same round starts no git command (#1366)."""
+    """Metrics and refine share one clone on `main`, and nothing fails. The dry run of the same
+    round starts no git command (#1366)."""
     data_dir = tmp_path / "data"
-    main_tip = _git(main_only_remote, "rev-parse", "main")
+    main_tip = _git(main_remote, "rev-parse", "main")
     seen: dict[str, tuple[Path | None, tuple[str, str]]] = {}
 
     def record(job: str) -> Callable[..., JobOutcome]:
@@ -1085,24 +865,18 @@ def test_a_round_after_a_ship_runs_its_clone_jobs_on_the_default_branch(
 
         return run_job
 
-    def start_release(**_: Any) -> JobOutcome:
-        _git(main_only_remote, "update-ref", f"refs/heads/{RELEASE_BRANCH}", "main")
-        return JobOutcome()
-
     table = build_stub_table(
-        {"close": record("close"), "reprioritize": start_release, "refine": record("refine")},
-        needs_clone=True,
+        {"metrics": record("metrics"), "refine": record("refine")}, needs_clone=True
     )
-    ship_batch = {("webhook", "pull_request", "closed"): 1, ("webhook", "milestone", "closed"): 1}
 
     def run_round(*, dry_run: bool) -> tuple[str, ...]:
         return run_due_jobs(
             REPO,
             seeded_store,
-            batch=ship_batch,
+            batch={OPENED: 1},
             table=table,
             data_dir=data_dir,
-            remote_url=str(main_only_remote),
+            remote_url=str(main_remote),
             dry_run=dry_run,
             now=NOW,
         )
@@ -1114,178 +888,10 @@ def test_a_round_after_a_ship_runs_its_clone_jobs_on_the_default_branch(
 
     clone = data_dir / "roadmap" / "example" / "roadmap" / "clone"
     assert (planned, dry_run_git, ran, seen) == (
-        ("close", "reprioritize", "intake", "refine"),
+        ("metrics", "intake", "refine"),
         [],
-        ("close", "reprioritize", "intake", "refine"),
-        {"close": (clone, (main_tip, "main")), "refine": (clone, (main_tip, "main"))},
-    )
-
-
-def test_idle_records_zero_or_one_store_calls(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path
-) -> None:
-    """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
-    t30 = (NOW - timedelta(minutes=30)).isoformat()
-    t5 = (NOW - timedelta(minutes=5)).isoformat()
-    sched = {"intake": t30, "close": t30, "reprioritize": t30, "refine": t30, "metrics": t5}
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    sched_file.parent.mkdir(parents=True, exist_ok=True)
-    sched_file.write_text(json.dumps(sched), encoding="utf-8")
-
-    spy_idle = StoreSpy(seeded_store)
-    res_idle = run_due_jobs(REPO, spy_idle, batch={}, data_dir=tmp_path, now=NOW)  # type: ignore[arg-type]
-
-    spy_poll = StoreSpy(seeded_store)
-    res_poll = run_due_jobs(
-        REPO,
-        spy_poll,  # type: ignore[arg-type]
-        batch={("poll", "", ""): 1},
-        data_dir=tmp_path,
-        now=NOW,
-    )
-
-    assert (res_idle, len(spy_idle.calls), res_poll, spy_poll.calls) == (
-        (),
-        0,
-        (),
-        ["changes_since"],
-    )
-
-
-def test_no_prompt_and_cli_modes(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Stub called with no confirm argument; CLI without confirm or with dry-run runs none."""
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    received_args: list[dict[str, Any]] = []
-
-    def stub_runner(**kwargs: Any) -> JobOutcome:
-        received_args.append(kwargs)
-        return JobOutcome()
-
-    tbl = build_stub_table({"intake": stub_runner})
-    run_due_jobs(
-        REPO,
-        seeded_store,
-        batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        table=tbl,
-        data_dir=tmp_path,
-        now=NOW,
-    )
-    had_confirm = "confirm" in received_args[0] if received_args else True
-
-    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", tbl):
-        res_plain = runner.invoke(roadmap_app, ["run", "-R", REPO])
-        res_dry = runner.invoke(roadmap_app, ["run", "--dry-run", "--confirm", "-R", REPO])
-        received_args.clear()
-        res_confirm = runner.invoke(roadmap_app, ["run", "--confirm", "-R", REPO])
-        confirm_called = len(received_args) > 0
-
-    assert (
-        had_confirm,
-        res_plain.exit_code,
-        "Due:" in res_plain.output,
-        res_dry.exit_code,
-        "Due:" in res_dry.output,
-        res_confirm.exit_code,
-        confirm_called,
-    ) == (
-        False,
-        0,
-        True,
-        0,
-        True,
-        0,
-        True,
-    )
-
-
-def test_service_wiring(
-    seeded_store: InMemoryRoadmapStore,
-    roadmap_store_repos: list[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`devops serve --service` passes the two lanes' jobs, and the reader of the time a refused
-    round names (#1400), to create_service_app. Each lane's job opens the store and runs its own
-    rows in its own clone (#1532)."""
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", f'["{REPO}"]')
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "devops-cli")
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", f'{{"{REPO}":"secret-1"}}')
-
-    with patch("uvicorn.run") as mock_uvicorn:
-        res = runner.invoke(serve_app, ["--service"])
-        fastapi_app = mock_uvicorn.call_args[0][0]()
-
-    batch = TriggerBatch(
-        repo=REPO,
-        counts={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        first_at=NOW,
-        last_at=NOW,
-    )
-    with patch("devops_cli.roadmap.run.run_due_jobs") as mock_run:
-        for lane_job in SERVICE_JOBS.values():
-            lane_job(batch)
-
-    lanes = [
-        (call.args[0], call.kwargs["table"], call.kwargs["clone_dirname"])
-        for call in mock_run.call_args_list
-    ]
-    assert (
-        res.exit_code,
-        fastapi_app.state.jobs is SERVICE_JOBS,
-        list(SERVICE_JOBS),
-        fastapi_app.state.pause_until is service_pause_until,
-        REPO in roadmap_store_repos,
-        lanes,
-        [[row.name for row in rows] for rows in (RELEASE_LANE_ROWS, MODEL_LANE_ROWS)],
-        DEFAULT_DUE_TABLE == (*RELEASE_LANE_ROWS, *MODEL_LANE_ROWS),
-    ) == (
-        0,
-        True,
-        [CONST_SERVICE_LANE_RELEASE, CONST_SERVICE_LANE_MODEL],
-        True,
-        True,
-        [
-            (REPO, RELEASE_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
-            (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
-        ],
-        [["close", "reprioritize", "metrics"], ["intake", "refine"]],
-        True,
-    )
-
-
-def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
-    """FastMCP roadmap_run returns due tuple, mutates nothing, and calls no stub."""
-    from devops_cli.ai.mcp import server as mcp_server
-
-    items_before = [it.model_dump() for it in seeded_store.items()]
-    cards_before = [c.model_dump() for c in seeded_store.cards()]
-    comments_before = {
-        it.number: list(seeded_store.comments_on(it.number)) for it in seeded_store.items()
-    }
-
-    def in_process(cmd: list[str], **_: object) -> str:
-        return runner.invoke(roadmap_app, cmd[4:]).output
-
-    with patch.object(mcp_server, "_run_mcp_cmd", side_effect=in_process):
-        due = roadmap_run(repo=REPO)
-
-    items_after = [it.model_dump() for it in seeded_store.items()]
-    cards_after = [c.model_dump() for c in seeded_store.cards()]
-    comments_after = {
-        it.number: list(seeded_store.comments_on(it.number)) for it in seeded_store.items()
-    }
-
-    assert (
-        isinstance(due, str),
-        items_before == items_after,
-        cards_before == cards_after,
-        comments_before == comments_after,
-    ) == (
-        True,
-        True,
-        True,
-        True,
+        ("metrics", "intake", "refine"),
+        {"metrics": (clone, (main_tip, "main")), "refine": (clone, (main_tip, "main"))},
     )
 
 
@@ -1312,13 +918,15 @@ def test_ensure_checkout_rejects_path_escape_and_malformed_repo_slugs(tmp_path: 
     assert (len(results), all(results)) == (len(escapes), True)
 
 
+# ── The metrics job ───────────────────────────────────────────────────────────
+
 STATUS_PAGE = {
     "page": {"id": "page", "name": "Status", "url": "https://example.com"},
     "status": {"indicator": "none", "description": "All Systems Operational"},
 }
 
 
-def test_the_metrics_job_walks_the_release_tags_of_its_own_clone(
+def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1326,15 +934,15 @@ def test_the_metrics_job_walks_the_release_tags_of_its_own_clone(
     stub_web: StubWeb,
     git: Callable[..., None],
 ) -> None:
-    """The default table's metrics row clones the repository and walks its release tags there,
+    """The default table's metrics row clones the repository and walks its version tags there,
     not in the working directory, which in the Service is no git repository (#1358). The gauge
-    reads the remote's two tags, and the job logs no warning, so every GitHub and status read it
-    made was answered."""
+    reads the remote's two past tags, and the job logs no warning, so every GitHub and status
+    read it made was answered."""
     row = next(row for row in DEFAULT_DUE_TABLE if row.name == "metrics")
     remote = _make_bare_remote(tmp_path)
     for tag in ("v0.1.0", "v0.2.0"):
-        git(remote, "tag", tag, f"release/{RELEASE}")
-    github = GitHubFake(REPO, milestones=[{"number": 26, "title": RELEASE, "state": "open"}])
+        git(remote, "tag", tag, "main")
+    github = GitHubFake(REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}])
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
         stub_web.page(url, json.dumps(STATUS_PAGE))
@@ -1372,12 +980,12 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
     stub_web: StubWeb,
     git: Callable[..., None],
 ) -> None:
-    """GitHub answers a milestone the report can't count, and neither status page answers:
+    """GitHub answers a milestone the report cannot count, and neither status page answers:
     each failure is a WARNING from the job, which still returns its outcome."""
     clone = tmp_path / "clone"
     clone.mkdir()
     git(clone, "init", "--quiet")
-    milestone = {"number": 26, "title": RELEASE, "state": "open", "open_issues": None}
+    milestone = {"number": 26, "title": PLANNED, "state": "open", "open_issues": None}
     monkeypatch.setattr(
         subprocess, "run", GitHubFake(REPO, milestones=[milestone]).process(subprocess.run)
     )
@@ -1416,152 +1024,7 @@ def test_a_job_that_reads_the_clone_fails_without_one_rather_than_reading_the_cw
     )
 
 
-# ── One due rule, the run order and intake's limit (#1360) ────────────────────
-
-HALF_HOUR_AGO = NOW - timedelta(minutes=30)
-REPO_DIR = Path("roadmap") / "example" / "roadmap"
-
-
-def _stamp(tmp_path: Path, **last_success: datetime) -> None:
-    """Write each job's last success to the repository's `schedule.json`."""
-    path = tmp_path / REPO_DIR / "schedule.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    stamps = {job: at.isoformat() for job, at in last_success.items()}
-    path.write_text(json.dumps(stamps), encoding="utf-8")
-
-
-def _poll_round(
-    store: RoadmapStore,
-    tmp_path: Path,
-    *,
-    now: datetime = NOW,
-    table: Sequence[JobRow] | None = None,
-    batch: dict[tuple[str, str, str], int] | None = None,
-) -> tuple[str, ...]:
-    """The jobs one round runs at `now`, on the Service's poll unless `batch` says otherwise."""
-    return run_due_jobs(
-        REPO,
-        store,
-        batch={("poll", "", ""): 1} if batch is None else batch,
-        table=build_stub_table() if table is None else table,
-        data_dir=tmp_path,
-        now=now,
-    )
-
-
-def test_a_lone_ship_or_a_day_with_no_change_makes_reprioritize_due(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path
-) -> None:
-    """The ship the poll reads starts the next release with no hint; the stall check runs once
-    a day by itself, counted from reprioritize's last success."""
-    _stamp(tmp_path, close=HALF_HOUR_AGO, intake=HALF_HOUR_AGO, reprioritize=HALF_HOUR_AGO)
-    quiet = _poll_round(seeded_store, tmp_path)
-    seeded_store.as_actor("alice").publish_release(RELEASE)
-    shipped = _poll_round(seeded_store, tmp_path)
-    seeded_store._roadmap.changes.clear()
-
-    def after(idle: timedelta) -> tuple[str, ...]:
-        _stamp(tmp_path, close=HALF_HOUR_AGO, intake=HALF_HOUR_AGO, reprioritize=NOW - idle)
-        return _poll_round(seeded_store, tmp_path)
-
-    days = [after(timedelta(hours=24)), after(timedelta(hours=23))]
-    assert (quiet, shipped, days) == ((), ("reprioritize",), [("reprioritize",), ()])
-
-
-def test_reprioritize_judges_only_the_changes_since_its_own_last_success(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path
-) -> None:
-    """A person closed a current-release item ten minutes ago. Intake's older last success puts
-    the close in the round's read, but reprioritize, which ran since, is not due on it again."""
-    person = seeded_store.as_actor("alice")
-    number = person.seed_issue("Bug", release=RELEASE, on_board=True)
-    person.close_issue(number, CloseReason.COMPLETED, "Done")
-    ran = []
-    for reprioritized in (NOW - timedelta(minutes=5), NOW - timedelta(minutes=20)):
-        _stamp(
-            tmp_path,
-            close=HALF_HOUR_AGO,
-            intake=NOW - timedelta(minutes=59),
-            reprioritize=reprioritized,
-        )
-        ran.append(_poll_round(seeded_store, tmp_path))
-    assert ran == [(), ("reprioritize",)]
-
-
-def test_a_change_to_an_item_in_a_planned_release_does_not_make_reprioritize_due(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path
-) -> None:
-    """The job leaves a planned release's items alone until it starts, so their edits need no
-    run; the same edit in the current release does."""
-    person = seeded_store.as_actor("alice")
-    planned = person.seed_issue("Later", release="v0.2.27", on_board=True)
-    current = person.seed_issue("Now", release=RELEASE, on_board=True)
-    _stamp(tmp_path, close=HALF_HOUR_AGO, intake=HALF_HOUR_AGO, reprioritize=HALF_HOUR_AGO)
-    person.add_label(planned, "needs-split")
-    person.close_issue(planned, CloseReason.COMPLETED, "Done")
-    in_planned = _poll_round(seeded_store, tmp_path)
-    person.add_label(current, "needs-split")
-    assert (in_planned, _poll_round(seeded_store, tmp_path)) == ((), ("reprioritize",))
-
-
-def test_a_reprioritize_run_that_raised_runs_again_at_the_next_poll(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path
-) -> None:
-    """A failed run is not stamped, so the change that made it due makes it due again."""
-    person = seeded_store.as_actor("alice")
-    person.close_issue(
-        person.seed_issue("Bug", release=RELEASE, on_board=True), CloseReason.COMPLETED, "Done"
-    )
-    _stamp(tmp_path, close=HALF_HOUR_AGO, intake=HALF_HOUR_AGO, reprioritize=HALF_HOUR_AGO)
-    attempts: list[datetime] = []
-
-    def reprioritize(*, now: datetime, **_: Any) -> JobOutcome:
-        attempts.append(now)
-        if len(attempts) == 1:
-            raise RuntimeError("GraphQL reserve reached")
-        return JobOutcome()
-
-    table = build_stub_table({"reprioritize": reprioritize})
-    with pytest.raises(RoadmapRunError) as raised:
-        _poll_round(seeded_store, tmp_path, table=table)
-    later = [NOW + timedelta(minutes=5), NOW + timedelta(minutes=10)]
-    rounds = [_poll_round(seeded_store, tmp_path, table=table, now=at) for at in later]
-    assert (raised.value.failed_jobs, rounds, attempts) == (
-        ("reprioritize",),
-        [("reprioritize",), ()],
-        [NOW, later[0]],
-    )
-
-
-@pytest.mark.parametrize("hint", CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS)
-def test_a_ships_webhook_hint_alone_makes_reprioritize_due(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, hint: tuple[str, str, str]
-) -> None:
-    """A milestone closing or a GitHub Release published is a ship's hint; a milestone opening
-    is none."""
-    _stamp(tmp_path, close=HALF_HOUR_AGO, intake=HALF_HOUR_AGO, reprioritize=HALF_HOUR_AGO)
-    hinted = _poll_round(seeded_store, tmp_path, batch={hint: 1})
-    _stamp(tmp_path, close=HALF_HOUR_AGO, intake=HALF_HOUR_AGO, reprioritize=HALF_HOUR_AGO)
-    other = _poll_round(seeded_store, tmp_path, batch={("webhook", "milestone", "opened"): 1})
-    assert (hinted, other) == (("reprioritize",), ())
-
-
-def test_intake_left_with_fresh_candidates_runs_at_the_next_poll_and_its_record_fails_closed(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path
-) -> None:
-    """The record's pending flag makes intake due with nothing else due, even with no trigger
-    at all; a record that can't be read makes it due too, and reading it raises, naming it."""
-    _stamp(tmp_path, close=HALF_HOUR_AGO, intake=HALF_HOUR_AGO, reprioritize=HALF_HOUR_AGO)
-    record = tmp_path / REPO_DIR / "intake.json"
-    record.write_text(json.dumps({"pending": False}), encoding="utf-8")
-    settled = _poll_round(seeded_store, tmp_path)
-    record.write_text(json.dumps({"pending": True}), encoding="utf-8")
-    pending = (_poll_round(seeded_store, tmp_path, batch={}), _poll_round(seeded_store, tmp_path))
-    record.write_text("{not json", encoding="utf-8")
-    unreadable = _poll_round(seeded_store, tmp_path)
-    with pytest.raises(RoadmapRunError, match=r"intake\.json .* Repair it, or remove it"):
-        read_intake_record(record)
-    assert (settled, pending, unreadable) == ((), (("intake",), ("intake",)), ("intake",))
+# ── Intake's limit (#1360) ────────────────────────────────────────────────────
 
 
 @dataclass
@@ -1597,7 +1060,7 @@ BOARD_OPTIONS = {
     ItemField.VALUE: ("High", "Medium", "Low"),
     ItemField.EFFORT: ("Low", "Medium", "High"),
 }
-"""The single-select fields of a migrated board and their options."""
+"""The single-select fields of the board and their options."""
 
 
 @dataclass
@@ -1609,12 +1072,12 @@ class _Clock:
 
 
 def _candidates(count: int) -> tuple[InMemoryRoadmapStore, _Clock, list[str]]:
-    """A roadmap with a current release and `count` open issues off the board, titled
+    """A roadmap with an open milestone and `count` open issues off the board, titled
     `candidate 1` up: each one intake's candidate."""
     clock = _Clock()
     store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
     store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
-    store.create_release(RELEASE)
+    store.seed_milestone(PLANNED)
     titles = [f"candidate {n}" for n in range(1, count + 1)]
     for title in titles:
         store.seed_issue(title)
@@ -1622,51 +1085,39 @@ def _candidates(count: int) -> tuple[InMemoryRoadmapStore, _Clock, list[str]]:
 
 
 def _intake_table(model: _IntakeModel, ran: list[str]) -> tuple[JobRow, ...]:
-    """The due table with close and reprioritize stubs and the Service's own intake, over
-    `model`, each run's name added to `ran`."""
-
-    def stub(name: str) -> Callable[..., JobOutcome]:
-        return lambda **_: ran.append(name) or JobOutcome()
-
+    """The due table with the Service's own intake over `model`, each run's name added to
+    `ran`."""
     intake = partial(_run_intake_adapter, config=RoadmapConfig(board=1), model=model)
-    return build_stub_table(
-        {
-            "close": stub("close"),
-            "reprioritize": stub("reprioritize"),
-            "intake": lambda **kwargs: ran.append("intake") or intake(**kwargs),
-        }
-    )
+    return build_stub_table({"intake": _recorded(ran, "intake", intake)})
 
 
 def test_a_capped_intake_decides_every_candidate_over_successive_polls_fresh_ones_first(
     tmp_path: Path,
 ) -> None:
     """Twelve candidates and a limit of five, the five oldest unusable: three polls decide all
-    twelve, each after close and reprioritize, and the fourth runs no intake. A person's edit
-    to a skipped candidate puts it first at intake's next run."""
+    twelve, and the fourth runs no intake. A person's edit to a skipped candidate puts it first
+    at intake's next run."""
     store, clock, titles = _candidates(12)
     model = _IntakeModel(unusable=frozenset(titles[:5]))
     ran: list[str] = []
     table = _intake_table(model, ran)
-    hints = {("poll", "", ""): 1, CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1, SHIP_HINT: 1}
 
     def poll(minutes: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
         ran.clear()
         asked = len(model.asked)
-        _poll_round(store, tmp_path, now=NOW + timedelta(minutes=minutes), table=table, batch=hints)
+        _poll_round(store, tmp_path, now=NOW + timedelta(minutes=minutes), table=table)
         return tuple(ran), tuple(model.asked[asked:])
 
     polls = [poll(minutes) for minutes in (0, 5, 10, 15)]
     clock.now = NOW + timedelta(minutes=20)
     store.as_actor("alice").write_issue_body(4, "Steps to reproduce: run it twice.")
     edited_first = poll(75)[1][:1]
-    every_job = ("close", "reprioritize", "intake")
     assert (polls, edited_first) == (
         [
-            (every_job, tuple(titles[:5])),
-            (every_job, tuple(titles[5:10])),
-            (every_job, (*titles[10:], *titles[:3])),
-            (("close", "reprioritize"), ()),
+            (("intake",), tuple(titles[:5])),
+            (("intake",), tuple(titles[5:10])),
+            (("intake",), (*titles[10:], *titles[:3])),
+            ((), ()),
         ],
         ("candidate 4",),
     )
@@ -1712,30 +1163,16 @@ def _labeled(count: int, actor: str) -> list[dict[str, Any]]:
 
 
 def _github_round(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    events: list[dict[str, Any]],
-    releases: Sequence[dict[str, Any]] = (),
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, events: list[dict[str, Any]]
 ) -> tuple[GitHubFake, GitHubRoadmapStore]:
-    """A repository with 60 cards and a current release, its jobs all run five minutes ago, the
+    """A repository with 60 cards and an open milestone, its intake run five minutes ago, the
     Service logged in as `roadmap-bot`, and the store a round opens over it."""
     github = GitHubFake(
-        REPO,
-        milestones=[
-            {"number": 25, "title": "v0.2.25", "state": "closed"},
-            {"number": 26, "title": RELEASE, "state": "open"},
-        ],
-        events=events,
-        releases=releases,
+        REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}], events=events
     )
     for number in range(1, 61):
         github.seed_issue(number, card={"status": "Ready"})
-    t5 = (NOW - timedelta(minutes=5)).isoformat()
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    sched_file.parent.mkdir(parents=True, exist_ok=True)
-    sched_file.write_text(
-        json.dumps({"intake": t5, "close": t5, "reprioritize": t5}), encoding="utf-8"
-    )
+    _stamp(tmp_path, intake=NOW - timedelta(minutes=5))
     monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
     store = GitHubRoadmapStore(
         REPO, board_owner="example", board_number=1, runner=github, session=RunnerSession(github)
@@ -1746,18 +1183,10 @@ def _github_round(
 def test_a_round_judging_50_foreign_label_changes_reads_the_board_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """None of the changes is in the current release, and each carries its Release, so
-    reprioritize's rule reads no Item (#1360): the job records the changes carry come from the
-    one listing the round's store reads."""
+    """The job records the changes carry come from the one listing the round's store reads, and
+    no rule reads an Item or an issue for them (#1360)."""
     github, store = _github_round(tmp_path, monkeypatch, _labeled(50, "alice"))
-    ran = run_due_jobs(
-        REPO,
-        store,
-        batch={("poll", "", ""): 1},
-        table=build_stub_table(),
-        data_dir=tmp_path,
-        now=NOW,
-    )
+    ran = _poll_round(store, tmp_path)
     sent = [" ".join(args) for args in github.graphql_calls()]
     assert (
         ran,
@@ -1773,21 +1202,13 @@ def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The Service's own events are dropped before any job record is read, so a poll with no
-    interval due and nothing else since the cutoff reads only the issue events and the pull
-    request and GitHub Release listings (#1360)."""
+    interval due and nothing else since the cutoff reads only the issue events (#1360)."""
     github, store = _github_round(tmp_path, monkeypatch, _labeled(12, "roadmap-bot"))
-    ran = run_due_jobs(
-        REPO,
-        store,
-        batch={("poll", "", ""): 1},
-        table=build_stub_table(),
-        data_dir=tmp_path,
-        now=NOW,
-    )
+    ran = _poll_round(store, tmp_path)
     assert (ran, github.graphql_calls(), [args[-1].split("?")[0] for args in github.calls]) == (
         (),
         [],
-        [f"{API}/repos/{REPO}/{listing}" for listing in ("issues/events", "pulls", "releases")],
+        [f"{API}/repos/{REPO}/issues/events"],
     )
 
 
@@ -1797,28 +1218,16 @@ RESET = datetime(2099, 1, 1, tzinfo=UTC)
 """The reset `GitHubFake` reports in every `rateLimit`."""
 
 
-def _round(store: GitHubRoadmapStore, tmp_path: Path, **options: Any) -> tuple[str, ...]:
-    """A poll round over the stub table, or `options`' table and batch."""
-    return run_due_jobs(
-        REPO,
-        store,
-        batch=options.pop("batch", {("poll", "", ""): 1}),
-        table=options.pop("table", build_stub_table()),
-        data_dir=tmp_path,
-        now=NOW,
-    )
-
-
 def test_a_refused_read_of_the_changes_leaves_the_round_with_the_reset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The changes' job records come from a board read, refused before it starts while the points
-    left can't cover it. The refusal leaves the round outside any job, unchanged, naming the
+    left cannot cover it. The refusal leaves the round outside any job, unchanged, naming the
     reset; the Service waits until the clock-skew bound after it."""
     github, store = _github_round(tmp_path, monkeypatch, _labeled(3, "alice"))
     github.board.remaining = 100
     with pytest.raises(GitHubRateLimitError) as raised:
-        _round(store, tmp_path)
+        _poll_round(store, tmp_path)
     assert (refusal_reset(raised.value), service_pause_until(raised.value)) == (
         RESET,
         RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS),
@@ -1828,9 +1237,9 @@ def test_a_refused_read_of_the_changes_leaves_the_round_with_the_reset(
 def test_a_jobs_refused_write_fails_the_round_with_the_reset_and_the_next_job_still_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Close's card write is refused below the reserve: its read leaves 249 points. The round's
-    `RoadmapRunError` names close and carries the reset, and reprioritize after it still runs.
-    A round whose job fails for another reason carries none, and the Service doesn't wait."""
+    """Intake's card write is refused below the reserve: its read leaves 249 points. The round's
+    `RoadmapRunError` names intake and carries the reset, and refine after it still runs. A
+    round whose job fails for another reason carries none, and the Service does not wait."""
     github, store = _github_round(tmp_path, monkeypatch, [])
     github.board.remaining = 252
 
@@ -1844,14 +1253,11 @@ def test_a_jobs_refused_write_fails_the_round_with_the_reset_and_the_next_job_st
         raise RuntimeError("model down")
 
     ran: list[str] = []
-    refusing = build_stub_table(
-        {"close": write_value, "reprioritize": lambda **_: ran.append("reprioritize")}
-    )
-    batch = {CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1, ("webhook", "milestone", "closed"): 1}
+    refusing = build_stub_table({"intake": write_value, "refine": _recorded(ran, "refine")})
     with pytest.raises(RoadmapRunError) as refused:
-        _round(store, tmp_path, table=refusing, batch=batch)
+        _poll_round(store, tmp_path, table=refusing, batch={OPENED: 1})
     with pytest.raises(RoadmapRunError) as crashed:
-        _round(store, tmp_path, table=build_stub_table({"close": crash}), batch=batch)
+        _poll_round(store, tmp_path, table=build_stub_table({"intake": crash}), batch={OPENED: 1})
     assert (
         refused.value.failed_jobs,
         refused.value.reset_at,
@@ -1862,10 +1268,10 @@ def test_a_jobs_refused_write_fails_the_round_with_the_reset_and_the_next_job_st
         service_pause_until(refused.value),
         service_pause_until(crashed.value),
     ) == (
-        ("close",),
+        ("intake",),
         RESET,
         RESET.isoformat(),
-        ["reprioritize"],
+        ["refine"],
         249,
         None,
         RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS),
@@ -1890,7 +1296,7 @@ def test_a_round_that_sends_graphql_ends_with_one_spend_line_naming_its_reposito
     """The round reads the board for its changes' job records: a budget probe and a page, so the
     closing budget read reports 2 of the account's points spent."""
     github, store = _github_round(tmp_path, monkeypatch, _labeled(3, "alice"))
-    _round(store, tmp_path)
+    _poll_round(store, tmp_path)
     with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
         log_round_spend(REPO, store)
     assert (_spend_lines(caplog), len(github.graphql_calls(GRAPHQL_BUDGET_OPERATION))) == (
@@ -1907,15 +1313,15 @@ def test_a_round_that_sends_no_graphql_logs_no_spend_line_and_reads_no_budget(
 ) -> None:
     """Every change is the Service's own, so the round reads only the issue events over REST."""
     github, store = _github_round(tmp_path, monkeypatch, _labeled(12, "roadmap-bot"))
-    _round(store, tmp_path)
+    _poll_round(store, tmp_path)
     with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
         log_round_spend(REPO, store)
     assert (_spend_lines(caplog), github.graphql_calls()) == ([], [])
 
 
-DEFAULT_JOB_NAMES = ("intake", "close", "reprioritize", "refine", "metrics")
-POLL = TriggerBatch(repo=REPO, counts={("poll", "", ""): 1}, first_at=NOW, last_at=NOW)
-release_lane_round = SERVICE_JOBS[CONST_SERVICE_LANE_RELEASE]
+DEFAULT_JOB_NAMES = ("metrics", "intake", "refine")
+POLL = TriggerBatch(repo=REPO, counts={POLL_KEY: 1}, first_at=NOW, last_at=NOW)
+model_lane_round = SERVICE_JOBS[CONST_SERVICE_LANE_MODEL]
 
 
 def _service_github(events: list[dict[str, Any]], *, remaining: int = 5000) -> GitHubFake:
@@ -1923,7 +1329,7 @@ def _service_github(events: list[dict[str, Any]], *, remaining: int = 5000) -> G
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     github = GitHubFake(
         REPO,
-        milestones=[{"number": 26, "title": RELEASE, "state": "open"}],
+        milestones=[{"number": 26, "title": PLANNED, "state": "open"}],
         files={".github/roadmap.toml": "board = 1\n"},
         events=[event | {"created_at": now} for event in events],
     )
@@ -1936,10 +1342,8 @@ def _service_github(events: list[dict[str, Any]], *, remaining: int = 5000) -> G
 def _serve_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[..., Any]) -> None:
     """`service_job` opens its stores over `gh`, logged in as `roadmap-bot`, with every job of
     the default table run a minute ago, so a poll runs only what changes since then make due."""
-    stamp = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
-    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
-    sched_file.parent.mkdir(parents=True, exist_ok=True)
-    sched_file.write_text(json.dumps(dict.fromkeys(DEFAULT_JOB_NAMES, stamp)), encoding="utf-8")
+    minute_ago = datetime.now(UTC) - timedelta(minutes=1)
+    _stamp(tmp_path, **dict.fromkeys(DEFAULT_JOB_NAMES, minute_ago))
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
     monkeypatch.setattr(
@@ -1954,7 +1358,7 @@ def _serve_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[..
 def test_a_service_round_ends_with_its_spend_line_however_it_ends(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A round whose board read is refused raises the refusal unchanged and still ends with the
+    """A model-lane round whose board read is refused raises the refusal unchanged and still ends with the
     line, built from the budget the refused probe reported, with no closing budget read, so the
     pause starts at once; a round that reads only REST ends with none and reads no budget."""
     refused = _service_github(_labeled(2, "alice"), remaining=100)
@@ -1963,11 +1367,11 @@ def test_a_service_round_ends_with_its_spend_line_however_it_ends(
     with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
         _serve_over(tmp_path, monkeypatch, refused)
         with pytest.raises(GitHubRateLimitError, match="stopped before reading"):
-            release_lane_round(POLL)
+            model_lane_round(POLL)
         lines.append(_spend_lines(caplog))
         caplog.clear()
         _serve_over(tmp_path, monkeypatch, quiet)
-        release_lane_round(POLL)
+        model_lane_round(POLL)
         lines.append(_spend_lines(caplog))
     assert (lines, refused.graphql_calls(GRAPHQL_BUDGET_OPERATION), quiet.graphql_calls()) == (
         [
@@ -1985,7 +1389,7 @@ def test_a_service_round_ends_with_its_spend_line_however_it_ends(
 def test_a_budget_the_round_cant_read_is_a_warning_and_the_rounds_own_error_stands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The round fails on a board page GitHub can't serve, and its closing budget read fails
+    """The round fails on a board page GitHub cannot serve, and its closing budget read fails
     too, with an error of any class: the round's own error is what the Service sees, and the
     line is a warning naming the repository and the class."""
     github = _service_github(_labeled(2, "alice"))
@@ -2001,7 +1405,7 @@ def test_a_budget_the_round_cant_read_is_a_warning_and_the_rounds_own_error_stan
     _serve_over(tmp_path, monkeypatch, pages_and_budget_down)
     with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
         with pytest.raises(GitHubOperationError, match="HTTP 502"):
-            release_lane_round(POLL)
+            model_lane_round(POLL)
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert (warnings, _spend_lines(caplog)) == (
         [
@@ -2012,29 +1416,7 @@ def test_a_budget_the_round_cant_read_is_a_warning_and_the_rounds_own_error_stan
     )
 
 
-def test_a_ship_the_poll_reads_starts_reprioritize_with_no_graphql_request(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """v0.2.28's start waited for a person because no poll saw its ship (#1360). The GitHub
-    Release published since reprioritize last ran makes it due by the poll alone, whose changes
-    are all release changes or the Service's own, so the round reads no board."""
-    published = (NOW - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    ship = {"tag_name": RELEASE, "draft": False, "created_at": published, "published_at": published}
-    github, store = _github_round(tmp_path, monkeypatch, _labeled(3, "roadmap-bot"), [ship])
-    ran = run_due_jobs(
-        REPO,
-        store,
-        batch={("poll", "", ""): 1},
-        table=build_stub_table(),
-        data_dir=tmp_path,
-        now=NOW,
-    )
-    assert (ran, github.graphql_calls()) == (("reprioritize",), [])
-
-
-# ── The Service's release and model lanes (#1532) ─────────────────────────────
-
-PASSING_CHECKS = CheckVerdictSummary(items=[PRCheckItem(name="gate", bucket=CheckBucket.PASS)])
+# ── The Service's status and model lanes (#1532) ──────────────────────────────
 
 
 def _lane(
@@ -2052,43 +1434,28 @@ def _lane(
     )
 
 
-def _ship(store: InMemoryRoadmapStore, release: str) -> None:
-    """A person merges `release`'s release pull request and publishes its GitHub Release."""
-    person = store.as_actor("alice")
-    pull_request = person.open_pull_request(
-        f"feat(release): {release}",
-        base="main",
-        head=f"chore/cut-{release}",
-        labels=("release",),
-        release=release,
-    )
-    person.close_pull_request(pull_request, merged=True)
-    person.publish_release(release)
+def test_a_status_lane_poll_reads_no_change_and_sends_no_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No status-lane row has a due rule, so its poll reads no change: with nothing due by its
+    interval, the round reads only `.github/roadmap.toml` as it opens the roadmap."""
+    github = _service_github(_labeled(2, "alice"))
+    _serve_over(tmp_path, monkeypatch, github)
+    SERVICE_JOBS[CONST_SERVICE_LANE_STATUS](POLL)
+    assert [args[-1] for args in github.calls if "rate_limit" not in " ".join(args)] == [
+        f"repos/{REPO}/contents/.github/roadmap.toml"
+    ]
 
 
-def test_a_blocked_model_lane_holds_back_neither_a_delivered_items_close_nor_a_ships_start(
+def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A refine round blocks on a slow model. In the same repository the release lane still runs
-    close at a merged pull request's webhook, which closes the item it delivers, and at the
-    ship's webhook reprioritize still starts the next release; the refine round is still
-    running throughout."""
+    """A refine round blocks on a slow model. In the same repository the status lane still runs
+    the metrics round a poll makes due, while the refine round is still running."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    for board_field, names in BOARD_OPTIONS.items():
-        options = tuple(FieldOption(name=name) for name in names)
-        seeded_store.seed_field(
-            FieldSpec(name=board_field.value, single_select=True, options=options)
-        )
-    minute_ago = datetime.now(UTC) - timedelta(minutes=1)
-    _stamp(
-        tmp_path, close=minute_ago, reprioritize=minute_ago, metrics=minute_ago, intake=minute_ago
-    )
-    item = seeded_store.as_actor("alice").seed_issue("Delivered", release=RELEASE, on_board=True)
-    seeded_store.merge_pull_request(
-        f"feat: #{item}", base=RELEASE_BRANCH, body=f"Closes #{item}\n", changed_paths=("a.py",)
-    )
     refining, model_answers = threading.Event(), threading.Event()
     refine_released: list[bool] = []
+    measured: list[str] = []
 
     def refine(**_: Any) -> JobOutcome:
         refining.set()
@@ -2096,12 +1463,11 @@ def test_a_blocked_model_lane_holds_back_neither_a_delivered_items_close_nor_a_s
         refine_released.append(model_answers.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         return JobOutcome()
 
-    release_rows = tuple(
-        replace(row, needs_clone=False) for row in RELEASE_LANE_ROWS if row.name != "metrics"
-    )
     lanes = {
-        CONST_SERVICE_LANE_RELEASE: partial(
-            service_job, table=release_rows, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME
+        CONST_SERVICE_LANE_STATUS: partial(
+            service_job,
+            table=_lane(STATUS_LANE_ROWS, metrics=_recorded(measured, "metrics")),
+            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
         ),
         CONST_SERVICE_LANE_MODEL: partial(
             service_job,
@@ -2112,53 +1478,35 @@ def test_a_blocked_model_lane_holds_back_neither_a_delivered_items_close_nor_a_s
     manager = ServiceManager(
         ServiceConfig(repos=[REPO]), {}, lanes, lambda: datetime.now(UTC), asyncio.sleep
     )
-    release_lane, model_lane = (manager.workers[(REPO, lane)] for lane in lanes)
-    with patch(
-        "devops_cli.github.check_verdict.fetch_pr_check_verdicts", return_value=PASSING_CHECKS
-    ):
-        for worker in manager.workers.values():
-            worker.start()
-        manager.enqueue_trigger(REPO, "poll", "", "")
-        assert refining.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-        manager.enqueue_trigger(REPO, *CONST_ROADMAP_CLOSURE_BATCH_KEYS[0])
-        closed = release_lane.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
-        delivered = seeded_store.item(item)
-        _ship(seeded_store, RELEASE)
-        manager.enqueue_trigger(REPO, *SHIP_HINT)
-        started = release_lane.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
-        current = current_release(seeded_store.releases())
-        refine_still_running = model_lane.is_active()
-        model_answers.set()
-        asyncio.run(manager.drain_and_stop())
+    status_lane, model_lane = (manager.workers[(REPO, lane)] for lane in lanes)
+    for worker in manager.workers.values():
+        worker.start()
+    manager.enqueue_trigger(REPO, "poll", "", "")
+    assert refining.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    measured_while_refining = status_lane.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    refine_still_running = model_lane.is_active()
+    model_answers.set()
+    asyncio.run(manager.drain_and_stop())
     assert (
-        closed,
-        delivered is not None and delivered.state,
-        started,
-        current is not None and current.title,
+        measured_while_refining,
+        measured,
         refine_still_running,
         bool(refine_released) and all(refine_released),
-    ) == (True, GitHubState.CLOSED, True, "v0.2.27", True, True)
-
-
-def _schedule(tmp_path: Path) -> dict[str, str]:
-    """The repository's `schedule.json`."""
-    return json.loads((tmp_path / REPO_DIR / "schedule.json").read_text(encoding="utf-8"))
+    ) == (True, ["metrics"], True, True)
 
 
 def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A model-lane round records intake and refine while a release-lane round is running close,
-    which had read `schedule.json` before them: close's success keeps theirs, and theirs keeps
-    the release lane's earlier ones."""
-    _stamp(tmp_path, reprioritize=HALF_HOUR_AGO, metrics=NOW - timedelta(minutes=5))
+    """A model-lane round records intake and refine while a status-lane round is running
+    metrics, which had read `schedule.json` before them: metrics' success keeps theirs."""
     later = NOW + timedelta(seconds=1)
 
-    def close(**_: Any) -> JobOutcome:
+    def metrics(**_: Any) -> JobOutcome:
         model_round = run_due_jobs(
             REPO,
             seeded_store,
-            batch={("poll", "", ""): 1},
+            batch={POLL_KEY: 1},
             table=_lane(MODEL_LANE_ROWS),
             data_dir=tmp_path,
             now=later,
@@ -2169,60 +1517,30 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     ran = run_due_jobs(
         REPO,
         seeded_store,
-        batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
-        table=_lane(RELEASE_LANE_ROWS, close=close),
+        batch={POLL_KEY: 1},
+        table=_lane(STATUS_LANE_ROWS, metrics=metrics),
         data_dir=tmp_path,
         now=NOW,
     )
     assert (ran, _schedule(tmp_path)) == (
-        ("close",),
+        ("metrics",),
         {
-            "reprioritize": HALF_HOUR_AGO.isoformat(),
-            "metrics": (NOW - timedelta(minutes=5)).isoformat(),
             "intake": later.isoformat(),
             "refine": later.isoformat(),
-            "close": NOW.isoformat(),
+            "metrics": NOW.isoformat(),
         },
     )
-
-
-def test_a_reprioritize_success_makes_refine_due_at_the_model_lanes_next_poll(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path
-) -> None:
-    """The release lane records reprioritize's success; the model lane's next poll runs refine,
-    though its hour has not passed, and the poll after that does not, since refine has succeeded
-    since. Before it, nothing is due in the model lane."""
-    _stamp(
-        tmp_path,
-        close=HALF_HOUR_AGO,
-        reprioritize=HALF_HOUR_AGO,
-        metrics=NOW - timedelta(minutes=5),
-        intake=HALF_HOUR_AGO,
-        refine=HALF_HOUR_AGO,
-    )
-
-    def model_poll(at: datetime) -> tuple[str, ...]:
-        return _poll_round(seeded_store, tmp_path, now=at, table=_lane(MODEL_LANE_ROWS))
-
-    before = model_poll(NOW)
-    reprioritized = _poll_round(
-        seeded_store, tmp_path, table=_lane(RELEASE_LANE_ROWS), batch={SHIP_HINT: 1}
-    )
-    after = [model_poll(NOW + timedelta(minutes=minutes)) for minutes in (5, 10)]
-    assert (before, reprioritized, after) == ((), ("reprioritize",), [("refine",), ()])
 
 
 def test_each_lane_updates_only_its_own_clone(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, child_argvs: list[list[str]]
 ) -> None:
-    """The release lane's close works in `clone` and the model lane's refine in `model-clone`,
-    each at origin's tip of the release branch. A model-lane round leaves a change a cut is
-    making in `clone` alone, where a checkout of that clone would discard it."""
+    """The status lane's metrics works in `clone` and the model lane's refine in `model-clone`,
+    each at origin's tip of the default branch. A model-lane round leaves a change in `clone`
+    alone, where a checkout of that clone would discard it."""
     bare = tmp_path / "remote.git"
     _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
-    release_tip = _commit_file(
-        bare, RELEASE_BRANCH, "release\n", parent=_commit_file(bare, "main", "main\n")
-    )
+    main_tip = _commit_file(bare, "main", "main\n")
     data_dir = tmp_path / "data"
     seen: dict[str, tuple[Path, tuple[str, str]]] = {}
 
@@ -2238,7 +1556,7 @@ def test_each_lane_updates_only_its_own_clone(
         return run_due_jobs(
             REPO,
             seeded_store,
-            batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
+            batch={OPENED: 1},
             table=table,
             data_dir=data_dir,
             remote_url=str(bare),
@@ -2246,17 +1564,21 @@ def test_each_lane_updates_only_its_own_clone(
             clone_dirname=clone_dirname,
         )
 
-    release_rows = _lane(RELEASE_LANE_ROWS, needs_clone=True, close=record("close"))
-    lane_round(release_rows, CONST_ROADMAP_RUN_CLONE_DIRNAME)
-    cut_in_progress = seen["close"][0] / "f.txt"
-    cut_in_progress.write_text("cut in progress\n")
-    model_rows = _lane(MODEL_LANE_ROWS, needs_clone=True, refine=record("refine"))
-    lane_round(model_rows, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
+    lane_round(
+        _lane(STATUS_LANE_ROWS, needs_clone=True, metrics=record("metrics")),
+        CONST_ROADMAP_RUN_CLONE_DIRNAME,
+    )
+    in_progress = seen["metrics"][0] / "f.txt"
+    in_progress.write_text("work in progress\n")
+    lane_round(
+        _lane(MODEL_LANE_ROWS, needs_clone=True, refine=record("refine")),
+        CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+    )
     repo_dir = data_dir / REPO_DIR
-    assert (seen, cut_in_progress.read_text()) == (
+    assert (seen, in_progress.read_text()) == (
         {
-            "close": (repo_dir / "clone", (release_tip, RELEASE_BRANCH)),
-            "refine": (repo_dir / "model-clone", (release_tip, RELEASE_BRANCH)),
+            "metrics": (repo_dir / "clone", (main_tip, "main")),
+            "refine": (repo_dir / "model-clone", (main_tip, "main")),
         },
-        "cut in progress\n",
+        "work in progress\n",
     )

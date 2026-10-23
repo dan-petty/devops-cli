@@ -14,7 +14,8 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import ChangedFile, app
-from devops_cli.github.issue_closure import extract_linked_issues, extract_part_references
+from devops_cli.config.constants import CONST_ROADMAP_CONFIG_PATH
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 
@@ -36,8 +37,8 @@ _SERVER_ERROR = _gh_reply("", 1, "gh: Server Error (HTTP 500)")
 def _readiness_gh(
     pr_payload: str = "{}", routes: dict[str, MagicMock] | None = None
 ) -> Callable[..., MagicMock]:
-    """Answer `run_gh` by the endpoint it is given, its last argument, from the longest route
-    in it, so `/contents/CHANGELOG.md` is not the task directory's `/contents/`.
+    """Answer `run_gh` by the longest route its arguments name, so the roadmap config's
+    `/contents/.github/roadmap.toml` is not the task directory's `/contents/`.
 
     Unless `routes` says otherwise the repository keeps no task files and the PR changes no
     files; anything unrouted gets the PR payload.
@@ -45,7 +46,8 @@ def _readiness_gh(
     replies = {"/contents/": _NOT_FOUND, "/files?": _gh_reply([]), **(routes or {})}
 
     def answer(args: list[str], **_: object) -> MagicMock:
-        route = max((key for key in replies if key in args[-1]), key=len, default=None)
+        sent = " ".join(args)
+        route = max((key for key in replies if key in sent), key=len, default=None)
         return replies[route] if route is not None else _gh_reply(pr_payload)
 
     return answer
@@ -134,7 +136,7 @@ class TestPrCommands:
     def test_list_prs_success(self, runner: CliRunner) -> None:
         mock_output = (
             '[{"number": 13, "title": "fix(security): resolve review findings", '
-            '"state": "OPEN", "headRefName": "feat/security", "baseRefName": "release/v0.1.12", '
+            '"state": "OPEN", "headRefName": "feat/security", "baseRefName": "main", '
             '"author": {"login": "devops-user"}, "updatedAt": "2026-08-18T15:00:00Z", '
             '"url": "https://example.com/org/repo/pull/13"}]'
         )
@@ -149,7 +151,7 @@ class TestPrCommands:
             assert result.exit_code == 0
             assert "#13" in result.output
             assert "feat/security" in result.output
-            assert "release/v0.1.12" in result.output
+            assert "main" in result.output
 
     def test_list_prs_empty(self, runner: CliRunner) -> None:
         with (
@@ -215,27 +217,22 @@ class TestPrCommands:
                 return_value=MagicMock(returncode=0, stdout="", stderr=""),
             ) as mock_run,
         ):
-            result = runner.invoke(
-                app, ["edit", "13", "--base", "release/v0.1.12", "--title", "New Title"]
-            )
+            result = runner.invoke(app, ["edit", "13", "--base", "main", "--title", "New Title"])
             assert result.exit_code == 0
             assert "Successfully updated PR #13" in result.output
             args = mock_run.call_args[0][0]
             assert "--base" in args
-            assert "release/v0.1.12" in args
+            assert "main" in args
 
-    def test_create_pr(self, runner: CliRunner) -> None:
+    def test_create_opens_a_draft_into_the_default_branch(self, runner: CliRunner) -> None:
+        """Without --base gh picks the repository's default branch, and the PR is a draft."""
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch(
-                "devops_cli.commands.pr._detect_active_release_branch",
-                return_value="release/v0.1.12",
-            ),
             patch(
                 "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(
                     returncode=0,
-                    stdout="https://github.com/org/repo/pull/14",
+                    stdout="https://example.com/org/repo/pull/14\n",
                     stderr="",
                 ),
             ) as mock_run,
@@ -244,11 +241,30 @@ class TestPrCommands:
                 app,
                 ["create", "--title", "feat: new feature", "--body", "PR description"],
             )
-            assert result.exit_code == 0
-            assert "Pull request created successfully" in result.output
-            args = mock_run.call_args[0][0]
-            assert "--base" in args
-            assert "release/v0.1.12" in args
+        args = mock_run.call_args[0][0]
+        assert (
+            result.exit_code,
+            "Opened a draft pull request: https://example.com/org/repo/pull/14." in result.output,
+            "--draft" in args,
+            "--base" in args,
+        ) == (0, True, True, False)
+
+    def test_create_passes_the_base_it_is_given(self, runner: CliRunner) -> None:
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=0, stdout="", stderr=""),
+            ) as mock_run,
+        ):
+            result = runner.invoke(app, ["create", "--title", "t", "--base", "feat/base"])
+        args = mock_run.call_args[0][0]
+        assert (
+            result.exit_code,
+            args[args.index("--base") + 1],
+            "--draft" in args,
+            "Opened a draft pull request into feat/base." in result.output,
+        ) == (0, "feat/base", True, True)
 
     def test_threads_list_success(self, runner: CliRunner) -> None:
         from devops_cli.github.pr_threads import ReviewComment, ReviewThread
@@ -1069,11 +1085,11 @@ class TestPrCommands:
                 "devops_cli.commands.pr.run_gh", return_value=MagicMock(returncode=0)
             ) as mock_run,
         ):
-            res = runner.invoke(app, ["edit", "184", "--milestone", "v0.2.19"])
+            res = runner.invoke(app, ["edit", "184", "--milestone", "2026-11"])
             assert res.exit_code == 0
             assert "Successfully updated PR #184" in res.output
             assert "--milestone" in mock_run.call_args[0][0]
-            assert "v0.2.19" in mock_run.call_args[0][0]
+            assert "2026-11" in mock_run.call_args[0][0]
 
     def test_list_prs_rest_fallback(self, runner: CliRunner) -> None:
         """devops pr list falls back to REST when GraphQL fails."""
@@ -1113,7 +1129,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         with (
@@ -1131,7 +1147,7 @@ class TestPrCommands:
             {
                 "state": "closed",
                 "merged": True,
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         with (
@@ -1148,7 +1164,7 @@ class TestPrCommands:
             {
                 "state": "closed",
                 "merged": False,
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         with (
@@ -1166,7 +1182,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": False,
                 "mergeable_state": "dirty",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         with (
@@ -1186,7 +1202,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         mock_thread = MagicMock(
@@ -1219,7 +1235,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         mock_res = ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True, success=True)
@@ -1249,7 +1265,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         mock_thread = MagicMock(
@@ -1283,7 +1299,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         mock_replied = MagicMock(
@@ -1325,7 +1341,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         mock_probe_thread = MagicMock(
@@ -1364,7 +1380,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
                 "head": {"sha": "a" * 40},
             }
         )
@@ -1397,7 +1413,7 @@ class TestPrCommands:
                 "draft": True,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
                 "head": {"sha": "a" * 40},
             }
         )
@@ -1419,7 +1435,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": None,
                 "mergeable_state": "unknown",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         with (
@@ -1439,7 +1455,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "blocked",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         with (
@@ -1459,7 +1475,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "blocked",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
             }
         )
         with (
@@ -1481,7 +1497,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "unstable",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
                 "head": {"sha": "abcdef1234567890abcdef1234567890abcdef12"},
             }
         )
@@ -1519,7 +1535,7 @@ class TestPrCommands:
                 "draft": False,
                 "mergeable": True,
                 "mergeable_state": "clean",
-                "base": {"ref": "release/v0.2.17"},
+                "base": {"ref": "main"},
                 "head": {"sha": sha},
             }
         )
@@ -1617,7 +1633,7 @@ class TestPrCommands:
                 {
                     "number": 187,
                     "html_url": "https://github.com/dan-petty/devops-cli/pull/187",
-                    "base": {"ref": "release/v0.2.17"},
+                    "base": {"ref": "main"},
                 }
             ]
         )
@@ -1629,12 +1645,7 @@ class TestPrCommands:
                 return_value=MagicMock(returncode=0, stdout=mock_existing, stderr=""),
             ) as mock_sub,
         ):
-            result = _fallback_create_pr(
-                title="test",
-                body="test",
-                base="release/v0.2.17",
-                draft=False,
-            )
+            result = _fallback_create_pr(title="test", body="test", base="main")
             assert result is True
             # Verified that only the query was called, not a POST
             assert len(mock_sub.call_args_list) == 1
@@ -1661,6 +1672,41 @@ class TestPrCommands:
             True,
             [False, True],
         )
+
+    @pytest.mark.parametrize(
+        ("stdout", "said"),
+        [
+            (
+                json.dumps({"html_url": "https://example.com/o/r/pull/9"}),
+                "Opened a draft pull request: https://example.com/o/r/pull/9.",
+            ),
+            ("not json", "Opened a draft pull request into main."),
+            ("[]", "Opened a draft pull request into main."),
+        ],
+        ids=["url", "not-json", "no-url"],
+    )
+    def test_the_fallback_names_the_draft_by_its_url_or_else_its_base(
+        self, stdout: str, said: str
+    ) -> None:
+        from devops_cli.commands.pr import _print_created_pr_message
+
+        with patch("devops_cli.commands.pr.print_success") as success:
+            _print_created_pr_message(stdout, "main")
+        assert success.call_args.args[0].startswith(said)
+
+    def test_the_fallback_reports_a_failed_post(self) -> None:
+        from devops_cli.commands.pr import _fallback_create_pr
+
+        def gh(args: list[str], **_: object) -> MagicMock:
+            if any("pulls?head=" in arg for arg in args):
+                return MagicMock(returncode=0, stdout="[]", stderr="")
+            return MagicMock(returncode=1, stdout="", stderr="HTTP 422")
+
+        with (
+            patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/x"),
+            patch("devops_cli.commands.pr.run_gh", side_effect=gh),
+        ):
+            assert _fallback_create_pr(title="t", body="b", base="main", repo="o/r") is False
 
     def test_pr_list_fallback_merged_filter(self) -> None:
         """_render_pr_list_fallback filters merged_at when state is merged."""
@@ -1706,10 +1752,6 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr._detect_active_release_branch",
-                return_value="release/v0.2.17",
-            ),
-            patch(
                 "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=1, stdout="", stderr="GraphQL error"),
             ),
@@ -1719,25 +1761,70 @@ class TestPrCommands:
             assert result.exit_code == 0
             assert mock_fallback.called
 
-    def test_create_pr_draft(self, runner: CliRunner) -> None:
-        """devops pr create --draft passes --draft to gh CLI."""
+    def test_create_has_no_option_to_skip_the_draft(self, runner: CliRunner) -> None:
+        """devops pr ready is the only way to ready, so create takes no --draft flag at all."""
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch(
-                "devops_cli.commands.pr._detect_active_release_branch",
-                return_value="release/v0.2.17",
-            ),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout="", stderr=""),
-            ) as mock_sub,
+            patch("devops_cli.commands.pr.run_gh") as mock_sub,
         ):
-            result = runner.invoke(
-                app, ["create", "--title", "draft pr", "--draft", "--base", "main"]
-            )
-            assert result.exit_code == 0
-            cmd = mock_sub.call_args[0][0]
-            assert "--draft" in cmd
+            result = runner.invoke(app, ["create", "--title", "t", "--draft"])
+        assert (result.exit_code, mock_sub.call_count) == (2, 0)
+
+    def test_the_fallback_opens_a_draft_into_the_default_branch_it_reads(self) -> None:
+        """Without --base the REST fallback reads the default branch, then posts a draft."""
+        from devops_cli.commands.pr import _fallback_create_pr
+
+        replies = {
+            "repos/o/r/pulls?head=": MagicMock(returncode=0, stdout="[]", stderr=""),
+            "repos/o/r/pulls -f": MagicMock(
+                returncode=0, stdout=json.dumps({"html_url": "https://example.com/o/r/pull/9"})
+            ),
+            "repos/o/r": MagicMock(returncode=0, stdout=json.dumps({"default_branch": "trunk"})),
+        }
+
+        def gh(args: list[str], **_: object) -> MagicMock:
+            sent = " ".join(args)
+            return replies[max((key for key in replies if key in sent), key=len)]
+
+        with (
+            patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/x"),
+            patch("devops_cli.commands.pr.run_gh", side_effect=gh) as mock_sub,
+            patch("devops_cli.commands.pr.print_success") as said,
+        ):
+            created = _fallback_create_pr(title="t", body="b", base=None, repo="o/r")
+        post = mock_sub.call_args_list[-1].args[0]
+        assert (
+            created,
+            "base=trunk" in post,
+            post[-2:],
+            "https://example.com/o/r/pull/9" in str(said.call_args),
+        ) == (True, True, ["-F", "draft=true"], True)
+
+    @pytest.mark.parametrize(
+        "repository",
+        [
+            MagicMock(returncode=1, stdout="", stderr="gh: Server Error (HTTP 500)"),
+            MagicMock(returncode=0, stdout="not json", stderr=""),
+            MagicMock(returncode=0, stdout="[]", stderr=""),
+        ],
+        ids=["unread", "not-json", "no-object"],
+    )
+    def test_the_fallback_creates_nothing_when_the_default_branch_is_unread(
+        self, repository: MagicMock
+    ) -> None:
+        from devops_cli.commands.pr import _fallback_create_pr
+
+        def gh(args: list[str], **_: object) -> MagicMock:
+            if any("pulls?head=" in arg for arg in args):
+                return MagicMock(returncode=0, stdout="[]", stderr="")
+            return repository
+
+        with (
+            patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/x"),
+            patch("devops_cli.commands.pr.run_gh", side_effect=gh) as mock_sub,
+        ):
+            created = _fallback_create_pr(title="t", body="b", base=None, repo="o/r")
+        assert (created, mock_sub.call_count) == (False, 2)
 
     def test_ready_pr_already_ready(self, runner: CliRunner) -> None:
         """devops pr ready detects when PR is already non-draft."""
@@ -1930,25 +2017,55 @@ def _file(filename: str, status: str = "modified") -> dict[str, str]:
     return {"filename": filename, "status": status}
 
 
-def _issue(milestone: str | None = "v0.2.25", state: str = "open") -> MagicMock:
-    """The `issues/{n}` reply for the issue a PR is grounded on, in `milestone` or the backlog."""
-    return _gh_reply(
-        {
-            "number": 704,
-            "state": state,
-            "milestone": {"title": milestone} if milestone else None,
-        }
-    )
-
-
-_REPO = {"full_name": "dan-petty/devops-cli", "default_branch": "main"}
+_OWN_REPO = "dan-petty/devops-cli"
+_REPO = {"full_name": _OWN_REPO, "default_branch": "main"}
 _TASK_704 = _file("docs/agent/tasks/task-704-x.md")
-# The base keeps task files, the PR changes #704's, and #704 is in v0.2.25.
-_GROUNDED = {"/contents/": _gh_reply(), "/files?": _gh_reply([_TASK_704]), "/issues/": _issue()}
+_BOARD = 2
+
+
+def _closing_issue(
+    number: int = 704,
+    *,
+    state: str = "OPEN",
+    repo: str = _OWN_REPO,
+    boards: tuple[tuple[str, int], ...] = (("dan-petty", _BOARD),),
+) -> dict[str, object]:
+    """One `closingIssuesReferences` node, on the boards `(owner, number)` names."""
+    cards = [{"project": {"number": board, "owner": {"login": owner}}} for owner, board in boards]
+    return {
+        "number": number,
+        "state": state,
+        "repository": {"nameWithOwner": repo},
+        "projectItems": {"nodes": cards},
+    }
+
+
+def _closing(*issues: dict[str, object], total: int | None = None) -> MagicMock:
+    """GitHub's GraphQL reply naming the issues a PR closes, `total` of them in all."""
+    references = {"totalCount": len(issues) if total is None else total, "nodes": list(issues)}
+    payload = {"data": {"repository": {"pullRequest": {"closingIssuesReferences": references}}}}
+    return _gh_reply(payload)
+
+
+_CLOSING_ROUTE = "closingIssuesReferences"
+# The base keeps task files, the PR changes #704's, and #704 is open and on the board.
+_GROUNDED = {
+    "/contents/": _gh_reply(),
+    "/files?": _gh_reply([_TASK_704]),
+    _CLOSING_ROUTE: _closing(_closing_issue()),
+}
+
+
+@pytest.fixture(autouse=True)
+def roadmap_board(roadmap_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
+    """The roadmap whose `.github/roadmap.toml` names board 2, which readiness reads the board
+    from through the roadmap store."""
+    roadmap_store.seed_file(CONST_ROADMAP_CONFIG_PATH, f"board = {_BOARD}\n")
+    return roadmap_store
 
 
 def _ready_pr(**overrides: object) -> dict:
-    """Shape a grounded pull request into a release branch, mergeable unless overridden."""
+    """Shape a grounded pull request into the default branch, mergeable unless overridden."""
     payload = {
         "merged": False,
         "state": "open",
@@ -1956,7 +2073,7 @@ def _ready_pr(**overrides: object) -> dict:
         "mergeable": True,
         "mergeable_state": "clean",
         "body": "Closes #704",
-        "base": {"ref": "release/v0.2.25", "sha": "b" * 40, "repo": _REPO},
+        "base": {"ref": "main", "sha": "b" * 40, "repo": _REPO},
         "head": {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
     }
     payload.update(overrides)
@@ -1973,7 +2090,7 @@ def _blockers(
     """Evaluate blockers with no review threads, the given check runs, and `run_gh` stubbed,
     which also answers the files read (`routed_session`).
 
-    Unless `gh` answers instead, the base keeps task files and the PR changes #704's.
+    Unless `gh` answers instead, the PR is grounded as `_GROUNDED` says.
     """
     from devops_cli.commands import pr as pr_module
 
@@ -2003,8 +2120,8 @@ def test_a_draft_can_be_excused_explicitly() -> None:
 def test_a_failing_check_blocks_readiness() -> None:
     """Branch protection refuses a red pull request, so readiness must account for checks.
 
-    #335 passed this command while a CodeQL check had been failing on it for the whole
-    release, because check status was never consulted.
+    #335 passed this command while a CodeQL check had been failing on it, because check status
+    was never consulted.
     """
     blockers = _blockers(_ready_pr(), checks=(["CodeQL"], []))
     assert any("CodeQL" in blocker for blocker in blockers)
@@ -2027,125 +2144,170 @@ def test_a_clean_pull_request_reports_ready() -> None:
 
 
 # =============================================================================
-# Grounding: one closed issue and its task file
+# Grounding: one open issue on the board, closed into the default branch, and its task file
 # =============================================================================
 
 
 def _grounding_gh(
-    files: object, task_dir: MagicMock | None = None, issue: MagicMock | None = None
+    files: object, *, task_dir: MagicMock | None = None, closing: MagicMock | None = None
 ) -> MagicMock:
-    """A recording `run_gh` stub for a base with task files, this list of changed files, and
-    the issue the PR closes, in v0.2.25 unless `issue` says otherwise."""
+    """A recording `run_gh` stub for a base with task files, this list of changed files, and the
+    issues the PR closes, open #704 on the board unless `closing` says otherwise."""
     files_reply = files if isinstance(files, MagicMock) else _gh_reply(files)
     routes = {
         "/contents/": task_dir or _gh_reply(),
         "/files?": files_reply,
-        "/issues/": issue or _issue(),
+        _CLOSING_ROUTE: closing or _closing(_closing_issue()),
     }
     return MagicMock(side_effect=_readiness_gh(routes=routes))
 
 
 @pytest.mark.parametrize(
-    ("body", "files"),
+    ("issue", "files"),
     [
-        ("Closes #704", [_TASK_704]),
-        ("Closes #704", [_file("docs/agent/tasks/task-704-x.md", "added")]),
-        ("Closes #704", [_file("docs/agent/tasks/task-704-x.md", "renamed")]),
-        ("Fixes #89", [_file("src/x.py"), _file("docs/agent/tasks/task-089-x.md")]),
+        (704, [_TASK_704]),
+        (704, [_file("docs/agent/tasks/task-704-x.md", "added")]),
+        (704, [_file("docs/agent/tasks/task-704-x.md", "renamed")]),
+        (89, [_file("src/x.py"), _file("docs/agent/tasks/task-089-x.md")]),
     ],
     ids=["modified", "added", "renamed", "zero-padded-089"],
 )
-def test_grounding_passes_a_pr_closing_one_issue_with_its_task_file(
-    body: str, files: list[dict[str, str]]
+def test_grounding_passes_a_pr_closing_one_open_board_issue_with_its_task_file(
+    issue: int, files: list[dict[str, str]]
 ) -> None:
-    """A PR into `release/v0.2.25` closing one issue and writing its task file is grounded."""
-    assert _blockers(_ready_pr(body=body), gh=_grounding_gh(files)) == []
+    """A PR into the default branch that closes one open issue on the board and writes that
+    issue's task file is grounded."""
+    gh = _grounding_gh(files, closing=_closing(_closing_issue(issue)))
+    assert _blockers(_ready_pr(), gh=gh) == []
 
 
 @pytest.mark.parametrize(
-    ("body", "files", "cause"),
+    ("closing", "files", "cause"),
     [
-        ("Adds the readiness blocker.", [_TASK_704], "closes no issue in dan-petty/devops-cli"),
-        ("Closes #1\nCloses #2", [_TASK_704], "closes 2 issues (#1, #2)"),
-        ("Part 1 of #704", [_TASK_704], "closes no issue"),
-        ("Part of #704\nCloses #705", [_TASK_704], "closes #705 and delivers part of #704"),
-        ("Part of #704\nPart of #705", [_TASK_704], "delivers part of 2 issues (#704, #705)"),
-        ("Part of #704\nCloses #704", [_TASK_704], "closes #704 and delivers part of #704"),
-        ("Part of other/repo#704", [_TASK_704], "closes no issue"),
+        (_closing(), [_TASK_704], "it closes no issue. Put Closes #<issue> in its body"),
         (
-            "Part of #704",
+            _closing(_closing_issue(1), _closing_issue(2)),
+            [_TASK_704],
+            "it closes 2 issues (#1, #2), and a PR delivers exactly one.",
+        ),
+        (
+            _closing(_closing_issue(1), _closing_issue(2), total=12),
+            [_TASK_704],
+            "it closes 12 issues (#1, #2)",
+        ),
+        (
+            _closing(_closing_issue(repo="other/project")),
+            [_TASK_704],
+            "it closes other/project#704, which is not an issue of dan-petty/devops-cli.",
+        ),
+        (
+            _closing(_closing_issue(state="CLOSED")),
+            [_TASK_704],
+            "it closes #704, which is not open.",
+        ),
+        (
+            _closing(_closing_issue(boards=(("dan-petty", 9),))),
+            [_TASK_704],
+            "#704 is not on the roadmap board, project 2.",
+        ),
+        (
+            _closing(_closing_issue(boards=(("someone-else", _BOARD),))),
+            [_TASK_704],
+            "#704 is not on the roadmap board, project 2.",
+        ),
+        (
+            _closing(_closing_issue()),
             [_file("docs/agent/tasks/task-705-x.md")],
             "renames no docs/agent/tasks/task-704-*.md for #704",
         ),
-        ("Closes other/repo#704", [_TASK_704], "closes no issue"),
         (
-            "Closes #704",
-            [_file("docs/agent/tasks/task-705-x.md")],
-            "renames no docs/agent/tasks/task-704-*.md for #704",
-        ),
-        (
-            "Closes #704",
+            _closing(_closing_issue()),
             [_file("docs/agent/tasks/task-704-x.md", "removed")],
             "renames no docs/agent/tasks/task-704-*.md for #704",
         ),
-        ("Closes #704", _SERVER_ERROR, "could not be read (gh: Server Error (HTTP 500))"),
+        (
+            _closing(_closing_issue()),
+            _SERVER_ERROR,
+            "could not be read (gh: Server Error (HTTP 500))",
+        ),
+        (_SERVER_ERROR, [_TASK_704], "the issues it closes could not be read (gh: Server Error"),
+        (
+            _gh_reply({"errors": [{"message": "Something went wrong"}]}),
+            [_TASK_704],
+            "the issues it closes could not be read (Something went wrong).",
+        ),
+        (
+            _gh_reply({"data": {"repository": None}}),
+            [_TASK_704],
+            "the issues it closes could not be read (malformed reply:",
+        ),
+        (_gh_reply("not json"), [_TASK_704], "the issues it closes could not be read (malformed"),
     ],
     ids=[
         "no-closing-reference",
         "two-issues",
-        "numbered-part-line",
-        "part-and-close",
-        "two-parts",
-        "part-and-close-of-one-issue",
-        "part-of-another-repository",
-        "part-without-its-task-file",
-        "other-repository",
+        "more-issues-than-one-page",
+        "issue-of-another-repository",
+        "closed-issue",
+        "issue-on-another-board",
+        "issue-on-another-owners-board",
         "another-issues-task-file",
         "task-file-removed",
         "files-unreadable",
+        "closing-issues-unreadable",
+        "closing-issues-graphql-error",
+        "closing-issues-malformed",
+        "closing-issues-not-json",
     ],
 )
-def test_grounding_blocks_once_and_names_the_cause(body: str, files: object, cause: str) -> None:
-    """Each way a PR can be ungrounded is exactly one blocker that says what is missing.
-
-    Of the 41 PRs merged into release/v0.2.24, 8 closed no issue, 2 closed several and 3
-    closed one without changing its task file. Nothing blocked any of them.
-    """
-    blockers = _blockers(_ready_pr(body=body), gh=_grounding_gh(files))
+def test_grounding_blocks_once_and_names_the_cause(
+    closing: MagicMock, files: object, cause: str
+) -> None:
+    """Each way a PR can be ungrounded is exactly one blocker that says what is missing."""
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh(files, closing=closing))
     assert [cause in blocker for blocker in blockers] == [True], blockers
 
 
-_RELEASE_HEAD = {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO}
-_MAIN_BASE = {"ref": "main", "sha": "b" * 40, "repo": _REPO}
+def test_an_invalid_roadmap_config_is_one_blocker(roadmap_board: InMemoryRoadmapStore) -> None:
+    roadmap_board.seed_file(CONST_ROADMAP_CONFIG_PATH, "board = 0\n")
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704]))
+    assert blockers == [
+        "PR #335 is not grounded: the roadmap board in .github/roadmap.toml could not be read "
+        "(.github/roadmap.toml: board: Input should be greater than or equal to 1)."
+    ]
 
 
-@pytest.mark.parametrize("files", [[], _SERVER_ERROR], ids=["files-read", "files-unreadable"])
-def test_grounding_exempts_only_the_release_pr(files: object) -> None:
-    """`release/vX.Y.Z` from this repository into the default branch delivers a release.
-
-    It is exempt before any lookup, so even a task directory that can't be read doesn't
-    block it, and an unread file list is one warning.
-    """
-    release_pr = _ready_pr(body="", head=_RELEASE_HEAD, base=_MAIN_BASE)
-    with patch("devops_cli.commands.pr.print_warning") as warn:
-        blockers = _blockers(release_pr, gh=_grounding_gh(files, task_dir=_SERVER_ERROR))
-    assert (blockers, warn.call_count) == ([], 0 if files == [] else 1)
+@pytest.mark.usefixtures("unreadable_github_roadmap")
+def test_a_roadmap_config_github_cannot_read_is_one_blocker() -> None:
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704]))
+    assert [
+        "the roadmap board in .github/roadmap.toml could not be read (" in blocker
+        for blocker in blockers
+    ] == [True], blockers
 
 
-@pytest.mark.parametrize(
-    "head",
-    [
-        {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
-        {"ref": "release/foo", "sha": "a" * 40, "repo": _REPO},
-        {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": _REPO},
-        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": {"full_name": "fork/devops-cli"}},
-    ],
-    ids=["topic-branch", "not-a-release-version", "chore-branch", "release-from-a-fork"],
-)
-def test_grounding_holds_other_prs_into_the_default_branch(head: dict[str, object]) -> None:
-    """Only the release PR is exempt; a topic, malformed release, chore branch or forked release is not."""
-    blockers = _blockers(_ready_pr(body="", head=head, base=_MAIN_BASE), gh=_grounding_gh([]))
-    assert ["closes no issue" in blocker for blocker in blockers] == [True], blockers
+def test_a_pr_into_another_branch_is_one_blocker_naming_the_default_branch() -> None:
+    """GitHub closes an issue only when its PR merges into the default branch, so a PR into any
+    other branch is held there, and its issues are not read."""
+    gh = _grounding_gh([_TASK_704])
+    base = {"ref": "feat/stacked", "sha": "b" * 40, "repo": _REPO}
+    blockers = _blockers(_ready_pr(base=base), gh=gh)
+    sent = [" ".join(call.args[0]) for call in gh.call_args_list]
+    assert (blockers, any(_CLOSING_ROUTE in call for call in sent)) == (
+        [
+            "PR #335 is not grounded: it targets feat/stacked, not the default branch main. "
+            "Change its base with devops pr edit 335 --base main."
+        ],
+        False,
+    )
+
+
+def test_a_pr_whose_repository_names_no_default_branch_is_one_blocker() -> None:
+    base = {"ref": "main", "sha": "b" * 40, "repo": {"full_name": _OWN_REPO}}
+    blockers = _blockers(_ready_pr(base=base), gh=_grounding_gh([_TASK_704]))
+    assert blockers == [
+        "PR #335 is not grounded: GitHub names no default branch for dan-petty/devops-cli."
+    ]
 
 
 def test_grounding_skips_a_base_without_task_files() -> None:
@@ -2156,7 +2318,7 @@ def test_grounding_skips_a_base_without_task_files() -> None:
     """
     gh = _grounding_gh(_SERVER_ERROR, task_dir=_NOT_FOUND)
     with patch("devops_cli.commands.pr.print_warning") as warn:
-        blockers = _blockers(_ready_pr(body=""), gh=gh)
+        blockers = _blockers(_ready_pr(body="", base={"ref": "feat/x", "repo": _REPO}), gh=gh)
     assert (blockers, warn.call_count, "Could not read the files" in str(warn.call_args)) == (
         [],
         1,
@@ -2173,15 +2335,22 @@ def test_grounding_blocks_when_the_task_directory_lookup_fails() -> None:
     ]
 
 
-def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each(
-    routed_session: _RoutedSession,
+def test_grounding_reads_the_files_the_base_the_closing_issues_and_the_board_once_each(
+    routed_session: _RoutedSession, roadmap_store_repos: list[str]
 ) -> None:
     """The files are one session listing at `per_page=100` (GitHub's default page is 30), then
-    gh reads the base's task directory and the closed issue. A files read sent through
-    `gh api` instead shows here as a gh call."""
+    gh reads the base's task directory and the issues the PR closes in one GraphQL request, and
+    the roadmap store reads the board. A files read sent through `gh api` instead shows here as
+    a gh call."""
+    from devops_cli.commands.pr import closing_issues_args
+
     gh = _grounding_gh([_TASK_704])
     _blockers(_ready_pr(), gh=gh)
-    assert (routed_session.reads, [call.args[0] for call in gh.call_args_list]) == (
+    assert (
+        routed_session.reads,
+        [call.args[0] for call in gh.call_args_list],
+        roadmap_store_repos,
+    ) == (
         ["/repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
         [
             [_SESSION_READ, "GET", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
@@ -2191,11 +2360,46 @@ def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each(
                 "--silent",
                 f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
             ],
-            ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
+            closing_issues_args("dan-petty", "devops-cli", 335),
+        ],
+        ["dan-petty/devops-cli"],
+    )
+
+
+def test_the_closing_issues_read_asks_for_the_pr_and_both_page_sizes() -> None:
+    from devops_cli.commands.pr import closing_issues_args
+
+    argv = closing_issues_args("dan-petty", "devops-cli", 335)
+    assert (argv[:3], argv[-10:]) == (
+        ["gh", "api", "graphql"],
+        [
+            "-f",
+            "owner=dan-petty",
+            "-f",
+            "name=devops-cli",
+            "-F",
+            "number=335",
+            "-F",
+            "issues=10",
+            "-F",
+            "cards=100",
         ],
     )
 
 
+@pytest.mark.parametrize(
+    "closing",
+    [_closing(), _closing(_closing_issue(1), _closing_issue(2)), _SERVER_ERROR],
+    ids=["none", "several", "unread"],
+)
+def test_the_board_is_read_only_for_a_pr_that_closes_one_issue(
+    closing: MagicMock, roadmap_store_repos: list[str]
+) -> None:
+    _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704], closing=closing))
+    assert roadmap_store_repos == []
+
+
+_FILES_READ = "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"
 _FILES_PAGE_2 = "/repositories/1/pulls/335/files?per_page=100&page=2"
 
 
@@ -2233,669 +2437,18 @@ def test_a_changed_files_page_that_is_no_list_is_a_read_failure(github_api: GitH
     assert (read.files, "page 2" in read.error) == ([], True)
 
 
-# =============================================================================
-# Grounding: a PR into a release branch leaves CHANGELOG.md and docs/ROADMAP.md to the cut
-# =============================================================================
-
-_FRAGMENT_704 = _file("changelog.d/704.md", "added")
-
-
 @pytest.mark.parametrize(
-    ("files", "named"),
+    ("entry", "error"),
     [
-        ([_file("CHANGELOG.md")], "changes CHANGELOG.md:"),
-        ([_file("docs/ROADMAP.md")], "changes docs/ROADMAP.md:"),
-        ([_file("CHANGELOG.md", "added")], "changes CHANGELOG.md:"),
-        ([_file("CHANGELOG.md", "removed")], "changes CHANGELOG.md:"),
-        (
-            [
-                {
-                    "filename": "docs/HISTORY.md",
-                    "status": "renamed",
-                    "previous_filename": "CHANGELOG.md",
-                }
-            ],
-            "changes CHANGELOG.md:",
-        ),
-        (
-            [_file("docs/ROADMAP.md"), _file("CHANGELOG.md"), _FRAGMENT_704],
-            "changes CHANGELOG.md and docs/ROADMAP.md:",
-        ),
+        ("not an object", "returned a non-object entry"),
+        ({"filename": "a.py"}, "returned an entry without a filename or status"),
     ],
-    ids=["changelog", "roadmap", "added", "removed", "renamed-away", "both-and-a-fragment"],
+    ids=["non-object", "no-status"],
 )
-def test_a_pr_into_a_release_branch_that_changes_a_release_file_is_blocked_once(
-    files: list[dict[str, str]], named: str
-) -> None:
-    """Each open PR into release/v0.2.25 edited the same CHANGELOG.md lines.
-
-    #928 and #932 each conflicted twice in one hour, and every conflict cost a rebase and a
-    full CI run. The cut writes both files, so a PR that changes either is one blocker that
-    names them and the fragment to add instead.
-    """
-    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704, *files]))
-    assert (
-        [named in blocker for blocker in blockers],
-        all("Add its changelog entry as changelog.d/704.md instead." in b for b in blockers),
-    ) == ([True], True), blockers
-
-
-def test_the_same_pr_with_a_fragment_instead_is_ready() -> None:
-    """The rule blocks the shared files only; a fragment and the task file pass."""
-    assert _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704, _FRAGMENT_704])) == []
-
-
-def test_the_release_file_blocker_reads_in_full() -> None:
-    """The blocker names the PR, the files, the base and the fragment path."""
-    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704, _file("CHANGELOG.md")]))
-    assert blockers == [
-        "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
-        "open PRs never conflict on them. Add its changelog entry as changelog.d/704.md instead."
-    ]
-
-
-# After the cut, a critical fix edits CHANGELOG.md's version section in its own PR (#1450).
-_CHANGELOG_ROUTE = "/contents/CHANGELOG.md"
-_CHANGELOG_READ = [
-    "gh",
-    "api",
-    "-H",
-    "Accept: application/vnd.github.raw+json",
-    "repos/dan-petty/devops-cli/contents/CHANGELOG.md?ref=release%2Fv0.2.25",
-]
-_CUT_CHANGELOG = (
-    "# Changelog\n\n## [Unreleased]\n\n## [0.2.25] - 2026-10-09\n\n### Added\n- A (#700).\n\n"
-    "## [0.2.24] - 2026-10-01\n\n### Fixed\n- B (#600).\n"
-)
-
-
-def _changelog_gh(files: list[dict[str, str]], changelog: MagicMock) -> MagicMock:
-    """`_grounding_gh`, with the base branch's raw CHANGELOG.md answering `changelog`."""
-    routes = {
-        "/contents/": _gh_reply(),
-        "/files?": _gh_reply(files),
-        "/issues/": _issue(),
-        _CHANGELOG_ROUTE: changelog,
-    }
-    return MagicMock(side_effect=_readiness_gh(routes=routes))
-
-
-def test_after_the_cut_a_pr_may_edit_the_versions_changelog_section() -> None:
-    """The cut wrote `## [0.2.25]` on release/v0.2.25, so a critical fix edits it in place.
-
-    CHANGELOG.md is read raw at the branch's tip: the JSON contents API returns no content
-    above 1 MB, and the base commit can predate the cut.
-    """
-    gh = _changelog_gh([_TASK_704, _file("CHANGELOG.md")], _gh_reply(_CUT_CHANGELOG))
+def test_a_malformed_files_entry_is_a_read_failure(entry: object, error: str) -> None:
+    gh = _grounding_gh([entry])
     blockers = _blockers(_ready_pr(), gh=gh)
-    reads = [c.args[0] for c in gh.call_args_list if _CHANGELOG_ROUTE in c.args[0][-1]]
-    assert (blockers, reads) == ([], [_CHANGELOG_READ])
-
-
-@pytest.mark.parametrize(
-    "changelog",
-    [
-        "# Changelog\n\n## [Unreleased]\n\n## [0.2.24] - 2026-10-01\n\n### Fixed\n- B (#600).\n",
-        "# Changelog\n\n## [Unreleased]\n\n## [0.2.25]\n\n## [0.2.24] - 2026-10-01\n",
-    ],
-    ids=["no-section", "empty-section"],
-)
-def test_before_the_cut_a_pr_that_edits_the_changelog_is_blocked(changelog: str) -> None:
-    """Without the version's section the release is not cut, so the fragment is the entry."""
-    gh = _changelog_gh([_TASK_704, _file("CHANGELOG.md")], _gh_reply(changelog))
-    assert _blockers(_ready_pr(), gh=gh) == [
-        "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
-        "open PRs never conflict on them. Add its changelog entry as changelog.d/704.md instead."
-    ]
-
-
-def test_an_unread_base_changelog_is_one_blocker_naming_the_error() -> None:
-    """Whether the cut wrote the section is unknown, so the PR is not judged ready."""
-    gh = _changelog_gh([_TASK_704, _file("CHANGELOG.md")], _SERVER_ERROR)
-    assert _blockers(_ready_pr(), gh=gh) == [
-        "PR #335 changes CHANGELOG.md, but release/v0.2.25's CHANGELOG.md could not be read to "
-        "see whether the cut wrote its section (gh: Server Error (HTTP 500))."
-    ]
-
-
-def test_after_the_cut_docs_roadmap_md_is_still_left_to_the_cut() -> None:
-    """Only the changelog section is a critical fix's to edit; the roadmap stays rendered.
-
-    The PR already edits the section, so the blocker gives no fragment to add instead.
-    """
-    files = [_TASK_704, _file("CHANGELOG.md"), _file("docs/ROADMAP.md")]
-    blockers = _blockers(_ready_pr(), gh=_changelog_gh(files, _gh_reply(_CUT_CHANGELOG)))
-    assert blockers == [
-        "PR #335 changes docs/ROADMAP.md: a PR into release/v0.2.25 leaves them to the cut, so "
-        "open PRs never conflict on them."
-    ]
-
-
-@pytest.mark.parametrize(
-    ("change", "blocked"),
-    [
-        (_file("docs/ROADMAP.md"), "changes docs/ROADMAP.md:"),
-        (_file("CHANGELOG.md", "removed"), "changes CHANGELOG.md:"),
-        (
-            {
-                "filename": "docs/HISTORY.md",
-                "status": "renamed",
-                "previous_filename": "CHANGELOG.md",
-            },
-            "changes CHANGELOG.md:",
-        ),
-    ],
-    ids=["roadmap-only", "changelog-removed", "changelog-renamed-away"],
-)
-def test_a_pr_that_does_not_edit_the_changelog_reads_none(
-    change: dict[str, str], blocked: str
-) -> None:
-    """Only a PR into a release branch that edits CHANGELOG.md in place costs the extra request;
-    removing or renaming the file is never a critical fix's, so it stays blocked."""
-    gh = _changelog_gh([_TASK_704, change], _gh_reply(_CUT_CHANGELOG))
-    blockers = _blockers(_ready_pr(), gh=gh)
-    reads = [c for c in gh.call_args_list if _CHANGELOG_ROUTE in c.args[0][-1]]
-    assert ([blocked in blocker for blocker in blockers], reads) == ([True], []), blockers
-
-
-# =============================================================================
-# Grounding: a release-process PR is exempt only by the files it changes (#1344)
-# =============================================================================
-
-_RELEASE_FILES = [_file("CHANGELOG.md"), _file("docs/ROADMAP.md")]
-_INTO_V0225 = {"ref": "release/v0.2.25", "sha": "b" * 40, "repo": _REPO}
-_CUT_HEAD = {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": _REPO}
-_MERGE_OF_MAIN_HEAD = {"ref": "chore/open-v0.2.25-main", "sha": "a" * 40, "repo": _REPO}
-_FILES_READ = "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"
-_COMPARE_ROUTE = "/compare/"
-_COMPARE_READ = ["gh", "api", f"repos/dan-petty/devops-cli/compare/{'b' * 40}...main?per_page=1"]
-# What #1614, `chore/cut-v0.2.36` into `release/v0.2.36`, changed: four of the cut's files, and
-# the 24 fragments it collected into CHANGELOG.md.
-_CUT_1614 = [
-    _file("CHANGELOG.md"),
-    *(
-        _file(f"changelog.d/{issue}.md", "removed")
-        for issue in (1143, 1145, 1147, 1443, 1585, 1588, 1595, 1601, 1602, 1604, 1608, 1615)
-        + (792, 797, 823, 844, 848, 849, 854, 856, 857, 861, 872, 875)
-    ),
-    _file("docs/ROADMAP.md"),
-    _file("pyproject.toml"),
-    _file("uv.lock"),
-]
-_RUNBOOK_RENAME = {
-    "filename": "docs/RUNBOOK.md",
-    "status": "renamed",
-    "previous_filename": "docs/OPS.md",
-}
-# What main changed since its merge base with release/v0.2.25: a Renovate bump and a hotfix.
-_MAIN_CHANGES = _gh_reply(
-    {
-        "status": "ahead",
-        "files": [
-            _file(".github/workflows/ci.yml"),
-            _file("src/devops_cli/commands/release.py"),
-            _RUNBOOK_RENAME,
-        ],
-    }
-)
-
-
-def _process_gh(files: object, compare: MagicMock = _MAIN_CHANGES) -> MagicMock:
-    """`_grounding_gh`, with the default branch's changes since the merge base answering
-    `compare`."""
-    routes = {
-        "/contents/": _gh_reply(),
-        "/files?": files if isinstance(files, MagicMock) else _gh_reply(files),
-        "/issues/": _issue(),
-        _COMPARE_ROUTE: compare,
-    }
-    return MagicMock(side_effect=_readiness_gh(routes=routes))
-
-
-def _endpoints(gh: MagicMock) -> list[str]:
-    """The endpoint of each `run_gh` call, its last argument."""
-    return [call.args[0][-1] for call in gh.call_args_list]
-
-
-def _compare_reads(gh: MagicMock) -> list[list[str]]:
-    """The compare requests among the `run_gh` calls."""
-    return [call.args[0] for call in gh.call_args_list if _COMPARE_ROUTE in call.args[0][-1]]
-
-
-def test_a_cut_pull_request_that_changes_only_the_cut_files_is_exempt() -> None:
-    """#1614, the v0.2.36 cut, closed no issue and kept no task file, and readiness held it.
-
-    It modified four of the cut's files and removed the 24 fragments it collected, which is all
-    `cut_release` writes, so it is exempt from the file list readiness already reads: no task
-    directory lookup and no compare.
-    """
-    gh = _process_gh(_CUT_1614)
-    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
-    assert (blockers, _endpoints(gh)) == ([], [_FILES_READ])
-
-
-@pytest.mark.parametrize(
-    "extra",
-    [
-        _file("src/devops_cli/commands/pr.py"),
-        _file("changelog.d/1344.md", "added"),
-        _file("changelog.d/README.md"),
-        _file("changelog.d/README.md", "removed"),
-        _file("pyproject.toml", "added"),
-    ],
-    ids=["source-file", "added-fragment", "fragments-readme", "removed-readme", "added-cut-file"],
-)
-def test_a_cut_pull_request_that_changes_another_file_is_held_to_grounding(
-    extra: dict[str, str],
-) -> None:
-    """During v0.2.28, #1284 to #1289 carried code fixes into release/v0.2.28 under a
-    release-process head, with no issue, task file or fragment, and passed readiness.
-
-    A cut never adds a fragment or edits `changelog.d/README.md` either. The blocker names the
-    file, and the usual grounding blockers follow it.
-    """
-    gh = _process_gh([*_CUT_1614, extra])
-    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
-    assert (
-        blockers[0].endswith(f"chore/cut-v0.2.25 also changes {extra['filename']}."),
-        "closes no issue" in blockers[1],
-        _compare_reads(gh),
-    ) == (True, True, []), blockers
-
-
-def test_the_cut_blocker_reads_in_full() -> None:
-    """The blocker names the PR, what a cut may change, the head and the other files."""
-    gh = _process_gh([*_CUT_1614, _file("src/x.py"), _file("tests/test_x.py", "added")])
-    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
-    assert blockers[0] == (
-        "PR #335 is not grounded: a cut is exempt when it only modifies the cut's files "
-        "(pyproject.toml, src/devops_cli/__init__.py, uv.lock, CHANGELOG.md, docs/ROADMAP.md) "
-        "and removes changelog fragments (changelog.d/<issue>.md), as the cut commit does, and "
-        "chore/cut-v0.2.25 also changes src/x.py, tests/test_x.py."
-    )
-
-
-def test_the_files_the_blocker_names_are_bounded() -> None:
-    """A file list comes from GitHub, so the blocker carries at most 256 characters of it."""
-    gh = _process_gh([*_CUT_1614, *(_file(f"src/devops_cli/module_{n}.py") for n in range(60))])
-    blockers = _blockers(_ready_pr(body="", head=_CUT_HEAD, base=_INTO_V0225), gh=gh)
-    named = blockers[0].split("chore/cut-v0.2.25 also changes ", 1)[1]
-    assert (len(named), named.startswith("src/devops_cli/module_0.py, ")) == (257, True)
-
-
-@pytest.mark.parametrize(
-    ("head", "change", "named"),
-    [
-        (_MERGE_OF_MAIN_HEAD, _RUNBOOK_RENAME, None),
-        (
-            _MERGE_OF_MAIN_HEAD,
-            {"filename": "docs/RUNBOOK.md", "status": "renamed", "previous_filename": "src/x.py"},
-            "src/x.py",
-        ),
-        (
-            _MERGE_OF_MAIN_HEAD,
-            {"filename": "src/x.py", "status": "renamed", "previous_filename": "docs/OPS.md"},
-            "src/x.py",
-        ),
-        (
-            _CUT_HEAD,
-            {
-                "filename": "changelog.d/2.md",
-                "status": "renamed",
-                "previous_filename": "changelog.d/1.md",
-            },
-            "changelog.d/2.md, changelog.d/1.md",
-        ),
-    ],
-    ids=["both-paths-main-changed", "from-another-file", "to-another-file", "cut-renames"],
-)
-def test_a_renamed_file_is_judged_by_both_paths(
-    head: dict[str, object], change: dict[str, str], named: str | None
-) -> None:
-    """A rename changes the path it leaves and the path it takes, so both must be allowed.
-
-    The cut only modifies and removes, so a rename in a cut is never the cut's change.
-    """
-    gh = _process_gh([_file("uv.lock"), change])
-    blockers = _blockers(_ready_pr(body="", head=head, base=_INTO_V0225), gh=gh)
-    first = [blocker.endswith(f" also changes {named}.") for blocker in blockers[:1]]
-    assert first == ([] if named is None else [True]), blockers
-
-
-@pytest.mark.parametrize("head", [_CUT_HEAD, _MERGE_OF_MAIN_HEAD], ids=["cut", "merge-of-main"])
-def test_an_unread_file_list_holds_a_release_process_head_to_grounding(
-    head: dict[str, object],
-) -> None:
-    """Nothing shows what an unread PR changes, so it is held, and the existing blocker for the
-    unread file list names the failure. A merge of main reads no compare it can't use."""
-    gh = _process_gh(_SERVER_ERROR)
-    blockers = _blockers(_ready_pr(body="", head=head, base=_INTO_V0225), gh=gh)
-    assert (
-        [("closes no issue" in b, "files it changes could not be read" in b) for b in blockers],
-        _compare_reads(gh),
-    ) == ([(True, False), (False, True)], []), blockers
-
-
-@pytest.mark.parametrize(
-    "head",
-    [_MERGE_OF_MAIN_HEAD, {**_MERGE_OF_MAIN_HEAD, "ref": "chore/open-v0.2.25"}],
-    ids=["with-slug", "without-slug"],
-)
-def test_a_merge_of_main_that_changes_only_what_main_changed_is_exempt(
-    head: dict[str, object],
-) -> None:
-    """Renovate and hotfix PRs merge into main between releases, so a release PR that conflicts
-    with them needs main merged into its branch: `chore/open-vX.Y.Z-main` (#1211, #1582).
-
-    It may change the cut's files and what main changed since its merge base with the release
-    branch, read with one compare request.
-    """
-    files = [
-        _file(".github/workflows/ci.yml"),
-        _file("src/devops_cli/commands/release.py"),
-        _RUNBOOK_RENAME,
-        _file("uv.lock"),
-    ]
-    gh = _process_gh(files)
-    blockers = _blockers(_ready_pr(body="", head=head, base=_INTO_V0225), gh=gh)
-    assert (blockers, _endpoints(gh)[0], _compare_reads(gh)) == (
-        [],
-        _FILES_READ,
-        [_COMPARE_READ],
-    )
-
-
-def test_a_merge_of_main_that_changes_only_the_cut_files_reads_no_compare() -> None:
-    """The cut's files alone need nothing from main to be allowed."""
-    gh = _process_gh(_RELEASE_FILES)
-    pr = _ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=_INTO_V0225)
-    assert (_blockers(pr, gh=gh), _endpoints(gh)) == ([], [_FILES_READ])
-
-
-def test_a_merge_of_main_with_another_file_is_held_to_grounding() -> None:
-    """A file main did not change is the PR's own change, so it is held and the file named."""
-    files = [_file(".github/workflows/ci.yml"), _file("src/devops_cli/commands/pr.py")]
-    gh = _process_gh(files)
-    blockers = _blockers(_ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=_INTO_V0225), gh=gh)
-    assert (blockers[0], "closes no issue" in blockers[1]) == (
-        "PR #335 is not grounded: a merge of main is exempt when it only changes the cut's "
-        "files and the files main changed since its merge base with release/v0.2.25, and "
-        "chore/open-v0.2.25-main also changes src/devops_cli/commands/pr.py.",
-        True,
-    ), blockers
-
-
-@pytest.mark.parametrize(
-    ("compare", "cause"),
-    [
-        (_SERVER_ERROR, "(gh: Server Error (HTTP 500))"),
-        (_gh_reply("{"), "(malformed JSON from the compare API: "),
-        (_gh_reply({"status": "ahead"}), "(the compare API returned no list)"),
-        (
-            _gh_reply({"files": [_file(f"docs/{n}.md") for n in range(300)]}),
-            "(GitHub listed 300 files, its limit, so the list may be cut short)",
-        ),
-    ],
-    ids=["failed", "malformed", "no-files", "300-files"],
-)
-def test_an_unread_or_full_compare_holds_a_merge_of_main_to_grounding(
-    compare: MagicMock, cause: str
-) -> None:
-    """Nothing then proves the PR only merges main, so it is held, and the blocker says why.
-
-    At 300 files GitHub may have cut the list short, even when it holds every file the PR
-    changes.
-    """
-    gh = _process_gh([_file("docs/0.md"), _file("uv.lock")], compare=compare)
-    blockers = _blockers(_ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=_INTO_V0225), gh=gh)
-    assert (
-        blockers[0].startswith(
-            "PR #335 is not grounded: the files main changed since its merge base with "
-            "release/v0.2.25 could not be read, so nothing shows that chore/open-v0.2.25-main "
-            "only merges main "
-        ),
-        cause in blockers[0],
-        "closes no issue" in blockers[1],
-    ) == (True, True, True), blockers
-
-
-def test_a_merge_of_main_whose_default_branch_is_unnamed_is_held_without_a_compare() -> None:
-    """With no default branch in the payload no compare can name its side, so none is sent,
-    and the blocker says the default branch is unknown rather than leaving its name blank."""
-    base = {**_INTO_V0225, "repo": {"full_name": "dan-petty/devops-cli"}}
-    gh = _process_gh([_file("docs/0.md"), _file("uv.lock")])
-    blockers = _blockers(_ready_pr(body="", head=_MERGE_OF_MAIN_HEAD, base=base), gh=gh)
-    assert (blockers[0], _compare_reads(gh), "closes no issue" in blockers[1]) == (
-        "PR #335 is not grounded: the files the default branch changed since its merge base "
-        "with release/v0.2.25 could not be read, so nothing shows that chore/open-v0.2.25-main "
-        "only merges the default branch (the pull request names no default branch for "
-        "dan-petty/devops-cli).",
-        [],
-        True,
-    ), blockers
-
-
-@pytest.mark.parametrize(
-    ("head", "base", "release_file_blockers"),
-    [
-        ("chore/cut-v0.2.26", "release/v0.2.25", 1),
-        ("chore/open-v0.2.26-main", "release/v0.2.25", 1),
-        ("chore/open-cycle-v0.2.25", "release/v0.2.25", 1),
-        ("chore/cut-main-v0.2.25", "release/v0.2.25", 1),
-        ("feat/open-v0.2.25", "release/v0.2.25", 1),
-        ("chore/open-v0.2.25", "main", 0),
-        ("chore/cut-v0.2.25", "main", 0),
-    ],
-    ids=[
-        "cut-other-version",
-        "merge-other-version",
-        "slug-before-version",
-        "cut-slug-before-version",
-        "not-chore",
-        "into-the-default-branch",
-        "cut-into-the-default-branch",
-    ],
-)
-def test_other_branches_are_held_to_grounding(
-    head: str, base: str, release_file_blockers: int
-) -> None:
-    """Only `chore/cut-vX.Y.Z[-slug]` or `chore/open-vX.Y.Z[-slug]` into `release/vX.Y.Z` of that
-    version can be exempt, however few files it changes.
-
-    The release-file rule applies only into a `release/*` branch.
-    """
-    pr = _ready_pr(body="", head={"ref": head, "repo": _REPO}, base={"ref": base, "repo": _REPO})
-    gh = _process_gh(_RELEASE_FILES)
-    blockers = _blockers(pr, gh=gh)
-    assert (
-        sum("closes no issue" in blocker for blocker in blockers),
-        sum("leaves them to the cut" in blocker for blocker in blockers),
-        _compare_reads(gh),
-    ) == (1, release_file_blockers, []), blockers
-
-
-@pytest.mark.parametrize("ref", ["chore/cut-v0.2.25", "chore/open-v0.2.25-main"])
-def test_a_release_process_branch_from_a_fork_is_not_exempt(ref: str) -> None:
-    """A fork can name its branch anything, so the exemption needs the same repository."""
-    fork = {"ref": ref, "repo": {"full_name": "fork/devops-cli"}}
-    gh = _process_gh(_RELEASE_FILES)
-    blockers = _blockers(_ready_pr(body="", head=fork), gh=gh)
-    assert (["closes no issue" in blocker for blocker in blockers], _compare_reads(gh)) == (
-        [True, False],
-        [],
-    ), blockers
-
-
-# =============================================================================
-# Grounding: a PR into release/vX.Y.Z closes an item of release vX.Y.Z (#740)
-# =============================================================================
-
-_INTO_V0226 = {"ref": "release/v0.2.26", "sha": "b" * 40, "repo": _REPO}
-
-
-@pytest.mark.parametrize(
-    ("milestone", "blocker"),
-    [
-        (
-            "v0.2.27",
-            "PR #335 closes #704, which is in v0.2.27, not in v0.2.26: a PR into "
-            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
-        ),
-        (
-            None,
-            "PR #335 closes #704, which is in the backlog, not in v0.2.26: a PR into "
-            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
-        ),
-        ("v0.2.26", None),
-    ],
-    ids=["another-release", "the-backlog", "its-release"],
-)
-def test_a_pr_into_a_release_branch_is_blocked_unless_it_closes_an_item_of_that_release(
-    milestone: str | None, blocker: str | None
-) -> None:
-    """A release's scope is fixed when it starts, so its branch takes only its own items.
-
-    The blocker names the item and the release it is in, or says it is in the backlog.
-    """
-    gh = _grounding_gh([_TASK_704], issue=_issue(milestone))
-    assert _blockers(_ready_pr(base=_INTO_V0226), gh=gh) == ([blocker] if blocker else [])
-
-
-def test_a_part_of_an_item_line_names_no_item_so_only_the_one_issue_rule_blocks_it() -> None:
-    """#704 dropped `Part N of #M`; only `Part of #N` names the item a PR delivers part of.
-
-    A body that only names a backlog item with `Part 1 of #704` neither closes an issue nor
-    delivers part of one, so it gets #704's one blocker, and no issue is read for the release
-    check.
-    """
-    gh = _grounding_gh([_TASK_704], issue=_issue(None))
-    blockers = _blockers(_ready_pr(body="Part 1 of #704", base=_INTO_V0226), gh=gh)
-    endpoints = [call.args[0][-1] for call in gh.call_args_list]
-    assert (
-        ["closes no issue" in blocker for blocker in blockers],
-        any("/issues/" in endpoint for endpoint in endpoints),
-    ) == ([True], False)
-
-
-@pytest.mark.parametrize("body", ["Closes #704", "Part of #704"], ids=["closes", "part-of"])
-def test_an_issue_that_cannot_be_read_is_one_blocker_naming_it(body: str) -> None:
-    gh = _grounding_gh([_TASK_704], issue=_SERVER_ERROR)
-    assert _blockers(_ready_pr(body=body, base=_INTO_V0226), gh=gh) == [
-        "PR #335 is not grounded: #704 could not be read (gh: Server Error (HTTP 500))."
-    ]
-
-
-@pytest.mark.parametrize(
-    "head",
-    [
-        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO},
-        {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
-    ],
-    ids=["the-release-pr", "a-topic-pr"],
-)
-def test_prs_into_the_default_branch_are_not_judged_by_release(head: dict[str, object]) -> None:
-    """The release PR is exempt from grounding, and a PR into `main` delivers no release's item.
-
-    Neither reads the issue it closes, whichever release that issue is in.
-    """
-    gh = _grounding_gh([_TASK_704], issue=_issue("v0.2.27"))
-    blockers = _blockers(_ready_pr(head=head, base=_MAIN_BASE), gh=gh)
-    endpoints = [call.args[0][-1] for call in gh.call_args_list]
-    assert (blockers, any("/issues/" in endpoint for endpoint in endpoints)) == ([], False)
-
-
-# =============================================================================
-# Grounding: a PR that delivers part of an item says `Part of #N`
-# =============================================================================
-
-
-def test_a_part_pr_is_grounded_on_the_item_it_delivers_part_of() -> None:
-    """An item planned as several PRs lands each one before the last with `Part of #N`.
-
-    Its body closes no issue, so readiness blocked every PR but the last. Now the open item of
-    the base's release it names is judged as a closed issue is: it changes that item's task
-    file, which may still read In Progress, and the item stays open for the last PR to close.
-    """
-    gh = _grounding_gh([_TASK_704, _file("src/x.py")], issue=_issue("v0.2.26"))
-    blockers = _blockers(_ready_pr(body="Part of #704", base=_INTO_V0226), gh=gh)
-    assert blockers == []
-
-
-@pytest.mark.parametrize(
-    ("issue", "blocker"),
-    [
-        (
-            _issue("v0.2.26", state="closed"),
-            "PR #335 is not grounded: it delivers part of #704, which is not open. Each part "
-            "lands while its item is open, and the PR that closes the item is its last.",
-        ),
-        (
-            _issue("v0.2.27"),
-            "PR #335 delivers part of #704, which is in v0.2.27, not in v0.2.26: a PR into "
-            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
-        ),
-        (
-            _issue(None),
-            "PR #335 delivers part of #704, which is in the backlog, not in v0.2.26: a PR into "
-            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
-        ),
-    ],
-    ids=["closed-item", "another-release", "the-backlog"],
-)
-def test_a_part_pr_is_blocked_by_an_item_that_is_closed_or_of_another_release(
-    issue: MagicMock, blocker: str
-) -> None:
-    """A part lands only while its item is open and in the base's release."""
-    gh = _grounding_gh([_TASK_704], issue=issue)
-    assert _blockers(_ready_pr(body="Part of #704", base=_INTO_V0226), gh=gh) == [blocker]
-
-
-def test_the_blockers_for_a_body_naming_no_one_issue_read_in_full() -> None:
-    """A body that mixes the two, names two parts or names none gets one blocker saying which."""
-    bodies = ("Part of #704\nFixes #705", "Part of #705\nPart of #704", "Adds the reader.")
-    found = [_blockers(_ready_pr(body=body), gh=_grounding_gh([_TASK_704])) for body in bodies]
-    assert found == [
-        [
-            "PR #335 is not grounded: its body closes #705 and delivers part of #704, and a PR "
-            "either closes the one issue it delivers or delivers part of one."
-        ],
-        [
-            "PR #335 is not grounded: its body delivers part of 2 issues (#704, #705), and a PR "
-            "delivers part of exactly one."
-        ],
-        [
-            "PR #335 is not grounded: its body closes no issue in dan-petty/devops-cli, nor "
-            "delivers part of one. Name the one issue it delivers with a closing keyword, "
-            "Closes #<issue>, or, for one of several PRs that deliver an item, Part of #<issue>."
-        ],
-    ]
-
-
-def test_a_part_prs_release_file_blocker_leaves_the_fragment_to_the_closing_pr() -> None:
-    """Only the PR that closes an item adds its fragment, so parts open at once never conflict
-    on it, and an item moved out of the release part-way publishes no entry under it."""
-    gh = _grounding_gh([_TASK_704, _file("CHANGELOG.md")])
-    assert _blockers(_ready_pr(body="Part of #704"), gh=gh) == [
-        "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
-        "open PRs never conflict on them. The PR that closes #704 adds its changelog entry as "
-        "changelog.d/704.md."
-    ]
-
-
-@pytest.mark.parametrize(
-    ("state", "blocked"), [("open", False), ("closed", True)], ids=["open", "closed"]
-)
-def test_a_part_pr_into_the_default_branch_reads_its_item_only_for_its_state(
-    state: str, blocked: bool
-) -> None:
-    """Into `main` no release's item is judged, but a part of a closed item is still refused."""
-    gh = _grounding_gh([_TASK_704], issue=_issue("v0.2.27", state=state))
-    blockers = _blockers(_ready_pr(body="Part of #704", base=_MAIN_BASE), gh=gh)
-    endpoints = [call.args[0][-1] for call in gh.call_args_list]
-    assert (
-        ["which is not open" in blocker for blocker in blockers],
-        endpoints.count("repos/dan-petty/devops-cli/issues/704"),
-    ) == ([True] if blocked else [], 1)
+    assert [error in blocker for blocker in blockers] == [True], blockers
 
 
 # =============================================================================
@@ -2910,43 +2463,24 @@ def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decide
     """The template's quality-gate boxes asked authors to tick what they could not verify.
 
     All 5 of the last 40 merged PRs that used it ticked "complexity <= 10", which nothing
-    enforced, and its "e.g. Closes #123" comment read as closing #123 in any body that kept it.
+    enforced. The template asks for the one issue the PR closes and its task file, and for
+    nothing that a check decides.
     """
     text = _PR_TEMPLATE.read_text(encoding="utf-8")
     assert (
         [line for line in text.splitlines() if _CHECKBOX_LINE.match(line)],
-        "Closes #" in text,
-        "Part of #" in text,
+        "Closes #<issue>" in text,
         "docs/agent/tasks/task-" in text,
-        "changelog.d/<issue>.md" in text,
-        extract_linked_issues(text, "dan-petty/devops-cli"),
-        extract_part_references(text, "dan-petty/devops-cli"),
+        re.search(r"Part of #|changelog\.d|release/v", text),
         re.search(r"complexity|coverage|quality gate|10/10", text, re.IGNORECASE),
-    ) == (
-        [
-            "- [ ] `feat`: New feature or capability",
-            "- [ ] `fix`: Bug fix or defect remediation",
-            "- [ ] `refactor`: Code reorganization with zero functional behavior change",
-            "- [ ] `docs`: Documentation updates or additions",
-            "- [ ] `test`: New or updated tests",
-            "- [ ] `chore`: Maintenance, dependencies, or tooling updates",
-        ],
-        True,
-        True,
-        True,
-        True,
-        [],
-        [],
-        None,
-    )
+    ) == ([], True, True, None, None)
 
 
 def test_a_failed_create_explains_itself() -> None:
     """`run_gh` captures the CLI's output, so a failure printed nothing at all.
 
     Three invocations in one session produced no pull request and no message beyond the
-    command's own elapsed time; the base branch had been deleted when its release merged
-    and nothing said so.
+    command's own elapsed time; the base branch did not exist and nothing said so.
     """
     from devops_cli.commands.pr import app as pr_app
 
@@ -2956,9 +2490,21 @@ def test_a_failed_create_explains_itself() -> None:
         patch("devops_cli.commands.pr._fallback_create_pr", return_value=False),
     ):
         result = CliRunner().invoke(
-            pr_app, ["create", "--title", "t", "--body", "b", "--base", "release/v9.9.9"]
+            pr_app, ["create", "--title", "t", "--body", "b", "--base", "feat/gone"]
         )
-    assert (result.exit_code, "release/v9.9.9" in result.output) == (1, True)
+    assert (result.exit_code, "feat/gone" in result.output) == (1, True)
+
+
+def test_a_failed_create_without_a_base_names_the_default_branch() -> None:
+    from devops_cli.commands.pr import app as pr_app
+
+    failure = MagicMock(returncode=1, stdout="", stderr="GraphQL error")
+    with (
+        patch("devops_cli.commands.pr.run_gh", return_value=failure),
+        patch("devops_cli.commands.pr._fallback_create_pr", return_value=False),
+    ):
+        result = CliRunner().invoke(pr_app, ["create", "--title", "t"])
+    assert (result.exit_code, "against base 'the default branch'" in result.output) == (1, True)
 
 
 def test_a_failed_create_relays_the_underlying_reason() -> None:
@@ -2971,7 +2517,7 @@ def test_a_failed_create_relays_the_underlying_reason() -> None:
         patch("devops_cli.commands.pr._fallback_create_pr", return_value=False),
     ):
         result = CliRunner().invoke(
-            pr_app, ["create", "--title", "t", "--body", "b", "--base", "release/v9.9.9"]
+            pr_app, ["create", "--title", "t", "--body", "b", "--base", "feat/gone"]
         )
     assert "Base ref must be a branch" in result.output
 

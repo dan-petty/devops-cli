@@ -81,7 +81,7 @@ def test_defect_classifier_combined_and_reasons() -> None:
 
 
 def test_match_hardening_surface_declared_surfaces() -> None:
-    """Verify that only the declared hardening surfaces match, and docs/ROADMAP.md is excluded."""
+    """Verify that only the declared hardening surfaces match."""
     import re
 
     from devops_cli.config.constants import CONST_HARDENING_SURFACES
@@ -101,7 +101,7 @@ def test_match_hardening_surface_declared_surfaces() -> None:
         ("common_hallucinations.json", None),
         ("src/devops_cli/ai/review/common_hallucinations.json", None),
         (".data/common_hallucinations.json", None),
-        ("docs/ROADMAP.md", None),  # strictly excluded generated view
+        ("docs/SDLC.md", None),
         ("docs/CLI_REFERENCE.md", None),
         ("src/devops_cli/commands/pr.py", None),
         ("tests/test_ci.py", None),
@@ -135,7 +135,7 @@ def test_audit_pr_hardening_with_additions() -> None:
         {"path": "src/devops_cli/commands/pr.py", "additions": 45, "deletions": 2},
         {"path": "AGENTS.md", "additions": 12, "deletions": 0},
         {"path": "src/devops_cli/ai/tasks/verify.md", "additions": 8, "deletions": 1},
-        {"path": "docs/ROADMAP.md", "additions": 50, "deletions": 0},  # excluded
+        {"path": "docs/SDLC.md", "additions": 50, "deletions": 0},  # not a surface
     ]
 
     audit = audit_pr_hardening(
@@ -168,7 +168,7 @@ def test_audit_pr_hardening_missing_additions() -> None:
         {"path": "src/devops_cli/commands/pr.py", "additions": 30, "deletions": 10},
         {"path": "tests/test_pr.py", "additions": 50, "deletions": 0},
         {"path": "AGENTS.md", "additions": 0, "deletions": 5},  # deletions only
-        {"path": "docs/ROADMAP.md", "additions": 25, "deletions": 0},  # excluded
+        {"path": "docs/SDLC.md", "additions": 25, "deletions": 0},  # not a surface
     ]
 
     audit = audit_pr_hardening(

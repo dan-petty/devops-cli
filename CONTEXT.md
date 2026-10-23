@@ -2,10 +2,10 @@
 
 devops-cli automates DevOps work across the GitHub repositories it manages. This glossary holds the terms specific to that work.
 
-## Release planning
+## Planning and releases
 
 **Roadmap**:
-The current release, the planned releases and the backlog, taken together.
+The items on the project board, the milestones a person plans them into, and the backlog, taken together.
 _Avoid_: plan, board
 
 **Item**:
@@ -16,9 +16,9 @@ _Avoid_: task, deliverable, card, ticket, work item, tracking issue
 The in-repo implementation record of one item, written in the pull request that delivers it.
 _Avoid_: task, task item
 
-**Changelog fragment**:
-One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and collected into the release's section of `CHANGELOG.md` by the cut commit, which deletes it. A critical fix after the cut writes its entry in that section instead, with no fragment.
-_Avoid_: news fragment, changelog snippet
+**Changelog line**:
+The Conventional Commit title of a pull request into `main`. The squash commit takes it, and release-please writes it into `CHANGELOG.md` when its type is one that the changelog shows.
+_Avoid_: changelog fragment, news fragment, changelog snippet
 
 **Priority**:
 An item's rank: P0 (critical), P1 (high), P2 (medium) or P3 (low).
@@ -44,12 +44,8 @@ _Avoid_: refined, groomed
 An item that is in progress, in review or done.
 _Avoid_: active, claimed
 
-**Stalled**:
-An in-progress item with no commits, pull request activity or status change for the configured stall window. It is treated as not started again, so it can be descoped. An item in review never stalls.
-_Avoid_: stale, abandoned
-
 **Blocked**:
-An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started and cannot join a starting release. Waiting on another item is a dependency, not blocked.
+An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. Waiting on another item is a dependency, not blocked.
 _Avoid_: on hold, waiting
 
 **Dependency**:
@@ -60,41 +56,25 @@ _Avoid_: blocker, blocked-by
 An item closed without being delivered. It stays on record so the same idea is recognized as a duplicate if it surfaces again.
 _Avoid_: rejected, won't fix, deferred
 
-**Release**:
-A numbered version that ships a fixed set of items.
-_Avoid_: milestone, sprint
-
-**Current release**:
-The one release being worked toward now: the lowest-numbered release that hasn't shipped. Its scope is fixed when work on it starts; after that, only a critical fix can join it on the jobs' own placement, and an item a person places in it stays with a comment naming the rule it breaks.
-_Avoid_: active milestone, air-locked milestone
-
-**Planned release**:
-A later release whose scope is tentative and can be reshuffled freely until it becomes the current release.
-_Avoid_: scheduled milestone, future milestone
-
-**Release growth**:
-The items that joined a release after its start, were turned away, descoped or trimmed, as the job's tally counts them.
-
+**Milestone**:
+A planning bucket that a person sets on the board, ordered by its due date. It never names a version, and no release reads it.
+_Avoid_: release, sprint
 
 **Backlog**:
-The single prioritized pool of items not assigned to any release. Every open P0 and P1 item sits in an open release; only items a person took out of a release stay in the backlog.
+The single prioritized pool of items in no milestone. Intake puts every new item there, and a person moves items from it into milestones.
 _Avoid_: icebox, triage queue
 
 **Critical fix**:
-A P0 item that fixes a defect, a security advisory or a regression (a defect whose introducing commit is cited). It is the only kind of item that can join the current release after it starts; a P0 feature waits for the next release instead.
+A P0 item that fixes a defect, a security advisory or a regression (a defect whose introducing commit is cited). Intake hands it to refinement at once.
 _Avoid_: hotfix, P0 item
 
-**Descope**:
-To move an item that hasn't started out of the current release into the next planned release.
-_Avoid_: rollover, defer
+**Release**:
+A version that release-please publishes when a person merges its release pull request. It ships every change merged into `main` since the last release.
+_Avoid_: milestone, sprint, cut
 
-**Cut**:
-Opening a release's pull request. A critical fix still joins the release until that pull request merges; after that, it goes first into the next release. Closing that pull request without merging it un-cuts the release.
-_Avoid_: freeze, air-lock
-
-**Ship**:
-A release ships when its pull request merges and it is published; the next release starts at that moment.
-_Avoid_: publish, deliver
+**Release pull request**:
+The one pull request that release-please opens and updates on `main`. It holds the next version and its changelog section, and only a person merges it.
+_Avoid_: cut PR, release branch
 
 ## Roadmap jobs
 
@@ -103,7 +83,7 @@ Something that surfaced (from a person, a review of merged code, an agent or dis
 _Avoid_: proposal, suggestion
 
 **Intake**:
-The single entry point that turns a candidate into an item: it rejects duplicates, sets priority and places the item.
+The single entry point that turns a candidate into an item: it rejects duplicates, sets priority and puts the item in the backlog.
 _Avoid_: ingestion, triage
 
 **Discovery**:
@@ -114,20 +94,12 @@ _Avoid_: research
 Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
-**Reprioritization**:
-Re-ranking items, placing open P0 and P1 items from the backlog into open planned releases, moving items between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and its limit, its size plus a few slots, so that a late P0 or P1 item joins without moving another out. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
-_Avoid_: guard, governor, scope governor
-
-**Closure**:
-Closing a delivered item with a summary of what changed, and cutting a release, with its changelog, once every item in it is closed or descoped.
-_Avoid_: completion, wrap-up
-
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's two paths for a repository's jobs, each running one round at a time: the release lane runs closure, reprioritization and the metrics, and the model lane runs intake and refinement, which call the model. Both get every trigger, and a round in one never waits for a round in the other.
+One of the Service's two paths for a repository's jobs, each running one round at a time: the model lane runs intake and refinement, which call the model, and the other lane runs the metrics. Both get every trigger, and a round in one never waits for a round in the other.
 _Avoid_: queue, track, worker
 
 ## Code review
@@ -170,7 +142,7 @@ devops-cli's own Semgrep rules. Each has passing `ruleid:`/`ok:` tests, and a ru
 ## Verification
 
 **Gate**:
-A binding condition that must pass before code merges or a release advances.
+A binding condition that must pass before a pull request merges.
 _Avoid_: quality gate, 7-gate, 10-gate, barrier, hurdle
 
 **Check**:

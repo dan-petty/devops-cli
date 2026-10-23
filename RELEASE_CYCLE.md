@@ -1,10 +1,43 @@
-# Release Cycle & Engineering Workflow — devops-cli
+# Release Cycle — devops-cli
 
-This document defines the end-to-end lifecycle for implementing features, verifying system integrity, and orchestrating releases for `devops-cli`.
+This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`, and a person merges its pull request. Agents take no part in a release ([`AGENTS.md`](AGENTS.md), section 3).
 
----
+## How the Release Pull Request Is Made
 
-## 1. Release Philosophy & Versioning Scheme
+1. Every pull request into `main` has a [Conventional Commit](https://www.conventionalcommits.org/) title, and the squash commit takes it ([`CONTRIBUTING.md`](CONTRIBUTING.md)).
+2. On each push to `main`, the `Release` workflow (`.github/workflows/release.yml`) runs [release-please-action](https://github.com/googleapis/release-please-action). It opens one release pull request, or updates the one that is open.
+3. release-please derives the version from the titles merged since the last release. The release pull request holds that version, the new section of `CHANGELOG.md`, `.release-please-manifest.json` and the version lines of `pyproject.toml` and `uv.lock`.
+4. The release pull request runs the same required checks as every pull request.
+
+## Merge the Release Pull Request
+
+A person decides when to release. There is no schedule.
+
+1. Open the release pull request. Its title names the version.
+2. Read the version and the new changelog section. Make sure that they agree with what merged.
+3. Make sure that all required checks pass.
+4. Squash-merge the pull request in the GitHub web UI.
+
+## What the Merge Publishes
+
+The `Release` run of the merge creates the GitHub release and its tag. Then these jobs publish:
+
+| Job | Publishes |
+| :--- | :--- |
+| `Upload Release Assets` | The wheel, the sdist and `SHA256SUMS.txt`, attached to the GitHub release |
+| `Build DevContainer Image`, `Smoke-Test DevContainer Image`, `Attest & Tag DevContainer Image` | `ghcr.io/dan-petty/devops-cli/devcontainer`, tagged with the release tag and `latest` |
+| `Build & Publish Service Image` | `ghcr.io/dan-petty/devops-cli/service`, tagged with the release tag and `latest` |
+
+Argo CD Image Updater then moves the Service onto the new image digest ([`k8s/README.md`](k8s/README.md), Service Image Updates).
+
+## When a Publish Job Fails
+
+1. Open the failed `Release` run in the **Actions** tab of the repository.
+2. Read the log of each failed job.
+3. If the cause is outside the repository, such as a registry outage, click **Re-run failed jobs**. The jobs that passed keep their results.
+4. If the cause is in the repository, fix it in a pull request into `main`. The fix ships in the next release.
+
+## Versioning Policy
 
 ### Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee
 `devops-cli` is active **alpha software** prior to release `1.0.0`:
@@ -19,246 +52,4 @@ Any version released after `1.0.0` will strictly adhere to [Semantic Versioning 
 - **PATCH (`X.Y.Z`)**: Backward-compatible bug fixes, performance optimizations, or prompt refinements.
 - **Change Management Best Practices**: Post-1.0 releases will utilize all enterprise change management mechanisms, including runtime feature flags, structured multi-release deprecation warnings (emitted for at least one minor release cycle before removal), and automated migration tooling.
 
-### Ecosystem & Runtime Alignment
-- **Bleeding-Edge Python**: Builds track Python 3.14+ runtime features (e.g., modern syntax, typing improvements, `pydantic v2`).
-- **Zero-Plaintext Policy**: Secrets (GitHub tokens, OpenAI API keys, Grafana credentials) are managed exclusively through OS Keyring.
-- **Network Egress Guardrails**: SSRF mitigation logic (`validate_service_url`) is enforced across all outbound network calls.
-
----
-
-## 2. Feature Implementation Lifecycle
-
-```mermaid
-flowchart LR
-    A[Feature Spec / Issue] --> B[Branch Development]
-    B --> C[Centralize Config & Literals]
-    C --> D[Unit Tests & Mocking]
-    D --> E[Gated CI Quality Gate]
-    E --> F[Automated Docs & README Sync]
-    F --> G[PR Review & Merge]
-    G --> H[Release Orchestration]
-```
-
-### Stage 1: Design & Branch Creation
-1. Create a dedicated feature branch from the active release branch (`release/v<version>`) or `main`:
-   ```bash
-   git checkout -b feature/<feature-name>
-   # or
-   git checkout -b fix/<bug-name>
-   ```
-2. Ensure environment synchronization using `uv`:
-   ```bash
-   uv sync
-   ```
-3. **PR Base Branch Targeting**: When opening Pull Requests, target the active release branch (`--base release/v<version>`). Only release branches target `main`.
-4. **Agent Non-Merge Rule**: Automated agents must update PR branches with new commits without autonomously merging. Merging is reserved for human maintainers.
-5. **No Commits to Merged/Unrelated Branches**: Never commit or push work to a topic branch that has already been merged or is unrelated to the current task. Always branch off fresh from the active release branch (`git checkout -b <type>/<name> origin/release/v<version>`).
-6. **Changelog Fragments**: Add the item's changelog entry as `changelog.d/<issue>.md` (see [`changelog.d/README.md`](changelog.d/README.md)). Do not edit `CHANGELOG.md` or `docs/ROADMAP.md` in an item PR: the cut commit (the roadmap Service's `devops roadmap close`, or `devops release prepare`) collects the fragments into the version's section and deletes them, `devops roadmap render` regenerates the roadmap, and `devops pr check-readiness` blocks a PR into a release branch that changes either file. Only three pull requests edit them, and none closes an issue: the release PR (`release/vX.Y.Z` into `main`), which carries the release branch as it stands; the cut PR (`chore/cut-vX.Y.Z` into `release/vX.Y.Z`), which only modifies the cut's files (`pyproject.toml`, `src/devops_cli/__init__.py`, `uv.lock`, `CHANGELOG.md`, `docs/ROADMAP.md`) and removes the fragments it collects; and the merge of `main` (`chore/open-vX.Y.Z-main` into `release/vX.Y.Z`), which changes only the cut's files and what `main` changed since its merge base with the release branch, as a Renovate or hotfix pull request into `main` leaves it. A `-<slug>` may follow the version in either head, as `-main` does. `devops pr check-readiness` holds a cut or merge PR that changes any other file to grounding, with a blocker naming the file. The one exception is a critical fix after the cut: it edits the version's section of `CHANGELOG.md` directly, with no fragment, and `devops pr check-readiness` accepts it once `release/vX.Y.Z` holds that section.
-
-
-
-### Stage 2: Code Implementation & Architectural Standards
-- **Modular Subcommand Pattern**: New CLI subcommands must be implemented under `src/devops_cli/commands/` and registered in `src/devops_cli/main.py` via `_COMMAND_SPECS`.
-- **FastMCP Tool Parity**: Infrastructure commands should expose corresponding lazy MCP tools under `src/devops_cli/ai/mcp/` where appropriate.
-- **Literal & Constant Centralization**:
-  - Centralize timeouts and defaults in [`src/devops_cli/config/defaults.py`](src/devops_cli/config/defaults.py).
-  - Centralize static paths, regex patterns, and protocol constants in [`src/devops_cli/config/constants.py`](src/devops_cli/config/constants.py).
-  - Centralize user-facing help messages, summaries, and error logs in [`src/devops_cli/lang/`](src/devops_cli/lang/).
-- **Dry-Run Support**: All state-modifying subcommands must support the `--dry-run` flag via `devops_cli.dry_run`.
-
-### Stage 3: Automated Testing
-- **Test Conventions**: Tests follow [`docs/TESTING.md`](docs/TESTING.md), which sets what a test may double, where its file goes, how it is named and what it asserts.
-- **Parallel Test Execution**: Run tests with `pytest-xdist`:
-  ```bash
-  uv run pytest
-  ```
-
----
-
-## 3. Documentation & Verification Standards
-
-Documentation is dynamic and verified in CI. Handcrafted drift in CLI references is prevented by automated introspection.
-
-### Automated Documentation Generation
-When adding or modifying subcommands, options, environment variables, or FastMCP tools:
-1. Regenerate Markdown documentation and update the Command Matrix in `README.md`:
-   ```bash
-   uv run devops docs generate --sync-readme
-   ```
-2. Verify documentation freshness:
-   ```bash
-   uv run devops docs check
-   ```
-## 3. Documentation Standards & Generation
-
-The `devops-cli` maintains living, introspected documentation:
-
-| Document | Purpose |
-| :--- | :--- |
-| [`README.md`](README.md) | Project introduction, architecture overview, and command matrix. |
-| [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) | Complete reference of all subcommands, options, and parameters. |
-| [`docs/ENV_VARS.md`](docs/ENV_VARS.md) | Environment variables, defaults, types, and descriptions. |
-| [`docs/MCP_TOOLS.md`](docs/MCP_TOOLS.md) | FastMCP tools, input schemas, and execution parameters. |
-| `docs/commands/<group>.md` | Dedicated per-command-group reference manuals. |
-
----
-
-## 4. CI Validation Suite
-
-The `devops ci` suite is the authoritative validation gate. All checks must pass cleanly before any merge or release. See [**`docs/ROUTINE_TASKS.md`**](docs/ROUTINE_TASKS.md) for the complete routine task order, frequency, and methodology.
-
-```bash
-# Run full CI validation suite
-uv run devops ci
-```
-
-### Core Validation Checks
-1. **Python Version Check**: Strictly enforces Python 3.14+ runtime.
-2. **Unit Tests (`pytest -n auto --maxprocesses=8`)**: Parallel unit test execution with dynamic worker auto-scaling and full mock isolation.
-3. **Code Coverage (`pytest-cov`)**: Enforces the 90% line coverage threshold.
-4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
-5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
-6. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode across all source files.
-7. **Dependency Audit (`uv audit`, `npm audit`)**: Automated vulnerability scanning of lockfile packages against OSV, and of the lockfile of each Node tool in `tools.lock` against npm's advisory database.
-8. **Security Scan (`bandit`)**: Static vulnerability, subshell safety, and code analysis of `src/` and `tests/`, the targets `.bandit` names, at medium severity and above.
-9. **Workflow Linting (`actionlint`)**: Validates GitHub Actions workflow schemas and script syntax.
-10. **Documentation Validation (`devops docs check`)**: Asserts all CLI markdown docs and README matrices are synchronized.
-11. **Project Environment Validation (`uv check`)**: Verifies project dependencies and Python environment consistency.
-12. **Lockfile Validation (`uv lock --check`)**: Verifies `uv.lock` remains strictly synchronized with `pyproject.toml`.
-13. **Dependency Freshness (`uv tree --outdated`)**: Inspects dependency tree for outdated packages.
-14. **OpenSpec Gate (`devops openspec check`)**: Validates every change folder and archived change, checks the committed skills against a regeneration under the isolated `custom` profile, renders the instructions every agent reads, and finds a requirement that two active changes rewrite ([ADR 0010](docs/adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
-
-CI (`ci.yml`) additionally runs `devops devcontainer validate --workspace .`. On pull requests, the Tests & Coverage job also writes an advisory changed-line coverage report (diff-cover) against the base branch to its job summary.
-
----
-
-## 5. Release Subcommands Suite (`devops release`)
-
-The `devops-cli` provides native first-class subcommands to automate every stage of the release lifecycle:
-
-| Subcommand | Description | Example |
-| :--- | :--- | :--- |
-| `devops release status` | Displays release version consistency, git tag, changelog state, and docs freshness. | `devops release status` |
-| `devops release prepare <ver>` | Bumps version in `pyproject.toml` (`__init__.py` derives `__version__` from it), collects `changelog.d/` into `CHANGELOG.md`, and syncs docs/README. | `devops release prepare 0.1.10 [-p]` |
-| `devops release pr [-v <ver>]` | Creates a release branch (`release/vX.Y.Z`), commits bumps, and opens a GitHub Release PR. | `devops release pr -v 0.1.10` |
-| `devops release check` | Authoritative verification gate: asserts version matching, clean git tree, docs freshness, and CI validation. | `devops release check` |
-| `devops release notes [-v <ver>]` | Extracts and renders formatted markdown release notes from `CHANGELOG.md`. | `devops release notes -v 0.1.10` |
-| `devops release tag [-v <ver>]` | Creates release commit and annotated git tag locally (release.yml tags with git directly). | `devops release tag -v 0.1.10` |
-
----
-
-## 6. GitHub Pull Request Merge Controls & Release Orchestration
-
-Releases in `devops-cli` enforce **GitHub Pull Request Merge Controls** and Branch Protection rules on `main`. Direct manual pushes to `main` and direct developer tagging are prohibited; every release is gated behind peer review and automated CI validation checks.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Dev as Developer / Maintainer
-    participant CLI as devops release pr
-    participant Git as GitHub (release/vX.Y.Z)
-    participant CI as GitHub Actions (ci.yml)
-    participant Main as Protected Branch (main)
-    participant Rel as GitHub Actions (release.yml)
-
-    Dev->>CLI: devops release prepare X.Y.Z --create-pr
-    CLI->>Git: Push branch release/vX.Y.Z & Open Release PR
-    Git->>CI: Trigger CI Validation
-    CI-->>Git: All validation checks passed (Green)
-    Dev->>Git: Peer Review & PR Approval
-    Dev->>Main: Merge Pull Request into main
-    Main->>Rel: Push to main triggers release.yml
-    Rel->>Rel: Run authoritative devops release check
-    Rel->>Rel: Extract release notes (devops release notes)
-    Rel->>Git: Auto-cut annotated tag vX.Y.Z
-    Rel->>Git: Publish GitHub Release & Assets
-    Rel->>Rel: Build, attest and tag service:vX.Y.Z and latest
-```
-
-### Automated Release Cutting & Ruleset Bypass (`roadmap-service`)
-
-When all deliverables in an active release milestone are delivered and closed, `roadmap-service` automatically cuts the release in its background closure job: it renders `docs/ROADMAP.md` on `release/vX.Y.Z`, bumps the version, pushes directly to `release/vX.Y.Z`, and opens the release pull request into `main`.
-
-Because GitHub branch ruleset 23059172 enforces pull request requirements on `refs/heads/release*/**`, direct pushes to `release/vX.Y.Z` by automated background services require that the ruleset includes a bypass entry for the machine account's repository role (**Write**), mode **Always** (configured in **Settings → Rules → Rulesets → ruleset 23059172**). If a push is attempted without this bypass permission, GitHub refuses the push with `GH013`, and the cut raises a typed `ReleasePushRefusedError` explaining the ruleset refusal and bypass requirement.
-
----
-
-## 7. Step-by-Step Release Procedure
-
-### Step 1: Check Current Status
-```bash
-uv run devops release status
-```
-
-### Step 2: Prepare Release & Open GitHub Release PR
-Use the unified `--create-pr` flag (or `devops release pr`) to automate version bumping, changelog updating, docs regeneration, branch creation, commit, and PR submission:
-```bash
-# Prepares version, commits changes to branch 'release/vX.Y.Z', and opens GitHub PR
-uv run devops release prepare X.Y.Z --create-pr
-```
-
-Before branching, modifying files, or creating the release commit, the cut runs a deterministic offline gate verifying that every Argo CD application in `k8s/argocd/apps/` and `k8s/argocd/bootstrap/` targeting this repository builds at the fetched remote release tip:
-- Each path application is built with Kustomize from an exported archive of the release head (`git archive`), ensuring that uncommitted or gitignored files cannot hide broken kustomizations.
-- Template domain placeholder values (`example.com`, `$DOMAIN`, etc.) are validated: placeholders are permitted only in host fields of homelab applications (`"devops"`, `"ingress"`), and are rejected anywhere else (ConfigMaps, non-host fields, Helm value files, or non-homelab applications).
-- If any application fails to build or contains invalid placeholders, the cut stops immediately with an `ArgoCDGateError` before any files are changed, any branch is checked out, or any git/gh commands reach origin.
-
-Immediately following the offline gate, the cut executes a live, non-blocking Argo CD diff and override report against the configured cluster:
-- If `argocd.url`, the Argo CD authentication token, or the `argocd` CLI binary is missing, a single warning is emitted and the cut proceeds without interruption.
-- When configured, each Application is diffed at the release tip SHA using `--grpc-web` (multi-source Applications use their git source position via `--source-positions`), with the authentication token passed strictly via environment variable `ARGOCD_AUTH_TOKEN` (never in `argv`).
-- Differences (exit code 1) are reported as "differs", command errors (exit code 2) are reported as "failed" with stderr truncated to `CONST_MAX_ERROR_DETAIL_LENGTH`, and neither condition halts the release cut.
-- For homelab applications (`devops`, `ingress`), any template domain placeholder host at the release tip that lacks a live `test` operation in the cluster's active patches is reported alongside the corrective stack deployment command (`devops k8s deploy-stack --stack <stack>`).
-
-
-
-### Step 3: CI Quality Gate & PR Review Gate
-1. The opened Pull Request triggers `.github/workflows/ci.yml` which validates:
-   - Python 3.14 runtime environment
-   - Ruff linting & formatting (`ruff check`, `ruff format --check`)
-   - Mypy strict type checking (`mypy --strict src`)
-   - Documentation freshness (`devops docs check`)
-   - Pytest unit tests and test coverage thresholds
-   - Changed-line coverage against the pull request's base branch (diff-cover, advisory, in the job summary)
-   - Bandit static security scanning
-   - On pull requests, the advisory **Changed-Test Independence** job: each added or modified test file runs three times, one run after another, each in a shuffled order (`devops ci test --repeat 3`)
-2. `ci.yml`'s **Service Image** job builds, smoke-tests and scans the release PR's image without pushing; `release.yml` publishes it after the merge (Step 5).
-3. Maintainers review the release diff, changelog, and documentation updates.
-4. Copilot reviews the release PR, and only it (ADR 0004). Its passes are held to `release_copilot_passes` in `.github/roadmap.toml`, 2 unless the file sets it: every Copilot review submitted on the release PR counts, whoever asked for it, the pass when it opens included, and so does a pass still running or requested and not yet started. Nothing is stored, so each release PR starts with the whole budget. A person requests a further pass, or the first when the ruleset gave none, with `uv run devops pr copilot-pass <pr>`; `--dry-run` lists the requests it would make. Once the passes are spent it requests nothing, prints `Copilot budget spent: N of N passes`, and exits 1. It also refuses a release PR that is merged or closed.
-5. **The stop rule**: once the budget is spent, a remaining Copilot comment blocks the release only if it is a regression the release introduces, which is fixed in the release branch before the release PR merges. Every other remaining comment becomes a follow-up issue. A person runs `uv run devops pr threads file-issues <pr> --keep <thread-id>` first, which lists what it would do with each unresolved thread and writes nothing, then the same command with the same `--keep` flags and `--confirm`. It files each unresolved thread not kept as one issue with no milestone, holding the thread's comments in a fence, its file and line and its link, and labelled `source/agent` when Copilot started the thread; it then replies in the thread with the issue's number and resolves it, so the release PR's unresolved threads are only the regressions, each kept with `--keep`. A `--keep` id that names no unresolved thread stops it before it writes anything. A rerun opens no second issue for a thread: it resolves a thread whose reply from the same account names its issue, and replies naming the open issue that already links a thread whose reply failed; a failed reply or resolve names the issue already opened. It refuses a release PR that is merged or closed, and `--dry-run` lists the requests it would make. `devops roadmap intake` places the issues later.
-
-### A Critical Fix While the Release PR Is Open
-Opening the release PR cuts the release, and a critical fix (P0 with `type/bug` or `type/security`) still joins it, so the release branch holds every change before the release PR merges:
-1. `devops roadmap intake` places the fix in the cut release, and `devops roadmap reprioritize` keeps it there with an "is cut, and a critical fix still joins it" comment. Intake places any other candidate with no milestone in the backlog, as after the start, and the start of a release a person cut before it pulls nothing in.
-2. The fix's pull request targets `release/vX.Y.Z`. `devops pr check-readiness` accepts it because the issue it closes is in release vX.Y.Z.
-3. The release PR's head is `release/vX.Y.Z`, so it picks up the fix's commit and its checks run again. Its description is not regenerated yet ([#1346](https://github.com/dan-petty/devops-cli/issues/1346)), so a person edits its list of deliverables and its notes.
-4. The cut commit already collected the release's fragments into its `CHANGELOG.md` section, so the fix's own pull request adds its entry to that section of `CHANGELOG.md` directly, with no `changelog.d/<issue>.md`. `devops pr check-readiness` accepts the edit because `release/vX.Y.Z` holds the version's section.
-5. Merge the release PR only once its milestone holds no open item. [#1425](https://github.com/dan-petty/devops-cli/issues/1425) adds the check that enforces this, and makes `devops pr check-readiness` refuse a pull request into a release branch whose release PR has merged. If the release PR merged while an admitted fix was still open, move the fix to the next release: set its issue's milestone to vNEXT, and retarget its pull request with `uv run devops pr edit <pr> --base release/vNEXT`. Otherwise the fix stays in the shipped release, whose milestone `release.yml` closes, because no job moves an item out of a shipped release.
-
-Once the release PR has merged, a critical fix filed then goes first into the next release, with a "the release pull request of vX.Y.Z has merged" comment, even before the release is published.
-
-### Step 4: Merge PR into `main` (Maintainer Gate)
-Once all automated CI checks pass and reviews are complete, repository maintainers squash-merge the approved Release Pull Request into `main` via the GitHub Web UI or CLI (`gh pr merge --squash`). Automated AI agents do not perform merges autonomously.
-
-
-### Step 5: Automated Release Publishing (GitHub Actions)
-Upon PR merge into `main`, [`.github/workflows/release.yml`](.github/workflows/release.yml) automatically:
-1. Runs on every push to `main` and reads the target version from `pyproject.toml`.
-2. Runs release verification without the CI suite (`devops release check --allow-dirty --skip-ci`).
-3. Cuts and pushes the annotated git tag `vX.Y.Z`.
-4. Extracts release notes using `devops release notes` and creates the official GitHub Release.
-5. Builds, smoke-tests and scans the Service image from the merged tree, pushes it by digest, attests its build provenance, then tags it `vX.Y.Z` and `latest`. Within one poll, Argo CD Image Updater moves Application `devops` to the new digest, and nothing is committed ([#1486](https://github.com/dan-petty/devops-cli/issues/1486)). Every run on `main`, such as a push that recovers a failed release run, rebuilds the image and moves both tags.
-6. Builds the DevContainer image from `.devcontainer/devcontainer.json` with the Dev Containers CLI, for `linux/amd64` and `linux/arm64`. So the features of that file and the user `vscode` are in the image. The `devcontainer-image` job pushes the image by digest. The `devcontainer-smoke` job starts that digest as `vscode`. Then the `devcontainer` job attests the digest and tags it `vX.Y.Z` and `latest` ([#1895](https://github.com/dan-petty/devops-cli/issues/1895)).
-
-### Step 6: Post-Release DevContainer Validation
-The `devcontainer-smoke` job of release.yml starts the pushed digest as `vscode` before the `devcontainer` job tags it. To do this check again on a workstation, run the first command below. Then verify the DevContainer lifecycle operations with the second command:
-```bash
-docker run --rm --user vscode ghcr.io/dan-petty/devops-cli/devcontainer:vX.Y.Z id -u   # prints 1000
-uv run devops devcontainer run-lifecycle --all
-```
-
----
-
-## 8. Strategic Roadmap & Milestone Progression
-
-For active release milestones, architectural technical specifications, and the portfolio prioritization matrix, consult the canonical [Strategic Roadmap](docs/ROADMAP.md).
-
-Current and scheduled milestones: see [docs/ROADMAP.md](docs/ROADMAP.md) and the GitHub milestones page. Follow test-first progressive verification, active GitHub Projects v2 issue population, and automated milestone closure on release merge.
+The decision record is [ADR 0013](docs/adr/0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md).

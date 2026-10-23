@@ -29,7 +29,6 @@ flowchart TD
         SUB_SECOPS["Static Security Scanners (Trivy, Pluto, Popeye, KubeLinter)"]
         SUB_AI_REV["Multi-Persona Code Review Pipeline"]
         SUB_DEVCONTAINER["Python DevContainer Lifecycle Engine"]
-        SUB_RELEASE["Release Cycle Automation Engine"]
     end
 
     CLI --> MAIN
@@ -40,7 +39,6 @@ flowchart TD
     MAIN --> SUB_SECOPS
     MAIN --> SUB_AI_REV
     MAIN --> SUB_DEVCONTAINER
-    MAIN --> SUB_RELEASE
 
     SUB_AI_REV --> HTTP_SEC
     SUB_INFRA --> PROCESS
@@ -153,7 +151,7 @@ flowchart TD
 
 - **Structured Metrics & Telemetry**: Integrates with Prometheus query endpoints (`devops prometheus`) and Grafana dashboards (`devops grafana`) to monitor workstation and cluster health.
 - **Gated CI Quality Gate**: Automated enforcement of Python 3.14 runtime, Ruff formatting, Mypy strict typing, documentation freshness, test coverage, and static security scanning (`devops ci`).
-- **Release Verification & Introspection**: Built-in release cycle management (`devops release status`, `devops release check`, `devops release tag`) ensures consistent versioning and documentation synchronization across releases.
+- **Releases by release-please**: release-please derives each version and the changelog from the Conventional Commit titles on `main`, and a person merges its release pull request ([`RELEASE_CYCLE.md`](RELEASE_CYCLE.md)). devops-cli holds no release code.
 
 ---
 

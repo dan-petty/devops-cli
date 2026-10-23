@@ -63,7 +63,7 @@ semgrep scan --json --quiet src/
 
 1. **Leverage Standard Registries**: Use established community rulesets (`p/default`, `p/security-audit`) rather than ad-hoc custom rules where possible.
 2. **Deterministic Triaging**: Review findings produced by Semgrep have verified AST line ranges (`location="filename:n-n"`) and concrete rule descriptors.
-3. **Continuous Enforcement**: Integrate Semgrep checks in CI pipelines to prevent merging known antipatterns into release branches.
+3. **Continuous Enforcement**: Integrate Semgrep checks in CI pipelines to prevent merging known antipatterns into `main`.
 
 ---
 

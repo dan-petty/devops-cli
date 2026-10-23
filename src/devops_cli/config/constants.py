@@ -157,44 +157,6 @@ CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
-CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
-CONST_CONVENTIONAL_COMMIT_CATEGORIES: Final[dict[str, str]] = {
-    "feat": "Added",
-    "fix": "Fixed & Hardened",
-    "sec": "Fixed & Hardened",
-    "security": "Fixed & Hardened",
-    "perf": "Changed & Improved",
-    "refactor": "Changed & Improved",
-    "docs": "Changed & Improved",
-    "chore": "Changed & Improved",
-    "ci": "Changed & Improved",
-    "test": "Changed & Improved",
-    "style": "Changed & Improved",
-}
-CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER: Final[tuple[str, ...]] = (
-    "Added",
-    "Fixed & Hardened",
-    "Changed & Improved",
-    "Other Changes",
-)
-# A pull request into a release branch adds its changelog entry as `changelog.d/<issue>.md`, a
-# file no other pull request writes; the cut collects them into the version's section. The
-# directory holds fragments and its README only.
-CONST_CHANGELOG_FRAGMENTS_DIR: Final[str] = "changelog.d"
-CONST_CHANGELOG_FRAGMENT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"(?P<issue>\d+)\.md")
-# Keep a Changelog 1.0.0's complete set of change types, in its order.
-CONST_KEEP_A_CHANGELOG_CATEGORIES: Final[tuple[str, ...]] = (
-    "Added",
-    "Changed",
-    "Deprecated",
-    "Removed",
-    "Fixed",
-    "Security",
-)
-# GitHub refuses a Release body over 125,000 characters and a pull request body over 65,536.
-# `devops release notes` and `devops release pr` fit a version's notes under them (#1097).
-CONST_GITHUB_RELEASE_BODY_MAX_CHARS: Final[int] = 125_000
-CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS: Final[int] = 65_536
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
 CONST_SRC_DIR_NAME = "src"
@@ -225,7 +187,6 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
         "pr",
         "prometheus",
         "rag",
-        "release",
         "repos",
         "roadmap",
         "sandbox",
@@ -249,7 +210,6 @@ CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR: Final[frozenset[str]] = frozenset(
         "docker_sign",
         "gh_project_reconcile",
         "ai_rag_drift",
-        "roadmap_render",
     }
 )
 
@@ -294,7 +254,6 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("docker", "sandbox"), 300.0, False, False),
     (("docker", "sign"), 300.0, False, False),
     (("docker", "verify"), 300.0, True, False),
-    (("docs", "compact"), 60.0, False, False),
     (("gh", "issues", "create"), 60.0, False, False),
     (("gh", "issues", "edit"), 60.0, False, False),
     (("gh", "issues", "list"), 60.0, True, False),
@@ -348,7 +307,6 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("pr", "threads", "resolve"), 60.0, False, False),
     (("pr", "update"), 60.0, False, False),
     (("prometheus", "query"), 30.0, True, False),
-    (("release", "status"), 30.0, True, False),
     (("repos", "list"), 30.0, True, False),
     (("repos", "sync"), 120.0, False, False),
     (("review", "branch"), 300.0, True, False),
@@ -357,12 +315,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("review", "path"), 300.0, True, False),
     (("review", "pr"), 300.0, False, False),
     (("review", "stats"), 60.0, True, False),
-    (("roadmap", "close"), 300.0, True, False),
     (("roadmap", "intake"), 300.0, False, False),
-    (("roadmap", "migrate"), 300.0, True, False),
     (("roadmap", "refine"), 300.0, True, False),
-    (("roadmap", "render"), 300.0, False, False),
-    (("roadmap", "reprioritize"), 300.0, False, False),
     (("roadmap", "run"), 300.0, True, False),
     (("sandbox", "deploy"), 300.0, False, False),
     (("sandbox", "exec"), 300.0, False, False),
@@ -504,6 +458,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("branches", "update"),
         ("ci", "actionlint"),
         ("ci", "audit"),
+        ("ci", "build"),
         ("ci", "coverage"),
         ("ci", "deps"),
         ("ci", "devcontainer"),
@@ -567,7 +522,6 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("gh", "pr", "check-readiness"),
         ("gh", "pr", "checks"),
         ("gh", "pr", "close"),
-        ("gh", "pr", "copilot-pass"),
         ("gh", "pr", "create"),
         ("gh", "pr", "diff"),
         ("gh", "pr", "edit"),
@@ -575,7 +529,6 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("gh", "pr", "list"),
         ("gh", "pr", "monitor"),
         ("gh", "pr", "ready"),
-        ("gh", "pr", "threads", "file-issues"),
         ("gh", "pr", "threads", "list"),
         ("gh", "pr", "threads", "reply"),
         ("gh", "pr", "threads", "resolve"),
@@ -629,10 +582,8 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("openspec", "check"),
         ("openspec", "regenerate"),
         ("pipeline",),
-        ("pr", "copilot-pass"),
         ("pr", "create"),
         ("pr", "hardening-report"),
-        ("pr", "threads", "file-issues"),
         ("pr", "threads", "resolve-all"),
         ("pr", "threads", "unresolve"),
         ("pr", "view"),
@@ -641,13 +592,6 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("prometheus", "query-range"),
         ("prometheus", "rules"),
         ("prometheus", "targets"),
-        ("release", "changelog"),
-        ("release", "check"),
-        ("release", "notes"),
-        ("release", "pr"),
-        ("release", "prepare"),
-        ("release", "sync-notes"),
-        ("release", "tag"),
         ("repos", "clone"),
         ("repos", "clone-org"),
         ("repos", "update"),
@@ -736,17 +680,19 @@ CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
 # exactly one class, so a new document is classified in the pull request that adds it. The classes
 # differ in how a document stays true:
 # - generated: written by `DocGenerator` or the instruction generator and checked against them.
-# - release artifact: written by the release cut, or for the specs by `openspec archive` in the
-#   pull request that closes a change, and by no other item pull request.
+# - tool-owned: written only by one tool's own step, release-please for `CHANGELOG.md` in its
+#   release pull request and `openspec archive` for the specs in the pull request that closes a
+#   change, and by no other pull request.
 # - record: history, never rewritten to match later code, so no command name in it is checked.
 # - prompt: loaded by code at run time.
 # - tool-generated: written by a pinned tool, `devops openspec regenerate` for OpenSpec's skills, and
 #   checked by regenerating them, never named-checked.
 # - hand-written: everything else, listed by path (README.md also holds a generated command matrix).
-# An entry with a glob wildcard is a pattern and may match no file (the release cut deletes every
-# `changelog.d/<issue>.md`); an entry without one names a document and must match its file.
+# An entry with a glob wildcard is a pattern and may match no file (`openspec/specs/**/*.md`
+# matches none until the first change is archived); an entry without one names a document and
+# must match its file.
 CONST_DOCS_CLASS_GENERATED: Final[str] = "generated"
-CONST_DOCS_CLASS_RELEASE_ARTIFACT: Final[str] = "release artifact"
+CONST_DOCS_CLASS_TOOL_OWNED: Final[str] = "tool-owned"
 CONST_DOCS_CLASS_RECORD: Final[str] = "record"
 CONST_DOCS_CLASS_PROMPT: Final[str] = "prompt"
 CONST_DOCS_CLASS_TOOL_GENERATED: Final[str] = "tool-generated"
@@ -765,14 +711,11 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "docs/TELEMETRY.md",
         "docs/commands/*.md",
     ),
-    CONST_DOCS_CLASS_RELEASE_ARTIFACT: (
+    CONST_DOCS_CLASS_TOOL_OWNED: (
         "CHANGELOG.md",
-        "docs/ROADMAP.md",
-        "docs/RELEASE_NOTES.md",
         "openspec/specs/**/*.md",
     ),
     CONST_DOCS_CLASS_RECORD: (
-        "changelog.d/[0-9]*.md",
         "docs/adr/*.md",
         "docs/agent/archive/**/*.md",
         "docs/agent/tasks/task-*.md",
@@ -797,7 +740,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "README.md",
         "RELEASE_CYCLE.md",
         "SECURITY.md",
-        "changelog.d/README.md",
         "docs/DEVCONTAINER_USAGE.md",
         "docs/KNOWN_ISSUES.md",
         "docs/ROUTINE_TASKS.md",
@@ -1003,16 +945,6 @@ CONST_DEVCONTAINER_CLAUDE_FEATURE: Final[str] = (
     "ghcr.io/anthropics/devcontainer-features/claude-code:1"
 )
 CONST_CANONICAL_OCI_SOURCE: Final[str] = "https://github.com/dan-petty/devops-cli"
-CONST_REQUIRED_OCI_IMAGE_LABELS: Final[tuple[str, ...]] = (
-    "org.opencontainers.image.source",
-    "org.opencontainers.image.description",
-    "org.opencontainers.image.licenses",
-    "org.opencontainers.image.title",
-    "org.opencontainers.image.revision",
-    "org.opencontainers.image.version",
-    "org.opencontainers.image.created",
-    "org.opencontainers.image.documentation",
-)
 # The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
 # session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
 CONST_KEYRING_PACKAGES: Final[tuple[str, ...]] = ("gnome-keyring", "dbus-x11")
@@ -1319,14 +1251,6 @@ CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
     "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
 }
 """Environment that makes git fail instead of prompting for credentials or a passphrase."""
-CONST_GIT_NO_TERMINAL_PROMPT_ENV: Final[dict[str, str]] = {"GIT_TERMINAL_PROMPT": "0"}
-"""Environment that stops git from asking for a username or password on the terminal.
-
-An askpass program the person configured (`GIT_ASKPASS`, `core.askPass` or `SSH_ASKPASS`, such as
-VS Code's) still runs. Only when none is set, or it answers nothing, does git fail with "terminal
-prompts disabled". It leaves ssh alone, unlike `CONST_GIT_NONINTERACTIVE_ENV`, so a person's own
-`core.sshCommand` still applies to the git devops-cli runs against their remote (#1124).
-"""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 # Where each workload kind keeps its pod spec: Pod; PodTemplate; Deployment, ReplicaSet,
 # StatefulSet, DaemonSet, Job and ReplicationController; CronJob.
@@ -1674,41 +1598,17 @@ CONST_GITHUB_UNREAD_ERROR_CODE: Final[str] = "GITHUB_UNREAD"
 # `CopilotReviewerLogin` (gh 2.102.0, api/queries_repo.go): a review record is Copilot's only when
 # its author's login is exactly one of them. The issue timeline names the same account (id
 # 175728472) `Copilot`, type Bot, a login the Copilot coding agent shares, so a timeline `reviewed`
-# event is matched by the id of one of Copilot's reviews, never by login, and a review request by
-# the account's type and its app's page, `/apps/<slug>` (read on #1283's timeline).
+# event is matched by the id of one of Copilot's reviews, never by login (read on #1283's
+# timeline).
 CONST_COPILOT_REVIEWER_APP_SLUG: Final[str] = "copilot-pull-request-reviewer"
 CONST_COPILOT_REVIEWER_LOGINS: Final[frozenset[str]] = frozenset(
     {f"{CONST_COPILOT_REVIEWER_APP_SLUG}[bot]", CONST_COPILOT_REVIEWER_APP_SLUG}
 )
-CONST_COPILOT_REVIEWER_APP_PATH: Final[str] = f"/apps/{CONST_COPILOT_REVIEWER_APP_SLUG}"
-# The `type` GitHub gives an app's bot account.
-CONST_GITHUB_BOT_ACCOUNT_TYPE: Final[str] = "Bot"
-# The issue timeline events that request a review or withdraw the request, each with whether it
-# leaves the reviewer requested.
-CONST_GH_REVIEW_REQUEST_EVENTS: Final[dict[str, bool]] = {
-    "review_requested": True,
-    "review_request_removed": False,
-}
 # The keys a review record names its author under: `user` in a REST review, `author` in a
 # GraphQL one.
 CONST_GITHUB_REVIEW_AUTHOR_KEYS: Final[tuple[str, ...]] = ("user", "author")
-# The reviewer `gh pr edit --add-reviewer` requests a Copilot review with (gh 2.102.0).
-CONST_GH_COPILOT_REVIEWER: Final[str] = "@copilot"
-# A Copilot pass `devops pr copilot-pass` refuses: on any pull request but the release pull
-# request, or once the release pull request's Copilot budget is spent (#1345).
-CONST_COPILOT_PASS_REFUSED_ERROR_CODE: Final[str] = "COPILOT_PASS_REFUSED"
-# The line `devops pr threads file-issues` ends the reply naming a thread's follow-up issue
-# with, and the pattern a line must match whole to be one, giving the issue's number (#1345). A
-# rerun counts it only in a reply the account running it wrote, never in the thread's first
-# comment, so a suggestion or another person's reply quoting it cannot resolve a thread.
-CONST_PR_THREAD_FILED_MARKER: Final[str] = "<!-- devops-cli: filed as #{issue} -->"
-CONST_PR_THREAD_FILED_MARKER_RE: Final[re.Pattern[str]] = re.compile(
-    r"<!-- devops-cli: filed as #([1-9][0-9]*) -->"
-)
 # The login GitHub shows for a deleted account, whose GraphQL `author` is null.
 CONST_GITHUB_GHOST_LOGIN: Final[str] = "ghost"
-# `devops pr threads file-issues` refuses any pull request but the open release pull request.
-CONST_THREAD_FILING_REFUSED_ERROR_CODE: Final[str] = "THREAD_FILING_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
 # second after it. A call at a reset that has passed waits until this long past it, because it is
@@ -1766,11 +1666,11 @@ CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )
 CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
-# The Service's lanes (#1532): each repository has one worker per lane. The release lane runs the
-# jobs that close items and start and ship releases, the model lane those that call the model, so
-# a release-lane round never waits for a model-lane round. A service app given no jobs runs its
-# logging job in the default lane.
-CONST_SERVICE_LANE_RELEASE: Final[str] = "release"
+# The Service's lanes (#1532): each repository has one worker per lane. The status lane runs the
+# job that refreshes the metrics, the model lane those that call the model, so a status-lane round
+# never waits for a model-lane round. A service app given no jobs runs its logging job in the
+# default lane.
+CONST_SERVICE_LANE_STATUS: Final[str] = "status"
 CONST_SERVICE_LANE_MODEL: Final[str] = "model"
 CONST_SERVICE_LANE_DEFAULT: Final[str] = "default"
 CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
@@ -1815,8 +1715,6 @@ CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
 CONST_GH_PROJECT_ITEM_ISSUE_TYPE: Final[str] = "Issue"
 CONST_GH_PROJECT_JOB_RECORD_FIELD: Final[str] = "Job record"
 CONST_GH_ISSUE_EVENT_CHANGE_KINDS: Final[dict[str, str]] = {
-    "milestoned": "joined_release",
-    "demilestoned": "left_release",
     "labeled": "labeled",
     "unlabeled": "unlabeled",
     "closed": "closed",
@@ -1863,7 +1761,6 @@ CONST_ERROR_CODE_ROADMAP_INTAKE_FAILED = "ROADMAP_INTAKE_FAILED"
 CONST_ERROR_CODE_LIBRARY_INGESTION = "LIBRARY_INGESTION_ERROR"
 CONST_ERROR_CODE_LIBRARY_NOT_FOUND = "LIBRARY_NOT_FOUND_ERROR"
 CONST_ERROR_CODE_DOCS_INGESTION = "DOCS_INGESTION_ERROR"
-CONST_ERROR_CODE_DOC_COMPACTION = "DOC_COMPACTION_ERROR"
 CONST_ERROR_CODE_SANDBOX = "SANDBOX_ERROR"
 CONST_ERROR_CODE_SANDBOX_VALIDATION = "SANDBOX_VALIDATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_PORT_ALLOCATION = "SANDBOX_PORT_ALLOCATION_ERROR"
@@ -3100,13 +2997,9 @@ CONST_FRONTIER_MODEL_PREFIXES: Final[tuple[str, ...]] = (
 # Repository files every roadmap runner reads through the contents API at one ref.
 CONST_ROADMAP_CONFIG_PATH: Final[str] = ".github/roadmap.toml"
 # The Projects filter each board read passes at the source, archived items always left out
-# (#1125). "" reads every item not archived, open and closed: reprioritize judges a Release's
-# closed members, render lists them, intake looks up any issue it is given, and migrate's
-# one-time reads may include closed items. The backlog and the candidates read open items only.
+# (#1125). "" reads every item not archived, open and closed: intake looks up any issue it is
+# given, and refine reads a milestone's items. The backlog and the candidates read open items only.
 CONST_ROADMAP_OPEN_ITEMS_FILTER: Final[str] = "is:open"
-CONST_ROADMAP_MIGRATE_BOARD_FILTER: Final[str] = ""
-CONST_ROADMAP_RENDER_BOARD_FILTER: Final[str] = ""
-CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER: Final[str] = ""
 CONST_ROADMAP_INTAKE_BOARD_FILTER: Final[str] = ""
 CONST_ROADMAP_RUN_BOARD_FILTER: Final[str] = ""
 CONST_ROADMAP_REFINE_BOARD_FILTER: Final[str] = ""
@@ -3119,107 +3012,39 @@ CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
-# The model lane's own clone beside it, so the model lane's checkout never touches a cut the
-# release lane is making in `clone` (#1532).
+# The model lane's own clone beside it, so the model lane's checkout never touches the status
+# lane's `clone` (#1532).
 CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME: Final[str] = "model-clone"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),
 )
-CONST_ROADMAP_CLOSURE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
-    ("webhook", "pull_request", "closed"),
-)
-# A milestone closing and a GitHub Release published are a ship's webhook hints (#1360).
-CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
-    ("webhook", "milestone", "closed"),
-    ("webhook", "release", "published"),
-)
 # The webhook events the roadmap jobs' batch keys name, the events the Service's roadmap consumer
-# takes (#1386).
+# takes (#1386): the issues events only.
 CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
     event
-    for source, event, _action in (
-        *CONST_ROADMAP_INTAKE_BATCH_KEYS,
-        *CONST_ROADMAP_CLOSURE_BATCH_KEYS,
-        *CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
-    )
+    for source, event, _action in CONST_ROADMAP_INTAKE_BATCH_KEYS
     if source == CONST_SERVICE_SOURCE_WEBHOOK
 )
-CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
-CONST_ROADMAP_ADR_PATH: Final[str] = "docs/adr/0001-github-is-the-roadmap-source.md"
-# The first line `devops roadmap render` writes. A file carrying it is a generated view, so
-# `devops roadmap migrate` never imports it.
-CONST_ROADMAP_RENDER_MARKER: Final[str] = (
-    "<!-- Generated by `devops roadmap render` from GitHub issues, milestones and the board. "
-    "Open an issue instead of editing this file. -->"
-)
-# A rendered roadmap is a tracked repository file, readable by everyone like any other.
-CONST_ROADMAP_RENDER_FILE_MODE: Final[int] = 0o644
 CONST_ROADMAP_EPIC_LABEL: Final[str] = "type/epic"
-CONST_ROADMAP_STATUS_FIELD: Final[str] = "Status"
-# A hand-written ROADMAP entry heading ends in a parenthetical such as
-# `(P1 - High, Issues #287, #289, PR #288, Overlaps #740)`. These tags name the entry's issues
-# and the roadmap item it overlaps; every other tag (`PR`) is ignored.
-CONST_ROADMAP_ISSUE_TAGS: Final[frozenset[str]] = frozenset({"Issue", "Issues"})
-CONST_ROADMAP_OVERLAP_TAG: Final[str] = "Overlaps"
-CONST_ROADMAP_P0_PRIORITY: Final[str] = "P0"
-# The Value vs. Effort matrix's columns, and the Status cell prefixes that mark a row done
-# with: delivered or rejected. Every other row is open.
-CONST_ROADMAP_MATRIX_FEATURE_COLUMN: Final[str] = "Feature / Focus"
-CONST_ROADMAP_MATRIX_VALUE_COLUMN: Final[str] = "Value"
-CONST_ROADMAP_MATRIX_EFFORT_COLUMN: Final[str] = "Effort"
-CONST_ROADMAP_MATRIX_STATUS_COLUMN: Final[str] = "Status"
-CONST_ROADMAP_MATRIX_COMPLETED_STATUS: Final[str] = "✅ Completed"
-CONST_ROADMAP_MATRIX_REJECTED_STATUS: Final[str] = "❌ Rejected"
-# The phrase that marks an entry heading as investigated and not built.
-CONST_ROADMAP_NOT_BUILDING_MARKER: Final[str] = "not building"
-# A workflow whose name starts with this adds issues to the board behind intake's back.
-CONST_ROADMAP_AUTO_ADD_WORKFLOW_PREFIX: Final[str] = "Auto-add"
-# The board's Status options (`.github/project-template.json`) the release rules read. An item
-# is started once it is in progress, in review or done; every other Status, or none, is
-# unstarted (CONTEXT.md).
+# The board's Status options (`.github/project-template.json`) the roadmap jobs read.
 CONST_ROADMAP_STATUS_NEW: Final[str] = "New"
 CONST_ROADMAP_STATUS_READY: Final[str] = "Ready"
 CONST_ROADMAP_STATUS_IN_PROGRESS: Final[str] = "In Progress"
-CONST_ROADMAP_STATUS_IN_REVIEW: Final[str] = "In Review"
 CONST_ROADMAP_STATUS_DONE: Final[str] = "Done"
 CONST_ROADMAP_STATUS_BLOCKED: Final[str] = "Blocked"
-CONST_ROADMAP_STARTED_STATUSES: Final[frozenset[str]] = frozenset(
-    {CONST_ROADMAP_STATUS_IN_PROGRESS, CONST_ROADMAP_STATUS_IN_REVIEW, CONST_ROADMAP_STATUS_DONE}
-)
-# The Status options #739's template replaces with New: while the board still has one,
-# `devops roadmap migrate` has cards left to move, and its release epics are still Items.
-CONST_ROADMAP_PREMIGRATE_STATUSES: Final[frozenset[str]] = frozenset({"Backlog", "Todo"})
 # A critical fix is a P0 item that fixes a defect or a security advisory (CONTEXT.md): the
 # board's P0 Priority option and one of these `type/*` labels.
 CONST_ROADMAP_CRITICAL_PRIORITY: Final[str] = "P0-Critical"
+CONST_ROADMAP_P0_PRIORITY: Final[str] = "P0"
 CONST_ROADMAP_P1_PRIORITY: Final[str] = "P1-High"
 CONST_ROADMAP_P2_PRIORITY: Final[str] = "P2-Medium"
 CONST_ROADMAP_P3_PRIORITY: Final[str] = "P3-Low"
 CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
     {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
 )
-CONST_ROADMAP_P1_PRIORITIES: Final[frozenset[str]] = frozenset({"P1-High", "P1"})
-CONST_ROADMAP_HIGH_PRIORITIES: Final[frozenset[str]] = frozenset(
-    CONST_ROADMAP_P0_PRIORITIES | CONST_ROADMAP_P1_PRIORITIES
-)
-CONST_ROADMAP_P3_PRIORITIES: Final[frozenset[str]] = frozenset({"P3-Low", "P3"})
 CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
-# A person applies it to an item too big for one pull request; reprioritization descopes it.
-CONST_ROADMAP_NEEDS_SPLIT_LABEL: Final[str] = "needs-split"
-# The `Left` mark of an item a person took out of the backlog, where a job last placed it; every
-# other `Left` mark names a Release.
-CONST_ROADMAP_LEFT_BACKLOG: Final[str] = "backlog"
-# The draft issue card whose job record is the run record: what a roadmap job keeps about the
-# repository as a whole, such as the Release reprioritization last started. The store finds it
-# by this title.
-CONST_ROADMAP_RUN_RECORD_TITLE: Final[str] = "Roadmap run record"
-CONST_ROADMAP_RUN_RECORD_BODY: Final[str] = (
-    "The roadmap jobs keep their run record in this card's Job record field, such as the "
-    "release `devops roadmap reprioritize` last started. Leave the card on the board: without "
-    "it, the job refuses to run until the card is back."
-)
 # `devops roadmap intake` (#742). Its reason comment and its duplicate close each carry their own
 # marker, so a run that finds one posts no second comment of that kind.
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
@@ -3252,7 +3077,6 @@ CONST_ROADMAP_EVIDENCE_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
     "regression_commit": re.compile(r"[0-9a-fA-F]{7,40}"),
 }
 CONST_GH_PROJECT_SINGLE_SELECT_TYPE: Final[str] = "SINGLE_SELECT"
-CONST_GH_PROJECT_TEXT_TYPE: Final[str] = "TEXT"
 CONST_GH_RAW_CONTENT_ACCEPT: Final[str] = "Accept: application/vnd.github.raw+json"
 
 # ── Multi-Scale Semantic Outline & Inspection Scanner ────────────────────────
@@ -3723,28 +3547,7 @@ CONST_GITHUB_KNOWN_HOSTS_LINES: Final[tuple[str, ...]] = (
     ),
 )
 
-# ── Issue Closure From Merged Pull Requests ──────────────────────────────────
-# GitHub's closing keywords. A pull request body using any of these links the issue, but
-# GitHub only acts on the link when the pull request merges into the DEFAULT branch, so a
-# pull request targeting a release branch leaves its issue open indefinitely.
-# https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue
-CONST_ISSUE_CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
-    {
-        "close",
-        "closes",
-        "closed",
-        "fix",
-        "fixes",
-        "fixed",
-        "resolve",
-        "resolves",
-        "resolved",
-    }
-)
-# The phrase a pull request body names an item with when it delivers part of it: an item planned
-# as several pull requests says `Part of #N` in each but the last, which closes it. GitHub gives
-# the phrase no meaning, so it closes nothing; it is matched case-insensitively, word by word.
-CONST_ISSUE_PART_PHRASE: Final[str] = "part of"
+# ── Issue And Milestone States ───────────────────────────────────────────────
 CONST_ISSUE_STATE_OPEN: Final[str] = "open"
 CONST_ISSUE_STATE_CLOSED: Final[str] = "closed"
 CONST_GH_MILESTONE_STATE_ALL: Final[str] = "all"
@@ -3756,40 +3559,9 @@ CONST_GH_MILESTONE_STATE_FILTERS: Final[frozenset[str]] = frozenset(
 CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 
 # ── Pull Request Grounding ───────────────────────────────────────────────────
-# Readiness requires a pull request to close exactly one issue and to change that issue's task
-# file. The release pull request, `release/vX.Y.Z` into `main`, delivers a release rather than
-# one item, and is exempt. So is a release-process pull request from the same repository into
-# `release/vX.Y.Z`, but only by the files it changes (#1344): the cut, `chore/cut-vX.Y.Z`, only
-# modifies the cut's files and removes changelog fragments, and the merge of `main`,
-# `chore/open-vX.Y.Z`, changes only the cut's files and what `main` changed since its merge
-# base with the release branch. Either head may end in `-<slug>`.
-CONST_RELEASE_BRANCH_PREFIX: Final[str] = "release/"
-CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
-    rf"{CONST_RELEASE_BRANCH_PREFIX}v(?P<version>\d+\.\d+\.\d+)"
-)
-CONST_RELEASE_PROCESS_CUT_KIND: Final[str] = "cut"
-CONST_RELEASE_PROCESS_OPEN_KIND: Final[str] = "open"
-CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
-    rf"chore/(?P<kind>{CONST_RELEASE_PROCESS_CUT_KIND}|{CONST_RELEASE_PROCESS_OPEN_KIND})"
-    r"-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
-)
-# The files the cut commit modifies, besides the `changelog.d/` fragments it removes: what
-# `devops roadmap close` lists for the cut, and all a cut pull request may modify.
-CONST_RELEASE_CUT_FILES: Final[tuple[str, ...]] = (
-    CONST_PYPROJECT_FILENAME,
-    str(CONST_INIT_PY_PATH),
-    CONST_UV_LOCK_FILENAME,
-    CONST_CHANGELOG_FILENAME,
-    CONST_ROADMAP_DOCUMENT_PATH,
-)
-# Files every pull request into a release branch used to edit, so each merge made every other
-# open pull request conflict. The cut commit writes both: `CHANGELOG.md`'s section for the
-# version from `changelog.d/`, and `docs/ROADMAP.md` with `devops roadmap render`. Once the cut
-# has written that section, a critical fix edits it in its own pull request (#1450).
-CONST_RELEASE_SHARED_FILES: Final[tuple[str, ...]] = (
-    CONST_CHANGELOG_FILENAME,
-    CONST_ROADMAP_DOCUMENT_PATH,
-)
+# Readiness holds a pull request to the one item it delivers: it targets the default branch,
+# closes exactly one open issue of its repository that is on the roadmap board, and changes that
+# issue's task file. GitHub closes the issue when the pull request merges.
 CONST_AGENT_TASKS_DIR: Final[str] = "docs/agent/tasks"
 # `task-<issue>-<slug>.md` directly under the tasks directory. The number is read as an
 # integer, so `task-089-x.md` belongs to #89.
@@ -3799,22 +3571,16 @@ CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
 # The `pulls/{n}/files` statuses under which the file is in the pull request's head and was
 # written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
 # only) and unchanged. `modified` is an edit in place under the same name.
-CONST_PR_FILE_MODIFIED_STATUS: Final[str] = "modified"
-CONST_PR_FILE_REMOVED_STATUS: Final[str] = "removed"
-CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset(
-    {"added", CONST_PR_FILE_MODIFIED_STATUS, "renamed"}
-)
-# The statuses under which a pull request adds, modifies, renames or removes the file.
-CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {
-    CONST_PR_FILE_REMOVED_STATUS
-}
-# `GET repos/{repo}/compare/{base}...{head}` lists the changed files on its first page only, at
-# most 300 for the whole comparison whatever the page size, so a list that long may be cut
-# short. One commit per page keeps the commits it also returns small.
-CONST_GH_COMPARE_FILES_CAP: Final[int] = 300
-CONST_GH_COMPARE_COMMITS_PER_PAGE: Final[int] = 1
+CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset({"added", "modified", "renamed"})
+# GitHub's `closingIssuesReferences` page sizes for one readiness read: the issues a pull request
+# closes, where more than one is already a blocker, and the board cards of each, where an issue
+# on more boards than GraphQL's page maximum of 100 does not occur.
+CONST_PR_CLOSING_ISSUES_PAGE: Final[int] = 10
+CONST_PR_CLOSING_ISSUE_CARDS_PAGE: Final[int] = 100
+# The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
+# so a pull request that a bot or another person owns is never updated.
+CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
 # The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151).
-# docs/ROADMAP.md is explicitly excluded because it is a generated view.
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
     "AGENTS.md",
     "src/devops_cli/ai/tasks/*.md",
@@ -3881,10 +3647,10 @@ CONST_GITIGNORE_PATTERN_STYLE: Final[str] = "gitignore"
 # `deleteProjectV2Workflow` -- there is no mutation that enables or configures one -- so
 # these are reported as a gap against the live board rather than applied.
 # Auto-add stays off because intake (#742) is the one way onto the board; auto-close stays off
-# because it closes an issue whose Status is set to Done, skipping closure's summary (#743); and
-# auto-archive stays off because archived items drop out of the item lists the roadmap jobs
-# read. A pull request is linked only when it targets the default branch, so for one into
-# `release/*` reconcile's own title and body parser is the only path to In Review.
+# because an issue closes only when the pull request that closes it merges; and auto-archive
+# stays off because archived items drop out of the item lists the roadmap jobs read. GitHub
+# links a pull request into the default branch to the issues it closes, so the built-in
+# workflow sets In Review and `devops gh project sync` reads no pull request text.
 CONST_PROJECT_WORKFLOW_EXPECTATIONS: Final[dict[str, str]] = {
     "Item added to project": "Set Status to New",
     "Item closed": "Set Status to Done",
@@ -3892,10 +3658,6 @@ CONST_PROJECT_WORKFLOW_EXPECTATIONS: Final[dict[str, str]] = {
     "Pull request linked to issue": "Set Status to In Review",
     "Pull request merged": "Set Status to Done",
 }
-# The heading GitHub writes above its generated release summary. A release here is cut
-# from one `feat(release)` pull request, so the summary lists that pull request alone and
-# carries no information the changelog does not.
-CONST_GENERATED_NOTES_HEADING: Final[str] = "What's Changed"
 # Stand-ins for values a dry run cannot know. A node address and an assigned NodePort are
 # only resolved by talking to the cluster, so a preview names their shape rather than
 # inventing a concrete one that describes some other cluster.
@@ -4208,13 +3970,11 @@ CONST_VERIFIED_BY_DETERMINISTIC_PREFIX: Final[str] = "deterministic:"
 
 # ── Review Report Integrity (#948) ───────────────────────────────────────────
 # Files a review keeps off persona pages, by repository-relative path: planning documents and
-# generated references, where no persona finding held up in the release/v0.2.25 reviews. Lockfiles
+# generated references, where no persona finding held up in past branch reviews. Lockfiles
 # (`CONST_REVIEW_GENERATED_FILES`) stay off by name, for their size. Both still reach the secret
 # scan. Patterns follow `PurePath.full_match`.
 CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     CONST_CHANGELOG_FILENAME,
-    f"{CONST_CHANGELOG_FRAGMENTS_DIR}/**",
-    CONST_ROADMAP_DOCUMENT_PATH,
     f"{CONST_AGENT_TASKS_DIR}/**",
     "docs/adr/**",
     "docs/commands/*.md",

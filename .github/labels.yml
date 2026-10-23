@@ -36,7 +36,7 @@
 
 - name: "type/epic"
   color: "3E4B9E"
-  description: "High-level tracking epic or release parent issue coordinating deliverables"
+  description: "High-level tracking epic coordinating deliverables"
 
 # ── Scope Labels ────────────────────────────────────────────────────────────
 - name: "scope/ai"
@@ -77,7 +77,7 @@
 
 - name: "scope/release"
   color: "1D76DB"
-  description: "Release coordination, changelog generation, and milestone epics"
+  description: "The release-please workflow, the changelog and the published artifacts"
 
 - name: "scope/ci"
   color: "1D76DB"
@@ -87,18 +87,22 @@
   color: "5319E7"
   description: "Docker container images, DevContainers, and infrastructure tooling"
 
-- name: "release"
-  color: "1D76DB"
-  description: "Pull request or issue associated with a release cut"
+- name: "autorelease: pending"
+  color: "EDEDED"
+  description: "The release pull request that release-please keeps open"
+
+- name: "autorelease: tagged"
+  color: "EDEDED"
+  description: "A release pull request whose release release-please created"
 
 # ── Priority Labels ─────────────────────────────────────────────────────────
 - name: "priority/p0-critical"
   color: "B60205"
-  description: "Urgent blockages, critical vulnerabilities, or release blockers"
+  description: "Urgent blockages or critical vulnerabilities"
 
 - name: "priority/p1-high"
   color: "D93F0B"
-  description: "High impact work required for upcoming release milestone"
+  description: "High impact work for the current milestone"
 
 - name: "priority/p2-medium"
   color: "FBCA04"
@@ -132,7 +136,7 @@
 # ── Roadmap Labels ──────────────────────────────────────────────────────────
 - name: "needs-split"
   color: "FBCA04"
-  description: "Too big for one pull request; reprioritization descopes it until it is split"
+  description: "Too big for one pull request; split it before work starts"
 
 - name: "source/agent"
   color: "5319E7"

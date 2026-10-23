@@ -5,25 +5,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import pydantic
 import pytest
-from packaging.version import Version
 
 from devops_cli.ai.review.adjudication import Verdict
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.constants import CONST_STATUS_VERIFIED
-from devops_cli.exceptions.validation import ValidationError
-from devops_cli.release.changelog_fragments import ChangelogFragment
-from devops_cli.roadmap.store import Candidate, Item, Release
+from devops_cli.roadmap.store import Candidate, Item, Milestone
 from tests.support.builders import (
     make_candidate,
-    make_changelog_fragment,
     make_finding,
     make_item,
-    make_release,
+    make_milestone,
     make_verdict,
 )
 
@@ -42,19 +37,13 @@ _BUILDERS = [
         make_item, Item, lambda built: built.url.startswith("https://example.com/"), id="item"
     ),
     pytest.param(
-        make_release, Release, lambda built: isinstance(built.version, Version), id="release"
+        make_milestone, Milestone, lambda built: built.title == "2026-11-05", id="milestone"
     ),
     pytest.param(
         make_candidate,
         Candidate,
         lambda built: built.url.startswith("https://example.com/"),
         id="candidate",
-    ),
-    pytest.param(
-        make_changelog_fragment,
-        ChangelogFragment,
-        lambda built: built.categories == {"Added": ["- An entry."]},
-        id="changelog-fragment",
     ),
 ]
 
@@ -64,8 +53,8 @@ def test_each_builder_builds_a_valid_object_from_its_defaults(
     build: Callable[[], Any], built_type: type, is_valid: Callable[[Any], bool]
 ) -> None:
     """Each builder's defaults make an object of exactly its type that holds what makes it
-    valid: a finding its own `is_empty` keeps, a Release title that parses as a version, a URL
-    on `example.com`, a fragment with one entry."""
+    valid: a finding its own `is_empty` keeps, a milestone with a title and a URL on
+    `example.com`."""
     built = build()
     assert (type(built), is_valid(built)) == (built_type, True)
 
@@ -104,22 +93,16 @@ def test_each_builder_builds_a_valid_object_from_its_defaults(
             id="item-url",
         ),
         pytest.param(
-            partial(make_release, title="v2.1.0"),
-            lambda built: built.version,
-            Version("2.1.0"),
-            id="release",
+            partial(make_milestone, title="Q4 hardening", number=3),
+            lambda built: (built.number, built.title),
+            (3, "Q4 hardening"),
+            id="milestone",
         ),
         pytest.param(
             partial(make_candidate, number=9, labels=("type/bug",)),
             lambda built: (built.labels, built.url),
             (("type/bug",), "https://example.com/octo/repo/issues/9"),
             id="candidate",
-        ),
-        pytest.param(
-            partial(make_changelog_fragment, issue=42, text="### Fixed\n- A fix.\n"),
-            lambda built: (built.path, built.issue, built.categories),
-            (Path("changelog.d/42.md"), 42, {"Fixed": ["- A fix."]}),
-            id="changelog-fragment",
         ),
     ],
 )
@@ -137,7 +120,7 @@ def test_an_override_reaches_the_built_object(
         pytest.param(partial(make_finding, reportable="maybe"), id="finding"),
         pytest.param(partial(make_finding, saved=True, introduced="maybe"), id="saved-finding"),
         pytest.param(partial(make_item, number="many"), id="item"),
-        pytest.param(partial(make_release, number="many"), id="release"),
+        pytest.param(partial(make_milestone, number="many"), id="milestone"),
         pytest.param(partial(make_candidate, number="many"), id="candidate"),
     ],
 )
@@ -158,7 +141,7 @@ def test_an_override_the_model_rejects_raises_its_validation_error(
             partial(make_finding, saved=True, persona_name="qa"), "persona_name", id="saved-finding"
         ),
         pytest.param(partial(make_item, nmuber=3), "nmuber", id="item"),
-        pytest.param(partial(make_release, titel="v2.0.0"), "titel", id="release"),
+        pytest.param(partial(make_milestone, titel="Q4"), "titel", id="milestone"),
         pytest.param(partial(make_candidate, label=("type/bug",)), "label", id="candidate"),
     ],
 )
@@ -169,31 +152,3 @@ def test_an_override_the_model_has_no_field_for_raises_a_type_error_naming_it(
     `TypeError` naming it, rather than being dropped or read through the alias."""
     with pytest.raises(TypeError, match=unknown):
         build()
-
-
-@pytest.mark.parametrize(
-    ("text", "refusal"),
-    [
-        pytest.param(
-            "An entry with no category.\n",
-            "changelog.d/7.md:1 is outside a category",
-            id="text-outside-a-category",
-        ),
-        pytest.param(
-            "### Added\n\n",
-            "changelog.d/7.md holds no changelog entry",
-            id="a-heading-with-no-entry",
-        ),
-    ],
-)
-def test_a_fragment_the_reader_refuses_is_refused_by_the_builder_naming_its_file(
-    text: str, refusal: str
-) -> None:
-    """The builder parses a fragment as `changelog.d/` is read, so it raises the reader's own
-    error for that text, naming `changelog.d/<issue>.md`."""
-    with pytest.raises(ValidationError) as refused:
-        make_changelog_fragment(issue=7, text=text)
-    assert (refused.value.details["path"], str(refused.value).startswith(refusal)) == (
-        "changelog.d/7.md",
-        True,
-    )

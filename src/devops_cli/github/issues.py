@@ -361,17 +361,23 @@ def _is_trivial_milestone(milestone: str | int | None) -> bool:
     return not cleaned or cleaned in ("none", "null", "clear", "0")
 
 
-def _find_milestone_match(items: Iterable[Any], cleaned: str) -> int | None:
-    """Find matching milestone integer number from API items, reading no further once found."""
-    candidates = {cleaned, cleaned.lstrip("v"), f"v{cleaned.lstrip('v')}"}
-    for m in items:
-        if isinstance(m, dict) and m.get("title") in candidates and "number" in m:
-            return int(m["number"])
-    return None
+def _find_milestone_match(items: Iterable[Any], title: str) -> int | None:
+    """The number of the milestone with the exact title `title`, reading no further once found.
+
+    A title is any text, so no title is read as a version.
+    """
+    return next(
+        (
+            int(m["number"])
+            for m in items
+            if isinstance(m, dict) and m.get("title") == title and "number" in m
+        ),
+        None,
+    )
 
 
 def _resolve_milestone_number(repo: str, milestone: str | int | None) -> int | None:
-    """Resolve a milestone title or identifier into its GitHub milestone integer number."""
+    """Resolve a milestone number, or else its exact title, into its GitHub milestone number."""
     if _is_trivial_milestone(milestone):
         return None
     if isinstance(milestone, int):

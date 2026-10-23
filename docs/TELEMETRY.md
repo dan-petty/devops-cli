@@ -49,8 +49,6 @@ eviction window in `k8s/otel/values.yaml` are tracked separately under #1132.
 | `devops_cli_project_forks_total` | Gauge | `1` | GitHub repository forks count. |
 | `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
 | `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
-| `devops_cli_roadmap_release_size_at_start` | Gauge | `1` | Release size at start, by release. |
-| `devops_cli_roadmap_release_decisions` | Gauge | `1` | Decisions on release items by release, group and reason. |
 
 ---
 

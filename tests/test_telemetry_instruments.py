@@ -531,10 +531,10 @@ def test_backends_are_named_by_their_hosts_first_label(served_by: str | None, na
 
 def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None:
     """Verify gauge metrics emit instantaneous point-in-time values rather than accumulating deltas."""
-    emit(PROJECT_ITEMS_TOTAL, 120.0, attributes={"milestone": "v0.4.0", "state": "closed"})
+    emit(PROJECT_ITEMS_TOTAL, 120.0, attributes={"milestone": "2026-11", "state": "closed"})
     tracer_module.get_tracer().flush()
-    emit(PROJECT_ITEMS_TOTAL, 115.0, attributes={"milestone": "v0.4.0", "state": "closed"})
-    emit(PROJECT_ITEMS_TOTAL, 125.0, attributes={"milestone": "v0.4.0", "state": "closed"})
+    emit(PROJECT_ITEMS_TOTAL, 115.0, attributes={"milestone": "2026-11", "state": "closed"})
+    emit(PROJECT_ITEMS_TOTAL, 125.0, attributes={"milestone": "2026-11", "state": "closed"})
 
     points = captured.points("devops_cli_project_items_total")
     metric_entry = captured.metrics[0]
@@ -548,5 +548,5 @@ def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None
         True,
         True,
         True,
-        [("v0.4.0", "closed", 120.0), ("v0.4.0", "closed", 125.0)],
+        [("2026-11", "closed", 120.0), ("2026-11", "closed", 125.0)],
     )

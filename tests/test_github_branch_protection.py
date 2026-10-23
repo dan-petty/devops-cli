@@ -49,7 +49,7 @@ def sample_policy_yaml(tmp_path: Path) -> Path:
     require_code_owner_reviews: true
     require_last_push_approval: true
 
-- branch: "release/*"
+- branch: "stable/*"
   enforce_admins: true
   require_linear_history: true
   allow_force_pushes: false
@@ -76,7 +76,7 @@ def test_load_branch_protection_policies_success(sample_policy_yaml: Path) -> No
     assert policies[0].branch == "main"
     assert policies[0].enforce_admins is True
     assert policies[0].required_status_checks.contexts == ["ci", "pre-commit"]
-    assert policies[1].branch == "release/*"
+    assert policies[1].branch == "stable/*"
 
 
 def test_load_branch_protection_policies_missing_file(tmp_path: Path) -> None:
@@ -266,7 +266,7 @@ def test_audit_branch_protection_branch_filter(mock_get: MagicMock) -> None:
     mock_get.return_value = None
     policies = [
         BranchProtectionPolicy(branch="main"),
-        BranchProtectionPolicy(branch="release/*"),
+        BranchProtectionPolicy(branch="stable/*"),
     ]
     results = audit_branch_protection("dan-petty/devops-cli", policies, branch="main")
     assert len(results) == 1
@@ -334,9 +334,9 @@ def test_sync_branch_protection_failure(mock_get: MagicMock, mock_apply: MagicMo
 @patch("devops_cli.github.branch_protection.get_remote_branch_protection")
 def test_sync_branch_protection_fetch_failure(mock_get: MagicMock) -> None:
     mock_get.side_effect = GitHubOperationError("API rate limit exceeded")
-    policies = [BranchProtectionPolicy(branch="main"), BranchProtectionPolicy(branch="release/*")]
+    policies = [BranchProtectionPolicy(branch="main"), BranchProtectionPolicy(branch="stable/*")]
     res = sync_branch_protection("dan-petty/devops-cli", policies, dry_run=False)
-    assert res.failed_branches == ["main", "release/*"]
+    assert res.failed_branches == ["main", "stable/*"]
 
 
 @patch("devops_cli.commands.gh.audit_branch_protection")

@@ -210,9 +210,9 @@ def test_get_ci_workflow_metrics_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_build_milestone_metric_and_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify milestone metric extraction, completion percentage, and filtering."""
-    raw_open = {"title": "v0.2.25", "state": "open", "open_issues": 3, "closed_issues": 7}
-    raw_closed = {"title": "v0.2.24", "state": "closed", "open_issues": 0, "closed_issues": 10}
-    raw_empty = {"title": "v0.2.26", "state": "open", "open_issues": 0, "closed_issues": 0}
+    raw_open = {"title": "2026-10-01", "state": "open", "open_issues": 3, "closed_issues": 7}
+    raw_closed = {"title": "2026-09-24", "state": "closed", "open_issues": 0, "closed_issues": 10}
+    raw_empty = {"title": "2026-10-08", "state": "open", "open_issues": 0, "closed_issues": 0}
 
     m_open = _build_milestone_metric(raw_open)
     m_closed = _build_milestone_metric(raw_closed)
@@ -228,10 +228,10 @@ def test_build_milestone_metric_and_filter(monkeypatch: pytest.MonkeyPatch) -> N
     mock_client.api.return_value = json.dumps([raw_open, raw_closed])
     monkeypatch.setattr("devops_cli.github.metrics.GhCliClient", lambda: mock_client)
 
-    filtered = get_milestone_metrics("example/repo", milestone_filter="v0.2.25")
+    filtered = get_milestone_metrics("example/repo", milestone_filter="2026-10-01")
     assert len(filtered) == 1
     assert (filtered[0].milestone, filtered[0].open_items, filtered[0].closed_items) == (
-        "v0.2.25",
+        "2026-10-01",
         3,
         7,
     )
@@ -272,7 +272,7 @@ def test_collect_project_metrics_report(
         monkeypatch.setenv("GIT_COMMITTER_DATE", f"{day}T12:00:00+00:00")
         git(root, "commit", "--quiet", "--allow-empty", "-m", f"release {tag}")
         git(root, "tag", tag)
-    milestone = {"title": "v0.2.25", "state": "closed", "open_issues": 1, "closed_issues": 3}
+    milestone = {"title": "2026-10-01", "state": "closed", "open_issues": 1, "closed_issues": 3}
     github = GitHubFake("example/test-repo", milestones=[milestone])
     github.seed_issue(1, "feat: export", labels=("type/feature",))
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
@@ -288,7 +288,7 @@ def test_collect_project_metrics_report(
         "example/test-repo",
         ["v0.2.25", "v0.2.24", "v0.2.23"],
         2.5,
-        [("v0.2.25", 75.0)],
+        [("2026-10-01", 75.0)],
         [("type/feature", 1)],
     )
 
@@ -355,7 +355,7 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
         ],
         milestones=[
             MilestoneMetric(
-                milestone="v0.2.25",
+                milestone="2026-10-01",
                 state="open",
                 open_items=3,
                 closed_items=7,
@@ -428,7 +428,7 @@ def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
         ],
         milestones=[
             MilestoneMetric(
-                milestone="v0.2.25",
+                milestone="2026-10-01",
                 state="open",
                 open_items=2,
                 closed_items=8,
@@ -583,7 +583,7 @@ def test_record_project_metrics_in_registry() -> None:
         ],
         milestones=[
             MilestoneMetric(
-                milestone="v0.2.25",
+                milestone="2026-10-01",
                 state="open",
                 open_items=3,
                 closed_items=7,
@@ -621,9 +621,11 @@ def test_record_project_metrics_in_registry() -> None:
         reg.get_gauge("devops_cli_project_traffic_paths_total", {"path": "/repo"}),
         reg.get_gauge("devops_cli_project_commits_total", {"release": "v0.2.25"}),
         reg.get_gauge("devops_cli_project_prs_total", {"release": "v0.2.25"}),
-        reg.get_gauge("devops_cli_project_items_total", {"milestone": "v0.2.25", "state": "open"}),
         reg.get_gauge(
-            "devops_cli_project_items_total", {"milestone": "v0.2.25", "state": "closed"}
+            "devops_cli_project_items_total", {"milestone": "2026-10-01", "state": "open"}
+        ),
+        reg.get_gauge(
+            "devops_cli_project_items_total", {"milestone": "2026-10-01", "state": "closed"}
         ),
     ) == (
         2.0,

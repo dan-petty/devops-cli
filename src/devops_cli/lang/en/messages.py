@@ -517,82 +517,6 @@ class DocsMessages:
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"
     )
-    compacting_docs: str = "Compacting documentation for series [cyan]{series}[/cyan]..."
-    compacted_success: str = (
-        "✓ Successfully compacted documentation for series [bold cyan]{series}[/bold cyan] "
-        "({bytes_saved} bytes saved)."
-    )
-    compacted_up_to_date: str = (
-        "✓ Documentation is already compacted for series [cyan]{series}[/cyan]."
-    )
-    compact_check_failed: str = (
-        "✗ Documentation compaction required for series [bold red]{series}[/bold red]. "
-        "Run 'devops docs compact --series {series}' to compact."
-    )
-    archive_created: str = "✓ Historical sprint log archived to: {path}"
-
-
-@dataclass(frozen=True)
-class ReleaseMessages:
-    bumped_version: str = "Bumped version to {version}"
-    status_header: str = "DevOps CLI Release Status"
-    current_version: str = "Current Version"
-    latest_tag: str = "Latest Git Tag"
-    working_tree: str = "Working Tree Clean"
-    preparing_release: str = "Preparing release version [cyan]{version}[/cyan]..."
-    updated_pyproject: str = "✓ Updated pyproject.toml to version [bold]{version}[/bold]"
-    updated_init: str = "✓ Updated src/devops_cli/__init__.py to version [bold]{version}[/bold]"
-    updated_changelog: str = (
-        "✓ Updated CHANGELOG.md with release header [bold][{version}] - {date}[/bold]"
-    )
-    invalid_version: str = (
-        "Invalid semantic version '{version}'. Expected format: X.Y.Z (e.g., 0.1.8)"
-    )
-    verification_passed: str = "✓ All release verification checks passed successfully."
-    verification_failed: str = "✗ Release verification failed: {reason}"
-    tag_created: str = "✓ Created git tag [bold]{tag}[/bold]"
-    tag_pushed: str = "✓ Pushed commit and tag [bold]{tag}[/bold] to origin"
-    notes_not_found: str = "No changelog entry found for version {version} in CHANGELOG.md"
-    notes_in_sync: str = "✓ {tag} already matches CHANGELOG.md"
-    notes_republished: str = "✓ Republished {tag} from CHANGELOG.md{stripped}"
-    notes_republish_failed: str = "✗ Could not update {tag}"
-    notes_unreadable: str = "Skipped {tag}: the published description could not be read"
-    notes_no_changelog: str = "Skipped {tag}: no changelog entry"
-    notes_details_left_out: str = "Each entry's details are left out to fit GitHub's size limit."
-    notes_full_notes: str = "The full notes are in {full_notes}."
-    notes_full_notes_linked: str = "[`CHANGELOG.md` at v{version}]({url})"
-    notes_full_notes_unlinked: str = "`CHANGELOG.md` at v{version}"
-    notes_entries_left_out: str = "Entries left out to fit: {count}."
-    dry_run_prepare: str = (
-        "[yellow][dry-run][/yellow] Would bump version to {version} and sync docs/README"
-    )
-    dry_run_tag: str = (
-        "[yellow][dry-run][/yellow] Would create git tag {tag} and commit release files"
-    )
-    creating_release_branch: str = "Creating release branch [cyan]{branch}[/cyan]..."
-    branch_created: str = "✓ Created and checked out release branch [bold]{branch}[/bold]"
-    creating_release_pr: str = "Opening release Pull Request for [cyan]v{version}[/cyan]..."
-    pr_created: str = "✓ Created Release Pull Request: [bold green]{url}[/bold green]"
-    pr_failed: str = "✗ Failed to create Release Pull Request: {error}"
-    dry_run_pr: str = (
-        "[yellow][dry-run][/yellow] Would create release branch {branch}, "
-        "commit release files, and open Pull Request for v{version}"
-    )
-    branch_ready: str = "Branch '{branch}' is ready. You can manually open the PR on GitHub."
-    changelog_version_diff: str = "Warning: Latest CHANGELOG.md version ({changelog_ver}) differs from pyproject version ({pyproject_ver})"
-    working_tree_dirty: str = (
-        "Git working directory is dirty. Commit or stash changes before releasing."
-    )
-    docs_out_of_sync: str = "Documentation is out of sync. Run 'devops release prepare' or 'devops docs generate --sync-readme'"
-    running_ci_gate: str = "Running CI quality gate..."
-    ci_gate_failed: str = "CI Quality Gate checks failed. Resolve errors before releasing."
-    cannot_determine_version: str = "Could not determine target release version."
-    push_branch_failed: str = "Warning: Could not push branch to remote: {stderr}"
-    push_refused_ruleset: str = (
-        "Push refused by repository ruleset (GH013). "
-        "Direct pushes to release branches require Write role bypass on the release ruleset "
-        "(ruleset 23059172 in Settings → Rules → Rulesets). Git output: {reason}"
-    )
 
 
 @dataclass(frozen=True)
@@ -670,10 +594,16 @@ class PRMessages:
     no_prs_found: str = "No pull requests found matching criteria."
     pr_created: str = "✓ Pull request created: #{number} ({url})"
     pr_updated: str = "✓ Pull request #{number} updated: {url}"
-    invalid_base_branch: str = (
-        "Invalid PR base branch '{base}'. Per repository governance, feature PRs must target an "
-        "active release branch (e.g. release/vX.Y.Z) rather than 'main'."
+    draft_created: str = (
+        "Opened a draft pull request: {url}. When its checks pass, mark it ready with devops pr "
+        "ready."
     )
+    draft_created_into: str = (
+        "Opened a draft pull request into {base}. When its checks pass, mark it ready with "
+        "devops pr ready."
+    )
+    # What `devops pr create` names as the base when --base is not given.
+    create_default_base: str = "the default branch"
     gh_cli_required: str = (
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."
@@ -723,131 +653,37 @@ class PRMessages:
     update_all_dry_run_heading: str = (
         r"[yellow]\[dry-run][/yellow] Planned external requests to update all open PRs:"
     )
-    # `devops pr copilot-pass` (#1345).
-    copilot_pass_requested: str = (
-        "Requested Copilot pass {pass_number} of {budget} on PR #{number}."
-    )
-    copilot_budget_spent: str = (
-        "Copilot budget spent: {used} of {budget} passes on PR #{number}, so no pass was "
-        "requested. Under the stop rule in RELEASE_CYCLE.md, a remaining comment blocks the "
-        "release only if it is a regression the release introduces."
-    )
-    copilot_pass_not_release_pr: str = (
-        "PR #{number} is not the release pull request ({head} into {base}): Copilot reviews only "
-        "release/vX.Y.Z into the default branch (ADR 0004), so no pass was requested."
-    )
-    copilot_pass_not_open: str = (
-        "PR #{number} is {state}, not open, so no pass was requested: a pass on it would spend "
-        "Copilot's budget on a release that is not open."
-    )
-    copilot_passes_unread: str = (
-        "Copilot's passes on PR #{number} could not be read, so no pass was requested: {reason}"
-    )
-    copilot_pass_request_failed: str = "Requesting a Copilot pass on PR #{number} failed: {error}"
-    # What a failed request is named by when gh says nothing.
-    copilot_pass_request_exit_code: str = "exit code {code}"
-    copilot_pass_dry_run_heading: str = (
-        "Dry run: no request was made. copilot-pass would make these requests, in order:"
-    )
-    copilot_pass_plan_branch_pr_fallback: str = "the REST read names no open pull request, or fails"
-    copilot_pass_plan_release: str = "PR #{number} is the open release pull request"
-    copilot_pass_plan_request: str = "Copilot's review of {repo} pull request {number}"
-    # `devops pr threads file-issues` (#1345).
-    thread_issue_title: str = "chore(review): follow up {location} from #{number}"
-    thread_issue_intro: str = (
-        "A review thread on #{number} that the stop rule in RELEASE_CYCLE.md Step 3 left for a "
-        "later release, once the release pull request's Copilot passes were spent:"
-    )
-    thread_issue_cut: str = "[cut at {chars} characters]"
-    thread_issue_source: str = "{location}, {url}"
-    # Where a thread on a whole file sits, which has no line: its first comment tells it from
-    # another such thread on the file.
-    thread_location_file: str = "{path}, comment {comment}"
-    thread_filed_reply: str = (
-        "Filed as #{issue}, a follow-up issue for a later release under the stop rule in "
-        "RELEASE_CYCLE.md Step 3."
-    )
-    threads_not_release_pr: str = (
-        "PR #{number} is not the release pull request ({head} into {base}): the stop rule "
-        "files the release pull request's threads, so none was filed."
-    )
-    threads_not_open: str = (
-        "PR #{number} is {state}, not open: the stop rule files the threads of the open release "
-        "pull request, so none was filed."
-    )
-    threads_unknown_keep: str = (
-        "--keep names {ids}, which is not an unresolved review thread of PR #{number}, so no "
-        "thread was filed or resolved: the thread it meant to keep would have been. Check the "
-        "ids with devops pr threads list {number} --unresolved-only."
-    )
-    threads_viewer_unread: str = (
-        "GitHub named no account for the GraphQL calls, so no reply could be told to be yours."
-    )
-    threads_none: str = "PR #{number} has no unresolved review thread."
-    thread_kept: str = "Kept {thread} ({location}) open."
-    thread_to_file: str = "Would file {thread} ({location}) as: {title}"
-    thread_filed: str = "Filed {thread} ({location}) as #{issue} and resolved it."
-    thread_to_reuse: str = (
-        "Would name #{issue}, which an earlier run opened for {thread} ({location}), in a reply "
-        "and resolve the thread."
-    )
-    thread_reused: str = (
-        "Named #{issue}, which an earlier run opened for {thread} ({location}), in a reply and "
-        "resolved the thread."
-    )
-    thread_seen_filed: str = (
-        "{thread} ({location}) was filed as #{issue} by an earlier run; --confirm resolves it."
-    )
-    thread_resolved_filed: str = (
-        "Resolved {thread} ({location}), filed as #{issue} by an earlier run."
-    )
-    thread_outdated: str = (
-        "It is outdated: a push after the comment changed its lines, which may have dealt with it."
-    )
-    thread_answer_failed: str = (
-        "{thread} ({location}) is filed as #{issue}, but replying in it or resolving it failed: "
-        "{error}. Run the command again: it finds #{issue} by the thread's link and opens no "
-        "second issue."
-    )
-    threads_preview_note: str = "Nothing was written. Run with --confirm to file them."
-    threads_dry_run_heading: str = (
-        "Dry run: no request was made. file-issues would make these requests, in order:"
-    )
-    threads_plan_release: str = "PR #{number} is the open release pull request"
-    threads_plan_more_comments: str = "a thread has more comments than its first page holds"
-    threads_plan_not_kept: str = "a thread is not kept"
-    threads_plan_unanswered: str = (
-        "a thread is not kept and holds no reply of yours naming its issue"
-    )
-    threads_plan_unlinked: str = (
-        "no open issue links the thread; labelled source/agent only when Copilot started it"
-    )
-    threads_plan_each: str = "for each such thread"
-    threads_plan_page: str = "per page, until the last"
-    threads_plan_comment_page: str = "per page of a thread's later comments, until the last"
-    copilot_pass_plan_below_budget: str = "its Copilot passes are below release_copilot_passes"
-    copilot_pass_plan_per_page: str = "per page, until the last"
     update_table_title: str = "Pull Request Branch Update Summary"
+    grounding_not_into_default: str = (
+        "PR #{number} is not grounded: it targets {base}, not the default branch {default}. "
+        "Change its base with devops pr edit {number} --base {default}."
+    )
+    grounding_no_default_branch: str = (
+        "PR #{number} is not grounded: GitHub names no default branch for {repo}."
+    )
+    grounding_closing_unread: str = (
+        "PR #{number} is not grounded: the issues it closes could not be read ({error})."
+    )
     grounding_closes_no_issue: str = (
-        "PR #{number} is not grounded: its body closes no issue in {repo}, nor delivers part of "
-        "one. Name the one issue it delivers with a closing keyword, Closes #<issue>, or, for "
-        "one of several PRs that deliver an item, Part of #<issue>."
+        "PR #{number} is not grounded: it closes no issue. Put Closes #<issue> in its body for "
+        "the one issue it delivers."
     )
     grounding_closes_several_issues: str = (
-        "PR #{number} is not grounded: its body closes {count} issues ({issues}), and a PR "
-        "delivers exactly one."
+        "PR #{number} is not grounded: it closes {count} issues ({issues}), and a PR delivers "
+        "exactly one."
     )
-    grounding_closes_and_parts: str = (
-        "PR #{number} is not grounded: its body closes {issues} and delivers part of {parts}, "
-        "and a PR either closes the one issue it delivers or delivers part of one."
+    grounding_closes_foreign_issue: str = (
+        "PR #{number} is not grounded: it closes {issue}, which is not an issue of {repo}."
     )
-    grounding_several_parts: str = (
-        "PR #{number} is not grounded: its body delivers part of {count} issues ({parts}), and "
-        "a PR delivers part of exactly one."
+    grounding_closes_closed_issue: str = (
+        "PR #{number} is not grounded: it closes #{issue}, which is not open."
     )
-    grounding_part_of_closed_item: str = (
-        "PR #{number} is not grounded: it delivers part of #{issue}, which is not open. Each "
-        "part lands while its item is open, and the PR that closes the item is its last."
+    grounding_board_unread: str = (
+        "PR #{number} is not grounded: the roadmap board in {path} could not be read ({error})."
+    )
+    grounding_issue_off_board: str = (
+        "PR #{number} is not grounded: #{issue} is not on the roadmap board, project {board}. "
+        "File new work with devops roadmap intake, which puts it on the board."
     )
     grounding_task_file_missing: str = (
         "PR #{number} is not grounded: it adds, modifies or renames no {pattern} for #{issue}."
@@ -857,52 +693,6 @@ class PRMessages:
     )
     grounding_tasks_dir_unread: str = (
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
-    )
-    # A release-process PR changes more than its kind may, so it is held to grounding (#1344).
-    grounding_cut_changes_more: str = (
-        "PR #{number} is not grounded: a cut is exempt when it only modifies the cut's files "
-        "({cut_files}) and removes changelog fragments ({fragments}), as the cut commit does, "
-        "and {head} also changes {outside}."
-    )
-    grounding_merge_changes_more: str = (
-        "PR #{number} is not grounded: a merge of {default} is exempt when it only changes the "
-        "cut's files and the files {default} changed since its merge base with {base}, and "
-        "{head} also changes {outside}."
-    )
-    grounding_merge_changes_unread: str = (
-        "PR #{number} is not grounded: the files {default} changed since its merge base with "
-        "{base} could not be read, so nothing shows that {head} only merges {default} ({error})."
-    )
-    grounding_merge_changes_capped: str = (
-        "GitHub listed {count} files, its limit, so the list may be cut short"
-    )
-    # The PR payload names no default branch, so no compare is sent and the blocker names it.
-    grounding_unnamed_default_branch: str = "the default branch"
-    grounding_no_default_branch: str = "the pull request names no default branch for {repo}"
-    grounding_release_files_changed: str = (
-        "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
-        "never conflict on them."
-    )
-    # Not after the cut, when a critical fix's entry goes in the version's CHANGELOG.md section.
-    grounding_release_files_fragment: str = " Add its changelog entry as {fragment} instead."
-    # A part PR adds no fragment: the PR that closes the item adds it, so parts never conflict.
-    grounding_release_files_part_fragment: str = (
-        " The PR that closes #{issue} adds its changelog entry as {fragment}."
-    )
-    grounding_changelog_unread: str = (
-        "PR #{number} changes CHANGELOG.md, but {base}'s CHANGELOG.md could not be read to see "
-        "whether the cut wrote its section ({error})."
-    )
-    grounding_item_not_in_release: str = (
-        "PR #{number} {delivers}, which is {placement}, not in {release}: a PR into "
-        "{base} delivers an item of {release}, whose scope was fixed when it started."
-    )
-    grounding_item_closes: str = "closes #{issue}"
-    grounding_item_part: str = "delivers part of #{issue}"
-    grounding_item_in_release: str = "in {release}"
-    grounding_item_in_backlog: str = "in the backlog"
-    grounding_item_unread: str = (
-        "PR #{number} is not grounded: #{issue} could not be read ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
     hardening_report_title: str = "Defect Pull Request Hardening Audit"
@@ -1153,6 +943,7 @@ class CIMessages:
     mypy_check: str = "mypy (py314 strict)"
     uv_check: str = "uv check"
     uv_lock: str = "uv lockfile freshness"
+    uv_build: str = "uv build (wheel and sdist)"
     uv_outdated: str = "uv tree --outdated"
     dependency_audit: str = "uv audit and npm audit"
     deptry: str = "deptry"
@@ -1268,8 +1059,6 @@ class DevcontainerMessages:
     no_manifest_found: str = "No devcontainer.json found: {path}"
     manifest_valid: str = "✓ DevContainer manifest is valid: {path}"
     manifest_validation_failed: str = "✗ DevContainer manifest validation failed for {path}:"
-    oci_labels_valid: str = "✓ OCI image labels are valid ({count} labels verified)."
-    oci_labels_failed: str = "✗ OCI image label validation failed:"
     status_table_title: str = "Devcontainer Status"
     col_repository: str = "Repository"
     status_configured: str = "✓ configured"
@@ -1444,56 +1233,7 @@ class OutputMessages:
 
 @dataclass(frozen=True)
 class RoadmapMessages:
-    epic_closed: str = (
-        "Closed as not planned: a release is its milestone, so release epics are retired. "
-        "GitHub issues, milestones and the project board are now the roadmap's source of "
-        "truth (ADR 0001: {adr})."
-    )
-    not_planned_closed: str = (
-        "Closed as not planned: the hand-written roadmap recorded it as {status} "
-        "({location}). It stays on record so intake recognizes the idea as a duplicate if it "
-        "surfaces again (ADR 0001: {adr})."
-    )
-    not_planned_body: str = (
-        "The hand-written roadmap recorded this as not planned before GitHub became the "
-        "roadmap's source of truth. Its text, from {location}:\n\n{text}"
-    )
-    report_title: str = "# Roadmap migration plan for {repo} at {ref}"
-    report_p0: str = "## 1. P0 feature candidates for a later release"
-    report_unfiled: str = "## 2. Open entries without an issue"
-    report_closed: str = "## 3. Open entries whose issue is closed"
-    report_writes: str = "## 4. Planned writes"
-    report_left_alone: str = "### Left alone: set on the board and different from the matrix"
-    report_auto_add: str = (
-        "### Enabled auto-add workflows: turn these off in the board's Workflows page"
-    )
-    report_option_edits: str = (
-        "### Option edits a person makes in the board's field settings, which keep option ids"
-    )
-    report_none: str = "None."
-    report_not_imported: str = (
-        "{path} carries the `devops roadmap render` marker, so it is a generated view and was "
-        "not imported."
-    )
-    default_branch: str = "the default branch"
-    board_created: str = (
-        "Created board #{number} ({url}). Its Status options were replaced, so check the Status "
-        "each built-in workflow sets in its Workflows page. Set `board = {number}` in {config}, "
-        "then run migrate again."
-    )
-    applied: str = "Made {count} planned write(s)."
-    nothing_to_do: str = "Nothing to migrate: GitHub already holds the roadmap."
-    nothing_to_write: str = (
-        "Nothing for migrate to write. Make the option edits listed above in the board's field "
-        "settings."
-    )
-    edits_due: str = (
-        "Make these option edits in the board's field settings first, because the planned "
-        "writes set those options: {edits}. GitHub's API can't keep an option's id, so migrate "
-        "never edits options itself."
-    )
     preview_only: str = "Nothing was written. Run again with --confirm to make these writes."
-    render_written: str = "Wrote {path}: {items} item(s) in {sections} section(s)."
     graphql_budget_refused: str = (
         "GraphQL has {remaining} points left until {reset}, and reading {what} costs about "
         "{cost} with {floor} kept in reserve, so the run stopped before reading and spent "
@@ -1539,166 +1279,6 @@ class RoadmapMessages:
         "{repo}: could not read the GraphQL budget after the round, so it has no spend line: "
         "{kind}: {error}"
     )
-    render_current: str = "## Current release: {title}"
-    render_planned: str = "## Planned release: {title}"
-    render_backlog: str = "## Backlog"
-    render_empty: str = "No items."
-    # `devops roadmap reprioritize` (#740). Each reason completes its action's comment, and the
-    # placeholders are {release}, {next}, {cap}, {limit}, {days} and {detail}.
-    reasons: dict[str, str] = field(
-        default_factory=lambda: {
-            "critical_fix": "a critical fix can join {release} after it starts.",
-            "pull_request": "an open or merged pull request is in flight for it.",
-            "admission": (
-                "after {release} started, only a critical fix can join it. A person can place "
-                "it in a planned release, and that placement stands."
-            ),
-            "p0_feature": (
-                "a P0 feature waits for the next release once {release} has started, and goes "
-                "first when {next} starts."
-            ),
-            "cut": (
-                "{release} is cut, and a critical fix still joins it while its release pull "
-                "request is open, so the fix merges into the release branch before the release "
-                "pull request does."
-            ),
-            "merged": (
-                "the release pull request of {release} has merged, so a critical fix can no "
-                "longer ship in it and goes first into the next release."
-            ),
-            "cap": (
-                "critical fix {detail} took {release} over its limit of {limit} items, and this "
-                "was its lowest-ranked unstarted item that no item staying in it depends on."
-            ),
-            "over_size": (
-                "{release} holds {detail} items, more than its limit of {limit} and more than it "
-                "held when it started, and this was its lowest-ranked unstarted item that no item staying in it depends on."
-            ),
-            "blocked": "it is Blocked and had not started.",
-            "dependency": "it waits on {detail}, open outside {release}.",
-            "needs_split": "it is labeled needs-split, so it must be split before it fits one "
-            "pull request.",
-            "others_done": "every other item in {release} is done, and it had not started.",
-            "fix_stays": "an admitted critical fix leaves {release} only when it is Blocked.",
-            "stalled": (
-                "it had no status change, pull request update or commit for {days} days, so it "
-                "counts as not started again."
-            ),
-            "fix_stalled": (
-                "it had no status change, pull request update or commit for {days} days; as a "
-                "critical fix it stays in {release}."
-            ),
-            "review_idle": (
-                "this item has been in review for {days} days without a status change, pull "
-                "request update or commit, and it holds the cut of {release}."
-            ),
-            "shipped": (
-                "{release} shipped: its release pull request merged and GitHub Release "
-                "{release} is published."
-            ),
-            "not_ready_at_start": "it was New, not Ready, when {release} started.",
-            "fix_new_at_start": "a New critical fix stays in a starting release.",
-            "blocked_at_start": "a Blocked item can't join a starting release ({release}).",
-            "top_up": (
-                "{release} started with fewer than its {cap} items and was topped up to "
-                "{detail} from Ready items, critical fixes and P0 features first."
-            ),
-            "trim": (
-                "{release} started with more than {limit} items, and this was its lowest-ranked "
-                "unstarted item that no item staying in it depends on."
-            ),
-            "depended_on": "{detail} in {release} depends on it.",
-            "priority": "every open P0 and P1 item sits in an open release.",
-        }
-    )
-    # What each action did, in the item's one-line comment; {reason} is one of `reasons`.
-    actions: dict[str, str] = field(
-        default_factory=lambda: {
-            "keep": "Kept in {release}: {reason}",
-            "admit": "Admitted to {release}: {reason}",
-            "to_backlog": "Moved to the backlog: {reason}",
-            "to_next": "Moved to {target}: {reason}",
-            "ready": "Status set to Ready: {reason}",
-            "ready_to_next": "Status set to Ready and moved to {target}: {reason}",
-            "nudge": "Nudge: {reason}",
-            "pull_in": "Moved to {target}: {reason}",
-            "start_next": "{reason}",
-        }
-    )
-    reprioritize_comment: str = "{text} (devops roadmap reprioritize)"
-    reprioritize_title: str = "# Reprioritization of {repo}"
-    reprioritize_current: str = "Current release: {release} ({state})."
-    reprioritize_no_release: str = "No Release is open, so there is no current release."
-    reprioritize_first_run: str = (
-        "First run: the board has no run record yet, so this run records the admitted set of "
-        "{release} and moves nothing. The rules apply to changes made after it."
-    )
-    reprioritize_first_run_at_ship: str = (
-        "First run: the board has no run record yet, and {shipped} has shipped, so {release} "
-        "is under way. This run records the admitted set of {release}, closes every shipped "
-        "milestone still open and moves nothing. The rules apply to changes made after it."
-    )
-    reprioritize_unshipped: str = (
-        "{release} is closed but has not shipped: its release pull request has not merged, or "
-        "GitHub Release {release} is not published. {current} starts only once {release} "
-        "ships, so this run starts nothing. Reopen {release} if it was closed by mistake."
-    )
-    reprioritize_unmigrated: str = (
-        "#739's migration has not finished on this board: {problems}. Run `devops roadmap "
-        "migrate` first, then reprioritize."
-    )
-    reprioritize_unmigrated_missing: str = "its Status field has no {found} option"
-    reprioritize_unmigrated_merged: str = (
-        "its Status field still has {found}, which migrate merges into New"
-    )
-    reprioritize_unmigrated_epics: str = "release epics {found} are still open on it"
-    reprioritize_no_run_record: str = (
-        'The board has no "{card}" draft card, yet {count} item(s) carry this job\'s marks '
-        "({items}), so the job has run before: the card was deleted, archived, converted to "
-        'an issue or renamed. Put it back as a draft issue titled "{card}", unarchived. A first '
-        "run now would admit everything added to the current release since it started."
-    )
-    reprioritize_record_unreadable: str = (
-        'The "{card}" card is on the board, but its run record can\'t be read: its Started '
-        "mark is {started}, not a milestone number, so an older version of the job wrote it or "
-        "it was edited by hand. Set the Started mark in its Job record to the milestone number "
-        "of the release the job last started, as text: for the current release, {release}, "
-        'that is "{number}". Then run the job again.'
-    )
-    reprioritize_record_gone: str = (
-        'The "{card}" card names milestone #{number} as the release the job last started, and '
-        "the repository has no such milestone. Restore it, or set the card's Started mark to "
-        "the milestone number of the release under way."
-    )
-    reprioritize_behind: str = (
-        "{current} is older than {started}, the release the run record names as started, so "
-        "{current} never started and has no admitted set. This run holds no release to its "
-        "rules and moves nothing until {current} ships or is closed."
-    )
-    reprioritize_start: str = "{shipped} shipped, so {starting} starts."
-    reprioritize_start_after_close: str = (
-        "{starting} starts: the release the run record names is closed."
-    )
-    reprioritize_changes: str = "## Changes"
-    reprioritize_release_writes: str = "## Releases and branches"
-    reprioritize_growth: str = "## Release growth"
-    reprioritize_growth_line: str = (
-        "- {release}: {start} at start; joined {joined}{joined_detail}; "
-        "descoped {descoped}{descoped_detail}; start: {start_detail}"
-    )
-    reprioritize_records: str = "## Admitted set"
-    reprioritize_admits: str = "- {release} admits {items}."
-    reprioritize_cleared: str = (
-        "- {items} left {release} after it admitted them: their admitted marks are cleared, "
-        "and a return to {release} is judged again."
-    )
-    reprioritize_left: str = (
-        "- #{number} left {release}, where a job placed it, so a return to {release} is judged "
-        "again."
-    )
-    reprioritize_left_backlog: str = (
-        "- #{number} left the backlog, where a job placed it, so where a person puts it stands."
-    )
     refine_ready_comment: str = "Status set to Ready at {sha} (see proposed design in issue body)."
     refine_split_comment: str = (
         "Proposal needs splitting into {count} items at {sha} (see proposed design in issue body)."
@@ -1718,35 +1298,6 @@ class RoadmapMessages:
         "the model call failed for {count} item(s), and refine skipped them: {items}"
     )
     refine_failed_item: str = "#{number} ({error}, {violations} schema violation(s))"
-    reprioritize_kept_out: str = (
-        "- #{number} was taken out of {release} by a person, as its issue's events show, so it "
-        "stays in the backlog: a person's placement stands."
-    )
-    reprioritize_change_line: str = "- #{number} {title}: {text}"
-    reprioritize_resumed_line: str = (
-        "- #{number} {title}: {text} (finishing what an earlier run began)"
-    )
-    reprioritize_dropped_line: str = (
-        "- #{number} {title}: not finishing what an earlier run began ({text}): a person has "
-        "changed the item since, or the rules no longer decide it, so what that run wrote is "
-        "put back."
-    )
-    reprioritize_unreadable_line: str = (
-        "- #{number} {title}: an earlier run left a change this run can't read, or one about a "
-        "release that is gone, so it is dropped."
-    )
-    reprioritize_run_record: str = (
-        "- The run record names {release}, holding {size} item(s), so the next run holds it "
-        "to its rules."
-    )
-    reprioritize_nothing: str = "Nothing to do: the current release already keeps its rules."
-    reprioritize_preview: str = (
-        "Nothing was written. Run again with --confirm to make these changes."
-    )
-    reprioritize_applied: str = "Made {changes} change(s) and {records} job-record mark(s)."
-    reprioritize_close_release: str = "close Release {release}"
-    reprioritize_create_release: str = "create Release {release}"
-    reprioritize_create_branch: str = "create branch {branch} at {sha}"
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
@@ -1755,7 +1306,6 @@ class RoadmapMessages:
     )
     plan_dry_run_writes: str = "With --confirm, after the reads and before the last request:"
     plan_dry_run_title: str = "# devops roadmap {job} for {repo}"
-    plan_dry_run_render: str = "Then render writes {path}, which makes no request."
     plan_dry_run_notes: tuple[str, ...] = (
         "A board read whose count changes while it is read reads it once more, from its first "
         "page. Pacing a request, whether gh runs it or the GitHub session sends it, may read "
@@ -1771,12 +1321,7 @@ class RoadmapMessages:
             "cursor": "<cursor>",
             "number": "<number>",
             "milestone": "<milestone>",
-            "release": "<release>",
-            "tag": "<tag>",
-            "branch": "<branch>",
-            "sha": "<sha>",
             "url": "<issue url>",
-            "value": "<value>",
             "record": "<job record>",
             "board_id": "<board id>",
             "field_id": "<field id>",
@@ -1791,10 +1336,6 @@ class RoadmapMessages:
             "evidence": "<evidence>",
             "field": "<field>",
             "item": "<item>",
-            "card": "<card>",
-            "new_board": "<new board>",
-            "since": "<since>",
-            "shipped": "<shipped release>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -1804,7 +1345,7 @@ class RoadmapMessages:
             "issues": "the issues ({query})",
             "board_budget": (
                 "GraphQL's points left and the total of board {board}'s items{matching}; the "
-                "read stops here when the points can't cover it"
+                "read stops here when the points cannot cover it"
             ),
             "board_first": "the first page of board {board}'s items{matching}",
             "board_page": "the next page of board {board}'s items{matching}",
@@ -1814,190 +1355,50 @@ class RoadmapMessages:
                 "write stops here when the points are below the reserve, or when someone changed "
                 "the field it writes since the run read it"
             ),
-            "workflows": "board {board}'s workflows",
-            "boards": "{owner}'s boards, to find board {board}",
-            "default_branch": "the default branch and its head",
-            "release_prs": "the release pull requests of {release}",
-            "release_published": "GitHub Release {release}",
-            "open_prs": "every open pull request",
-            "status_at": "when the Status of {subject} last changed",
-            "events": "the events of {subject}",
             "comments": "the comments on {subject}",
-            "dependencies": "the issues {subject} is blocked by",
-            "branch": "branch {branch}",
             "issue": "{subject}",
-            "issue_events": "the repository's issue events since {since}",
             "count": "count the issues matching {query}",
             "closures": "the closes and reopens on {subject}'s timeline",
             "advisory": "the advisory {subject} cites",
             "workflow_run": "the workflow run {subject} cites",
             "commit": "the commit {subject} cites",
-            "create_release": "create Release {release}",
-            "edit_release": "close Release {release}",
-            "delete_release": "delete Release {release}",
-            "create_branch": "create branch {branch} at {sha}",
             "record": "the job record of {subject}",
             "set_field": "set {field} on {subject}",
-            "milestone": "set the milestone of {subject}",
             "comment": "comment on {subject}",
             "label": "label {subject}",
             "add_item": "add {subject} to board {board}",
             "unarchive_card": "restore {subject}'s archived card on board {board}",
-            "close_issue": "close {subject}",
             "close_duplicate": "close {subject} as a duplicate",
             "create_issue": "open an issue for {subject}",
-            "create_card": "create the run record card",
-            "run_record": "the run record",
-            "card_field": "set {field} on {subject}",
-            "remove_card": "remove {subject} from board {board}",
-            "create_board": "create the board",
-            "link_board": "link the new board to the repository",
-            "create_field": "create or align a template field on the new board",
-            "delete_field": "delete the {field} field",
             "budget": "GraphQL's points spent and left, for the run's last line",
-            "merged_prs": "the pull requests merged into {branch}",
-            "pr_files": "the files pull request {subject} changed",
-            "pr_checks": "the check runs of pull request {subject}",
-            "milestone_issues": "the issues in milestone {release}, for the pull request body",
-            "milestone_prs": "the pull requests in milestone {release}, for the pull request body",
-            "pr_create": "open the release pull request from {branch}",
-            "git_fetch": "fetch {branch} from origin into the clone",
-            "git_push": "push {branch} to origin, replacing an earlier cut",
         }
     )
     plan_conditions: dict[str, str] = field(
         default_factory=lambda: {
-            "pending": "an item holds a change an earlier run began",
-            "current": "a release is current",
-            "merged": "a release pull request merged",
-            "judged": "the run judges an item it needs this for",
-            "starting": "the run starts the next release",
-            "change": "the run changes an item",
-            "release_field": "the change sets the Release",
-            "other_field": "the change sets a field other than the Release",
             "posted": "the change posts a comment",
-            "record": "the run records its release or size",
-            "no_card": "the board has no run record card yet",
-            "run_card": "the board has the run record card",
             "board_unread": (
                 "the run has not read these items of the board since it began or last closed an "
                 "issue"
             ),
             "fields_unread": "the run has not read the board's fields yet",
             "card_archived": "the card the add names is archived",
-            "closing": "a shipped release's milestone is still open",
-            "release_named": "the value is a Release",
-            "board": "the configured board exists",
-            "no_board": "there is no board yet",
-            "renamed": "the board has a field the template drops",
-            "card": "the run sets a field on a card",
-            "epic": "the board holds a release epic",
-            "beyond": "a release lies beyond the planning horizon",
-            "unset": "an item has the field unset",
-            "not_planned": "the roadmap lists a rejected idea",
-            "unfiled": "the rejected idea has no issue",
             "done": "the run is done and sent a GraphQL request: it comes after any write",
-            "read_issues": (
-                "a release is current, or a closed Release's milestone counts an open issue or "
-                "pull request"
-            ),
-            "shipped": "a closed Release holds an open issue no person reopened",
-            "closes": "a merged pull request closes an open issue",
-            "task_file": "the pull request changed a task file of the issue",
-            "no_open": "the release holds no open item",
-            "cut": "the release is due to be cut",
         }
     )
     plan_repeat: dict[str, str] = field(
         default_factory=lambda: {
-            "release": "for the current release and each planned one in the horizon",
-            "pending": "for each such item",
+            "milestone": "for each open milestone, by due date and then by number",
             "item": "for each item the run judges or changes",
-            "write": "for each such write",
             "evidence": "for each piece of evidence the model cites",
-            "field": "for each template field",
-            "merged": "for each merged pull request",
-            "closing": "for each issue the run closes",
-            "completed": "for each item closed as completed",
-            "shipped": (
-                "for each closed Release that holds an open issue no person reopened, oldest first"
-            ),
         }
     )
-    # `devops roadmap close` (#743).
-    close_title: str = "# Closure for {repo}, release {release}"
-    close_closing: str = "Close #{number} as completed (delivered by #{pull_request}), commenting:"
-    close_nothing: str = "No open issue to close."
-    close_unread: str = (
-        "Pull request #{number} closes {issues}, which stay open: its check runs could not be "
-        "read ({reason}). The next run retries."
-    )
-    close_holds: dict[str, str] = field(
-        default_factory=lambda: {
-            "no_release": "No cut: there is no open Release.",
-            "unread": "No cut for {release}: a pull request's check runs could not be read.",
-            "open_items": "No cut for {release}: these items are still open:",
-            "nothing_delivered": (
-                "No cut for {release}: no item in it was closed as completed, so it delivers "
-                "nothing."
-            ),
-            "pr_open": "No cut for {release}: its release pull request #{number} is open.",
-            "pr_merged": (
-                "No cut for {release}: its release pull request #{number} has merged, so it "
-                "has shipped."
-            ),
-        }
-    )
-    close_open_item: str = "- #{number} {title}"
-    close_shipped_heading: str = (
-        "## {release}, shipped: its milestone is closed and it still holds an open issue"
-    )
-    close_shipped_open: str = "Still open in {release}, holding no cut:"
-    close_shipped_reopened: str = (
-        "Reopened by a person in {release}, so closure leaves it open, holding no cut:"
-    )
-    close_current_heading: str = "## {release}, the current release"
-    close_cut: str = "Cut: push {branch} and open the release pull request into {base}, '{title}'."
-    close_cut_files: str = "The cut commit changes {files}."
-    close_cut_fragments: str = (
-        "Changelog fragments the cut collects into CHANGELOG.md's [{version}] section and "
-        "deletes: {fragments}."
-    )
-    close_cut_missing: str = (
-        "Closed as completed with no changelog fragment: {items}. Before the cut, add "
-        "changelog.d/<issue>.md in a pull request into the release branch; after it, edit the "
-        "version's section of CHANGELOG.md in a pull request."
-    )
-    close_none: str = "none"
-    close_dry_run_note: str = (
-        "A cut commits {files} on release/<release> and opens it ready for review: it collects "
-        "the release branch's changelog fragments into CHANGELOG.md's section for the release "
-        "and deletes them. --plan reads GitHub and lists each issue the run closes with its "
-        "comment, the fragments the cut collects, and the completed items with none."
-    )
-    close_preview: str = "Nothing was written; pass --confirm to close these and make the cut."
-    close_applied: str = "Closed {count} issue(s)."
-    close_failed: str = "Closure is incomplete: {count} pull request(s) had unreadable check runs."
-    close_criteria_heading: str = "Acceptance Criteria"
-    close_comment_changed: str = "### What changed"
-    close_comment_merged: str = "{url}, merged into `{branch}` as {commit}."
-    close_comment_files: str = "{count} file(s) changed."
-    close_comment_verified: str = "### How it was verified"
-    close_comment_checks: str = "Check runs at {commit}:"
-    close_comment_check: str = "- {name}: {bucket}"
-    close_comment_no_checks: str = "No check runs."
-    close_comment_task: str = "Acceptance Criteria of `{path}`:"
-    close_comment_no_criteria: str = "No Acceptance Criteria section."
-    close_comment_no_task: str = "No task file."
     # `devops roadmap intake` (#742).
     intake_title: str = "# Intake for {repo}"
     intake_quota: str = (
         "Quota (#1153): {open} open issues, r(n) = {ratio:.2f}; credit {credit} from "
-        "{delivered} delivered by {previous}; {closures} closure(s) since {since}; allowance "
-        "{allowance}; {openings} agent opening(s) this cycle, {borrowed} borrowed."
+        "{delivered} delivered in the last {days} day(s); {closures} closure(s) since {since}; "
+        "allowance {allowance}; {openings} agent opening(s) in the window, {borrowed} borrowed."
     )
-    intake_no_previous: str = "no closed release"
-    intake_since_ever: str = "the repository began"
     intake_unlimited: str = "no limit"
     intake_nothing: str = "No candidates and no unfinished items."
     intake_issue: str = "#{number} {title}"
@@ -2017,12 +1418,12 @@ class RoadmapMessages:
     intake_duplicate_closes: str = "It is closed as a duplicate."
     intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
     intake_fold_line: str = (
-        "- {subject}: fold into {target}: the cycle's allowance of {allowance} agent opening(s) "
-        "is used, and it is not a split, a required follow-up or a P0/P1 bug or security "
+        "- {subject}: fold into {target}: the window's allowance of {allowance} agent "
+        "opening(s) is used, and it is not a split, a required follow-up or a P0/P1 bug or security "
         "issue. Nothing is filed; add it to that item as an amendment or a comment."
     )
     intake_fold_open: str = (
-        "- {subject}: fold into {target}: this cycle's agent openings are past the allowance of "
+        "- {subject}: fold into {target}: the window's agent openings are past the allowance of "
         "{allowance}, and it is not a P0/P1 bug or security issue. Intake leaves it off the "
         "board; add it to that item as an amendment or a comment, and close it."
     )
@@ -2036,29 +1437,17 @@ class RoadmapMessages:
     intake_no_labels: str = "no labels"
     intake_write_label: str = "label {label}"
     intake_write_add: str = "add to the board"
-    intake_write_release: str = "milestone {release}"
-    intake_write_backlog: str = "clear the milestone"
     intake_write_field: str = "{field} {value}"
     intake_write_comment: str = "reason comment"
     intake_write_close: str = "comment and close as a duplicate of #{original}"
     intake_write_close_only: str = "close as a duplicate of #{original} (its comment is there)"
     intake_placement_backlog: str = "to the backlog: {reason}"
-    intake_placement_release: str = "to {release}: {reason}"
-    intake_placement_kept: str = "kept in {release}: {reason}"
+    intake_placement_kept: str = "kept in milestone {milestone}: {reason}"
     intake_reason_backlog: str = (
-        "at intake only a critical fix goes into a release; a release start pulls Ready items "
-        "in, P0 features first."
+        "intake puts every new item in the backlog. A person plans the milestones on the board."
     )
-    intake_reason_person: str = "a person placed it in {release}, and that placement stands."
-    intake_reason_current_not_critical: str = (
-        "only a critical fix joins the current release at intake; a release start pulls Ready "
-        "items in, P0 features first."
-    )
-    intake_reason_resumed: str = "it was already in {release}."
-    intake_reason_no_release: str = "no Release is open, so a critical fix waits in the backlog."
-    intake_reason_no_next: str = (
-        "{release} admits no more, and no planned release follows it, so it waits in the backlog."
-    )
+    intake_reason_person: str = "a person placed it in {milestone}, and that placement stands."
+    intake_reason_resumed: str = "it was already in {milestone}."
     intake_comment: str = "{marker}\nIntake placed this item {placement}\n\n{fields}"
     intake_comment_field: str = "- {field}: {value}. {reason}"
     intake_duplicate_comment: str = (
@@ -2138,7 +1527,7 @@ class RoadmapMessages:
     intake_left: str = "Left for a later run, beyond the limit of {limit}: {left}."
     intake_placeholder_default_branch: str = "the default branch"
     intake_placeholder_board: str = "<the board .github/roadmap.toml names>"
-    intake_placeholder_since: str = "<the previous release's close>"
+    intake_placeholder_since: str = "<the start of the quota window>"
     intake_placeholder_each: str = "<the candidate>"
     intake_placeholder_filed: str = "<the filed issue>"
     intake_placeholder_fields: tuple[str, ...] = (
@@ -2149,13 +1538,12 @@ class RoadmapMessages:
     intake_requests: dict[str, str] = field(
         default_factory=lambda: {
             "config": ".github/roadmap.toml at {ref}, which names the board",
-            "milestones": "every milestone",
             "issues": "every issue, open and closed",
             "board": "the items on board {board}, a page of GraphQL at a time",
             "board_issues": "every issue again, to join the board's items",
-            "quota_milestones": "every milestone again, for the quota's cycle",
             "count_open": "count the open issues",
             "count_closed": "count the issues closed since {since}",
+            "count_delivered": "count the issues closed as completed since {since}",
             "count_bulk": "count the issues closed as not planned with no comment since {since}",
             "count_openings": "count the source/agent issues created since {since}",
             "count_borrowed": (
@@ -2173,10 +1561,6 @@ class RoadmapMessages:
             "labels": ".github/labels.yml at {ref}, for the type/* labels, once",
             "propose": "the proposal for {subject}",
             "evidence": "the evidence the model cites for {subject}",
-            "default_branch": "the default branch",
-            "release_milestones": "every milestone again, to find <the current release>",
-            "release_prs": "the release pull requests of <the current release>",
-            "release_published": "GitHub Release <the current release>",
             "comments": "the comments on {subject}, for intake's marker",
             "file": ("file {subject} with source/agent, and budget/borrowed when it borrows"),
             "label": (
@@ -2184,11 +1568,6 @@ class RoadmapMessages:
                 "when it borrows"
             ),
             "add": "read {subject}, add it to board {board}, then read the card the add names",
-            "release": (
-                "set the milestone of {subject} to <the placement>: the board's fields once a "
-                "run, every milestone, its card, the job record (GraphQL), then the milestone "
-                "(REST)"
-            ),
             "field": (
                 "set {field} on {subject}: the board's fields once a run, its card, the job "
                 "record, then the field"
@@ -2209,13 +1588,10 @@ class RoadmapMessages:
             "closures": "{subject} is not on the board",
             "embed": "a candidate is off the board",
             "evidence": "the model cites any",
-            "release_state": "it is the first critical fix of the run while a release is current",
-            "release_published": "one of them merged",
             "comments": "{subject} is placed or a duplicate",
             "file": "it is not a duplicate and does not fold",
             "placed": "intake places {subject}",
             "add": "it is not on the board",
-            "release": "the placement changes it",
             "field": "it has none",
             "comment": "intake's is not there",
             "priority": "it has none",
@@ -2262,6 +1638,8 @@ class RoadmapMessages:
         "{repo}'s {path} at {ref} declares no type/* label other than type/epic. Intake decides "
         "no candidate without one: the file must declare the type/* labels intake may assign."
     )
+    milestone_missing: str = "No milestone has the title or number {name!r}."
+    milestone_title_taken: str = "Another milestone already has the title {title!r}."
     run_job_needs_clone: str = (
         "The roadmap {job} job reads its repository's clone and was given none: its row in the "
         "due table must set needs_clone."
@@ -2388,7 +1766,6 @@ class LanguageCatalog:
     k8s: K8sMessages = field(default_factory=K8sMessages)
     analyze: AnalyzeMessages = field(default_factory=AnalyzeMessages)
     docs: DocsMessages = field(default_factory=DocsMessages)
-    release: ReleaseMessages = field(default_factory=ReleaseMessages)
     tf: TfMessages = field(default_factory=TfMessages)
     tofu: TfMessages = field(default_factory=TfMessages)
     remote_ci: RemoteCIMessages = field(default_factory=RemoteCIMessages)

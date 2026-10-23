@@ -143,11 +143,6 @@ class DevcontainerErrorMessages:
     manifest_not_found: str = "DevContainer manifest not found: {path}"
     parse_failed: str = "Failed to parse DevContainer manifest JSON in {path}: {exc}"
     validation_failed: str = "DevContainer manifest validation failed for {path}:"
-    oci_source_mismatch: str = (
-        "OCI label org.opencontainers.image.source mismatch: expected '{expected}', got '{actual}'"
-    )
-    oci_label_missing: str = "Missing required OCI label: '{label}'"
-    oci_label_empty: str = "OCI label '{label}' has empty value"
     no_devcontainer_found: str = "No devcontainer.json found: {path}"
     invalid_json: str = "Invalid JSON in {path}: {exc}"
     keyring_unavailable: str = (
@@ -203,45 +198,6 @@ class MCPErrorMessages:
     security_sse_non_loopback: str = (
         "Refusing to bind SSE transport to non-loopback host '{host}' by default. "
         "Use allow_remote=True to permit external host binding."
-    )
-
-
-@dataclass(frozen=True)
-class ReleaseErrorMessages:
-    branch_create_failed: str = "Failed to create release branch {branch}: {error}"
-    version_mismatch: str = (
-        "Version mismatch: pyproject.toml ({pyproject}) != src/devops_cli/__init__.py ({init})"
-    )
-    working_tree_dirty: str = (
-        "Git working directory is dirty. Commit or stash changes before releasing."
-    )
-    docs_out_of_sync: str = "Documentation is out of sync. Run 'devops release prepare' or 'devops docs generate --sync-readme'"
-    tag_create_failed: str = "Failed to create git tag {tag}: {error}"
-    tag_push_failed: str = "Failed to push tag {tag} to origin: {error}"
-    invalid_label: str = "Invalid label '{label}'."
-    invalid_version_format: str = "Invalid semver version format: '{version}'."
-    changelog_fragment_misnamed: str = (
-        "{path} is not a changelog fragment: a fragment is a file named <issue>.md, the issue "
-        "number only, and changelog.d/ holds nothing else but its README.md. Nothing was written."
-    )
-    changelog_fragment_empty: str = "{path} holds no changelog entry. Nothing was written."
-    changelog_text_outside_category: str = (
-        "{path}:{line} is outside a category: every entry sits under one of {categories}. "
-        "Nothing was written."
-    )
-    changelog_unknown_category: str = (
-        "{path}:{line} '{heading}' is not a changelog category: use one of {categories}. "
-        "Nothing was written."
-    )
-    cut_changelog_missing: str = (
-        "The cut of v{version} would leave CHANGELOG.md with no entries under ## [{version}]: "
-        "release/v{version} holds no changelog.d/ fragment, or its CHANGELOG.md has no ## [ "
-        "heading to place one under. {missing} Add the entries as changelog.d/<issue>.md in a "
-        "pull request into release/v{version}, then run the cut again. Nothing was pushed."
-    )
-    cut_changelog_missing_items: str = "Completed items with no fragment: {items}."
-    cut_changelog_missing_plan: str = (
-        "devops roadmap close --plan lists the completed items with no fragment."
     )
 
 
@@ -304,7 +260,6 @@ class PRErrorMessages:
         "✗ Remote CI checks failed on PR #{number} ({failed_count} failing check(s))."
     )
     unresolved_threads: str = "✗ PR #{number} has {count} unresolved review discussion thread(s)."
-    invalid_target_repo: str = "Target repository must be in OWNER/REPO format."
 
 
 @dataclass(frozen=True)
@@ -330,7 +285,6 @@ class ErrorCatalog:
     docker: DockerErrorMessages = field(default_factory=DockerErrorMessages)
     grafana: GrafanaErrorMessages = field(default_factory=GrafanaErrorMessages)
     mcp: MCPErrorMessages = field(default_factory=MCPErrorMessages)
-    release: ReleaseErrorMessages = field(default_factory=ReleaseErrorMessages)
     tls: TLSErrorMessages = field(default_factory=TLSErrorMessages)
     prometheus: PrometheusErrorMessages = field(default_factory=PrometheusErrorMessages)
     rag: RAGErrorMessages = field(default_factory=RAGErrorMessages)

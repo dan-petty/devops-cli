@@ -6,7 +6,7 @@
 
 ## 1. Published Container Images & Tags
 
-The official image, for `linux/amd64` and `linux/arm64`, is hosted on GHCR at:
+The official image, for `linux/amd64`, is hosted on GHCR at:
 `ghcr.io/dan-petty/devops-cli/devcontainer`
 
 The release builds the image from `.devcontainer/devcontainer.json` with the Dev Containers CLI. So the image holds the Dev Container Features of that file and the user `vscode` (uid 1000, gid 1000). When a repository names only the image, the `devcontainer.metadata` label of the image sets the remote user to `vscode`. The release starts each image as `vscode` before it tags the image. Images `v0.2.35` to `v0.2.38` have no features and no user `vscode`, and neither had `latest` while one of them was current. A configuration with `"remoteUser": "vscode"` cannot open them ([#1895](https://github.com/dan-petty/devops-cli/issues/1895)). Use `v0.2.34`, or a release after `v0.2.38`. `v0.2.34` and earlier releases have only `linux/amd64`.
@@ -14,7 +14,7 @@ The release builds the image from `.devcontainer/devcontainer.json` with the Dev
 | Tag Pattern | Example | Description | Best For |
 | :--- | :--- | :--- | :--- |
 | `latest` | `ghcr.io/dan-petty/devops-cli/devcontainer:latest` | Latest official stable release | Default development environments |
-| `vX.Y.Z` | `ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.16` | Immutable, pinned version | CI pipelines & reproducible environments |
+| `v<version>` | `ghcr.io/dan-petty/devops-cli/devcontainer:v<version>` | Immutable, pinned version (a published release tag) | CI pipelines & reproducible environments |
 | `sha256:...` | `ghcr.io/dan-petty/devops-cli/devcontainer@sha256:...` | Cryptographic digest pinning | Zero-trust compliance & air-gapped builds |
 
 ### Pulling the Image Directly
@@ -23,7 +23,7 @@ The release builds the image from `.devcontainer/devcontainer.json` with the Dev
 docker pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
 
 # Or pull a specific pinned release
-docker pull ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.16
+docker pull ghcr.io/dan-petty/devops-cli/devcontainer:v<version>
 ```
 
 ---
@@ -38,7 +38,7 @@ The published Dev Container image is built on `debian:sid` (Debian Unstable) pro
 - **Infrastructure as Code**: `devops tf` wraps OpenTofu or Terraform; install `tofu` or `terraform` yourself, since the image ships neither.
 - **Security & Compliance Integrations**: runners for `bandit`, `checkov`, `trivy`, `semgrep`, `gitleaks`, `kube-linter`, `pluto` and `actionlint` (`devops scan`, `devops ci`). Post-create installs every tool in `tools.lock` at its locked version (`devops install-tools`), including `semgrep`, `gitleaks`, `osv-scanner`, `bandit`, `trivy`, `kube-linter`, `pluto` and `openspec` (installed with `npm`, which the Node feature pinned in `.node-version` provides; without `npm`, post-create warns and carries on). Install `checkov` and `actionlint` yourself, or add them to your project's dev dependencies.
 - **Terminal tools**: Post-create installs `k9s`, a terminal dashboard for Kubernetes, and `gh-dash`, a terminal dashboard for GitHub pull requests and issues. It also installs `tuicr`, a terminal program that shows a diff and lets a person add typed comments. A person starts `gh-dash` at the root of the clone with `gh-dash --config .gh-dash.yml`. The file `.gh-dash.yml` shows the pull requests oldest first and the issues for triage, and it refreshes every 60 minutes with the preview closed. The first start also writes `~/.config/gh-dash/config.yml`. Agents never start `gh-dash`.
-- **Reviewing an agent diff with `tuicr`**: A person uses `tuicr` to review the diff of an agent. The person copies `.devops/tuicr.config.toml` to `~/.config/tuicr/config.toml` once, after a backup of any existing file with the suffix `.bak-<YYYYMMDD-HHMMSS>`. The template turns off the update check, which otherwise calls `crates.io` at start, and defines the comment types `issue`, `question` and `nit`. In the worktree of the agent, the person starts `tuicr -r <release-branch>..HEAD` for the commits or `tuicr -w` for the uncommitted changes. Nobody runs `tuicr pr`, `tuicr update` or `curl | sh`, and agents never start `tuicr`. The "Human Review Round" bullet of [`SDLC.md`](SDLC.md) Phase 6 gives the rules for agents.
+- **Reviewing an agent diff with `tuicr`**: A person uses `tuicr` to review the diff of an agent. The person copies `.devops/tuicr.config.toml` to `~/.config/tuicr/config.toml` once, after a backup of any existing file with the suffix `.bak-<YYYYMMDD-HHMMSS>`. The template turns off the update check, which otherwise calls `crates.io` at start, and defines the comment types `issue`, `question` and `nit`. In the worktree of the agent, the person starts `tuicr -r origin/main..HEAD` for the commits or `tuicr -w` for the uncommitted changes. Nobody runs `tuicr pr`, `tuicr update` or `curl | sh`, and agents never start `tuicr`. The "Human Review Round" bullet of [`SDLC.md`](SDLC.md) Phase 6 gives the rules for agents.
 - **What `gh-dash` sends and can do**: At start, `gh-dash` sends one GraphQL request to `api.github.com` that asks for its latest release, and it has no switch to stop this request. Its approve, merge, close, ready, reopen, update, assign, label and comment keys stay active and use the token of the person who runs it. `gh-dash` still draws some icons with Nerd Font glyphs, in its preview pane, its notification rows and some column headers. `.gh-dash.yml` hides the icon cells of the tables, holds only ASCII and sets no glyph.
 - **What `gh-dash` costs at start**: The GitHub budget is 5,000 GraphQL points an hour for the token, and AI agents use the same token. The source of `gh-dash` 4.26.2 gives the request counts, and GitHub dry runs give the points of one request. At start, `gh-dash` reads the login of the person (1 point) and checks its latest release (1 point). It fetches only the sections of the view that it starts on, which are the 4 pull request sections of `.gh-dash.yml`. A pull request section costs 1 point at `limit: 20` and 2 points at `limit: 50`, so the 4 sections cost 5 points. So `.gh-dash.yml` costs 7 points at start. A count of the log lines of one start with the first config showed one section fetch more than the source gives. These 7 points do not include that fifth fetch.
 - **What `gh-dash` costs an hour**: A refresh fetches every section of the view on screen, and the pull request view costs 5 points. `.gh-dash.yml` refreshes every 60 minutes, so it costs 5 points an hour. An open preview adds 2 points at start, 2 points at each refresh and 2 points for each row that a person selects. The preview starts closed, and the `p` key opens it. A person who keeps the preview open and refreshes every 15 minutes pays about 28 points an hour.
@@ -61,7 +61,7 @@ You can scaffold a complete, best-practice `.devcontainer/` setup targeting the 
 devops devcontainer init --name my-project --published
 
 # --image currently writes :latest for devops-cli images; pin by editing "image" in the generated .devcontainer/devcontainer.json
-devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.16
+devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/devcontainer:v<version>
 ```
 
 This scaffolds:
@@ -190,7 +190,7 @@ If your project requires additional system packages, custom C extensions, or pro
 
 ### `.devcontainer/Dockerfile`
 ```dockerfile
-FROM ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.16
+FROM ghcr.io/dan-petty/devops-cli/devcontainer:v<version>
 
 # Switch to root to install system packages with apt-get cleanup
 USER root

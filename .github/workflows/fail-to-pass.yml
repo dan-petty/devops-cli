@@ -3,9 +3,7 @@ name: Fail-to-Pass Test Replay
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited, labeled]
-    # Item pull requests into a release branch prove their fix here. The release pull request
-    # into main carries items that each passed, and its tests cannot replay on main's tree.
-    branches: ["release/**"]
+    branches: [main]
 
 permissions:
   contents: read

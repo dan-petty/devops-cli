@@ -1,4 +1,4 @@
-"""Archive a change into the living specs, then validate every spec and change (ADR 0010, ADR 0012).
+"""Archive a change into the living specs, then validate every spec and change (ADR 0010).
 
 The pull request that closes a change archives it as its last commit. `openspec archive` applies the
 deltas of the change to `openspec/specs/` and moves the folder. It can leave a spec that `validate`

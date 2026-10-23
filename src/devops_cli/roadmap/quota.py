@@ -1,7 +1,8 @@
 """Agent filing quota and ratio formulas (ADR 0001, #1153).
 
-A pure module computing the throttle ratio r(n), release credit, and allowance
-for agent-sourced candidates without I/O or network calls.
+A pure module that computes the throttle ratio r(n), the window credit and the allowance for
+agent-sourced candidates, with no I/O or network calls. The quota counts over a rolling window of
+`quota_window_days` days that ends now, so no release or milestone starts or ends it.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from fractions import Fraction
 
 from devops_cli.roadmap.config import RoadmapConfig
 
-__all__ = ["allowance", "ratio", "ratio_exact", "release_credit"]
+__all__ = ["allowance", "ratio", "ratio_exact", "window_credit"]
 
 _DEFAULT_CONFIG = RoadmapConfig(board=1)
 
@@ -48,16 +49,14 @@ def ratio(n: int, config: RoadmapConfig | None = None) -> float:
     return float(ratio_exact(n, config))
 
 
-def release_credit(delivered: int, config: RoadmapConfig | None = None) -> int:
-    """Calculate the initial release credit granted at release start.
+def window_credit(delivered: int, config: RoadmapConfig | None = None) -> int:
+    """Calculate the credit the window gives for `delivered`, the items closed as completed in it.
 
-    credit = min(base + per_delivered * delivered, target)
+    credit = min(base + per_delivered * delivered, cap)
     """
     cfg = _resolve_config(config)
-    base = cfg.release_credit_base
-    per_item = cfg.release_credit_per_delivered_item
-    target = cfg.release_item_target
-    return min(base + per_item * delivered, target)
+    earned = cfg.quota_credit_base + cfg.quota_credit_per_delivered_item * delivered
+    return min(earned, cfg.quota_credit_cap)
 
 
 def allowance(
@@ -66,7 +65,7 @@ def allowance(
     closures: int,
     config: RoadmapConfig | None = None,
 ) -> int | float:
-    """Calculate the allowed agent openings for the current release cycle.
+    """Calculate the agent openings the window allows.
 
     When ratio(n) is 0, the allowance has no limit (math.inf).
     Otherwise, returns credit + floor(closures / ratio(n)).
@@ -74,6 +73,6 @@ def allowance(
     r_exact = ratio_exact(n, config)
     if r_exact == Fraction(0):
         return math.inf
-    credit = release_credit(delivered, config)
+    credit = window_credit(delivered, config)
     from_closures = math.floor(Fraction(closures) / r_exact)
     return credit + from_closures

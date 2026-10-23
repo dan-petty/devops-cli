@@ -4,69 +4,9 @@ Read and write the roadmap on GitHub, its source of truth: issues, milestones an
 
 ## Commands
 
-## `devops roadmap migrate`
-
-**Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made.**
-
-```bash
-devops roadmap migrate [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--confirm` | `boolean` | - | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
-| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print the plan and report, write nothing, and end with the GraphQL points spent and left. Migrate without a mode flag does this. |
-
----
-
-## `devops roadmap render`
-
-**Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority.**
-
-```bash
-devops roadmap render [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--output`, `-o` | `path` | `docs/ROADMAP.md` | File render writes. |
-| `--dry-run` | `boolean` | - | Make no request and write no file: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub and print the rendered file to stdout instead of writing it, ending with the GraphQL points spent and left. |
-
----
-
-## `devops roadmap reprioritize`
-
-**Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm.**
-
-```bash
-devops roadmap reprioritize [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--confirm` | `boolean` | - | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
-| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print each change with its reason, write nothing, and end with the GraphQL points spent and left. Reprioritize without a mode flag does this. |
-
----
-
 ## `devops roadmap intake`
 
-**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
+**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota, which counts over a rolling window of days; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
 
 ```bash
 devops roadmap intake [OPTIONS]
@@ -77,7 +17,7 @@ devops roadmap intake [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--issue` | `integer` | - | Only this issue (repeatable). |
 | `--title` | `string` | - | Title of a candidate that is not an issue yet; intake files it only when it is not a duplicate. Needs --body-file. |
 | `--body-file` | `path` | - | File holding the new candidate's body. Needs --title. |
@@ -91,30 +31,9 @@ devops roadmap intake [OPTIONS]
 
 ---
 
-## `devops roadmap close`
-
-**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm.**
-
-```bash
-devops roadmap close [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--root` | `path` | `.` | The clone the cut runs git in (default: the current directory). |
-| `--confirm` | `boolean` | - | Close the issues and make the cut. Without it, close prints its plan only. |
-| `--dry-run` | `boolean` | - | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left once its store has sent a GraphQL request. Close without a mode flag does this. |
-
----
-
 ## `devops roadmap refine`
 
-**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, each place by priority. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured refine_ready_target items are Ready across the open milestones and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
 
 ```bash
 devops roadmap refine [OPTIONS]
@@ -125,7 +44,7 @@ devops roadmap refine [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--source` | `path` | `.` | Path to the repository checkout (defaults to current directory). |
 | `--item` | `integer` | - | Specific issue number to refine instead of selecting by priority. |
 | `--limit` | `integer` | `3` | Maximum number of items to refine in this run (default 3). |
@@ -136,7 +55,7 @@ devops roadmap refine [OPTIONS]
 
 ## `devops roadmap run`
 
-**Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+**Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
 
 ```bash
 devops roadmap run [OPTIONS]
@@ -147,7 +66,7 @@ devops roadmap run [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--dry-run` | `boolean` | - | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
 | `--confirm` | `boolean` | - | Execute the due roadmap jobs. Without it, run prints the due list only. |
 
@@ -174,7 +93,7 @@ devops roadmap return [OPTIONS] <item>
 | `--comment`, `-c` | `string` | `` | Evidence comment explaining why the item cannot be built as specified. |
 | `--comment-file` | `path` | - | Path to file containing the evidence comment. |
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
 | `--confirm` | `boolean` | - | Make the writes to GitHub (post comment and set Status to New). |
 

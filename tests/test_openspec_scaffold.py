@@ -20,8 +20,8 @@ import yaml
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.config.constants import (
     CONST_DOCS_CLASS_RECORD,
-    CONST_DOCS_CLASS_RELEASE_ARTIFACT,
     CONST_DOCS_CLASS_TOOL_GENERATED,
+    CONST_DOCS_CLASS_TOOL_OWNED,
     CONST_DOCS_INVENTORY,
     CONST_DOCS_NAME_CHECKED_CLASSES,
     CONST_REVIEW_ROUTED_PATH_PATTERNS,
@@ -224,7 +224,7 @@ def test_the_documentation_inventory_classifies_the_openspec_documents() -> None
             name
             for name in (
                 CONST_DOCS_CLASS_RECORD,
-                CONST_DOCS_CLASS_RELEASE_ARTIFACT,
+                CONST_DOCS_CLASS_TOOL_OWNED,
                 CONST_DOCS_CLASS_TOOL_GENERATED,
             )
             if name in CONST_DOCS_NAME_CHECKED_CLASSES
@@ -232,7 +232,7 @@ def test_the_documentation_inventory_classifies_the_openspec_documents() -> None
     ) == (
         [CONST_DOCS_CLASS_RECORD],
         [CONST_DOCS_CLASS_RECORD],
-        [CONST_DOCS_CLASS_RELEASE_ARTIFACT],
+        [CONST_DOCS_CLASS_TOOL_OWNED],
         [CONST_DOCS_CLASS_TOOL_GENERATED],
         [CONST_DOCS_CLASS_TOOL_GENERATED],
         [],

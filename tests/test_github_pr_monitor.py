@@ -30,7 +30,6 @@ from tests.copilot_review_payloads import (
     TIMELINE_COPILOT,
     copilot_pass,
     copilot_review,
-    review_request_removed,
     review_requested,
     reviewed,
     work_started,
@@ -1257,23 +1256,13 @@ _BOT_REVIEWER = {"login": "github-actions[bot]", "type": "Bot", "id": 41898282}
         ),
         pytest.param(
             [review_requested()],
-            _CopilotTimeline(requested=True),
-            id="a-request-copilot-has-not-started-is-pending",
+            _CopilotTimeline(),
+            id="a-request-copilot-has-not-started-is-no-pass",
         ),
         pytest.param(
             [*copilot_pass(FIRST_REVIEW_ID), review_requested()],
-            _CopilotTimeline(event="reviewed", requested=True),
-            id="a-request-after-a-finished-pass-is-pending",
-        ),
-        pytest.param(
-            [review_requested(), review_request_removed()],
-            _CopilotTimeline(),
-            id="a-withdrawn-request-is-not-pending",
-        ),
-        pytest.param(
-            [review_requested(MAINTAINER)],
-            _CopilotTimeline(),
-            id="a-request-to-a-person-is-not-copilots",
+            _CopilotTimeline(event="reviewed"),
+            id="a-request-after-a-finished-pass-starts-none",
         ),
     ],
 )
@@ -1282,7 +1271,7 @@ def test_the_timeline_events_give_the_copilot_state(
 ) -> None:
     """Copilot works from its start event until the `reviewed` event of one of its own reviews,
     named by the review's id, since the timeline names the account `Copilot` (#1345). A request
-    to it is pending until it starts, is withdrawn, or a review of its ends the pass."""
+    to it starts no pass."""
     from devops_cli.github.pr_monitor import _timeline_copilot_state
 
     assert _timeline_copilot_state(events, frozenset({FIRST_REVIEW_ID})) == state
@@ -1453,4 +1442,4 @@ def test_a_pending_copilot_request_leaves_the_monitor_waiting_on_nothing(
 
     github_api.route("GET", _TIMELINE_168, github_json([review_requested()]))
     status = _detect_copilot_status("dan-petty", "devops-cli", 168, [])
-    assert (status.is_active, status.state, status.pass_requested) == (False, "idle", True)
+    assert (status.is_active, status.state) == (False, "idle")

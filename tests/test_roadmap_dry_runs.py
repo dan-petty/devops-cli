@@ -9,13 +9,10 @@ DNS and process starts refused, and fake `gh`, `git` and `kubectl` on PATH that 
 
 from __future__ import annotations
 
-import json
 import os
-import re
 import socket
 import subprocess
-from collections.abc import Callable, Iterator, Sequence
-from datetime import UTC, datetime
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -24,43 +21,23 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.roadmap import app
-from devops_cli.config.constants import CONST_ROADMAP_RENDER_BOARD_FILTER
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import board_budget_args, board_items_args
-from devops_cli.roadmap.close import ClosePlan, dry_run_close, plan_close
-from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.github_store import (
     board_fields_args,
-    default_branch_args,
     issues_endpoint,
     listing_path,
+    milestones_endpoint,
 )
-from devops_cli.roadmap.migrate import MigrationPlan, dry_run_migration
-from devops_cli.roadmap.render import RenderedRoadmap, dry_run_render, render
-from devops_cli.roadmap.reprioritize import (
-    ReprioritizationPlan,
-    dry_run_reprioritization,
-    plan_reprioritization,
-)
-from devops_cli.roadmap.request_plan import (
-    StoreRequests,
-    close_requests,
-    is_page_repeat,
-    migrate_requests,
-    render_requests,
-    reprioritize_requests,
-)
-from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply
-from tests.support.fakes.github import API, RunnerSession
-from tests.support.roadmap_board_replies import board_of, fields_reply, issues_of
+from devops_cli.roadmap.request_plan import StoreRequests
+from tests.support.fakes.github import API
 
 REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
-NOW = datetime(2026, 10, 4, tzinfo=UTC)
 runner = CliRunner()
-JOBS = ("reprioritize", "migrate", "render", "intake", "close", "refine")
+JOBS = ("intake", "refine")
 
 
 # ── No request ────────────────────────────────────────────────────────────────
@@ -116,66 +93,57 @@ def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
     ) == (0, True, True), result.output
 
 
-@pytest.mark.parametrize("job", ["reprioritize", "migrate", "refine"])
+@pytest.mark.parametrize("job", JOBS)
 def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> None:
     with patch("devops_cli.commands.roadmap.is_dry_run", return_value=True):
         result = runner.invoke(app, [job, "--repo", REPO, "--confirm"])
     assert (result.exit_code, "Dry run: no request was made" in result.output) == (0, True)
 
 
-@pytest.mark.parametrize("job", ["reprioritize", "migrate", "render"])
-def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str) -> None:
-    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run", "--plan"])
+@pytest.mark.parametrize(("job", "mode"), [("intake", "--plan"), ("refine", "--confirm")])
+def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:
+    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run", mode])
     assert (result.exit_code, "Pass one of --dry-run" in result.output) == (1, True)
 
 
 def test_each_dry_run_returns_its_jobs_result_type_marked_as_a_dry_run() -> None:
+    from devops_cli.roadmap.intake import IntakePlan, dry_run_intake
     from devops_cli.roadmap.refine import RefinePlan, dry_run_refine
 
-    reprioritized = dry_run_reprioritization(REPO, ref="main", now=NOW)
-    migrated = dry_run_migration(REPO, ref=None)
-    rendered = dry_run_render(REPO, ref=None)
     refined = dry_run_refine(REPO, ref=None)
-    results: list[Any] = [reprioritized, migrated, rendered, refined]
-    planned = [r.requests + getattr(r, "write_requests", ()) for r in results]
+    taken = dry_run_intake(REPO, ref=None)
+    planned = [refined.requests + refined.write_requests, taken.requests + taken.writes]
     assert (
-        [type(result) for result in results],
-        [result.dry_run for result in results],
-        (reprioritized.has_writes, migrated.writes, rendered.text, refined.has_writes),
+        [type(refined), type(taken)],
+        [refined.dry_run, taken.dry_run],
+        (refined.has_writes, bool(taken.writes)),
         [
-            all(request.argv[:1] in (("gh",), ("GET",)) for request in requests)
+            all(request.argv[:1] in (("gh",), ("GET",)) for request in requests if request.argv)
             for requests in planned
         ],
-        [bool(result.write_requests) for result in [reprioritized, migrated, refined]],
         [
             requests[-1].argv[-1].endswith("rateLimit { cost limit remaining used resetAt } }")
-            for requests in (r.requests for r in results)
+            for requests in (refined.requests, taken.requests)
         ],
-    ) == (
-        [ReprioritizationPlan, MigrationPlan, RenderedRoadmap, RefinePlan],
-        [True, True, True, True],
-        (False, (), "", True),
-        [True, True, True, True],
-        [True, True, True],
-        [True, True, True, True],
-    )
+    ) == ([RefinePlan, IntakePlan], [True, True], (True, True), [True, True], [True, True])
 
 
 def test_a_plan_is_built_by_the_stores_own_argument_builders() -> None:
-    """The reads a reprioritize plan lists are the argv the store's builders give, with
-    placeholders where a read gives the value."""
-    planned = [
-        request.argv[1:] for request in dry_run_reprioritization(REPO, ref=None, now=NOW).requests
-    ]
+    """The reads a refine plan lists are the argv the store's builders give, with placeholders
+    where a read gives the value: the milestones once, then each open milestone's issues."""
+    from devops_cli.roadmap.refine import dry_run_refine
+
+    planned = [request.argv[1:] for request in dry_run_refine(REPO, ref=None).requests]
     expected = [
         board_fields_args(OWNER, "<board>"),
         board_budget_args(OWNER, "<board>", ""),
         board_items_args(OWNER, "<board>", ""),
         board_items_args(OWNER, "<board>", "", after="<cursor>"),
-        (f"{API}{listing_path(issues_endpoint(REPO))}",),
-        default_branch_args(REPO),
+        (f"{API}{listing_path(milestones_endpoint(REPO))}",),
+        (f"{API}{listing_path(issues_endpoint(REPO, 'milestone=<milestone>&state=all'))}",),
+        (f"{API}{listing_path(issues_endpoint(REPO, 'milestone=none&state=open'))}",),
     ]
-    assert all(tuple(args) in planned for args in expected)
+    assert [tuple(args) in planned for args in expected] == [True] * len(expected)
 
 
 def _shape(request: PlannedRequest) -> str:
@@ -198,21 +166,13 @@ def test_a_board_write_plans_its_card_read_and_an_edit_by_node_ids() -> None:
     store = StoreRequests(REPO)
     plans = {
         "set_field": store.set_field("#7", "Value"),
-        "release": store.set_field("#7", "Release"),
+        "any_field": store.set_field("#7"),
         "set_marks": store.set_marks("#7"),
         "add_item": store.add_item("#7"),
-        "set_card_field": store.set_card_field(),
-        "remove_card": store.remove_card(),
     }
     assert {name: [_shape(r) for r in plan] for name, plan in plans.items()} == {
         "set_field": ["fields(first", "RoadmapBoardCard", "item-edit by id", "item-edit by id"],
-        "release": [
-            "fields(first",
-            f"{API}/repos/dan-petty/devops-cli/milestones?state=all&per_page=100",
-            "RoadmapBoardCard",
-            "item-edit by id",
-            "api -X PATCH",
-        ],
+        "any_field": ["fields(first", "RoadmapBoardCard", "item-edit by id", "item-edit by id"],
         "set_marks": ["fields(first", "RoadmapBoardCard", "item-edit by id"],
         "add_item": [
             "api repos/dan-petty/devops-cli/issues/7",
@@ -220,13 +180,6 @@ def test_a_board_write_plans_its_card_read_and_an_edit_by_node_ids() -> None:
             "RoadmapBoardCard",
             "project item-archive",
         ],
-        "set_card_field": [
-            "fields(first",
-            "RoadmapBoardCard",
-            "item-edit by id",
-            "item-edit by id",
-        ],
-        "remove_card": ["RoadmapBoardCard", "project item-delete"],
     }
 
 
@@ -258,41 +211,15 @@ def test_an_add_plans_the_restore_of_the_card_it_names_only_when_that_card_is_ar
     )
 
 
-def test_the_run_record_card_a_run_creates_is_written_with_no_read_after_its_create() -> None:
-    plan = StoreRequests(REPO).set_run_record()
-    create = next(i for i, r in enumerate(plan) if "item-create" in r.argv)
-    assert (
-        [_shape(r) for r in plan[create:]],
-        plan[create].argv[-2:],
-        [bool(r.condition) for r in plan[: create + 1]],
-    ) == (
-        ["project item-create", "item-edit by id"],
-        ("--format", "json"),
-        [True] * (create + 1),
-    )
-
-
 def test_no_roadmap_plan_lists_a_board_command_gh_resolves_by_reading_the_board_first() -> None:
     """Every job's plan: no `field-list`, and every `item-edit` by node ids."""
     from devops_cli.roadmap.intake import dry_run_intake
     from devops_cli.roadmap.request_plan import refine_requests
 
     intake = dry_run_intake(REPO, ref="main")
-    plans = [
-        *render_requests(REPO, None),
-        *(
-            r
-            for pair in (
-                reprioritize_requests(REPO, None),
-                migrate_requests(REPO, None),
-                refine_requests(REPO, None),
-            )
-            for r in (*pair[0], *pair[1])
-        ),
-        *(r for r in (*close_requests(REPO, None)[0], *close_requests(REPO, None)[1])),
-        *intake.requests,
-        *intake.writes,
-    ]
+    reads, writes = refine_requests(REPO, None)
+    single_reads, single_writes = refine_requests(REPO, None, item=7)
+    plans = [*reads, *writes, *single_reads, *single_writes, *intake.requests, *intake.writes]
     shapes = {_shape(request) for request in plans if request.argv}
     assert (
         "project field-list" in shapes,
@@ -317,260 +244,7 @@ def test_intakes_placement_plans_no_board_read_after_its_add() -> None:
         after.count("RoadmapBoardCard"),
         {"RoadmapBoardBudget", "RoadmapBoardItems"} & set(after),
         [t for t in MESSAGES.roadmap.intake_requests if t == "item"],
-    ) == (6, set(), [])
-
-
-# ── A real run's argv is its plan ─────────────────────────────────────────────
-
-_REQUEST, _ARG, _BODY = "\x1e", "\x1f", "\x1d"
-_PLACEHOLDER = re.compile(r"<[^<>]+>|%3C.+?%3E")
-"""A placeholder, as written or URL-quoted in a REST path."""
-
-
-def _template(text: str) -> str:
-    """`text` as a pattern: each placeholder stands for any value within one argument."""
-    parts = _PLACEHOLDER.split(text)
-    return f"[^{_REQUEST}{_ARG}{_BODY}]*?".join(re.escape(part) for part in parts)
-
-
-def _pattern(request: PlannedRequest) -> str:
-    """One planned request as a pattern over the calls: a page repeat runs once or more, any
-    other repeat any number of times, and a condition at most once."""
-    body = _ARG.join(_template(arg) for arg in request.argv[1:])
-    one = f"(?:{_REQUEST}{body}{_BODY}{_template(request.stdin or '')})"
-    if request.repeat:
-        return one + ("+" if is_page_repeat(request.repeat) and not request.condition else "*")
-    return one + ("?" if request.condition else "")
-
-
-def follows(plan: Sequence[PlannedRequest], calls: Sequence[tuple[list[str], str | None]]) -> bool:
-    """Whether the calls a run made, in order, are exactly the plan's requests."""
-    pattern = "".join(_pattern(request) for request in plan)
-    ran = "".join(f"{_REQUEST}{_ARG.join(args)}{_BODY}{stdin or ''}" for args, stdin in calls)
-    return re.fullmatch(pattern, ran, re.DOTALL) is not None
-
-
-class _Gh:
-    """Answers each command by the first key its argv contains; keeps every argv and stdin."""
-
-    def __init__(self, replies: dict[str, Any]) -> None:
-        self.replies = replies
-        self.calls: list[tuple[list[str], str | None]] = []
-
-    def __call__(self, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        self.calls.append((args, kwargs.get("input")))
-        command = " ".join(args)
-        key = next(key for key in self.replies if key in command)
-        reply = self.replies[key]
-        reply = reply(args) if callable(reply) else reply
-        text = reply if isinstance(reply, str) else json.dumps(reply)
-        return subprocess.CompletedProcess(args, 0, text, "")
-
-
-def _github(board: dict[str, Any], milestones: list[dict[str, Any]]) -> _Gh:
-    server = BoardServer(board)
-    branch = {"name": "main", "target": {"oid": "a" * 40}}
-    return _Gh(
-        {
-            "contents/.github/roadmap.toml": "board = 2\n",
-            "fields(first": fields_reply(),
-            "RoadmapGraphQLBudget": lambda _: budget_reply(server.remaining - 1),
-            BOARD_READ: server,
-            "issues?": issues_of(board),
-            "milestones?state=all": milestones,
-            "defaultBranchRef": {"data": {"repository": {"defaultBranchRef": branch}}},
-        }
-    )
-
-
-@pytest.fixture
-def github_stores(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Each store a job opens is the GitHub store over the runner the test passes; nothing
-    sleeps."""
-    from devops_cli.roadmap.github_store import GitHubRoadmapStore
-
-    monkeypatch.setattr(
-        roadmap_store_module,
-        "get_roadmap_store",
-        lambda repo, **options: GitHubRoadmapStore(
-            repo, **options, session=RunnerSession(options["runner"])
-        ),
-    )
-    with patch("time.sleep", side_effect=AssertionError("slept")):
-        yield
-
-
-def test_a_reprioritize_runs_gh_argv_sequence_is_its_plan(github_stores: None) -> None:
-    gh = _github(board_of(280, 651, archived=1), [])
-    config, store = open_roadmap(REPO, ref="main", runner=gh)
-    plan_reprioritization(store, repo=REPO, config=config, now=NOW)
-    store.graphql_spend()
-    planned = dry_run_reprioritization(REPO, ref="main", now=NOW).requests
-    # Ten board pages and the listings, each read through the session in one call here.
-    assert (len(gh.calls) > 15, follows(planned, gh.calls)) == (True, True)
-
-
-def test_a_render_runs_gh_argv_sequence_is_its_plan(github_stores: None) -> None:
-    release = {"number": 5, "title": "v0.2.26", "state": "open"}
-    gh = _github(board_of(150, 20), [release])
-    config, store = open_roadmap(
-        REPO, ref=None, runner=gh, board_filter=CONST_ROADMAP_RENDER_BOARD_FILTER
-    )
-    rendered = render(store, repo=REPO, config=config)
-    store.graphql_spend()
-    planned = dry_run_render(REPO, ref=None).requests
-    assert (
-        rendered.dry_run,
-        "## Current release: v0.2.26" in rendered.text,
-        follows(planned, gh.calls),
-    ) == (
-        False,
-        True,
-        True,
-    )
-
-
-_SHIPPED_LISTING = "pulls?state=closed&base=release%2Fv0.2.25"
-
-
-def _close_github(*, current: bool, holds: bool, reopened: bool = False, prefix: str = "v") -> _Gh:
-    """Closed v0.2.25, holding open #1 when `holds`, reopened by a person when `reopened`, its
-    pull request #3 closing it, and when `current` the open v0.2.26 holding open #2, which holds
-    its cut. Each milestone's title is its version after `prefix`."""
-    late, work = (
-        {
-            "number": number,
-            "title": title,
-            "html_url": f"https://github.com/{REPO}/issues/{number}",
-            "state": "open",
-            "state_reason": reason,
-            "milestone": {"title": f"{prefix}{version}"},
-        }
-        for number, title, version, reason in (
-            (1, "late", "0.2.25", "reopened" if reopened else None),
-            (2, "work", "0.2.26", None),
-        )
-    )
-    pull = {
-        "number": 3,
-        "html_url": f"https://github.com/{REPO}/pull/3",
-        "body": "Closes #1",
-        "merged_at": "2026-10-07T21:41:20Z",
-        "merge_commit_sha": "f" * 40,
-        "head": {"sha": "e" * 40},
-    }
-    shipped = {
-        "number": 43,
-        "title": f"{prefix}0.2.25",
-        "state": "closed",
-        "open_issues": int(holds),
-    }
-    now = {"number": 44, "title": f"{prefix}0.2.26", "state": "open", "open_issues": 1}
-    return _Gh(
-        {
-            "contents/.github/roadmap.toml": "board = 2\n",
-            "milestones?state=all": [shipped, *([now] if current else [])],
-            "issues?": [*([late] if holds else []), *([work] if current else [])],
-            _SHIPPED_LISTING: [pull],
-            "pulls?state=closed&base=release%2Fv0.2.26": [],
-            "/files?": [{"filename": "src/devops_cli/roadmap/close.py"}],
-        }
-    )
-
-
-def _plan_close_over(gh: _Gh) -> tuple[ClosePlan, list[str]]:
-    """The close plan a run over `gh` makes, and the commands it ran."""
-    from devops_cli.github.check_verdict import CheckVerdictSummary
-
-    _, store = open_roadmap(
-        REPO, ref=None, runner=gh, board_filter=CONST_ROADMAP_RENDER_BOARD_FILTER
-    )
-    plan = plan_close(store, repo=REPO, checks=lambda _: CheckVerdictSummary())
-    return plan, [" ".join(args) for args, _ in gh.calls]
-
-
-@pytest.mark.parametrize(
-    ("current", "holds", "reopened"),
-    [
-        (True, False, False),
-        (True, True, False),
-        (False, False, False),
-        (False, True, False),
-        (True, True, True),
-    ],
-    ids=["current", "current-and-shipped", "no-release", "shipped-only", "shipped-reopened"],
-)
-def test_a_close_runs_gh_argv_sequence_is_its_plan(
-    github_stores: None, current: bool, holds: bool, reopened: bool
-) -> None:
-    """A closed release that holds an open issue no person reopened costs its listing once,
-    before the current release's reads; with none, the run makes the requests it made before
-    #1362."""
-    gh = _close_github(current=current, holds=holds, reopened=reopened)
-    plan, commands = _plan_close_over(gh)
-    closable = holds and not reopened
-    assert (
-        sum(_SHIPPED_LISTING in command for command in commands),
-        any("issues?" in command for command in commands),
-        [closing.number for closing in plan.closings],
-        follows(dry_run_close(REPO, ref=None).requests, gh.calls),
-    ) == (int(closable), current or holds, [1] if closable else [], True), commands
-
-
-def test_closure_reads_the_cut_branch_of_a_release_titled_without_its_v(
-    github_stores: None,
-) -> None:
-    """A person titled the milestones `0.2.25` and `0.2.26`: closure still reads the branches
-    the cut makes, `release/v0.2.25` and `release/v0.2.26`."""
-    plan, commands = _plan_close_over(_close_github(current=True, holds=True, prefix=""))
-    (closing,) = plan.closings
-    assert (
-        sum(_SHIPPED_LISTING in command for command in commands),
-        sum("pulls?state=closed&base=release%2Fv0.2.26" in command for command in commands),
-        closing.number,
-        "merged into `release/v0.2.25`" in closing.comment,
-    ) == (1, 1, 1, True), commands
-
-
-def test_a_close_with_no_open_release_sends_no_graphql_and_skips_its_plans_budget_read(
-    github_stores: None,
-) -> None:
-    """With no open release, close reads its configuration and the milestones over REST and
-    nothing else, so it makes no closing budget read, which its plan lists only for a run that
-    sent a GraphQL request (#1400)."""
-    from devops_cli.github.rate_limiter import gh_request_resource
-    from devops_cli.roadmap.close import Hold, plan_close
-
-    shipped = {"number": 4, "title": "v0.2.25", "state": "closed"}
-    gh = _github(board_of(3, 0), [shipped])
-    _config, store = open_roadmap(REPO, ref="main", runner=gh)
-    plan = plan_close(store, repo=REPO, checks=lambda pr: pytest.fail(f"read checks of {pr}"))
-    spend = store.graphql_spend()
-    reads, _writes = close_requests(REPO, "main")
-    assert (
-        plan.hold,
-        spend,
-        [args for args, _ in gh.calls if gh_request_resource(args) == "graphql"],
-        "RoadmapGraphQLBudget" in " ".join(reads[-1].argv),
-        reads[-1].condition,
-        follows(reads, gh.calls),
-    ) == (
-        Hold.NO_RELEASE,
-        None,
-        [],
-        True,
-        MESSAGES.roadmap.plan_conditions["done"],
-        True,
-    )
-
-
-def test_a_plan_does_not_match_a_run_it_does_not_describe() -> None:
-    """The matcher is strict: a run with a request the plan lacks, or missing one it always
-    makes, does not follow it."""
-    planned = dry_run_render(REPO, ref=None).requests
-    config = (list(planned[0].argv[1:]), None)
-    extra = (["api", "repos/x/y/issues/1"], None)
-    assert (follows(planned, [config]), follows(planned, [config, extra])) == (False, False)
+    ) == (5, set(), [])
 
 
 # ── Through the real entry point ──────────────────────────────────────────────
@@ -631,30 +305,3 @@ def test_intakes_dry_run_shows_the_exact_gh_command_of_every_store_request() -> 
     plan = dry_run_intake(REPO, ref="main")
     bare = {request.method for request in plan.requests + plan.writes if not request.argv}
     assert bare == {"embedding", "model"}
-
-
-@pytest.mark.parametrize("flags", [("--plan",), ()], ids=["plan", "no-flag"])
-def test_a_reprioritize_preview_reads_github_and_ends_with_the_spend_line(
-    monkeypatch: pytest.MonkeyPatch, flags: tuple[str, ...]
-) -> None:
-    from devops_cli.roadmap.github_store import GitHubRoadmapStore
-
-    gh = _github(board_of(3, 1), [])
-    monkeypatch.setattr(
-        roadmap_store_module,
-        "get_roadmap_store",
-        lambda repo, **options: GitHubRoadmapStore(
-            repo, **{**options, "runner": gh, "session": RunnerSession(gh)}
-        ),
-    )
-    result = runner.invoke(app, ["reprioritize", "--repo", REPO, *flags])
-    last = result.output.strip().splitlines()[-1]
-    assert (
-        result.exit_code,
-        last.lstrip("ℹ ").startswith("GraphQL: "),
-        "points spent" in last,
-    ) == (
-        0,
-        True,
-        True,
-    ), result.output

@@ -67,11 +67,6 @@ def review_requested(reviewer: dict[str, Any] = TIMELINE_COPILOT) -> dict[str, A
     }
 
 
-def review_request_removed(reviewer: dict[str, Any] = TIMELINE_COPILOT) -> dict[str, Any]:
-    """A timeline event: the maintainer withdraws the request to `reviewer`."""
-    return {**review_requested(reviewer), "event": "review_request_removed"}
-
-
 def work_started() -> dict[str, Any]:
     """A timeline event: Copilot starts a pass, with the person who asked as its actor."""
     return {"event": "copilot_work_started", "actor": MAINTAINER}

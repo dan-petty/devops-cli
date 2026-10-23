@@ -37,13 +37,11 @@ from devops_cli.roadmap.board_read import (
     require_write_floor,
     spend_between,
 )
-from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.reprioritize import plan_reprioritization
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply, gh_variables
 from tests.support.fakes.github import RunnerSession
 from tests.support.paths import FIXTURES
-from tests.support.roadmap_board_replies import REPO, board_of, fields_reply, issues_of
+from tests.support.roadmap_board_replies import REPO, board_of, issues_of
 
 OWNER = "dan-petty"
 SCHEMA = FIXTURES / "roadmap" / "github-schema-board.graphql"
@@ -138,7 +136,7 @@ def test_each_read_passes_its_filter_at_the_source() -> None:
             "issues?state=all": issues_of(board),
         }
     )
-    reprioritize = GitHubRoadmapStore(
+    filtered = GitHubRoadmapStore(
         REPO,
         board_owner=OWNER,
         board_number=2,
@@ -149,7 +147,7 @@ def test_each_read_passes_its_filter_at_the_source() -> None:
     store.items()
     store.backlog()
     store.candidates()
-    reprioritize.cards()
+    filtered.items()
     assert [read["filter"] for read in board_reads(gh)] == [
         "",
         "",
@@ -162,7 +160,7 @@ def test_each_read_passes_its_filter_at_the_source() -> None:
 
 def test_an_archived_item_never_fails_the_read() -> None:
     """The total is the same filter's, archived items left out of both (2026-10-04: one archived
-    item stopped migrate with "Read 930 of 931")."""
+    item stopped a whole-board read with "Read 930 of 931")."""
     board = board_of(2, 2, archived=1)
     store, _ = store_over({BOARD_READ: BoardServer(board), "issues?state=all": issues_of(board)})
     assert [item.number for item in store.items()] == [1, 2, 3, 4]
@@ -179,9 +177,9 @@ def test_a_count_that_changes_during_the_read_is_read_again_once() -> None:
             server.listing["items"].append(extra)
 
     server = BoardServer(board, on_page=add_one)
-    store, gh = store_over({BOARD_READ: server})
-    cards = store.cards()
-    assert (len(cards), server.pages, len(board_reads(gh))) == (151, 4, 5)
+    store, gh = store_over({BOARD_READ: server, "issues?state=all": issues_of(board_of(151, 0))})
+    items = store.items()
+    assert (len(items), server.pages, len(board_reads(gh))) == (151, 4, 5)
 
 
 def test_a_count_that_changes_on_both_reads_fails_closed() -> None:
@@ -193,7 +191,7 @@ def test_a_count_that_changes_on_both_reads_fails_closed() -> None:
 
     store, _ = store_over({BOARD_READ: BoardServer(board, on_page=add_one)})
     with pytest.raises(GitHubOperationError, match="changed while they were read") as raised:
-        store.cards()
+        store.items()
     assert "150, 151, 151, 152; received 152" in str(raised.value)
 
 
@@ -207,7 +205,7 @@ def test_a_read_below_the_floor_is_refused_before_any_page() -> None:
     server = BoardServer(board, remaining=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR + 10)
     store, gh = store_over({BOARD_READ: server})
     with pytest.raises(GitHubRateLimitError, match="stopped before reading and spent nothing"):
-        store.cards()
+        store.items()
     assert (server.pages, server.spent, len(gh.calls)) == (0, 1, 1)
 
 
@@ -219,7 +217,7 @@ def test_a_read_stops_before_a_page_once_below_the_floor() -> None:
     )
     store, _ = store_over({BOARD_READ: server})
     with pytest.raises(GitHubRateLimitError, match="stopped before page 2"):
-        store.cards()
+        store.items()
     assert (server.pages, server.remaining) == (1, DEFAULT_GH_GRAPHQL_BUDGET_FLOOR - 51)
 
 
@@ -241,7 +239,7 @@ def test_each_refusal_carries_its_budgets_reset_in_its_details() -> None:
         refusals.append(raised.value)
     store, _ = store_over({BOARD_READ: BoardServer(board_of(3, 0), remaining=left)})
     with pytest.raises(GitHubRateLimitError) as read_refused:
-        store.cards()
+        store.items()
     common = {"subcommand": "graphql", "remaining": left, "reset_at": reset.isoformat()}
     assert (
         [refusal.details for refusal in refusals],
@@ -277,30 +275,21 @@ def test_an_error_that_is_not_a_budget_refusal_names_no_reset(error: Exception) 
     assert refusal_reset(error) is None
 
 
-# ── A reprioritize run ────────────────────────────────────────────────────────
+# ── A whole-board read ────────────────────────────────────────────────────────
 
 
-def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
+def test_a_whole_board_read_of_931_items_charges_its_pages() -> None:
     """The board of 2026-10-04: 931 items, 280 of them open, one more archived. Through `run_gh`,
-    with gh's process stubbed, the run charges the GraphQL points its board read reports: one
-    read, one budget query and ten pages of 100, which the items and the run record share
-    (#1361). The same run through `gh project item-list` cost 2,025 points while the limiter
-    counted one call per read. The run ends with the points spent and left, read from GraphQL."""
+    with gh's process stubbed, the read charges the GraphQL points its board read reports: one
+    budget query and ten pages of 100 (#1361). The same read through `gh project item-list` cost
+    2,025 points while the limiter counted one call per read. The run ends with the points spent
+    and left, read from GraphQL."""
     board = board_of(280, 651, archived=1)
     server = BoardServer(board)
     gh = Gh(
         {
-            "fields(first": fields_reply(),
             BOARD_READ: server,
             "issues?state=all": issues_of(board),
-            "milestones?state=all": [],
-            "defaultBranchRef": {
-                "data": {
-                    "repository": {
-                        "defaultBranchRef": {"name": "main", "target": {"oid": "a" * 40}}
-                    }
-                }
-            },
             "RoadmapGraphQLBudget": lambda _: budget_reply(server.remaining - 1),
             "rate_limit": {"resources": {"core": QUOTA, "graphql": QUOTA}},
         }
@@ -321,19 +310,19 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
             store = GitHubRoadmapStore(
                 REPO, board_owner=OWNER, board_number=2, session=RunnerSession(gh)
             )
-            plan = plan_reprioritization(store, repo=REPO, config=RoadmapConfig(board=2), now=NOW)
+            items = store.items()
             spend = store.graphql_spend()
             charged = get_github_rate_limiter().points_charged("graphql")
     finally:
         reset_github_rate_limiter()
     reads = board_reads(gh)
     assert (
-        plan.current,
+        len(items),
         [read["filter"] for read in reads],
         server.pages,
         charged,
         (spend.spent, spend.remaining),
-    ) == (None, [""] * 11, 10, 12, (12, 4988))
+    ) == (931, [""] * 11, 10, 12, (12, 4988))
 
 
 # ── The spend line ────────────────────────────────────────────────────────────

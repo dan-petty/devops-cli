@@ -1,6 +1,6 @@
 # Vision — devops-cli
 
-The principles devops-cli is built on and the themes it is heading toward. This file is written by hand and carries no release numbers: what ships, and when, lives in GitHub issues and milestones, and [`docs/ROADMAP.md`](ROADMAP.md) is generated from them ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)). A theme becomes work when someone opens an issue for it.
+The principles devops-cli is built on and the themes it is heading toward. This file is written by hand and carries no release numbers. The plans live in GitHub issues and milestones ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)). What merged to `main` ships when a person merges the release pull request ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). A theme becomes work when someone opens an issue for it.
 
 ## Core Vision & Design Principles
 

@@ -519,9 +519,7 @@ DEFAULT_PROMETHEUS_QUERY_RANGE_STEP: str = "60s"
 DEFAULT_PROMETHEUS_DEFAULT_QUERY: str = "up"
 DEFAULT_ARGOCD_DEFAULT_APP: str = "argocd"
 
-# ── Release & Git Defaults ────────────────────────────────────────────────────
-DEFAULT_RELEASE_TYPE: str = "feat"
-DEFAULT_RELEASE_LABEL: str = "release"
+# ── Git Defaults ──────────────────────────────────────────────────────────────
 DEFAULT_CLEAN_WORKSPACE_DAYS: int = 7
 DEFAULT_GIT_LOG_COUNT: int = 10
 DEFAULT_FIND_MAXDEPTH: int = 3
@@ -575,7 +573,7 @@ DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
     "Never echo plaintext secrets, tokens, private keys, or the contents of hidden or .gitignored files.",
     "Never write concrete internal hostnames, private RFC 1918 addresses, private registries, or homelab topology into any artifact; examples use example.com, RFC 5737 blocks, or localhost.",
     "Never lower, relax, bypass, or disable a security standard, quality threshold, or compliance check unless explicitly instructed by the user.",
-    "Never push before uv run devops ci passes locally, and never commit or push directly to main or any release/* branch.",
+    "Never push before uv run devops ci passes locally. Never commit or push directly to main.",
 )
 DEFAULT_EMBEDDING_MODEL_NAME: str = "default"
 DEFAULT_EMBEDDING_PROVIDER_NAME: str = "devops-cli"
@@ -654,7 +652,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src pragma: no mutate": 0,
     "src file-level directive": 0,
     "src ast-grep-ignore": DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
-    "tests type: ignore": 136,
+    "tests type: ignore": 79,
     "tests noqa: F401": 3,
     "tests noqa: N803": 1,
     "tests nosec": 17,
@@ -740,9 +738,6 @@ DEFAULT_GH_REST_PER_PAGE: int = 100
 # page that links none is not kept. A roadmap poll's listings and a PR monitor's reads fit well
 # inside it, and the URL read longest ago goes first.
 DEFAULT_GH_SESSION_ETAG_CACHE_SIZE: int = 64
-# A roadmap poll reads the pull requests and the GitHub Releases this many at a time: at 100 a
-# page the two pages ran to about 2 MB and 0.4 MB, and a poll needs the newest few (#1360).
-DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE: int = 20
 # Board reads page GraphQL's `ProjectV2.items` this many items at a time, its largest page (#1125).
 DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE: int = 100
 # A board read stops before a page, and refuses before it starts, while GraphQL reports fewer
@@ -754,8 +749,6 @@ DEFAULT_GH_GRAPHQL_BUDGET_FLOOR: int = 250
 # and a page of 100 items with their field values may make 101 (#1125).
 DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS: int = 1
 DEFAULT_GH_PROJECT_FIELD_LIMIT: int = 100
-DEFAULT_GH_PROJECT_LIST_LIMIT: int = 100
-DEFAULT_GH_PROJECT_WORKFLOW_LIMIT: int = 50
 DEFAULT_GH_PROJECT_OPTION_COLOR: str = "GRAY"
 # Closes and reopens read from one issue's timeline in one GraphQL request (#742).
 DEFAULT_GH_ISSUE_TIMELINE_LIMIT: int = 100
@@ -765,47 +758,29 @@ DEFAULT_ROADMAP_INTAKE_SHORTLIST: int = 5
 DEFAULT_ROADMAP_INTAKE_TEXT_CHARS: int = 4000
 DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS: int = 600
 DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
-# The longest first section of a pull request body a closure comment quotes (#743).
-DEFAULT_ROADMAP_CLOSE_SUMMARY_CHARS: int = 1500
 DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 60
-DEFAULT_ROADMAP_CLOSURE_INTERVAL_MINUTES: int = 60
 # How often refine is due on its own, besides its cross-job trigger (#1515).
 DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 60
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 15
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
-DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER: int = 1
-DEFAULT_ROADMAP_MEMORY_DEFAULT_BRANCH: str = "main"
-DEFAULT_ROADMAP_MEMORY_HEAD_SHA: str = "0" * 40
-# Open pull requests one GraphQL read returns; a repository with more raises instead of
-# reading part of them.
-DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT: int = 100
-# Boards one issue's card listing reads its Status from.
-DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE: int = 20
-# How often the stall check makes reprioritization due when nothing else has changed.
-DEFAULT_ROADMAP_STALL_CHECK_HOURS: int = 24
 # `.github/roadmap.toml` keys a repository may leave out. `board` has no default.
-DEFAULT_ROADMAP_RELEASE_CAP: int = 12
-# Items a release holds above its cap before a start trims it or a joining critical fix
-# descopes one (#1514).
-DEFAULT_ROADMAP_RELEASE_SLOTS: int = 4
+# Refine readies backlog items while fewer than this many items are Ready (#1515).
+DEFAULT_ROADMAP_REFINE_READY_TARGET: int = 12
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
-DEFAULT_ROADMAP_DISCOVERY_THRESHOLD: int = 24
-DEFAULT_ROADMAP_PLANNING_HORIZON: int = 2
-DEFAULT_ROADMAP_STALL_DAYS: int = 14
 DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT: int = 200
 DEFAULT_ROADMAP_THROTTLE_START_FRACTION: float = 0.8
 DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION: float = 0.25
-DEFAULT_ROADMAP_RELEASE_CREDIT_BASE: int = 10
-DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM: int = 1
-DEFAULT_ROADMAP_RELEASE_ITEM_TARGET: int = 50
-# Copilot review passes one release pull request gets, the pass when it opens included. Once they
-# are spent, `devops pr copilot-pass` requests none (#1345).
-DEFAULT_ROADMAP_RELEASE_COPILOT_PASSES: int = 2
-# The most characters of a review thread's comments its follow-up issue quotes (#1345).
-DEFAULT_PR_THREAD_ISSUE_TEXT_CHARS: int = 4000
+# The agent filing quota (#1153) counts over the last this many days, a rolling window that
+# ends now.
+DEFAULT_ROADMAP_QUOTA_WINDOW_DAYS: int = 7
+# The credit the quota gives with no item delivered in the window, the credit each item closed
+# as completed in the window adds, and the most credit the window gives.
+DEFAULT_ROADMAP_QUOTA_CREDIT_BASE: int = 10
+DEFAULT_ROADMAP_QUOTA_CREDIT_PER_DELIVERED_ITEM: int = 1
+DEFAULT_ROADMAP_QUOTA_CREDIT_CAP: int = 50
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

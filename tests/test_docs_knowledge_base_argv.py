@@ -127,8 +127,8 @@ def test_an_option_in_optional_group_brackets_is_validated() -> None:
     """Verify an option written inside a synopsis optional group is checked, not skipped."""
     markdown = """\
 ```bash
-devops release pr [-v <ver>]
-devops release pr [--no-such-flag]
+devops gh milestones list [-s <state>]
+devops gh milestones list [--no-such-flag]
 ```
 """
     references = collect_markdown_argv_references(markdown, "x.md")
@@ -137,12 +137,12 @@ devops release pr [--no-such-flag]
         references[0].tokens,
         [resolve_devops_argv(reference.tokens) for reference in references],
     ) == (
-        ("release", "pr", "-v", ArgvPlaceholder(expression="<ver>]")),
+        ("gh", "milestones", "list", "-s", ArgvPlaceholder(expression="<state>]")),
         [
             None,
             CommandReferenceFinding(
                 defect=CommandReferenceDefect.UNKNOWN_OPTION,
-                command_path="devops release pr",
+                command_path="devops gh milestones list",
                 token="--no-such-flag",
             ),
         ],

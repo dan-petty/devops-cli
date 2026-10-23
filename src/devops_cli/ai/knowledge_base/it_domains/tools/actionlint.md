@@ -15,7 +15,7 @@ tags:
 
 ## 1. Overview & Purpose
 
-`actionlint` is a static checker for GitHub Actions workflow files (`.github/workflows/*.yml`). Written in Go, it parses workflow YAML files, verifies GitHub Actions syntax schemas, validates shellcheck expressions, checks action inputs/outputs against official action repositories, and flags untrusted code execution risks. In `devops-cli`, `actionlint` is an enforced gate in `devops ci` and `devops release check`.
+`actionlint` is a static checker for GitHub Actions workflow files (`.github/workflows/*.yml`). Written in Go, it parses workflow YAML files, verifies GitHub Actions syntax schemas, validates shellcheck expressions, checks action inputs/outputs against official action repositories, and flags untrusted code execution risks. In `devops-cli`, `actionlint` is an enforced gate in `devops ci`.
 
 ---
 

@@ -125,7 +125,7 @@ def test_export_feedback_by_status_and_all(tmp_path: Path) -> None:
 # The export appends, keeps every verdict, and documents one path (#950)
 # =============================================================================
 
-_SUBJECT = {"type": "branch", "ref": "release/v0.2.25", "input": "181bdf9d63c60ce5"}
+_SUBJECT = {"type": "branch", "ref": "feat/review-export", "input": "181bdf9d63c60ce5"}
 
 
 def _session(

@@ -84,12 +84,12 @@ def test_gh_labels_list_asks_for_every_label() -> None:
 
 
 def test_gh_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:
-    """devops gh milestones list prints each Release with its progress rate."""
-    roadmap_store.create_release("v0.2.11")
-    roadmap_store.seed_issue("Shipped", state=GitHubState.CLOSED, release="v0.2.11")
+    """devops gh milestones list prints each milestone with its number and progress rate."""
+    roadmap_store.seed_milestone("Q4 hardening")
+    roadmap_store.seed_issue("Done", state=GitHubState.CLOSED, milestone="Q4 hardening")
 
     result = runner.invoke(milestones_app, ["list", "-R", "example/repo"])
-    assert (result.exit_code, "v0.2.11" in result.output, "100.0%" in result.output) == (
+    assert (result.exit_code, "Q4 hardening" in result.output, "100.0%" in result.output) == (
         0,
         True,
         True,
@@ -171,7 +171,7 @@ def test_gh_issues_list() -> None:
             number=77,
             title="feat(rag): dedicated library vector tier",
             state="open",
-            milestone="v0.2.14",
+            milestone="2026-11",
             labels=["type/feature", "scope/ai"],
             assignees=["dan-petty"],
         )
@@ -191,7 +191,7 @@ def test_gh_issues_create() -> None:
         number=99,
         title="fix(cli): bug fix",
         state="open",
-        milestone="v0.2.14",
+        milestone="2026-11",
         labels=["type/bug", "scope/cli"],
         url="https://github.com/dan-petty/devops-cli/issues/99",
     )
@@ -206,7 +206,7 @@ def test_gh_issues_create() -> None:
                 "--body",
                 "details",
                 "--milestone",
-                "v0.2.14",
+                "2026-11",
                 "--label",
                 "type/bug",
             ],
@@ -281,13 +281,13 @@ def test_gh_issues_status() -> None:
         "total_open": 3,
         "by_priority": {"priority/p1-high": 1, "priority/p2-medium": 2},
         "by_type": {"type/feature": 3},
-        "by_milestone": {"v0.2.14": 3},
+        "by_milestone": {"2026-11": 3},
     }
     with patch("devops_cli.commands.gh.get_issues_summary", return_value=mock_summary):
         result = runner.invoke(app, ["issues", "status", "--repo", "dan-petty/devops-cli"])
         assert result.exit_code == 0
         assert "Total Open" in result.output
-        assert "v0.2.14" in result.output
+        assert "2026-11" in result.output
 
 
 def test_gh_project_list() -> None:

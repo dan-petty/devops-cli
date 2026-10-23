@@ -1,13 +1,13 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **79 operational and architectural manuals**
+The bundled Knowledge Base provides **77 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
 
 ## Division 1: DevOps CLI Information (`devops_cli/`)
 
-**Total Articles**: 39 manuals covering internals, configuration, tasks, and libraries.
+**Total Articles**: 38 manuals covering internals, configuration, tasks, and libraries.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -45,7 +45,6 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `tasks` | [`infrastructure_provisioning.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/infrastructure_provisioning.md) | Infrastructure Provisioning |
 | `tasks` | [`k8s_stack_deployment.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/k8s_stack_deployment.md) | K8S Stack Deployment |
 | `tasks` | [`rag_context_indexing.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md) | Rag Context Indexing |
-| `tasks` | [`release_management.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/release_management.md) | Release Management |
 | `tasks` | [`repo_and_workspace_management.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/repo_and_workspace_management.md) | Repo And Workspace Management |
 | `tasks` | [`rest_api_service.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/rest_api_service.md) | Rest Api Service |
 | `tasks` | [`security_audit_and_scanning.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/security_audit_and_scanning.md) | Security Audit And Scanning |
@@ -55,7 +54,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 
 ## Division 2: Information Technology Domain-Specific (`it_domains/`)
 
-**Total Articles**: 40 manuals covering 11 IT topics and 29 tool references.
+**Total Articles**: 39 manuals covering 10 IT topics and 29 tool references.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -96,6 +95,5 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `topics` | [`model_governance_routing_and_curation.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/model_governance_routing_and_curation.md) | Model Governance Routing And Curation |
 | `topics` | [`modern_python_runtime_and_ecosystem.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/modern_python_runtime_and_ecosystem.md) | Modern Python Runtime And Ecosystem |
 | `topics` | [`observability_and_distributed_tracing.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/observability_and_distributed_tracing.md) | Observability And Distributed Tracing |
-| `topics` | [`release_engineering_and_semver_governance.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/release_engineering_and_semver_governance.md) | Release Engineering And Semver Governance |
 | `topics` | [`rest_api_architecture_and_service_engineering.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/rest_api_architecture_and_service_engineering.md) | Rest Api Architecture And Service Engineering |
 | `topics` | [`zero_trust_security_and_compliance.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/zero_trust_security_and_compliance.md) | Zero Trust Security And Compliance |

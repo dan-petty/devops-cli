@@ -66,9 +66,8 @@ COMMAND_SPECS = [
     (main_app, ["branches", "clean", "--dry-run"]),
     (main_app, ["roadmap", "--help"]),
     (roadmap_app, ["--help"]),
-    (roadmap_app, ["migrate", "--help"]),
-    (roadmap_app, ["render", "--help"]),
-    (roadmap_app, ["reprioritize", "--help"]),
+    (roadmap_app, ["intake", "--help"]),
+    (roadmap_app, ["refine", "--help"]),
     (roadmap_app, ["run", "--help"]),
 ]
 

@@ -32,7 +32,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_RELEASE,
+    CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
@@ -1263,9 +1263,9 @@ def test_a_pause_reader_that_fails_holds_nothing_and_the_worker_carries_on(
     )
 
 
-# ── A release-lane round never waits for a model-lane round (#1532) ───────────
+# ── A status-lane round never waits for a model-lane round (#1532) ────────────
 
-RELEASE_LANE, MODEL_LANE = CONST_SERVICE_LANE_RELEASE, CONST_SERVICE_LANE_MODEL
+STATUS_LANE, MODEL_LANE = CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_MODEL
 
 
 class _Lanes:
@@ -1276,7 +1276,7 @@ class _Lanes:
         self.model_started = threading.Event()
         self.model_answers = threading.Event()
         self.model_released: bool | None = None
-        self.batches: dict[str, list[TriggerBatch]] = {RELEASE_LANE: [], MODEL_LANE: []}
+        self.batches: dict[str, list[TriggerBatch]] = {STATUS_LANE: [], MODEL_LANE: []}
         self.most_at_once = dict.fromkeys(self.batches, 0)
         self._running = dict.fromkeys(self.batches, 0)
         self._lock = threading.Lock()
@@ -1319,29 +1319,29 @@ def _post(client: TestClient, event: str, action: str, delivery: str) -> int:
     return client.post("/webhooks/github", content=payload, headers=headers).status_code
 
 
-def test_a_webhook_runs_the_release_lane_while_the_model_lanes_round_is_blocked() -> None:
-    """The model lane's start-up round blocks on a slow model. A merged pull request's webhook
-    still runs a release-lane round at once, and the triggers that arrive meanwhile wait as one
+def test_a_webhook_runs_the_status_lane_while_the_model_lanes_round_is_blocked() -> None:
+    """The model lane's start-up round blocks on a slow model. A reopened issue's webhook still
+    runs a status-lane round at once, and the triggers that arrive meanwhile wait as one
     model-lane batch, which runs once the model answers. Each lane runs one round at a time, and
     each trigger counts once for the repository, whatever the lanes."""
     lanes = _Lanes()
     app = _lanes_app(lanes)
-    deliveries = [("pull_request", "closed"), ("issues", "opened"), ("issues", "opened")]
+    deliveries = [("issues", "reopened"), ("issues", "opened"), ("issues", "opened")]
     with TestClient(app) as client:
         workers = app.state.service_manager.workers
-        release, model = workers[(REPO_A, RELEASE_LANE)], workers[(REPO_A, MODEL_LANE)]
+        status, model = workers[(REPO_A, STATUS_LANE)], workers[(REPO_A, MODEL_LANE)]
         assert lanes.model_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
         statuses = [
             _post(client, event, action, f"lane-{n}")
             for n, (event, action) in enumerate(deliveries)
         ]
-        release_done, model_blocked = (
-            release.wait_active(THREAD_HANDOFF_BOUND_SECONDS),
+        status_done, model_blocked = (
+            status.wait_active(THREAD_HANDOFF_BOUND_SECONDS),
             model.is_active(),
         )
         lanes.model_answers.set()
         model_done = model.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
-    pull_request_closed = ("webhook", "pull_request", "closed")
+    reopened = ("webhook", "issues", "reopened")
     triggers = {
         source: GLOBAL_METRICS.get_counter_value(
             CONST_SERVICE_METRIC_TRIGGERS, labels={"repo": REPO_A, "source": source}
@@ -1350,12 +1350,12 @@ def test_a_webhook_runs_the_release_lane_while_the_model_lanes_round_is_blocked(
     }
     assert (
         statuses,
-        release_done,
+        status_done,
         model_blocked,
         lanes.model_released,
         model_done,
-        any(pull_request_closed in batch.counts for batch in lanes.batches[RELEASE_LANE]),
-        sum(sum(batch.counts.values()) for batch in lanes.batches[RELEASE_LANE]),
+        any(reopened in batch.counts for batch in lanes.batches[STATUS_LANE]),
+        sum(sum(batch.counts.values()) for batch in lanes.batches[STATUS_LANE]),
         [batch.counts for batch in lanes.batches[MODEL_LANE]],
         lanes.most_at_once,
         triggers,
@@ -1369,24 +1369,24 @@ def test_a_webhook_runs_the_release_lane_while_the_model_lanes_round_is_blocked(
         4,
         [
             {("poll", "", ""): 1},
-            {pull_request_closed: 1, ("webhook", "issues", "opened"): 2},
+            {reopened: 1, ("webhook", "issues", "opened"): 2},
         ],
-        {RELEASE_LANE: 1, MODEL_LANE: 1},
+        {STATUS_LANE: 1, MODEL_LANE: 1},
         {"poll": 1.0, "webhook": 3.0},
     )
 
 
 def test_metrics_show_a_stalled_model_lane_by_its_queue_depth() -> None:
     """While the model lane's round is blocked with a trigger waiting behind it, /metrics shows
-    the model lane's queue depth at 1 and the release lane's at 0, and each lane's rounds under
+    the model lane's queue depth at 1 and the status lane's at 0, and each lane's rounds under
     its own label."""
     lanes = _Lanes()
     app = _lanes_app(lanes)
     with TestClient(app) as client:
-        release = app.state.service_manager.workers[(REPO_A, RELEASE_LANE)]
+        status = app.state.service_manager.workers[(REPO_A, STATUS_LANE)]
         assert lanes.model_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-        _post(client, "pull_request", "closed", "stalled-1")
-        assert release.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+        _post(client, "issues", "reopened", "stalled-1")
+        assert status.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
         exported = client.get("/metrics").text.splitlines()
         lanes.model_answers.set()
     repo = f'repo="{REPO_A}"'
@@ -1396,45 +1396,45 @@ def test_metrics_show_a_stalled_model_lane_by_its_queue_depth() -> None:
 
     assert (
         f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="model",{repo}}} 1.0' in exported,
-        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="release",{repo}}} 0.0' in exported,
-        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="release",{repo},result="success"'),
-        exported_as(CONST_SERVICE_METRIC_JOB_SECONDS, f'lane="release",{repo}'),
+        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="status",{repo}}} 0.0' in exported,
+        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="status",{repo},result="success"'),
+        exported_as(CONST_SERVICE_METRIC_JOB_SECONDS, f'lane="status",{repo}'),
         exported_as(CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, f'lane="model",{repo}'),
         exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="model",{repo},result="success"'),
         lanes.model_released,
     ) == (True, True, True, True, True, False, True)
 
 
-def test_a_budget_refusal_in_the_model_lane_holds_the_release_lane_too() -> None:
+def test_a_budget_refusal_in_the_model_lane_holds_the_status_lane_too() -> None:
     """Both lanes spend the machine account's one GraphQL budget: the model lane's refused round
-    holds the release lane's next round through the shared pause until 5 s after the reset, and
+    holds the status lane's next round through the shared pause until 5 s after the reset, and
     then each lane runs one round with the trigger that waited (#1400)."""
-    release = _Rounds(lambda: None, {})
-    release_started_first: list[bool] = []
+    status = _Rounds(lambda: None, {})
+    status_started_first: list[bool] = []
 
-    def refuse_once_the_release_lane_started() -> None:
-        # A refusal holds every round that has not started yet, so it waits until the release
+    def refuse_once_the_status_lane_started() -> None:
+        # A refusal holds every round that has not started yet, so it waits until the status
         # lane's first round has started; otherwise it could hold that round too.
-        release_started_first.append(wait_until(lambda: bool(release.batches[REPO_A])))
+        status_started_first.append(wait_until(lambda: bool(status.batches[REPO_A])))
         _refuse_read()
 
-    model = _Rounds(refuse_once_the_release_lane_started, {REPO_A: 1})
+    model = _Rounds(refuse_once_the_status_lane_started, {REPO_A: 1})
     clock = _Clock(RESET - timedelta(minutes=20))
-    manager = _service({RELEASE_LANE: release, MODEL_LANE: model}, clock)
+    manager = _service({STATUS_LANE: status, MODEL_LANE: model}, clock)
     _trigger(manager, REPO_A)
-    first = (release.wait(1, manager), model.wait(1, manager))
+    first = (status.wait(1, manager), model.wait(1, manager))
     clock.now = RESET - timedelta(minutes=10)
     _trigger(manager, REPO_A)
-    held = (release.held(manager), model.held(manager))
+    held = (status.held(manager), model.held(manager))
     clock.now = RESUME
-    resumed = (release.wait(1, manager), model.wait(1, manager))
+    resumed = (status.wait(1, manager), model.wait(1, manager))
     asyncio.run(manager.drain_and_stop())
     assert (
-        release_started_first,
+        status_started_first,
         first,
         held,
         resumed,
-        release.triggers(),
+        status.triggers(),
         model.triggers(),
     ) == (
         [True],
@@ -1545,13 +1545,17 @@ def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
         ("create", _event_payload(None, ref="v1", ref_type="tag")),
         ("push", _event_payload(None, ref="refs/heads/main", deleted=False)),
         ("workflow_run", _event_payload("completed")),
+        ("pull_request", _event_payload("closed")),
+        ("milestone", _event_payload("closed")),
+        ("release", _event_payload("published")),
     ],
 )
 def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_round(
     event: str, payload: dict[str, Any]
 ) -> None:
-    """Comments, branch and tag creations, pushes (a default-branch push included) and every
-    other event the roadmap's jobs read nothing from are acknowledged and run nothing. A repeat
+    """Comments, branch and tag creations, pushes (a default-branch push included), pull
+    requests, milestones, GitHub Releases and every other event the roadmap's jobs read nothing
+    from are acknowledged and run nothing. A repeat
     of such a delivery is acknowledged again, since the delivery cache holds only deliveries a
     consumer took."""
     lanes = _unblocked_lanes()
@@ -1562,14 +1566,14 @@ def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_rou
     assert ([(r.status_code, r.json()) for r in responses], settled, _webhook_keys(lanes)) == (
         [(200, {"status": "no_subscriber"})] * 2,
         True,
-        {RELEASE_LANE: [], MODEL_LANE: []},
+        {STATUS_LANE: [], MODEL_LANE: []},
     )
 
 
-@pytest.mark.parametrize("event", ["issues", "pull_request", "milestone", "release"])
+@pytest.mark.parametrize("event", ["issues"])
 def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_both_lanes(event: str) -> None:
-    """Each event a roadmap job's batch keys name reaches the release lane and the model lane as
-    a ("webhook", <event>, <action>) trigger, whatever its action."""
+    """Each event a roadmap job's batch keys name, the issues events alone, reaches the status
+    lane and the model lane as a ("webhook", <event>, <action>) trigger, whatever its action."""
     lanes = _unblocked_lanes()
     app = _lanes_app(lanes)
     with TestClient(app) as client:
@@ -1580,7 +1584,7 @@ def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_both_lanes(eve
         202,
         {"status": "accepted"},
         True,
-        {RELEASE_LANE: [key], MODEL_LANE: [key]},
+        {STATUS_LANE: [key], MODEL_LANE: [key]},
     )
 
 
@@ -1598,7 +1602,7 @@ def test_the_machine_accounts_own_event_reaches_neither_lane() -> None:
         200,
         {"status": "ignored_machine_account"},
         True,
-        {RELEASE_LANE: [], MODEL_LANE: []},
+        {STATUS_LANE: [], MODEL_LANE: []},
     )
 
 
@@ -1900,7 +1904,7 @@ def test_the_machine_accounts_event_is_refused_by_the_roadmap_consumer_alone() -
         [(202, {"status": "accepted"})] * 2,
         [(REPO_A, "issues", "opened"), (REPO_A, "issues", "closed")],
         True,
-        {RELEASE_LANE: [key], MODEL_LANE: [key]},
+        {STATUS_LANE: [key], MODEL_LANE: [key]},
     )
 
 

@@ -58,9 +58,3 @@ rule = "python.lang.security.audit.non-literal-import.non-literal-import"
 path = "src/devops_cli/telemetry/memory_profiler.py"
 reason = "The module name comes only from the operator's own --target argument, checked against an identifier pattern; not reachable from MCP (#1150)."
 expiry = "2027-04-09"
-
-[[suppressions]]
-rule = "python.lang.security.audit.non-literal-import.non-literal-import"
-path = "src/devops_cli/commands/release.py"
-reason = "import_module only receives a module path from the hardcoded _LAZY_OBJECT_MAPPING literal, and only after an `in` check on the name; that mapping is never changed, so no user or attacker input reaches the import (#1150)."
-expiry = "2027-04-09"

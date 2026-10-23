@@ -749,6 +749,13 @@ def get_check_specs() -> list[CheckSpec]:
             metric_step="lockfile",
         ),
         CheckSpec(
+            name="build",
+            display_title=MESSAGES.ci.uv_build,
+            cmd=["uv", "build", "--quiet"],
+            span_name="ci.step.build",
+            metric_step="build",
+        ),
+        CheckSpec(
             name="outdated",
             display_title=MESSAGES.ci.uv_outdated,
             cmd=["uv", "tree", "--outdated", "--depth=1"],
@@ -2009,6 +2016,23 @@ def lockfile(
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     spec = get_check_spec("lockfile")
+    if not _run(spec.cmd):
+        raise typer.Exit(1)
+
+
+@app.command()
+def build(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Build the wheel and the sdist via uv build."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    spec = get_check_spec("build")
     if not _run(spec.cmd):
         raise typer.Exit(1)
 

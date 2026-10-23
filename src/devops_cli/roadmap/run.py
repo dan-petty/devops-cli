@@ -1,17 +1,16 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the release lane's rows, close, reprioritize and metrics, before the model
-lane's, intake and refine, so a burst of candidates never holds back a ship's start or the
-metrics (#1360). `devops roadmap run` runs the whole table in one round. The Service runs each
-lane in its own worker and its own clone (`SERVICE_JOBS`), so a release-lane round never waits
-for a model-bound one (#1532); both lanes read and write the repository's one `schedule.json`.
-Each row is due by its interval, by a webhook hint in the batch, or by its due rule, which judges
-the changes made since the row last succeeded: reprioritize's is `reprioritize.is_due`, the rule
-the lifecycle machine runs, given the current release; intake's is an issue reopened, or a fresh
-candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
-decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first
-run, once reprioritize has succeeded since refine last did, and in a round where reprioritize ran
-or intake placed a critical fix or a P0 item (#1515).
+The due table runs the status lane's row, metrics, before the model lane's, intake and refine,
+so a burst of candidates never holds back the metrics (#1360). `devops roadmap run` runs the
+whole table in one round. The Service runs each lane in its own worker and its own clone
+(`SERVICE_JOBS`), so a status-lane round never waits for a model-bound one (#1532); both lanes
+read and write the repository's one `schedule.json`. Each row is due by its interval, by a
+webhook hint in the batch, or by its due rule, which judges the changes made since the row last
+succeeded: intake's is an issue reopened, or a fresh candidate its last round left
+(`IntakeRecord`, kept beside `schedule.json`). A round's intake decides at most
+`DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first run, and in a
+round where intake placed a critical fix or a P0 item (#1515). Every clone tracks origin's
+default branch.
 """
 
 from __future__ import annotations
@@ -34,26 +33,19 @@ from pydantic import ValidationError as MalformedRecordError
 from devops_cli.config.constants import (
     CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GIT_CLI,
-    CONST_RELEASE_BRANCH_PREFIX,
-    CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_CRITICAL_FIX_LABELS,
-    CONST_ROADMAP_CRITICAL_PRIORITY,
-    CONST_ROADMAP_DOCUMENT_PATH,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
-    CONST_ROADMAP_P0_PRIORITY,
-    CONST_ROADMAP_RENDER_FILE_MODE,
-    CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
+    CONST_ROADMAP_P0_PRIORITIES,
     CONST_ROADMAP_RUN_BOARD_FILTER,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
     CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_RELEASE,
+    CONST_SERVICE_LANE_STATUS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
-    DEFAULT_ROADMAP_CLOSURE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
@@ -77,14 +69,7 @@ from devops_cli.roadmap.intake import (
     plan_intake,
     raise_for_failed_placements,
 )
-from devops_cli.roadmap.reprioritize import current_release, is_due
-from devops_cli.roadmap.store import (
-    Change,
-    ChangeKind,
-    Release,
-    RoadmapStore,
-    in_release,
-)
+from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import LaneJob, TriggerBatch
 
@@ -113,30 +98,20 @@ def parse_due_tuple(output: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class JobOutcome:
-    """Outcome of running one roadmap job."""
+    """Outcome of running one roadmap job: whether it placed a critical fix or a P0 item."""
 
-    changes: tuple[Change, ...] = ()
     placed_critical_or_p0: bool = False
-    critical_fix_or_p0_items: tuple[int, ...] = ()
-    closed_items: tuple[int, ...] = ()
-
-    @property
-    def has_critical_or_p0(self) -> bool:
-        """Whether this outcome placed a critical fix or P0 feature."""
-        return self.placed_critical_or_p0 or bool(self.critical_fix_or_p0_items)
 
 
 @dataclass(frozen=True)
 class DueCheck:
     """What a row's due rule judges at a poll or a webhook (#1360): the changes made at or after
-    the row's last success (none before its first), the time, that last success, the current
-    release when there are changes to judge, and the repository's data directory, which holds
-    `schedule.json`."""
+    the row's last success (none before its first), the time, that last success, and the
+    repository's data directory, which holds `schedule.json`."""
 
     changes: tuple[Change, ...]
     now: datetime
     last_success: datetime | None
-    current: Release | None
     repo_dir: Path
 
 
@@ -151,9 +126,7 @@ class JobRow:
     needs_clone: bool = False
     first_run_due: bool = False
     due_rule: Callable[[DueCheck], bool] | None = None
-    cross_job_predicate: (
-        Callable[[dict[str, JobOutcome], RoadmapStore, Release | None], bool] | None
-    ) = None
+    cross_job_predicate: Callable[[Mapping[str, JobOutcome]], bool] | None = None
 
 
 def _resolve_data_dir(data_dir: Path | str | None = None) -> Path:
@@ -268,18 +241,12 @@ def _resolve_roadmap_repo_path(
     return target
 
 
-def _select_tracked_branch(clone_dir: Path, repo: str, current_rel: Release | None) -> str:
-    """Fetch origin with pruning and return the branch the clone tracks (#1366).
-
-    That is the current release's `release/<v>` while origin has it, and origin's default branch
-    otherwise, including when no release is open. The default branch is origin's HEAD as git
-    reports it. A release branch counts as absent only when `rev-parse --verify` exits 1 after the
-    pruning fetch, which a ship's deleted branch and a release not yet started both do; that case
-    logs one INFO line. Any other git failure raises `subprocess.CalledProcessError`.
-    """
+def _default_branch(clone_dir: Path) -> str:
+    """Fetch origin with pruning and return origin's default branch, its HEAD as git reports it
+    (#1366). Any git failure raises `subprocess.CalledProcessError`."""
     for step in (("fetch", "--prune", "origin"), ("remote", "set-head", "origin", "--auto")):
         run_subprocess([CONST_GIT_CLI, *step], cwd=clone_dir, check=True, quiet=True)
-    default_branch = (
+    return (
         run_subprocess(
             [CONST_GIT_CLI, "symbolic-ref", "refs/remotes/origin/HEAD"],
             cwd=clone_dir,
@@ -289,62 +256,31 @@ def _select_tracked_branch(clone_dir: Path, repo: str, current_rel: Release | No
         .stdout.strip()
         .removeprefix("refs/remotes/origin/")
     )
-    if current_rel is None:
-        return default_branch
-    title = current_rel.title if current_rel.title.startswith("v") else f"v{current_rel.version}"
-    release_branch = f"{CONST_RELEASE_BRANCH_PREFIX}{title}"
-    probe = run_subprocess(
-        [
-            CONST_GIT_CLI,
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            f"refs/remotes/origin/{release_branch}",
-        ],
-        cwd=clone_dir,
-        check=False,
-        quiet=True,
-    )
-    if probe.returncode == 1:
-        logger.info(
-            "Roadmap clone of %s tracks %s: release %s has no %s on origin",
-            repo,
-            default_branch,
-            title,
-            release_branch,
-        )
-        return default_branch
-    probe.check_returncode()
-    return release_branch
 
 
 def ensure_checkout(
     repo: str,
     data_dir: Path,
     remote_url: str | None = None,
-    current_rel: Release | None = None,
     dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
 ) -> Path:
     """Clone the repository to <data dir>/roadmap/<owner>/<name>/<dirname>, update it, return its
-    path. `clone` is the release lane's and the CLI's, `model-clone` the Service's model lane's,
-    so the model lane's update never touches a cut in progress (#1532).
+    path. `clone` is the status lane's and the CLI's, `model-clone` the Service's model lane's,
+    so one lane's update never touches the other's checkout (#1532).
 
     The clone rows (`needs_clone`) rely on this contract:
 
     - Origin is fetched with `--prune`, so the remote-tracking branches are origin's branches and
       no others. Tags follow git's defaults: the clone takes every tag, a later fetch takes each
       tag on a commit the clone then has, and the prune removes none.
-    - HEAD is a named local branch, never detached, reset hard to origin's tip of the tracked
-      branch; a tracked change a failed job left in the clone is discarded (`checkout --force`).
-      Branches and origin's HEAD are read as full ref names, so no tag can shadow them. That is the current release's `release/<v>` while origin has it, and origin's
-      default branch (its HEAD, re-read with `remote set-head --auto`) otherwise (#1366): when
-      `current_rel` is None, and when the release has no branch, because a ship deleted it or
-      reprioritize has not created it yet. The last case logs one INFO line.
+    - HEAD is a named local branch, never detached, reset hard to origin's tip of its default
+      branch (origin's HEAD, read again with `remote set-head --auto`); a tracked change a failed
+      job left in the clone is discarded (`checkout --force`). Branches and origin's HEAD are read
+      as full ref names, so no tag can shadow them.
     - `user.name` and `user.email` are the session's login.
     - A git command that exits non-zero raises `GitOperationError` naming the command and git's
-      reason, credentials masked. Only a release branch `rev-parse --verify` finds absent after
-      a successful pruning fetch selects the default branch. A timeout or a missing `git` binary
-      propagates as `run_subprocess` raises it.
+      reason, credentials masked. A timeout or a missing `git` binary propagates as
+      `run_subprocess` raises it.
     """
     clone_dir = _resolve_roadmap_repo_path(data_dir, repo, dirname, error_cls=GitOperationError)
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -352,7 +288,7 @@ def ensure_checkout(
     try:
         if not (clone_dir / ".git").exists():
             run_subprocess([CONST_GIT_CLI, "clone", url, str(clone_dir)], check=True, quiet=True)
-        branch = _select_tracked_branch(clone_dir, repo, current_rel)
+        branch = _default_branch(clone_dir)
         login = _get_session_login()
         for step in (
             ("checkout", "--force", "-B", branch, f"refs/remotes/origin/{branch}"),
@@ -380,53 +316,10 @@ def _intake_due(check: DueCheck) -> bool:
         return True
 
 
-def _reprioritize_due(check: DueCheck) -> bool:
-    """Reprioritization's one due rule, the one the lifecycle machine runs: a release change,
-    a change to an item in the current release, or a day since its last run (#1360)."""
-    return is_due(check.changes, check.now, check.last_success, check.current)
-
-
-def _refine_due(check: DueCheck) -> bool:
-    """Refine is due once reprioritize has succeeded since refine last did, as `schedule.json`
-    holds them: in the Service the release lane runs reprioritize, and the model lane's next
-    poll runs refine (#1532)."""
-    schedule = _read_schedule(check.repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME)
-    reprioritized = schedule.get("reprioritize")
-    if reprioritized is None:
-        return False
-    return check.last_success is None or reprioritized > check.last_success
-
-
-def _reprioritize_cross_job(
-    outcomes: dict[str, JobOutcome], store: RoadmapStore, cur: Release | None
-) -> bool:
-    """Reprioritization is due if closure closed a current-release item."""
-    if "close" not in outcomes or cur is None:
-        return False
-    close_outcome = outcomes["close"]
-    for num in close_outcome.closed_items:
-        item = store.item(num)
-        if item is not None and in_release(item.release, cur.version):
-            return True
-    for ch in close_outcome.changes:
-        if ch.kind is ChangeKind.CLOSED:
-            if ch.release is not None and in_release(ch.release, cur.version):
-                return True
-            item = store.item(ch.number)
-            if item is not None and in_release(item.release, cur.version):
-                return True
-    return False
-
-
-def _refine_cross_job(
-    outcomes: dict[str, JobOutcome], _store: RoadmapStore, _cur: Release | None
-) -> bool:
-    """Refinement is due if reprioritization ran in the round, as in `devops roadmap run`, or
-    intake placed a critical/P0 item."""
-    if "reprioritize" in outcomes:
-        return True
+def _refine_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
+    """Refinement is due in a round where intake placed a critical fix or a P0 item."""
     intake_outcome = outcomes.get("intake")
-    return intake_outcome is not None and intake_outcome.has_critical_or_p0
+    return intake_outcome is not None and intake_outcome.placed_critical_or_p0
 
 
 def _places_critical_or_p0(plan: IntakePlan) -> bool:
@@ -434,7 +327,7 @@ def _places_critical_or_p0(plan: IntakePlan) -> bool:
     return any(
         decision.outcome is Outcome.PLACE
         and (
-            decision.priority in (CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY)
+            decision.priority in CONST_ROADMAP_P0_PRIORITIES
             or not CONST_ROADMAP_CRITICAL_FIX_LABELS.isdisjoint(decision.labels)
         )
         for decision in plan.decisions
@@ -470,108 +363,12 @@ def _run_intake_adapter(
         model=model or build_intake_model(),
         limit=limit,
         waiting=record.waiting,
+        now=now,
     )
     _write_intake_record(record_path, record.after(plan, now))
     if plan.has_writes:
         raise_for_failed_placements(apply_intake(store, plan))
     return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
-
-
-def _run_close_adapter(
-    store: RoadmapStore,
-    repo: str = "",
-    clone_path: Path | None = None,
-    config: RoadmapConfig | None = None,
-    **_: Any,
-) -> JobOutcome:
-    """Run closure job and return JobOutcome."""
-    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
-    from devops_cli.roadmap.close import apply_close, plan_close
-    from devops_cli.roadmap.store import MergedPullRequest
-
-    def checks(pull_request: MergedPullRequest) -> Any:
-        return fetch_pr_check_verdicts(
-            pull_request.number, repo=repo, head_sha=pull_request.head_commit
-        )
-
-    plan = plan_close(store, repo=repo, checks=checks)
-    closed_items = tuple(c.number for c in plan.closings)
-    if plan.has_writes and clone_path is not None:
-        from devops_cli.output.file_writer import write_text_file
-        from devops_cli.release.cut import cut_release
-        from devops_cli.roadmap.config import read_roadmap_config
-        from devops_cli.roadmap.render import render_roadmap
-
-        active_config = config or read_roadmap_config(store, ref=None)
-
-        def cut(planned: Any) -> None:
-            def write_roadmap(clone: Path) -> None:
-                text = render_roadmap(store, repo=repo, config=active_config)
-                write_text_file(
-                    clone / CONST_ROADMAP_DOCUMENT_PATH,
-                    text,
-                    mode=CONST_ROADMAP_RENDER_FILE_MODE,
-                )
-
-            cut_release(
-                version=planned.version,
-                base=planned.base,
-                draft=False,
-                sync_docs=False,
-                is_prepare=True,
-                repo_root=clone_path.resolve(),
-                edits=write_roadmap,
-                missing_fragments=planned.missing_fragments,
-            )
-
-        apply_close(store, plan, cut)
-    elif plan.has_writes:
-        apply_close(store, plan, lambda _: None)
-
-    changes = tuple(
-        Change(
-            kind=ChangeKind.CLOSED,
-            number=num,
-            actor=_current_actor(store),
-            at=datetime.now(UTC),
-        )
-        for num in closed_items
-    )
-    return JobOutcome(changes=changes, closed_items=closed_items)
-
-
-def _run_reprioritize_adapter(
-    store: RoadmapStore,
-    repo: str = "",
-    config: RoadmapConfig | None = None,
-    **_: Any,
-) -> JobOutcome:
-    """Run reprioritization job and return JobOutcome."""
-    from devops_cli.roadmap.config import read_roadmap_config
-    from devops_cli.roadmap.reprioritize import (
-        apply_reprioritization,
-        emit_reprioritize_telemetry,
-        plan_reprioritization,
-    )
-
-    active_config = config or read_roadmap_config(store, ref=None)
-    now = datetime.now(UTC)
-    plan = plan_reprioritization(store, repo=repo, config=active_config, now=now)
-    if plan.has_writes:
-        apply_reprioritization(store, plan)
-    emit_reprioritize_telemetry(plan, applied=plan.has_writes)
-    actor = _current_actor(store)
-    changes = tuple(
-        Change(
-            kind=ChangeKind.LABELED,
-            number=d.item.number,
-            actor=actor,
-            at=now,
-            release=d.release,
-        )
-        for d in plan.changes
-    )
-    return JobOutcome(changes=changes)
 
 
 def _job_clone(job: str, clone_path: Path | None) -> Path:
@@ -610,7 +407,7 @@ def _run_metrics_adapter(
     clone_path: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Collect the project metrics, walking the release tags of the job's clone of `repo`, and the
+    """Collect the project metrics, walking the version tags of the job's clone of `repo`, and the
     GitHub and Cloudflare status, into the in-memory registry and OTLP (#1358). A failed
     collection or status read is logged and skipped; a missing clone fails the job."""
     from devops_cli.github.metrics import (
@@ -651,21 +448,7 @@ def _run_metrics_adapter(
     return JobOutcome()
 
 
-RELEASE_LANE_ROWS: tuple[JobRow, ...] = (
-    JobRow(
-        name="close",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_CLOSURE_INTERVAL_MINUTES),
-        batch_keys=CONST_ROADMAP_CLOSURE_BATCH_KEYS,
-        runner=_run_close_adapter,
-        needs_clone=True,
-    ),
-    JobRow(
-        name="reprioritize",
-        batch_keys=CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
-        runner=_run_reprioritize_adapter,
-        due_rule=_reprioritize_due,
-        cross_job_predicate=_reprioritize_cross_job,
-    ),
+STATUS_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="metrics",
         interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
@@ -674,8 +457,7 @@ RELEASE_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
 )
-"""The rows that close items, start and ship releases, and refresh the metrics: none calls the
-model."""
+"""The row that refreshes the metrics, which calls no model."""
 
 MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -692,14 +474,13 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         runner=_run_refine_adapter,
         needs_clone=True,
         first_run_due=True,
-        due_rule=_refine_due,
         cross_job_predicate=_refine_cross_job,
     ),
 )
 """The rows that call the model, which answers one call at a time."""
 
-DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*RELEASE_LANE_ROWS, *MODEL_LANE_ROWS)
-"""Every row, the release lane's first: what `devops roadmap run` runs in one round."""
+DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *MODEL_LANE_ROWS)
+"""Every row, the status lane's first: what `devops roadmap run` runs in one round."""
 
 
 def build_stub_table(
@@ -709,8 +490,8 @@ def build_stub_table(
     include_refine: bool | None = None,
     include_metrics: bool | None = None,
 ) -> tuple[JobRow, ...]:
-    """The due table's rows, in its order, each running `runners`' stub for its job: close,
-    reprioritize and intake, plus metrics and refine when asked for or given a stub."""
+    """The due table's rows, in its order, each running `runners`' stub for its job: intake,
+    plus metrics and refine when asked for or given a stub."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
@@ -761,12 +542,11 @@ def _oldest_cutoff(
 @dataclass(frozen=True)
 class _Poll:
     """What every row of one round is judged by: the schedule, the batch, the changes read, the
-    current release, the time and the repository's data directory."""
+    time and the repository's data directory."""
 
     schedule: Mapping[str, datetime]
     batch: Mapping[tuple[str, str, str], int]
     changes: Sequence[Change]
-    current: Release | None
     now: datetime
     repo_dir: Path
 
@@ -780,43 +560,32 @@ class _Poll:
             return False
         since = last or self.now
         mine = tuple(change for change in self.changes if change.at >= since)
-        return row.due_rule(DueCheck(mine, self.now, last, self.current, self.repo_dir))
-
-
-def _get_current_release(store: RoadmapStore) -> Release | None:
-    """Retrieve current release from store."""
-    return current_release(store.releases())
+        return row.due_rule(DueCheck(mine, self.now, last, self.repo_dir))
 
 
 def _fetch_filtered_changes(
     rows: Sequence[JobRow],
     schedule: Mapping[str, datetime],
-    active_batch: Mapping[tuple[str, str, str], int],
     store: RoadmapStore,
     current_time: datetime,
 ) -> list[Change]:
     """Fetch recent store changes excluding writes authored by the current session, which the
-    store leaves out before it reads any job record (#1361)."""
-    has_poll = any(src == "poll" for (src, _evt, _act) in active_batch)
-    if not has_poll and not any(r.due_rule is not None for r in rows):
+    store leaves out before it reads any job record (#1361). Only a due rule judges changes, so
+    a lane with no row that has one, such as the status lane, reads none."""
+    if not any(r.due_rule is not None for r in rows):
         return []
     cutoff = _oldest_cutoff(rows, schedule, current_time)
     return store.changes_since(cutoff, except_actor=_current_actor(store))
 
 
-def _simulate_dry_run(
-    rows: Sequence[JobRow],
-    initially_due: Mapping[str, bool],
-    store: RoadmapStore,
-    cur: Release | None,
-) -> tuple[str, ...]:
+def _simulate_dry_run(rows: Sequence[JobRow], initially_due: Mapping[str, bool]) -> tuple[str, ...]:
     """Simulate due jobs without executing them."""
     due_list: list[str] = []
     simulated_outcomes: dict[str, JobOutcome] = {}
     for row in rows:
         is_due = initially_due[row.name]
         if not is_due and row.cross_job_predicate is not None:
-            is_due = row.cross_job_predicate(simulated_outcomes, store, cur)
+            is_due = row.cross_job_predicate(simulated_outcomes)
         if is_due:
             due_list.append(row.name)
             simulated_outcomes[row.name] = JobOutcome()
@@ -828,7 +597,6 @@ def _prepare_clone(
     repo: str,
     base_data: Path,
     remote_url: str | None,
-    cur: Release | None,
     clone_path: Path | None,
     clone_error: Exception | None,
     clone_dirname: str,
@@ -841,7 +609,7 @@ def _prepare_clone(
     if clone_path is not None:
         return clone_path, None
     try:
-        path = ensure_checkout(repo, base_data, remote_url, cur, clone_dirname)
+        path = ensure_checkout(repo, base_data, remote_url, clone_dirname)
         return path, None
     except Exception as exc:
         return None, exc
@@ -851,7 +619,6 @@ def _execute_due_rows(
     rows: Sequence[JobRow],
     initially_due: Mapping[str, bool],
     store: RoadmapStore,
-    cur: Release | None,
     repo: str,
     base_data: Path,
     remote_url: str | None,
@@ -873,13 +640,13 @@ def _execute_due_rows(
     for row in rows:
         is_due = initially_due[row.name]
         if not is_due and row.cross_job_predicate is not None:
-            is_due = row.cross_job_predicate(outcomes, store, cur)
+            is_due = row.cross_job_predicate(outcomes)
         if not is_due:
             continue
 
         if row.needs_clone:
             clone_path, clone_error = _prepare_clone(
-                row, repo, base_data, remote_url, cur, clone_path, clone_error, clone_dirname
+                row, repo, base_data, remote_url, clone_path, clone_error, clone_dirname
             )
             if clone_error is not None:
                 failed_jobs.append(row.name)
@@ -928,9 +695,8 @@ def run_due_jobs(
     """Evaluate and execute due roadmap jobs, the clone rows in `clone_dirname`.
 
     With no trigger in the batch, rows are judged on no changes, which reads nothing; a round
-    whose rows are all not due reads no more than its changes. The current release is read when
-    there are changes to judge or a row is due, for its cross-job triggers and clone. Each row is
-    judged by `schedule.json` as the round found it, and each success is written as it happens.
+    whose rows are all not due reads no more than its changes. Each row is judged by
+    `schedule.json` as the round found it, and each success is written as it happens.
     """
     current_time = now or datetime.now(UTC)
     base_data = _resolve_data_dir(data_dir)
@@ -943,27 +709,23 @@ def run_due_jobs(
     batch_counts = batch.counts if isinstance(batch, TriggerBatch) else dict(batch or {})
     active_batch = {k: v for k, v in batch_counts.items() if v > 0}
 
-    quiet = _Poll(schedule, active_batch, (), None, current_time, schedule_path.parent)
+    quiet = _Poll(schedule, active_batch, (), current_time, schedule_path.parent)
     if not active_batch and not any(quiet.is_due(row) for row in rows):
         return ()
 
-    changes = _fetch_filtered_changes(rows, schedule, active_batch, store, current_time)
-    cur = _get_current_release(store) if changes else None
-    polled = replace(quiet, changes=changes, current=cur)
+    changes = _fetch_filtered_changes(rows, schedule, store, current_time)
+    polled = replace(quiet, changes=changes)
     initially_due = {row.name: polled.is_due(row) for row in rows}
     if not any(initially_due.values()):
         return ()
-    if not changes:
-        cur = _get_current_release(store)
 
     if dry_run:
-        return _simulate_dry_run(rows, initially_due, store, cur)
+        return _simulate_dry_run(rows, initially_due)
 
     return _execute_due_rows(
         rows,
         initially_due,
         store,
-        cur,
         repo,
         base_data,
         remote_url,
@@ -1030,8 +792,8 @@ def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: 
 
 
 SERVICE_JOBS: Mapping[str, LaneJob] = {
-    CONST_SERVICE_LANE_RELEASE: partial(
-        service_job, table=RELEASE_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME
+    CONST_SERVICE_LANE_STATUS: partial(
+        service_job, table=STATUS_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME
     ),
     CONST_SERVICE_LANE_MODEL: partial(
         service_job, table=MODEL_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
@@ -1044,8 +806,8 @@ repository (#1532)."""
 __all__ = [
     "DEFAULT_DUE_TABLE",
     "MODEL_LANE_ROWS",
-    "RELEASE_LANE_ROWS",
     "SERVICE_JOBS",
+    "STATUS_LANE_ROWS",
     "JobOutcome",
     "JobRow",
     "build_stub_table",

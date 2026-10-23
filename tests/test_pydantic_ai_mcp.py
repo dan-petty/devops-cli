@@ -248,7 +248,7 @@ async def test_mcp_derived_default_tools_match_published_fastmcp_schemas() -> No
         reset_hydrated_domains()
 
     assert (
-        len(published_tools) >= 150,
+        len(published_tools) >= 145,
         mismatched_schemas,
         schema_warnings,
         hydrate_result,

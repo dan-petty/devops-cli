@@ -118,7 +118,7 @@ def test_update_single_pr_cli_success(monkeypatch: pytest.MonkeyPatch) -> None:
         "devops_cli.commands.pr._fetch_pr_details",
         lambda *args, **kwargs: {
             "head": {"ref": "feat/my-branch"},
-            "base": {"ref": "release/v0.2.20"},
+            "base": {"ref": "main"},
         },
     )
     monkeypatch.setattr(
@@ -152,7 +152,7 @@ def test_update_single_pr_cli_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
             fetch_called.append(True)
             or {
                 "head": {"ref": "feat/my-branch"},
-                "base": {"ref": "release/v0.2.20"},
+                "base": {"ref": "main"},
             }
         ),
     )
@@ -180,7 +180,7 @@ def test_update_single_pr_cli_failure(monkeypatch: pytest.MonkeyPatch) -> None:
         "devops_cli.commands.pr._fetch_pr_details",
         lambda *args, **kwargs: {
             "head": {"ref": "feat/my-branch"},
-            "base": {"ref": "release/v0.2.20"},
+            "base": {"ref": "main"},
         },
     )
     monkeypatch.setattr(
@@ -329,6 +329,33 @@ def test_fetch_open_prs_sorts_oldest_first() -> None:
         assert numbers == [100, 200, 300]
 
 
+@pytest.mark.parametrize(
+    ("base", "filtered"),
+    [(None, []), ("main", ["--base", "main"])],
+    ids=["any-base", "one-base"],
+)
+def test_update_all_lists_only_the_current_accounts_open_prs(
+    base: str | None, filtered: list[str]
+) -> None:
+    """`--all` lists the open PRs that gh's own account wrote, so a PR that a bot or another
+    person owns, such as the one release-please writes, is never updated."""
+    from unittest.mock import patch
+
+    from devops_cli.commands.pr import _fetch_open_prs, _plan_update_all_prs
+
+    with patch(
+        "devops_cli.commands.pr.run_gh", return_value=MagicMock(returncode=0, stdout="[]")
+    ) as gh:
+        _fetch_open_prs("owner/repo", base)
+    listed = gh.call_args.args[0]
+    planned = list(_plan_update_all_prs("owner/repo", base)[0].argv)
+    assert (listed[:7], listed[-2:] if base else [], planned) == (
+        ["gh", "pr", "list", "--state", "open", "--author", "@me"],
+        filtered,
+        listed,
+    )
+
+
 def test_build_dispatch_ci_cmd() -> None:
     """_build_dispatch_ci_cmd returns proper GitHub CLI API dispatch invocation."""
     from devops_cli.commands.pr import _build_dispatch_ci_cmd
@@ -357,7 +384,7 @@ def test_update_single_pr_cli_dispatch_ci_success(monkeypatch: pytest.MonkeyPatc
         sha = "old" if fetch_count[0] == 1 else "new"
         return {
             "head": {"ref": "feat/my-branch", "sha": sha, "repo": {"full_name": "owner/repo"}},
-            "base": {"ref": "release/v0.2.20"},
+            "base": {"ref": "main"},
         }
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
@@ -414,7 +441,7 @@ def test_update_single_pr_cli_head_sha_unchanged(monkeypatch: pytest.MonkeyPatch
                 "sha": "unchanged_sha",
                 "repo": {"full_name": "owner/repo"},
             },
-            "base": {"ref": "release/v0.2.20"},
+            "base": {"ref": "main"},
         },
     )
     monkeypatch.setattr(
@@ -452,7 +479,7 @@ def test_update_single_pr_cli_fork_head(monkeypatch: pytest.MonkeyPatch) -> None
                 "sha": "fork_sha",
                 "repo": {"full_name": "other/repo"},
             },
-            "base": {"ref": "release/v0.2.20"},
+            "base": {"ref": "main"},
         },
     )
     monkeypatch.setattr(
@@ -484,7 +511,7 @@ def test_update_single_pr_cli_dispatch_failed(monkeypatch: pytest.MonkeyPatch) -
         sha = "old" if fetch_count[0] == 1 else "new"
         return {
             "head": {"ref": "feat/my-branch", "sha": sha, "repo": {"full_name": "owner/repo"}},
-            "base": {"ref": "release/v0.2.20"},
+            "base": {"ref": "main"},
         }
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)

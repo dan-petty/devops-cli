@@ -117,13 +117,15 @@ class _Steps:
         agent = (CONST_ROADMAP_SOURCE_AGENT_LABEL,)
         return [
             *self.step("config", store.file(CONST_ROADMAP_CONFIG_PATH, self.ref)),
-            *self.step("milestones", store.releases()),
             *self.step("issues", store.issues()),
             *self.step("board", store.board_read()),
             *self.step("board_issues", store.issues()),
-            *self.step("quota_milestones", store.releases()),
             *self.step("count_open", store.count_issues(IssueQuery(state=GitHubState.OPEN))),
             *self._count("count_closed", IssueQuery.model_validate(closed)),
+            *self._count(
+                "count_delivered",
+                IssueQuery.model_validate(closed | {"reason": CloseReason.COMPLETED}),
+            ),
             *self._count(
                 "count_bulk",
                 IssueQuery.model_validate(
@@ -147,28 +149,16 @@ class _Steps:
         for s in [] if new else subjects:
             planned += self.step("closures", store.closures(s), subject=s, repeat=repeat)
         planned.append(self.call("embed_new" if new else "embed", _Via.EMBEDDING))
-        for index, subject in enumerate(subjects):
+        for subject in subjects:
             planned.append(self.call("propose", _Via.MODEL, subject=subject, repeat=repeat))
             planned += self.step(
                 "evidence", store.evidence(subject), subject=subject, repeat=repeat
             )
-            planned += [] if index else self._release_state()
             if not new:
                 planned += self.step(
                     "comments", store.comments_on(subject), subject=subject, repeat=repeat
                 )
         return planned
-
-    def _release_state(self) -> list[PlannedRequest]:
-        """The reads that find the current release, once a run, at the first critical fix."""
-        current = MESSAGES.roadmap.intake_request_conditions["release_state"]
-        store = self.store
-        return [
-            *self.step("default_branch", store.default_branch(), when=current),
-            *self.step("release_milestones", store.releases(), when=current),
-            *self.step("release_prs", store.release_pull_requests()[-1:], when=current),
-            *self.step("release_published", store.release_published(), when=current),
-        ]
 
     def writes(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:
         """The writes `--confirm` makes for each candidate it places or closes as a duplicate."""
@@ -191,7 +181,6 @@ class _Steps:
         steps: list[tuple[str, list[PlannedRequest], dict[str, str]]] = [
             ("label", store.label_issue(subject), {}),
             ("add", store.add_item(subject), {}),
-            ("release", store.set_field(subject, "Release"), {}),
             *(
                 ("field", store.set_field(subject, name), {"field": shown})
                 for name, shown in zip(names, texts.intake_placeholder_fields, strict=True)

@@ -312,8 +312,8 @@ def test_devops_review_pr_post_empty_diff_makes_zero_model_calls(
     )
     _route_the_pull_request(
         github_api,
-        files=[pull_request_file_payload("changelog.d/1.md", "added")],
-        diff="diff --git a/changelog.d/1.md b/changelog.d/1.md\n+### Added\n",
+        files=[pull_request_file_payload("docs/agent/tasks/task-1-x.md", "added")],
+        diff="diff --git a/docs/agent/tasks/task-1-x.md b/docs/agent/tasks/task-1-x.md\n+- [x] Done.\n",
         comments=True,
     )
     mock_client = MagicMock(spec=ReviewLLMClient)
@@ -348,15 +348,15 @@ def test_devops_review_pr_post_stops_when_the_files_of_the_pull_request_cannot_b
     no file would look like a review of an empty change."""
     _route_the_pull_request(
         github_api,
-        files=[pull_request_file_payload("changelog.d/1.md", "added")],
-        diff="diff --git a/changelog.d/1.md b/changelog.d/1.md\n+### Added\n",
+        files=[pull_request_file_payload("docs/agent/tasks/task-1-x.md", "added")],
+        diff="diff --git a/docs/agent/tasks/task-1-x.md b/docs/agent/tasks/task-1-x.md\n+- [x] Done.\n",
         comments=True,
     )
     files = "/repos/org/repo/pulls/42/files?per_page=100"
     github_api.route(
         "GET",
         files,
-        github_json([pull_request_file_payload("changelog.d/1.md", "added")]),
+        github_json([pull_request_file_payload("docs/agent/tasks/task-1-x.md", "added")]),
         github_json({"message": "Server Error"}, status=500),
     )
 
@@ -378,10 +378,10 @@ def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(
     _route_the_pull_request(
         github_api,
         files=[
-            pull_request_file_payload("changelog.d/1.md", "added"),
-            pull_request_file_payload("changelog.d/2.md", "removed"),
+            pull_request_file_payload("docs/agent/tasks/task-1-x.md", "added"),
+            pull_request_file_payload("docs/agent/tasks/task-2-y.md", "removed"),
         ],
-        diff="diff --git a/changelog.d/1.md b/changelog.d/1.md\n+### Added\n",
+        diff="diff --git a/docs/agent/tasks/task-1-x.md b/docs/agent/tasks/task-1-x.md\n+- [x] Done.\n",
         comments=True,
     )
 
@@ -389,4 +389,4 @@ def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(
 
     posted = _posted(github_api)
     assert (result.exit_code, len(posted)) == (0, 1)
-    assert "- **Files checked:** `changelog.d/1.md`\n" in posted[0][1]["body"]
+    assert "- **Files checked:** `docs/agent/tasks/task-1-x.md`\n" in posted[0][1]["body"]

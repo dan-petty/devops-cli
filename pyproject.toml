@@ -63,7 +63,6 @@ dependencies = [
     "tree-sitter-bash==0.25.1",
     "tree-sitter-markdown==0.5.1",
     "markdown-it-py==4.2.0",
-    "mdit-py-plugins==0.6.1",
     "graphql-core==3.3.0",
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
@@ -100,6 +99,7 @@ dev = [
     "ast-grep-cli==0.51.0",
     "time-machine==3.5.1",
     "fakeredis[valkey]==2.40.0",
+    "mdit-py-plugins==0.6.1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -247,7 +247,7 @@ also_copy = [
     ".tuicrignore",
     ".trivyignore", "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md",
     "CONTRIBUTING.md", "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md",
-    "changelog.d", "config.example.yaml", "docs", "k8s", "tf",
+    "config.example.yaml", "docs", "k8s", "release-please-config.json", "tf",
     "GEMINI.md",
 ]
 

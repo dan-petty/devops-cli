@@ -58,26 +58,3 @@ devops docs sync-readme [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
-
-## `devops docs compact`
-
-**Compact historical documentation for completed release series.**
-
-```bash
-devops docs compact [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--series`, `-s` | `string` | `v0.2` | Release series prefix to compact (e.g., 'v0.2', 'v0.1'). |
-| `--docs-dir`, `-d` | `path` | - | Path to repository docs/ directory (default: docs/). |
-| `--archive-dir`, `-a` | `path` | - | Path to historical archive directory (default: docs/agent/archive/). |
-| `--check` | `boolean` | - | Check if documentation compaction would make changes without modifying files. |
-| `--roadmap-only` | `boolean` | - | Only compact docs/ROADMAP.md. |
-| `--release-notes-only` | `boolean` | - | Only compact docs/RELEASE_NOTES.md. |
-| `--log-only` | `boolean` | - | Only compact docs/LOG.md. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
----

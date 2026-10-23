@@ -8,9 +8,8 @@ risks from inline expressions inside run blocks are eliminated.
 from __future__ import annotations
 
 import copy
-import os
+import json
 import re
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -68,84 +67,161 @@ def _assert_attest_build_provenance_contract(workflow: dict[str, Any]) -> None:
         )
 
 
-def _git(repo: Path, *args: str) -> str:
-    """Run git in `repo` and return its output; a failure raises."""
-    return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
-    ).stdout.strip()
+_RELEASE_CREATED = "needs.release-please.outputs.release_created == 'true'"
 
 
-def _commit_in_a_clone(tmp_path: Path) -> tuple[Path, str, str]:
-    """A clone of a bare origin with two commits, both pushed: the repository, its first commit
-    and its second."""
-    origin = tmp_path / "origin.git"
-    repo = tmp_path / "repo"
-    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
-    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
-    _git(repo, "config", "user.name", "Test")
-    _git(repo, "config", "user.email", "test@example.com")
-    shas = []
-    for number in (1, 2):
-        (repo / "version.txt").write_text(f"{number}\n", encoding="utf-8")
-        _git(repo, "add", "version.txt")
-        _git(repo, "commit", "-q", "-m", f"commit {number}")
-        shas.append(_git(repo, "rev-parse", "HEAD"))
-    _git(repo, "push", "-q", "origin", "HEAD")
-    return repo, shas[0], shas[1]
+def _needs(job: dict[str, Any]) -> list[str]:
+    """The jobs a job needs, as a list."""
+    needs = job.get("needs", [])
+    return [needs] if isinstance(needs, str) else list(needs)
 
 
-def _run_tag_step(repo: Path, tag: str, published_sha: str) -> subprocess.CompletedProcess[str]:
-    """Run the release job's tag step script for `tag`, publishing `published_sha`."""
-    steps = _load_workflow(RELEASE_PATH)["jobs"]["release"]["steps"]
-    script = next(s for s in steps if s.get("name", "").startswith("Create Git Tag"))["run"]
-    env = {**os.environ, "TAG": tag, "TITLE": tag, "GITHUB_SHA": published_sha}
-    return subprocess.run(
-        ["bash", "-e", "-c", script], cwd=repo, env=env, capture_output=True, text=True, check=False
-    )
-
-
-@pytest.mark.live("bash")
-def test_the_release_tags_the_commit_it_publishes(tmp_path: Path) -> None:
-    """With no tag for the version, the tag step creates it on the published commit and pushes
+def _gated(jobs: dict[str, Any], name: str) -> bool:
+    """Whether a job runs only when release-please created a release: it carries the gate
+    itself, or it has no condition of its own and needs a gated job, since a skipped need skips
     it."""
-    repo, _first, second = _commit_in_a_clone(tmp_path)
-
-    done = _run_tag_step(repo, "v0.2.38", second)
-
-    assert (done.returncode, _git(repo, "ls-remote", "origin", "refs/tags/v0.2.38").split()[0]) == (
-        0,
-        _git(repo, "rev-parse", "v0.2.38"),
-    )
+    job = jobs[name]
+    if "if" in job:
+        return job["if"] == _RELEASE_CREATED
+    return any(name != "release-please" and _gated(jobs, need) for need in _needs(job))
 
 
-@pytest.mark.live("bash")
-def test_a_tag_already_on_the_published_commit_is_kept(tmp_path: Path) -> None:
-    """A rerun of the same release finds the tag on its commit, and the step goes on."""
-    repo, _first, second = _commit_in_a_clone(tmp_path)
-    _git(repo, "tag", "-a", "v0.2.38", "-m", "v0.2.38", second)
-
-    done = _run_tag_step(repo, "v0.2.38", second)
-
-    assert (done.returncode, "already exists" in done.stdout) == (0, True)
-
-
-@pytest.mark.live("bash")
-def test_a_tag_on_another_commit_stops_the_release_naming_both(tmp_path: Path) -> None:
-    """A version already tagged on another commit is not published again. This is a push to main
-    whose pyproject still holds the last release's version: the step fails, naming both commits,
-    before the release, its assets or the images are touched (#1805)."""
-    repo, first, second = _commit_in_a_clone(tmp_path)
-    _git(repo, "tag", "-a", "v0.2.37", "-m", "v0.2.37", first)
-    _git(repo, "push", "-q", "origin", "v0.2.37")
-
-    done = _run_tag_step(repo, "v0.2.37", second)
+def test_release_please_makes_every_release_on_a_push_to_main() -> None:
+    """release.yml runs release-please on each push to main with the release App token, limited
+    to the permissions release-please needs, so the release pull request it opens runs its checks.
+    Each publish job runs only in the run where release-please created a release, and no step
+    reads, sets or tags a version (ADR 0013)."""
+    workflow = _load_workflow(RELEASE_PATH)
+    jobs = workflow["jobs"]
+    release_please = jobs["release-please"]
+    steps = {step["name"]: step for step in release_please["steps"]}
+    roots = {name: job["if"] for name, job in jobs.items() if "if" in job}
 
     assert (
-        done.returncode != 0,
-        first in done.stdout + done.stderr,
-        second in done.stdout + done.stderr,
-        _git(repo, "rev-parse", "v0.2.37^{commit}"),
-    ) == (True, True, True, first)
+        workflow["on"],
+        workflow["permissions"],
+        workflow["concurrency"],
+        (release_please["environment"], release_please["permissions"]),
+        steps["Mint the Release App Token"]["with"],
+        steps["Run release-please"]["uses"].split("@")[0],
+        steps["Run release-please"]["with"],
+        release_please["outputs"],
+        roots,
+    ) == (
+        {"push": {"branches": ["main"]}},
+        {},
+        {"group": "release", "cancel-in-progress": False},
+        ("release", {}),
+        {
+            "client-id": "${{ vars.RELEASE_APP_CLIENT_ID }}",
+            "private-key": "${{ secrets.RELEASE_APP_PRIVATE_KEY }}",
+            "permission-contents": "write",
+            "permission-issues": "write",
+            "permission-pull-requests": "write",
+        },
+        "googleapis/release-please-action",
+        {
+            "token": "${{ steps.app.outputs.token }}",
+            "config-file": "release-please-config.json",
+            "manifest-file": ".release-please-manifest.json",
+        },
+        {
+            "release_created": "${{ steps.release.outputs.release_created }}",
+            "tag_name": "${{ steps.release.outputs.tag_name }}",
+            "sha": "${{ steps.release.outputs.sha }}",
+        },
+        dict.fromkeys(("assets", "devcontainer-image", "service-image"), _RELEASE_CREATED),
+    )
+    assert [name for name in jobs if name != "release-please" and not _gated(jobs, name)] == []
+
+
+def test_every_publish_job_checks_out_the_commit_release_please_tagged() -> None:
+    """A run that a later push starts can create the release of an earlier merge, so each job
+    that checks out the repository builds the commit that the release tags, not the commit of
+    the run."""
+    jobs = _load_workflow(RELEASE_PATH)["jobs"]
+    checkouts = {
+        name: (
+            "release-please" in _needs(job),
+            next(s for s in job["steps"] if s.get("name") == "Check out repository")["with"],
+        )
+        for name, job in jobs.items()
+        if any(s.get("name") == "Check out repository" for s in job.get("steps", []))
+    }
+    assert checkouts == dict.fromkeys(
+        ("assets", "devcontainer-image", "devcontainer-smoke", "service-image"),
+        (True, {"ref": "${{ needs.release-please.outputs.sha }}", "persist-credentials": False}),
+    )
+
+
+def test_release_please_tags_each_release_v_and_its_version_only() -> None:
+    """The tag is `v<version>` with no component, so release-please finds the existing tags,
+    such as the last tag of the old pipeline."""
+    config = json.loads(Path("release-please-config.json").read_text(encoding="utf-8"))
+    assert (
+        config["release-type"],
+        config["include-v-in-tag"],
+        config["include-component-in-tag"],
+        list(config["packages"]),
+    ) == ("python", True, False, ["."])
+
+
+def test_the_release_uploads_the_wheel_the_sdist_and_their_checksums() -> None:
+    """The assets job builds the packages of the merged tree and uploads them to the release that
+    release-please created, by its tag."""
+    job = _load_workflow(RELEASE_PATH)["jobs"]["assets"]
+    steps = {step["name"]: step for step in job["steps"]}
+    upload = steps["Upload the Packages to the Release"]
+
+    assert (
+        job["permissions"],
+        steps["Build Distribution Packages (Wheel & sdist)"]["run"].split("\n")[0],
+        upload["env"]["TAG"],
+        upload["run"],
+    ) == (
+        {"contents": "write"},
+        "uv build",
+        "${{ needs.release-please.outputs.tag_name }}",
+        'gh release upload --clobber "$TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS.txt',
+    )
+
+
+def test_no_workflow_targets_a_release_branch_or_runs_release_tooling() -> None:
+    """release-please owns the version, the changelog, the tag and the release. No workflow
+    triggers on a release branch, tags a commit, or runs the old release or close commands."""
+    needles = ("release/", "devops release", "devops roadmap close", "git tag")
+    hits = [
+        f"{path.name}: {needle}"
+        for path in sorted(WORKFLOWS_DIR.glob("*.yml"))
+        for needle in needles
+        if needle in path.read_text(encoding="utf-8")
+    ]
+
+    assert hits == []
+
+
+def test_every_pull_request_title_into_main_is_a_conventional_commit() -> None:
+    """release-please drops a squash title it cannot parse without a warning, so pr-title.yml
+    checks the title of every pull request into main, with read access only."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "pr-title.yml")
+    job = workflow["jobs"]["semantic-title"]
+
+    assert (
+        workflow["on"],
+        workflow["permissions"],
+        (job["name"], job["permissions"]),
+        [step["uses"].split("@")[0] for step in job["steps"]],
+    ) == (
+        {
+            "pull_request": {
+                "types": ["opened", "edited", "synchronize", "reopened"],
+                "branches": ["main"],
+            }
+        },
+        {},
+        ("Semantic PR title", {"pull-requests": "read"}),
+        ["amannn/action-semantic-pull-request"],
+    )
 
 
 def test_release_workflow_attest_build_provenance_contract() -> None:
@@ -348,8 +424,8 @@ def test_a_misspelled_command_in_a_workflow_is_reported() -> None:
         "jobs": {
             "job": {
                 "steps": [
-                    {"run": 'OUT=$(uv run devops gh milestones clsoe "$VERSION") || true'},
-                    {"run": 'uv run devops release notes --raw -v \\\n  "$VERSION"'},
+                    {"run": 'OUT=$(uv run devops gh milestones clsoe "$NAME") || true'},
+                    {"run": 'uv run devops gh milestones status \\\n  "$NAME"'},
                 ]
             }
         }
@@ -456,7 +532,7 @@ def test_workflow_contract_fail_to_pass() -> None:
         [resolve_devops_argv(tokens) for tokens in commands],
     ) == (
         ["opened", "synchronize", "reopened", "edited", "labeled"],
-        ["release/**"],
+        ["main"],
         True,
         True,
         True,
@@ -561,8 +637,8 @@ def _composite_steps(name: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
 def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli() -> None:
     """The action builds .devcontainer/devcontainer.json with the Dev Containers CLI that the tools
-    lock pins, so the Dev Container Features and the user vscode are in the image, for both
-    platforms, pushed by digest. The labels, the SBOM, the provenance and the metadata file that
+    lock pins, so the Dev Container Features and the user vscode are in the image, for linux/amd64
+    only, with no emulation, pushed by digest. The labels, the SBOM, the provenance and the metadata file that
     holds the digest reach buildx through `build.options`, which the CLI passes on for a
     Dockerfile configuration where `--label` does nothing (devcontainers/cli#930). The action
     writes no GITHUB_PATH, so it changes nothing for its caller's later steps."""
@@ -578,10 +654,6 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
             }
         },
         [
-            {
-                "name": "Set up QEMU",
-                "uses": "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1",
-            },
             {
                 "name": "Set up Docker Buildx",
                 "uses": "docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069",
@@ -624,7 +696,7 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
                 "  --config .devcontainer/devcontainer.build.json \\\n"
                 "  --frozen-lockfile \\\n"
                 '  --image-name "$IMAGE" \\\n'
-                "  --platform linux/amd64,linux/arm64 \\\n"
+                "  --platform linux/amd64 \\\n"
                 "  --output type=image,push-by-digest=true,name-canonical=true,push=true \\\n"
                 '  "${CACHE_ARGS[@]}"\n'
                 'echo "digest=$(jq -er \'."containerimage.digest"\' '
@@ -637,10 +709,8 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
 
 def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> None:
     """A child repository that names only the image must open as vscode through the image's
-    devcontainer.metadata label, and each platform must run as vscode, uid and gid 1000, with a
-    command from each Dev Container Feature on its path (#1895). Each platform runs by its own
-    manifest digest, because the classic image store holds one image for each repository@digest
-    and refuses a second platform of the index digest (#<issue>)."""
+    devcontainer.metadata label, and the image must run as vscode, uid and gid 1000, with a
+    command from each Dev Container Feature on its path (#1895)."""
     action, steps = _composite_steps("devcontainer-smoke")
 
     assert (action["inputs"], steps) == (
@@ -651,10 +721,6 @@ def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> N
             }
         },
         [
-            {
-                "name": "Set up QEMU",
-                "uses": "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1",
-            },
             {
                 "name": "Set up Node.js",
                 "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
@@ -675,18 +741,12 @@ def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> N
                 '"$CHILD/.devcontainer/devcontainer.json"\n'
                 'devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null\n'
                 'test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode\n'
-                'INDEX="$(docker buildx imagetools inspect --raw "$REF")"\n'
-                "for PLATFORM in linux/amd64 linux/arm64; do\n"
-                '  DIGEST="$(jq -er --arg os "${PLATFORM%/*}" --arg arch "${PLATFORM#*/}" '
-                "'first(.manifests[] | select(.platform.os == $os and .platform.architecture == "
-                '$arch) | .digest)\' <<< "$INDEX")"\n'
-                '  docker run --rm --platform "$PLATFORM" --user vscode "${REF%@*}@$DIGEST" sh -ec \'\n'
-                '    test "$(id -u):$(id -g)" = 1000:1000\n'
-                "    for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do\n"
-                '      command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }\n'
-                "    done\n"
-                "    devops --version > /dev/null'\n"
-                "done\n",
+                'docker run --rm --user vscode "$REF" sh -ec \'\n'
+                '  test "$(id -u):$(id -g)" = 1000:1000\n'
+                "  for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do\n"
+                '    command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }\n'
+                "  done\n"
+                "  devops --version > /dev/null'\n",
             },
         ],
     )

@@ -2,7 +2,7 @@ schema: spec-driven
 
 context: |
   devops-cli is pre-1.0 alpha software with no backwards compatibility. Artifacts describe the final state, never a transition, a shim or a legacy mode.
-  One roadmap item is one GitHub issue and one change named <issue>-<slug>, for example 1144-semgrep-registry-fetch. It is usually one pull request. An item delivered as several pull requests (Part of #<issue>) keeps its folder in openspec/changes/ until the pull request that closes the issue.
+  One roadmap item is one GitHub issue, one change named <issue>-<slug>, for example 1144-semgrep-registry-fetch, and one pull request into main that closes the issue. An issue too large for one pull request becomes sub-issues, each with its own change.
   Status, priority, milestone and pull request numbers live on GitHub: never write them in an artifact. Artifacts are committed exactly as they will read once merged, so a task is ticked [x] only when its work is in the merged tree.
   Engineering standards (complexity caps, typing, security, telemetry) are in AGENTS.md and are not restated here. Never write an internal hostname, private address or private registry: use example.com, RFC 5737 addresses and roles such as <storage-node>.
 
@@ -28,13 +28,13 @@ rules:
       Record each rejected alternative with the evidence that rejected it.
   tasks:
     - >-
-      Write one "## <n>. <Part title>" group per pull request. A pull request ticks only its own group, and the pull request that closes the issue leaves no task unticked.
+      Write the tasks of the one pull request in "## <n>. <Group title>" groups. The pull request that closes the issue leaves no task unticked.
     - >-
       Within each group order tasks as failing test, implementation, then documentation, and name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`.
     - >-
       Delete obsolete code and its tests in the group that replaces them.
     - >-
-      Every group regenerates the documentation its code changes with `devops docs generate --sync-readme`. Only the closing group adds changelog.d/<issue>.md.
+      Every group regenerates the documentation its code changes with `devops docs generate --sync-readme`. No group edits CHANGELOG.md: the pull request title is the changelog line.
     - >-
       Work the item will not do is a plain bullet, with no checkbox, naming its follow-up issue under "## Workflow follow-up". A check only a person can run is a plain bullet starting "Pending a person:". A change that alters code may end with the plain bullet "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)."
 
@@ -42,4 +42,4 @@ operations:
   apply:
     guidance:
       - >-
-        Implement test-first on a topic branch as AGENTS.md requires. Tick a task in the commit that completes it. Push only after `uv run devops ci` passes completely. Do not run sync. The pull request that closes the issue archives its own change as its last commit. Run `uv run devops openspec archive <change>` after every task is ticked. It archives the change, then validates every spec and change. A pull request that says Part of #<issue> archives nothing.
+        Implement test-first on a topic branch as AGENTS.md requires. Tick a task in the commit that completes it. Push only after `uv run devops ci` passes completely. Do not run sync. The pull request that closes the issue archives its own change as its last commit. Run `uv run devops openspec archive <change>` after every task is ticked. It archives the change, then validates every spec and change.

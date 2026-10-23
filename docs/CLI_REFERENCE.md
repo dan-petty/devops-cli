@@ -25,7 +25,6 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops review`](#devops-review) — AI-powered code review and security audits.
 - [`devops mcp`](#devops-mcp) — FastMCP server and Model Context Protocol integrations.
 - [`devops docs`](#devops-docs) — Generate and validate CLI and architecture documentation.
-- [`devops release`](#devops-release) — Automate version bumps, changelogs, tags, and GitHub releases.
 - [`devops roadmap`](#devops-roadmap) — Read and write the roadmap on GitHub, its source of truth: issues, milestones and the project board.
 - [`devops pr`](#devops-pr) — GitHub Pull Request workflows and reviews.
 - [`devops gh`](#devops-gh) — GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
@@ -442,8 +441,6 @@ devops devcontainer validate [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer. |
 | `--config`, `-c` | `path` | - | Direct path to devcontainer.json. |
-| `--oci-labels` | `string` | - | Raw newline-separated or JSON OCI labels to inspect and validate. |
-| `--expected-source` | `string` | - | Expected canonical repository URL for org.opencontainers.image.source. |
 | `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation. |
 
 ### `devops devcontainer list`
@@ -900,7 +897,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
 | `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 | `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
-| `--argocd-revision` | `string` | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a release merges (Argo CD-managed clusters only). |
+| `--argocd-revision` | `string` | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a pull request merges into main (Argo CD-managed clusters only). |
 | `--dry-run` | `boolean` | - | Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing. |
 
 ### `devops k8s sync-secrets`
@@ -2784,6 +2781,20 @@ devops ci uv-check [OPTIONS]
 
 ```bash
 devops ci lockfile [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ci build`
+
+**Build the wheel and the sdist via uv build.**
+
+```bash
+devops ci build [OPTIONS]
 ```
 
 **Options:**
@@ -6060,263 +6071,15 @@ devops docs sync-readme [OPTIONS]
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops docs compact`
-
-**Compact historical documentation for completed release series.**
-
-```bash
-devops docs compact [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--series`, `-s` | `string` | `v0.2` | Release series prefix to compact (e.g., 'v0.2', 'v0.1'). |
-| `--docs-dir`, `-d` | `path` | - | Path to repository docs/ directory (default: docs/). |
-| `--archive-dir`, `-a` | `path` | - | Path to historical archive directory (default: docs/agent/archive/). |
-| `--check` | `boolean` | - | Check if documentation compaction would make changes without modifying files. |
-| `--roadmap-only` | `boolean` | - | Only compact docs/ROADMAP.md. |
-| `--release-notes-only` | `boolean` | - | Only compact docs/RELEASE_NOTES.md. |
-| `--log-only` | `boolean` | - | Only compact docs/LOG.md. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
----
-
-## devops release
-
-Automate version bumps, changelogs, tags, and GitHub releases.
-
-### `devops release status`
-
-**Display current release status, versions, tags, changelog, and docs state.**
-
-```bash
-devops release status [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-| `--watch`, `-w` | `boolean` | - | Continuously monitor release state in real-time. |
-| `--interval`, `-i` | `float` | `2.0` | Watcher auto-refresh polling interval in seconds. |
-
-### `devops release prepare`
-
-**Bump version across pyproject.toml and source, update changelog, and sync docs.**
-
-```bash
-devops release prepare [OPTIONS] <version>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<version>` | `string` | Yes | Target semantic version (e.g., 0.1.8). |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--sync-docs` / `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
-| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. --create-pr always collects changelog.d/ into it, whatever this flag says. |
-| `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
-| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
-| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
-| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
-### `devops release pr`
-
-**Create release cut branch, commit version bumps, and open a GitHub Release Pull Request.**
-
-```bash
-devops release pr [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--version`, `-v` | `string` | - | Target version string. |
-| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
-| `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
-| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
-| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-
-### `devops release check`
-
-**Verify release readiness (version consistency, docs freshness, and CI quality gates).**
-
-```bash
-devops release check [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--skip-ci` | `boolean` | - | Skip running the Gated CI test suite. |
-| `--allow-dirty` | `boolean` | - | Allow uncommitted changes in git repository. |
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-
-### `devops release notes`
-
-**Print markdown release notes for a specified or current release version.**
-
-Print markdown release notes for a specified or current release version.
-
-Notes over GitHub's 125,000-character Release body limit are printed compact: each
-category and entry title without its sub-bullets, then a link to the version's section
-of CHANGELOG.md at its tag.
-
-```bash
-devops release notes [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--version`, `-v` | `string` | - | Target version string. |
-| `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
-### `devops release sync-notes`
-
-**Republish GitHub release descriptions from CHANGELOG.md.**
-
-Republish GitHub release descriptions from CHANGELOG.md.
-
-A release body is written once at publish time. Nothing in the repository could change
-it afterwards, so a release published before the workflow disabled GitHub's generated
-summary keeps carrying it, and an edited changelog entry never reaches the release it
-describes. Notes over the Release body limit are sent in the compact form `release notes`
-prints.
-
-```bash
-devops release sync-notes [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--version`, `-v` | `string` | - | Target version string. |
-| `--all` | `boolean` | - | Sync every published release rather than one version. |
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
-### `devops release changelog`
-
-**Compile and generate changelog entries from git commits or PR deliverables.**
-
-```bash
-devops release changelog [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--version`, `-v` | `string` | - | Target semantic version (e.g., 0.1.8). |
-| `--update`, `-u` | `boolean` | - | Update CHANGELOG.md in-place with generated release notes. |
-| `--from-tag` | `string` | - | Starting git tag or ref for changelog compilation. |
-| `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
-### `devops release tag`
-
-**Create release commit and annotated git tag.**
-
-```bash
-devops release tag [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--version`, `-v` | `string` | - | Target version string. |
-| `--push`, `-p` | `boolean` | - | Push commits or tags to git remote. |
-| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
-| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
-| `--message`, `-m` | `string` | - | Custom tag annotation message. |
-| `--root`, `-r` | `path` | - | Project repository root directory. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
 ---
 
 ## devops roadmap
 
 Read and write the roadmap on GitHub, its source of truth: issues, milestones and the project board.
 
-### `devops roadmap migrate`
-
-**Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made.**
-
-```bash
-devops roadmap migrate [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--confirm` | `boolean` | - | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
-| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print the plan and report, write nothing, and end with the GraphQL points spent and left. Migrate without a mode flag does this. |
-
-### `devops roadmap render`
-
-**Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority.**
-
-```bash
-devops roadmap render [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--output`, `-o` | `path` | `docs/ROADMAP.md` | File render writes. |
-| `--dry-run` | `boolean` | - | Make no request and write no file: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub and print the rendered file to stdout instead of writing it, ending with the GraphQL points spent and left. |
-
-### `devops roadmap reprioritize`
-
-**Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm.**
-
-```bash
-devops roadmap reprioritize [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--confirm` | `boolean` | - | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
-| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print each change with its reason, write nothing, and end with the GraphQL points spent and left. Reprioritize without a mode flag does this. |
-
 ### `devops roadmap intake`
 
-**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
+**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota, which counts over a rolling window of days; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
 
 ```bash
 devops roadmap intake [OPTIONS]
@@ -6327,7 +6090,7 @@ devops roadmap intake [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--issue` | `integer` | - | Only this issue (repeatable). |
 | `--title` | `string` | - | Title of a candidate that is not an issue yet; intake files it only when it is not a duplicate. Needs --body-file. |
 | `--body-file` | `path` | - | File holding the new candidate's body. Needs --title. |
@@ -6339,28 +6102,9 @@ devops roadmap intake [OPTIONS]
 | `--plan` | `boolean` | - | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes on GitHub. |
 
-### `devops roadmap close`
-
-**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm.**
-
-```bash
-devops roadmap close [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `--root` | `path` | `.` | The clone the cut runs git in (default: the current directory). |
-| `--confirm` | `boolean` | - | Close the issues and make the cut. Without it, close prints its plan only. |
-| `--dry-run` | `boolean` | - | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left once its store has sent a GraphQL request. Close without a mode flag does this. |
-
 ### `devops roadmap refine`
 
-**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, each place by priority. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured refine_ready_target items are Ready across the open milestones and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
 
 ```bash
 devops roadmap refine [OPTIONS]
@@ -6371,7 +6115,7 @@ devops roadmap refine [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--source` | `path` | `.` | Path to the repository checkout (defaults to current directory). |
 | `--item` | `integer` | - | Specific issue number to refine instead of selecting by priority. |
 | `--limit` | `integer` | `3` | Maximum number of items to refine in this run (default 3). |
@@ -6380,7 +6124,7 @@ devops roadmap refine [OPTIONS]
 
 ### `devops roadmap run`
 
-**Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+**Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
 
 ```bash
 devops roadmap run [OPTIONS]
@@ -6391,7 +6135,7 @@ devops roadmap run [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--dry-run` | `boolean` | - | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
 | `--confirm` | `boolean` | - | Execute the due roadmap jobs. Without it, run prints the due list only. |
 
@@ -6416,7 +6160,7 @@ devops roadmap return [OPTIONS] <item>
 | `--comment`, `-c` | `string` | `` | Evidence comment explaining why the item cannot be built as specified. |
 | `--comment-file` | `path` | - | Path to file containing the evidence comment. |
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
 | `--confirm` | `boolean` | - | Make the writes to GitHub (post comment and set Status to New). |
 
@@ -6558,7 +6302,12 @@ devops pr edit [OPTIONS] <number>
 
 ### `devops pr create`
 
-**Create a pull request with automatic release branch target validation.**
+**Open a draft pull request, into the default branch unless --base names another.**
+
+Open a draft pull request, into the default branch unless --base names another.
+
+Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
+review.
 
 ```bash
 devops pr create [OPTIONS]
@@ -6570,8 +6319,7 @@ devops pr create [OPTIONS]
 |---|---|---|---|
 | `--title`, `-t` | `string` | - | Title for the item or entity. |
 | `--body`, `-b` | `string` | `` | Body or description text. |
-| `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
-| `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--base`, `-B` | `string` | - | Base branch of the pull request; the repository's default branch when omitted. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr ready`
@@ -6645,23 +6393,10 @@ devops pr close [OPTIONS] <number>
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
-judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
-that closes the item, its last, adds changelog.d/\<issue\>.md.
-
-Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
-(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
-CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
-the default branch (chore/open-vX.Y.Z) only changes those files and what the default
-branch changed since its merge base, read with one compare request. Either head may end
-in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
-grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
-issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
-docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
-section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
-section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
-without docs/agent/tasks/ is exempt.
+Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch.
+It closes exactly one issue, an open issue of its own repository that is on the roadmap
+board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>
@@ -6702,8 +6437,8 @@ devops pr update [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--all`, `-a` | `boolean` | - | Update all open pull requests targeting the base branch. |
-| `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
+| `--all`, `-a` | `boolean` | - | Update every open pull request that the current account wrote. |
+| `--base`, `-B` | `string` | - | With --all, update only the pull requests into this base branch. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
 | `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
@@ -6726,27 +6461,6 @@ devops pr hardening-report [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
 | `--format`, `-f` | `string` | `table` | Output format (table, json) |
-
-### `devops pr copilot-pass`
-
-**Request one Copilot review pass on the open release pull request while its passes, every Copilot review submitted and one running or requested and not yet started, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request, and a merged or closed one, is refused, since Copilot reviews only the open release pull request.**
-
-```bash
-devops pr copilot-pass [OPTIONS] <number>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<number>` | `integer` | No | Release pull request number; the current branch's pull request when omitted. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops pr threads`
 
@@ -6845,29 +6559,6 @@ devops pr threads resolve-all [OPTIONS] <number>
 |---|---|---|---|
 | `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-
-#### `devops pr threads file-issues`
-
-**A person runs this, the step of the stop rule in RELEASE_CYCLE.md once the release pull request's Copilot passes are spent. It files each unresolved review thread of the open release pull request not named by --keep as a follow-up issue, which quotes the thread in a fence, names its file and line, links it and has no milestone, labelled source/agent when Copilot started the thread; then the thread gets a reply naming the issue and is resolved. Without --confirm it makes the same reads and writes nothing: run it so first, with the same --keep flags. A --keep id that names no unresolved thread stops it before any write. A rerun opens no second issue for a thread: it resolves a thread whose reply from the same account names its issue, and finds the issue it opened for a thread whose reply failed by the thread's link.**
-
-```bash
-devops pr threads file-issues [OPTIONS] <number>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-| `--keep` | `string` | - | Leave this thread open, for a regression the release fixes; repeatable. |
-| `--confirm` | `boolean` | - | File the issues, reply in the threads and resolve them; without it, nothing is written. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -7008,7 +6699,7 @@ devops gh milestones COMMAND [ARGS]...
 
 #### `devops gh milestones list`
 
-**List repository milestones and track issue completion rates.**
+**List every milestone, by due date and then by number, with its issue completion rate.**
 
 ```bash
 devops gh milestones list [OPTIONS]
@@ -7033,7 +6724,7 @@ devops gh milestones status [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | The milestone's exact title, or its number when no milestone has that title. |
 
 **Options:**
 
@@ -7043,7 +6734,7 @@ devops gh milestones status [OPTIONS] <name>
 
 #### `devops gh milestones close`
 
-**Close the release milestone of a version, with or without its v.**
+**Close the milestone with this title or number.**
 
 ```bash
 devops gh milestones close [OPTIONS] <name>
@@ -7053,7 +6744,7 @@ devops gh milestones close [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | The milestone's exact title, or its number when no milestone has that title. |
 
 **Options:**
 
@@ -7063,7 +6754,7 @@ devops gh milestones close [OPTIONS] <name>
 
 #### `devops gh milestones edit`
 
-**Edit a release milestone's title, description, state, or due date; fields left out stay as they are.**
+**Edit a milestone's title, description, state, or due date; fields left out stay as they are.**
 
 ```bash
 devops gh milestones edit [OPTIONS] <name>
@@ -7073,7 +6764,7 @@ devops gh milestones edit [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.21) |
+| `<name>` | `string` | Yes | The milestone's exact title, or its number when no milestone has that title. |
 
 **Options:**
 
@@ -7444,7 +7135,7 @@ devops gh issues edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | New issue title. |
 | `--body`, `-b` | `string` | - | New issue body text. |
 | `--state`, `-s` | `string` | - | New state (open or closed). |
-| `--milestone`, `-m` | `string` | - | New milestone version, title, or number (e.g. v0.2.21). |
+| `--milestone`, `-m` | `string` | - | New milestone title, or its number (e.g. 2026-11-05). |
 | `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
@@ -7715,7 +7406,12 @@ devops gh pr edit [OPTIONS] <number>
 
 #### `devops gh pr create`
 
-**Create a pull request with automatic release branch target validation.**
+**Open a draft pull request, into the default branch unless --base names another.**
+
+Open a draft pull request, into the default branch unless --base names another.
+
+Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
+review.
 
 ```bash
 devops gh pr create [OPTIONS]
@@ -7727,8 +7423,7 @@ devops gh pr create [OPTIONS]
 |---|---|---|---|
 | `--title`, `-t` | `string` | - | Title for the item or entity. |
 | `--body`, `-b` | `string` | `` | Body or description text. |
-| `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
-| `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--base`, `-B` | `string` | - | Base branch of the pull request; the repository's default branch when omitted. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 #### `devops gh pr ready`
@@ -7802,23 +7497,10 @@ devops gh pr close [OPTIONS] <number>
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
-judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
-that closes the item, its last, adds changelog.d/\<issue\>.md.
-
-Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
-(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
-CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
-the default branch (chore/open-vX.Y.Z) only changes those files and what the default
-branch changed since its merge base, read with one compare request. Either head may end
-in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
-grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
-issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
-docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
-section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
-section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
-without docs/agent/tasks/ is exempt.
+Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch.
+It closes exactly one issue, an open issue of its own repository that is on the roadmap
+board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>
@@ -7859,8 +7541,8 @@ devops gh pr update [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--all`, `-a` | `boolean` | - | Update all open pull requests targeting the base branch. |
-| `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
+| `--all`, `-a` | `boolean` | - | Update every open pull request that the current account wrote. |
+| `--base`, `-B` | `string` | - | With --all, update only the pull requests into this base branch. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
 | `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
@@ -7883,27 +7565,6 @@ devops gh pr hardening-report [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
 | `--format`, `-f` | `string` | `table` | Output format (table, json) |
-
-#### `devops gh pr copilot-pass`
-
-**Request one Copilot review pass on the open release pull request while its passes, every Copilot review submitted and one running or requested and not yet started, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request, and a merged or closed one, is refused, since Copilot reviews only the open release pull request.**
-
-```bash
-devops gh pr copilot-pass [OPTIONS] <number>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<number>` | `integer` | No | Release pull request number; the current branch's pull request when omitted. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops gh pr threads`
 
@@ -8002,29 +7663,6 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 |---|---|---|---|
 | `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-
-##### `devops gh pr threads file-issues`
-
-**A person runs this, the step of the stop rule in RELEASE_CYCLE.md once the release pull request's Copilot passes are spent. It files each unresolved review thread of the open release pull request not named by --keep as a follow-up issue, which quotes the thread in a fence, names its file and line, links it and has no milestone, labelled source/agent when Copilot started the thread; then the thread gets a reply naming the issue and is resolved. Without --confirm it makes the same reads and writes nothing: run it so first, with the same --keep flags. A --keep id that names no unresolved thread stops it before any write. A rerun opens no second issue for a thread: it resolves a thread whose reply from the same account names its issue, and finds the issue it opened for a thread whose reply failed by the thread's link.**
-
-```bash
-devops gh pr threads file-issues [OPTIONS] <number>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-| `--keep` | `string` | - | Leave this thread open, for a regression the release fixes; repeatable. |
-| `--confirm` | `boolean` | - | File the issues, reply in the threads and resolve them; without it, nothing is written. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -8841,7 +8479,7 @@ devops serve [OPTIONS]
 | `--workers`, `-w` | `integer` | `1` | Number of worker processes. |
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
 | `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
-| `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and per-repository release and model lanes. |
+| `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and per-repository status and model lanes. |
 
 ---
 

@@ -54,7 +54,6 @@ _PREFIX_TO_DOMAIN: dict[str, str] = {
     "pr": "github",
     "branches": "github",
     "repos": "github",
-    "release": "release",
     "ssh": "ssh",
     "tf": "tf",
     "vault": "secrets",

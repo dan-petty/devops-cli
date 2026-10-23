@@ -8,7 +8,7 @@ on:
     # re-trigger redundant test suites, coverage reports, and container builds.
     # Project automation and card state transitions are handled natively via GitHub Projects v2 built-in workflows.
     types: [opened, synchronize, reopened]
-    branches: [main, "release/**"]
+    branches: [main]
   schedule:
     # Advisory dependency freshness sweep at 05:00 UTC, kept off the pull request
     # critical path so it never delays merge feedback.
@@ -121,16 +121,15 @@ jobs:
             echo "~~~"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Builds the devcontainer image of every pull request into main, release pull requests
-  # included, and of every workflow_dispatch run, with the actions release.yml uses (#1895). It
+  # Builds the devcontainer image of every pull request and of every workflow_dispatch run, with
+  # the actions release.yml uses (#1895). It
   # pushes the image by digest to a registry on the runner, starts it as its remote user, and
   # publishes nothing. On a pull request it runs only when the change alters image content; a
   # dispatch always builds.
   devcontainer:
     name: DevContainer Image
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.base_ref == 'main')
+      github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 60
     permissions:
@@ -236,13 +235,12 @@ jobs:
         with:
           image-ref: localhost:5000/devcontainer@${{ steps.image.outputs.digest }}
 
-  # Builds, smoke-tests and scans the Service image of every pull request into main, release
-  # pull requests included, without pushing it; release.yml publishes it after the merge (#1486).
+  # Builds, smoke-tests and scans the Service image of every pull request, without pushing it;
+  # release.yml publishes it when a release is created (#1486).
   service-image:
     name: Service Image
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.base_ref == 'main')
+      github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
@@ -361,11 +359,9 @@ jobs:
   # Advisory: reruns the pull request's added or modified test files three times, one run after
   # another, each in a shuffled order, to catch tests that depend on the order they run in.
   # Shuffling the whole suite waits for thread-leak isolation.
-  # Not on the release pull request into main: every test the release touched has changed there,
-  # and each of its items already passed this job against the release branch.
   changed-tests:
     name: Changed-Test Independence
-    if: github.event_name == 'pull_request' && github.base_ref != 'main'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:

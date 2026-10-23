@@ -18,7 +18,6 @@ from devops_cli.exceptions.docker import (
     DockerError,
     DockerSandboxError,
 )
-from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
     GitHubFileNotFoundError,
@@ -30,12 +29,6 @@ from devops_cli.exceptions.git import (
     GitHubUnreadError,
     GitOperationError,
     InvalidBranchNameError,
-    ReleaseBranchMissingError,
-    ReleasePRCreationError,
-    ReleasePushError,
-    ReleasePushRefusedError,
-    ReleaseRemoteFetchError,
-    ReleaseWorkingTreeDirtyError,
 )
 from devops_cli.exceptions.k8s import (
     ChaosExecutionError,
@@ -117,7 +110,6 @@ __all__ = [
     "CosignVerificationError",
     "DependencyError",
     "DevOpsCLIError",
-    "DocCompactionError",
     "DockerDaemonUnavailableError",
     "DockerEngineError",
     "DockerError",
@@ -140,12 +132,6 @@ __all__ = [
     "KubernetesError",
     "KubernetesLoggingError",
     "LogfireConfigurationError",
-    "ReleaseBranchMissingError",
-    "ReleasePRCreationError",
-    "ReleasePushError",
-    "ReleasePushRefusedError",
-    "ReleaseRemoteFetchError",
-    "ReleaseWorkingTreeDirtyError",
     "RoadmapCardChangedError",
     "RoadmapIntakeError",
     "RoadmapRefineError",

@@ -147,7 +147,7 @@ devops gh milestones COMMAND [ARGS]...
 
 ### `devops gh milestones list`
 
-**List repository milestones and track issue completion rates.**
+**List every milestone, by due date and then by number, with its issue completion rate.**
 
 ```bash
 devops gh milestones list [OPTIONS]
@@ -172,7 +172,7 @@ devops gh milestones status [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | The milestone's exact title, or its number when no milestone has that title. |
 
 **Options:**
 
@@ -182,7 +182,7 @@ devops gh milestones status [OPTIONS] <name>
 
 ### `devops gh milestones close`
 
-**Close the release milestone of a version, with or without its v.**
+**Close the milestone with this title or number.**
 
 ```bash
 devops gh milestones close [OPTIONS] <name>
@@ -192,7 +192,7 @@ devops gh milestones close [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | The milestone's exact title, or its number when no milestone has that title. |
 
 **Options:**
 
@@ -202,7 +202,7 @@ devops gh milestones close [OPTIONS] <name>
 
 ### `devops gh milestones edit`
 
-**Edit a release milestone's title, description, state, or due date; fields left out stay as they are.**
+**Edit a milestone's title, description, state, or due date; fields left out stay as they are.**
 
 ```bash
 devops gh milestones edit [OPTIONS] <name>
@@ -212,7 +212,7 @@ devops gh milestones edit [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.21) |
+| `<name>` | `string` | Yes | The milestone's exact title, or its number when no milestone has that title. |
 
 **Options:**
 
@@ -591,7 +591,7 @@ devops gh issues edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | New issue title. |
 | `--body`, `-b` | `string` | - | New issue body text. |
 | `--state`, `-s` | `string` | - | New state (open or closed). |
-| `--milestone`, `-m` | `string` | - | New milestone version, title, or number (e.g. v0.2.21). |
+| `--milestone`, `-m` | `string` | - | New milestone title, or its number (e.g. 2026-11-05). |
 | `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
@@ -870,7 +870,12 @@ devops gh pr edit [OPTIONS] <number>
 
 ### `devops gh pr create`
 
-**Create a pull request with automatic release branch target validation.**
+**Open a draft pull request, into the default branch unless --base names another.**
+
+Open a draft pull request, into the default branch unless --base names another.
+
+Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
+review.
 
 ```bash
 devops gh pr create [OPTIONS]
@@ -882,8 +887,7 @@ devops gh pr create [OPTIONS]
 |---|---|---|---|
 | `--title`, `-t` | `string` | - | Title for the item or entity. |
 | `--body`, `-b` | `string` | `` | Body or description text. |
-| `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
-| `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--base`, `-B` | `string` | - | Base branch of the pull request; the repository's default branch when omitted. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops gh pr ready`
@@ -957,23 +961,10 @@ devops gh pr close [OPTIONS] <number>
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
-judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
-that closes the item, its last, adds changelog.d/\<issue\>.md.
-
-Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
-(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
-CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
-the default branch (chore/open-vX.Y.Z) only changes those files and what the default
-branch changed since its merge base, read with one compare request. Either head may end
-in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
-grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
-issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
-docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
-section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
-section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
-without docs/agent/tasks/ is exempt.
+Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch.
+It closes exactly one issue, an open issue of its own repository that is on the roadmap
+board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>
@@ -1014,8 +1005,8 @@ devops gh pr update [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--all`, `-a` | `boolean` | - | Update all open pull requests targeting the base branch. |
-| `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
+| `--all`, `-a` | `boolean` | - | Update every open pull request that the current account wrote. |
+| `--base`, `-B` | `string` | - | With --all, update only the pull requests into this base branch. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
 | `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
@@ -1038,27 +1029,6 @@ devops gh pr hardening-report [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--limit`, `-n` | `integer` | `100` | Maximum number of merged PRs to inspect |
 | `--format`, `-f` | `string` | `table` | Output format (table, json) |
-
-### `devops gh pr copilot-pass`
-
-**Request one Copilot review pass on the open release pull request while its passes, every Copilot review submitted and one running or requested and not yet started, are below release_copilot_passes in .github/roadmap.toml (default 2). Once they are spent it requests nothing and exits 1. Any other pull request, and a merged or closed one, is refused, since Copilot reviews only the open release pull request.**
-
-```bash
-devops gh pr copilot-pass [OPTIONS] <number>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<number>` | `integer` | No | Release pull request number; the current branch's pull request when omitted. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr threads`
 
@@ -1157,28 +1127,5 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 |---|---|---|---|
 | `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-
-#### `devops gh pr threads file-issues`
-
-**A person runs this, the step of the stop rule in RELEASE_CYCLE.md once the release pull request's Copilot passes are spent. It files each unresolved review thread of the open release pull request not named by --keep as a follow-up issue, which quotes the thread in a fence, names its file and line, links it and has no milestone, labelled source/agent when Copilot started the thread; then the thread gets a reply naming the issue and is resolved. Without --confirm it makes the same reads and writes nothing: run it so first, with the same --keep flags. A --keep id that names no unresolved thread stops it before any write. A rerun opens no second issue for a thread: it resolves a thread whose reply from the same account names its issue, and finds the issue it opened for a thread whose reply failed by the thread's link.**
-
-```bash
-devops gh pr threads file-issues [OPTIONS] <number>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
-| `--keep` | `string` | - | Leave this thread open, for a regression the release fixes; repeatable. |
-| `--confirm` | `boolean` | - | File the issues, reply in the threads and resolve them; without it, nothing is written. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

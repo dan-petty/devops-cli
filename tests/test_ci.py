@@ -401,6 +401,16 @@ def test_ci_lockfile_command(monkeypatch) -> None:
     assert (result.exit_code, any("lock" in c and "--check" in c for c in called)) == (0, True)
 
 
+def test_the_gate_builds_the_wheel_and_sdist_beside_the_lock_check() -> None:
+    """A green gate means the package builds and the lock matches, so the release pull request,
+    whose only change is the version, cannot merge a tree that does not build."""
+    rows = [spec.name for spec in get_check_specs()]
+    assert (get_check_spec("build").cmd, rows.index("build") - rows.index("lockfile")) == (
+        ["uv", "build", "--quiet"],
+        1,
+    )
+
+
 def test_ci_outdated_command(monkeypatch) -> None:
     called = []
 
@@ -1058,40 +1068,31 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
     )
 
 
-def test_the_devcontainer_image_is_built_for_pull_requests_into_main_or_a_dispatch() -> None:
-    """The pull request image is built only for pull requests targeting main, or when a person
-    dispatches the workflow to rehearse the build on a topic branch.
-
-    Release branches are what merge into main, so this confines the build to the release path
-    instead of rebuilding an identical image on every feature pull request.
-    """
+def test_the_devcontainer_image_is_built_for_a_pull_request_or_a_dispatch() -> None:
+    """Every pull request targets main, so the job runs on the event alone; its own step skips
+    the build when the change alters no image content."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
 
     assert ci["jobs"]["devcontainer"]["if"] == (
-        "github.event_name == 'workflow_dispatch' ||"
-        " (github.event_name == 'pull_request' && github.base_ref == 'main')"
+        "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'"
     )
 
 
 def test_service_image_ci_job_invariants() -> None:
-    """The CI service-image job runs for PRs to main or dispatch, pushes nothing, and avoids ${{ in scripts."""
+    """The CI service-image job runs for every pull request or a dispatch, pushes nothing, and
+    avoids ${{ in scripts. The release pull request builds here too: release.yml publishes the
+    image only when release-please creates a release (#1486)."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
     job = ci["jobs"]["service-image"]
-    condition = str(job.get("if", ""))
 
-    assert (
-        "github.base_ref == 'main'" in condition,
-        "github.event_name == 'pull_request'" in condition,
-        "github.event_name == 'workflow_dispatch'" in condition,
-        job.get("permissions"),
-    ) == (True, True, True, {"contents": "read"})
-    # Every pull request into main builds here, the release pull request included: release.yml
-    # publishes the image only after the merge (#1486).
-    assert ("release/v" in condition, "head.repo.full_name" in condition) == (False, False)
+    assert (job.get("if"), job.get("permissions")) == (
+        "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'",
+        {"contents": "read"},
+    )
 
     build_step = next(s for s in job["steps"] if s.get("name") == "Build and Load Service Image")
     assert (
@@ -1106,12 +1107,12 @@ def test_service_image_ci_job_invariants() -> None:
 
 
 def test_service_image_release_job_invariants() -> None:
-    """release.yml publishes the Service image only from main, after the release job (#1486).
+    """release.yml publishes the Service image only in the run where release-please created a
+    release (#1486).
 
     It builds, smoke-tests and scans the image, pushes it by digest and attests it, and only then
-    tags it `vX.Y.Z` and `latest`, so a tag never names an unattested image. No release branch
-    publishes it, and no plan decides whether to build: Image Updater rolls the cluster onto the
-    digest `latest` moves to.
+    tags it with the release tag and `latest`, so a tag never names an unattested image. No plan
+    decides whether to build: Image Updater rolls the cluster onto the digest `latest` moves to.
     """
     import yaml
 
@@ -1122,15 +1123,15 @@ def test_service_image_release_job_invariants() -> None:
     steps = job["steps"]
 
     assert (
-        "release/v*" in release_wf[True]["push"]["branches"],
+        release_wf[True]["push"]["branches"],
         job["if"],
         job.get("needs"),
         job.get("permissions"),
         "SERVICE_IMAGE_INPUTS" in job.get("env", {}),
     ) == (
-        False,
-        "github.ref == 'refs/heads/main'",
-        "release",
+        ["main"],
+        "needs.release-please.outputs.release_created == 'true'",
+        "release-please",
         {
             "contents": "read",
             "packages": "write",
@@ -1169,7 +1170,7 @@ def test_service_image_release_job_invariants() -> None:
         "imagetools create" in tag_step["run"],
         "refs/heads/release" in tag_step["run"],
     ) == (
-        ["type=raw,value=v${{ needs.release.outputs.version }}", "type=raw,value=latest"],
+        ["type=raw,value=${{ needs.release-please.outputs.tag_name }}", "type=raw,value=latest"],
         True,
         False,
         True,
@@ -1231,12 +1232,12 @@ done <<< "$TAGS"
 
 
 def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_test_started() -> None:
-    """release.yml publishes the DevContainer image only from main, after the release job, in
-    three jobs (#1895). The first validates the OCI labels and builds the image with the Dev
-    Containers CLI, so the features and the user vscode are in it, and pushes it by digest. The
-    second starts that digest as vscode in a privileged container, so it holds no write scope and
-    no OIDC token. The third attests the digest, tags it vX.Y.Z and latest, and checks that each
-    tag resolves to it."""
+    """release.yml publishes the DevContainer image only in the run where release-please created a
+    release, in three jobs (#1895). The first builds the image with the Dev Containers CLI, so the
+    features and the user vscode are in it, and pushes it by digest. The second starts that digest
+    as vscode in a privileged container, so it holds no write scope and no OIDC token. The third
+    attests the digest, tags it with the release tag and latest, and checks that each tag
+    resolves to it."""
     jobs = _workflow("release.yml")["jobs"]
     build, smoke, publish = (
         jobs["devcontainer-image"],
@@ -1247,25 +1248,25 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
     publish_steps = {s.get("name", ""): s for s in publish["steps"]}
 
     assert (
-        [(job["needs"], job["if"], job["permissions"]) for job in (build, smoke, publish)],
+        [(job["needs"], job.get("if"), job["permissions"]) for job in (build, smoke, publish)],
         list(build_steps),
         [s.get("name") for s in smoke["steps"]],
         list(publish_steps),
     ) == (
         [
             (
-                "release",
-                "github.ref == 'refs/heads/main'",
+                "release-please",
+                "needs.release-please.outputs.release_created == 'true'",
                 {"contents": "read", "packages": "write"},
             ),
             (
-                ["release", "devcontainer-image"],
-                "github.ref == 'refs/heads/main'",
+                ["release-please", "devcontainer-image"],
+                None,
                 {"contents": "read", "packages": "read"},
             ),
             (
-                ["release", "devcontainer-image", "devcontainer-smoke"],
-                "github.ref == 'refs/heads/main'",
+                ["devcontainer-image", "devcontainer-smoke"],
+                None,
                 {
                     "contents": "read",
                     "packages": "write",
@@ -1280,7 +1281,6 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
             "Synchronize dependencies",
             "Log in to GitHub Container Registry (GHCR)",
             "Extract Metadata for DevContainer Image",
-            "Validate OCI Image Metadata Pre-Publish",
             "Build and Push DevContainer Image by Digest",
         ],
         [
@@ -2234,6 +2234,7 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
         ("docs", "docs"),
         ("uv-check", "uv-check"),
         ("lockfile", "lockfile"),
+        ("build", "build"),
         ("outdated", "outdated"),
         ("devcontainer", "devcontainer"),
         ("deps", "deps"),

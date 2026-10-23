@@ -62,7 +62,8 @@ This document provides an overview of the main command groups implemented in `de
 | **`pr`** | `devops pr list` | List open GitHub pull requests | `--state`, `--limit`, `--repo` |
 | | `devops pr view` | View pull request diff and metadata | `number`, `--repo` |
 | | `devops pr check-readiness` | Validate PR merge readiness | `number`, `--repo` |
-| | `devops pr create` | Open GitHub pull request | `--title`, `--body`, `--base` |
+| | `devops pr create` | Open a draft GitHub pull request (always a draft) | `--title`, `--body` |
+| | `devops pr ready` | Mark a draft pull request ready for review | `number`, `--repo` |
 | **`docker`** | `devops docker images` | List local Docker images | `--name` |
 | | `devops docker stats` | Real-time container CPU/memory telemetry | |
 | | `devops docker prune` | Remove unused containers, images, networks | `--volumes`, `--force` |
@@ -93,10 +94,8 @@ This document provides an overview of the main command groups implemented in `de
 | **`ci`** | `devops ci` | Run every check of the local quality gate | `--fix/--no-fix`, `--check`, `--cache`, `--force`, `--files` |
 | | `devops ci run` | Same as `devops ci` | `--fix` |
 | | `devops ci audit` | Check dependencies for known CVEs (uv audit, and npm audit of the lockfile of each Node tool) | |
+| | `devops ci build` | Build the wheel and the sdist via uv build | |
 | | `devops ci mutate` | Mutation-test changed functions with mutmut and show the survivors; never a gate | `paths`, `--changed`, `--base` |
-| **`release`** | `devops release prepare` | Bump version, update changelog, sync docs | `version`, `--create-pr`, `--type` |
-| | `devops release pr` | Create release branch and release PR | `--version`, `--base`, `--push` |
-| | `devops release check` | Verify release readiness | |
 | **`serve`** | `devops serve` | Start FastAPI REST & OpenAPI daemon | `--host`, `--port`, `--reload` |
 | **`devcontainer`** | `devops devcontainer init` | Scaffold `.devcontainer` configuration | `path`, `--force` |
 | | `devops devcontainer validate` | Validate devcontainer configuration | `path` |

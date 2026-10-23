@@ -19,7 +19,6 @@ import typer
 from devops_cli.ai.instruction_generator import scaffold_agent_instructions
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
-    CONST_CANONICAL_OCI_SOURCE,
     CONST_CLAUDE_MCP_JSON_NAME,
     CONST_DEVCONTAINER_DIR_NAME,
     CONST_DEVCONTAINER_IMAGE_PREFIX,
@@ -32,7 +31,6 @@ from devops_cli.config.constants import (
     CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
-    CONST_REQUIRED_OCI_IMAGE_LABELS,
     CONST_ROOT_DIR,
     CONST_SYSTEM_TEMP_DIRS,
     CONST_VSCODE_DIR_NAME,
@@ -271,59 +269,6 @@ def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:  # no
     return errors
 
 
-def _parse_oci_labels_raw(raw: str) -> dict[str, str]:
-    """Parse raw OCI labels from newline-separated key=value strings or JSON."""
-    stripped = raw.strip()
-    if not stripped:
-        return {}
-    if stripped.startswith("{"):
-        try:
-            data = json.loads(stripped)
-            if isinstance(data, dict):
-                inner = data.get("labels", data)
-                if isinstance(inner, dict):
-                    return {str(k): str(v) for k, v in inner.items()}
-        except json.JSONDecodeError:
-            pass
-
-    labels: dict[str, str] = {}
-    for line in stripped.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        labels[key.strip()] = value.strip().strip('"').strip("'")
-    return labels
-
-
-def _validate_parsed_oci_labels(labels: dict[str, str], expected_source: str) -> list[str]:
-    """Verify presence of required OCI Image Spec labels and canonical source match."""
-    errors: list[str] = []
-    for req in CONST_REQUIRED_OCI_IMAGE_LABELS:
-        if req not in labels:
-            errors.append(ERRORS.devcontainer.oci_label_missing.format(label=req))
-        elif not labels[req].strip():
-            errors.append(ERRORS.devcontainer.oci_label_empty.format(label=req))
-
-    source_val = labels.get("org.opencontainers.image.source", "").strip()
-    if source_val and source_val != expected_source:
-        errors.append(
-            ERRORS.devcontainer.oci_source_mismatch.format(
-                expected=expected_source, actual=source_val
-            )
-        )
-    return errors
-
-
-def validate_oci_image_labels(
-    raw_labels: str, expected_source: str = CONST_CANONICAL_OCI_SOURCE
-) -> tuple[dict[str, str], list[str]]:
-    """Parse and validate OCI container image metadata labels."""
-    labels = _parse_oci_labels_raw(raw_labels)
-    errors = _validate_parsed_oci_labels(labels, expected_source)
-    return labels, errors
-
-
 def _validate_manifest_file(dc_file: Path) -> None:
     """Read, parse, and validate devcontainer.json manifest from disk."""
     if not dc_file.exists():
@@ -378,21 +323,12 @@ def validate(
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help=HELP.devcontainer.config_file)
     ] = None,
-    oci_labels: Annotated[
-        str | None,
-        typer.Option("--oci-labels", help=HELP.devcontainer.validate_oci_labels),
-    ] = None,
-    expected_source: Annotated[
-        str | None,
-        typer.Option("--expected-source", help=HELP.devcontainer.validate_expected_source),
-    ] = None,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.devcontainer.validate_dry_run)
     ] = False,
 ) -> None:
     """Validate .devcontainer/devcontainer.json manifest syntax and configuration schema."""
     ws = workspace.resolve()
-    target_source = expected_source or CONST_CANONICAL_OCI_SOURCE
 
     if config_path:
         dc_file = config_path.resolve()
@@ -411,26 +347,11 @@ def validate(
                 "workspace": str(ws),
                 "manifest_path": str(dc_file),
                 "exists": dc_file.exists(),
-                "oci_labels_provided": oci_labels is not None,
-                "expected_source": target_source,
             },
         )
         return
 
-    if oci_labels is not None:
-        parsed_labels, oci_errors = validate_oci_image_labels(oci_labels, target_source)
-        if oci_errors:
-            print_error(MESSAGES.devcontainer.oci_labels_failed, prefix=False)
-            for err in oci_errors:
-                print_error(f"  • {err}", prefix=False)
-            raise typer.Exit(1)
-        print_success(MESSAGES.devcontainer.oci_labels_valid.format(count=len(parsed_labels)))
-        for k in sorted(parsed_labels):
-            print_info(f"  {k}: {parsed_labels[k]}", prefix=False)
-
-    manifest_needed = config_path is not None or dc_file.exists() or oci_labels is None
-    if manifest_needed:
-        _validate_manifest_file(dc_file)
+    _validate_manifest_file(dc_file)
 
 
 # =============================================================================

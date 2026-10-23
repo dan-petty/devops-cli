@@ -19,7 +19,7 @@ tags:
 | **Official Documentation** | [packaging.pypa.io](https://packaging.pypa.io/) |
 | **Public Git Repository** | [github.com/pypa/packaging](https://github.com/pypa/packaging) |
 | **Official PyPI Package** | [pypi.org/project/packaging](https://pypi.org/project/packaging/) (`26.3`) |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/release.py`](../../../../../../src/devops_cli/commands/release.py) • [`src/devops_cli/commands/uv.py`](../../../../../../src/devops_cli/commands/uv.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/ai/kb.py`](../../../kb.py) |
 
 ---
 
@@ -28,9 +28,9 @@ tags:
 **Packaging** is the core library maintained by the Python Packaging Authority (PyPA) implementing fundamental Python packaging specifications (PEP 440 version identifiers, PEP 508 dependency specifiers, PEP 425 platform tags, and Semantic Versioning 2.0.0).
 
 In `devops-cli`:
-- **Release Version Validation**: Parses and compares version strings during release preparation (`devops release prepare`).
-- **Semantic Version Bumping**: Validates `major.minor.patch` progression and ensures tags match `v<version>` standards.
-- **Dependency Specifier Audits**: Validates package constraints in `pyproject.toml`.
+- **Knowledge Base Manual Matching**: `src/devops_cli/ai/kb.py` matches the `applies_to` entries of each manual (`pkg:pypi/packaging@26.*`, the Python pin) against the locked and installed versions with `SpecifierSet` and `Version`.
+- **Defensive Parsing**: `kb.py` catches `InvalidSpecifier` and `InvalidVersion`, so an entry it cannot parse does not stop the match.
+- devops-cli computes no release version: release-please derives it from the Conventional Commit titles on `main`.
 
 ---
 
@@ -59,25 +59,20 @@ In `devops-cli`:
 
 ## 5. Common & Advanced Usage Examples
 
-### Semantic Version Bump Calculation
+### Version Range Matching
 ```python
-from packaging.version import Version, InvalidVersion
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion
 
 
-def calculate_version_bump(current_version_str: str, bump_type: str) -> str:
+def version_in_range(version: str, specifier: str) -> bool:
     try:
-        v = Version(current_version_str)
-    except InvalidVersion:
-        raise ValueError(f"Invalid version string: '{current_version_str}'")
+        return SpecifierSet(specifier).contains(version)
+    except InvalidSpecifier, InvalidVersion:
+        return False
 
-    if bump_type == "major":
-        return f"{v.major + 1}.0.0"
-    elif bump_type == "minor":
-        return f"{v.major}.{v.minor + 1}.0"
-    elif bump_type == "patch":
-        return f"{v.major}.{v.minor}.{v.micro + 1}"
-    else:
-        raise ValueError(f"Unknown bump type: {bump_type}")
+
+assert version_in_range("26.3", ">=26,<27")
 ```
 
 ---
@@ -85,4 +80,4 @@ def calculate_version_bump(current_version_str: str, bump_type: str) -> str:
 ## 6. Best Practices & Security Standards
 
 1. **Catch `InvalidVersion` Defensively**: Always handle `packaging.version.InvalidVersion` gracefully when parsing user or tag inputs.
-2. **Enforce Semantic Strictness**: Require clean 3-part SemVer (`X.Y.Z`) for official production releases.
+2. **Compare Versions, Never Strings**: Compare `Version` objects or use a `SpecifierSet`, never string or tuple splits.

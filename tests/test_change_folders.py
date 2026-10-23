@@ -197,7 +197,7 @@ def test_a_folder_with_a_proposal_and_a_task_list_is_a_plan(tmp_path: Path) -> N
         ),
         (
             "1900-widget-export",
-            {"tasks": TASKS + "\n**Milestone**: v0.2.39\n"},
+            {"tasks": TASKS + "\n**Milestone**: 2026-11\n"},
             ["1900-widget-export/tasks.md: has a field"],
         ),
     ],

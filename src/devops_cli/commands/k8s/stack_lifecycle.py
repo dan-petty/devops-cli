@@ -878,8 +878,8 @@ def _homelab_host_overrides(
     """Each homelab Application the stacks deploy, with the merge patch setting its hosts.
 
     The hosts come from the configured domain and what the Application renders at the revision
-    Argo CD builds (its live `targetRevision`, or `revision` to stage a release before it
-    merges), never from the local checkout. An Application that renders no host under the
+    Argo CD builds (its live `targetRevision`, or `revision` to stage them before a pull request
+    merges into main), never from the local checkout. An Application that renders no host under the
     placeholder there is refused rather than given an empty patch list, which would drop hosts
     staged earlier. Nothing is written here, so a refusal changes nothing in the cluster.
     """

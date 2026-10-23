@@ -329,7 +329,8 @@ def test_finding_fingerprints_are_pinned_to_literal_values() -> None:
 
 
 def test_sarif_fingerprint_key_pinned() -> None:
-    """Rule: an algorithm change bumps the key, updates the pins and adds a CHANGELOG line in the same commit."""
+    """Rule: an algorithm change bumps the key and updates the pins in the same commit, and its
+    pull request title names the change, so release-please writes it as a changelog line."""
     assert CONST_SARIF_FINGERPRINT_KEY == "devopsCli/v2"
 
 

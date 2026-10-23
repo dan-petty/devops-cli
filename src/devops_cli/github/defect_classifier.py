@@ -4,8 +4,7 @@ A pull request is classified as a defect fix if it carries `type/bug` or `type/s
 labels (as defined in `.github/labels.yml`) or has a Conventional Commits `fix(...)` / `fix:`
 title. Defect pull requests must record hardening guardrails or lessons on at least one declared
 hardening surface (`AGENTS.md`, `src/devops_cli/ai/tasks/*.md`, `src/devops_cli/ai/knowledge_base/`,
-`.devops/review.toml`, or `src/devops_cli/review/rules/`). `docs/ROADMAP.md` is strictly excluded
-because it is a generated view.
+`.devops/review.toml`, or `src/devops_cli/review/rules/`).
 """
 
 from __future__ import annotations
@@ -101,8 +100,6 @@ def match_hardening_surface(file_path: str) -> str | None:
     - `src/devops_cli/ai/knowledge_base/`
     - `.devops/review.toml`
     - `src/devops_cli/review/rules/`
-
-    `docs/ROADMAP.md` is strictly excluded because it is a generated view.
     """
     normalized = file_path.replace("\\", "/").strip().lstrip("/")
     if normalized == "AGENTS.md":

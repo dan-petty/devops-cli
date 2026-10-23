@@ -45,7 +45,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_sandbox`](#docker-sandbox) | `false` | Execute workload inside an isolated, disposable Docker container sandbox. |
 | [`docker_sign`](#docker-sign) | `false` | Sign a container image using Sigstore Cosign (keyless or keyed). |
 | [`docker_verify`](#docker-verify) | `true` | Verify container image signature or attestation using Sigstore Cosign. |
-| [`docs_compact`](#docs-compact) | `false` | Compact historical documentation for completed release series. |
 | [`gh_issues_create`](#gh-issues-create) | `false` | Create a new issue linking milestone and taxonomy labels. |
 | [`gh_issues_edit`](#gh-issues-edit) | `false` | Edit an existing issue title, body, state, milestone, or taxonomy labels. |
 | [`gh_issues_list`](#gh-issues-list) | `true` | List repository issues with milestone, taxonomy labels, and status. |
@@ -53,9 +52,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_issues_triage`](#gh-issues-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake. |
 | [`gh_labels_list`](#gh-labels-list) | `true` | List all labels defined in the remote repository. |
 | [`gh_labels_sync`](#gh-labels-sync) | `false` | Synchronize repository labels against the declarative YAML schema. |
-| [`gh_milestones_close`](#gh-milestones-close) | `false` | Close the release milestone of a version, with or without its v. |
-| [`gh_milestones_edit`](#gh-milestones-edit) | `false` | Edit a release milestone's title, description, state, or due date; fields left out stay as they are. |
-| [`gh_milestones_list`](#gh-milestones-list) | `true` | List repository milestones and track issue completion rates. |
+| [`gh_milestones_close`](#gh-milestones-close) | `false` | Close the milestone with this title or number. |
+| [`gh_milestones_edit`](#gh-milestones-edit) | `false` | Edit a milestone's title, description, state, or due date; fields left out stay as they are. |
+| [`gh_milestones_list`](#gh-milestones-list) | `true` | List every milestone, by due date and then by number, with its issue completion rate. |
 | [`gh_pages_build`](#gh-pages-build) | `false` | Trigger a new deployment build for GitHub Pages. |
 | [`gh_pages_status`](#gh-pages-status) | `true` | Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement. |
 | [`gh_pages_verify`](#gh-pages-verify) | `true` | Verify local repository readiness for GitHub Pages publishing. |
@@ -71,7 +70,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_views_spec`](#gh-views-spec) | `true` | Output JSON schema specification for all configured project views. |
 | [`gh_views_sync`](#gh-views-sync) | `false` | Synchronize standardized views with the remote GitHub Projects v2 board. |
 | [`grafana_dashboards_list`](#grafana-dashboards-list) | `true` | List all dashboards. |
-| [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
+| [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | `true` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
 | [`k8s_chaos`](#k8s-chaos) | `false` | Run resilience and chaos experiments against Kubernetes workloads. |
@@ -88,7 +87,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 | [`k8s_tempo_info`](#k8s-tempo-info) | `true` | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
 | [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
-| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR that closes the item, its last, adds changelog.d/\<issue\>.md.  Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch) and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut (chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files, CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of the default branch (chore/open-vX.Y.Z) only changes those files and what the default branch changed since its merge base, read with one compare request. Either head may end in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt. |
+| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that is on the roadmap board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
 | [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
@@ -101,7 +100,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_threads_resolve`](#pr-threads-resolve) | `false` | Programmatically mark one or more PR review discussion threads as resolved. |
 | [`pr_update`](#pr-update) | `false` | Update pull request branch with latest commits from its base branch. |
 | [`prometheus_query`](#prometheus-query) | `true` | Execute an instant PromQL query. |
-| [`release_status`](#release-status) | `true` | Display current release status, versions, tags, changelog, and docs state. |
 | [`repos_list`](#repos-list) | `true` | List all cloned repositories. |
 | [`repos_sync`](#repos-sync) | `false` | Fetch (and optionally pull) all tracking branches across repos. |
 | [`review_branch`](#review-branch) | `true` | Review a git branch diff. |
@@ -110,13 +108,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | `true` | Review source files directly (no git required). |
 | [`review_pr`](#review-pr) | `false` | Review a GitHub pull request. |
 | [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
-| [`roadmap_close`](#roadmap-close) | `true` | Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm. |
-| [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
-| [`roadmap_migrate`](#roadmap-migrate) | `true` | Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made. |
-| [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
-| [`roadmap_render`](#roadmap-render) | `false` | Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority. |
-| [`roadmap_reprioritize`](#roadmap-reprioritize) | `false` | Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm. |
-| [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
+| [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota, which counts over a rolling window of days; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
+| [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, each place by priority. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured refine_ready_target items are Ready across the open milestones and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
+| [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 | [`sandbox_deploy`](#sandbox-deploy) | `false` | Deploy an isolated background container sandbox with security containment. |
 | [`sandbox_exec`](#sandbox-exec) | `false` | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | `true` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -778,25 +772,6 @@ Verify container image signature or attestation using Sigstore Cosign.
 | `insecure_ignore_tlog` | `boolean` | No | `False` | Ignore Rekor transparency log verification |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `docs_compact`
-
-Compact historical documentation for completed release series.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `series` | `string` | No | `v0.2` | Release series prefix to compact (e.g., 'v0.2', 'v0.1'). |
-| `docs_dir` | `string` | No | - | Path to repository docs/ directory (default: docs/). |
-| `archive_dir` | `string` | No | - | Path to historical archive directory (default: docs/agent/archive/). |
-| `check` | `boolean` | No | `False` | Check if documentation compaction would make changes without modifying files. |
-| `roadmap_only` | `boolean` | No | `False` | Only compact docs/ROADMAP.md. |
-| `release_notes_only` | `boolean` | No | `False` | Only compact docs/RELEASE_NOTES.md. |
-| `log_only` | `boolean` | No | `False` | Only compact docs/LOG.md. |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-
 ### `gh_issues_create`
 
 Create a new issue linking milestone and taxonomy labels.
@@ -827,7 +802,7 @@ Edit an existing issue title, body, state, milestone, or taxonomy labels.
 | `title` | `string` | No | - | New issue title. |
 | `body` | `string` | No | - | New issue body text. |
 | `state` | `string` | No | - | New state (open or closed). |
-| `milestone` | `string` | No | - | New milestone version, title, or number (e.g. v0.2.21). |
+| `milestone` | `string` | No | - | New milestone title, or its number (e.g. 2026-11-05). |
 | `clear_milestone` | `boolean` | No | `False` | Remove milestone linkage from the issue. |
 | `add_label` | `array[string]` | No | - | Taxonomy label to attach (repeatable). |
 | `remove_label` | `array[string]` | No | - | Taxonomy label to detach (repeatable). |
@@ -901,7 +876,7 @@ Synchronize repository labels against the declarative YAML schema.
 
 ### `gh_milestones_close`
 
-Close the release milestone of a version, with or without its v.
+Close the milestone with this title or number.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -909,12 +884,12 @@ Close the release milestone of a version, with or without its v.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `name` | `string` | Yes | - | Release version, with or without the v (e.g. v0.2.11) |
+| `name` | `string` | Yes | - | The milestone's exact title, or its number when no milestone has that title. |
 | `repo` | `string` | No | - | Target repository |
 
 ### `gh_milestones_edit`
 
-Edit a release milestone's title, description, state, or due date; fields left out stay as they are.
+Edit a milestone's title, description, state, or due date; fields left out stay as they are.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -922,7 +897,7 @@ Edit a release milestone's title, description, state, or due date; fields left o
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `name` | `string` | Yes | - | Release version, with or without the v (e.g. v0.2.21) |
+| `name` | `string` | Yes | - | The milestone's exact title, or its number when no milestone has that title. |
 | `title` | `string` | No | - | New milestone title |
 | `description` | `string` | No | - | New milestone description |
 | `state` | `string` | No | - | New state (open or closed) |
@@ -931,7 +906,7 @@ Edit a release milestone's title, description, state, or due date; fields left o
 
 ### `gh_milestones_list`
 
-List repository milestones and track issue completion rates.
+List every milestone, by due date and then by number, with its issue completion rate.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1145,8 +1120,8 @@ Advertise the tools for one domain, which are withheld from the listing by defau
 
 Call this before browsing a domain's tools. Available lazy domains include `argo`,
 `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
-`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
+`prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`,
+`tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`.
 
 **Annotations:** `readOnlyHint: true`
@@ -1242,7 +1217,7 @@ reads them. A locked or missing keyring stops it before it applies anything.
 | `port_forward` | `boolean` | No | `False` | Start background port-forwarding daemons for deployed services. |
 | `configure_urls` | `boolean` | No | `False` | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 | `push_secrets` | `boolean` | No | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
-| `argocd_revision` | `string` | No | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a release merges (Argo CD-managed clusters only). |
+| `argocd_revision` | `string` | No | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a pull request merges into main (Argo CD-managed clusters only). |
 | `dry_run` | `boolean` | No | `False` | Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing. |
 
 ### `k8s_diff_helm`
@@ -1422,23 +1397,10 @@ Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-One of several PRs that deliver an item says Part of #\<issue\> instead of closing it. Grounding
-judges it on that issue, which is open, as it judges a PR on the issue it closes, and the PR
-that closes the item, its last, adds changelog.d/\<issue\>.md.
-
-Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and a release-process PR into release/vX.Y.Z that changes only what its kind may. A cut
-(chore/cut-vX.Y.Z) only modifies the files the cut commit writes, the version files,
-CHANGELOG.md and docs/ROADMAP.md, and removes changelog.d/\<issue\>.md fragments. A merge of
-the default branch (chore/open-vX.Y.Z) only changes those files and what the default
-branch changed since its merge base, read with one compare request. Either head may end
-in -\<slug\>. One that changes more is held, with a blocker naming the other files. Under
-grounding, a PR's body closes exactly one issue, and it adds, modifies or renames that
-issue's docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves
-docs/ROADMAP.md to the cut, and CHANGELOG.md until the cut has written release/vX.Y.Z's
-section, adding changelog.d/\<issue\>.md instead; a critical fix after the cut edits that
-section. Into release/vX.Y.Z, the issue it closes is in release vX.Y.Z. A base branch
-without docs/agent/tasks/ is exempt.
+Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch.
+It closes exactly one issue, an open issue of its own repository that is on the roadmap
+board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1612,8 +1574,8 @@ Update pull request branch with latest commits from its base branch.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `number` | `integer` | No | - | Pull request number to update (optional if --all is specified). |
-| `all_prs` | `boolean` | No | `False` | Update all open pull requests targeting the base branch. |
-| `base` | `string` | No | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
+| `all_prs` | `boolean` | No | `False` | Update every open pull request that the current account wrote. |
+| `base` | `string` | No | - | With --all, update only the pull requests into this base branch. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `expected_head_sha` | `string` | No | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
 | `dispatch_ci` | `boolean` | No | `False` | Dispatch the ci.yml workflow on the head branch after updating. |
@@ -1632,20 +1594,6 @@ Execute an instant PromQL query.
 | `expr` | `string` | Yes | - | PromQL expression. |
 | `at` | `string` | No | - | Evaluation timestamp for instant vector query. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-
-### `release_status`
-
-Display current release status, versions, tags, changelog, and docs state.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `root` | `string` | No | - | Project repository root directory. |
-| `watch` | `boolean` | No | `False` | Continuously monitor release state in real-time. |
-| `interval` | `number` | No | `2.0` | Watcher auto-refresh polling interval in seconds. |
 
 ### `repos_list`
 
@@ -1825,26 +1773,9 @@ Compute and display review accuracy statistics across saved sessions.
 |---|---|---|---|---|
 | `reviews_dir` | `string` | No | - | Directory containing review sessions. |
 
-### `roadmap_close`
-
-Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, collects changelog.d/ into CHANGELOG.md's section for the version and deletes the fragments, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. The cut fails before it pushes when the branch holds neither a fragment nor that section. Lists completed items with no changelog fragment. Writes only with --confirm.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `root` | `string` | No | `.` | The clone the cut runs git in (default: the current directory). |
-| `confirm` | `boolean` | No | `False` | Close the issues and make the cut. Without it, close prints its plan only. |
-| `dry_run` | `boolean` | No | `False` | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `plan_only` | `boolean` | No | `False` | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left once its store has sent a GraphQL request. Close without a mode flag does this. |
-
 ### `roadmap_intake`
 
-Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.
+Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota, which counts over a rolling window of days; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1853,7 +1784,7 @@ Turn candidates into items: every open issue not on the board, and every board i
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `issue` | `array[integer]` | No | - | Only this issue (repeatable). |
 | `title` | `string` | No | - | Title of a candidate that is not an issue yet; intake files it only when it is not a duplicate. Needs --body-file. |
 | `body_file` | `string` | No | - | File holding the new candidate's body. Needs --title. |
@@ -1865,25 +1796,9 @@ Turn candidates into items: every open issue not on the board, and every board i
 | `plan_only` | `boolean` | No | `False` | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
 | `confirm` | `boolean` | No | `False` | Plan as --plan does, then make the writes on GitHub. |
 
-### `roadmap_migrate`
-
-Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `confirm` | `boolean` | No | `False` | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
-| `dry_run` | `boolean` | No | `False` | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `plan_only` | `boolean` | No | `False` | Read GitHub, print the plan and report, write nothing, and end with the GraphQL points spent and left. Migrate without a mode flag does this. |
-
 ### `roadmap_refine`
 
-Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.
+Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, each place by priority. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured refine_ready_target items are Ready across the open milestones and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1892,48 +1807,16 @@ Refine roadmap items to Ready with proposed design, tasks, and acceptance criter
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `source` | `string` | No | `.` | Path to the repository checkout (defaults to current directory). |
 | `item` | `integer` | No | - | Specific issue number to refine instead of selecting by priority. |
 | `limit` | `integer` | No | `3` | Maximum number of items to refine in this run (default 3). |
 | `dry_run` | `boolean` | No | `False` | Make no request and change no git ref: print what refine would plan and run, with placeholders. |
 | `confirm` | `boolean` | No | `False` | Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only. |
 
-### `roadmap_render`
-
-Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `output` | `string` | No | `docs/ROADMAP.md` | File render writes. |
-| `dry_run` | `boolean` | No | `False` | Make no request and write no file: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `plan_only` | `boolean` | No | `False` | Read GitHub and print the rendered file to stdout instead of writing it, ending with the GraphQL points spent and left. |
-
-### `roadmap_reprioritize`
-
-Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over its limit (release_cap plus release_slots) descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one, fill it to the cap and trim it to the limit; the trim and the cap descope follow dependencies. The first run records the admitted set and moves nothing. Writes only with --confirm.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
-| `confirm` | `boolean` | No | `False` | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
-| `dry_run` | `boolean` | No | `False` | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `plan_only` | `boolean` | No | `False` | Read GitHub, print each change with its reason, write nothing, and end with the GraphQL points spent and left. Reprioritize without a mode flag does this. |
-
 ### `roadmap_run`
 
-Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.
+Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1942,7 +1825,7 @@ Run the roadmap jobs that are due, in order: close, reprioritize and metrics, th
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `dry_run` | `boolean` | No | `False` | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
 | `confirm` | `boolean` | No | `False` | Execute the due roadmap jobs. Without it, run prints the due list only. |
 
