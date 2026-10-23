@@ -949,7 +949,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=~\"$namespace\", pod=~\"$pod\"}",
+          "expr": "{namespace=~\"$namespace\"} | pod=~\"$pod\"",
           "refId": "A"
         }
       ],
@@ -1143,7 +1143,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(kube_pod_info{namespace=~\"$namespace\", pod=~\"$service.*\"}, pod)",
+        "definition": "label_values(kube_pod_info{namespace=~\"$namespace\"}, pod)",
         "hide": 0,
         "includeAll": true,
         "label": "Pod",
@@ -1152,7 +1152,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(kube_pod_info{namespace=~\"$namespace\", pod=~\"$service.*\"}, pod)",
+          "query": "label_values(kube_pod_info{namespace=~\"$namespace\"}, pod)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

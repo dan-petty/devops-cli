@@ -6,6 +6,11 @@
 cluster:
   name: homelab-k3s
 
+global:
+  # The chart default, written here because the Grafana Prometheus datasource names the same
+  # interval (grafana-values.yaml, jsonData.timeInterval) to size its rate windows (#1955).
+  scrapeInterval: 60s
+
 destinations:
   localPrometheus:
     type: prometheus
@@ -16,9 +21,14 @@ destinations:
   localLoki:
     type: loki
     url: http://loki.logging.svc.cluster.local:3100/loki/api/v1/push
+    # Each line and profile carries `cluster` once, as the metrics do (#1955).
+    clusterLabels:
+      - cluster
   localPyroscope:
     type: pyroscope
     url: http://pyroscope.monitoring.svc.cluster.local:4040
+    clusterLabels:
+      - cluster
 
 # ── Self-Reporting ───────────────────────────────────────────────────────────
 selfReporting:
@@ -43,6 +53,9 @@ clusterMetrics:
         - container_network_receive_packets_dropped_total
         - container_network_transmit_packets_dropped_total
   kube-state-metrics:
+    # One replica, so the Service is the target: endpoints discovery also scraped its own
+    # telemetry port 8081 into the same job (#1955).
+    discoveryType: service
     metricsTuning:
       includeMetrics:
         - kube_deployment_labels
@@ -231,8 +244,7 @@ integrations:
             source_labels = ["__meta_kubernetes_pod_node_name"]
             target_label  = "instance"
           }
-  # The chart's own Alloy collectors (alloy-metrics, alloy-logs, alloy-singleton), within the
-  # integration's default allow list (#1131).
+  # The chart's own Alloy collectors, within the integration's default allow list (#1131, #1955).
   alloy:
     instances:
       - name: k8s-monitoring
@@ -241,6 +253,7 @@ integrations:
             - alloy-metrics
             - alloy-logs
             - alloy-singleton
+            - alloy-profiles
   # Grafana's own metrics (#1131); the integration's defaults match the chart's pod and port.
   grafana:
     instances:
@@ -280,6 +293,9 @@ telemetryServices:
       - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs|tmpfs|ramfs)$
       - --collector.systemd
       - --collector.systemd.unit-include=(k3s|k3s-agent|nvidia-power-limit|containerd|systemd-journald)\.service
+      # Off by default; Node Exporter Full charts process states and limits and TCP states (#1955).
+      - --collector.processes
+      - --collector.tcpstat
     env:
       DBUS_SYSTEM_BUS_ADDRESS: unix:path=/host/root/run/dbus/system_bus_socket
     resources:
@@ -319,9 +335,12 @@ collectors:
           cpu: 500m
           memory: 512Mi
   alloy-logs:
+    # host-storage keeps the read positions on the node, so a restarted pod neither ships its
+    # files again nor skips lines (#1955).
     presets:
       - daemonset
       - filesystem-log-reader
+      - host-storage
     alloy:
       enableReporting: false
       resources:
@@ -332,9 +351,13 @@ collectors:
           cpu: 500m
           memory: 512Mi
   alloy-profiles:
+    # `privileged` is deprecated in 4.5.2: `root` sets the privileged securityContext, and the eBPF
+    # profiler needs the host PID namespace only, not the host network (#1955).
     presets:
       - daemonset
-      - privileged
+      - root
+    controller:
+      hostPID: true
     alloy:
       enableReporting: false
       # The eBPF profiler targets every pod on its node (profiling.ebpf.targetingScheme: all), so its

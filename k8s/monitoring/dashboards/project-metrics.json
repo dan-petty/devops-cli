@@ -89,7 +89,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(devops_cli_project_release_interval_days_sum) / clamp_min(sum(devops_cli_project_release_interval_days_count), 1)",
+          "expr": "histogram_avg(sum(last_over_time(devops_cli_project_release_interval_days[$__range])))",
           "instant": true,
           "legendFormat": "Days",
           "refId": "A"
@@ -114,13 +114,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.5, sum by (le) (devops_cli_project_release_interval_days_bucket))",
+          "expr": "histogram_quantile(0.5, sum(last_over_time(devops_cli_project_release_interval_days[$__range])))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le) (devops_cli_project_release_interval_days_bucket))",
+          "expr": "histogram_quantile(0.95, sum(last_over_time(devops_cli_project_release_interval_days[$__range])))",
           "legendFormat": "p95",
           "refId": "B"
         }
@@ -144,7 +144,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (devops_cli_project_release_interval_days_sum) / clamp_min(sum by (release) (devops_cli_project_release_interval_days_count), 1)",
+          "expr": "histogram_avg(sum by (release) (last_over_time(devops_cli_project_release_interval_days[$__range])))",
           "legendFormat": "{{release}}",
           "refId": "A"
         }

@@ -44,3 +44,9 @@ alloy:
 
 serviceMonitor:
   enabled: true
+  # The pyroscope and pyroscope-headless Services both match the selector, so each sample was
+  # scraped twice and every sum counted it twice (#1955).
+  relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      regex: pyroscope-headless
+      action: drop

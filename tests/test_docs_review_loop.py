@@ -108,9 +108,9 @@ def _dataset_paths(paths: Iterable[Path]) -> dict[str, str]:
 
 
 def test_every_metric_self_improvement_names_is_one_devops_cli_sends() -> None:
-    """A metric name in SELF_IMPROVEMENT is a registered instrument or one of its series.
+    """A metric name in SELF_IMPROVEMENT is a registered instrument.
     Section 4 once listed `devops_cli_review_sessions_total` and four more metrics nothing sends."""
-    sent = {name for i in INSTRUMENTS for name in (i.name, *i.series)}
+    sent = {i.name for i in INSTRUMENTS}
     namespace = commonprefix([instrument.name for instrument in INSTRUMENTS])
     named = {s.text for s in code_snippets(_SELF_IMPROVEMENT) if s.text.startswith(namespace)}
     assert (sorted(named - sent), bool(named)) == ([], True)

@@ -107,7 +107,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le, target_type) (increase(devops_cli_review_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
           "legendFormat": "p50 {{target_type}}",
           "refId": "A"
         },
@@ -116,7 +116,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, target_type) (increase(devops_cli_review_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
           "legendFormat": "p95 {{target_type}}",
           "refId": "B"
         },
@@ -125,7 +125,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (target_type) (increase(devops_cli_review_duration_seconds_sum[1h])) / sum by (target_type) (increase(devops_cli_review_duration_seconds_count[1h]))",
+          "expr": "histogram_avg(sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
           "legendFormat": "mean {{target_type}}",
           "refId": "C"
         },
@@ -134,7 +134,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (target_type) (increase(devops_cli_review_duration_seconds_count[1h]))",
+          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
           "legendFormat": "count {{target_type}}",
           "refId": "D"
         }
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket{stage=\"total\"}[1h])))",
+          "expr": "histogram_quantile(0.5, sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
           "legendFormat": "p50",
           "refId": "A"
         },
@@ -189,7 +189,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket{stage=\"total\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
           "legendFormat": "p95",
           "refId": "B"
         },
@@ -198,7 +198,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_rag_query_duration_ms_sum{stage=\"total\"}[1h])) / sum(increase(devops_cli_rag_query_duration_ms_count{stage=\"total\"}[1h]))",
+          "expr": "histogram_avg(sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
           "legendFormat": "mean",
           "refId": "C"
         },
@@ -207,7 +207,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_rag_query_duration_ms_count{stage=\"total\"}[1h]))",
+          "expr": "histogram_count(sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
           "legendFormat": "count",
           "refId": "D"
         }
@@ -253,7 +253,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
           "legendFormat": "p50 {{command}}",
           "refId": "A"
         },
@@ -262,7 +262,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
           "legendFormat": "p95 {{command}}",
           "refId": "B"
         },
@@ -271,7 +271,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
           "legendFormat": "p99 {{command}}",
           "refId": "C"
         },
@@ -280,7 +280,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_sum[1h])) / sum by (command) (increase(devops_cli_command_duration_seconds_count[1h]))",
+          "expr": "histogram_avg(sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
           "legendFormat": "mean {{command}}",
           "refId": "D"
         },
@@ -289,7 +289,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_count[1h]))",
+          "expr": "histogram_count(sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
           "legendFormat": "count {{command}}",
           "refId": "E"
         }
@@ -397,7 +397,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket{command=~\"$command\"}[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
           "legendFormat": "p50 {{command}}",
           "refId": "A"
         },
@@ -406,7 +406,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket{command=~\"$command\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
           "legendFormat": "p95 {{command}}",
           "refId": "B"
         },
@@ -415,7 +415,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket{command=~\"$command\"}[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
           "legendFormat": "p99 {{command}}",
           "refId": "C"
         },
@@ -424,7 +424,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_sum{command=~\"$command\"}[1h])) / sum by (command) (increase(devops_cli_command_duration_seconds_count{command=~\"$command\"}[1h]))",
+          "expr": "histogram_avg(sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
           "legendFormat": "mean {{command}}",
           "refId": "D"
         },
@@ -433,7 +433,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (command) (increase(devops_cli_command_duration_seconds_count{command=~\"$command\"}[1h]))",
+          "expr": "histogram_count(sum by (command) (increase(devops_cli_command_duration_seconds{command=~\"$command\"}[1h])))",
           "legendFormat": "count {{command}}",
           "refId": "E"
         }
@@ -479,7 +479,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, stage) (increase(devops_cli_rag_query_duration_ms_bucket{stage=~\"embedding|search|ranking\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (stage) (increase(devops_cli_rag_query_duration_ms{stage=~\"embedding|search|ranking\"}[1h])))",
           "legendFormat": "p95 {{stage}}",
           "refId": "A"
         },
@@ -488,7 +488,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (stage) (increase(devops_cli_rag_query_duration_ms_sum{stage=~\"embedding|search|ranking\"}[1h])) / sum by (stage) (increase(devops_cli_rag_query_duration_ms_count{stage=~\"embedding|search|ranking\"}[1h]))",
+          "expr": "histogram_avg(sum by (stage) (increase(devops_cli_rag_query_duration_ms{stage=~\"embedding|search|ranking\"}[1h])))",
           "legendFormat": "mean {{stage}}",
           "refId": "B"
         },
@@ -497,7 +497,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (stage) (increase(devops_cli_rag_query_duration_ms_count{stage=~\"embedding|search|ranking\"}[1h]))",
+          "expr": "histogram_count(sum by (stage) (increase(devops_cli_rag_query_duration_ms{stage=~\"embedding|search|ranking\"}[1h])))",
           "legendFormat": "count {{stage}}",
           "refId": "C"
         }
@@ -599,7 +599,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (target_type) (increase(devops_cli_review_duration_seconds_count[1h]))",
+          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
           "legendFormat": "{{target_type}}",
           "refId": "A"
         }

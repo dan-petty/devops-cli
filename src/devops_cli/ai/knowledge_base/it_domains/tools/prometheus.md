@@ -55,9 +55,9 @@ kubectl port-forward svc/prometheus-server -n monitoring 9090:80
 curl -G 'http://localhost:9090/api/v1/query' \
   --data-urlencode 'query=sum(rate(devops_cli_command_total[5m])) by (command)' | jq .
 
-# Compute 95th percentile execution duration
+# Compute 95th percentile execution duration (a native histogram: no _bucket series, no le label)
 curl -G 'http://localhost:9090/api/v1/query' \
-  --data-urlencode 'query=histogram_quantile(0.95, sum(rate(devops_cli_command_duration_seconds_bucket[5m])) by (le))' | jq .
+  --data-urlencode 'query=histogram_quantile(0.95, sum(rate(devops_cli_command_duration_seconds[5m])))' | jq .
 
 # Scrape local devops REST service directly
 curl -s http://localhost:8000/metrics

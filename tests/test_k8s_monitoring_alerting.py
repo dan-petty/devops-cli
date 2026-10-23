@@ -419,7 +419,14 @@ def test_alloy_grafana_and_pyroscope_are_scraped_and_pipeline_drops_alert() -> N
             ),
         ],
         "k8s-monitoring",
-        {"app.kubernetes.io/name": ["alloy-metrics", "alloy-logs", "alloy-singleton"]},
+        {
+            "app.kubernetes.io/name": [
+                "alloy-metrics",
+                "alloy-logs",
+                "alloy-singleton",
+                "alloy-profiles",
+            ]
+        },
         {"name": "grafana"},
         True,
     )
