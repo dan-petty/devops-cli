@@ -53,11 +53,13 @@ PUSH_COMMAND = typer.main.get_command(_push_app)
 GATEWAY_KEY = "sk-keyring-gateway-value-0001"
 QDRANT_KEY = "qdrant-keyring-value-0001"
 RUNS_PASSWORD = "runs-keyring-value-0001"
+CACHE_PASSWORD = "cache-keyring-value-0001"
 TUNNEL_TOKEN = "tunnel-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
     "runs_index_password": RUNS_PASSWORD,
+    "valkey_password": CACHE_PASSWORD,
     "cloudflare_tunnel_token": TUNNEL_TOKEN,
 }
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
@@ -96,7 +98,7 @@ def _push(*args: str) -> Any:
 # ── The table ────────────────────────────────────────────────────────────────
 
 
-def test_table_holds_this_items_seven_entries_in_five_secrets() -> None:
+def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
     rows = [
         (
             secret.ref,
@@ -137,6 +139,15 @@ def test_table_holds_this_items_seven_entries_in_five_secrets() -> None:
             SecretGenerator("hex", 32),
             None,
             ("deployment/valkey-runs",),
+        ),
+        (
+            "llm/valkey-auth",
+            "VALKEY_PASSWORD",
+            "llm",
+            True,
+            SecretGenerator("hex", 32),
+            None,
+            ("deployment/valkey", "statefulset/open-webui"),
         ),
         (
             "cloudflared/cloudflared-token",
@@ -423,6 +434,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
             "llm/llm-gateway-secrets": ["master-key"],
             "llm/qdrant-api-key": ["api-key"],
             "llm/valkey-runs-auth": ["password"],
+            "llm/valkey-auth": ["VALKEY_PASSWORD"],
             "cloudflared/cloudflared-token": ["token"],
             "devops/devops-cli": ["DEVOPS_CLI_AI_API_KEY", "GH_TOKEN"],
         },
@@ -514,7 +526,7 @@ def test_a_generated_value_is_stored_in_the_keyring_before_the_apply(
         True,
         True,
         backend.writes[LLM_GATEWAY_MASTER_KEY],
-        [LLM_GATEWAY_MASTER_KEY, "qdrant_api_key", "runs_index_password"],
+        [LLM_GATEWAY_MASTER_KEY, "qdrant_api_key", "runs_index_password", "valkey_password"],
     )
 
 

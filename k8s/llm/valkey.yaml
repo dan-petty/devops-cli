@@ -1,4 +1,9 @@
 # Valkey manifest — high-performance Redis-compatible key-value store for local LLM caching.
+#
+# Open WebUI keeps its state and its websocket pub/sub here. Valkey requires a password, which
+# comes from the keyring: `devops k8s push-secrets --only llm/valkey-auth` writes it, generating
+# one the first time, and deploy-stack pushes it before it applies this file. The policy
+# valkey-perimeter admits only Open WebUI and the metrics scrapers.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -41,19 +46,31 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # The password goes into a config file on a memory volume rather than onto the command
+          # line, where it would show in the process list.
           command:
-            - valkey-server
-            - "--save"
-            - ""
-            - "--appendonly"
-            - "no"
-            - "--dir"
-            - "/data"
+            - sh
+            - -c
+            - >-
+              umask 077 &&
+              printf 'requirepass "%s"\n' "$VALKEY_PASSWORD" > /run/valkey/auth.conf &&
+              exec valkey-server /run/valkey/auth.conf
+              --save ""
+              --appendonly no
+              --dir /data
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-auth
+                  key: VALKEY_PASSWORD
           volumeMounts:
             - name: valkey-data
               mountPath: /data
             - name: valkey-tmp
               mountPath: /tmp
+            - name: config
+              mountPath: /run/valkey
           ports:
             - name: valkey
               containerPort: 6379
@@ -87,6 +104,11 @@ spec:
           env:
             - name: REDIS_ADDR
               value: redis://localhost:6379
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-auth
+                  key: VALKEY_PASSWORD
             - name: REDIS_EXPORTER_WEB_LISTEN_ADDRESS
               value: 0.0.0.0:9121
           ports:
@@ -117,6 +139,10 @@ spec:
           emptyDir: {}
         - name: valkey-tmp
           emptyDir: {}
+        - name: config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
 ---
 apiVersion: v1
 kind: Service
@@ -134,3 +160,38 @@ spec:
     - name: valkey
       port: 6379
       targetPort: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-perimeter
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Open WebUI is the only client (values-open-webui.yaml).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: open-webui
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Alloy scrapes the redis-exporter sidecar.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9121
+  # No egress: Valkey only answers, and the exporter reaches it on localhost.
+  egress: []

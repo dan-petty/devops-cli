@@ -72,9 +72,18 @@ extraEnvVars:
 websocket:
   enabled: true
   manager: redis # python-socketio driver connects via Redis protocol to Valkey
-  url: "redis://valkey.llm.svc.cluster.local:6379/0"
+  # The chart sets REDIS_URL and WEBSOCKET_REDIS_URL to this URL. Kubernetes replaces
+  # $(VALKEY_PASSWORD) with the variable from extraEnvFrom below: envFrom variables come before
+  # every env entry, and the chart puts extraEnvVars after these two URLs.
+  url: "redis://:$(VALKEY_PASSWORD)@valkey.llm.svc.cluster.local:6379/0"
   redis:
     enabled: false # Embedded Redis subchart disabled in favor of standalone Valkey service
+
+# VALKEY_PASSWORD, the only key of the Secret that `devops k8s push-secrets` writes (k8s/README.md,
+# Cluster Secrets).
+extraEnvFrom:
+  - secretRef:
+      name: valkey-auth
 
 service:
   # Local minikube: NodePort allows direct browser access without ingress controller.

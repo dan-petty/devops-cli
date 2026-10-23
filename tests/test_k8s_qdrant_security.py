@@ -180,6 +180,7 @@ def stub_keyring(monkeypatch: pytest.MonkeyPatch, cluster: FakeCluster) -> FakeK
             "llm_gateway_master_key": "sk-deploy-gateway-0001",
             "qdrant_api_key": "deploy-qdrant-0001",
             "runs_index_password": "deploy-runs-0001",
+            "valkey_password": "deploy-cache-0001",
             "cloudflare_tunnel_token": "deploy-tunnel-0001",
         }
     )
@@ -226,6 +227,7 @@ def test_deploy_stack_pushes_secrets_after_namespaces_and_before_manifests_and_h
             "llm/llm-gateway-secrets",
             "llm/qdrant-api-key",
             "llm/valkey-runs-auth",
+            "llm/valkey-auth",
             "cloudflared/cloudflared-token",
         ],
     )

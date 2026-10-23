@@ -72,14 +72,15 @@ devops valkey cli
 ### Kubernetes Cluster Diagnostics
 ```bash
 # Check Valkey deployment and pod health in llm namespace
-kubectl -n llm get pods -l app=valkey
+kubectl -n llm get pods -l app.kubernetes.io/name=valkey
 
-# Execute ping check inside Minikube cluster
-kubectl -n llm exec -it svc/valkey -- valkey-cli ping
+# Execute ping check inside the cluster. Valkey requires the password of Secret llm/valkey-auth,
+# which the valkey container holds in VALKEY_PASSWORD.
+kubectl -n llm exec -it svc/valkey -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli ping'
 
 # Inspect memory usage and client connections
-kubectl -n llm exec -it svc/valkey -- valkey-cli info memory
-kubectl -n llm exec -it svc/valkey -- valkey-cli info clients
+kubectl -n llm exec -it svc/valkey -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli info memory'
+kubectl -n llm exec -it svc/valkey -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli info clients'
 ```
 
 ---

@@ -40,10 +40,6 @@ spec:
           env:
             - name: PORT
               value: "8787"
-            - name: CACHE_STORE
-              value: "redis"
-            - name: REDIS_URL
-              value: "redis://valkey.llm.svc.cluster.local:6379"
           ports:
             - name: http
               containerPort: 8787

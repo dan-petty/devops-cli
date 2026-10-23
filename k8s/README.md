@@ -65,8 +65,8 @@ minikube service open-webui -n llm --url
 # Qdrant Vector Database HTTP API
 minikube service qdrant -n llm --url
 
-# Valkey In-Memory Cache
-kubectl -n llm exec -it svc/valkey -- valkey-cli ping
+# Valkey In-Memory Cache: Open WebUI's state. It requires the password of llm/valkey-auth (see Cluster Secrets).
+kubectl -n llm exec -it svc/valkey -c valkey -- sh -c 'VALKEYCLI_AUTH="$VALKEY_PASSWORD" valkey-cli ping'
 
 # Valkey Run Index (deployed by deploy-stack; see Cluster Secrets for its password):
 # benchmark and evaluation runs shared by workstations. Its password Secret comes from the keyring (see Cluster Secrets),
@@ -153,7 +153,9 @@ kubectl label node <node> nvidia.com/gpu.total-vram-gib=<N>Gi --overwrite
 
 `deploy-stack --stack llm` reads the nodes once, right after it checks the cluster is reachable, and warns about each GPU node no tier accepts: the missing or unaccepted `total-vram-gib` with the command above, or an `architecture` outside the accepted ones. If no node satisfies any tier, it says no Ollama pod will schedule, and if it cannot read the nodes it says it could not check the labels. It also warns on an Argo CD-managed cluster. It never stops the deploy, since the stack's other workloads need no GPU label. The accepted values are read from `ollama-profiles.yaml`, so a tier changed there is checked with no other edit.
 
-The gateway's policy `llm-gateway-perimeter` (`llm/gateway/networkpolicy.yaml`) is applied with the llm manifests, by `deploy-stack` or Argo CD's `llm` Application. It admits TCP 4000 from any source, since LiteLLM rejects a request without the master key, and limits the gateway's egress to the pods labelled `llm.devops.io/provider: ollama` on 11434, Valkey on 6379 and kube-system DNS on port 53.
+The gateway's policy `llm-gateway-perimeter` (`llm/gateway/networkpolicy.yaml`) is applied with the llm manifests, by `deploy-stack` or Argo CD's `llm` Application. It admits TCP 4000 from any source, since LiteLLM rejects a request without the master key, and limits the gateway's egress to the pods labelled `llm.devops.io/provider: ollama` on 11434 and kube-system DNS on port 53.
+
+The cache Valkey's policy `valkey-perimeter` (`llm/valkey.yaml`) admits Open WebUI on TCP 6379 and the `monitoring` namespace on the exporter port 9121. It allows no egress, and `llm-default-perimeter` leaves the Valkey pods out. Valkey requires the password of `llm/valkey-auth` (see Cluster Secrets). Open WebUI sends it in its Redis URL, and Valkey reads it from a quoted config line. A typed value must therefore use only letters, digits, `-`, `.`, `_` and `~`. The gateway and Portkey use no Valkey: the gateway config turns on no cache, and Portkey reads a cache only from `REDIS_CONNECTION_STRING`, which is not set.
 
 Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; `/tmp` is an emptyDir. `HOME` is `/home/ollama`, so the key and `models/` stay in the hostPath `/var/lib/ollama` on each GPU node, mounted at `/home/ollama/.ollama`. `fsGroup` does not apply to a hostPath volume, so the initContainer `own-model-directory` gives that directory to 10001 at every start (`chown -R`). It runs as root with `CAP_CHOWN` alone, no privilege escalation and a read-only root filesystem, and exits before ollama starts. It is the one exception to kube-linter's `run-as-non-root` in `ollama-profiles.yaml`, recorded in the manifest's header rather than suppressed with an ignore annotation.
 
@@ -355,6 +357,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `llm/llm-gateway-secrets` | `master-key` | keyring `llm_gateway_master_key` | yes | adopt the live value; else generate `sk-` + 48 hex | llm | `deployment/llm-gateway` |
 | `llm/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | llm | `statefulset/qdrant` |
 | `llm/valkey-runs-auth` | `password` | keyring `runs_index_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-runs` |
+| `llm/valkey-auth` | `VALKEY_PASSWORD` | keyring `valkey_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey`, `statefulset/open-webui` |
 | `cloudflared/cloudflared-token` | `token` | keyring `cloudflare_tunnel_token` | no | adopt the live value; else skip with a warning | base | `deployment/cloudflared` |
 | `devops/devops-cli` | `GH_TOKEN` | gh account | yes | fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
@@ -791,7 +794,7 @@ k8s/
 ├── llm/
 │   ├── kustomization.yaml    # Kustomize overlay for LLM stack base
 │   ├── profiles/             # Ollama per-VRAM-tier DaemonSets and ollama-<n>gib Services (applied by deploy-stack)
-│   ├── valkey.yaml           # Valkey Deployment + Service manifest
+│   ├── valkey.yaml           # Cache Valkey: Deployment, Service, NetworkPolicy
 │   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
 │   ├── values-qdrant.yaml    # Helm values for qdrant/qdrant
