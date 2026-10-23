@@ -248,6 +248,24 @@ class SemgrepScanner(BaseSecurityScanner):
         outcome = super().scan(target_path, timeout, isolated=isolated, ruleset=ruleset, **kwargs)
         return outcome if ruleset else _registry_rules_missing(outcome, config)
 
+    def ruleset_files(self, target_path: Any, cwd: Path, **kwargs: Any) -> tuple[Path, ...]:
+        """The rule files a scan reads: devops-cli's rule pack, and each file that a `--config`
+        names from `cwd`, among them the cached registry ruleset (#772).
+
+        A review's scan reads the copy of the registry ruleset in its working directory. A config
+        that is a URL or a directory names no file here.
+        """
+        from devops_cli.review.rules_pack import discover_pack_rules
+
+        configs = rules_configs(
+            kwargs.get("config", DEFAULT_SEMGREP_CONFIG),
+            kwargs.get("ruleset"),
+            in_workdir=isinstance(target_path, MaterializedTargets),
+        )
+        named = (Path(cwd, config) for config in configs)
+        pack = (rule for rule, _ in discover_pack_rules().values())
+        return (*pack, *(path for path in named if path.is_file()))
+
     def _resolve_cwd(self, target_path: Any, **kwargs: Any) -> Path:
         """The directory that holds the cached ruleset a scan reads, else the target's.
 

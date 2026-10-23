@@ -31,11 +31,16 @@ The record uses the names of SARIF 2.1.0 where it has one:
 - `commit` is the `revisionId` of `versionControlProvenance`.
 
 SARIF holds config, ruleset and target files as `run.artifacts`, each with `hashes` and `roles`.
-`ToolRun` keeps one digest for each group of files.
+`ToolRun` keeps one digest for each group of files. `executor` has no SARIF name: it says whether
+the run was confined.
+
+`RecordingToolExecutor` wraps another executor and keeps the `ToolRun` of every run. A review gives
+its scanners one, and shows the records in its profile and in `review.md`.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import stat
 import subprocess
@@ -48,10 +53,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from devops_cli.ai.run_store import digest, file_digest
 from devops_cli.config.constants import (
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
+    CONST_TOOL_CONFIG_PLACEHOLDER,
     CONST_TOOL_CPU_LIMIT_SECONDS,
+    CONST_TOOL_DIGEST_UNAVAILABLE,
+    CONST_TOOL_EXECUTOR_DIRECT,
+    CONST_TOOL_EXECUTOR_SANDBOX,
     CONST_TOOL_GO_MEMORY_LIMIT,
     CONST_TOOL_MIN_ADDRESS_SPACE_BYTES,
     CONST_TOOL_PRLIMIT_BINARY,
+    CONST_TOOL_RULESET_PLACEHOLDER,
     CONST_TOOL_TARGETS_PLACEHOLDER,
 )
 from devops_cli.config.defaults import (
@@ -119,18 +129,25 @@ class ToolRun(_Frozen):
 
     The digests are `devops_cli.ai.run_store.digest` values. The config digest and the ruleset
     digest cover the content of the files, not their paths or their order. The targets digest
-    covers the names of the targets relative to the tree.
+    covers the names of the targets relative to the tree. A digest is `unavailable` when the direct
+    executor could not read one of the files: a scan must not fail for a record.
+
+    `executor` says how the tool ran: `direct` is a child process of devops-cli with no confinement
+    and no limit but the wall clock, and `sandbox` is the bubblewrap sandbox with the limits of
+    `ToolLimits`. `argv_template` is the command with a placeholder for each path that names a
+    target, a config file or a ruleset file, so the same scan records the same template.
 
     `commit` is the commit of the checkout that holds the tree. It ends with `-dirty` when a target
     holds a change that the commit does not. A tree outside any git checkout has no commit, and
     neither has a checkout that holds no commit yet. The sandbox executor refuses a checkout that
     git cannot read. The direct executor records no commit for it, because a scan must not fail
-    for a record that nothing reads yet.
+    for a record.
     """
 
     tool: str
     version: str
     binary_sha256: str
+    executor: str = Field(min_length=1)
     config_digest: str
     ruleset_digest: str
     argv_template: tuple[str, ...]
@@ -191,15 +208,18 @@ def _is_small_regular_file(path: Path) -> bool:
     return stat.S_ISREG(info.st_mode) and info.st_size <= DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 
 
-def _files_digest(files: Sequence[Path]) -> str:
+def _files_digest(files: Sequence[Path], *, required: bool = True) -> str:
     """A digest of the content of `files`. It does not depend on their paths or their order.
 
-    A file that is missing, is no regular file or is too large raises `SandboxValidationError`.
+    A file that is missing, is no regular file or is too large raises `SandboxValidationError`,
+    unless the digest is not `required`. Then the digest is `unavailable`.
     """
     contents: list[str] = []
     for path in files:
         content = file_digest(path) if _is_small_regular_file(path) else None
         if content is None:
+            if not required:
+                return CONST_TOOL_DIGEST_UNAVAILABLE
             raise SandboxValidationError(
                 f"The file {path} cannot be read as a regular file of at most "
                 f"{DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES} bytes",
@@ -264,14 +284,72 @@ def _tree_commit(root: Path, targets: Sequence[Path], *, required: bool) -> str 
         return None
 
 
+def _placeholders(request: ToolRequest, targets: Sequence[Path]) -> dict[str, str]:
+    """The placeholder for each path that `request` names, by the normal form of the path.
+
+    A target wins over a config file or a ruleset file, and a config file wins over the directory
+    of a ruleset file. A rule pack is a directory of ruleset files, and a tool takes it by that name.
+    A scan that starts in a scratch directory may name a target by its place in the tree, below that
+    directory.
+    """
+    root = request.workdir.resolve()
+    base = request.cwd or root
+    named = (
+        (
+            CONST_TOOL_RULESET_PLACEHOLDER,
+            (*request.ruleset_files, *(path.parent for path in request.ruleset_files)),
+        ),
+        (CONST_TOOL_CONFIG_PLACEHOLDER, request.config_files),
+        (
+            CONST_TOOL_TARGETS_PLACEHOLDER,
+            (
+                *targets,
+                *(root / path for path in request.targets),
+                *(base / path.relative_to(root) for path in targets),
+            ),
+        ),
+    )
+    return {os.path.normpath(path): placeholder for placeholder, paths in named for path in paths}
+
+
+def _argv_template(request: ToolRequest, targets: Sequence[Path]) -> tuple[str, ...]:
+    """The command of `request`, with a placeholder for each path argument that names a target, a
+    config file or a ruleset file. Adjacent placeholders of one kind stand once.
+
+    A path argument is an absolute path, or a path that starts with `./` from the directory where
+    the tool starts. A scratch directory is new in each run, and a target is a path of the host. So
+    the template reads the same for the same scan.
+    """
+    placeholders = _placeholders(request, targets)
+    base = request.cwd or request.workdir
+    template: list[str] = []
+    for argument in request.arguments:
+        is_path = os.path.isabs(argument) or argument.startswith(os.curdir + os.sep)
+        placeholder = placeholders.get(os.path.normpath(os.path.join(base, argument)))
+        if not (is_path and placeholder):
+            template.append(argument)
+        elif not template or template[-1] != placeholder:
+            template.append(placeholder)
+    return (request.tool, *template)
+
+
 def record_tool_run(
-    request: ToolRequest, *, version: str, binary_sha256: str, require_commit: bool = True
+    request: ToolRequest,
+    *,
+    version: str,
+    binary_sha256: str,
+    executor: str,
+    require_commit: bool = True,
+    require_files: bool = True,
 ) -> ToolRun:
-    """The record of running `request` with a tool at `version` whose binary is `binary_sha256`.
+    """The record of running `request` with a tool at `version` whose binary is `binary_sha256`,
+    started by the executor that `executor` names.
 
     Every executor builds its record here. So every executor refuses a request, and reads its
     digests and its commit, in the same way. A checkout that git cannot read raises `SandboxError`,
-    unless `require_commit` is false. Then the record holds no commit.
+    unless `require_commit` is false. Then the record holds no commit. A config file or a ruleset
+    file that cannot be read as a regular file raises `SandboxValidationError`, unless
+    `require_files` is false. Then its digest is `unavailable`.
     """
     targets = _resolved_targets(request)
     root = request.workdir.resolve()
@@ -279,9 +357,10 @@ def record_tool_run(
         tool=request.tool,
         version=version,
         binary_sha256=binary_sha256,
-        config_digest=_files_digest(request.config_files),
-        ruleset_digest=_files_digest(request.ruleset_files),
-        argv_template=(request.tool, *request.arguments),
+        executor=executor,
+        config_digest=_files_digest(request.config_files, required=require_files),
+        ruleset_digest=_files_digest(request.ruleset_files, required=require_files),
+        argv_template=_argv_template(request, targets),
         targets_digest=digest([str(target.relative_to(root)) for target in targets]),
         commit=_tree_commit(root, targets, required=require_commit),
     )
@@ -347,7 +426,12 @@ class DirectToolExecutor:
         """
         version, binary_sha256 = resolve_tool_version_and_sha(request.tool)
         run = record_tool_run(
-            request, version=version, binary_sha256=binary_sha256, require_commit=False
+            request,
+            version=version,
+            binary_sha256=binary_sha256,
+            executor=CONST_TOOL_EXECUTOR_DIRECT,
+            require_commit=False,
+            require_files=False,
         )
         command = [request.tool, *_expand_targets(request.arguments, _resolved_targets(request))]
         return _start(
@@ -416,12 +500,43 @@ class SandboxToolExecutor:
                 "cannot run in its sandbox"
             )
         version, binary_sha256 = resolve_tool_version_and_sha(request.tool)
-        run = record_tool_run(request, version=version, binary_sha256=binary_sha256)
+        run = record_tool_run(
+            request,
+            version=version,
+            binary_sha256=binary_sha256,
+            executor=CONST_TOOL_EXECUTOR_SANDBOX,
+        )
         return _start(run, command, cwd=request.workdir, wall_seconds=request.limits.wall_seconds)
+
+
+class RecordingToolExecutor:
+    """Passes each request to another executor and keeps the record of each run that started.
+
+    A review gives its scanners one of these, so that the review can show what ran. A scanner
+    reads the answer of the wrapped executor, unchanged. A request that the wrapped executor
+    refuses starts no run, so it leaves no record. Scans may run on several threads. Appending a
+    record to a list is atomic.
+    """
+
+    def __init__(self, executor: ToolExecutor) -> None:
+        self._executor = executor
+        self._runs: list[ToolRun] = []
+
+    @property
+    def runs(self) -> tuple[ToolRun, ...]:
+        """The record of each run so far, in the order the runs started."""
+        return tuple(self._runs)
+
+    def run(self, request: ToolRequest) -> ToolResult:
+        """Run `request` on the wrapped executor and keep the record of the run."""
+        result = self._executor.run(request)
+        self._runs.append(result.run)
+        return result
 
 
 __all__ = [
     "DirectToolExecutor",
+    "RecordingToolExecutor",
     "SandboxToolExecutor",
     "ToolExecutor",
     "ToolLimits",

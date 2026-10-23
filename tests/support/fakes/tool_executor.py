@@ -31,6 +31,8 @@ import pytest
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolRequest, ToolResult
 
+# How the fake names itself in the record of a run: no tool starts, so nothing is confined.
+FAKE_EXECUTOR = "fake"
 # The digest a scripted answer gives a binary that no test scripted a digest for.
 FAKE_BINARY_SHA256 = hashlib.sha256(b"tool executor fake binary").hexdigest()
 
@@ -65,7 +67,12 @@ class ToolExecutorFake:
         from devops_cli.security.tool_executor import ToolResult, record_tool_run
 
         answer = self._answers.get(request.tool, ToolAnswer())
-        run = record_tool_run(request, version=answer.version, binary_sha256=answer.binary_sha256)
+        run = record_tool_run(
+            request,
+            version=answer.version,
+            binary_sha256=answer.binary_sha256,
+            executor=FAKE_EXECUTOR,
+        )
         self.requests.append(request)
         return ToolResult(
             run=run,

@@ -591,6 +591,44 @@ same files several times with the response cache bypassed and saves the medians 
 `.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
 Compare benchmarks only when their corpus digests match.
 
+### Tool Run Records
+
+`tool_runs` holds the record of each run of a review tool, in the order the runs started. A record
+names the tool, its `version` and `binary_sha256`, and the `executor` that started it: `direct`
+means no confinement, and `sandbox` means the bubblewrap sandbox (`SECURITY.md` lists the limits of
+each). It holds `config_digest`, `ruleset_digest` and `targets_digest`, the `argv_template` of the
+command, and the `commit` of the tree. The commit ends with `-dirty` when a target differs from it.
+It is empty for a tree that is no git checkout, such as the files of a base revision that the review
+writes to a scratch directory. A digest of files covers their content, not their paths or their
+order. The digest of no files is `4f53cda18c2baa0c`. A digest is `unavailable` when the direct
+executor could not read one of the files, because a scan must not fail for its record. The template
+shows `{targets}`, `{config}` and `{ruleset}` where the command names those files by path, so the
+same scan records the same template.
+
+`review.md` lists the distinct records in the Tool Runs table, each with its number of runs.
+Gitleaks scans one file at a time, so one row can stand for hundreds of runs. The table leaves out
+the targets digest and shows the first 16 digits of the binary digest. `profile.json` keeps every
+record in full. The two digests cover these files:
+
+| Tool | Config digest | Ruleset digest |
+| :--- | :--- | :--- |
+| Bandit | the `.bandit` file that devops-cli hands the tool | none: the rules are in the package |
+| Gitleaks | the `gitleaks.toml` and the `.gitleaksignore` that devops-cli hands the tool | none: the default rules are in the binary |
+| Semgrep | none | the rule files of the pack of devops-cli, and the cached registry ruleset or the local rules file that `--config` names |
+| Trivy | the `trivy.yaml` and the `.trivyignore` that devops-cli hands the tool | the metadata file of the checks bundle for a `config` scan, else the metadata file of the vulnerability database, in the cache of Trivy |
+| kube-linter | the `kube-linter.yaml` that devops-cli hands the tool | none: the checks are in the binary |
+| Pluto | none | none: the deprecated APIs are in the binary |
+| osv-scanner | the `osv-scanner.toml` in the directory of each lockfile | none: the database has no metadata file yet |
+| Ruff | each file named `.ruff.toml`, `ruff.toml` or `pyproject.toml` in the directory of each checked file and above it, up to the tree. Not a file above the tree, and not the user config file of Ruff | none: the rules are in the binary |
+
+Ruff does not stop its search at the tree. While the direct executor runs, Ruff also applies a
+config file above the tree, and the user config file in `$XDG_CONFIG_HOME/ruff` when no project
+config file exists. The record does not name these two files, so the config digest of Ruff does not
+cover them.
+
+The record is read before the tool starts. Trivy fetches its checks bundle during a scan when the
+cache is old, so Trivy may use newer rules than the record names.
+
 ### Project Review Conventions
 
 The target's review conventions (`.devops/review.toml`, `AGENTS.md`) define project-specific
