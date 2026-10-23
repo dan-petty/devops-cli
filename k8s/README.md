@@ -556,6 +556,7 @@ These values exist only in the cluster and in `config.yaml`. Once `cluster` has 
 Application `argocd-image-updater` runs [Argo CD Image Updater](https://argocd-image-updater.readthedocs.io/en/stable/) in namespace `argocd`, from the argo-helm chart pinned to a version like the other chart Applications. Its one ImageUpdater, `devops` in `k8s/argocd/image-updater-values.yaml`, keeps the `devops` Application on the digest `ghcr.io/dan-petty/devops-cli/service:latest` points at:
 
 - Every two minutes it reads that digest. When the Application runs another one, it writes `ghcr.io/dan-petty/devops-cli/service:latest@sha256:<digest>` into the Application's `spec.source.kustomize.images`, and Argo CD rolls roadmap-service and CronJob `devops-cli` onto it. Git names the image untagged, and that entry sets its tag and digest.
+- It updates the image also when no pod runs it, because the image sets `forceUpdate: true`. Without it, Image Updater updates only the images that a pod in the Application's tree runs, and no such pod runs this image: CronJob `devops-cli` is a suspended template, `roadmap-service` can be at 0 replicas, and the Jobs that `devops k8s run-job` starts are outside the tree. ImageUpdater `devops` then stays Ready with `imagesManaged: 0` and updates nothing. When the Application already names the digest, it writes nothing.
 - It commits nothing to git. The `cluster` Application leaves `spec.source.kustomize` on `devops` alone, as it does for the host patches, and deploy-stack's merge patch replaces only `kustomize.patches`. If the `devops` Application is re-created, it renders the untagged image (`latest`; with `IfNotPresent` a node pulls it only when missing) until the next poll writes the digest again.
 - Both containers set `imagePullPolicy: IfNotPresent`, so a node pulls a digest once, and a registry outage does not block a restart onto an image the node holds.
 - It acts only on Argo CD Applications, so a native `devops k8s deploy-stack` installs no release of it: a cluster without Argo CD has no Application to update, and its devops stack runs the untagged image, `latest`.
@@ -613,6 +614,14 @@ devops argo cd apps status <app-name>
 devops argo cd apps sync <app-name>
 ```
 
+### Pausing an Application
+
+Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git, and `tests/test_k8s_argocd_apps.py` pins it. The value is in the parent's last-applied configuration, so a different value in the cluster is drift. `cluster` is the parent of the Applications in `k8s/argocd/apps/`, and `bootstrap` is the parent of `cluster` and of itself.
+
+- Pause an Application in git: set `enabled: false` in its manifest and merge the change. While it is paused, the `ArgoCdAutoSyncDisabled` alert fires after 15 minutes.
+- Do not pause an Application in the Argo CD UI or API. Its parent shows it OutOfSync and turns automated sync on again at its next self-heal.
+- For an emergency stop that cannot wait for a merge, pause from the top down: `bootstrap`, then `cluster`, then the Application. A paused `bootstrap` does not revert itself. Then commit the pause, or turn `bootstrap` on again: it restores `cluster`, and `cluster` restores the others from git.
+
 ### Replaced Hand Steps
 
 | Previous Manual Step | Replaced By Argo CD GitOps |
@@ -622,7 +631,7 @@ devops argo cd apps sync <app-name>
 | Manual Helm release upgrades (`helm upgrade ...`) | Multi-source Helm Applications with pinned chart versions and git value files. |
 | Ad-hoc ingress and domain patching | Host overrides that `devops k8s deploy-stack` sets on the Applications `devops` and `ingress` from `config.yaml` (see Homelab Values at Deploy Time). |
 | Secret storage in Helm values | External secret synchronization (`devops k8s push-secrets`) decoupled from manifests. |
-| Manual drift reconciliation | Automated self-healing (`automated.prune: true`, `automated.selfHeal: true`). |
+| Manual drift reconciliation | Automated self-healing (`automated.enabled: true`, `automated.prune: true`, `automated.selfHeal: true`). |
 
 ## Cloudflare Wildcard Tunnel & Ingress Routing
 
