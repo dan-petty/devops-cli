@@ -41,16 +41,48 @@ data:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
 
-      # ollama-48gib-slow is the background tier, in no interactive or review pool: it serves one
-      # request at a time, so a background job there would queue in front of review calls. Its
-      # profile keeps two models loaded, the embedding model and qwen3.8:27b, and this list
-      # sends it no other. A third model would evict one of them, and Ollama predicts a dense
-      # ~30B model too large to fit beside the embedder, so it evicts the embedder (#1064, #1221).
+      # Every serving tier holds the embedding model. The router tries the order 1 deployments
+      # first, least-busy among them, and an order 2 deployment only when they all fail (#1987).
+      # The 48gib-fast and 64gib-standard tiers embed a 32-chunk RAG batch in under 5 s, beside
+      # their chat model. The 16gib-fast tier is faster, but its chat model leaves no VRAM for
+      # the embedder, so each embedding evicts it. The background tier ollama-48gib-slow takes
+      # 12 to 30 s, past the RAG client's 15 s timeout.
+      # num_ctx is CONST_RAG_MAX_CHUNK_TOKENS, so the largest RAG chunk fits. Without it, Ollama
+      # loads the embedder with 32,768 tokens: 5.2 GB, not 2.9 GB, on the 64gib-standard tier.
       # mode: embedding makes health checks embed rather than generate.
       - model_name: qwen3-embedding:0.6b
         litellm_params:
           model: ollama/qwen3-embedding:0.6b
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
+          num_ctx: 8192
+          order: 1
+        model_info:
+          mode: embedding
+      - model_name: qwen3-embedding:0.6b
+        litellm_params:
+          model: ollama/qwen3-embedding:0.6b
+          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
+          num_ctx: 8192
+          order: 1
+        model_info:
+          mode: embedding
+      - model_name: qwen3-embedding:0.6b
+        litellm_params:
+          model: ollama/qwen3-embedding:0.6b
+          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
+          num_ctx: 8192
+          order: 2
+        model_info:
+          mode: embedding
+      # ollama-48gib-slow is the background tier, in no interactive or review pool. Its profile
+      # keeps two models loaded for good, the embedding model and qwen3.8:27b, and this list
+      # sends it no other. A third model would evict one of them (#1064, #1221).
+      - model_name: qwen3-embedding:0.6b
+        litellm_params:
+          model: ollama/qwen3-embedding:0.6b
           api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
+          num_ctx: 8192
+          order: 2
         model_info:
           mode: embedding
 

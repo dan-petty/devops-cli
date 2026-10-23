@@ -64,10 +64,13 @@ model_list:
       model: ollama_chat/qwen3-coder:30b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
 
+  # One deployment on each serving tier; order 1 first, order 2 when every order 1 fails.
   - model_name: qwen3-embedding:0.6b
     litellm_params:
       model: ollama/qwen3-embedding:0.6b
-      api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
+      api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
+      num_ctx: 8192
+      order: 1
     model_info:
       mode: embedding
 

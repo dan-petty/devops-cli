@@ -19,7 +19,7 @@ from docker.utils import parse_repository_tag
 
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
-from devops_cli.config.constants import CONST_K8S_OLLAMA_PROVIDER_LABEL
+from devops_cli.config.constants import CONST_K8S_OLLAMA_PROVIDER_LABEL, CONST_RAG_MAX_CHUNK_TOKENS
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_CLUSTER_URL,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
@@ -480,17 +480,39 @@ class TestK8sLLMGatewayManifests:
 
         assert (
             sorted(m["litellm_params"]["api_base"] for m in chat_deployments),
-            [m["litellm_params"]["api_base"] for m in embedding_deployments],
-            [m.get("model_info", {}).get("mode") for m in embedding_deployments],
+            sorted(
+                (m["litellm_params"]["order"], m["litellm_params"]["api_base"])
+                for m in embedding_deployments
+            ),
+            {m.get("model_info", {}).get("mode") for m in embedding_deployments},
         ) == (
             [
                 "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
                 "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
                 "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
             ],
-            ["http://ollama-48gib-slow.llm.svc.cluster.local:11434"],
-            ["embedding"],
+            [
+                (1, "http://ollama-48gib-fast.llm.svc.cluster.local:11434"),
+                (1, "http://ollama-64gib-standard.llm.svc.cluster.local:11434"),
+                (2, "http://ollama-16gib-fast.llm.svc.cluster.local:11434"),
+                (2, "http://ollama-48gib-slow.llm.svc.cluster.local:11434"),
+            ],
+            {"embedding"},
         )
+
+    def test_every_embedding_deployment_holds_the_largest_rag_chunk(self) -> None:
+        """Verify Ollama loads the embedder with a context that holds a whole RAG chunk (#1987).
+
+        Without `num_ctx`, Ollama loads it with the model's 32,768 tokens and up to 1.8 times the
+        VRAM, so it fits beside fewer chat models. A smaller context would cut the largest chunks.
+        """
+        contexts = [
+            m["litellm_params"].get("num_ctx")
+            for group in sorted(_gateway_embedding_groups())
+            for m in _deployments(group)
+        ]
+
+        assert contexts == [CONST_RAG_MAX_CHUNK_TOKENS] * len(contexts)
 
     @pytest.mark.parametrize(
         "embedding_models",
@@ -778,11 +800,14 @@ class TestK8sLLMGatewayManifests:
             True,
         )
 
-    def test_every_ollama_tier_keeps_one_model_and_serves_one_request(self) -> None:
+    def test_every_ollama_tier_serves_one_request_and_keeps_the_embedder_beside_its_model(
+        self,
+    ) -> None:
         """Verify each tier reserves KV cache for one context: Ollama sizes it by NUM_PARALLEL (#1061).
 
-        The slow tier is the exception on residency alone: it keeps its embedding model and its
-        one background model loaded together, for good, so neither evicts the other (#1064).
+        A tier the gateway sends embeddings to keeps two models loaded, so the embedder does not
+        evict the chat model where both fit (#1987). Every other tier keeps one. The slow tier
+        also keeps its two models loaded for good, so neither evicts the other (#1064).
         """
         docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
         settings = {
@@ -796,14 +821,15 @@ class TestK8sLLMGatewayManifests:
             for d in docs
             if d and d.get("kind") == "DaemonSet"
         }
+        embedding_tiers = _embedding_tiers()
         expected = {
-            name: {"OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_NUM_PARALLEL": "1"} for name in settings
+            name: {
+                "OLLAMA_MAX_LOADED_MODELS": "2" if name in embedding_tiers else "1",
+                "OLLAMA_NUM_PARALLEL": "1",
+            }
+            for name in settings
         }
-        expected["ollama-48gib-slow"] = {
-            "OLLAMA_MAX_LOADED_MODELS": "2",
-            "OLLAMA_NUM_PARALLEL": "1",
-            "OLLAMA_KEEP_ALIVE": "-1",
-        }
+        expected["ollama-48gib-slow"]["OLLAMA_KEEP_ALIVE"] = "-1"
 
         assert settings == expected
 
@@ -1239,6 +1265,21 @@ def _ollama_services() -> dict[str, dict[str, str]]:
         if document
         and document.get("kind") == "Service"
         and document["spec"].get("selector", {}).get(key) == provider
+    }
+
+
+def _embedding_tiers() -> set[str]:
+    """Return the Ollama tiers whose pods the Service of a gateway embedding deployment selects."""
+    services = _ollama_services()
+    selectors = [
+        services[(urlsplit(m["litellm_params"]["api_base"]).hostname or "").split(".")[0]]
+        for group in _gateway_embedding_groups()
+        for m in _deployments(group)
+    ]
+    return {
+        tier
+        for tier, labels in _tier_pod_labels().items()
+        if any(selector.items() <= labels.items() for selector in selectors)
     }
 
 
