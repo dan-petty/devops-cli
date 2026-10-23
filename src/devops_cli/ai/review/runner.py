@@ -955,9 +955,10 @@ def _write_review_profile(
     )
     capped = profile.truncated_replies
     capped_note = f", {capped} hit the reply cap" if capped else ""
+    stages_note = f"; {stages}" if stages else ""
     print_info(
         f"[dim]Profile: {format_duration(profile.total_wall_seconds)}, "
-        f"{profile.llm_calls} LLM calls{capped_note}; {stages}{where}[/dim]",
+        f"{profile.llm_calls} LLM calls{capped_note}{stages_note}{where}[/dim]",
         prefix=False,
     )
     return profile
@@ -1009,6 +1010,7 @@ def _run_profiled_session(
         with review_stage("pre_analysis"):
             metadata_by_path = orchestrator.run_pre_analysis_refresh(
                 target_dir=target_dir,
+                files=all_files,
                 target_type=target_type,
                 target_ref=target_ref,
                 stage_flags=stage_flags,
@@ -1179,6 +1181,20 @@ def _check_and_warn_perimeter_changes(
         print_warning(format_covering_suppressions(covering), prefix=False)
 
 
+def _session_start(orchestrator: ReviewPipelineOrchestrator, count: int) -> str:
+    """The line that starts a review session: it names the model server, or says that the
+    review has no model, so no stage of it calls one."""
+    from devops_cli.lang import MESSAGES
+
+    if orchestrator.llm_client is None:
+        return MESSAGES.review.session_start_without_model.format(
+            session_id=orchestrator.session_id, count=count
+        )
+    return MESSAGES.review.session_start.format(
+        session_id=orchestrator.session_id, count=count, server=orchestrator.get_server_info()
+    )
+
+
 def _execute_review_workflow(
     pages: list[str],
     title: str,
@@ -1211,10 +1227,6 @@ def _execute_review_workflow(
     from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
     from devops_cli.lang import MESSAGES
-
-    if len(pages) > 1:
-        spans_msg = MESSAGES.review.spans_pages.format(count=len(pages))
-        print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
     all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
     if base_revision is not None and base_revision.changes:
@@ -1255,7 +1267,6 @@ def _execute_review_workflow(
     if not all_files:
         return _review_routed_files_only(orchestrator, stage_flags)
 
-    server_info = orchestrator.get_server_info()
     n_af = len(all_files)
     with trace_span(
         "review.session",
@@ -1266,11 +1277,7 @@ def _execute_review_workflow(
             "file_count": n_af,
         },
     ):
-        print_info(
-            f"[bold cyan]Initializing review pipeline session '{orchestrator.session_id}' "
-            f"for {n_af} file(s) via {server_info}...[/bold cyan]",
-            prefix=False,
-        )
+        print_info(f"[bold cyan]{_session_start(orchestrator, n_af)}[/bold cyan]", prefix=False)
         results = _run_profiled_session(
             orchestrator,
             all_files,

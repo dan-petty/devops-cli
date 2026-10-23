@@ -55,7 +55,7 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     )
 
     # Stage 1: Pre-analysis refresh
-    meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path)
+    meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path, ["src/dummy.py"])
     assert isinstance(meta_dict, dict)
 
     # Stage 2: Per-file payload initialization

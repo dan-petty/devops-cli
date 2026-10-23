@@ -248,7 +248,11 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
         target_dir=tmp_path,
     )
     metadata = orchestrator.run_pre_analysis_refresh(
-        target_dir=head_dir, target_type="pr", target_ref="7", base_revision=base_revision
+        target_dir=head_dir,
+        files=["mod.py", "new_name.py", "added.py"],
+        target_type="pr",
+        target_ref="7",
+        base_revision=base_revision,
     )
 
     source_base_reads = sorted(

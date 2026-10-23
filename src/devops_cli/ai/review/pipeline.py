@@ -6,7 +6,7 @@ Example:
     >>>
     >>> from pathlib import Path
     >>> orchestrator = ReviewPipelineOrchestrator(session_id="session-001", target_dir=Path("."))
-    >>> metadata = orchestrator.run_pre_analysis_refresh(Path("."))
+    >>> metadata = orchestrator.run_pre_analysis_refresh(Path("."), ["src/main.py"])
     >>> payloads = orchestrator.init_per_file_payloads(["src/main.py"], metadata)
     >>> data_out, report_md = orchestrator.generate_consolidated_report(payloads)
 """
@@ -863,13 +863,12 @@ def _fetch_ip_threat_intel(
 
 
 def _execute_pre_analysis_batch(
-    paths_to_analyze: list[tuple[Path, str]],
-    repo: Path,
-    ai_client: ReviewLLMClient | None,
-    batch_capacity: int,
+    paths_to_analyze: list[tuple[Path, str]], repo: Path, workers: int
 ) -> list[FileAnalysisMeta]:
-    """Execute parallel pre-analysis across batch of repository paths using ReviewWorkerPool."""
-    from devops_cli.ai.review.pool import ReviewWorkerPool
+    """Analyze each file on a thread, up to `workers` at once.
+
+    The analysis is local and calls no model, so the rate limit for model calls does not pace it.
+    """
 
     def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
         path_obj, rel_path = item
@@ -886,16 +885,13 @@ def _execute_pre_analysis_batch(
         except Exception:
             return None
 
-    effective_workers = max(1, batch_capacity)
-    workers = min(len(paths_to_analyze), effective_workers, 32)
-    pool = ReviewWorkerPool.create(concurrency=workers)
-    raw_results = pool.run_sync_all(_analyze_path, paths_to_analyze, return_exceptions=True)
-    return [meta for meta in raw_results if isinstance(meta, FileAnalysisMeta)]
+    max_workers = min(len(paths_to_analyze), max(1, workers), DEFAULT_REVIEW_MAX_CONCURRENCY)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return [meta for meta in pool.map(_analyze_path, paths_to_analyze) if meta is not None]
 
 
 def _collect_paths_to_analyze(
-    collected_paths: list[Path],
-    repo: Path,
+    candidates: list[tuple[Path, str]],
     existing_file_metas: dict[str, FileAnalysisMeta],
     force_refresh: bool,
     file_metas: list[FileAnalysisMeta],
@@ -903,10 +899,9 @@ def _collect_paths_to_analyze(
 ) -> list[tuple[Path, str]]:
     """Filter candidate paths and reuse existing analysis metadata where available."""
     paths_to_analyze: list[tuple[Path, str]] = []
-    for p in collected_paths:
+    for p, rel_str in candidates:
         if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
             continue
-        rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
         try:
             file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
             old_meta = existing_file_metas.get(rel_str)
@@ -2095,15 +2090,6 @@ class ReviewPipelineOrchestrator:
 
     # ── Stage 1: Pre-Analysis & Metadata Refresh ──────────────────────────────
     @staticmethod
-    def _resolve_paths_for_pre_analysis(target_abs: Path, repo: Path) -> list[Path]:
-        """Resolve list of paths to scan based on target existence."""
-        from devops_cli.core.repo import list_repo_files
-
-        if target_abs.exists():
-            return [target_abs] if target_abs.is_file() else list_repo_files(target_abs)
-        return list_repo_files(repo)
-
-    @staticmethod
     def _load_pre_analysis_cache(repo: Path, force_refresh: bool) -> dict[str, FileAnalysisMeta]:
         """Load cached file metadata from previous analysis run if available."""
         if force_refresh:
@@ -2113,21 +2099,34 @@ class ReviewPipelineOrchestrator:
             return {}
         return {fmeta.path: fmeta for fmeta in cached_meta.files}
 
+    def _pre_analysis_candidates(self, files: Sequence[str], repo: Path) -> list[tuple[Path, str]]:
+        """Each file under review that is on disk, with its path relative to `repo`."""
+        paths = {self._resolve_file_path(f) for f in files}
+        return sorted(
+            (p, str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p))
+            for p in paths
+            if p.is_file()
+        )
+
     def run_pre_analysis_refresh(
         self,
         target_dir: Path,
+        files: Sequence[str],
         target_type: Literal["branch", "pr", "path"] = "path",
         target_ref: str = ".",
         force_refresh: bool = False,
         stage_flags: ReviewStageFlags | None = None,
         base_revision: BaseRevision | None = None,
     ) -> dict[str, FileAnalysisMeta]:
-        """Scan workspace and refresh metadata if files were edited or missing.
+        """Refresh the metadata of the files under review, and of no other file in `target_dir`.
 
-        With `base_revision`, each Python file the reviewed diff changed records its symbol delta
-        from that base before the session metadata is saved.
+        A file whose cached metadata still matches its content reuses it; the others are
+        analyzed again. The analysis calls no model. With `base_revision`, each Python file the
+        reviewed diff changed records its symbol delta from that base before the session
+        metadata is saved.
         """
         from devops_cli.ai.analyze.cache import save_analysis_metadata
+        from devops_cli.config.defaults import DEFAULT_PRE_ANALYSIS_WORKERS
         from devops_cli.core.repo import find_repo_root
         from devops_cli.dry_run.state import is_dry_run
 
@@ -2147,55 +2146,26 @@ class ReviewPipelineOrchestrator:
             attributes={"target_ref": target_ref, "target_type": target_type},
         ):
             repo = find_repo_root(target_dir)
-            target_abs = (
-                target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
+            display_ref = (
+                target_ref if target_ref and target_ref != "." else str(target_dir.resolve())
             )
-            display_ref = str(target_abs) if (not target_ref or target_ref == ".") else target_ref
             print_info(
                 f"[dim]Scanning pre-analysis metadata for '{display_ref}'...[/dim]",
                 prefix=False,
             )
 
-            existing_file_metas = self._load_pre_analysis_cache(repo, force_refresh)
-            collected_paths = self._resolve_paths_for_pre_analysis(target_abs, repo)
-
             file_metas: list[FileAnalysisMeta] = []
-
-            from devops_cli.config.defaults import DEFAULT_PRE_ANALYSIS_WORKERS
-
-            if self.llm_client is None:
-                batch_capacity = (
-                    max(1, self.concurrency)
-                    if self.concurrency is not None
-                    else DEFAULT_PRE_ANALYSIS_WORKERS
-                )
-            else:
-                config = getattr(self.llm_client, "_config", None)
-                ollama_urls = _resolve_ollama_urls(config)
-                raw_par = getattr(config, "ollama_max_parallel", None)
-                max_par = int(raw_par) if isinstance(raw_par, int) else 2
-                batch_capacity = (
-                    max(1, self.concurrency)
-                    if self.concurrency is not None
-                    else max(DEFAULT_PRE_ANALYSIS_WORKERS, len(ollama_urls) * max_par)
-                )
-
             paths_to_analyze = _collect_paths_to_analyze(
-                collected_paths,
-                repo,
-                existing_file_metas,
+                self._pre_analysis_candidates(files, repo),
+                self._load_pre_analysis_cache(repo, force_refresh),
                 force_refresh,
                 file_metas,
                 bypass_mtime=target_type in ("branch", "pr"),
             )
-
-            updated_any = False
+            reused = len(file_metas)
+            workers = DEFAULT_PRE_ANALYSIS_WORKERS if self.concurrency is None else self.concurrency
             if paths_to_analyze:
-                new_metas = _execute_pre_analysis_batch(
-                    paths_to_analyze, repo, self.llm_client, batch_capacity
-                )
-                file_metas.extend(new_metas)
-                updated_any = bool(new_metas)
+                file_metas.extend(_execute_pre_analysis_batch(paths_to_analyze, repo, workers))
 
             file_metas = _record_symbol_deltas(file_metas, repo, base_revision)
             metadata_by_path = {meta.path: meta for meta in file_metas}
@@ -2205,12 +2175,10 @@ class ReviewPipelineOrchestrator:
                     target_type, target_ref, title, file_metas, repo, enhanced=True
                 )
 
-            n_meta = len(metadata_by_path)
-            status_msg = "refreshed with AI metadata" if updated_any else "up to date"
-            print_info(
-                f"[dim]  ✓ Pre-analysis metadata {status_msg} for {n_meta} file(s)[/dim]",
-                prefix=False,
+            summary = MESSAGES.review.pre_analysis_summary.format(
+                count=len(metadata_by_path), analyzed=len(file_metas) - reused, reused=reused
             )
+            print_info(f"[dim]  {summary}[/dim]", prefix=False)
             return metadata_by_path
 
     def _find_matching_metadata(
@@ -2508,7 +2476,7 @@ class ReviewPipelineOrchestrator:
         fmeta: FileAnalysisMeta,
         metadata_by_path: dict[str, FileAnalysisMeta],
     ) -> list[FileAnalysisMeta]:
-        """Find up to 10 contextually linked files based on symbols, dependencies, and imports."""
+        """Up to 10 other files under review linked to fpath by symbols, dependencies or imports."""
         meaningful_deps = {d for d in fmeta.dependencies if d and d not in _UNIVERSAL_MODULES}
         meaningful_syms = {s for s in fmeta.key_symbols if s}
 

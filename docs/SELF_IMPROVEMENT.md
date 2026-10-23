@@ -40,8 +40,10 @@ flowchart TD
 only when model stages are enabled (`ReviewStageFlags.needs_model()`), under a profiler,
 through four stages:
 
-1. **Pre-analysis** refreshes each file's metadata: its purpose,
+1. **Pre-analysis** refreshes the metadata of each file under review: its purpose,
    symbols and dependencies, and for a branch or pull request the symbols the diff removed.
+   It reads no other file of the checkout. A file whose content hash matches its cached
+   metadata reuses that metadata. The stage calls no model.
 2. **Payloads** run the static scanners over the files
    (Bandit, KubeLinter, Pluto, Trivy, Gitleaks and Semgrep) and admit
    each candidate: its location must be in the reviewed tree, a

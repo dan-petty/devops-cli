@@ -17,7 +17,16 @@ class PersonaTitles:
 
 @dataclass(frozen=True)
 class ReviewMessages:
-    spans_pages: str = "Content spans {count} pages to ensure full coverage."
+    session_start: str = (
+        "Initializing review pipeline session '{session_id}' for {count} file(s) via {server}..."
+    )
+    session_start_without_model: str = (
+        "Initializing review pipeline session '{session_id}' for {count} file(s) without a model..."
+    )
+    pre_analysis_summary: str = (
+        "✓ Pre-analysis metadata for {count} file(s): {analyzed} analyzed, {reused} reused from "
+        "the cache"
+    )
     generating_metadata: str = "Generating segment metadata..."
     stage_metadata: str = "Analyzing metadata across {count} file(s)..."
     stage_segment: str = "Reviewing {count} file(s)..."
