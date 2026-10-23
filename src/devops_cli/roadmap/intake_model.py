@@ -1,5 +1,6 @@
 """What `devops roadmap intake` asks a model (#742): embeddings for the duplicate check, and one
-structured proposal per candidate.
+structured proposal per candidate. The proposal names an original only with the change both
+items ask for, and it can name a related item that asks for a different change (#1755).
 
 The model holds no tool. It sees the candidate and its nearest items as JSON data in the user
 message and answers with a `ModelProposal`, whose fields are plain text so that whatever it
@@ -54,13 +55,20 @@ class ModelEvidence(BaseModel):
 
 
 class ModelProposal(BaseModel):
-    """The model's answer for one candidate, unchecked. Each field has a one-line reason."""
+    """The model's answer for one candidate, unchecked. Each field has a one-line reason.
+
+    `shared_change` comes first: a model that answers in the schema's order names the change
+    both items ask for before it names an original (#1755).
+    """
 
     model_config = ConfigDict(extra="ignore")
 
-    # A number, or text such as "#740": code reads it against the shortlist.
+    shared_change: str = ""
+    # A number, or text such as "#740": code reads it, and `related_to`, against the shortlist.
     duplicate_of: int | str | None = None
     duplicate_reason: str = ""
+    related_to: int | str | None = None
+    related_reason: str = ""
     type: str = ""
     type_reason: str = ""
     priority: str = ""

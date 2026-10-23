@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 import pytest
 from fastmcp.exceptions import ToolError
+from syrupy.assertion import SnapshotAssertion
 from typer.testing import CliRunner
 
 from devops_cli import entry
@@ -73,6 +74,7 @@ from devops_cli.roadmap.intake_model import (
     GatewayIntakeModel,
     ModelProposal,
     ProposalRequest,
+    intake_system_prompt,
 )
 from devops_cli.roadmap.intake_requests import Spend, SpendMeter
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
@@ -88,6 +90,8 @@ from devops_cli.roadmap.store import (
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
 from tests.roadmap_board_fake import GitHubFake, field_id
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.model import ModelFake
+from tests.support.paths import FIXTURES
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
@@ -117,8 +121,8 @@ runner = CliRunner()
 @dataclass
 class FakeModel:
     """Embeds by the words a text shares with `topics`, and judges as told: `duplicates` maps a
-    candidate's title to the title of the item it duplicates, and `proposals` maps a title to
-    the fields its proposal changes."""
+    candidate's title to the title of the item it duplicates, whose title it names as the
+    shared change, and `proposals` maps a title to the fields its proposal changes."""
 
     duplicates: dict[str, str] = field(default_factory=dict)
     proposals: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -134,7 +138,8 @@ class FakeModel:
         self.requests.append(request)
         original = self.duplicates.get(request.title)
         duplicate = next((n.number for n in request.shortlist if n.title == original), None)
-        fields = DEFAULT_PROPOSAL | self.proposals.get(request.title, {})
+        shared = {"shared_change": original} if duplicate is not None else {}
+        fields = DEFAULT_PROPOSAL | shared | self.proposals.get(request.title, {})
         return ModelProposal.model_validate({"duplicate_of": duplicate, **fields})
 
 
@@ -475,6 +480,124 @@ def test_an_unplanned_newer_candidate_matched_to_an_older_original_is_closed_as_
         [(c.reason, c.duplicate_of) for c in closures],
         f"#{original}" in comment,
     ) == ([("duplicate", original)], True)
+
+
+# ── The same change, not a shared theme (#1755) ───────────────────────────────
+
+# The evaluation set: candidates intake folded for a shared theme, with the model's answers of
+# that run, and duplicates a person closed, with answers written from the person's comment.
+JUDGEMENTS: list[dict[str, Any]] = json.loads(
+    (FIXTURES / "roadmap" / "intake-duplicate-judgements.json").read_text(encoding="utf-8")
+)["cases"]
+
+
+def _judged(
+    roadmap: Roadmap, model_fake: ModelFake, case: dict[str, Any]
+) -> tuple[int, IntakePlan, int | None]:
+    """Run one case of the evaluation set through intake over the shared model fake: seed its
+    item as a finished one, answer with the case's answer for the seeded number, and file the
+    candidate. Return the item's number, the plan and the issue intake filed."""
+    item = case["item"]
+    number = roadmap.finished(item["title"], body=item["body"])
+    answer = {k: number if v == item["number"] else v for k, v in case["answer"].items()}
+    model_fake.answer(json.dumps(DEFAULT_PROPOSAL | answer))
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder())
+    candidate = NewCandidate(title=case["candidate"]["title"], body=case["candidate"]["body"])
+    outcome = intake_candidate(roadmap.store, candidate, repo=REPO, model=model, confirm=True)
+    return number, outcome.plan, outcome.number
+
+
+@pytest.mark.parametrize(
+    "case", [c for c in JUDGEMENTS if not c["duplicate"]], ids=lambda case: case["name"]
+)
+def test_a_candidate_that_shares_only_a_theme_with_an_item_is_filed_and_names_it_as_related(
+    roadmap: Roadmap, model_fake: ModelFake, case: dict[str, Any]
+) -> None:
+    """The model's answers of the 2026-10-20 runs name an original and no change both ask
+    for: each candidate is filed, and the report and its reason comment name the item."""
+    number, plan, filed = _judged(roadmap, model_fake, case)
+    (decision,) = plan.decisions
+    said = case["answer"]["duplicate_reason"]
+    related = f"#{number}, which asks for a different change." + (f" `{said}`" if said else "")
+    assert filed is not None
+    (comment,) = roadmap.comments(filed)
+    assert (
+        decision.outcome,
+        decision.related,
+        f"  - related: {related}" in render_intake(plan, repo=REPO).splitlines(),
+        f"- Related: {related}" in comment.splitlines(),
+        roadmap.store.closures(filed),
+    ) == (Outcome.PLACE, number, True, True, [])
+
+
+@pytest.mark.parametrize(
+    "case", [c for c in JUDGEMENTS if c["duplicate"]], ids=lambda case: case["name"]
+)
+def test_a_candidate_that_asks_for_the_same_change_is_a_duplicate_whose_reason_names_it(
+    roadmap: Roadmap, model_fake: ModelFake, case: dict[str, Any]
+) -> None:
+    """A duplicate a person closed is not filed, and its reason names the change that the
+    candidate and its original both ask for."""
+    number, plan, filed = _judged(roadmap, model_fake, case)
+    (decision,) = plan.decisions
+    answer = case["answer"]
+    assert (decision.outcome, decision.original, decision.reason, filed) == (
+        Outcome.DUPLICATE,
+        number,
+        f"both ask for `{answer['shared_change']}`. `{answer['duplicate_reason']}`",
+        None,
+    )
+
+
+def test_a_duplicate_issue_closes_with_a_comment_that_names_the_shared_change(
+    roadmap: Roadmap,
+) -> None:
+    original = roadmap.finished("feat: cache embeddings")
+    copy = roadmap.issue("feat: keep embeddings cached")
+    roadmap.run(FakeModel(duplicates={"feat: keep embeddings cached": "feat: cache embeddings"}))
+    (comment,) = roadmap.comments(copy)
+    assert comment.splitlines()[1] == (
+        f"Closed as a duplicate of #{original}: both ask for `feat: cache embeddings`."
+    )
+
+
+def test_a_related_item_the_model_names_is_reported_and_linked_from_the_reason_comment(
+    roadmap: Roadmap,
+) -> None:
+    umbrella = roadmap.finished("perf(ci): the gate finishes in 2 minutes")
+    number = roadmap.issue("perf(tests): the invariant tests share one parse")
+    answer = {"related_to": umbrella, "related_reason": "it is the umbrella item."}
+    model = FakeModel(proposals={"perf(tests): the invariant tests share one parse": answer})
+    plan = roadmap.plan(model)
+    apply_intake(roadmap.store, plan)
+    related = f"#{umbrella}, which asks for a different change. `it is the umbrella item.`"
+    (comment,) = roadmap.comments(number)
+    assert (
+        plan.decisions[0].outcome,
+        f"  - related: {related}" in render_intake(plan, repo=REPO).splitlines(),
+        f"- Related: {related}" in comment.splitlines(),
+    ) == (Outcome.PLACE, True, True)
+
+
+def test_a_related_item_off_the_shortlist_is_rejected_with_a_note(roadmap: Roadmap) -> None:
+    roadmap.issue("feat: export the board as CSV")
+    answer = {"related_to": 740, "related_reason": "both export data."}
+    plan = roadmap.plan(FakeModel(proposals={"feat: export the board as CSV": answer}))
+    (decision,) = plan.decisions
+    assert (decision.outcome, decision.related, decision.notes) == (
+        Outcome.PLACE,
+        None,
+        (
+            "the model named #740 as related, which is not one of the nearest items, so it "
+            "was rejected.",
+        ),
+    )
+
+
+def test_the_intake_prompt_defines_a_duplicate_as_the_same_change(
+    snapshot: SnapshotAssertion,
+) -> None:
+    assert intake_system_prompt() == snapshot
 
 
 # ── Priority and evidence ─────────────────────────────────────────────────────
@@ -1754,8 +1877,9 @@ def test_intake_plan_counts_retry_as_one_more_model_call(
 def test_a_duplicate_of_written_as_text_is_read_against_the_shortlist(roadmap: Roadmap) -> None:
     original = roadmap.finished("Cache embeddings")
     copy = roadmap.issue("Keep embeddings cached")
-    model = FakeModel(proposals={"Keep embeddings cached": {"duplicate_of": f"#{original}"}})
-    model.propose = _echoing(model.propose, {"duplicate_of": f"#{original}"})  # type: ignore[method-assign, assignment]
+    answer = {"duplicate_of": f"#{original}", "shared_change": "an embedding cache"}
+    model = FakeModel(proposals={"Keep embeddings cached": answer})
+    model.propose = _echoing(model.propose, answer)  # type: ignore[method-assign, assignment]
     (decision,) = roadmap.plan(model).decisions
     assert (decision.outcome, decision.original, decision.subject.number) == (
         Outcome.DUPLICATE,

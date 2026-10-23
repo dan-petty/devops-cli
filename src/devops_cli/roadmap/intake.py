@@ -10,7 +10,15 @@ gateway that does not answer (`ModelGatewayUnreachableError`) leaves GitHub as i
 issue closed as not planned, plus the candidates this run placed before it; a new candidate is
 also compared with the open agent issues off the board, which a run that stopped after filing
 leaves. Each text is embedded once, and the model judges the candidate against its nearest
-`DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate issue is closed as a duplicate of the original, with one comment, and stays off the
+`DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate asks for the same
+change as its original: the same result and acceptance criteria, so that the delivery of one
+delivers the other. A shared theme, goal, umbrella or file does not make a duplicate (#1755). The
+model names an original only with the change both ask for (`shared_change`), and the
+duplicate's reason names that change. An original named with no shared change is not a
+duplicate: intake places the candidate and names the original as related. The model can also
+name a related item that asks for a different change, such as an umbrella, a sibling or a
+neighbour (`related_to`); the report and the reason comment name it, and the comment links it.
+A duplicate issue is closed as a duplicate of the original, with one comment, and stays off the
 board; a new candidate that is a duplicate is not filed. An unfinished item, and an issue whose
 timeline shows a duplicate close that a person reversed by reopening it, skip the check. An
 existing issue a person planned (a milestone, or a Priority a person set on its card or
@@ -282,13 +290,16 @@ class IntakeDecision:
 
     `shown` is the type, Priority, Value and Effort the item ends with, for the report.
     `reasons` holds the reason comment's lines, each value intake sets with its reason, so the
-    comment can be written for the placement and fields the writes make.
+    comment can be written for the placement and fields the writes make. `related` is the item
+    a placed candidate is related to but does not duplicate, with `related_reason` (#1755).
     """
 
     subject: Subject
     outcome: Outcome
     original: int | None = None
     reason: str = ""
+    related: int | None = None
+    related_reason: str = ""
     labels: tuple[str, ...] = ()
     placement: Placement | None = None
     fields: tuple[tuple[ItemField, str], ...] = ()
@@ -700,25 +711,65 @@ def validate_proposal(raw: ModelProposal, types: Sequence[str], *, needs_type: b
     return proposal
 
 
+@dataclass(frozen=True)
+class _Judgement:
+    """What the model's reply says of the shortlist once code has read it: the original of a
+    duplicate, or the item a candidate is related to, with its reason, and a note for each
+    number code did not take (#1755)."""
+
+    original: int | None = None
+    related: int | None = None
+    reason: str = ""
+    notes: tuple[str, ...] = ()
+
+
+def _related(
+    raw: ModelProposal, shortlist: Mapping[int, _Entry], notes: tuple[str, ...] = ()
+) -> _Judgement:
+    """The item the model named as related, when it is on the shortlist."""
+    named = _named_number(raw.related_to)
+    if named is None:
+        return _Judgement(notes=notes)
+    if named not in shortlist:
+        rejected = MESSAGES.roadmap.intake_note_related_rejected.format(number=named)
+        return _Judgement(notes=(*notes, rejected))
+    return _Judgement(related=named, reason=_line(raw.related_reason), notes=notes)
+
+
+def _judge(
+    raw: ModelProposal, shortlist: Mapping[int, _Entry], subject: Subject
+) -> tuple[_Judgement, Subject]:
+    """The duplicate or related item the reply names, and the candidate, with a reference to
+    the Done item it names as the original. An original named with no change both items
+    ask for is a related item, not an original."""
+    named = _named_number(raw.duplicate_of)
+    if named is None or named not in shortlist:
+        return _related(raw, shortlist, _rejected(named)), subject
+    entry = shortlist[named]
+    if entry.done:
+        return _related(raw, shortlist), _with_regression_reference(subject, entry)
+    change, said = _line(raw.shared_change), _line(raw.duplicate_reason)
+    if not change:
+        unnamed = MESSAGES.roadmap.intake_note_no_shared_change.format(number=named)
+        related = _Judgement(related=named, reason=said, notes=(unnamed,))
+        return related, subject
+    reason = MESSAGES.roadmap.intake_duplicate_reason.format(change=change, reason=said)
+    return _Judgement(original=named, reason=reason.strip()), subject
+
+
 def _resolve_raw(
     raw: ModelProposal,
     types: Sequence[str],
-    shortlist_entries: dict[int, _Entry],
+    shortlist: Mapping[int, _Entry],
     subject: Subject,
     *,
     needs_type: bool,
-) -> tuple[int | None, str, Proposal | None, tuple[str, ...], Subject]:
-    named = _named_number(raw.duplicate_of)
-    rejected: tuple[str, ...] = ()
-    if named is not None and named in shortlist_entries:
-        entry = shortlist_entries[named]
-        if not entry.done:
-            return named, _line(raw.duplicate_reason), None, (), subject
-        subject = _with_regression_reference(subject, entry)
-    elif named is not None:
-        rejected = _rejected(named)
-    proposal = validate_proposal(raw, types, needs_type=needs_type)
-    return None, "", proposal, rejected, subject
+) -> tuple[_Judgement, Proposal | None, Subject]:
+    """The reply's judgement, and its proposal once checked unless it names an original."""
+    judgement, subject = _judge(raw, shortlist, subject)
+    if judgement.original is not None:
+        return judgement, None, subject
+    return judgement, validate_proposal(raw, types, needs_type=needs_type), subject
 
 
 def _kind_name(evidence: Evidence) -> str:
@@ -794,19 +845,28 @@ def _reason_lines(
     type_label: str | None,
     fields: Sequence[tuple[ItemField, str]],
     priority: tuple[str, str],
+    judgement: _Judgement,
 ) -> tuple[tuple[str, str, str], ...]:
-    """Each value intake sets that the reason comment gives, with its name and reason."""
+    """Each value intake sets that the reason comment gives, with its name and reason, then
+    the related item, whose number the comment links."""
     reasons = {ItemField.VALUE: proposal.value_reason, ItemField.EFFORT: proposal.effort_reason}
     lines = [("Type", type_label, proposal.type_reason)] if type_label else []
     lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
     lines += [(f.value, value, reasons[f]) for f, value in fields if f in reasons]
+    if judgement.related is not None:
+        texts = MESSAGES.roadmap
+        related = texts.intake_related_value.format(number=judgement.related)
+        lines.append((texts.intake_related_field, related, judgement.reason))
     return tuple(lines)
 
 
 def _comment(placement: Placement, lines: Sequence[tuple[str, str, str]]) -> str:
-    """The reason comment: where the item went, and each value intake set with its reason."""
+    """The reason comment: where the item went, and each value intake set with its reason. A
+    line with no reason ends at its value."""
     rendered = "\n".join(
-        MESSAGES.roadmap.intake_comment_field.format(field=name, value=value, reason=reason)
+        MESSAGES.roadmap.intake_comment_field.format(
+            field=name, value=value, reason=reason
+        ).rstrip()
         for name, value, reason in lines
     )
     return MESSAGES.roadmap.intake_comment.format(
@@ -942,7 +1002,7 @@ class _Planner:
         needs_type = subject.type_label is None
         try:
             raw = self.run.model.propose(request)
-            dup, dup_reason, proposal, rejected, subject = _resolve_raw(
+            judgement, proposal, subject = _resolve_raw(
                 raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
             )
         except UnusableProposalError as exc:
@@ -951,10 +1011,7 @@ class _Planner:
             return self._retry_proposal(
                 subject, request, vector, shortlist_entries, first_exc, needs_type=needs_type
             )
-        if dup is not None:
-            return self._duplicate(subject, dup, dup_reason)
-        assert proposal is not None
-        return self._place(subject, proposal, rejected + proposal.notes)
+        return self._judged(subject, judgement, proposal)
 
     def _retry_proposal(
         self,
@@ -969,7 +1026,7 @@ class _Planner:
         retry_request = replace(request, problem="; ".join(first_exc.problems))
         try:
             raw = self.run.model.propose(retry_request)
-            dup, dup_reason, proposal, rejected, subject = _resolve_raw(
+            judgement, proposal, subject = _resolve_raw(
                 raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
             )
         except UnusableProposalError as exc:
@@ -978,10 +1035,16 @@ class _Planner:
             both = (*first_exc.problems, *second_exc.problems)
             reason = MESSAGES.roadmap.intake_invalid.format(problems="; ".join(both))
             return self._skipped(subject, reason, ())
-        if dup is not None:
-            return self._duplicate(subject, dup, dup_reason)
+        return self._judged(subject, judgement, proposal)
+
+    def _judged(
+        self, subject: Subject, judgement: _Judgement, proposal: Proposal | None
+    ) -> IntakeDecision:
+        """A duplicate when the judgement names an original, else the placement."""
+        if judgement.original is not None:
+            return self._duplicate(subject, judgement.original, judgement.reason)
         assert proposal is not None
-        return self._place(subject, proposal, rejected + proposal.notes)
+        return self._place(subject, proposal, judgement)
 
     def _skipped(self, subject: Subject, reason: str, notes: tuple[str, ...]) -> IntakeDecision:
         """A candidate with no usable proposal: nothing is written."""
@@ -1012,15 +1075,13 @@ class _Planner:
             comment=comment,
         )
 
-    def _place(
-        self, subject: Subject, proposal: Proposal, notes: tuple[str, ...]
-    ) -> IntakeDecision:
+    def _place(self, subject: Subject, proposal: Proposal, judgement: _Judgement) -> IntakeDecision:
         type_label = subject.type_label or proposal.type
         priority = _priority(self.run.store, subject, proposal)
         placement = _placement(subject)
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
-        lines = _reason_lines(proposal, added, fields, priority)
+        lines = _reason_lines(proposal, added, fields, priority, judgement)
         comment = (
             None
             if _has_comment(self.run.store, subject, CONST_ROADMAP_INTAKE_REASON_MARKER)
@@ -1036,8 +1097,10 @@ class _Planner:
             comment=comment,
             filing_labels=_filing_labels(subject),
             shown=_shown(subject, type_label, priority[0], proposal),
-            notes=notes,
+            notes=judgement.notes + proposal.notes,
             reasons=lines,
+            related=judgement.related,
+            related_reason=judgement.reason,
         )
 
 
@@ -1319,16 +1382,20 @@ def _decision_lines(decision: IntakeDecision) -> list[str]:
         ]
     assert decision.placement is not None
     kind, priority, value, effort = decision.shown
-    return [
-        texts.intake_place_line.format(
-            subject=subject,
-            type=kind,
-            priority=priority,
-            value=value,
-            effort=effort,
-            placement=decision.placement.text,
-        )
-    ]
+    placed = texts.intake_place_line.format(
+        subject=subject,
+        type=kind,
+        priority=priority,
+        value=value,
+        effort=effort,
+        placement=decision.placement.text,
+    )
+    if decision.related is None:
+        return [placed]
+    related = texts.intake_related_line.format(
+        number=decision.related, reason=decision.related_reason
+    )
+    return [placed, related.rstrip()]
 
 
 def render_intake_dry_run(plan: IntakePlan, *, repo: str) -> None:
