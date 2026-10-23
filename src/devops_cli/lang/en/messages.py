@@ -211,6 +211,13 @@ class ConfigMessages:
     set_secret_success: str = "✓ Set {key} in OS keyring"
     value_required: str = "{key} needs a VALUE; only a credential may be typed at a hidden prompt."
     secret_prompt: str = "{key} (typing hidden)"
+    from_file_not_secret: str = (
+        "{key} is not a credential. Only a credential comes from a file or stdin; give its VALUE."
+    )
+    from_file_and_value: str = "Give VALUE or --from-file, not both."
+    from_file_oversize: str = "The input is larger than {limit} bytes, the limit for a credential."
+    from_file_not_text: str = "The input is not UTF-8 text."
+    from_file_empty: str = "The input holds no value."
 
 
 @dataclass(frozen=True)

@@ -124,8 +124,11 @@ devops config get github.default_org
 # Audit configuration for unencrypted plaintext credentials
 devops config audit-keys
 
-# Manage encrypted secrets via OS Keyring
-devops config set ai.api_key sk-xxxx
+# Store a credential in the OS keyring; omit the value to type it at a hidden prompt
+devops config set ai.api_key
+
+# Read a multi-line credential, such as a PEM private key, from a file (`-` reads stdin)
+devops config set <key> --from-file key.pem
 
 # GitHub access is gh's login: one identity per process, from `gh auth token`
 gh auth login

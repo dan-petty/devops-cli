@@ -1385,7 +1385,13 @@ class ConfigCommandHelp:
     key: str = "Dotted config key, e.g. github.default_org."
     value: str = (
         "Value to set. Omit it for a credential to type it at a hidden prompt, "
-        "keeping it out of the shell history and the process list."
+        "keeping it out of the shell history and the process list. The prompt reads one line, "
+        "so a multi-line credential comes from --from-file."
+    )
+    from_file: str = (
+        "Read the credential from this file, or from stdin to its end when the path is -. "
+        "Every line and the last newline stay as the input has them, and the value never shows "
+        "in the output."
     )
     export_env: str = "Print environment variables as shell export statements."
     json_env: str = "Print environment variables as JSON."
