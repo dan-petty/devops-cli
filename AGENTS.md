@@ -6,8 +6,8 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 
 ## Rules for every task
 
-1. **One issue, one pull request.** Work on a topic branch from `origin/main`. Open one pull request into `main` that closes its one issue (`Closes #<issue>`). The title is a Conventional Commit. Before `1.0.0`, a title has no `!` and a body has no `BREAKING CHANGE:`. Never commit to `main`.
-2. **Check the premise first.** Confirm it against the real system: upstream documents, library source or command output. If the item cannot be built as written, write no compensating code. Return it to `New` with the evidence (`devops roadmap return <issue> --comment "<evidence>" --confirm`), and stop. Stop also when you swallow an error, make product code detect tests, or put a second fix on a fix.
+1. **One issue, one pull request.** Work on a topic branch from `origin/main`. Open one pull request into `main` that closes its one issue (`Closes #<issue>`). Plan the item as the change folder `openspec/changes/<issue>-<slug>/`, and archive it in the last commit with `uv run devops openspec archive <change>`. The title is a Conventional Commit. Before `1.0.0`, a title has no `!` and a body has no `BREAKING CHANGE:`. Never commit to `main`.
+2. **Check the premise first.** Confirm it against the real system: upstream documents, library source or command output. Record how in the proposal's `## Feasibility` section. If the item cannot be built as written, write no compensating code. Return it to `New` with the evidence (`devops roadmap return <issue> --comment "<evidence>" --confirm`), and stop. Stop also when you swallow an error, make product code detect tests, or put a second fix on a fix.
 3. **Use an open tool before you build.** Name the tool or library that covers the need. To build instead, write the cost in the issue or pull request: tokens to build, keep and fix it, and the elapsed time. This rule outranks every other convention.
 4. **Write the failing test first** ([docs/TESTING.md](docs/TESTING.md)). A fix pull request cites its `fail-to-pass` check run (`devops ci fail-to-pass --base <ref>`).
 5. **Push only through the gate.** The pre-push hook runs `uv run devops ci`. Push only when every check passes, and never use `--no-verify`. Never lower a security or quality threshold: only the owner can allow it. A build or check that averages more than 5 minutes is a P0 bug.
@@ -31,8 +31,7 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 | write code: errors, subprocesses, HTTP, models, prompts, constants | [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 | handle secrets, egress, private data, sandboxes or telemetry | [SECURITY.md](SECURITY.md) |
 | move a pull request from draft to merge | [docs/SDLC.md](docs/SDLC.md), Phase 6 |
-| record the item a pull request delivers | [docs/agent/tasks/README.md](docs/agent/tasks/README.md) |
-| plan a change with OpenSpec | [openspec/config.yaml](openspec/config.yaml), [ADR 0010](docs/adr/0010-openspec-is-the-spec-and-change-proposal-layer.md) |
+| plan and record the item a pull request delivers, as an OpenSpec change | [openspec/config.yaml](openspec/config.yaml), [ADR 0010](docs/adr/0010-openspec-is-the-spec-and-change-proposal-layer.md) |
 | file an issue | `devops roadmap intake`, in the shape of [bug_report.yml](.github/ISSUE_TEMPLATE/bug_report.yml) or [feature_request.yml](.github/ISSUE_TEMPLATE/feature_request.yml) |
 | run a routine task or audit | [docs/ROUTINE_TASKS.md](docs/ROUTINE_TASKS.md) |
 | use a project term | [CONTEXT.md](CONTEXT.md) |

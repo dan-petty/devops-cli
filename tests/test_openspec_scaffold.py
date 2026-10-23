@@ -240,8 +240,8 @@ def test_the_documentation_inventory_classifies_the_openspec_documents() -> None
 
 
 def test_a_review_routes_the_openspec_files_off_the_persona_pages() -> None:
-    """Plans, specs and generated skills are planning documents and generated text, like the task
-    files they sit beside until the switch."""
+    """Plans, specs and generated skills are planning documents and generated text, and code is
+    not."""
 
     def routed(path: str) -> bool:
         return any(
@@ -255,7 +255,7 @@ def test_a_review_routes_the_openspec_files_off_the_persona_pages() -> None:
         routed(".claude/skills/openspec-explore/SKILL.md"),
         routed(".agents/skills/openspec-explore/SKILL.md"),
         routed(".agents/skills/.openspec-target"),
-        routed("docs/agent/tasks/task-1844-openspec-scaffold-and-gate.md"),
+        routed("openspec/changes/archive/2026-10-23-1847-x/tasks.md"),
         routed("src/devops_cli/openspec/gate.py"),
     ] == [True, True, True, True, True, True, True, False]
 

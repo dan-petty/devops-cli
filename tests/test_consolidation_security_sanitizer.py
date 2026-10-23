@@ -296,13 +296,13 @@ def test_sanitize_prompt_boundary_tags() -> None:
     assert "&lt;prompt&gt;" in clean
 
 
-def test_mask_secrets_preserves_task_file_paths() -> None:
+def test_mask_secrets_preserves_task_named_paths() -> None:
     """Ensure filenames starting with 'task-' are never falsely masked as OpenAI keys."""
-    sample_path = "docs/agent/tasks/task-128-streaming-reasoning-think-token-parser.md"
+    sample_path = "notes/task-128-streaming-reasoning-think-token-parser.md"
     sample_diff = (
-        "diff --git a/docs/agent/tasks/task-129-rate-limits.md b/docs/agent/tasks/task-129-rate-limits.md\n"
-        "--- a/docs/agent/tasks/task-129-rate-limits.md\n"
-        "+++ b/docs/agent/tasks/task-129-rate-limits.md\n"
+        "diff --git a/notes/task-129-rate-limits.md b/notes/task-129-rate-limits.md\n"
+        "--- a/notes/task-129-rate-limits.md\n"
+        "+++ b/notes/task-129-rate-limits.md\n"
     )
     assert mask_secrets(sample_path) == sample_path
     assert mask_secrets(sample_diff) == sample_diff
@@ -331,15 +331,15 @@ def test_mask_secrets_preserves_task_file_paths() -> None:
 def test_mask_secrets_word_boundaries_and_safe_paths() -> None:
     """Ensure safe filesystem paths, task artifacts, and compound identifiers are not falsely masked."""
     safe_samples = [
-        "docs/agent/tasks/task-090-infracost-finops-cloud-cost.md",
-        "docs/agent/tasks/task-sk-090-infracost-finops-cloud-cost.md",
+        "notes/task-090-infracost-finops-cloud-cost.md",
+        "notes/task-sk-090-infracost-finops-cloud-cost.md",
         "task-sk-memory-profiler.py",
         "subtask-sk-memory-profiler.md",
         "tasks/task-116-secret-sanitizer-word-boundaries.md",
         "path/to/sk-proj-abcdef1234567890abcdef1234567890.md",
         "artifacts/task-sk-export.json",
         "config/sk-settings.yaml",
-        "/workspaces/devops-cli/docs/agent/tasks/task-sk-auth.toml",
+        "/workspaces/devops-cli/notes/task-sk-auth.toml",
         "sk-ant-1234567890123456789",  # 19 chars: below 20-char threshold
         "sk-1234567890123456789",  # 19 chars: below 20-char threshold
     ]

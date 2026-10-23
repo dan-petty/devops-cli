@@ -87,7 +87,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 | [`k8s_tempo_info`](#k8s-tempo-info) | `true` | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
 | [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
-| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that is on the roadmap board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md. |
+| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that is on the roadmap board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
 | [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
@@ -1397,10 +1397,12 @@ Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch.
+Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
 It closes exactly one issue, an open issue of its own repository that is on the roadmap
 board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
-adds, modifies or renames that issue's docs/agent/tasks/task-\<issue\>-*.md.
+adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
+writes for that issue's change. Only that archive writes openspec/specs/ and
+openspec/changes/archive/.
 
 **Annotations:** `readOnlyHint: true`
 

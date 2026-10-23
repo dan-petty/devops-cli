@@ -12,9 +12,13 @@ _Avoid_: plan, board
 One unit of planned work on the roadmap, tracked as exactly one issue and delivered by exactly one pull request that delivers nothing else. An open issue becomes an item when intake places it on the roadmap.
 _Avoid_: task, deliverable, card, ticket, work item, tracking issue
 
-**Task file**:
-The in-repo implementation record of one item, written in the pull request that delivers it.
-_Avoid_: task, task item
+**Change**:
+The in-repo plan and record of one item: the OpenSpec folder `openspec/changes/<issue>-<slug>/`, with its proposal, spec deltas, design and `tasks.md`, the checklist of the change. The pull request that delivers the item writes it and archives it into `openspec/changes/archive/` in its last commit.
+_Avoid_: task file, change request, plan file
+
+**Spec**:
+The living specification of one capability, `openspec/specs/<capability>/spec.md`. Only `openspec archive` writes it, from the spec deltas of the change that it archives.
+_Avoid_: requirements document, spec file
 
 **Changelog line**:
 The Conventional Commit title of a pull request into `main`. The squash commit takes it, and release-please writes it into `CHANGELOG.md` when its type is one that the changelog shows.

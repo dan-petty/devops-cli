@@ -12,7 +12,7 @@ import tomllib
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from graphlib import CycleError
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pathspec
@@ -28,6 +28,8 @@ from devops_cli.config.constants import (
     CONST_BLIND_EXCEPTION_TYPES,
     CONST_COMPLEXITY_CAP_ROOTS,
     CONST_CONFTEST_FILENAME,
+    CONST_DOCS_CLASS_HAND_WRITTEN,
+    CONST_DOCS_INVENTORY,
     CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
@@ -73,6 +75,7 @@ from devops_cli.core.import_graph import (
     module_name,
     verify_acyclic_imports,
 )
+from devops_cli.core.repo import list_repo_files
 from devops_cli.exceptions.base import DevOpsCLIError
 from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
 from tests.support.trees import (
@@ -494,9 +497,69 @@ def test_task_md_is_decommissioned() -> None:
     """Ensure the monolithic docs/agent/task.md index is decommissioned to eliminate merge conflicts."""
     monolithic_index = Path("docs/agent/task.md")
     assert not monolithic_index.exists(), (
-        "docs/agent/task.md has been decommissioned in favor of modular per-task files "
-        "in docs/agent/tasks/ and native GitHub Projects v2 boards. Do not re-introduce it."
+        "docs/agent/task.md has been decommissioned in favor of OpenSpec change folders "
+        "in openspec/changes/ and native GitHub Projects v2 boards. Do not re-introduce it."
     )
+
+
+# The directory of the task files, which OpenSpec change folders replaced (#1847, ADR 0010). It is
+# built from its parts, so the scan of `tests/` does not find this test. Git history keeps the files.
+_TASK_FILES_DIR = PurePosixPath("docs", "agent", "tasks").as_posix()
+# The trees that could still send a reader or a program to the task files, beside the hand-written
+# documents. The records (the ADRs, the changelog and the archive of past phases) keep their history.
+_TASK_FILES_SCAN_ROOTS = ("src", "tests", "k8s", ".github")
+
+
+def _files_that_name_the_task_files(root: Path) -> list[str]:
+    """Each file of the code, the tests, the manifests, the GitHub files and the hand-written
+    documents under `root` that names the task files' directory, by repository path."""
+    hand_written = CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_HAND_WRITTEN]
+    paths = [PurePosixPath(path.relative_to(root).as_posix()) for path in list_repo_files(root)]
+    scanned = [
+        path
+        for path in paths
+        if path.parts[0] in _TASK_FILES_SCAN_ROOTS
+        or any(path.full_match(glob) for glob in hand_written)
+    ]
+    return sorted(
+        path.as_posix()
+        for path in scanned
+        if _TASK_FILES_DIR.encode()
+        in (root / path).read_bytes().replace(_LATE_TASK_FILES_GLOB.encode(), b"")
+    )
+
+
+# Pull requests opened before #1847 still merge task files. The docs inventory lists them with this
+# one glob until #2041 deletes them, the glob and this allowance.
+_LATE_TASK_FILES_GLOB = f"{_TASK_FILES_DIR}/task-*.md"
+
+
+def test_the_task_files_are_decommissioned() -> None:
+    """An OpenSpec change folder is the record of every item (#1847). The task-file guide and
+    template are gone, the directory holds at most task files that merged late, and no code, test,
+    manifest, GitHub file or hand-written document names that directory but the inventory glob."""
+    task_dir = REPO_ROOT / _TASK_FILES_DIR
+    late = sorted(path.name for path in task_dir.iterdir()) if task_dir.is_dir() else []
+    assert (
+        [name for name in late if not PurePosixPath(name).match("task-*.md")],
+        _files_that_name_the_task_files(REPO_ROOT),
+    ) == ([], [])
+
+
+def test_a_file_that_names_the_task_files_is_reported(tmp_path: Path) -> None:
+    """Negative control: code and a hand-written document that name the directory are reported,
+    and a decision record that names it, and code that does not, are not."""
+    files = {
+        "src/pkg/readiness.py": f'TASKS = "{_TASK_FILES_DIR}"\n',
+        "README.md": f"Write the record in `{_TASK_FILES_DIR}/`.\n",
+        "docs/adr/0001-roadmap.md": f"Task files lived in `{_TASK_FILES_DIR}/`.\n",
+        "src/pkg/other.py": 'CHANGES = "openspec/changes"\n',
+    }
+    for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+
+    assert _files_that_name_the_task_files(tmp_path) == ["README.md", "src/pkg/readiness.py"]
 
 
 def test_the_support_paths_are_the_repository_root_and_its_test_data_directories() -> None:
@@ -2123,7 +2186,8 @@ def _suppression_ceiling_breaches(
             breaches.append(
                 f"{kind}: {total} > ceiling {ceiling} in {sorted(files)}. "
                 "Fix the cause, or raise the ceiling in src/devops_cli/config/defaults.py "
-                "with a reason recorded in the task file (docs/agent/tasks/)."
+                "with a reason recorded in the proposal of the change "
+                "(openspec/changes/<issue>-<slug>/proposal.md)."
             )
     return breaches
 
@@ -2182,7 +2246,7 @@ def test_adding_a_type_ignore_in_src_fails_naming_kind_ceiling_and_file(tmp_path
         "src type: ignore" in breaches[0],
         "ceiling 1" in breaches[0],
         "src/mod.py" in breaches[0],
-        "task file" in breaches[0],
+        "proposal of the change" in breaches[0],
     ) == (True, True, True, True, True)
 
 

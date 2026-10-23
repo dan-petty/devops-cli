@@ -705,13 +705,18 @@ class PRMessages:
         "PR #{number} is not grounded: #{issue} is not on the roadmap board, project {board}. "
         "File new work with devops roadmap intake, which puts it on the board."
     )
-    grounding_task_file_missing: str = (
-        "PR #{number} is not grounded: it adds, modifies or renames no {pattern} for #{issue}."
+    grounding_change_not_archived: str = (
+        "PR #{number} is not grounded: it adds no {folder} for #{issue}. Archive the change in"
+        " the last commit of the PR with uv run devops openspec archive {change}."
+    )
+    grounding_record_written: str = (
+        "PR #{number} is not grounded: it changes {paths}. Only the archive of the change of"
+        " #{issue} writes {specs}/ and {archive}/, and only in {folder}."
     )
     grounding_files_unread: str = (
         "PR #{number} is not grounded: the files it changes could not be read ({error})."
     )
-    grounding_tasks_dir_unread: str = (
+    grounding_changes_dir_unread: str = (
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."

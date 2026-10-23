@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from http import HTTPStatus
@@ -15,16 +16,20 @@ from pydantic import AliasPath, BaseModel, ConfigDict, Field
 from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
-    CONST_AGENT_TASK_FILE_RE,
-    CONST_AGENT_TASKS_DIR,
     CONST_CI_WORKFLOW_FILE,
     CONST_GH_CLI,
     CONST_ISSUE_STATE_OPEN,
     CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_OPENSPEC_ARCHIVE_DIR,
+    CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
+    CONST_OPENSPEC_CHANGE_FOLDER_RE,
+    CONST_OPENSPEC_CHANGES_DIR,
+    CONST_OPENSPEC_SPECS_DIR,
     CONST_PR_API_STATE_MAP,
     CONST_PR_CLOSING_ISSUE_CARDS_PAGE,
     CONST_PR_CLOSING_ISSUES_PAGE,
-    CONST_PR_FILE_WRITTEN_STATUSES,
+    CONST_PR_FILE_ADDED_STATUSES,
+    CONST_PR_FILE_REMOVED_STATUS,
     CONST_PR_UPDATE_AUTHOR,
     CONST_ROADMAP_CONFIG_PATH,
 )
@@ -1410,10 +1415,10 @@ def _default_branch(pr_data: dict[str, Any]) -> str:
     return str((base.get("repo") or {}).get("default_branch") or "")
 
 
-def _base_has_task_files(pr_data: dict[str, Any], owner: str, repo_name: str) -> bool:
-    """Whether the base commit holds the task directory, raising when GitHub can't say.
+def _base_has_change_folders(pr_data: dict[str, Any], owner: str, repo_name: str) -> bool:
+    """Whether the base commit holds the OpenSpec change directory, raising when GitHub can't say.
 
-    A 404 means the repository keeps no task files. Only the answer matters, so `--silent`
+    A 404 means the repository keeps no change folders. Only the answer matters, so `--silent`
     drops the listing.
     """
     base = pr_data.get("base") or {}
@@ -1423,7 +1428,7 @@ def _base_has_task_files(pr_data: dict[str, Any], owner: str, repo_name: str) ->
             CONST_GH_CLI,
             "api",
             "--silent",
-            f"repos/{owner}/{repo_name}/contents/{CONST_AGENT_TASKS_DIR}?{query}",
+            f"repos/{owner}/{repo_name}/contents/{CONST_OPENSPEC_CHANGES_DIR}?{query}",
         ],
         check=False,
         quiet=True,
@@ -1440,14 +1445,14 @@ def _grounding_scope(
 ) -> tuple[bool, list[str]]:
     """Whether grounding applies to this PR, and the blocker that leads its checks.
 
-    It applies where the base holds the task directory. A lookup that fails for any reason but
+    It applies where the base holds the change directory. A lookup that fails for any reason but
     a 404 can't rule grounding out, so the check still applies and the failure is a blocker.
     """
     try:
-        return _base_has_task_files(pr_data, owner, repo_name), []
+        return _base_has_change_folders(pr_data, owner, repo_name), []
     except GitHubOperationError as exc:
-        blocker = MESSAGES.pr.grounding_tasks_dir_unread.format(
-            number=pr_num, path=CONST_AGENT_TASKS_DIR, error=exc
+        blocker = MESSAGES.pr.grounding_changes_dir_unread.format(
+            number=pr_num, path=CONST_OPENSPEC_CHANGES_DIR, error=exc
         )
         return True, [blocker]
 
@@ -1660,7 +1665,7 @@ def _closes_one_issue(grounding: _Grounding) -> str | None:
 
 
 def _closes_an_issue_of_its_repository(grounding: _Grounding) -> str | None:
-    """The one issue the PR closes is an issue of the PR's repository, whose task file it has."""
+    """The one issue the PR closes is an issue of the PR's repository, whose change it archives."""
     issue = grounding.issue
     if issue is None or grounding.own_issue is not None:
         return None
@@ -1702,7 +1707,7 @@ def _closes_an_issue_on_the_board(grounding: _Grounding) -> str | None:
 
 
 def _changed_files_were_read(grounding: _Grounding) -> str | None:
-    """The files the PR changes were read, so the task-file check has something to judge."""
+    """The files the PR changes were read, so the change-folder checks have something to judge."""
     if not grounding.changed.error:
         return None
     return MESSAGES.pr.grounding_files_unread.format(
@@ -1710,27 +1715,87 @@ def _changed_files_were_read(grounding: _Grounding) -> str | None:
     )
 
 
-def _writes_task_file(changed: ChangedFile, issue: int) -> bool:
-    """Whether this change leaves the issue's task file in the head."""
-    match = CONST_AGENT_TASK_FILE_RE.fullmatch(changed.filename)
+def _archives(changed: ChangedFile, issue: int) -> bool:
+    """Whether this change adds a file to an archived change folder of `issue`."""
+    match = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, changed.filename)
     return (
         match is not None
         and int(match.group("issue")) == issue
-        and changed.status in CONST_PR_FILE_WRITTEN_STATUSES
+        and changed.status in CONST_PR_FILE_ADDED_STATUSES
     )
 
 
-def _changes_its_task_file(grounding: _Grounding) -> str | None:
-    """The PR adds, modifies or renames the task file of the one issue it closes."""
+def _change_named_by(changed: ChangedFile) -> re.Match[str] | None:
+    """The change folder that `changed` leaves in the PR's head: an active folder it does not
+    remove, or an archived folder it adds. None for any other file."""
+    if changed.status in CONST_PR_FILE_ADDED_STATUSES:
+        archived = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, changed.filename)
+        return archived or re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, changed.filename)
+    if changed.status == CONST_PR_FILE_REMOVED_STATUS:
+        return None
+    return re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, changed.filename)
+
+
+def _its_change(files: list[ChangedFile], issue: int) -> str:
+    """The name of the change of `issue` that the PR leaves in its head, or the placeholder
+    `<issue>-<slug>` when it leaves none."""
+    matches = (match for changed in files if (match := _change_named_by(changed)))
+    names = (match.group("change") for match in matches if int(match.group("issue")) == issue)
+    return next(names, f"{issue}-<slug>")
+
+
+def _archived_folder(change: str) -> str:
+    """The folder `openspec archive` moves `change` to, its date left as a placeholder."""
+    return f"{CONST_OPENSPEC_ARCHIVE_DIR}/<date>-{change}/"
+
+
+def _archives_its_change(grounding: _Grounding) -> str | None:
+    """The PR adds the archived change folder of the one issue it closes."""
     issue = grounding.own_issue
     if issue is None or grounding.changed.error:
         return None
-    if any(_writes_task_file(changed, issue.number) for changed in grounding.changed.files):
+    files = grounding.changed.files
+    if any(_archives(changed, issue.number) for changed in files):
         return None
-    return MESSAGES.pr.grounding_task_file_missing.format(
+    change = _its_change(files, issue.number)
+    return MESSAGES.pr.grounding_change_not_archived.format(
+        number=grounding.pr_num, folder=_archived_folder(change), issue=issue.number, change=change
+    )
+
+
+def _is_a_record_of_another_change(path: str, issue: int, archives_its_own: bool) -> bool:
+    """Whether `path` is in the living specs or the archive, outside what the archive of the
+    change of `issue` writes."""
+    if path.startswith(f"{CONST_OPENSPEC_SPECS_DIR}/"):
+        return not archives_its_own
+    if not path.startswith(f"{CONST_OPENSPEC_ARCHIVE_DIR}/"):
+        return False
+    match = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, path)
+    return match is None or int(match.group("issue")) != issue
+
+
+def _writes_only_its_own_record(grounding: _Grounding) -> str | None:
+    """Only the archive of the change of the issue the PR closes writes the living specs and
+    the archive."""
+    issue = grounding.own_issue
+    if issue is None or grounding.changed.error:
+        return None
+    files = grounding.changed.files
+    archives_its_own = any(_archives(changed, issue.number) for changed in files)
+    written = [
+        changed.filename
+        for changed in files
+        if _is_a_record_of_another_change(changed.filename, issue.number, archives_its_own)
+    ]
+    if not written:
+        return None
+    return MESSAGES.pr.grounding_record_written.format(
         number=grounding.pr_num,
-        pattern=f"{CONST_AGENT_TASKS_DIR}/task-{issue.number}-*.md",
+        paths=", ".join(written)[:CONST_MAX_ERROR_DETAIL_LENGTH],
         issue=issue.number,
+        specs=CONST_OPENSPEC_SPECS_DIR,
+        archive=CONST_OPENSPEC_ARCHIVE_DIR,
+        folder=_archived_folder(_its_change(files, issue.number)),
     )
 
 
@@ -1745,7 +1810,8 @@ _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
     _board_was_read,
     _closes_an_issue_on_the_board,
     _changed_files_were_read,
-    _changes_its_task_file,
+    _archives_its_change,
+    _writes_only_its_own_record,
 )
 
 
@@ -1769,10 +1835,10 @@ def _grounding_blockers(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> list[str]:
     """Hold a PR to the one item it delivers: it targets the default branch and closes exactly
-    one open issue of its repository that is on the roadmap board, and it changes that issue's
-    task file.
+    one open issue of its repository that is on the roadmap board, and it archives that issue's
+    change.
 
-    It applies where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file
+    It applies where the base holds `openspec/changes/`. Where it does not apply, an unread file
     list is a warning, since only the perimeter warning reads it.
     """
     applies, blockers = _grounding_scope(pr_data, pr_num, owner, repo_name)
@@ -1932,10 +1998,12 @@ def check_readiness(
 ) -> None:
     """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-    Grounding applies where the base holds docs/agent/tasks/. The PR targets the default branch.
+    Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
     It closes exactly one issue, an open issue of its own repository that is on the roadmap
     board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
-    adds, modifies or renames that issue's docs/agent/tasks/task-<issue>-*.md.
+    adds openspec/changes/archive/<date>-<issue>-<slug>/, which uv run devops openspec archive
+    writes for that issue's change. Only that archive writes openspec/specs/ and
+    openspec/changes/archive/.
     """
     owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
     pr_data = _fetch_pr_details(pr_num, target_repo)

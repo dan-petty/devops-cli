@@ -94,7 +94,7 @@ def test_a_pattern_entry_with_no_file_still_leaves_a_stray_file_unclassified() -
     [
         ("docs/SDLC.md", False),
         ("docs/commands/*.md", True),
-        ("docs/agent/tasks/task-[0-9]*.md", True),
+        ("openspec/changes/archive/*/tasks.md", True),
         ("k8s/**/README.md", True),
         ("docs/adr/000?.md", True),
     ],
