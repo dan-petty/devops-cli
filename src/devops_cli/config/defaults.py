@@ -91,8 +91,9 @@ DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
 DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
 DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
 DEFAULT_PORTKEY_GATEWAY_CLUSTER_URL: str = "http://portkey.llm.svc.cluster.local:8787/v1"
-# The default Ollama tier's Service (k8s/llm/profiles/services.yaml).
-DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-16gib"
+# The default Ollama Service (k8s/llm/profiles/services.yaml): the fast tier's speed Service. It
+# names no VRAM size, so a host change moves its selector and not this name (#1637).
+DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-fast"
 DEFAULT_OLLAMA_CLUSTER_URL: str = (
     f"http://{DEFAULT_OLLAMA_CLUSTER_SERVICE}.llm.svc.cluster.local:11434"
 )

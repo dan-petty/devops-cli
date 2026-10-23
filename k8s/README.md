@@ -54,8 +54,8 @@ kubectl -n monitoring port-forward svc/pyroscope 4040:4040
 
 ### LLM Stack (`llm`)
 ```bash
-# Ollama REST API (one ClusterIP Service per VRAM tier, e.g. ollama-16gib)
-kubectl -n llm port-forward svc/ollama-16gib 11434:11434
+# Ollama REST API of the fast tier (a speed Service; see GPU Placement: Ollama tiers)
+kubectl -n llm port-forward svc/ollama-fast 11434:11434
 
 # Open-WebUI Web Interface
 minikube service open-webui -n llm --url
@@ -85,7 +85,7 @@ curl -H "Authorization: Bearer $KEY" http://<node>:<node-port>/v1/models
 ```
 These groups route reviews, embeddings and background work:
 
-- `devops-review` spreads one model name over four Ollama tiers: `qwen3-coder:30b` on `ollama-48gib` (weight 9) and `ollama-64gib` (6), and `gpt-oss:20b` on `ollama-16gib` (8) and `ollama-24gib` (1). Each deployment takes a share of requests weighted by its throughput, and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
+- `devops-review` spreads one model name over three Ollama tiers: `qwen3-coder:30b` on `ollama-48gib-fast` and `ollama-64gib-standard`, and `gpt-oss:20b` on `ollama-16gib-fast`. The router sends each request to the deployment with the fewest requests in flight (`least-busy`), and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
 - Ollama models are also served under their own names: `qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, and the embedding model `qwen3-embedding:0.6b`. An embedding group configures `model_info.mode: embedding` so health checks embed rather than generate.
 - `qwen3-coder:30b` and `gpt-oss:20b` each pin one of `devops-review`'s models: the group copies that model's `devops-review` deployments and weights, with no `max_input_tokens` and no fallback, so a review measured on one model is routed as the pool routes it.
 - `devops-background` is the background tier's one generation model: `qwen3.8:27b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3.8:27b` loaded together and is sent no other model. In-cluster services (`k8s/devops/` such as `roadmap-service` and cluster jobs) and `devops-review` fallback reach it; the pinned groups have no fallback. The gateway's 1,500 s timeout outlasts the review client's 1,200 s, so a `devops-review` call that timed out at the gateway was already given up, and the fallback spends the tier's slot on a reply nobody reads. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway abandons a call after 1,100 s and never retries it, but the client retries a failed or timed-out call in its HTTP transport and again in its dispatch loop, `ai.max_retries` times each, and every retry waits for the same single slot. With `1` a call is sent at most four times; `0` does not stop retries, because the transport then makes five attempts:
@@ -120,24 +120,28 @@ ai:
 ```
 Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
 
-Open WebUI uses the same key: on a fresh install it connects to the gateway automatically. An existing installation keeps the connections stored in its database, so add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections.
+Open WebUI uses the same key: on a fresh install it connects to the gateway automatically, and it sends its RAG embeddings to the gateway's `qwen3-embedding:0.6b`. An existing installation keeps the connections and the document settings stored in its database. Add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections, and replace an Ollama connection to a tier that does not serve with `ollama-fast` or `ollama-standard`. Under Admin Panel > Settings > Documents, set the embedding engine to OpenAI, with the gateway URL, the master key and `qwen3-embedding:0.6b`.
 
 ### GPU Placement: Ollama tiers
 Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), each behind its ClusterIP Service `ollama-<n>gib`. The gateway reaches the tiers through aliases of those Services, `ollama-16gib-fast`, `ollama-48gib-fast`, `ollama-48gib-slow` and `ollama-64gib-standard` (`llm/gateway/configmap.yaml`).
 
+The speed Services `ollama-fast`, `ollama-standard` and `ollama-slow` (`llm/profiles/services.yaml`) name no VRAM size. Clients of Ollama's native API use them: `ollama-fast` is the `ollama-ingress` backend and the CLI's default Service (`devops k8s port-forward`, `configure-urls`). Open WebUI connects to `ollama-fast` and `ollama-standard`, and sends its RAG embeddings to the gateway. When a host changes, change the selector of the speed Service. Its clients then follow with no edit.
+
 A tier's pods schedule only on a node whose labels satisfy the tier's required node affinity. Every tier requires `nvidia.com/gpu.total-vram-gib` to be one of its values, and three also require `nvidia.com/gpu.architecture`. `nvidia.com/gpu.present=true` marks a GPU node, and `deploy-stack` treats a node with `nvidia.com/gpu` capacity above zero as one too.
 
-| Tier | `nvidia.com/gpu.total-vram-gib` | `nvidia.com/gpu.architecture` |
-| :--- | :--- | :--- |
-| `ollama-16gib` | `16Gi`, `20Gi` | any |
-| `ollama-24gib` | `24Gi`, `28Gi` | `pascal`, `maxwell`, `kepler` |
-| `ollama-32gib` | `32Gi`, `36Gi`, `40Gi`, `44Gi` | any |
-| `ollama-48gib` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `ada-lovelace`, `ampere`, `blackwell`, `hopper` |
-| `ollama-48gib-slow` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `pascal`, `maxwell`, `kepler` |
-| `ollama-64gib` | `64Gi`, `68Gi` | any |
-| `ollama-72gib` | `72Gi`, `76Gi`, `80Gi`, `84Gi`, `88Gi`, `92Gi` | any |
-| `ollama-96gib` | `96Gi`, `100Gi` … `124Gi` in steps of 4 | any |
-| `ollama-128gib` | `128Gi` | any |
+| Tier | `nvidia.com/gpu.total-vram-gib` | `nvidia.com/gpu.architecture` | Serves |
+| :--- | :--- | :--- | :--- |
+| `ollama-16gib` | `16Gi`, `20Gi` | any | yes |
+| `ollama-24gib` | `24Gi`, `28Gi` | `pascal`, `maxwell`, `kepler` | no |
+| `ollama-32gib` | `32Gi`, `36Gi`, `40Gi`, `44Gi` | any | no |
+| `ollama-48gib` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `ada-lovelace`, `ampere`, `blackwell`, `hopper` | yes |
+| `ollama-48gib-slow` | `48Gi`, `52Gi`, `56Gi`, `60Gi` | `pascal`, `maxwell`, `kepler` | yes |
+| `ollama-64gib` | `64Gi`, `68Gi` | any | yes |
+| `ollama-72gib` | `72Gi`, `76Gi`, `80Gi`, `84Gi`, `88Gi`, `92Gi` | any | no |
+| `ollama-96gib` | `96Gi`, `100Gi` … `124Gi` in steps of 4 | any | no |
+| `ollama-128gib` | `128Gi` | any | no |
+
+**Serves** says whether a node of the cluster satisfies the tier, so that the tier has a pod. Every client that names an Ollama Service names one that selects a serving tier: the CLI defaults, the `ollama-ingress` backend, Open WebUI, the gateway's `api_base` targets and the devcontainer's `ollama.endpoint`. `tests/test_k8s_llm_gateway.py` checks this against the column. When a host goes offline or a tier gets a node, change the column. The test then names each client to move.
 
 **What sets the labels.** The cluster's node-provisioning automation, which lives outside this repository, sets `nvidia.com/gpu.present` and `nvidia.com/gpu.architecture` on every GPU node. It sets `nvidia.com/gpu.total-vram-gib` only on a node with more than one GPU, as the sum of its GPUs' memory rounded to the nearest whole GiB. GPU Feature Discovery labels per-GPU memory and the GPU count, not a total. So a single-GPU node gets no total, and a multi-GPU total can come out as a value no tier lists, such as `47Gi`. Set the label by hand, with a value from the table:
 

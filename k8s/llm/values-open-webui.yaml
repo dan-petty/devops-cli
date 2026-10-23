@@ -14,12 +14,13 @@ ollama:
 pipelines:
   enabled: false
 
-# Direct Ollama backend service URLs matching specific models and hardware tiers:
-# - ollama-24gib (24GiB VRAM): Fast chat (qwen2.5-coder:7b) and semantic embeddings (bge-m3:latest)
-# - ollama-64gib (64GiB VRAM): Dedicated reasoning, flagship, & multi-file code review
+# Connections to Ollama's native API, through the speed Services of two serving tiers
+# (k8s/README.md, GPU Placement): ollama-fast and ollama-standard. A speed Service names no VRAM
+# size, so a host change moves its selector in profiles/services.yaml, not these URLs. Applies on
+# first start, as the gateway connection below does.
 ollamaUrls:
-  - http://ollama-24gib.llm.svc.cluster.local:11434
-  - http://ollama-64gib.llm.svc.cluster.local:11434
+  - http://ollama-fast.llm.svc.cluster.local:11434
+  - http://ollama-standard.llm.svc.cluster.local:11434
 
 # OpenAI-compatible connection to the LiteLLM gateway (Ollama models by virtual name),
 # authenticated with the gateway master key. Applies on first start; Open WebUI persists
@@ -34,20 +35,24 @@ extraEnvVars:
     value: "qdrant"
   - name: QDRANT_URI
     value: "http://qdrant.llm.svc.cluster.local:6333"
-  # RAG Embedding Engine: Dedicated 16GiB Ollama node running bge-m3:latest
+  # RAG embeddings go through the gateway with its master key, to the embedding group that the
+  # gateway serves. Open WebUI sets no RAG Ollama URL by default, so it called localhost, where
+  # its pod runs no Ollama. The RAG OpenAI URL and key do not default to the gateway connection.
   - name: RAG_EMBEDDING_ENGINE
-    value: "ollama"
+    value: "openai"
+  - name: RAG_OPENAI_API_BASE_URL
+    value: "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+  - name: RAG_OPENAI_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: llm-gateway-secrets
+        key: master-key
   - name: RAG_EMBEDDING_MODEL
-    value: "bge-m3:latest"
+    value: "qwen3-embedding:0.6b"
   # Default virtual model served through the LiteLLM AI Gateway
   - name: DEFAULT_MODELS
     value: "devops-chat"
-  # Allowed models matched to ideal backend configurations:
-  # - devops-chat (qwen2.5-coder:7b on ollama-16gib)
-  # - devops-coder (qwen3-coder:30b on ollama-48gib-fast)
-  # - devops-reasoning (qwen3-coder:30b on ollama-48gib-fast)
-  # - devops-review (qwen3-coder:30b load-balanced across ollama tiers)
-  # - devops-flagship (deepseek-r1:70b on ollama-48gib)
+  # Allowed models. k8s/llm/gateway/configmap.yaml maps each gateway model to its Ollama tiers.
   - name: MODEL_FILTER_LIST
     value: "devops-chat;devops-coder;devops-reasoning;devops-review;devops-flagship;qwen3-coder:30b;deepseek-r1:70b;qwen2.5-coder:7b;gemma4:31b"
   - name: WEBUI_AUTH

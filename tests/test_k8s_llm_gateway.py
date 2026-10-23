@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import reduce
 from itertools import chain
 from pathlib import Path
@@ -18,12 +19,22 @@ from docker.utils import parse_repository_tag
 
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
+from devops_cli.config.constants import CONST_K8S_OLLAMA_PROVIDER_LABEL
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_CLUSTER_URL,
+    DEFAULT_GATEWAY_REVIEW_SLOTS,
+    DEFAULT_OLLAMA_CLUSTER_SERVICE,
+    DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.k8s.gpu_matrix import get_gateway_routing_entries
-from tests.support.markdown_examples import YAML_FENCE_LANGUAGES, code_snippets, fences, headings
+from tests.support.markdown_examples import (
+    YAML_FENCE_LANGUAGES,
+    code_snippets,
+    fences,
+    headings,
+    tables,
+)
 
 GATEWAY_DIR = Path("k8s/llm/gateway")
 PROFILES_DIR = Path("k8s/llm/profiles")
@@ -33,7 +44,12 @@ NETWORKPOLICY_MANIFEST = PROFILES_DIR / "networkpolicy.yaml"
 LLM_KUSTOMIZATION = Path("k8s/llm/kustomization.yaml")
 OPEN_WEBUI_VALUES = Path("k8s/llm/values-open-webui.yaml")
 DEVOPS_CONFIGMAP_EXAMPLE = Path("k8s/devops/configmap.example.yaml")
-GATEWAY_READMES = [Path("k8s/README.md"), PROFILES_DIR / "README.md"]
+K8S_README = Path("k8s/README.md")
+GATEWAY_READMES = [K8S_README, PROFILES_DIR / "README.md"]
+INGRESS_ROUTES = Path("k8s/ingress/ingress-routes.yaml")
+DEVCONTAINER = Path(".devcontainer/devcontainer.json")
+# The column of the README's GPU placement table that says whether a node satisfies the tier.
+SERVES_COLUMN = "Serves"
 
 GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.0"
 GATEWAY_SECRET = "llm-gateway-secrets"
@@ -109,6 +125,20 @@ def _gpu_matrix_embedding_models() -> set[str]:
         for entry in get_gateway_routing_entries()
         if entry.get("model_info", {}).get("mode") == "embedding"
     }
+
+
+def _open_webui_env() -> dict[str, Any]:
+    """Return each extra environment variable of Open WebUI: its value, or its `valueFrom`."""
+    values = yaml.safe_load(OPEN_WEBUI_VALUES.read_text(encoding="utf-8"))
+    return {
+        variable["name"]: variable.get("value", variable.get("valueFrom"))
+        for variable in values["extraEnvVars"]
+    }
+
+
+def _open_webui_embedding_models() -> set[str]:
+    """Return the embedding model that Open WebUI's RAG asks the gateway for."""
+    return {_open_webui_env()["RAG_EMBEDDING_MODEL"]}
 
 
 def _gateway_providers() -> set[str]:
@@ -468,15 +498,16 @@ class TestK8sLLMGatewayManifests:
             pytest.param(_job_configmap_embedding_models, id="the-example-configmap-of-the-jobs"),
             pytest.param(_default_route_embedding_models, id="the-default-gateway-routes"),
             pytest.param(_gpu_matrix_embedding_models, id="the-gpu-matrix-gateway-routes"),
+            pytest.param(_open_webui_embedding_models, id="the-open-webui-rag-embedding"),
         ],
     )
     def test_every_registry_that_names_an_embedding_model_names_a_group_the_gateway_serves(
         self, embedding_models: Callable[[], set[str]]
     ) -> None:
-        """Verify the embedding model that each of three places names is an embedding group of
+        """Verify the embedding model that each of four places names is an embedding group of
         the gateway ConfigMap: the example ConfigMap of the in-cluster jobs, the default
-        gateway routes and the GPU matrix routes. A place that falls behind a renamed group
-        sends its requests to a model the gateway refuses (#481)."""
+        gateway routes, the GPU matrix routes and Open WebUI's RAG. A place that falls behind a
+        renamed group sends its requests to a model the gateway refuses (#481, #1637)."""
         named = embedding_models()
 
         assert (bool(named), named - _gateway_embedding_groups()) == (True, set())
@@ -686,8 +717,14 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_open_webui_values_connect_to_gateway(self) -> None:
-        """Verify Open WebUI uses the gateway as its OpenAI connection with the shared master key."""
+        """Verify Open WebUI uses the gateway as its OpenAI connection and for its RAG
+        embeddings, both with the shared master key, and connects to the speed Services of the
+        serving tiers for Ollama's native API.
+
+        Open WebUI sets no RAG Ollama URL, so its default is `localhost`, where its pod runs no
+        Ollama, and its RAG API key defaults to none (#1637)."""
         values = yaml.safe_load(OPEN_WEBUI_VALUES.read_text(encoding="utf-8"))
+        env = _open_webui_env()
 
         assert (
             values["enableOpenaiApi"],
@@ -695,15 +732,21 @@ class TestK8sLLMGatewayManifests:
             values["openaiApiKeyExistingSecret"],
             values["openaiApiKeyExistingSecretKey"],
             values["ollamaUrls"],
+            env["RAG_EMBEDDING_ENGINE"],
+            env["RAG_OPENAI_API_BASE_URL"],
+            env["RAG_OPENAI_API_KEY"],
         ) == (
             True,
             DEFAULT_AI_GATEWAY_CLUSTER_URL,
             GATEWAY_SECRET,
             GATEWAY_SECRET_KEY,
             [
-                "http://ollama-24gib.llm.svc.cluster.local:11434",
-                "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "http://ollama-fast.llm.svc.cluster.local:11434",
+                "http://ollama-standard.llm.svc.cluster.local:11434",
             ],
+            "openai",
+            DEFAULT_AI_GATEWAY_CLUSTER_URL,
+            {"secretKeyRef": {"name": GATEWAY_SECRET, "key": GATEWAY_SECRET_KEY}},
         )
 
     def test_ollama_profiles_define_standard_vram_tiers(self) -> None:
@@ -1162,3 +1205,174 @@ def test_each_widening_edit_is_a_violation(
     widen(widened["spec"])
 
     assert _egress_violations(widened, backends, gateway_labels) != []
+
+
+# ── Every consumer of Ollama reaches a tier that has a pod (#1637) ─────────────────────────────
+
+
+def _placement_tables() -> list[list[list[str]]]:
+    """Return each table of the k8s README whose first column is Tier, which is the GPU placement
+    table: its rows, the header first."""
+    return [rows for rows in tables(K8S_README) if rows[0][:1] == ["Tier"]]
+
+
+def _serving_tiers() -> set[str]:
+    """Return the tiers that the README's GPU placement table marks as serving."""
+    return {
+        row[0].strip("`")
+        for header, *rows in _placement_tables()
+        if SERVES_COLUMN in header
+        for row in rows
+        if row[header.index(SERVES_COLUMN)] == "yes"
+    }
+
+
+def _tier_pod_labels() -> dict[str, dict[str, str]]:
+    """Return the pod labels of each Ollama tier DaemonSet, by tier name, in profile order."""
+    documents = yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8"))
+    return {
+        document["metadata"]["name"]: document["spec"]["template"]["metadata"]["labels"]
+        for document in documents
+        if document and document.get("kind") == "DaemonSet"
+    }
+
+
+def _ollama_services() -> dict[str, dict[str, str]]:
+    """Return the selector of each Service in the profiles that selects Ollama pods."""
+    key, provider = CONST_K8S_OLLAMA_PROVIDER_LABEL
+    return {
+        document["metadata"]["name"]: document["spec"]["selector"]
+        for document in yaml.safe_load_all(SERVICES_MANIFEST.read_text(encoding="utf-8"))
+        if document
+        and document.get("kind") == "Service"
+        and document["spec"].get("selector", {}).get(key) == provider
+    }
+
+
+def _ollama_ports() -> set[int]:
+    """Return the ports the Ollama Services listen on."""
+    documents = yaml.safe_load_all(SERVICES_MANIFEST.read_text(encoding="utf-8"))
+    names = _ollama_services()
+    return {
+        port["port"]
+        for document in documents
+        if document and document["metadata"]["name"] in names
+        for port in document["spec"]["ports"]
+    }
+
+
+def _strings(node: Any) -> Iterator[str]:
+    """Yield every string in nested mappings and sequences, mapping keys included."""
+    match node:
+        case str():
+            yield node
+        case dict():
+            for key, value in node.items():
+                yield from _strings(key)
+                yield from _strings(value)
+        case list() | tuple():
+            for item in node:
+                yield from _strings(item)
+
+
+def _named_ollama_services(node: Any) -> set[str]:
+    """Return the Service of each URL in `node` that calls an Ollama port in the llm namespace.
+
+    A URL to a Service that does not exist counts too, so a misspelt name is found."""
+    ports = _ollama_ports()
+    return {
+        (url.hostname or "").partition(".")[0]
+        for url in map(urlsplit, _strings(node))
+        if (url.hostname or "").endswith(".llm.svc.cluster.local") and url.port in ports
+    }
+
+
+def _ingress_ollama_backends() -> set[str]:
+    """Return the backend Service of each ingress path that calls an Ollama port."""
+    ports = _ollama_ports()
+    return {
+        path["backend"]["service"]["name"]
+        for document in yaml.safe_load_all(INGRESS_ROUTES.read_text(encoding="utf-8"))
+        if document and document.get("kind") == "Ingress"
+        for rule in document["spec"]["rules"]
+        for path in rule["http"]["paths"]
+        if path["backend"]["service"]["port"].get("number") in ports
+    }
+
+
+def _ollama_consumers() -> set[tuple[str, str]]:
+    """Return each place that names an Ollama Service, paired with the Service it names."""
+    defaults = "devops_cli.config.defaults"
+    named = {
+        f"{defaults}.DEFAULT_OLLAMA_CLUSTER_SERVICE": {DEFAULT_OLLAMA_CLUSTER_SERVICE},
+        f"{defaults}.DEFAULT_OLLAMA_CLUSTER_URL": _named_ollama_services(
+            DEFAULT_OLLAMA_CLUSTER_URL
+        ),
+        f"{defaults}.DEFAULT_GATEWAY_REVIEW_SLOTS": _named_ollama_services(
+            DEFAULT_GATEWAY_REVIEW_SLOTS
+        ),
+        "devops_cli.ai.gateway.DEFAULT_GATEWAY_ROUTES": _named_ollama_services(
+            DEFAULT_GATEWAY_ROUTES
+        ),
+        str(INGRESS_ROUTES): _ingress_ollama_backends(),
+        str(OPEN_WEBUI_VALUES): _named_ollama_services(
+            yaml.safe_load(OPEN_WEBUI_VALUES.read_text(encoding="utf-8"))
+        ),
+        str(GATEWAY_DIR / "configmap.yaml"): _named_ollama_services(_gateway_config()),
+        str(DEVCONTAINER): _named_ollama_services(
+            json.loads(DEVCONTAINER.read_text(encoding="utf-8"))
+        ),
+    }
+    return {(place, service) for place, services in named.items() for service in services}
+
+
+def _consumers_off_serving_tiers(serving: set[str]) -> set[tuple[str, str]]:
+    """Return each consumer whose Service is no Ollama Service or selects no pod of a tier in
+    `serving`."""
+    selectors, tiers = _ollama_services(), _tier_pod_labels()
+    serving_labels = [labels for tier, labels in tiers.items() if tier in serving]
+
+    def selects_a_serving_tier(service: str) -> bool:
+        selector = selectors.get(service)
+        return selector is not None and any(
+            selector.items() <= labels.items() for labels in serving_labels
+        )
+
+    return {
+        (place, service)
+        for place, service in _ollama_consumers()
+        if not selects_a_serving_tier(service)
+    }
+
+
+def test_the_gpu_placement_table_says_for_each_tier_whether_it_serves() -> None:
+    """The README's GPU placement table lists each Ollama tier of the profiles once, in profile
+    order, and its Serves column says yes or no for each, so the serving tiers have one record."""
+    [(header, *rows)] = _placement_tables()
+
+    assert (
+        [row[0].strip("`") for row in rows],
+        SERVES_COLUMN in header and {row[header.index(SERVES_COLUMN)] for row in rows},
+    ) == (list(_tier_pod_labels()), {"yes", "no"})
+
+
+def test_every_ollama_consumer_names_a_service_that_selects_a_serving_tier() -> None:
+    """Each place that names an Ollama Service names one that selects the pods of a tier the
+    README marks as serving: the CLI's default Service and failover routes, the review slots,
+    the ollama ingress, Open WebUI, the gateway and the devcontainer. Before #1637 the ingress,
+    the CLI default and Open WebUI named tiers whose host was offline, and answered 503 or
+    nothing for weeks."""
+    assert (bool(_ollama_consumers()), _consumers_off_serving_tiers(_serving_tiers())) == (
+        True,
+        set(),
+    )
+
+
+def test_a_tier_that_stops_serving_names_each_consumer_that_reaches_it_alone() -> None:
+    """Negative control: with ollama-16gib marked as not serving, as when its host went
+    offline, the check names exactly the consumers whose Service selects that tier alone."""
+    assert _consumers_off_serving_tiers(_serving_tiers() - {"ollama-16gib"}) == {
+        (str(GATEWAY_DIR / "configmap.yaml"), "ollama-16gib-fast"),
+        ("devops_cli.config.defaults.DEFAULT_GATEWAY_REVIEW_SLOTS", "ollama-16gib-fast"),
+        (str(DEVCONTAINER), "ollama-16gib"),
+    }

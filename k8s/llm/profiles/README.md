@@ -31,6 +31,8 @@ The matrix systematically maps GPU hardware configurations across counts `[1, 2,
 
 Services defined in [`services.yaml`](services.yaml): one ClusterIP Service per Ollama tier (`ollama-16gib`, `ollama-24gib`, `ollama-32gib`, `ollama-48gib`, `ollama-64gib`, `ollama-72gib`, `ollama-96gib`, `ollama-128gib`), each selecting pods labelled `llm.devops.io/provider: ollama` and `llm.devops.io/vram-gib: <n>gib` on port 11434; the gateway's model-to-tier mapping lives in `../gateway/configmap.yaml`.
 
+The speed Services `ollama-fast`, `ollama-standard` and `ollama-slow` name no VRAM size. Clients of Ollama's native API use them: the `ollama-ingress` backend, the CLI's default Service and Open WebUI. The GPU Placement section of [`k8s/README.md`](../../README.md) records which tiers serve, and a test holds every client to a Service that selects a serving tier.
+
 ---
 
 ## 3. Gateway Routing Integration
@@ -44,15 +46,13 @@ model_list:
       model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
       api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
       model_info:
-        max_input_tokens: 96000
-      weight: 10
+        max_input_tokens: 48000
   - model_name: devops-chat
     litellm_params:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
       model_info:
         max_input_tokens: 128000
-      weight: 5
 
   - model_name: devops-coder
     litellm_params:
@@ -68,7 +68,6 @@ model_list:
     litellm_params:
       model: ollama/qwen3-embedding:0.6b
       api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-      weight: 3
     model_info:
       mode: embedding
 
@@ -76,13 +75,11 @@ model_list:
     litellm_params:
       model: ollama_chat/qwen3-coder:30b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
-      weight: 9
       num_retries: 0
   - model_name: devops-review
     litellm_params:
       model: ollama_chat/gpt-oss:20b
       api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-      weight: 6
       num_retries: 0
 ```
 
