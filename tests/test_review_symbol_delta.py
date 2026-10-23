@@ -76,8 +76,13 @@ def _orchestrator(repo: Path, model: _NoModel) -> ReviewPipelineOrchestrator:
 def _pre_analysis(
     orchestrator: ReviewPipelineOrchestrator, repo: Path, base: BaseRevision | None
 ) -> dict[str, FileAnalysisMeta]:
+    """Pre-analysis of every Python module of the checkout, `other.py` among them."""
     return orchestrator.run_pre_analysis_refresh(
-        target_dir=repo, target_type="branch", target_ref="feature", base_revision=base
+        target_dir=repo,
+        files=sorted(path.name for path in repo.glob("*.py")),
+        target_type="branch",
+        target_ref="feature",
+        base_revision=base,
     )
 
 

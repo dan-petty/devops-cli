@@ -21,7 +21,7 @@ graph TD
 ```
 
 - **Pipeline Stages**:
-  1. `pre_analysis`: Fast workspace scan, AST context refresh, and cache synchronization (`--no-pre-analysis`, `--pre-analysis-only`).
+  1. `pre_analysis`: AST metadata refresh of the files under review only, with no model call. A file with unchanged content reuses its cached metadata (`--no-pre-analysis`, `--pre-analysis-only`).
   2. `static_scan`: Scanners run isolated (Bandit, KubeLinter, Pluto, Trivy, Gitleaks, Semgrep), and each candidate is admitted against the reviewed tree, its `.devops/review.toml` suppressions and its path class's `[severity_caps]`; an offline osv-scanner scan of lockfiles, and Shodan InternetDB and Cloudflare Radar reputations for network references (`--no-static-scan`, `--static-scan-only`).
   3. `group_analysis`: Synthesis and explanation of findings across groups (`--no-group-analysis`).
   4. `reporting`: Writes `findings.json` (the reported findings, never an INVALIDATED one), `candidates.json` (every finding with its verdict), `review.md` and `profile.json` (`--no-reporting`, `--reporting-only`).
