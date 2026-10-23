@@ -1,0 +1,30 @@
+# serializer version: 1
+# name: test_the_report_groups_every_item_under_its_next_step
+  list([
+    '''
+      # Refinement plan for example/roadmap
+      ## Waiting on a person
+      - #2 New P1-High (refined in this round)
+        - Which store holds the record? (missing verified source)
+      ## Split proposed
+      - #3 New P1-High (refined in this round)
+        - The first change.
+        - The second change.
+      ## Blocked by open items
+      - #4 New P1-High (refined in this round)
+        - #1
+    ''',
+    '''
+      # Refinement plan for example/roadmap
+      ## Refined to Ready
+      - #5 New P1-High (refined in this round)
+      ## Waiting on a person
+      - #2 New P1-High
+      ## Split proposed
+      - #3 New P1-High
+      ## Blocked by open items
+      - #4 New P1-High
+        - #1
+    ''',
+  ])
+# ---

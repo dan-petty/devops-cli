@@ -3068,6 +3068,14 @@ CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end --
 CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
+# Every comment refine posts carries this marker, so a later round tells a person's reply from
+# refine's own comments: a comment after refine's last one is a reply (#1758).
+CONST_ROADMAP_REFINE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap refine: next step -->"
+# What a proposal's `suspected_block` holds when it names no block, lower-cased.
+CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS: Final[frozenset[str]] = frozenset({"", "none", "null"})
+# The newest replies that reach the model, each cut to this many tokens (#1758).
+CONST_ROADMAP_REFINE_MAX_REPLIES: Final[int] = 5
+CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS: Final[int] = 1024
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
@@ -3094,6 +3102,10 @@ CONST_ROADMAP_STATUS_READY: Final[str] = "Ready"
 CONST_ROADMAP_STATUS_IN_PROGRESS: Final[str] = "In Progress"
 CONST_ROADMAP_STATUS_DONE: Final[str] = "Done"
 CONST_ROADMAP_STATUS_BLOCKED: Final[str] = "Blocked"
+# The Status options of an open item refine never changes, even when `--item` names it (#1758).
+CONST_ROADMAP_REFINE_HELD_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONST_ROADMAP_STATUS_IN_PROGRESS, CONST_ROADMAP_STATUS_DONE, CONST_ROADMAP_STATUS_BLOCKED}
+)
 # A critical fix is a P0 item that fixes a defect or a security advisory (CONTEXT.md): the
 # board's P0 Priority option and one of these `type/*` labels.
 CONST_ROADMAP_CRITICAL_PRIORITY: Final[str] = "P0-Critical"

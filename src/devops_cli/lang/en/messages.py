@@ -1299,16 +1299,58 @@ class RoadmapMessages:
         "{repo}: could not read the GraphQL budget after the round, so it has no spend line: "
         "{kind}: {error}"
     )
-    refine_ready_comment: str = "Status set to Ready at {sha} (see proposed design in issue body)."
-    refine_split_comment: str = (
-        "Proposal needs splitting into {count} items at {sha} (see proposed design in issue body)."
+    # Every comment refine posts starts with its marker (#1758), so a later round finds a reply.
+    refine_ready_comment: str = (
+        "{marker}\nStatus set to Ready at {sha} (see proposed design in issue body)."
     )
-    refine_back_to_new_comment: str = (
-        "Status set back to New at {sha}: refine found it not ready (see Key questions, Fit and "
-        "Suspected block in the proposed design in the issue body)."
+    refine_step_comment: str = "{marker}\n{status}{step}\n\n{details}"
+    refine_back_to_new: str = "Status set back to New at {sha}. "
+    # The comment that gives an item its next step, by the step's value (#1758).
+    refine_step_comments: dict[str, str] = field(
+        default_factory=lambda: {
+            "person": (
+                "Refine cannot set this item to Ready at {sha} until a person answers the "
+                "questions below. Reply in a comment or edit the body, and the next refine round "
+                "looks at the item again."
+            ),
+            "split": (
+                "The proposal at {sha} needs splitting into {count} items. A person splits the "
+                "item into the items below, or replies in a comment or edits the body to keep "
+                "one item, and the next refine round looks at the item again."
+            ),
+            "blocked": (
+                "Refine cannot set this item to Ready at {sha} while the items below stay open. "
+                "The next refine round looks at the item again when they close, or when a person "
+                "replies in a comment or edits the body."
+            ),
+        }
     )
+    refine_incomplete: str = (
+        "The proposal has no problem statement, or no acceptance criterion with a "
+        "verification. State the problem and how to verify the change."
+    )
+    refine_set_back_by_person: str = (
+        "A person set the item back to New after refine set it to Ready. A reply that tells "
+        "why makes refine look at it again."
+    )
+    refine_held_status: str = "Status {status}: refine changes only open New and Ready items."
+    refine_held_closed: str = "The issue is closed: refine changes only open items."
     refine_title: str = "# Refinement plan for {repo}"
     refine_none: str = "No items to refine."
+    # The report's groups, by next step, in the order the report shows them (#1758).
+    refine_step_headings: dict[str, str] = field(
+        default_factory=lambda: {
+            "ready": "## Refined to Ready",
+            "person": "## Waiting on a person",
+            "split": "## Split proposed",
+            "blocked": "## Blocked by open items",
+            "edit": "## Waiting on a body edit",
+            "none": "## Nothing to do",
+        }
+    )
+    refine_item_line: str = "- #{number} {title}"
+    refine_refined_line: str = "- #{number} {title} (refined in this round)"
+    refine_detail_line: str = "  - {detail}"
     refine_failed_heading: str = "## Failed Items"
     refine_failed_line: str = (
         "- #{number} {title}: skipped, its model call failed ({error}, {violations} schema "
@@ -1356,6 +1398,7 @@ class RoadmapMessages:
             "evidence": "<evidence>",
             "field": "<field>",
             "item": "<item>",
+            "blocker": "<blocking item>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -1408,6 +1451,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "milestone": "for each open milestone, by due date and then by number",
             "item": "for each item the run judges or changes",
+            "blocker": "for each open item a blocked item waits on",
             "evidence": "for each piece of evidence the model cites",
         }
     )

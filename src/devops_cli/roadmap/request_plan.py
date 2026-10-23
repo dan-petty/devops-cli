@@ -328,11 +328,14 @@ def refine_requests(
     limit: int | None = None,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap refine` reads, in order, ending with its closing budget read,
-    and the writes `--confirm` makes before that last read."""
+    and the writes `--confirm` makes before that last read. Each item's comments are read for
+    the replies since refine's last comment, and each open item a blocked item waits on is read
+    for its state (#1758)."""
     store = StoreRequests(repo, CONST_ROADMAP_REFINE_BOARD_FILTER)
     texts = MESSAGES.roadmap
     cond, rep = texts.plan_conditions, texts.plan_repeat
     target_item = f"#{item}" if item is not None else _p("item")
+    blockers = within(store.issue(_p("blocker")), repeat=rep["blocker"])
 
     if item is not None:
         reads = [
@@ -340,6 +343,8 @@ def refine_requests(
             *store.board_fields(),
             *store.card(target_item),
             *store.issue(target_item),
+            *store.comments_on(target_item),
+            *blockers,
         ]
         writes = [
             *store.write_issue_body(target_item),
@@ -355,7 +360,11 @@ def refine_requests(
             *store.milestones(),
             *within(store.items(milestone=_p("milestone")), repeat=each_milestone),
             *store.backlog(),
-            *within(store.issue(target_item), repeat=each_candidate),
+            *within(
+                [*store.issue(target_item), *store.comments_on(target_item)],
+                repeat=each_candidate,
+            ),
+            *blockers,
         ]
         writes = [
             *within(
