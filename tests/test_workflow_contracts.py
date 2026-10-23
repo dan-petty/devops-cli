@@ -521,6 +521,28 @@ def test_sdlc_names_only_the_supply_chain_controls_the_repository_runs() -> None
     ) == ([], ["uv", "audit"], True)
 
 
+def test_fail_to_pass_skips_the_release_pull_request_without_cancelled_runs() -> None:
+    """The release pull request changes only the changelog, the manifest and the version lines,
+    so no test replays there and both jobs skip. release-please pushes, then edits and labels the
+    pull request, so three events start runs on one head; each run of a release-please branch gets
+    its own concurrency group, so none cancels another and the pull request shows no cancelled
+    check (#1960). Every other pull request keeps one group, where a newer event cancels an older
+    run."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")
+    skip = "${{ !startsWith(github.head_ref, 'release-please--') }}"
+    assert (
+        {name: job.get("if") for name, job in workflow["jobs"].items()},
+        workflow["concurrency"],
+    ) == (
+        {"fail-to-pass": skip, "self-check": skip},
+        {
+            "group": "fail-to-pass-${{ startsWith(github.head_ref, 'release-please--')"
+            " && github.run_id || github.ref }}",
+            "cancel-in-progress": True,
+        },
+    )
+
+
 def test_workflow_contract_fail_to_pass() -> None:
     """Validate `.github/workflows/fail-to-pass.yml` triggers, env, self-check, and no `${{` in `run:` (#844)."""
     workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")

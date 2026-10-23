@@ -8,8 +8,11 @@ on:
 permissions:
   contents: read
 
+# release-please pushes, then edits and labels its pull request, so three events start runs on one
+# head. Its runs skip, and each gets its own group, so none cancels another and the release pull
+# request shows no cancelled check. Every other pull request keeps one group per ref.
 concurrency:
-  group: fail-to-pass-${{ github.ref }}
+  group: fail-to-pass-${{ startsWith(github.head_ref, 'release-please--') && github.run_id || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -19,6 +22,8 @@ env:
 jobs:
   fail-to-pass:
     name: Fail-to-Pass Check
+    # The release pull request changes only the changelog, the manifest and the version lines.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -46,6 +51,7 @@ jobs:
 
   self-check:
     name: Fail-to-Pass Self-Check
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
