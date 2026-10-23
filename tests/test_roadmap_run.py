@@ -60,7 +60,6 @@ from devops_cli.roadmap.board_read import (
     GRAPHQL_BUDGET_OPERATION,
     refusal_reset,
 )
-from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake_model import ModelProposal, ProposalRequest, UnusableProposalError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -1087,7 +1086,7 @@ def _candidates(count: int) -> tuple[InMemoryRoadmapStore, _Clock, list[str]]:
 def _intake_table(model: _IntakeModel, ran: list[str]) -> tuple[JobRow, ...]:
     """The due table with the Service's own intake over `model`, each run's name added to
     `ran`."""
-    intake = partial(_run_intake_adapter, config=RoadmapConfig(board=1), model=model)
+    intake = partial(_run_intake_adapter, model=model)
     return build_stub_table({"intake": _recorded(ran, "intake", intake)})
 
 

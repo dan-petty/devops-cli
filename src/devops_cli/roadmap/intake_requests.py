@@ -2,8 +2,8 @@
 run spends (#742, the dry-run rule of #412).
 
 A dry run makes no request at all. It returns the requests a run makes, in order, as
-`PlannedRequest`s (#741): GitHub REST, REST search and GraphQL reads and writes, the embedding
-call and the model calls. `method` names the transport and whether it reads or writes, and
+`PlannedRequest`s (#741): GitHub REST and GraphQL reads and writes, the embedding call and the
+model calls. `method` names the transport and whether it reads or writes, and
 `target` what it reads or writes. Every `gh` command shows its exact argv and stdin, built by
 the store's own argument builders (`roadmap/request_plan.py`, #1125), one line per command, so a
 board write shows the read of its one card it makes first (#1361). A value that needs a read is
@@ -26,21 +26,17 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
 from enum import StrEnum
 
 from devops_cli.config.constants import (
-    CONST_ROADMAP_BORROWED_LABEL,
     CONST_ROADMAP_CONFIG_PATH,
     CONST_ROADMAP_INTAKE_BOARD_FILTER,
     CONST_ROADMAP_LABELS_PATH,
-    CONST_ROADMAP_SOURCE_AGENT_LABEL,
 )
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.intake_model import IntakeModel, ModelProposal, ProposalRequest
 from devops_cli.roadmap.request_plan import StoreRequests, within
-from devops_cli.roadmap.store import CloseReason, GitHubState, IssueQuery
 
 
 class _Via(StrEnum):
@@ -48,11 +44,6 @@ class _Via(StrEnum):
 
     EMBEDDING = "embedding"
     MODEL = "model"
-
-
-# REST search's time qualifiers for a time only a read gives: built with this stand-in, which
-# the plan then shows as the placeholder.
-_SINCE = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 @dataclass(frozen=True)
@@ -101,42 +92,14 @@ class _Steps:
         target, own = self._text(key, values)
         return PlannedRequest(method=via.value, target=target, condition=own, repeat=repeat)
 
-    def _count(self, key: str, query: IssueQuery) -> list[PlannedRequest]:
-        since = MESSAGES.roadmap.intake_placeholder_since
-        stand_in = _SINCE.isoformat(timespec="seconds")
-        counted = [
-            replace(r, argv=tuple(arg.replace(stand_in, since) for arg in r.argv))
-            for r in self.store.count_issues(query)
-        ]
-        return self.step(key, counted, since=since)
-
     def reads(self) -> list[PlannedRequest]:
         """The reads every run makes before it decides any candidate."""
         store = self.store
-        closed = {"state": GitHubState.CLOSED, "closed_since": _SINCE}
-        agent = (CONST_ROADMAP_SOURCE_AGENT_LABEL,)
         return [
             *self.step("config", store.file(CONST_ROADMAP_CONFIG_PATH, self.ref)),
             *self.step("issues", store.issues()),
             *self.step("board", store.board_read()),
             *self.step("board_issues", store.issues()),
-            *self.step("count_open", store.count_issues(IssueQuery(state=GitHubState.OPEN))),
-            *self._count("count_closed", IssueQuery.model_validate(closed)),
-            *self._count(
-                "count_delivered",
-                IssueQuery.model_validate(closed | {"reason": CloseReason.COMPLETED}),
-            ),
-            *self._count(
-                "count_bulk",
-                IssueQuery.model_validate(
-                    closed | {"reason": CloseReason.NOT_PLANNED, "uncommented": True}
-                ),
-            ),
-            *self._count("count_openings", IssueQuery(labels=agent, created_since=_SINCE)),
-            *self._count(
-                "count_borrowed",
-                IssueQuery(labels=(*agent, CONST_ROADMAP_BORROWED_LABEL), created_since=_SINCE),
-            ),
         ]
 
     def decisions(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:

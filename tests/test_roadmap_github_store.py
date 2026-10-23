@@ -45,11 +45,9 @@ from devops_cli.roadmap.github_store import (
 )
 from devops_cli.roadmap.store import (
     ChangeKind,
-    CloseReason,
     Evidence,
     EvidenceKind,
     GitHubState,
-    IssueQuery,
     Item,
     ItemField,
     RefineRecordKey,
@@ -1891,42 +1889,6 @@ def test_evidence_with_a_path_in_its_value_never_leaves_its_endpoint() -> None:
     store, runner = board_store({"api ": {"sha": "x"}})
     store.evidence_holds(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="../pulls/1"))
     assert runner.calls[0][0][-1] == f"repos/{REPO}/commits/..%2Fpulls%2F1"
-
-
-def test_count_issues_reads_rest_search_total_count_for_its_query() -> None:
-    store, runner = board_store({"search/issues": {"total_count": 57, "incomplete_results": False}})
-    since = datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC)
-    counted = store.count_issues(
-        IssueQuery(
-            state=GitHubState.CLOSED,
-            labels=("source/agent",),
-            created_since=since,
-            closed_since=since,
-            reason=CloseReason.NOT_PLANNED,
-            uncommented=True,
-        )
-    )
-    assert (counted, runner.calls[0][0]) == (
-        57,
-        [
-            "api",
-            "-X",
-            "GET",
-            "search/issues",
-            "-f",
-            f'q=repo:{REPO} is:issue is:closed label:"source/agent" '
-            "created:>=2026-10-03T20:37:25+00:00 closed:>=2026-10-03T20:37:25+00:00 "
-            'reason:"not planned" comments:0',
-            "-F",
-            "per_page=1",
-        ],
-    )
-
-
-def test_an_incomplete_search_raises_rather_than_undercount() -> None:
-    store, _ = board_store({"search/issues": {"total_count": 3, "incomplete_results": True}})
-    with pytest.raises(GitHubOperationError, match="incomplete"):
-        store.count_issues(IssueQuery(state=GitHubState.OPEN))
 
 
 def test_issue_records_and_milestones_carry_author_and_close_times() -> None:

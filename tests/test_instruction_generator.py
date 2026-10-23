@@ -591,16 +591,13 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
         "--body-file",
         "never set a milestone or a priority on a new issue",
         "puts it in the backlog",
-        "rolling window of days",
         "source/agent",
-        "budget/borrowed",
-        "open_issue_limit",
         "Feasibility Check & Stop Rather Than Add Compensating Code",
         "ask a person to return the item to `New` (`devops roadmap return <number>",
     )
     missing_devops = [p for p in devops_expected if p not in devops_content]
-    # Intake is the one way in (#742): it puts each new item in the backlog, and no rule files
-    # an item into a milestone or a roadmap document.
+    # Intake is the one way in (#742): it puts each new item in the backlog, no rule files an
+    # item into a milestone or a roadmap document, and no quota limits what agents file (#1959).
     ingestion_rules = [
         rule
         for rule in (
@@ -609,6 +606,8 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
             "STRUCTURED ROADMAP TASKS",
             "MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)",
             "release_credit",
+            "filing quota",
+            "budget/borrowed",
         )
         if rule in devops_content
     ]

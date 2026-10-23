@@ -1357,7 +1357,6 @@ class RoadmapMessages:
             ),
             "comments": "the comments on {subject}",
             "issue": "{subject}",
-            "count": "count the issues matching {query}",
             "closures": "the closes and reopens on {subject}'s timeline",
             "advisory": "the advisory {subject} cites",
             "workflow_run": "the workflow run {subject} cites",
@@ -1394,12 +1393,6 @@ class RoadmapMessages:
     )
     # `devops roadmap intake` (#742).
     intake_title: str = "# Intake for {repo}"
-    intake_quota: str = (
-        "Quota (#1153): {open} open issues, r(n) = {ratio:.2f}; credit {credit} from "
-        "{delivered} delivered in the last {days} day(s); {closures} closure(s) since {since}; "
-        "allowance {allowance}; {openings} agent opening(s) in the window, {borrowed} borrowed."
-    )
-    intake_unlimited: str = "no limit"
     intake_nothing: str = "No candidates and no unfinished items."
     intake_issue: str = "#{number} {title}"
     intake_new: str = 'new candidate "{title}"'
@@ -1408,8 +1401,7 @@ class RoadmapMessages:
         "leaves it alone."
     )
     intake_place_line: str = (
-        "- {subject}: {type}, {priority}, Value {value}, Effort {effort}; {placement} "
-        "Quota: {quota}."
+        "- {subject}: {type}, {priority}, Value {value}, Effort {effort}; {placement}"
     )
     intake_duplicate_line: str = "- {subject}: duplicate of #{original}: {reason} {action}"
     intake_possible_duplicate_line: str = (
@@ -1417,19 +1409,6 @@ class RoadmapMessages:
     )
     intake_duplicate_closes: str = "It is closed as a duplicate."
     intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
-    intake_fold_line: str = (
-        "- {subject}: fold into {target}: the window's allowance of {allowance} agent "
-        "opening(s) is used, and it is not a split, a required follow-up or a P0/P1 bug or security "
-        "issue. Nothing is filed; add it to that item as an amendment or a comment."
-    )
-    intake_fold_open: str = (
-        "- {subject}: fold into {target}: the window's agent openings are past the allowance of "
-        "{allowance}, and it is not a P0/P1 bug or security issue. Intake leaves it off the "
-        "board; add it to that item as an amendment or a comment, and close it."
-    )
-    intake_fold_nowhere: str = "an existing item"
-    intake_quota_fold: str = "Quota: fold into #{target}."
-    intake_quota_suffix: str = "Quota: {quota}."
     intake_skip_line: str = "- {subject}: skipped, nothing written: {reason}"
     intake_writes: str = "  - writes: {writes}"
     intake_note: str = "  - note: {note}"
@@ -1482,20 +1461,8 @@ class RoadmapMessages:
         "the model's evidence ({kind} {value}) is not a GHSA ID, a run id or a commit SHA, so it "
         "was dropped."
     )
-    intake_note_borrow_judged: str = (
-        "it borrows as a {priority} {type}, which rests on the model's judgement, not a person's "
-        "or verified evidence; a person can remove {label}."
-    )
     intake_invalid: str = "the model's proposal is not valid: {problems}"
     intake_invalid_value: str = "{field} {value!r} is not one of {choices}"
-    intake_quota_decisions: dict[str, str] = field(
-        default_factory=lambda: {
-            "open": "open, within the allowance",
-            "borrow": "borrowed beyond the allowance (budget/borrowed)",
-            "fold": "fold",
-            "not_counted": "not counted (no source/agent label)",
-        }
-    )
     intake_preview: str = "Nothing was written. Run again with --confirm to make these writes."
     intake_plain_note: str = (
         "Intake without a mode flag runs as --plan: it reads GitHub and calls the model, and "
@@ -1527,7 +1494,6 @@ class RoadmapMessages:
     intake_left: str = "Left for a later run, beyond the limit of {limit}: {left}."
     intake_placeholder_default_branch: str = "the default branch"
     intake_placeholder_board: str = "<the board .github/roadmap.toml names>"
-    intake_placeholder_since: str = "<the start of the quota window>"
     intake_placeholder_each: str = "<the candidate>"
     intake_placeholder_filed: str = "<the filed issue>"
     intake_placeholder_fields: tuple[str, ...] = (
@@ -1541,14 +1507,6 @@ class RoadmapMessages:
             "issues": "every issue, open and closed",
             "board": "the items on board {board}, a page of GraphQL at a time",
             "board_issues": "every issue again, to join the board's items",
-            "count_open": "count the open issues",
-            "count_closed": "count the issues closed since {since}",
-            "count_delivered": "count the issues closed as completed since {since}",
-            "count_bulk": "count the issues closed as not planned with no comment since {since}",
-            "count_openings": "count the source/agent issues created since {since}",
-            "count_borrowed": (
-                "count the source/agent issues labeled budget/borrowed created since {since}"
-            ),
             "closures": "the closes and reopens on {subject}'s timeline",
             "embed": (
                 "every item, every issue closed as not planned and each candidate off the "
@@ -1562,11 +1520,8 @@ class RoadmapMessages:
             "propose": "the proposal for {subject}",
             "evidence": "the evidence the model cites for {subject}",
             "comments": "the comments on {subject}, for intake's marker",
-            "file": ("file {subject} with source/agent, and budget/borrowed when it borrows"),
-            "label": (
-                "label {subject} with its type/* label when it has none, and budget/borrowed "
-                "when it borrows"
-            ),
+            "file": "file {subject}, with source/agent when an agent files it",
+            "label": "label {subject} with its type/* label when it has none",
             "add": "read {subject}, add it to board {board}, then read the card the add names",
             "field": (
                 "set {field} on {subject}: the board's fields once a run, its card, the job "
@@ -1589,7 +1544,7 @@ class RoadmapMessages:
             "embed": "a candidate is off the board",
             "evidence": "the model cites any",
             "comments": "{subject} is placed or a duplicate",
-            "file": "it is not a duplicate and does not fold",
+            "file": "it is not a duplicate",
             "placed": "intake places {subject}",
             "add": "it is not on the board",
             "field": "it has none",
@@ -1621,10 +1576,6 @@ class RoadmapMessages:
         "Issues awaiting intake get their type and Priority from `devops roadmap intake`."
     )
     intake_title_needs_body: str = "Pass --title and --body-file together."
-    intake_borrow_needs_source: str = (
-        "--borrow-reason needs --source: the link to the item it splits from, or to the review "
-        "that requires the follow-up."
-    )
     intake_secret: str = (
         "The candidate's {part} holds what looks like a secret, so intake sent it to no model "
         "and filed nothing. Remove it and run again."
@@ -1648,9 +1599,6 @@ class RoadmapMessages:
         "The intake record {path} can't be read ({reason}), so intake does not run. Repair it, "
         "or remove it: the next intake then starts a new record and takes every candidate as "
         "never decided."
-    )
-    intake_borrow_needs_title: str = (
-        "--borrow-reason applies to a new candidate; pass it with --title and --body-file."
     )
     intake_issue_or_title: str = (
         "Pass --issue for existing issues, or --title and --body-file for a new candidate, "

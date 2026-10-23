@@ -37,7 +37,6 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
 from devops_cli.roadmap.intake import (
-    BorrowReason,
     Filer,
     NewCandidate,
     Outcome,
@@ -123,13 +122,9 @@ def _refuse(message: str) -> NoReturn:
     raise typer.Exit(1)
 
 
-def _new_candidate(
-    title: str | None, body_file: Path | None, borrow_reason: BorrowReason | None
-) -> tuple[str, str] | None:
+def _new_candidate(title: str | None, body_file: Path | None) -> tuple[str, str] | None:
     """The title and body `--title` and `--body-file` give together, or None when neither is."""
     if title is None and body_file is None:
-        if borrow_reason is not None:
-            _refuse(MESSAGES.roadmap.intake_borrow_needs_title)
         return None
     if title is None or body_file is None:
         _refuse(MESSAGES.roadmap.intake_title_needs_body)
@@ -164,10 +159,6 @@ def intake_cmd(
             "--body-file", exists=True, dir_okay=False, help=HELP.roadmap.intake_body_file
         ),
     ] = None,
-    borrow_reason: Annotated[
-        BorrowReason | None,
-        typer.Option("--borrow-reason", help=HELP.roadmap.intake_borrow_reason),
-    ] = None,
     source: Annotated[str | None, typer.Option("--source", help=HELP.roadmap.intake_source)] = None,
     filed_by: Annotated[
         Filer, typer.Option("--filed-by", help=HELP.roadmap.intake_filed_by)
@@ -181,19 +172,11 @@ def intake_cmd(
 ) -> None:
     """Turn candidates into items: duplicate check, type, priority, Value, Effort and placement."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
-    given = _new_candidate(title, body_file, borrow_reason)
+    given = _new_candidate(title, body_file)
     if given is not None and issue:
         _refuse(MESSAGES.roadmap.intake_issue_or_title)
-    if borrow_reason is not None and not source:
-        _refuse(MESSAGES.roadmap.intake_borrow_needs_source)
     new = (
-        NewCandidate(
-            title=given[0],
-            body=given[1],
-            source=source,
-            borrow_reason=borrow_reason,
-            filed_by=filed_by,
-        )
+        NewCandidate(title=given[0], body=given[1], source=source, filed_by=filed_by)
         if given is not None
         else None
     )
@@ -220,12 +203,11 @@ def _intake(
     with _exit_on_failure("Could not plan intake"):
         # Counts from here the requests the identity's ledger paces, gh's and the session's.
         meter = SpendMeter()
-        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_INTAKE_BOARD_FILTER)
+        target, _config, store = _open_roadmap(repo, ref, CONST_ROADMAP_INTAKE_BOARD_FILTER)
         opened.append(store)
         plan = plan_intake(
             store,
             repo=target,
-            config=config,
             model=meter.model(build_intake_model()),
             ref=ref,
             issues=issues,

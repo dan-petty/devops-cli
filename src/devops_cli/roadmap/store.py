@@ -237,22 +237,6 @@ class Closure(BaseModel):
     duplicate_of: int | None = None
 
 
-class IssueQuery(BaseModel):
-    """Which issues to count, never pull requests: each condition given narrows the count.
-
-    `labels` must all be on an issue; `uncommented` keeps issues with no comment at all.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    state: GitHubState | None = None
-    labels: tuple[str, ...] = ()
-    created_since: datetime | None = None
-    closed_since: datetime | None = None
-    reason: CloseReason | None = None
-    uncommented: bool = False
-
-
 class Evidence(BaseModel):
     """A piece of evidence for a P0: its kind and the value that names it."""
 
@@ -599,9 +583,6 @@ class RoadmapStore(Protocol):
         """Whether GitHub confirms the evidence: the advisory exists, the run of this repository
         failed, or the commit exists in this repository."""
 
-    def count_issues(self, query: IssueQuery) -> int:
-        """How many issues of the repository match `query`, never pull requests."""
-
     def graphql_spend(self, *, read: bool = True) -> GraphQLSpend | None:
         """The GraphQL points the run spent and the points left, read from GraphQL itself, or
         with `read` False from the last budget a response of the run reported, sending nothing;
@@ -651,7 +632,6 @@ __all__ = [
     "EvidenceKind",
     "FieldOption",
     "GitHubState",
-    "IssueQuery",
     "IssueRecord",
     "Item",
     "ItemField",

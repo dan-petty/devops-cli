@@ -651,7 +651,7 @@ def test_intake_hook_calls_refine(store: InMemoryRoadmapStore) -> None:
         placement=placement,
         fields=((ItemField.STATUS, "New"),),
     )
-    plan = IntakePlan(quota=None, decisions=(decision,))
+    plan = IntakePlan(decisions=(decision,))
 
     spy_refine = MagicMock()
     applied = apply_intake(store, plan, refine=spy_refine)
@@ -676,7 +676,7 @@ def test_intake_hook_skips_a_finished_card_the_add_restored(store: InMemoryRoadm
         fields=((ItemField.STATUS, "New"),),
     )
     spy_refine = MagicMock()
-    applied = apply_intake(store, IntakePlan(quota=None, decisions=(decision,)), refine=spy_refine)
+    applied = apply_intake(store, IntakePlan(decisions=(decision,)), refine=spy_refine)
     assert (applied.placed, applied.finished, spy_refine.call_count) == (0, (number,), 0)
 
 
@@ -1119,7 +1119,7 @@ def test_intakes_refine_hook_still_reports_a_failed_refine(
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.intake"):
         applied = apply_intake(
             store,
-            IntakePlan(quota=None, decisions=(decision,)),
+            IntakePlan(decisions=(decision,)),
             refine=partial(refine_item, source=git_repo),
         )
 

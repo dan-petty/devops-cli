@@ -1037,11 +1037,9 @@ class RoadmapCommandHelp:
         "a person plans the milestones on the board, and a milestone an issue has stays. An "
         "open issue whose board card a person archived is a candidate too: intake restores the "
         "card, which keeps its values and milestone; close the issue as not planned to keep it "
-        "off the roadmap. A candidate an "
-        "agent files with --title "
-        "and --body-file is labeled source/agent and held to the agent filing quota, which counts "
-        "over a rolling window of days; a text "
-        "that looks like it holds a secret is refused. --dry-run makes no request and prints "
+        "off the roadmap. A candidate an agent files with --title and --body-file is labeled "
+        "source/agent, and intake files it when it is not a duplicate; a text that looks like it "
+        "holds a secret is refused. --dry-run makes no request and prints "
         "the requests a run makes; --plan, the default, reads GitHub and calls the model, "
         "writes nothing and reports what it spent; --confirm makes the writes."
     )
@@ -1057,18 +1055,12 @@ class RoadmapCommandHelp:
         "duplicate. Needs --body-file."
     )
     intake_body_file: str = "File holding the new candidate's body. Needs --title."
-    intake_borrow_reason: str = (
-        "Why the new candidate may open beyond the quota's allowance: a split of an item too "
-        "big for one pull request, or a follow-up a reviewer or readiness check requires. "
-        "Needs --source."
-    )
     intake_source: str = (
         "Link the new candidate came from, such as the item it splits or the review that found "
         "it; the filed body ends with it."
     )
     intake_filed_by: str = (
-        "Who files the new candidate: an agent's is labeled source/agent and counts toward the "
-        "quota; a person's never does."
+        "Who files the new candidate: an agent's is labeled source/agent; a person's is not."
     )
     intake_confirm: str = "Plan as --plan does, then make the writes on GitHub."
     intake_plan: str = (

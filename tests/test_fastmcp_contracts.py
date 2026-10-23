@@ -1068,7 +1068,7 @@ async def test_a_coerced_argument_is_refused_before_the_handler_runs(
         ("review_pr", {"number": 7, "verbose": True}, "verbose", "HALLUCINATED_PARAM"),
         ("review_pr", {"number": "7"}, "number", "TYPE_MISMATCH"),
         ("review_pr", {"number": 7.0}, "number", "TYPE_MISMATCH"),
-        ("roadmap_intake", {"borrow_reason": "everything"}, "borrow_reason", "INVALID_CHOICE"),
+        ("roadmap_intake", {"filed_by": "everything"}, "filed_by", "INVALID_CHOICE"),
     ],
 )
 async def test_each_violation_is_numbered_with_its_parameter_and_kind(
@@ -1080,15 +1080,15 @@ async def test_each_violation_is_numbered_with_its_parameter_and_kind(
 
 
 async def test_a_parameter_that_breaks_two_keywords_is_listed_once(handler_runner) -> None:
-    """`5` for `roadmap_intake`'s `borrow_reason` fails its `enum` and its `type`.
+    """`5` for `roadmap_intake`'s `filed_by` fails its `enum` and its `type`.
 
     Each failed keyword became an entry with the same expected value and fix, doubling the
     count and taking a second of the five places a violation on another parameter needs.
     """
-    _, reply = await _call("roadmap_intake", {"borrow_reason": 5})
+    _, reply = await _call("roadmap_intake", {"filed_by": 5})
     assert (
         "1 argument violation(s)" in reply,
-        "1. Parameter: `borrow_reason`" in reply,
+        "1. Parameter: `filed_by`" in reply,
         "2. Parameter" in reply,
     ) == (True, True, False)
 
@@ -1475,7 +1475,6 @@ def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> Non
             issue=[868],
             title="fix: example",
             source="https://example.com",
-            borrow_reason="split",
             confirm=True,
         )
         roadmap_intake(plan_only=True)
@@ -1493,8 +1492,6 @@ def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> Non
             "868",
             "--title",
             "fix: example",
-            "--borrow-reason",
-            "split",
             "--source",
             "https://example.com",
             "--filed-by",

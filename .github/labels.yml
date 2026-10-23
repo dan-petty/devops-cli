@@ -140,11 +140,7 @@
 
 - name: "source/agent"
   color: "5319E7"
-  description: "Filed by an agent; counts toward the filing quota"
-
-- name: "budget/borrowed"
-  color: "B60205"
-  description: "Agent opening beyond the quota allowance; counts as debt until closed"
+  description: "Filed by an agent"
 
 # ── Review Feedback Labels ──────────────────────────────────────────────────
 - name: "review/approved"

@@ -88,7 +88,6 @@ This document provides context, architectural principles, and best practices for
 - **Continuous Roadmap Synthesis, Field Observations & Self-Improvement**:
   - File candidates with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`). The body states friction, evidence, and proposed remedy. Intake checks duplicates, labels `source/agent`, assigns type, Priority, Value, Effort, and puts the item in the backlog.
   - Never set milestone or priority on a new issue. A person plans milestones on the board ([ADR 0013](docs/adr/0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md)).
-  - Respect agent filing quota over its rolling window of days (`source/agent`, `budget/borrowed` for splits/follow-ups/P0/P1 bugs; see [#1153](https://github.com/dan-petty/devops-cli/issues/1153)).
 - **Continuous Interaction & Collaborative Value Improvement**: Suggest ways to improve ergonomics, speed, resilience, docs, test coverage, and tooling efficiency.
 
 ---

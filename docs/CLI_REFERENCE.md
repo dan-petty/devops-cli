@@ -6079,7 +6079,7 @@ Read and write the roadmap on GitHub, its source of truth: issues, milestones an
 
 ### `devops roadmap intake`
 
-**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota, which counts over a rolling window of days; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
+**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it when it is not a duplicate; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
 
 ```bash
 devops roadmap intake [OPTIONS]
@@ -6094,9 +6094,8 @@ devops roadmap intake [OPTIONS]
 | `--issue` | `integer` | - | Only this issue (repeatable). |
 | `--title` | `string` | - | Title of a candidate that is not an issue yet; intake files it only when it is not a duplicate. Needs --body-file. |
 | `--body-file` | `path` | - | File holding the new candidate's body. Needs --title. |
-| `--borrow-reason` | `choice (split|follow-up)` | - | Why the new candidate may open beyond the quota's allowance: a split of an item too big for one pull request, or a follow-up a reviewer or readiness check requires. Needs --source. |
 | `--source` | `string` | - | Link the new candidate came from, such as the item it splits or the review that found it; the filed body ends with it. |
-| `--filed-by` | `choice (agent|person)` | `agent` | Who files the new candidate: an agent's is labeled source/agent and counts toward the quota; a person's never does. |
+| `--filed-by` | `choice (agent|person)` | `agent` | Who files the new candidate: an agent's is labeled source/agent; a person's is not. |
 | `--limit` | `integer` | - | Decide at most this many candidates, the oldest first, and leave the rest for a later run. Without it, intake decides every candidate. It keeps no record of what it decided; the intake that devops roadmap run and the Service run keeps one, so a candidate it left undecided waits behind the fresh ones. |
 | `--dry-run` | `boolean` | - | Make no request, to GitHub or a model: print the requests a run makes, in order, with placeholders for values a read gives. |
 | `--plan` | `boolean` | - | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |

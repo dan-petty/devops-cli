@@ -46,7 +46,6 @@ from devops_cli.roadmap.store import (
     Evidence,
     FieldOption,
     GitHubState,
-    IssueQuery,
     IssueRecord,
     Item,
     ItemField,
@@ -70,10 +69,6 @@ from devops_cli.roadmap.store import (
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def _at_or_after(moment: datetime | None, since: datetime) -> bool:
-    return moment is not None and moment >= as_utc(since)
 
 
 def _entry(number: int) -> BoardEntry:
@@ -409,10 +404,6 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence
 
-    def count_issues(self, query: IssueQuery) -> int:
-        """How many issues match `query`, never pull requests."""
-        return sum(self._matches(issue, query) for issue in self.issues())
-
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
         issue = self._require_issue(number, "roadmap.issue.comment")
@@ -591,18 +582,6 @@ class InMemoryRoadmapStore(RoadmapStore):
             kind=kind, at=self._roadmap.clock(), reason=reason, duplicate_of=duplicate_of
         )
         self._roadmap.closures.setdefault(number, []).append(closure)
-
-    def _matches(self, issue: IssueRecord, query: IssueQuery) -> bool:
-        """Whether the issue meets every condition `query` gives, as GitHub's search counts it."""
-        conditions = (
-            query.state is None or issue.state is query.state,
-            set(query.labels) <= set(issue.labels),
-            query.created_since is None or _at_or_after(issue.created_at, query.created_since),
-            query.closed_since is None or _at_or_after(issue.closed_at, query.closed_since),
-            query.reason is None or issue.state_reason == query.reason.value,
-            not query.uncommented or not self._roadmap.comments.get(issue.number),
-        )
-        return all(conditions)
 
     def _require_issue(self, number: int, operation: str) -> IssueRecord:
         issue = self._roadmap.issues.get(number)

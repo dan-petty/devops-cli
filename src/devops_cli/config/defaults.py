@@ -770,17 +770,6 @@ DEFAULT_ROADMAP_REFINE_READY_TARGET: int = 12
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
-DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT: int = 200
-DEFAULT_ROADMAP_THROTTLE_START_FRACTION: float = 0.8
-DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION: float = 0.25
-# The agent filing quota (#1153) counts over the last this many days, a rolling window that
-# ends now.
-DEFAULT_ROADMAP_QUOTA_WINDOW_DAYS: int = 7
-# The credit the quota gives with no item delivered in the window, the credit each item closed
-# as completed in the window adds, and the most credit the window gives.
-DEFAULT_ROADMAP_QUOTA_CREDIT_BASE: int = 10
-DEFAULT_ROADMAP_QUOTA_CREDIT_PER_DELIVERED_ITEM: int = 1
-DEFAULT_ROADMAP_QUOTA_CREDIT_CAP: int = 50
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

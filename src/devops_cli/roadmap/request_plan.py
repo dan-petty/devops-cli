@@ -40,7 +40,6 @@ from devops_cli.roadmap.board_read import (
     board_items_args,
     graphql_budget_args,
 )
-from devops_cli.roadmap.store import IssueQuery
 
 _GH = "gh"
 Requests = list[PlannedRequest]
@@ -226,11 +225,6 @@ class StoreRequests:
 
     def issue(self, subject: str) -> Requests:
         return [self.gh(gh.issue_args(self.repo, _number(subject)), "issue", subject=subject)]
-
-    def count_issues(self, query: IssueQuery, *, text: str | None = None) -> Requests:
-        args = gh.issue_count_args(self.repo, query)
-        shown = text or gh.issue_search_text(self.repo, query)
-        return [self.gh(args, "count", query=shown)]
 
     def closures(self, subject: str) -> Requests:
         args = gh.closures_args(self.repo, _number(subject))

@@ -513,8 +513,6 @@ class GitHubFake:
         args: list[str],
     ) -> Any:
         page = int(query.get("page", "1"))
-        if path == "search/issues":
-            return {"total_count": 0, "incomplete_results": False}
         if parts[0] == "contents":
             name = unquote("/".join(parts[1:]))
             return self.files[name] if name in self.files else (1, "gh: Not Found (HTTP 404)")

@@ -14,16 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as InvalidConfigError
 
 from devops_cli.config.constants import CONST_ROADMAP_CONFIG_PATH
-from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT,
-    DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION,
-    DEFAULT_ROADMAP_QUOTA_CREDIT_BASE,
-    DEFAULT_ROADMAP_QUOTA_CREDIT_CAP,
-    DEFAULT_ROADMAP_QUOTA_CREDIT_PER_DELIVERED_ITEM,
-    DEFAULT_ROADMAP_QUOTA_WINDOW_DAYS,
-    DEFAULT_ROADMAP_REFINE_READY_TARGET,
-    DEFAULT_ROADMAP_THROTTLE_START_FRACTION,
-)
+from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_READY_TARGET
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.store import RoadmapStore
@@ -35,28 +26,13 @@ if TYPE_CHECKING:
 class RoadmapConfig(BaseModel):
     """The board and the numbers the roadmap jobs work to. `board` has no default.
 
-    The agent filing quota (#1153) counts over a rolling window of `quota_window_days` days
-    that ends now. Refine readies backlog items while fewer than `refine_ready_target` items
-    are Ready.
+    Refine readies backlog items while fewer than `refine_ready_target` items are Ready.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     board: int = Field(ge=1)
     refine_ready_target: int = Field(default=DEFAULT_ROADMAP_REFINE_READY_TARGET, ge=1)
-    open_issue_limit: int = Field(default=DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT, ge=1)
-    throttle_start_fraction: float = Field(
-        default=DEFAULT_ROADMAP_THROTTLE_START_FRACTION, gt=0.0, lt=1.0
-    )
-    overage_step_fraction: float = Field(
-        default=DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION, gt=0.0, lt=1.0
-    )
-    quota_window_days: int = Field(default=DEFAULT_ROADMAP_QUOTA_WINDOW_DAYS, ge=1)
-    quota_credit_base: int = Field(default=DEFAULT_ROADMAP_QUOTA_CREDIT_BASE, ge=0)
-    quota_credit_per_delivered_item: int = Field(
-        default=DEFAULT_ROADMAP_QUOTA_CREDIT_PER_DELIVERED_ITEM, ge=0
-    )
-    quota_credit_cap: int = Field(default=DEFAULT_ROADMAP_QUOTA_CREDIT_CAP, ge=1)
 
 
 def parse_roadmap_config(text: str) -> RoadmapConfig:
