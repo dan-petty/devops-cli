@@ -1552,7 +1552,9 @@ class InstallCommandHelp:
 
 @dataclass(frozen=True)
 class OpenSpecCommandHelp:
-    app: str = "Check and regenerate the OpenSpec change folders and agent skills."
+    app: str = (
+        "Check the OpenSpec change folders, regenerate the agent skills and archive a change."
+    )
     check: str = (
         "Run the OpenSpec gate: validate every change and archived change, check the committed "
         "skills against a regeneration, render the instructions every agent reads, and find a "
@@ -1562,6 +1564,12 @@ class OpenSpecCommandHelp:
         "Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated "
         "configuration, so no developer's own profile decides what is written."
     )
+    archive: str = (
+        "Archive a change with `openspec archive <change> --yes`, then run `openspec validate "
+        "--all --strict`. Both runs use an isolated configuration with telemetry off. The command "
+        "exits 1 when a run fails. A failed archive skips the validation."
+    )
+    archive_change: str = "Name of the change folder under openspec/changes, as <issue>-<slug>."
 
 
 @dataclass(frozen=True)

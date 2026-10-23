@@ -625,6 +625,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("mcp", "export-schemas"),
         ("mcp", "serve"),
         ("mcp", "tools"),
+        ("openspec", "archive"),
         ("openspec", "check"),
         ("openspec", "regenerate"),
         ("pipeline",),

@@ -10,7 +10,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops devcontainer`](#devops-devcontainer) — Manage devcontainer configurations.
 - [`devops workspace`](#devops-workspace) — Manage multi-root VS Code workspace files (.code-workspace).
 - [`devops install-tools`](#devops-install-tools) — Install and manage DevOps tool binaries.
-- [`devops openspec`](#devops-openspec) — Check and regenerate the OpenSpec change folders and agent skills.
+- [`devops openspec`](#devops-openspec) — Check the OpenSpec change folders, regenerate the agent skills and archive a change.
 - [`devops k8s`](#devops-k8s) — Manage Kubernetes clusters, pods, services, and workloads.
 - [`devops kustomize`](#devops-kustomize) — Kustomize build and apply operations.
 - [`devops docker`](#devops-docker) — Docker image management.
@@ -666,7 +666,7 @@ devops install-tools status [OPTIONS]
 
 ## devops openspec
 
-Check and regenerate the OpenSpec change folders and agent skills.
+Check the OpenSpec change folders, regenerate the agent skills and archive a change.
 
 ### `devops openspec check`
 
@@ -683,6 +683,26 @@ devops openspec check
 ```bash
 devops openspec regenerate [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops openspec archive`
+
+**Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation.**
+
+```bash
+devops openspec archive [OPTIONS] <change>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
 
 **Options:**
 

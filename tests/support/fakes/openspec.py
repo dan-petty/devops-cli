@@ -10,17 +10,17 @@ offline renderers.
 
 The record (`tests/fixtures/openspec_runs/recorded_runs.json`, made by
 `tests/support/openspec_recording.py`) holds the real, pinned tool's answers to the commands the
-gate runs, over each scenario of `tests/support/openspec_scenarios.py`. `tree` builds a scenario
-for a test and selects its runs. A command the record does not hold for the scenario fails the
-test, naming the command, so a change to the commands the code starts fails here until the record
-is made again. The fake does two things beyond replaying. A test may script a command's answer
-(`script`) or make it hang (`hang`), for the failures a recording cannot hold: a tool that dies with
-no JSON, or that runs past its timeout. And it writes what `openspec update --force`
-writes, in each agent's tree that already holds a skill: the skills the repository commits, which
-are the real tool's output at the pin, and it removes every other skill of OpenSpec's, as the real
-tool removes a workflow the profile does not hold (tried: 1.14.3 removed a hand-made
-`openspec-archive-change`). `calls` holds every command the
-fake answered, with the directory and the OpenSpec environment it was started with.
+gate and `devops openspec archive` run, over each scenario of `tests/support/openspec_scenarios.py`.
+`tree` builds a scenario for a test and selects its runs. A command the record does not hold for
+the scenario fails the test, naming the command, so a change to the commands the code starts fails
+here until the record is made again. The fake does two things beyond replaying. A test may script
+a command's answer (`script`) or make it hang (`hang`), for the failures a recording cannot hold: a
+tool that dies with no JSON, or that runs past its timeout. And it writes what `openspec update
+--force` writes, in each agent's tree that already holds a skill: the skills the repository
+commits, which are the real tool's output at the pin, and it removes every other skill of
+OpenSpec's, as the real tool removes a workflow the profile does not hold (tried: 1.14.3 removed a
+hand-made `openspec-archive-change`). `calls` holds every command the fake answered, with the
+directory and the OpenSpec environment it was started with.
 """
 
 from __future__ import annotations
