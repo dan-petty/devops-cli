@@ -1,0 +1,52 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@inquirer/ansi": {
+      "name": "@inquirer/ansi",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1100001,
+          "name": "@inquirer/ansi",
+          "dependency": "@inquirer/ansi",
+          "title": "Example advisory",
+          "url": "https://example.com/advisory",
+          "severity": "high",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+          },
+          "range": "*"
+        }
+      ],
+      "effects": [],
+      "range": "*",
+      "nodes": [
+        "node_modules/@inquirer/ansi"
+      ],
+      "fixAvailable": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 1,
+      "critical": 0,
+      "total": 1
+    },
+    "dependencies": {
+      "prod": 58,
+      "dev": 0,
+      "optional": 0,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 57
+    }
+  }
+}

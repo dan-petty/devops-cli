@@ -36,7 +36,7 @@ graph TD
         K8S["kubernetes<br/>K8s API & Pods"]
         DOCKER["docker<br/>Engine Daemon SDK"]
         CRYPTO["cryptography<br/>X.509 CA & TLS"]
-        GIT["gitpython & PyGithub<br/>Git & GitHub APIs"]
+        GIT["gitpython & gidgethub<br/>Git & GitHub APIs"]
         OTEL["opentelemetry-otlp<br/>Tempo Tracing"]
         FASTMCP["fastmcp<br/>MCP Server Protocol"]
         FASTAPI["fastapi & uvicorn<br/>REST API Engine"]
@@ -164,16 +164,17 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 ### 4. Git, GitHub & DevSecOps Subsystems
 
 #### `gitpython` ([Dedicated Manual](libraries/gitpython.md))
-- **Pinned Version**: `gitpython==3.2.0`
+- **Pinned Version**: `gitpython==3.2.1`
 - **Ecosystem Role**: Python interface for interacting with Git repositories, inspecting commits, reading tree objects, and managing tracking branches.
 - **Codebase Integration**:
   - `devops_cli.git`: Retrieves current branch name, diffs (`git.diff`), unstaged files, and commit logs with defensive error handling.
 
-#### `PyGithub` ([Dedicated Manual](libraries/pygithub.md))
-- **Pinned Version**: `PyGithub==2.10.0`
-- **Ecosystem Role**: Full-featured client for the GitHub REST API v3 and GraphQL API.
+#### `gidgethub`
+- **Pinned Version**: `gidgethub==6.0.0`
+- **Ecosystem Role**: Sans-I/O GitHub REST client. It builds each request and decodes each answer. It sends nothing itself.
 - **Codebase Integration**:
-  - `devops_cli.github.client`: Fetches PR details and posts review findings through the GitHub REST API.
+  - `devops_cli.github.session` and `devops_cli.github.session_transport`: Send every REST request as the one identity of the process, read every `Link` page, and raise the typed GitHub errors. See ADR 0006.
+  - `devops_cli.github.client`: Reads pull requests, their files, files at a commit, merge bases and repositories through the session. It posts review comments through the session.
 
 #### `cryptography` ([Dedicated Manual](libraries/cryptography.md))
 - **Pinned Version**: `cryptography==50.0.2`
@@ -229,7 +230,7 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
   - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and an SSE event stream.
 
 #### `opentelemetry-exporter-otlp-proto-grpc` ([Dedicated Manual](libraries/opentelemetry.md))
-- **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.44.0`
+- **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.45.1`
 - **Ecosystem Role**: OpenTelemetry collector exporter transmitting distributed trace spans over gRPC.
 - **Codebase Integration**:
   - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to the OpenTelemetry Collector and Tempo.
@@ -267,7 +268,7 @@ The development environment leverages modern Python engineering tools managed vi
 ## 🔒 Engineering Standards & Integration Principles
 
 1. **Deterministic Version Pinning**: All package versions are strictly pinned with exact versions (`==`) in `pyproject.toml` and verified in `uv.lock` to guarantee reproducible builds across workstations, CI runners, and DevContainers.
-2. **Automated Vulnerability Audits**: The `devops ci` quality gate automatically audits dependencies for known CVEs via `uv audit`.
+2. **Automated Vulnerability Audits**: The `devops ci` quality gate automatically audits dependencies for known CVEs via `uv audit`, and the lockfile of each Node tool in `tools.lock` via `npm audit`.
 3. **Lazy Subsystem Loading**: High-overhead modules (e.g. `fastmcp`, `qdrant-client`, `docker`, `kubernetes`, `fastapi`, `cryptography`) are imported lazily within subcommand execution functions to ensure CLI cold-start latency remains low.
 4. **Standard Library Leverage First**: Ad-hoc helper loops or custom workarounds are avoided in favor of standard library modules (`functools`, `itertools`, `pathlib`, `ipaddress`, `urllib.parse`) and established libraries.
 5. **Strict Type Safety**: All external library integrations must provide complete type annotations compatible with `mypy --strict`.

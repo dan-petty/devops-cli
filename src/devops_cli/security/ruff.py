@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_RUFF
 from devops_cli.config.constants import (
     CONST_DEFAULT_REVIEW_ADVISORY_RULES,
+    CONST_RUFF_CONFIG_FILE_NAMES,
     CONST_SARIF_LEVEL_TO_SEVERITY,
     CONST_SARIF_LEVEL_WARNING,
     CONST_SARIF_LEVELS,
@@ -18,6 +19,9 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 
 def _extract_physical_location(loc_dict: dict[str, Any]) -> tuple[str, int | None, int | None]:
@@ -222,6 +226,9 @@ class RuffScanner(BaseSecurityScanner):
     binary_name: str = BIN_RUFF
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # Ruff reads the config file nearest to each file it checks, whatever directory it starts in.
+    config_names: ClassVar[tuple[str, ...]] = CONST_RUFF_CONFIG_FILE_NAMES
+    config_search_upward: ClassVar[bool] = True
 
     def build_command(
         self,
@@ -305,6 +312,7 @@ def run_ruff_scan(
     tree: Path | None = None,
     target_version: str | None = None,
     require_version: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Ruff scan producing SARIF findings with advisory rule filtering."""
     from devops_cli.review.canary import (
@@ -324,7 +332,7 @@ def run_ruff_scan(
             findings=[],
             reason="missing requires-python in pyproject.toml",
         )
-    scanner = RuffScanner()
+    scanner = RuffScanner(tool_executor)
     outcome = scanner.scan(
         target,
         isolated=isolated,

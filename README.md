@@ -39,7 +39,6 @@
 - [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
 - [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
 - [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
-- [**Tool Cheatsheets & Command Translation (`docs/cheatsheets/README.md`)**](docs/cheatsheets/README.md) — Side-by-side comparison of standard DevOps tools (`git`, `kubectl`, `helm`, `docker`, `terraform`, `trivy`, `prometheus`, `grafana`, `ollama`) vs `devops-cli`.
 - [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
 - [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
 - [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
@@ -126,9 +125,9 @@ Specialized personas available for interactive conversations via `devops ai chat
 
 1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_HTTP_TIMEOUT_SECONDS = 3600.0` per LLM request, `DEFAULT_REVIEW_TIMEOUT_SECONDS = 1200.0` per review request, unless `ai.timeout` or `ai.tasks.<task>.timeout` sets one; `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
 2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
-3. **SSRF Protections**: An HTTP client built by the `devops_cli.http.client` factory (`web_fetch`, tool downloads, the search tools, Vault, the Kubernetes clients, the sandbox probe, Tempo and the LLM client base) has an egress level (`devops_cli.http.egress`) and resolves a host once, at the connect, dialling only the addresses its level admits; the other clients are not checked at the connect yet, and the service connectors among them validate their URL before the request (`validate_service_url`). Untrusted URLs (`web_fetch`, tool downloads) are public-only whatever the configuration says. A service URL from the user's own configuration (Ollama, Qdrant, the LLM gateway, a provider's `api_base_url`) may name loopback, and a private address once `ai.allow_private_network` (`DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true`) is set. Internal infrastructure clients (Vault, the Kubernetes API, Loki) reach private addresses. Cloud metadata addresses are refused at every level. Factory clients ignore `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`.
+3. **SSRF Protections**: An HTTP client built by the `devops_cli.http.client` factory (tool downloads, the Tavily search call, Vault, the Kubernetes clients, the sandbox probe, Tempo and the LLM client base) has an egress level (`devops_cli.http.egress`) and resolves a host once, at the connect, dialling only the addresses its level admits; the other clients are not checked at the connect yet, and the service connectors among them validate their URL before the request (`validate_service_url`). Untrusted URLs (tool downloads) are public-only whatever the configuration says. A service URL from the user's own configuration (Ollama, Qdrant, the LLM gateway, a provider's `api_base_url`) may name loopback, and a private address once `ai.allow_private_network` (`DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true`) is set. Internal infrastructure clients (Vault, the Kubernetes API, Loki) reach private addresses. Cloud metadata addresses are refused at every level. Factory clients ignore `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`.
 4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
-5. **Checksum Verification**: `devops install-tools` installs every tool only from `tools.lock` (`src/devops_cli/tools_lock/`), at an exact version. A binary is checked against the lock's SHA-256 for its platform, and a Python tool (Semgrep, Bandit) installs with `uv pip sync --require-hashes` into a virtual environment of its own; a mismatch is refused and the command exits 1. `devops install-tools --check` lists each tool not linked at its locked version.
+5. **Checksum Verification**: `devops install-tools` installs every tool only from `tools.lock` (`src/devops_cli/tools_lock/`), at an exact version. A binary is checked against the lock's SHA-256 for its platform, a Python tool (Semgrep, Bandit) installs with `uv pip sync --require-hashes` into a virtual environment of its own, and a Node tool (OpenSpec, Dev Containers CLI) installs with `npm ci --ignore-scripts` from a committed `package-lock.json`, which npm checks against the sha512 of every package (`npm` must already be on PATH); a mismatch is refused and the command exits 1. `devops install-tools --check` lists each tool not linked at its locked version.
 6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
 
 ---
@@ -166,8 +165,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix. |
 |  | `devops ssh register [OPTIONS]` | Generate, rotate, audit, and register Ed25519 SSH keypairs. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
-|  | `devops ssh list [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
-|  | `devops ssh audit [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
+|  | `devops ssh list [OPTIONS]` | List the managed SSH keys of the project prefix with their age and rotation status. |
+|  | `devops ssh audit [OPTIONS]` | List the managed SSH keys of the project prefix with their age and rotation status. |
 |  | `devops ssh status [OPTIONS]` | Show the active SSH key and days until rotation. |
 | **branches** | `devops branches update [OPTIONS]` | Fetch and pull tracking branches across all repos. |
 |  | `devops branches sync [OPTIONS]` | Fetch and pull tracking branches across all repos. |
@@ -189,6 +188,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
 |  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
+| **openspec** | `devops openspec check` | Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and find a requirement that two changes rewrite. Exits 1 on any problem. |
+|  | `devops openspec regenerate [OPTIONS]` | Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written. |
+|  | `devops openspec archive [OPTIONS] <change>` | Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation. |
 | **k8s** | `devops k8s contexts [OPTIONS]` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context [OPTIONS] <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status [OPTIONS]` | Show node and pod summary for the current context. |
@@ -266,7 +268,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 |  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 |  | `devops ci typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
-|  | `devops ci audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
+|  | `devops ci audit [OPTIONS]` | Run uv audit and npm audit to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security analysis over src/ and tests/, the targets .bandit names. |
 |  | `devops ci actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
@@ -300,7 +302,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
 |  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity across configured servers. |
 |  | `devops ai prewarm [OPTIONS]` | Prewarm local models into GPU VRAM or evict idle models across cluster nodes. |
-|  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md). |
+|  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md). |
 |  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG). |
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
 |  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |

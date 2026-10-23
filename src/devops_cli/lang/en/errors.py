@@ -14,6 +14,13 @@ class AIErrorMessages:
     provider_connection_error: str = "Could not connect to AI provider at {url}: {exc}"
     unsupported_provider: str = "Unsupported AI provider '{provider}'."
     unknown_benchmark_type: str = "Unknown benchmark type '{value}': use one of {choices}."
+    benchmark_corpus_conflict: str = (
+        "--document and --code each choose the corpus the embedding benchmark ranks: pass one."
+    )
+    benchmark_no_code_queries: str = (
+        "No code chunk under '{path}' has a symbol name to query by, so the benchmark has "
+        "nothing to retrieve: point --code at a directory of source files."
+    )
 
 
 @dataclass(frozen=True)
@@ -66,7 +73,6 @@ class K8sErrorMessages:
 @dataclass(frozen=True)
 class SSHErrorMessages:
     key_already_exists: str = "Key already exists: {key_path}"
-    no_ssh_key_found: str = "No managed SSH key found. Run 'devops ssh generate' first."
     public_key_not_found: str = "Public key not found: {pub_path}"
     failed_to_register_key: str = "Failed to register key on GitHub: {error}"
     registration_failed: str = "GitHub key registration failed: {exc}"

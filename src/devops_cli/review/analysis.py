@@ -13,18 +13,19 @@ never contain model-written analysis.
 from __future__ import annotations
 
 import ast
+import functools
 import json
 import os
 import re
 import shutil
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import Any, Final, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from pydantic import ValidationError as PydanticValidationError
 
+from devops_cli.ai.client.models import ReplyRejectedError
 from devops_cli.ai.kb import (
     DriftManual,
     MatchedManual,
@@ -49,7 +50,6 @@ from devops_cli.config.constants import (
     CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED,
     CONST_FINISH_REASON_LENGTH,
     CONST_KB_REFERENCE_PREFIX,
-    CONST_REVIEW_ANALYSIS_FILENAME,
     CONST_SEVERITY_ORDER,
 )
 from devops_cli.config.defaults import (
@@ -974,12 +974,7 @@ def verify_group_analysis(
     return (None if reasons else output), reasons
 
 
-def _parse_model_group_output(raw_reply: Any) -> GroupAnalysisOutput | None:
-    if isinstance(raw_reply, GroupAnalysisOutput):
-        return raw_reply
-    text = (
-        raw_reply if isinstance(raw_reply, str) else str(getattr(raw_reply, "content", raw_reply))
-    )
+def _parse_model_group_output(text: str) -> GroupAnalysisOutput | None:
     extracted = extract_json_block(text, default=None)
     candidate = extracted if isinstance(extracted, dict) else None
     if candidate is None:
@@ -996,10 +991,11 @@ def _parse_model_group_output(raw_reply: Any) -> GroupAnalysisOutput | None:
         return None
 
 
-def _rejected_group_record(
+def _group_record(
     job_input: AnalysisJobInput,
     sampling: SamplingRecord,
-    reason: str,
+    output: GroupAnalysisOutput | None,
+    reasons: list[str],
 ) -> GroupAnalysisRecord:
     return GroupAnalysisRecord(
         group_id=job_input.group_id,
@@ -1011,9 +1007,43 @@ def _rejected_group_record(
         dropped_keys=job_input.dropped_keys,
         reference_coverage=job_input.reference_coverage,
         sampling=sampling,
-        status="rejected",
-        output=None,
-        rejected_reasons=[reason],
+        status="verified" if output is not None else "rejected",
+        output=output,
+        rejected_reasons=reasons,
+    )
+
+
+def _rejected_group_record(
+    job_input: AnalysisJobInput,
+    sampling: SamplingRecord,
+    reason: str,
+) -> GroupAnalysisRecord:
+    return _group_record(job_input, sampling, None, [reason])
+
+
+_GroupVerdict = tuple[GroupAnalysisOutput | None, list[str]]
+
+
+def _judge_group_reply(
+    text: str,
+    job_input: AnalysisJobInput,
+    *,
+    admitted_ids: set[str],
+    file_contents: Mapping[str, str],
+    python_block_checker: Callable[[str, str], list[str]] | None,
+    correlation_table: Sequence[CorrelationEntry] | None,
+) -> _GroupVerdict:
+    """Parse a reply and run the G10 checks on it: the verified output, or the reasons it fails."""
+    parsed = _parse_model_group_output(text)
+    if parsed is None:
+        return None, [CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED]
+    return verify_group_analysis(
+        parsed,
+        job_input,
+        admitted_finding_ids=admitted_ids,
+        file_contents=file_contents,
+        python_block_checker=python_block_checker,
+        correlation_table=correlation_table,
     )
 
 
@@ -1028,46 +1058,40 @@ def _execute_single_group_job(
     python_block_checker: Callable[[str, str], list[str]] | None,
     correlation_table: Sequence[CorrelationEntry] | None = None,
 ) -> tuple[GroupAnalysisRecord, list[str]]:
-    user_prompt = job_input.model_dump_json(indent=2)
-    raw = llm_client.chat(
-        system_prompt,
-        user_prompt,
-        temperature=sampling.temperature,
-        top_p=sampling.top_p,
-        seed=sampling.seed,
-    )
-    if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
-        reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
-        return (_rejected_group_record(job_input, sampling, reason), [reason])
-    parsed = _parse_model_group_output(raw)
-    if parsed is None:
-        reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
-        return (_rejected_group_record(job_input, sampling, reason), [reason])
-    verified, reasons = verify_group_analysis(
-        parsed,
-        job_input,
-        admitted_finding_ids=admitted_ids,
+    judge = functools.partial(
+        _judge_group_reply,
+        job_input=job_input,
+        admitted_ids=admitted_ids,
         file_contents=file_contents,
         python_block_checker=python_block_checker,
         correlation_table=correlation_table,
     )
-    return (
-        GroupAnalysisRecord(
-            group_id=job_input.group_id,
-            kind=job_input.kind,
-            key=job_input.key,
-            finding_ids=job_input.finding_ids,
-            needed_keys=job_input.needed_keys,
-            received_keys=job_input.received_keys,
-            dropped_keys=job_input.dropped_keys,
-            reference_coverage=job_input.reference_coverage,
-            sampling=sampling,
-            status="verified" if verified is not None else "rejected",
-            output=verified,
-            rejected_reasons=reasons,
-        ),
-        reasons,
-    )
+    judged: dict[str, _GroupVerdict] = {}
+
+    def accept(text: str) -> bool:
+        judged[text] = judge(text)
+        return judged[text][0] is not None
+
+    # A reply the checks refuse is neither cached nor served, and is not asked for again: the
+    # job makes one model call, and reads the rejected reply's finish reason from the rejection.
+    try:
+        raw = llm_client.chat(
+            system_prompt,
+            job_input.model_dump_json(indent=2),
+            temperature=sampling.temperature,
+            top_p=sampling.top_p,
+            seed=sampling.seed,
+            max_retries=0,
+            validator=accept,
+        )
+    except ReplyRejectedError as rejected:
+        raw = rejected.reply
+    if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
+        reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
+        return (_rejected_group_record(job_input, sampling, reason), [reason])
+    text = str(raw).strip()
+    verified, reasons = judged[text] if text in judged else judge(text)
+    return _group_record(job_input, sampling, verified, reasons), reasons
 
 
 def _finding_plan_rank(finding: Finding) -> tuple[int, int, str, int, str]:
@@ -1384,13 +1408,12 @@ def run_group_analysis(
     neighbours_by_group: Mapping[str, Sequence[SymbolNeighbour]] | None = None,
     environment: EnvironmentFacts | None = None,
     sampling: SamplingRecord | None = None,
-    session_dir: Path | None = None,
     concurrency: int | None = None,
     python_block_checker: Callable[[str, str], list[str]] | None = None,
     plan_client: Any | None = None,
     drift_manuals: Sequence[DriftManual] | None = None,
 ) -> AnalysisReport:
-    """Group admitted findings, run model jobs, compute cross-group correlations, plan review, and save `analysis.json`."""
+    """Group admitted findings, run model jobs, compute cross-group correlations and plan the review."""
     contents = file_contents or {}
     groups = group_findings_for_analysis(findings, file_contents=contents)
     eff_sampling = sampling or SamplingRecord()
@@ -1528,12 +1551,6 @@ def run_group_analysis(
         drift_manuals=eff_drift_kb,
         injected_manuals=injected_keys,
     )
-    if session_dir is not None:
-        session_dir.mkdir(parents=True, exist_ok=True)
-        (session_dir / CONST_REVIEW_ANALYSIS_FILENAME).write_text(
-            report.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
     return report
 
 

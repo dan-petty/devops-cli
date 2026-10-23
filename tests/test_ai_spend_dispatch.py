@@ -1,26 +1,17 @@
-"""Integration tests verifying automatic spend recording during LLMClient dispatches and direct requests."""
+"""Integration tests verifying automatic spend recording during LLMClient dispatches."""
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import sqlite3
 from typing import Any
 
 import httpx2
 import pytest
-from pydantic_ai.messages import ModelResponse, TextPart
-from pydantic_ai.usage import RequestUsage
 
 import devops_cli.ai.spend as spend_mod
 from devops_cli.ai import context_budget
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse, RequestPriority
-from devops_cli.ai.direct import (
-    direct_model_request,
-    direct_model_request_stream,
-    direct_model_request_stream_sync,
-    direct_model_request_sync,
-)
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.spend.models import SpendRecord
 from devops_cli.config.settings import AIConfig
@@ -144,162 +135,6 @@ def test_llm_client_streaming_records_spend(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
 
-def test_direct_model_request_records_spend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify direct_model_request_sync and direct_model_request invoke spend tracking."""
-    recorded: list[dict[str, Any]] = []
-
-    def mock_track_spend(**kwargs: Any) -> SpendRecord:
-        recorded.append(kwargs)
-        return SpendRecord(
-            timestamp="2026-01-01T00:00:00Z",
-            provider=kwargs.get("provider", ""),
-            model=kwargs.get("model", ""),
-            server=kwargs.get("server", ""),
-            prompt_tokens=kwargs.get("prompt_tokens", 0),
-            completion_tokens=kwargs.get("completion_tokens", 0),
-            total_tokens=kwargs.get("prompt_tokens", 0) + kwargs.get("completion_tokens", 0),
-            cost_usd=0.0002,
-        )
-
-    monkeypatch.setattr(spend_mod, "track_request_spend", mock_track_spend)
-
-    mock_resp = ModelResponse(
-        parts=[TextPart(content="Direct mock reply")],
-        usage=RequestUsage(input_tokens=40, output_tokens=60),
-    )
-
-    monkeypatch.setattr(
-        "devops_cli.ai.pydantic_ai_bridge.resolve_pydantic_ai_model",
-        lambda m, **kwargs: "test-model",
-    )
-    monkeypatch.setattr(
-        "devops_cli.ai.direct.model_request_sync", lambda *args, **kwargs: mock_resp
-    )
-
-    async def async_req(*args: Any, **kwargs: Any) -> Any:
-        return mock_resp
-
-    monkeypatch.setattr("devops_cli.ai.direct.model_request", async_req)
-
-    # Test sync
-    sync_resp = direct_model_request_sync(
-        prompt_or_messages="Sync test prompt",
-        model="test-model",
-    )
-
-    # Test async
-    async_resp = asyncio.run(
-        direct_model_request(
-            prompt_or_messages="Async test prompt",
-            model="test-model",
-        )
-    )
-
-    assert (
-        sync_resp.parts[0].content,
-        async_resp.parts[0].content,
-        len(recorded),
-    ) == (
-        "Direct mock reply",
-        "Direct mock reply",
-        2,
-    )
-    assert (
-        recorded[0]["provider"],
-        recorded[0]["model"],
-        recorded[0]["prompt_tokens"],
-        recorded[0]["completion_tokens"],
-    ) == (
-        "test",
-        "test-model",
-        40,
-        60,
-    )
-
-
-def test_direct_model_request_stream_records_spend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify direct_model_request_stream_sync and stream record spend upon iteration finish (#1001)."""
-    from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
-
-    recorded: list[dict[str, Any]] = []
-
-    def mock_track_spend(**kwargs: Any) -> SpendRecord:
-        recorded.append(kwargs)
-        return SpendRecord(
-            timestamp="2026-01-01T00:00:00Z",
-            provider=kwargs.get("provider", ""),
-            model=kwargs.get("model", ""),
-            server=kwargs.get("server", ""),
-            prompt_tokens=kwargs.get("prompt_tokens", 0),
-            completion_tokens=kwargs.get("completion_tokens", 0),
-            total_tokens=kwargs.get("prompt_tokens", 0) + kwargs.get("completion_tokens", 0),
-            cost_usd=0.0002,
-        )
-
-    monkeypatch.setattr(spend_mod, "track_request_spend", mock_track_spend)
-
-    from contextlib import asynccontextmanager, contextmanager
-
-    class MockStream:
-        def __init__(self) -> None:
-            self.usage = RequestUsage(input_tokens=25, output_tokens=35)
-            self.response = ModelResponse(
-                parts=[TextPart(content="Streaming chunk")],
-                finish_reason="stop",
-            )
-
-        def __iter__(self) -> Any:
-            yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="Streaming chunk"))
-
-        async def __aiter__(self) -> Any:
-            yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="Streaming chunk"))
-
-    @contextmanager
-    def mock_stream_sync(*args: Any, **kwargs: Any) -> Any:
-        yield MockStream()
-
-    @asynccontextmanager
-    async def mock_stream_async(*args: Any, **kwargs: Any) -> Any:
-        yield MockStream()
-
-    monkeypatch.setattr(
-        "devops_cli.ai.pydantic_ai_bridge.resolve_pydantic_ai_model",
-        lambda m, **kwargs: "test-model",
-    )
-    monkeypatch.setattr("devops_cli.ai.direct.model_request_stream_sync", mock_stream_sync)
-    monkeypatch.setattr("devops_cli.ai.direct.model_request_stream", mock_stream_async)
-
-    # Sync stream
-    sync_chunks = list(direct_model_request_stream_sync("Prompt", model="test-model"))
-    assert sync_chunks == ["Streaming chunk"]
-    assert len(recorded) == 1
-    assert (
-        recorded[0]["request_type"],
-        recorded[0]["provider"],
-        recorded[0]["prompt_tokens"],
-        recorded[0]["completion_tokens"],
-        recorded[0]["finish_reason"],
-    ) == ("direct_stream_sync", "test", 25, 35, "stop")
-
-    # Async stream
-    async def collect_async() -> list[str]:
-        chunks: list[str] = []
-        async for c in direct_model_request_stream("Prompt", model="test-model"):
-            chunks.append(c)
-        return chunks
-
-    async_chunks = asyncio.run(collect_async())
-    assert async_chunks == ["Streaming chunk"]
-    assert len(recorded) == 2
-    assert (
-        recorded[1]["request_type"],
-        recorded[1]["provider"],
-        recorded[1]["prompt_tokens"],
-        recorded[1]["completion_tokens"],
-        recorded[1]["finish_reason"],
-    ) == ("direct_stream_async", "test", 25, 35, "stop")
-
-
 # ── Why a reply ended, from the provider to the ledger and its observers ──────────────────────
 
 
@@ -372,37 +207,6 @@ def test_a_cache_lookup_that_answers_nothing_is_recorded_once_as_a_dispatch(
         [False],
         [("chat_dispatch", 0)],
     )
-
-
-def test_a_direct_request_hands_its_finish_reason_to_observers(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
-) -> None:
-    """Verify both direct requests record the `ModelResponse` finish reason."""
-    cut = ModelResponse(
-        parts=[TextPart(content="partial")],
-        usage=RequestUsage(input_tokens=40, output_tokens=60),
-        finish_reason="length",
-    )
-
-    async def async_request(*args: Any, **kwargs: Any) -> ModelResponse:
-        return cut
-
-    monkeypatch.setattr(
-        "devops_cli.ai.pydantic_ai_bridge.resolve_pydantic_ai_model",
-        lambda m, **kwargs: "test-model",
-    )
-    monkeypatch.setattr("devops_cli.ai.direct.model_request_sync", lambda *args, **kwargs: cut)
-    monkeypatch.setattr("devops_cli.ai.direct.model_request", async_request)
-    seen: list[dict[str, Any]] = []
-
-    with observe_llm_calls(seen.append):
-        direct_model_request_sync("Sync test prompt", model="test-model")
-        asyncio.run(direct_model_request("Async test prompt", model="test-model"))
-
-    assert [(call["request_type"], call["finish_reason"]) for call in seen] == [
-        ("direct_sync", "length"),
-        ("direct_async", "length"),
-    ]
 
 
 def _stream_client(monkeypatch: pytest.MonkeyPatch) -> LLMClient:

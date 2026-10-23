@@ -6,10 +6,10 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo | `argocd`, `argo-workflows`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM), Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki, Fluent Bit (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
-| **`all`** | All components from the three stacks | `argocd`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
+| **`all`** | All components from the three stacks | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
 
 ## Prerequisites
 
@@ -77,7 +77,7 @@ minikube service llm-gateway -n llm --url
 ```
 
 ### LLM Gateway (`llm-gateway`)
-The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-review`, plus models by name (`qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, `bge-m3:latest`, `embeddinggemma:300m`). It moves a prompt too long for `devops-chat` to `devops-coder`, then `devops-reasoning`, before calling any backend. It falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
+The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-review`, plus models by name (`qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, `qwen3-embedding:0.6b`). It moves a prompt too long for `devops-chat` to `devops-coder`, then `devops-reasoning`, before calling any backend. It falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
 The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm get svc llm-gateway`, then call the API from any node address:
 ```bash
 KEY=$(kubectl -n llm get secret llm-gateway-secrets -o jsonpath='{.data.master-key}' | base64 -d)
@@ -86,7 +86,7 @@ curl -H "Authorization: Bearer $KEY" http://<node>:<node-port>/v1/models
 These groups route reviews, embeddings and background work:
 
 - `devops-review` spreads one model name over four Ollama tiers: `qwen3-coder:30b` on `ollama-48gib` (weight 9) and `ollama-64gib` (6), and `gpt-oss:20b` on `ollama-16gib` (8) and `ollama-24gib` (1). Each deployment takes a share of requests weighted by its throughput, and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
-- Ollama models are also served under their own names: `qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, and the embedding models `bge-m3:latest` and `embeddinggemma:300m`. Embedding groups configure `model_info.mode: embedding` so health checks embed rather than generate.
+- Ollama models are also served under their own names: `qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, and the embedding model `qwen3-embedding:0.6b`. An embedding group configures `model_info.mode: embedding` so health checks embed rather than generate.
 - `qwen3-coder:30b` and `gpt-oss:20b` each pin one of `devops-review`'s models: the group copies that model's `devops-review` deployments and weights, with no `max_input_tokens` and no fallback, so a review measured on one model is routed as the pool routes it.
 - `devops-background` is the background tier's one generation model: `qwen3.8:27b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3.8:27b` loaded together and is sent no other model. In-cluster services (`k8s/devops/` such as `roadmap-service` and cluster jobs) and `devops-review` fallback reach it; the pinned groups have no fallback. The gateway's 1,500 s timeout outlasts the review client's 1,200 s, so a `devops-review` call that timed out at the gateway was already given up, and the fallback spends the tier's slot on a reply nobody reads. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway abandons a call after 1,100 s and never retries it, but the client retries a failed or timed-out call in its HTTP transport and again in its dispatch loop, `ai.max_retries` times each, and every retry waits for the same single slot. With `1` a call is sent at most four times; `0` does not stop retries, because the transport then makes five attempts:
   ```bash
@@ -116,7 +116,7 @@ ai:
       model: devops-coder
     embedding:
       provider: gateway
-      model: embeddinggemma:300m
+      model: qwen3-embedding:0.6b
 ```
 Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
 
@@ -174,7 +174,7 @@ The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Pro
 
 ## Scrape Ownership
 
-Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `argocd` (`controller`, `server`, `repoServer`, and `redis` exporter), `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and the Alloy collectors, Grafana, Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
+Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `argocd` (`controller`, `server`, `repoServer`, and `redis` exporter), `argo-workflows` (the workflow controller), `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and the Alloy collectors, Grafana, Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
 
 | Component | Owner | Reason |
 | :--- | :--- | :--- |
@@ -185,7 +185,7 @@ Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.ya
 | Trace backend (Tempo) | Its own `tempo` release (`otel/tempo-values.yaml`) | k8s-monitoring's Tempo integration scrapes Tempo, which its own chart deploys in `otel`. The collector's trace exporter has a Tempo to reach when the collector starts: `deploy-stack` installs `tempo` before `otel-collector`, and the `cluster` app-of-apps syncs the `otel-collector` Application in sync wave 1, after `tempo` (#409) |
 | dcgm-exporter | Its own `dcgm-exporter` chart (`monitoring/dcgm-exporter-values.yaml`) | k8s-monitoring's dcgm-exporter integration scrapes the exporter but ships none, so the chart deploys it on every GPU node; the chart's own ServiceMonitor stays off |
 | otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `deltatocumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
-| prometheus-operator-crds | Its own release, installed first | The `argocd`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
+| prometheus-operator-crds | Its own release, installed first | The `argocd`, `argo-workflows`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
 
 cloudflared, Traefik, Alertmanager, roadmap-service, `llm/valkey` (`redis-exporter` sidecar on port 9121) and `registry` (Distribution debug Prometheus endpoint on port 5001) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
 
@@ -405,7 +405,7 @@ kubectl -n devops logs -f job/<name>
 5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
 6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
 7. `devops k8s deploy-stack --stack devops` (or `--stack all`).
-8. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and only the Issues, Pull requests, Milestones and Releases events. Each delivery the Service accepts starts a round, so other events only add rounds (#1386).
+8. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and only the Issues, Pull requests, Milestones and Releases events. The Service acknowledges an event with no subscriber, a push included, and starts no round for it, so a hook that sends every event or only pushes is harmless, but only those four events start a round before the next poll ([ADR 0009](../docs/adr/0009-one-webhook-router-delivers-each-event-to-the-consumers-subscribed-to-it.md), #1386).
 9. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
 10. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
 
@@ -417,6 +417,77 @@ kubectl -n devops logs -f job/<name>
 - **ServiceAccount `devops-agent`**: Created in namespace `agents` with `automountServiceAccountToken: false` to ensure agents do not automatically mount cluster credentials.
 - **ClusterRoleBinding `devops-agent-view`**: Binds `devops-agent` exclusively to the built-in read-only `view` ClusterRole. No other RBAC manifests grant mutating or secret-reading permissions to this identity.
 - **GitOps Management**: Managed by Application `agents` (`k8s/argocd/apps/agents.yaml`) under the `homelab` project, with AppProject orphan-ignore rules configured for transient session secrets (`agent-grant-*`).
+
+## Argo Workflows
+
+`k8s/argo-workflows/` installs the [Argo Workflows](https://argo-workflows.readthedocs.io/) controller in its own namespace, `argo-workflows`, with one WorkflowTemplate that measures what a Workflow costs. [ADR 0008](../docs/adr/0008-argo-workflows-run-the-roadmap-jobs-after-a-measured-go.md) records why and what result counts as a go (#1535). No roadmap job runs on it yet.
+
+- **Controller.** The argo-helm chart `argo-workflows`, pinned in Application `argo-workflows`, with `argo-workflows/values.yaml`: one replica that the Recreate strategy replaces, so two controllers never run, watching only namespace `argo-workflows` (`singleNamespace`). It has no argo-server, database or workflow archive. Its CRDs are the chart's minimal ones, kept when the release is uninstalled.
+- **Namespace.** `argo-workflows` enforces Pod Security `restricted` and carries `Prune=false,Delete=false` (`namespaces.yaml`). The `homelab` project lists it as a destination.
+- **Executor.** Workflows run as ServiceAccount `argo-workflows-executor`, whose Role grants only `create` and `patch` on `workflowtaskresults`. The controller and the executor's init and wait containers set the security context that `restricted` requires.
+- **Perimeter.** `argo-workflows/networkpolicy.yaml` admits only the metrics scrape from `monitoring` on port 9090, and lets pods reach only DNS and the API server on port 6443, through an ipBlock that excludes the cloud metadata address. There is no public HTTPS and no OpenTelemetry egress. Alloy scrapes the controller through the chart's ServiceMonitor ([Scrape Ownership](#scrape-ownership)), and `monitoring/networkpolicy.yaml` allows that egress.
+- **Template.** WorkflowTemplate `devops-cli-version` runs `devops --version` in the Service image: no GitHub request, no Secret, no `envFrom`, and telemetry off. It has the cluster job template's pod and container security context, an `activeDeadlineSeconds`, and `ttlStrategy` and `podGC` settings that delete finished Workflows and, once a Workflow succeeds, its pods. Application `argo-workflows-manifests` syncs the perimeter and the template from `k8s/argo-workflows/`, and skips the dry run until the chart's CRDs exist.
+
+On a cluster Argo CD manages, those two Applications install it. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the perimeter before any chart, installs release `argo-workflows` after `argocd`, and applies the template after the Helm releases. `teardown-stack` deletes the template before it uninstalls the releases, and the namespace with the others. `deploy-stack --dry-run` lists every step.
+
+Check the install:
+
+```bash
+devops argo cd apps status argo-workflows              # Synced and Healthy
+devops argo cd apps status argo-workflows-manifests    # Synced and Healthy
+kubectl -n argo-workflows get deploy,pods              # one workflow-controller replica, Running
+kubectl get crd workflows.argoproj.io workflowtemplates.argoproj.io workflowtaskresults.argoproj.io   # the Workflow CRDs exist
+kubectl auth can-i create workflowtaskresults.argoproj.io -n argo-workflows \
+  --as=system:serviceaccount:argo-workflows:argo-workflows-executor   # yes
+devops prometheus query 'up{namespace="argo-workflows"}'  # the controller's metrics target is 1
+kubectl -n devops get deploy roadmap-service           # unchanged, still at 0 replicas
+```
+
+### Measurement
+
+The go/no-go measurement needs the cluster and the `argo` CLI (`devops install-tools --tool argo`), whose pin in `tools.lock` is the chart's app version. The CLI talks to the Kubernetes API directly, so no argo-server is needed. A person (or an agent on the homelab) runs it once after the install syncs:
+
+```bash
+# API-server requests handled so far, then how many of them were 429 or 5xx
+counters() { kubectl get --raw /metrics | awk '/^apiserver_request_total/ {all += $NF} /^apiserver_request_total\{.*code="(429|5[0-9][0-9])"/ {bad += $NF} END {print all, bad+0}'; }
+
+# one batch of 20 Workflows, <parallelism> at a time: prints the counters before and after, and the seconds it took
+batch() {  # batch <label> <parallelism>
+  counters; start=$(date +%s)
+  seq 20 | xargs -P "$2" -I{} argo submit --from workflowtemplate/devops-cli-version -n argo-workflows --wait --labels measurement="$1"
+  counters; echo "seconds $(( $(date +%s) - start ))"
+}
+
+batch sequential 1   # the first Workflow is the cold run when no node holds the Service image yet
+batch burst 20
+
+# the same counters over an idle interval as long as the batch took, for the baseline
+idle=120   # set to the seconds that `batch` printed
+counters; sleep "$idle"; counters
+
+# the controller's CPU and memory while a batch runs: run this in a second terminal during `batch`
+kubectl -n argo-workflows top pod
+```
+
+Read the durations before the template's `ttlStrategy` removes the Workflows (an hour after they finish). The first command prints the cold run and the warm p50 and p95 of the other 19 Workflows, the second the burst's p50 and p95, as the nearest-rank percentile (the value at position ceil(p x n) of the sorted durations):
+
+```bash
+kubectl -n argo-workflows get workflows -l measurement=sequential -o json | jq -r '
+  [.items | sort_by(.metadata.creationTimestamp)[] | (.status.finishedAt | fromdate) - (.metadata.creationTimestamp | fromdate)]
+  | "cold \(.[0]) s", (.[1:] | sort | "warm p50 \(.[(length * 0.5 | ceil) - 1]) s, p95 \(.[(length * 0.95 | ceil) - 1]) s")'
+kubectl -n argo-workflows get workflows -l measurement=burst -o json | jq -r '
+  [.items[] | (.status.finishedAt | fromdate) - (.metadata.creationTimestamp | fromdate)] | sort
+  | "burst p50 \(.[(length * 0.5 | ceil) - 1]) s, p95 \(.[(length * 0.95 | ceil) - 1]) s"'
+```
+
+Record these, each batch apart:
+
+- Creation to Succeeded for each Workflow, as the p50 and p95. Report the first sequential run (the cold run) apart, and take the warm p95 over the other 19. Both timestamps have one-second resolution.
+- API-server requests per Workflow: the change in the first counter across the batch, minus the change over an idle interval as long as the batch took (the `sleep` pair above, repeated for that many seconds), divided by the Workflows in the batch.
+- The change in the second counter across the burst, which must be 0, and any `argo submit` that fails with a 429 or a 5xx.
+- The controller's CPU and memory, from `kubectl top` or the cAdvisor series Alloy already scrapes (`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`).
+
+Go when the warm p95 is at most 30 seconds and the burst finished with no 429 or 5xx. Post the numbers and the verdict as a comment on [#1535](https://github.com/dan-petty/devops-cli/issues/1535). After a go, file the later steps with `devops roadmap intake`; after a no-go, the owner chooses between re-scoping the engine and the runner-up in ADR 0008.
 
 ## Teardown
 
@@ -431,14 +502,14 @@ devops k8s teardown-stack --stack llm
 devops k8s teardown-stack --stack all
 ```
 
-Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. Deleting a CRD deletes every object of its kind, such as every ServiceMonitor, so remove them by hand only when nothing in the cluster uses them.
+Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. Deleting a CRD deletes every object of its kind, such as every ServiceMonitor, so remove them by hand only when nothing in the cluster uses them. The `argo-workflows` release's Workflow CRDs stay too (`crds.keep`), for the same reason: deleting them deletes every Workflow and WorkflowTemplate.
 
 ## GitOps
 
 Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
 
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 23 leaf Applications (9 raw leaf applications and 14 multi-source Helm applications).
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 25 leaf Applications (10 raw leaf applications and 15 multi-source Helm applications).
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
@@ -648,6 +719,11 @@ k8s/
 │   ├── kustomization.yaml
 │   ├── serviceaccount.yaml   # ServiceAccount devops-agent in namespace agents with automount disabled
 │   └── clusterrolebinding.yaml # ClusterRoleBinding devops-agent-view bound to ClusterRole view
+├── argo-workflows/           # Argo Workflows controller and the --version WorkflowTemplate (#1535); not in the root kustomization
+│   ├── kustomization.yaml    # The perimeter and the template, as Application argo-workflows-manifests syncs them
+│   ├── values.yaml           # Helm values for argo/argo-workflows: one namespaced controller, minimal kept CRDs, restricted pods, the executor ServiceAccount
+│   ├── networkpolicy.yaml    # Default-deny perimeter: the metrics scrape in, DNS and the API server out
+│   └── workflowtemplate-version.yaml # WorkflowTemplate devops-cli-version: devops --version in the Service image, with no Secret
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
@@ -676,7 +752,7 @@ k8s/
 │   ├── bootstrap/            # Two-level bootstrap applications
 │   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
 │   │   └── cluster.yaml      # Cluster app tracking release branch, reconciles projects & leaf apps
-│   └── apps/                 # AppProjects and 23 leaf Applications (9 raw + 14 Helm)
+│   └── apps/                 # AppProjects and 25 leaf Applications (10 raw + 15 Helm)
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com

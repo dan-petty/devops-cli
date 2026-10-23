@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import re
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -119,16 +121,15 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
     ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
-    "devops_cli.ai.agents.spend",
     "devops_cli.ai.agents.testing",
     "devops_cli.ai.client.models",
     "devops_cli.ai.gateway_tune",
-    "devops_cli.ai.harness.memory",
     "devops_cli.ai.pool_load",
     "devops_cli.ai.rag.embeddings",
     "devops_cli.ai.rag.qdrant",
     "devops_cli.ai.run_store",
     "devops_cli.core.templating",
+    "devops_cli.github.ssh",
     "devops_cli.http.client",
     "devops_cli.k8s.node_port",
     "devops_cli.k8s.service_proxy",
@@ -148,6 +149,11 @@ CONST_AGENTS_MD_FILENAME = "AGENTS.md"
 CONST_AGENTS_MD_MAX_CHARS: Final[int] = 40_000
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
 CONST_UV_LOCK_FILENAME = "uv.lock"
+# The two files `npm ci` installs a Node tool from: the manifest naming its one dependency at an
+# exact version, and the lockfile that records the sha512 of every package that version needs.
+CONST_NPM_PROJECT_FILES: Final[tuple[str, ...]] = ("package.json", "package-lock.json")
+# Where the tools lock and its Node tools' directories sit in a checkout, from its root.
+CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
@@ -444,6 +450,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("ai", "review", "findings"),
         ("ai", "review", "path"),
         ("ai", "review", "pr"),
+        ("ai", "review", "rules", "fetch"),
         ("ai", "review", "rules", "test"),
         ("ai", "review", "samples", "fetch"),
         ("ai", "review", "samples", "list"),
@@ -618,6 +625,9 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("mcp", "export-schemas"),
         ("mcp", "serve"),
         ("mcp", "tools"),
+        ("openspec", "archive"),
+        ("openspec", "check"),
+        ("openspec", "regenerate"),
         ("pipeline",),
         ("pr", "copilot-pass"),
         ("pr", "create"),
@@ -646,6 +656,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("review", "benchmark"),
         ("review", "corpus", "generate"),
         ("review", "corpus", "score"),
+        ("review", "rules", "fetch"),
         ("review", "rules", "test"),
         ("review", "samples", "fetch"),
         ("review", "samples", "list"),
@@ -717,18 +728,95 @@ CONST_DEVOPS_ARGV_PREFIXES: Final[tuple[tuple[str, ...], ...]] = (
     ("uv", "run", "devops"),
 )
 CONST_DEVOPS_ARGV_QUOTED_COMMAND: Final[tuple[str, ...]] = ('"devops"', "'devops'")
-# Well-known placeholder tokens and handwritten documentation files checked for command argv resolution (#921).
+# Well-known placeholder tokens in the documented command lines checked for argv resolution (#921).
 CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
     {"...", "COMMAND", "ARGS", "OPTIONS", "SUBCOMMAND", "PARAMS"}
 )
-CONST_HANDWRITTEN_DOCS_PATHS: Final[tuple[Path, ...]] = (
-    Path("README.md"),
-    Path("ARCHITECTURE.md"),
-    Path("RELEASE_CYCLE.md"),
-    Path("docs/SDLC.md"),
-    Path("docs/ROUTINE_TASKS.md"),
-    Path("docs/DEVCONTAINER_USAGE.md"),
-    Path("docs/VISION.md"),
+# The documentation inventory (#1103): every Markdown file in the repository matches the globs of
+# exactly one class, so a new document is classified in the pull request that adds it. The classes
+# differ in how a document stays true:
+# - generated: written by `DocGenerator` or the instruction generator and checked against them.
+# - release artifact: written by the release cut, or for the specs by `openspec archive` in the
+#   pull request that closes a change, and by no other item pull request.
+# - record: history, never rewritten to match later code, so no command name in it is checked.
+# - prompt: loaded by code at run time.
+# - tool-generated: written by a pinned tool, `devops openspec regenerate` for OpenSpec's skills, and
+#   checked by regenerating them, never named-checked.
+# - hand-written: everything else, listed by path (README.md also holds a generated command matrix).
+# An entry with a glob wildcard is a pattern and may match no file (the release cut deletes every
+# `changelog.d/<issue>.md`); an entry without one names a document and must match its file.
+CONST_DOCS_CLASS_GENERATED: Final[str] = "generated"
+CONST_DOCS_CLASS_RELEASE_ARTIFACT: Final[str] = "release artifact"
+CONST_DOCS_CLASS_RECORD: Final[str] = "record"
+CONST_DOCS_CLASS_PROMPT: Final[str] = "prompt"
+CONST_DOCS_CLASS_TOOL_GENERATED: Final[str] = "tool-generated"
+CONST_DOCS_CLASS_HAND_WRITTEN: Final[str] = "hand-written"
+CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
+    CONST_DOCS_CLASS_GENERATED: (
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".github/copilot-instructions.md",
+        "docs/CLI_REFERENCE.md",
+        "docs/CONFIGURATION.md",
+        "docs/ENV_VARS.md",
+        "docs/ERRORS.md",
+        "docs/KNOWLEDGE_BASE.md",
+        "docs/MCP_TOOLS.md",
+        "docs/TELEMETRY.md",
+        "docs/commands/*.md",
+    ),
+    CONST_DOCS_CLASS_RELEASE_ARTIFACT: (
+        "CHANGELOG.md",
+        "docs/ROADMAP.md",
+        "docs/RELEASE_NOTES.md",
+        "openspec/specs/**/*.md",
+    ),
+    CONST_DOCS_CLASS_RECORD: (
+        "changelog.d/[0-9]*.md",
+        "docs/adr/*.md",
+        "docs/agent/archive/**/*.md",
+        "docs/agent/tasks/task-*.md",
+        "openspec/changes/**/*.md",
+    ),
+    CONST_DOCS_CLASS_PROMPT: (
+        ".devops/review.md",
+        "src/devops_cli/ai/personas/**/*.md",
+        "src/devops_cli/ai/prompts/**/*.md",
+        "src/devops_cli/ai/tasks/**/*.md",
+    ),
+    CONST_DOCS_CLASS_TOOL_GENERATED: (
+        ".claude/skills/openspec-*/SKILL.md",
+        ".agents/skills/openspec-*/SKILL.md",
+    ),
+    CONST_DOCS_CLASS_HAND_WRITTEN: (
+        ".github/pull_request_template.md",
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CONTEXT.md",
+        "CONTRIBUTING.md",
+        "README.md",
+        "RELEASE_CYCLE.md",
+        "SECURITY.md",
+        "changelog.d/README.md",
+        "docs/DEVCONTAINER_USAGE.md",
+        "docs/KNOWN_ISSUES.md",
+        "docs/ROUTINE_TASKS.md",
+        "docs/SDLC.md",
+        "docs/SELF_IMPROVEMENT.md",
+        "docs/TESTING.md",
+        "docs/VISION.md",
+        "docs/agent/README.md",
+        "docs/agent/tasks/README.md",
+        "k8s/**/README.md",
+        "src/devops_cli/ai/knowledge_base/**/*.md",
+        "tf/README.md",
+    ),
+}
+# The classes whose `devops` command lines `devops docs check` resolves against the live command
+# tree: the documents a reader or a model follows, which must name commands that exist.
+CONST_DOCS_NAME_CHECKED_CLASSES: Final[tuple[str, ...]] = (
+    CONST_DOCS_CLASS_PROMPT,
+    CONST_DOCS_CLASS_HAND_WRITTEN,
 )
 # The list methods that add tokens to a `devops` argv built up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
@@ -794,10 +882,6 @@ CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
 # log keeps CONST_REDACTED_LOG_VALUE in their place (#899).
 CONST_FASTMCP_OPERATIONS_LOGGER: Final[str] = "fastmcp.server.mixins.mcp_operations"
 CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
-# HTML chrome and non-content tags decomposed during untrusted page rendering (#896).
-CONST_WEB_FETCH_CHROME_TAGS: Final[frozenset[str]] = frozenset(
-    {"header", "nav", "footer", "aside", "dialog", "script", "style", "noscript"}
-)
 # Root commands whose module app takes the command's own name as its first argument:
 CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
 # The command words that run a `devops review` command, which reads a tree devops-cli does not
@@ -1070,6 +1154,16 @@ CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
 CONST_GH_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
 # The scope gh project's commands need to create and edit boards; it includes read:project.
 CONST_GH_PROJECT_SCOPE: Final[str] = "project"
+# The OAuth scope GitHub's REST documentation requires to add a key at each SSH key endpoint, in
+# the order `devops ssh register` posts to them.
+CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES: Final[dict[str, str]] = {
+    "/user/keys": "admin:public_key",
+    "/user/ssh_signing_keys": "write:ssh_signing_key",
+}
+# The scopes registering a key needs, as `gh auth refresh -s` takes them.
+CONST_GITHUB_SSH_KEY_REFRESH_SCOPES: Final[str] = ",".join(
+    CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES.values()
+)
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
@@ -1325,13 +1419,6 @@ CONST_DOCKERFILE_SCRATCH_IMAGE: Final[str] = "scratch"
 # The tag a registry serves for an image reference that names none.
 CONST_DOCKER_DEFAULT_TAG: Final[str] = "latest"
 
-# ── AI Prompt & Injection Mitigation ──────────────────────────────────────────
-CONST_PROMPT_INJECTION_TAGS_RE: re.Pattern[str] = re.compile(
-    r"<\/?(?:system|instructions?|prompt|untrusted)[^>]*>",
-    re.IGNORECASE,
-)
-CONST_PROMPT_INJECTION_TAGS_REGEX = CONST_PROMPT_INJECTION_TAGS_RE
-
 # ── File Permissions ──────────────────────────────────────────────────────────
 CONST_PERM_DIR = 0o700
 CONST_PERM_PRIVATE_KEY = 0o600
@@ -1415,6 +1502,12 @@ CONST_REVIEW_VERDICT_LOCK_FILENAME = ".verify.lock"
 CONST_REVIEW_SARIF_FILENAME = "findings.sarif"
 # A review session's per-page records: the file each page read and the findings it raised there.
 CONST_REVIEW_PAGES_DIRNAME = "files"
+# A review session's Markdown report, and where its time went (#771).
+CONST_REVIEW_REPORT_FILENAME = "review.md"
+CONST_REVIEW_PROFILE_FILENAME = "profile.json"
+# Where a review writes its session until it is whole: inside the sessions directory, so that
+# publishing it is one rename, and a dot-directory, so that it is not a session (#771).
+CONST_REVIEW_STAGING_DIRNAME = ".staging"
 # `devops review score` (#1138): the labels a person gives a distinct finding, the two that count
 # as valid, the producer of a model's finding, and the severities its HIGH/CRITICAL figure reads.
 CONST_REVIEW_LABEL_VALID_STRICT = "valid-strict"
@@ -1618,9 +1711,8 @@ CONST_GITHUB_GHOST_LOGIN: Final[str] = "ghost"
 CONST_THREAD_FILING_REFUSED_ERROR_CODE: Final[str] = "THREAD_FILING_REFUSED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 # GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
-# second after it. A call at a reset that has passed waits until this long past it, the margin
-# PyGithub 2.10.0 adds ("plus 1s as it is not clear when in that second the reset occurs",
-# github/GithubRetry.py) (#1364).
+# second after it. A call at a reset that has passed waits until this long past it, because it is
+# not clear when in that second the reset occurs (#1364).
 CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS: Final[float] = 1.0
 # How far the local clock may run past the reset GitHub has just reported before the clocks count
 # as disagreeing. The Service measured GitHub reporting an ended window 0.72 s to 2.07 s past its
@@ -1632,6 +1724,8 @@ CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS: Final[float] = 5.0
 # so none of them reads as a refusal.
 CONST_GRAPHQL_REFUSAL_RESET_KEY: Final[str] = "reset_at"
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
+# What GitHub writes before the hex digest in that header.
+CONST_GH_WEBHOOK_SIGNATURE_PREFIX: Final[str] = "sha256="
 CONST_GH_WEBHOOK_EVENT_HEADER: Final[str] = "X-GitHub-Event"
 CONST_GH_WEBHOOK_DELIVERY_HEADER: Final[str] = "X-GitHub-Delivery"
 CONST_SERVICE_MAX_BODY_BYTES: Final[int] = 25 * 1024 * 1024
@@ -1639,6 +1733,31 @@ CONST_SERVICE_DELIVERY_LRU_CAPACITY: Final[int] = 10_000
 CONST_SERVICE_SOURCE_WEBHOOK: Final[str] = "webhook"
 CONST_SERVICE_SOURCE_POLL: Final[str] = "poll"
 CONST_SERVICE_PING_EVENT: Final[str] = "ping"
+
+
+class WebhookProviderName(StrEnum):
+    """The providers whose webhooks the Service receives, each at `POST /webhooks/<provider>`
+    (#1386). A sender gets a member once a consumer or a responder acts on its events."""
+
+    GITHUB = "github"
+
+
+class WebhookExposure(StrEnum):
+    """How a webhook provider is reached: `TUNNEL` through the public Ingress, `CLUSTER` only at
+    the Service's cluster DNS name (#1386)."""
+
+    TUNNEL = "tunnel"
+    CLUSTER = "cluster"
+
+
+# What a delivery came to, the `outcome` of its log record and of the deliveries counter (#1386).
+CONST_SERVICE_OUTCOME_ACCEPTED: Final[str] = "accepted"
+CONST_SERVICE_OUTCOME_IGNORED: Final[str] = "ignored"
+CONST_SERVICE_OUTCOME_REJECTED: Final[str] = "rejected"
+CONST_SERVICE_OUTCOME_NO_SUBSCRIBER: Final[str] = "no_subscriber"
+# The deliveries counter's `event` for an event no consumer subscribes to, so a sender's choice of
+# event name can't grow the series (#1386).
+CONST_SERVICE_EVENT_OTHER: Final[str] = "other"
 CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhook_deliveries_total"
 CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
 CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
@@ -1730,11 +1849,11 @@ CONST_ERROR_CODE_ARGO_RESOURCE_NOT_FOUND = "ARGO_RESOURCE_NOT_FOUND"
 CONST_ERROR_CODE_MODEL_BUNDLE = "MODEL_BUNDLE_ERROR"
 CONST_ERROR_CODE_HARNESS = "HARNESS_ERROR"
 CONST_ERROR_CODE_HARNESS_VALIDATION = "HARNESS_VALIDATION_ERROR"
-CONST_ERROR_CODE_HARNESS_EXECUTION = "HARNESS_EXECUTION_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_QUIESCE = "CONSTELLATION_QUIESCE_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_FAILOVER = "CONSTELLATION_FAILOVER_ERROR"
 CONST_ERROR_CODE_CONSTELLATION_RESUME = "CONSTELLATION_RESUME_ERROR"
 CONST_ERROR_CODE_REVIEW_POOL = "REVIEW_POOL_ERROR"
+CONST_ERROR_CODE_REVIEW_SESSION_EXISTS = "REVIEW_SESSION_EXISTS"
 CONST_ERROR_CODE_TELEMETRY = "TELEMETRY_ERROR"
 CONST_ERROR_CODE_LOGFIRE = "LOGFIRE_CONFIG_ERROR"
 CONST_ERROR_CODE_SERVICE_STATUS = "SERVICE_STATUS_ERROR"
@@ -2187,7 +2306,6 @@ CONST_SECRET_PROVIDER_KEYRING: Final[str] = "keyring"
 CONST_SECRET_PROVIDER_VAULT: Final[str] = "vault"
 CONST_SECRET_PROVIDER_ENVIRONMENT: Final[str] = "environment"
 CONST_SECRET_PROVIDER_SETTINGS: Final[str] = "settings"
-CONST_SECRET_PROVIDER_TOOL: Final[str] = "tool"
 
 # Upper bound on retained credential access records, preventing unbounded growth in
 CONST_SECRET_AUDIT_MAX_ENTRIES: Final[int] = 1000
@@ -2221,8 +2339,6 @@ CONST_VAULT_PATH_TOKEN_REVOKE_SELF: Final[str] = "auth/token/revoke-self"
 CONST_VAULT_PATH_HEALTH: Final[str] = "sys/health"
 CONST_VAULT_PATH_LEASE_RENEW: Final[str] = "sys/leases/renew"
 CONST_VAULT_PATH_LEASE_REVOKE: Final[str] = "sys/leases/revoke"
-CONST_VAULT_PATH_TRANSIT_ENCRYPT: Final[str] = "transit/encrypt"
-CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
 
 # The keyring entry `devops vault login` writes: one record holding the token and the address
 # and namespace that issued it. It keeps the name a bare token was stored under before the
@@ -2286,19 +2402,10 @@ CONST_PROMQL_KEYWORDS: Final[frozenset[str]] = CONST_PROMQL_GROUPING_KEYWORDS | 
     {"and", "or", "unless", "atan2", "bool", "offset", "inf", "nan"}
 )
 
-# ── Tiered Cache Namespacing & Tiers ─────────────────────────────────────────
+# ── Cache Key Namespacing ────────────────────────────────────────────────────
 # Root prefix for every cache key this project writes, so a shared Valkey instance can
 # be swept per-project and keys never collide with another tenant's.
 CONST_CACHE_NAMESPACE_ROOT: Final[str] = "devops-cli"
-CONST_CACHE_KEY_SEPARATOR: Final[str] = ":"
-
-# Cache tiers. Closed set: L1 is the in-process LRU, L2 is Valkey, and L1_L2 writes both.
-CONST_CACHE_TIER_L1: Final[str] = "l1"
-CONST_CACHE_TIER_L2: Final[str] = "l2"
-CONST_CACHE_TIER_L1_L2: Final[str] = "l1_l2"
-CONST_CACHE_TIERS: Final[frozenset[str]] = frozenset(
-    {CONST_CACHE_TIER_L1, CONST_CACHE_TIER_L2, CONST_CACHE_TIER_L1_L2}
-)
 
 # ── Source & Test Tree Layout ────────────────────────────────────────────────
 # Repository layout conventions used to map changed sources onto covering tests.
@@ -2546,6 +2653,15 @@ CONST_SANDBOX_COLLECTOR_LANE_MODES: Final[tuple[str, ...]] = (
     CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
 )
 CONST_SANDBOX_DOCKER_INTERNAL_NET: Final[str] = "devops-sandbox-net"
+# The Docker network each network mode runs on: none, the egress-denied internal bridge, or the
+# default bridge. The whitelist modes run on the internal bridge, behind the egress proxy.
+CONST_SANDBOX_DOCKER_NETWORK_BY_MODE: Final[dict[str, str]] = {
+    CONST_SANDBOX_NETWORK_ISOLATED: "none",
+    CONST_SANDBOX_NETWORK_NAMESPACE: CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST: CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_NETWORK_LOCAL_WHITELIST: CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_NETWORK_BRIDGE: "bridge",
+}
 
 # Exit status reported when a sandbox workload exceeds its wall-clock budget,
 # matching the conventional GNU coreutils `timeout` termination code.
@@ -2643,6 +2759,15 @@ CONST_RAG_SKIPPED_LOCKFILES: Final[frozenset[str]] = frozenset(
 
 # Safety limit for maximum chunk size in estimated tokens sent to embedding models
 CONST_RAG_MAX_CHUNK_TOKENS: Final[int] = 8192
+
+# How many of a file's symbol names follow its path in a lookup in the code index: the context
+# `ai/analyze/outlines.py` asks the index for and the query the embedding benchmark makes of a
+# code chunk.
+CONST_INDEX_LOOKUP_SYMBOLS: Final[int] = 5
+
+# The only symbol of the chunk holding a Python file's imports and docstring, ahead of its first
+# definition: a marker the chunker puts there, not a name the file defines.
+CONST_CHUNK_MODULE_PREAMBLE_SYMBOL: Final[str] = "<module>"
 
 # Consecutive transient embedding failures before pausing RAG lookups
 CONST_RAG_CIRCUIT_BREAKER_FAILURES: Final[int] = 3
@@ -2785,10 +2910,10 @@ CONST_OLLAMA_DONE_REASONS: Final[dict[str, FinishReason | None]] = {
 # recorded with.
 CONST_FINISH_REASON_LENGTH: Final[FinishReason] = "length"
 CONST_FINISH_REASON_ERROR: Final[FinishReason] = "error"
-# Replies the response cache never stores: one cut short, filtered or failed is not the answer
-# the prompt asked for, and serving it again for 7 days would repeat the cut.
+# Replies the response cache never stores: one cut short, filtered, failed or asking for a tool
+# call is not the answer the prompt asked for, and serving it again for 7 days would repeat it.
 CONST_UNCACHED_FINISH_REASONS: Final[frozenset[FinishReason]] = frozenset(
-    {"length", "content_filter", "error"}
+    {"length", "content_filter", "error", "tool_call"}
 )
 # How a review profile counts a reply whose provider gave no finish reason.
 CONST_FINISH_REASON_UNKNOWN: Final[str] = "unknown"
@@ -2798,9 +2923,6 @@ CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
 CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
 CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama",)
-CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
-CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
-CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
 # The default fallback cascade, by path: a bare `litellm` or `portkey` member is that gateway's
 # default chat route (CONST_AI_GATEWAY_DEFAULT_ROUTE), and a bare `ollama` member is `ai.model`
 # on Ollama itself.
@@ -2821,7 +2943,6 @@ CONST_AI_GATEWAY_URL_SETTINGS: Final[dict[str, str]] = {
     "litellm": "gateway_url",
     "portkey": "portkey_url",
 }
-CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
     "\n...[stage output truncated to the stage context budget]"
 )
@@ -3013,6 +3134,17 @@ CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] =
     ("webhook", "milestone", "closed"),
     ("webhook", "release", "published"),
 )
+# The webhook events the roadmap jobs' batch keys name, the events the Service's roadmap consumer
+# takes (#1386).
+CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
+    event
+    for source, event, _action in (
+        *CONST_ROADMAP_INTAKE_BATCH_KEYS,
+        *CONST_ROADMAP_CLOSURE_BATCH_KEYS,
+        *CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS,
+    )
+    if source == CONST_SERVICE_SOURCE_WEBHOOK
+)
 CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_ADR_PATH: Final[str] = "docs/adr/0001-github-is-the-roadmap-source.md"
@@ -3151,6 +3283,25 @@ CONST_LOCKFILE_EXTENSIONS: Final[frozenset[str]] = frozenset(
 CONST_SEMGREP_EXCLUDED_EXTENSIONS: Final[frozenset[str]] = (
     CONST_DOC_EXTENSIONS | CONST_BINARY_EXTENSIONS | CONST_LOCKFILE_EXTENSIONS
 )
+
+# Directories of a checkout that hold dependencies, devops-cli's own data or cloned repositories,
+# not the code Semgrep scans.
+CONST_SEMGREP_EXCLUDED_DIRECTORIES: Final[tuple[str, ...]] = (
+    ".venv",
+    "venv",
+    "node_modules",
+    ".data",
+    "repos",
+    ".git",
+)
+
+# Where a registry ruleset is downloaded from, `{ruleset}` being an id such as `p/default`.
+CONST_SEMGREP_REGISTRY_URL_TEMPLATE: Final[str] = "https://semgrep.dev/c/{ruleset}"
+# The prefixes of a Semgrep registry id, the ones its own `is_registry_id` takes: `p/` for a pack
+# of rules, `r/` for one rule, `s/` for a snippet.
+CONST_SEMGREP_REGISTRY_RULESET_KINDS: Final[frozenset[str]] = frozenset({"p", "r", "s"})
+# The directory of the user data root that holds the downloaded registry rulesets.
+CONST_SEMGREP_REGISTRY_CACHE_DIRNAME: Final[str] = "semgrep"
 
 
 CONST_DOC_FILENAMES: Final[frozenset[str]] = frozenset(
@@ -3385,13 +3536,11 @@ CONST_K8S_PV_API_PATH_TEMPLATE: Final[str] = "/api/v1/persistentvolumes/{name}"
 CONST_DASHBOARD_DOMAIN_K8S: Final[str] = "k8s"
 CONST_DASHBOARD_DOMAIN_DOCKER: Final[str] = "docker"
 CONST_DASHBOARD_DOMAIN_TELEMETRY: Final[str] = "telemetry"
-CONST_DASHBOARD_DOMAIN_AI: Final[str] = "ai"
 CONST_DASHBOARD_DOMAIN_VALKEY: Final[str] = "valkey"
 CONST_DASHBOARD_DOMAINS: Final[tuple[str, ...]] = (
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
-    CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_VALKEY,
 )
 # Human-readable labels used for tab titles and status banners.
@@ -3399,7 +3548,6 @@ CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
     CONST_DASHBOARD_DOMAIN_K8S: "Kubernetes",
     CONST_DASHBOARD_DOMAIN_DOCKER: "Docker",
     CONST_DASHBOARD_DOMAIN_TELEMETRY: "Telemetry",
-    CONST_DASHBOARD_DOMAIN_AI: "AI Review",
     CONST_DASHBOARD_DOMAIN_VALKEY: "Valkey Cache",
 }
 
@@ -3436,41 +3584,6 @@ CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
     f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
     CONST_LOGS_TAB_ID: "#log-pane",
 }
-
-# ── Dashboard Finding Detail ─────────────────────────────────────────────────
-# The AI Review pane beside the findings table: these short fields as `label: value`
-# lines, in this order, then each long field as a titled section. Every other finding
-# field is left out on purpose: `recommendation` is the persona's merge verdict, not
-# advice about the finding, `thinking` is the model's scratchpad, and the rest are
-# verification bookkeeping.
-CONST_FINDING_DETAIL_HEADER_FIELDS: Final[tuple[tuple[str, str], ...]] = (
-    ("title", "Title"),
-    ("severity", "Severity"),
-    ("status", "Status"),
-    ("persona_title", "Persona"),
-    ("category", "Category"),
-    ("confidence_score", "Confidence"),
-    ("location", "Location"),
-    ("citation_line", "Citation line"),
-    ("verified_by", "Verified by"),
-)
-CONST_FINDING_DETAIL_SECTION_FIELDS: Final[tuple[tuple[str, str], ...]] = (
-    ("description", "Description"),
-    ("observed_value", "Observed value"),
-    ("expected_value", "Expected value"),
-    ("fix", "Fix"),
-    ("references", "References"),
-    ("invalidation_reason", "Invalidation reason"),
-    ("mitigating_mechanism", "Mitigating mechanism"),
-)
-# A field read in place of a blank one: an untitled persona is named by its key, as
-# `review findings --details` names it.
-CONST_FINDING_DETAIL_FIELD_FALLBACKS: Final[dict[str, str]] = {"persona_title": "persona"}
-# Finding text is model output, so every Unicode control character (general category Cc)
-# is written as a visible escape before it reaches the terminal, except line breaks and
-# tabs, which lay the text out.
-CONST_UNICODE_CONTROL_CATEGORY: Final[str] = "Cc"
-CONST_FINDING_DETAIL_KEPT_CONTROLS: Final[frozenset[str]] = frozenset({"\n", "\t"})
 
 # ── W3C Trace Context ────────────────────────────────────────────────────────
 # https://www.w3.org/TR/trace-context/
@@ -3964,65 +4077,26 @@ CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset(
 # The Ruff rules that govern suppression integrity: PGH003 bans blanket type ignores
 # without a specific error code, and RUF100 removes unused noqa directives.
 CONST_SUPPRESSION_LINT_RULES: Final[frozenset[str]] = frozenset({"PGH003", "RUF100"})
+# The only flags a `ruff check` of the gate may pass: `--config` pins `pyproject.toml`, so a
+# nested Ruff configuration cannot outrank it, and `--fix` applies fixes. Any other flag can
+# select, ignore, extend or isolate the configuration, so the list admits nothing else.
+CONST_RUFF_CHECK_GATE_FLAGS: Final[frozenset[str]] = frozenset({"--config", "--fix"})
 # The Ruff rules that hold the complexity cap of 10 (#586): C901 is the cap (standard McCabe),
 # RUF100 reports a C901 marker left on a function back under the cap, and PGH004 bans the
 # blanket noqa that would silence C901 without naming it.
 CONST_COMPLEXITY_LINT_RULES: Final[frozenset[str]] = frozenset({"C901", "PGH004", "RUF100"})
-# The keys `[tool.ruff]`, `[tool.ruff.lint]` and `[tool.ruff.lint.mccabe]` may hold (#586). Any
-# other key can take a file out of the cap: Ruff 0.16 still honours the deprecated top-level
-# `per-file-ignores` and `extend-ignore`, `include` and `extend` change which files or which
-# settings apply, and `lint.exclude` drops files from linting. A key Ruff adds later stays out
-# until a reviewed change admits it.
-CONST_RUFF_TOP_LEVEL_KEYS: Final[frozenset[str]] = frozenset(
-    {"target-version", "line-length", "exclude", "lint"}
-)
+# The two tables that waive rules for the files they match; the suppression counters count each.
 CONST_RUFF_PER_FILE_IGNORE_KEYS: Final[tuple[str, ...]] = (
     "per-file-ignores",
     "extend-per-file-ignores",
 )
-CONST_RUFF_LINT_KEYS: Final[frozenset[str]] = frozenset(
-    {
-        "select",
-        "extend-select",
-        "ignore",
-        "extend-ignore",
-        "allowed-confusables",
-        "mccabe",
-        "flake8-tidy-imports",
-        *CONST_RUFF_PER_FILE_IGNORE_KEYS,
-    }
-)
-CONST_RUFF_MCCABE_KEYS: Final[frozenset[str]] = frozenset({"max-complexity"})
-# `[tool.ruff] exclude` replaces Ruff's default exclusions, so any other value can drop a source.
-CONST_RUFF_EXCLUDE: Final[tuple[str, ...]] = ("repos",)
-# Where the cap holds, the suffixes Ruff lints there by default, and the config file names Ruff
-# reads in any directory; one under a covered root outranks pyproject.toml for the files below it.
+# The roots the suppression counters read, and the suffixes Ruff lints there by default.
 CONST_COMPLEXITY_CAP_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
 CONST_RUFF_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi", ".ipynb"})
-CONST_RUFF_CONFIG_FILE_NAMES: Final[frozenset[str]] = frozenset(
-    {"pyproject.toml", "ruff.toml", ".ruff.toml"}
-)
 # The ignore files Ruff's file walk honours by default (`respect-gitignore`). One under a covered
 # root, or a `.ignore` beside pyproject.toml, drops the files it lists from every rule.
 CONST_RUFF_IGNORE_FILE_NAMES: Final[frozenset[str]] = frozenset(
     {CONST_GITIGNORE_FILENAME, ".ignore"}
-)
-# The suppression comments below are matched on the raw text, not on comment tokens, so a string
-# literal that looks like one overcounts, which fails safe. Ruff reads any whitespace but a
-# newline as a separator inside them, form feed and no-break space included, hence `[^\S\n]`.
-# A file-level exemption, Ruff's or the flake8 spelling Ruff honours, with or without codes.
-CONST_RUFF_FILE_EXEMPTION: Final[re.Pattern[str]] = re.compile(
-    r"#[^\S\n]*(?:ruff|flake8)[^\S\n]*:[^\S\n]*noqa\b", re.IGNORECASE
-)
-# One line-level noqa comment naming C901 among any codes: the marker the ceiling counts.
-CONST_C901_SUPPRESSION: Final[re.Pattern[str]] = re.compile(
-    r"#[^\S\n]*noqa[^\S\n]*:(?:[A-Z0-9,]|[^\S\n])*?\bC901\b", re.IGNORECASE
-)
-# Ruff's own bracketed suppression comment naming C901, whatever its verb: a line `ignore`, a
-# `disable` that holds until its `enable` or the end of the file, or a `file-ignore`. One such
-# comment can hide any number of functions without a marker to count, so each is an escape.
-CONST_RUFF_C901_SUPPRESSION_COMMENT: Final[re.Pattern[str]] = re.compile(
-    r"#[^\S\n]*ruff[^\S\n]*:[^\S\n]*[\w-]+[^\S\n]*\[[^\]\n]*\bC901\b", re.IGNORECASE
 )
 # Suppression comment and configuration kinds tracked against ceilings (#849).
 CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"
@@ -4145,6 +4219,10 @@ CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "docs/adr/**",
     "docs/commands/*.md",
     "docs/CLI_REFERENCE.md",
+    "openspec/**",
+    ".claude/skills/openspec-*/**",
+    ".agents/skills/openspec-*/**",
+    ".agents/skills/.openspec-target",
 )
 # The scanner results that are secrets, by tool, with the rule ids that are (None: every rule).
 # Gitleaks reports nothing else, and Trivy's secret results carry the `SECRET` rule id its parser
@@ -4454,6 +4532,51 @@ CONST_HOST_SANDBOX_VIRTUALENV_BIN: tuple[str, ...] = (".venv", "bin")
 # `lib/python3.14t/os.py` for a free-threaded build), which `getpath` itself looks for.
 CONST_PYTHON_STDLIB_LANDMARK_GLOB: str = "lib/python3.*/os.py"
 
+# The limits a review tool runs under in the sandbox (#772). `prlimit` sets them, so no code of
+# devops-cli calls setrlimit. There is no limit on processes: RLIMIT_NPROC counts every process
+# of the user, so inside the sandbox it would starve the host's own shells and servers
+# (`_run_sandbox_process` in sandbox/host.py has the reason in full).
+# CPU seconds one process of a tool may use before the kernel ends it.
+CONST_TOOL_CPU_LIMIT_SECONDS: Final[int] = 600
+# The least address space, in bytes, a tool may be given. It is the default too. Go tools reserve
+# more address space than they use. No run of the pinned tools has measured this value yet.
+CONST_TOOL_MIN_ADDRESS_SPACE_BYTES: Final[int] = 2 * 1024**3
+# The soft memory limit of a Go tool's collector. Programs that are not written in Go ignore it.
+CONST_TOOL_GO_MEMORY_LIMIT: Final[str] = "1GiB"
+# The program that sets a tool's limits (util-linux).
+CONST_TOOL_PRLIMIT_BINARY: Final[str] = "prlimit"
+# The element of a tool's arguments that stands for the paths the tool scans.
+CONST_TOOL_TARGETS_PLACEHOLDER: Final[str] = "{targets}"
+# The elements that stand, in the recorded argument template of a run, for the config files and
+# the ruleset files that the arguments name by path. The path of a scratch directory is new in each run.
+CONST_TOOL_CONFIG_PLACEHOLDER: Final[str] = "{config}"
+CONST_TOOL_RULESET_PLACEHOLDER: Final[str] = "{ruleset}"
+# How an executor started a tool, as a record names it: as a child process of devops-cli with no
+# confinement, or in the bubblewrap sandbox.
+CONST_TOOL_EXECUTOR_DIRECT: Final[str] = "direct"
+CONST_TOOL_EXECUTOR_SANDBOX: Final[str] = "sandbox"
+# The digest of a binary or of a group of files that a record could not read. It stands in the record
+# of a run that must not fail for the record. The digest of no files is not this value.
+CONST_TOOL_DIGEST_UNAVAILABLE: Final[str] = "unavailable"
+# The names under which a tool finds its own config file. Ruff looks in the directory of each file
+# it checks and in each directory above it (docs.astral.sh/ruff/configuration). It also read the
+# nearest `pyproject.toml` when a nearer `.ruff.toml` held the settings. osv-scanner looks in the
+# directory of each lockfile only. Both facts come from `strace` on Ruff 0.16.8 and osv-scanner
+# 2.6.0. A review hands every other tool its own config file. A request names these files up to
+# the tree only. While the direct executor runs, Ruff also applies a config file above the tree and
+# one in its user config directory, and the record does not name them.
+CONST_RUFF_CONFIG_FILE_NAMES: Final[tuple[str, ...]] = (".ruff.toml", "ruff.toml", "pyproject.toml")
+CONST_OSV_CONFIG_FILE_NAMES: Final[tuple[str, ...]] = ("osv-scanner.toml",)
+# Where Trivy keeps the metadata of what it scans with, below its cache directory
+# (`--cache-dir`, the environment variable `TRIVY_CACHE_DIR`, else `trivy` in the user cache of
+# the platform). A `config` scan reads the checks bundle. Any other scan reads the vulnerability
+# database. The metadata names the version of the bundle or database and the time of its download.
+CONST_TRIVY_CACHE_DIR_ENV: Final[str] = "TRIVY_CACHE_DIR"
+CONST_TRIVY_CACHE_DIR_NAME: Final[str] = "trivy"
+CONST_TRIVY_CONFIG_SCAN_TYPE: Final[str] = "config"
+CONST_TRIVY_CHECKS_METADATA: Final[tuple[str, ...]] = ("policy", "metadata.json")
+CONST_TRIVY_DB_METADATA: Final[tuple[str, ...]] = ("db", "metadata.json")
+
 # Maximum window duration permitted for Prometheus pool load queries (30 days in seconds)
 # to prevent resource exhaustion and unbounded range vectors (CWE-400).
 CONST_MAX_PROMETHEUS_WINDOW_SECONDS: Final[int] = 30 * 86400
@@ -4507,13 +4630,6 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
     529,  # Site Is Overloaded (Anthropic / OpenAI)
     530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )
-
-# ── SQLite Database Names ────────────────────────────────────────────────────
-# The names `sqlite3.connect` opens as a database private to that one connection (#958):
-# `:memory:` is held in memory and the empty name is a temporary file, and each is gone when the
-# connection closes. Without `uri=True` no other name does that, so the set is complete. A store
-# that opens a connection per call loses every write to either.
-CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memory:", ""})
 
 # ── Swallowed Failures Ratchet Invariant ───────────────────────────────────────
 # Ruff rule codes and process return object attributes inspected by the ratchet (#1347).
@@ -4853,3 +4969,60 @@ CONST_KB_METADATA_TARGET_SUBDIRS: Final[tuple[str, ...]] = (
 CONST_KB_REFERENCE_PREFIX: Final[str] = "kb:"
 CONST_KB_DATE_FORMAT: Final[str] = "%Y-%m-%d"
 CONST_KB_SHA_DIGEST_LENGTH: Final[int] = 16
+
+# ── OpenSpec (ADR 0010) ──────────────────────────────────────────────────────
+# The folder the pinned OpenSpec plans into, from a checkout's root, and the file that carries the
+# planning conventions for every agent.
+CONST_OPENSPEC_DIR: Final[str] = "openspec"
+CONST_OPENSPEC_CONFIG_FILENAME: Final[str] = "config.yaml"
+CONST_OPENSPEC_CHANGES_DIR: Final[str] = "openspec/changes"
+# The closed grammar of an active change: the folder is named `<issue>-<slug>`, and a path under it
+# is `openspec/changes/<issue>-<slug>/<file>`. The issue is the only link from a folder to GitHub.
+CONST_OPENSPEC_CHANGE_NAME_RE: Final[str] = r"(?P<issue>\d+)-[^/]+"
+CONST_OPENSPEC_CHANGE_FOLDER_RE: Final[str] = (
+    rf"{CONST_OPENSPEC_CHANGES_DIR}/{CONST_OPENSPEC_CHANGE_NAME_RE}/.+"
+)
+# What stops OpenSpec's telemetry and its check for a newer version, and its prompts. The sanitized
+# environment `run_subprocess` builds keeps none of them, so the tool's runner sets each.
+CONST_OPENSPEC_OPT_OUT_ENV: Final[dict[str, str]] = {
+    "DO_NOT_TRACK": "1",
+    "OPENSPEC_TELEMETRY": "0",
+    "OPENSPEC_NO_UPDATE_CHECK": "1",
+    "OPEN_SPEC_INTERACTIVE": "0",
+}
+# Where OpenSpec reads its per-user configuration, which a run replaces with a directory of its own
+# so a developer's profile cannot decide what the tool writes.
+CONST_OPENSPEC_CONFIG_HOME_ENV: Final[str] = "XDG_CONFIG_HOME"
+# The workflows of the `custom` profile every agent shares: no archive and no sync, since those
+# write `openspec/specs/`, which only the pull request that closes a change may.
+CONST_OPENSPEC_WORKFLOWS: Final[tuple[str, ...]] = ("propose", "explore", "apply", "update")
+# The settings an isolated configuration holds, in the order they are set: telemetry off, skills
+# only, and the custom profile with its four workflows.
+CONST_OPENSPEC_ISOLATED_SETTINGS: Final[tuple[tuple[str, str], ...]] = (
+    ("telemetry.enabled", "false"),
+    ("delivery", "skills"),
+    ("profile", "custom"),
+    ("workflows", json.dumps(list(CONST_OPENSPEC_WORKFLOWS))),
+)
+# The files `openspec update` writes for the agents the project supports, from a checkout's root.
+# Anything else under those directories is not OpenSpec's.
+CONST_OPENSPEC_GENERATED_GLOBS: Final[tuple[str, ...]] = (
+    ".claude/skills/openspec-*/**/*",
+    ".agents/skills/openspec-*/**/*",
+    ".agents/skills/.openspec-target",
+)
+# The artifacts whose instructions the gate renders for a probe change, and that change's name.
+CONST_OPENSPEC_INSTRUCTION_ARTIFACTS: Final[tuple[str, ...]] = (
+    "proposal",
+    "specs",
+    "design",
+    "tasks",
+    "apply",
+)
+CONST_OPENSPEC_PROBE_CHANGE: Final[str] = "gate-probe"
+# The delta operations that rewrite a requirement a spec already holds: of the four OpenSpec
+# defines, all but ADDED. Two active changes that apply one to one requirement overwrite each other
+# when both archive, and the tool says nothing.
+CONST_OPENSPEC_REWRITING_OPERATIONS: Final[frozenset[str]] = frozenset(
+    {"MODIFIED", "REMOVED", "RENAMED"}
+)

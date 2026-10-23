@@ -1,15 +1,14 @@
-"""Unit tests for Pydantic AI SystemReminders, Instrumentation, and custom capability creation."""
+"""Unit tests for SystemReminders, custom capabilities, toolsets, embeddings and testing utilities."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
-    Capability,
-    Instrumentation,
     SystemReminders,
 )
 from devops_cli.ai.agents.context import RunContext
@@ -57,41 +56,9 @@ def test_system_reminders_cadence_and_condition() -> None:
     assert prompts1 == ["Turn reminder"]
 
 
-def test_instrumentation_capability() -> None:
-    """Verify Instrumentation capability attributes and lifecycle hooks."""
-    inst = Instrumentation(tracer_name="custom_tracer", record_spans=True, record_metrics=True)
-    assert inst.tracer_name == "custom_tracer"
-    assert inst.record_spans is True
-    assert inst.record_metrics is True
-
-    hooks = inst.get_hooks()
-    assert hooks is not None
-    assert len(hooks.before_tool_execute) > 0
-    assert len(hooks.after_tool_execute) > 0
-
-    ctx = RunContext()
-    hooks.before_tool_execute[0](ctx, "tool_a", {"arg1": "val1"})
-    hooks.after_tool_execute[0](ctx, "tool_a", "result1")
-
-
 def test_custom_capability_creation() -> None:
-    """Verify creating custom capabilities using BaseCapability and Capability subclassing."""
-    # 1. Using concrete Capability with tool decorator
-    cap = Capability(instructions="Use custom helper tools.")
+    """Verify creating a custom capability by subclassing BaseCapability."""
 
-    @cap.tool
-    def helper_tool(x: int) -> int:
-        """Double an integer."""
-        return x * 2
-
-    tools = cap.get_tools()
-    assert len(tools) == 1
-    assert callable(tools[0])
-
-    prompts = cap.get_system_prompt_additions(RunContext())
-    assert prompts == ["Use custom helper tools."]
-
-    # 2. Subclassing BaseCapability directly
     class SecurityContextCapability(BaseCapability):
         id: str = "security_context"
         audit_mode: bool = True
@@ -112,380 +79,9 @@ def test_custom_capability_creation() -> None:
     assert len(sec_cap.get_tools()) == 1
 
 
-def test_use_thread_executor_capability() -> None:
-    """Verify UseThreadExecutor and ThreadExecutor synchronous execution."""
-    from concurrent.futures import ThreadPoolExecutor
-
-    from devops_cli.ai.agents.capabilities import ThreadExecutor, UseThreadExecutor
-
-    # 1. Default initialization
-    cap = UseThreadExecutor(max_workers=4, thread_name_prefix="test-worker")
-    assert cap.id == "use_thread_executor"
-
-    def sync_compute(a: int, b: int) -> int:
-        return a * b + 10
-
-    result = cap.run_sync(sync_compute, 5, 6)
-    assert result == 40
-
-    # 2. Custom external ThreadPoolExecutor
-    custom_executor = ThreadPoolExecutor(max_workers=2)
-    cap_custom = ThreadExecutor(executor=custom_executor)
-
-    def fetch_data(name: str) -> str:
-        return f"payload_{name}"
-
-    res = cap_custom.run_sync(fetch_data, name="test")
-    assert res == "payload_test"
-    custom_executor.shutdown()
-
-
-def test_select_model_capability() -> None:
-    """Verify SelectModel dynamic runtime model selection."""
-    from devops_cli.ai.agents.capabilities import ModelSelectionContext, SelectModel
-    from devops_cli.ai.agents.context import RunContext
-
-    def model_selector(ctx: ModelSelectionContext[dict[str, Any]]) -> str:
-        deps = ctx.deps or {}
-        if deps.get("task_complexity") == "complex":
-            return "openai:gpt-4o"
-        return "openai:gpt-4o-mini"
-
-    cap = SelectModel(model_selector)
-    assert cap.id == "select_model"
-
-    # 1. Standard model selection context
-    ctx_simple = ModelSelectionContext(deps={"task_complexity": "simple"})
-    assert cap.select_model(ctx_simple) == "openai:gpt-4o-mini"
-
-    ctx_complex = ModelSelectionContext(deps={"task_complexity": "complex"})
-    assert cap.select_model(ctx_complex) == "openai:gpt-4o"
-
-    # 2. RunContext interoperability
-    run_ctx = RunContext(deps={"task_complexity": "complex"}, session_id="s1")
-    assert cap.select_model(run_ctx) == "openai:gpt-4o"
-
-
-def test_resolve_model_id_capability() -> None:
-    """Verify ResolveModelId custom alias and tenant-specific model resolution."""
-    from devops_cli.ai.agents.capabilities import ModelResolutionContext, ResolveModelId
-    from devops_cli.ai.agents.context import RunContext
-
-    def custom_resolver(ctx: ModelResolutionContext[dict[str, Any]], model_id: str) -> str | None:
-        if model_id.startswith("tenant:"):
-            tenant = (ctx.deps or {}).get("tenant", "default")
-            return f"openai:{tenant}-{model_id.removeprefix('tenant:')}"
-        if model_id == "alias:fast":
-            return "openai:gpt-4o-mini"
-        if model_id == "alias:reasoning":
-            return "openai:o1"
-        return None
-
-    resolver_cap = ResolveModelId(custom_resolver)
-    assert resolver_cap.id == "resolve_model_id"
-
-    # 1. Alias mapping
-    assert resolver_cap.resolve("alias:fast") == "openai:gpt-4o-mini"
-    assert resolver_cap.resolve("alias:reasoning") == "openai:o1"
-
-    # 2. Unknown passes through as None
-    assert resolver_cap.resolve("openai:gpt-4o") is None
-
-    # 3. Tenant resolution via context
-    ctx = ModelResolutionContext(deps={"tenant": "acme"}, model_id="tenant:prod-model")
-    assert resolver_cap.resolve("tenant:prod-model", ctx) == "openai:acme-prod-model"
-
-    # 4. RunContext adapter
-    run_ctx = RunContext(deps={"tenant": "globex"}, model="tenant:staging-model")
-    assert resolver_cap.resolve("tenant:staging-model", run_ctx) == "openai:globex-staging-model"
-
-
-def test_prepare_tools_capability() -> None:
-    """Verify PrepareTools dynamic filtering and modification of tool definitions."""
-    from devops_cli.ai.agents.capabilities import PrepareTools
-    from devops_cli.ai.agents.context import RunContext
-    from devops_cli.ai.agents.tools import Tool
-
-    def filter_admin_tools(ctx: RunContext[dict[str, Any]], tools: list[Any]) -> list[Any]:
-        is_admin = (ctx.deps or {}).get("is_admin", False)
-        if not is_admin:
-            return [t for t in tools if not getattr(t, "name", "").startswith("admin_")]
-        return tools
-
-    cap = PrepareTools(filter_admin_tools)
-    assert cap.id == "prepare_tools"
-
-    t_read = Tool.from_function(lambda: "read", name="read_data")
-    t_admin = Tool.from_function(lambda: "admin", name="admin_delete")
-    all_tools = [t_read, t_admin]
-
-    # 1. Non-admin context filters out admin_delete
-    user_ctx = RunContext(deps={"is_admin": False})
-    filtered = cap.prepare_tools(user_ctx, all_tools)
-    assert len(filtered) == 1
-    assert filtered[0].name == "read_data"
-
-    # 2. Admin context keeps all tools
-    admin_ctx = RunContext(deps={"is_admin": True})
-    allowed = cap.prepare_tools(admin_ctx, all_tools)
-    assert len(allowed) == 2
-    assert {t.name for t in allowed} == {"read_data", "admin_delete"}
-
-
-def test_prefix_tools_capability() -> None:
-    """Verify PrefixTools namespacing capability and .prefix_tools() convenience method."""
-    from devops_cli.ai.agents.capabilities import Capability, PrefixTools
-
-    cap = Capability()
-
-    @cap.tool
-    def search_query(q: str) -> str:
-        """Search query."""
-        return f"result for {q}"
-
-    @cap.tool
-    def list_items() -> list[str]:
-        """List items."""
-        return ["item1", "item2"]
-
-    # 1. Using PrefixTools class constructor
-    prefixed_cap = PrefixTools(cap, prefix="api1")
-    assert prefixed_cap.id == "prefix_tools"
-    prefixed_tools = prefixed_cap.get_tools()
-    assert len(prefixed_tools) == 2
-    names = {getattr(t, "name", "") for t in prefixed_tools}
-    assert names == {"api1_search_query", "api1_list_items"}
-
-    # 2. Using .prefix_tools() method on BaseCapability
-    method_prefixed = cap.prefix_tools("v2")
-    assert isinstance(method_prefixed, PrefixTools)
-    assert method_prefixed.prefix == "v2"
-    tools_v2 = method_prefixed.get_tools()
-    assert {getattr(t, "name", "") for t in tools_v2} == {"v2_search_query", "v2_list_items"}
-
-
-def test_include_tool_return_schemas_capability() -> None:
-    """Verify IncludeToolReturnSchemas capability applying schema inclusion flag."""
-    from devops_cli.ai.agents.capabilities import IncludeToolReturnSchemas
-    from devops_cli.ai.agents.context import RunContext
-    from devops_cli.ai.agents.tools import Tool
-
-    cap = IncludeToolReturnSchemas(include_return_schema=True)
-    assert cap.id == "include_tool_return_schemas"
-    assert cap.include_return_schema is True
-
-    tool_a = Tool.from_function(lambda x: x + 1, name="inc")
-    tool_b = Tool.from_function(lambda y: f"val={y}", name="fmt")
-
-    prepared = cap.prepare_tools(RunContext(), [tool_a, tool_b])
-    assert len(prepared) == 2
-    assert all(getattr(t, "include_return_schema", False) is True for t in prepared)
-
-
-def test_set_tool_metadata_capability() -> None:
-    """Verify SetToolMetadata capability attaching custom tags/attributes to tools."""
-    from devops_cli.ai.agents.capabilities import Capability, SetToolMetadata
-    from devops_cli.ai.agents.context import RunContext
-    from devops_cli.ai.agents.tools import Tool
-
-    cap = Capability()
-
-    @cap.tool
-    def fetch_data(key: str) -> str:
-        """Fetch data."""
-        return f"val:{key}"
-
-    # 1. Using SetToolMetadata class constructor
-    meta_cap = SetToolMetadata({"tier": "premium", "read_only": True}, capability=cap)
-    assert meta_cap.id == "set_tool_metadata"
-    tools = meta_cap.get_tools()
-    assert len(tools) == 1
-    assert tools[0].metadata == {"tier": "premium", "read_only": True}
-
-    # 2. Using .with_metadata() convenience method on BaseCapability
-    tagged_cap = cap.with_metadata(source="db", cache_ttl=300)
-    assert isinstance(tagged_cap, SetToolMetadata)
-    tagged_tools = tagged_cap.get_tools()
-    assert tagged_tools[0].metadata == {"source": "db", "cache_ttl": 300}
-
-    # 3. Dynamic prepare_tools runtime metadata injection
-    runtime_tool = Tool.from_function(lambda: 42, name="num", metadata={"initial": True})
-    prepared = meta_cap.prepare_tools(RunContext(), [runtime_tool])
-    assert prepared[0].metadata["initial"] is True
-    assert prepared[0].metadata["tier"] == "premium"
-
-
-def test_raise_content_filter_error_capability() -> None:
-    """Verify RaiseContentFilterError capability detecting content safety block finish reasons."""
-    from devops_cli.ai.agents.capabilities import RaiseContentFilterError
-    from devops_cli.exceptions.ai import ContentFilterError
-
-    cap = RaiseContentFilterError()
-    assert cap.id == "raise_content_filter_error"
-
-    # 1. Normal finish reasons pass without raising
-    cap.check_response({"finish_reason": "stop", "text": "Hello world"})
-    cap.check_response({"finish_reason": "length", "text": "Truncated"})
-
-    # 2. content_filter triggers ContentFilterError with body inspection
-    response_blocked = {
-        "finish_reason": "content_filter",
-        "text": "I cannot fulfill this request.",
-        "safety_ratings": [{"category": "HATE_SPEECH", "probability": "HIGH"}],
-    }
-    with pytest.raises(ContentFilterError) as exc_info:
-        cap.check_response(response_blocked)
-
-    assert exc_info.value.error_code == "CONTENT_FILTER_TRIGGERED"
-    assert exc_info.value.body == response_blocked
-
-
-def test_reinject_system_prompt_capability() -> None:
-    """Verify ReinjectSystemPrompt capability ensuring agent system prompt presence."""
-    from devops_cli.ai.agents.capabilities import ReinjectSystemPrompt
-
-    cap = ReinjectSystemPrompt()
-    assert cap.id == "reinject_system_prompt"
-    assert cap.replace_existing is False
-
-    # 1. Missing system prompt gets prepended
-    user_msgs = [{"role": "user", "content": "What is Python?"}]
-    injected = cap.reinject(user_msgs, "You are a senior DevOps architect.")
-    assert len(injected) == 2
-    assert injected[0]["role"] == "system"
-    assert injected[0]["content"] == "You are a senior DevOps architect."
-
-    # 2. Existing system prompt preserved by default
-    existing_msgs = [
-        {"role": "system", "content": "Initial prompt"},
-        {"role": "user", "content": "hello"},
-    ]
-    preserved = cap.reinject(existing_msgs, "New prompt")
-    assert len(preserved) == 2
-    assert preserved[0]["content"] == "Initial prompt"
-
-    # 3. replace_existing=True replaces existing system prompt
-    replace_cap = ReinjectSystemPrompt(replace_existing=True)
-    replaced = replace_cap.reinject(existing_msgs, "Overridden authoritative prompt")
-    assert len(replaced) == 2
-    assert replaced[0]["content"] == "Overridden authoritative prompt"
-
-
-def test_process_history_capability() -> None:
-    """Verify ProcessHistory capability applying message history processors."""
-    from devops_cli.ai.agents.capabilities import ProcessHistory
-    from devops_cli.ai.agents.context import RunContext
-
-    # 1. Trimming processor (keep last N messages)
-    def keep_recent(messages: list[dict[str, str]]) -> list[dict[str, str]]:
-        return messages[-2:]
-
-    trim_cap = ProcessHistory(keep_recent)
-    assert trim_cap.id == "process_history"
-
-    history = [
-        {"role": "user", "content": "1"},
-        {"role": "assistant", "content": "2"},
-        {"role": "user", "content": "3"},
-        {"role": "assistant", "content": "4"},
-    ]
-    processed = trim_cap.process_history(history)
-    assert len(processed) == 2
-    assert processed[0]["content"] == "3"
-    assert processed[1]["content"] == "4"
-
-    # 2. Context-aware processor (redaction or tagging)
-    def redact_secrets(
-        ctx: RunContext[dict[str, Any]], messages: list[dict[str, str]]
-    ) -> list[dict[str, str]]:
-        redact = (ctx.deps or {}).get("redact", False)
-        if not redact:
-            return messages
-        return [{**m, "content": m["content"].replace("SECRET", "[REDACTED]")} for m in messages]
-
-    redact_cap = ProcessHistory(redact_secrets)
-    msgs_with_secret = [{"role": "user", "content": "api key is SECRET"}]
-
-    # Without redact flag
-    assert (
-        redact_cap.process_history(msgs_with_secret, RunContext())[0]["content"]
-        == "api key is SECRET"
-    )
-
-    # With redact flag
-    ctx_redact = RunContext(deps={"redact": True})
-    assert (
-        redact_cap.process_history(msgs_with_secret, ctx_redact)[0]["content"]
-        == "api key is [REDACTED]"
-    )
-
-
-@pytest.mark.anyio
-async def test_process_event_stream_capability() -> None:
-    """Verify ProcessEventStream capability handling streaming events and observers."""
-    from devops_cli.ai.agents.capabilities import AgentStreamEvent, ProcessEventStream
-    from devops_cli.ai.agents.context import RunContext
-
-    observed_events: list[AgentStreamEvent] = []
-
-    async def log_events(ctx: RunContext[dict[str, Any]], events: list[AgentStreamEvent]) -> None:
-        for event in events:
-            observed_events.append(event)
-
-    cap = ProcessEventStream(log_events)
-    assert cap.id == "process_event_stream"
-
-    event1 = AgentStreamEvent(event_kind="token", content="Hello")
-    event2 = AgentStreamEvent(event_kind="token", content=" world")
-    event3 = AgentStreamEvent(event_kind="tool_call", content="search_query")
-
-    stream = [event1, event2, event3]
-    result = await cap.handle_stream(stream, RunContext(deps={"stream_id": "s1"}))
-    assert result is None
-    assert len(observed_events) == 3
-    assert observed_events[0].content == "Hello"
-    assert observed_events[2].event_kind == "tool_call"
-
-
-def test_subagents_usage_forwarding() -> None:
-    """Verify SubAgents capability forwards usage tracking to child agents."""
-    from unittest.mock import MagicMock
-
-    from devops_cli.ai.agents.context import AgentUsage, RunContext
-    from devops_cli.ai.harness.workflow import SubAgent, SubAgents
-
-    child_agent = MagicMock()
-    child_resp = MagicMock()
-    child_resp.content = "Child agent result"
-
-    def child_run(task: str, usage: AgentUsage | None = None) -> Any:
-        if usage is not None:
-            usage.input_tokens += 100
-            usage.output_tokens += 50
-            usage.total_tokens += 150
-        return child_resp
-
-    child_agent.run.side_effect = child_run
-
-    sub_agent_def = SubAgent(name="specialist", description="Domain specialist", agent=child_agent)
-    subagents_cap = SubAgents(agents=[sub_agent_def], forward_usage=True)
-
-    tools = subagents_cap.get_tools()
-    delegate_tool = next(t for t in tools if getattr(t, "name", "") == "delegate_task")
-
-    parent_usage = AgentUsage(input_tokens=20, output_tokens=10, total_tokens=30)
-    ctx = RunContext(usage=parent_usage)
-
-    res = delegate_tool.function(ctx=ctx, agent_name="specialist", task="analyze logs")
-    assert res == "Child agent result"
-    assert parent_usage.input_tokens == 120
-    assert parent_usage.output_tokens == 60
-    assert parent_usage.total_tokens == 180
-
-
 def test_agent_tool_args_validator() -> None:
     """Verify args_validator_func supports pre-execution argument validation and transformation."""
-    from devops_cli.ai.agents.tools import FunctionToolset, Tool
+    from devops_cli.ai.agents.tools import FunctionToolset
 
     def sample_tool(ctx: Any, target: str, count: int) -> str:
         return f"{target}:{count}"
@@ -518,7 +114,7 @@ def test_agent_tool_args_validator() -> None:
 def test_abstract_custom_toolset() -> None:
     """Verify custom AbstractToolset subclasses integrate with PydanticAgent."""
     from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.agents.tools import AbstractToolset, AgentTool, Tool
+    from devops_cli.ai.agents.tools import AbstractToolset, AgentTool
 
     class DynamicMetricToolset(AbstractToolset):
         prefix: str = "metric_"
@@ -540,6 +136,58 @@ def test_abstract_custom_toolset() -> None:
 
     agent = PydanticAgent(toolsets=[ts])
     assert "k8s_cpu" in agent._tools
+
+
+@pytest.mark.anyio
+async def test_mcp_toolset() -> None:
+    """Verify MCPToolset lifecycle, tool registration, prefixing and config loading."""
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.agents.testing import TestModel
+    from devops_cli.ai.agents.tools import AgentTool, MCPToolset
+
+    # 1. MCPToolset instantiation and lifecycle
+    tool1 = AgentTool(
+        name="mcp_query", description="Query remote MCP", func=lambda q: f"Result: {q}"
+    )
+    mcp_ts = MCPToolset(url="https://example.com/api", tools=[tool1])
+
+    assert len(mcp_ts.get_tools()) == 1
+    assert mcp_ts.get_tools()[0].name == "mcp_query"
+    instructions = mcp_ts.get_instructions()
+    assert len(instructions) == 1
+    assert "https://example.com/api" in instructions[0]
+
+    # Context manager lifecycle
+    async with mcp_ts as ts:
+        assert len(ts.get_tools()) == 1
+
+    # 2. Tool prefixing and from_config loading
+    mcp_prefix = MCPToolset(
+        "https://example.com/api",
+        tool_prefix="slack",
+        tools=[tool1],
+    )
+    prefixed_tools = mcp_prefix.get_tools()
+    assert len(prefixed_tools) == 1
+    assert prefixed_tools[0].name == "slack_mcp_query"
+
+    config = {
+        "mcpServers": {
+            "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
+            "fetch": {"url": "http://localhost:8000/sse"},
+        }
+    }
+    loaded = MCPToolset.from_config(config)
+    assert len(loaded) == 2
+    assert loaded[0].tool_prefix == "github"
+    assert loaded[1].url == "http://localhost:8000/sse"
+
+    # 3. End-to-end execution with agent and async context manager
+    agent = PydanticAgent(name="MCPAgent", model="openai:gpt-4o", toolsets=[mcp_ts])
+    async with agent:
+        with agent.override(model=TestModel(custom_output_text="MCP processed")):
+            res = agent.run("Run mcp tool")
+            assert res.content == "MCP processed"
 
 
 @pytest.mark.anyio
@@ -608,6 +256,64 @@ async def test_embedder_and_embedding_result() -> None:
     assert len(res_test) == 1
     assert len(res_test[0]) > 0
     assert res_test["Test query"] == res_test[0]
+
+
+def test_embedding_cost_of_an_unpriced_local_model_follows_the_pricing_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A local embedding model costs nothing until an override prices it (provider and timestamp reach the registry)."""
+    from datetime import UTC, datetime
+
+    from pydantic_ai.usage import RequestUsage
+
+    from devops_cli.ai.agents.embeddings import EmbeddingCost, EmbeddingResult
+    from devops_cli.ai.spend.pricing import PricingRegistry
+
+    pricing = PricingRegistry(data_dir=tmp_path)
+    priced_requests: list[dict[str, Any]] = []
+    price_request = pricing.calculate_request_cost
+
+    def record_request(
+        model: str, prompt_tokens: int, completion_tokens: int, **context: Any
+    ) -> float:
+        priced_requests.append(
+            {
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                **context,
+            }
+        )
+        return price_request(model, prompt_tokens, completion_tokens, **context)
+
+    monkeypatch.setattr(pricing, "calculate_request_cost", record_request)
+    monkeypatch.setattr("devops_cli.ai.spend.get_pricing_registry", lambda: pricing)
+
+    request_timestamp = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
+    result = EmbeddingResult(
+        embeddings=[[0.1, 0.2]],
+        inputs=["test text"],
+        model_name="local-embed",
+        provider_name="ollama",
+        usage=RequestUsage(input_tokens=100_000),
+        timestamp=request_timestamp,
+    )
+    unpriced_cost = result.cost()
+    pricing.set_custom_pricing("local-embed", 1.5, 0.0)
+    overridden_cost = result.cost()
+
+    request = {
+        "model": "local-embed",
+        "prompt_tokens": 100_000,
+        "completion_tokens": 0,
+        "provider": "ollama",
+        "request_timestamp": request_timestamp,
+    }
+    assert (unpriced_cost, overridden_cost, priced_requests) == (
+        EmbeddingCost(total_price=0.0),
+        EmbeddingCost(total_price=0.15),
+        [request, request],
+    )
 
 
 def test_testing_utilities_and_agent_override() -> None:
@@ -687,82 +393,3 @@ def test_testing_utilities_and_agent_override() -> None:
     finally:
         testing_module.ALLOW_MODEL_REQUESTS = orig_allow
         agent_module.ALLOW_MODEL_REQUESTS = orig_allow
-
-
-@pytest.mark.anyio
-async def test_mcp_toolset_and_capability() -> None:
-    """Verify MCPToolset lifecycle, tool registration, and MCP capability adaptation."""
-    from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.agents.capabilities import MCP, MCPServerTool
-    from devops_cli.ai.agents.testing import TestModel
-    from devops_cli.ai.agents.tools import AgentTool, MCPToolset
-
-    # 1. MCPToolset instantiation and lifecycle
-    tool1 = AgentTool(
-        name="mcp_query", description="Query remote MCP", func=lambda q: f"Result: {q}"
-    )
-    mcp_ts = MCPToolset(url="https://example.com/api", tools=[tool1])
-
-    assert len(mcp_ts.get_tools()) == 1
-    assert mcp_ts.get_tools()[0].name == "mcp_query"
-    instructions = mcp_ts.get_instructions()
-    assert len(instructions) == 1
-    assert "https://example.com/api" in instructions[0]
-
-    # Context manager lifecycle
-    async with mcp_ts as ts:
-        assert len(ts.get_tools()) == 1
-
-    # 2. MCP capability with MCPToolset as local
-    mcp_cap = MCP(url="https://example.com/api", local=mcp_ts)
-    tools = mcp_cap.get_tools()
-    assert len(tools) == 1
-    assert tools[0].name == "mcp_query"
-
-    # 3. MCP capability with native=True
-    mcp_native = MCP(url="https://example.com/api", native=True)
-    settings = mcp_native.get_model_settings()
-    assert settings.get("native_mcp_server") is True
-    assert settings["mcp_server_config"]["url"] == "https://example.com/api"
-
-    # 4. MCP capability with MCPServerTool instance
-    server_tool = MCPServerTool(
-        url="https://example.com/sse", id="prod_mcp", authorization_token="secret-token-value"
-    )
-    mcp_server_cap = MCP(native=server_tool)
-    server_settings = mcp_server_cap.get_model_settings()
-    assert server_settings["mcp_server_config"]["url"] == "https://example.com/sse"
-    assert server_settings["mcp_server_config"]["authorization_token"] == "secret-token-value"
-
-    # 5. Tool prefixing and from_config loading
-    mcp_prefix = MCPToolset(
-        "https://example.com/api",
-        tool_prefix="slack",
-        tools=[tool1],
-    )
-    prefixed_tools = mcp_prefix.get_tools()
-    assert len(prefixed_tools) == 1
-    assert prefixed_tools[0].name == "slack_mcp_query"
-
-    config = {
-        "mcpServers": {
-            "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
-            "fetch": {"url": "http://localhost:8000/sse"},
-        }
-    }
-    loaded = MCPToolset.from_config(config)
-    assert len(loaded) == 2
-    assert loaded[0].tool_prefix == "github"
-    assert loaded[1].url == "http://localhost:8000/sse"
-
-    # 6. End-to-end execution with agent and async context manager
-    agent = PydanticAgent(
-        name="MCPAgent",
-        model="openai:gpt-4o",
-        capabilities=[mcp_cap],
-        toolsets=[mcp_ts],
-    )
-    async with agent:
-        with agent.override(model=TestModel(custom_output_text="MCP processed")):
-            res = agent.run("Run mcp tool")
-            assert res.content == "MCP processed"

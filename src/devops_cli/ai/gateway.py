@@ -60,7 +60,7 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     },
     {
         "virtual_model": "devops-embedding",
-        "target_model": "bge-m3",
+        "target_model": "qwen3-embedding:0.6b",
         "backend_type": "ollama",
         "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },

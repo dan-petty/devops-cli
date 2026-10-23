@@ -8,14 +8,16 @@ The inference backends admit traffic only from the gateway, so the sweep
 (`devops_cli.ai.gateway_bench`) runs in an ephemeral container attached to the gateway pod
 (`kubectl debug`). It shares the pod's network identity, so it takes the same path as the gateway's
 own requests, and it runs this project's Python rather than whatever the gateway image ships.
-Nothing is reconfigured; the result is a recommendation. An exited ephemeral container stays
-listed on the pod until the pod is replaced.
+A run attaches one such container for all its deployments, and its sleep covers the run's whole
+exec budget. Nothing is reconfigured; the result is a recommendation. An exited ephemeral
+container stays listed on the pod until the pod is replaced.
 """
 
 from __future__ import annotations
 
 import inspect
 import json
+import math
 import subprocess
 import time
 import uuid
@@ -512,18 +514,24 @@ def _ensure_sweep_container(
     namespace: str,
     *,
     container: str,
+    lifetime_seconds: float,
     image: str,
     context: str | None,
     timeout: float,
     poll: float,
-) -> str:
-    """Ensure an ephemeral debug container is running in the pod, creating one if needed."""
+) -> None:
+    """Attach the run's ephemeral debug container to the pod unless it is already running.
+
+    A container that has exited is an error: attaching a second one would leave the run with
+    more than one, and the pod keeps every ephemeral container it was given.
+    """
     state = _container_state(pod, container, namespace, context)
     if "running" in state:
-        return container
-    active_container = container
+        return
     if "terminated" in state:
-        active_container = f"{container}-{uuid.uuid4().hex[:6]}"
+        raise GatewayTuneError(
+            f"The sweep container {container} in {namespace}/{pod} exited before the run finished."
+        )
 
     started = _kubectl(
         [
@@ -533,10 +541,10 @@ def _ensure_sweep_container(
             namespace,
             "--profile=restricted",
             f"--image={image}",
-            f"--container={active_container}",
+            f"--container={container}",
             "--",
             "sleep",
-            "3600",
+            str(math.ceil(lifetime_seconds)),
         ],
         context=context,
     )
@@ -544,8 +552,7 @@ def _ensure_sweep_container(
         raise GatewayTuneError(
             f"Cannot attach the sweep container to {namespace}/{pod}: {_detail(started)}"
         )
-    _wait_for_running(pod, active_container, namespace, context, timeout, poll)
-    return active_container
+    _wait_for_running(pod, container, namespace, context, timeout, poll)
 
 
 def measure_in_gateway_pod(
@@ -553,25 +560,29 @@ def measure_in_gateway_pod(
     *,
     namespace: str,
     deployment: str,
+    container: str,
+    lifetime_seconds: float,
     context: str | None = None,
     timeout: float | None = None,
     image: str = DEFAULT_GATEWAY_TUNE_IMAGE,
     poll_seconds: float = 2.0,
-    container: str = "gateway-tune-runner",
 ) -> list[dict[str, Any]]:
     """Run the sweep in an ephemeral container attached to a gateway pod; return its results.
 
-    Reuses an active debug container running ``sleep`` and pipes the sweep script via stdin
-    to avoid argv character length limits on large prompts.
+    Reuses the run's debug container while it runs, and otherwise attaches it with a ``sleep``
+    of ``lifetime_seconds``, which the caller sizes to every sweep of the run. Pipes the sweep
+    script via stdin to avoid argv character length limits on large prompts.
     """
     pod = _gateway_pod(namespace, deployment, context)
-    active_container = _ensure_sweep_container(
+    exec_timeout = timeout or 600.0
+    _ensure_sweep_container(
         pod,
         namespace,
         container=container,
+        lifetime_seconds=lifetime_seconds,
         image=image,
         context=context,
-        timeout=timeout or 600.0,
+        timeout=exec_timeout,
         poll=poll_seconds,
     )
     script = bench_script(spec)
@@ -583,13 +594,13 @@ def measure_in_gateway_pod(
             "-n",
             namespace,
             "-c",
-            active_container,
+            container,
             "--",
             "python",
             "-",
         ],
         context=context,
-        timeout=timeout or 600.0,
+        timeout=exec_timeout,
         input_data=script,
     )
     if exec_res.returncode != 0:
@@ -662,6 +673,8 @@ def tune_pool(
 
     # Each capacity level's workers, and then the cost pass, send `rounds` requests in turn.
     exec_timeout = request_timeout * rounds * (len(levels) + 1) + 60
+    # One container serves every deployment, so it must outlive all of their sweeps.
+    run_container = f"gateway-tune-{uuid.uuid4().hex[:6]}"
     tuned: list[DeploymentTune] = []
     for dep in pool:
         if on_deployment:
@@ -682,6 +695,8 @@ def tune_pool(
             context=context,
             timeout=exec_timeout,
             image=image,
+            container=run_container,
+            lifetime_seconds=exec_timeout * len(pool),
         )
         tuned.append(
             _tuned(dep, result[0], deployment_gpus(dep["api_base"], context)).model_copy(

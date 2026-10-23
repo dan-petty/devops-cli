@@ -61,10 +61,7 @@ def test_gh_labels_sync_exits_nonzero_when_unauthenticated(tmp_path: Path) -> No
     labels_file.write_text("- name: type/bug\n  color: D73A4A\n", encoding="utf-8")
     failed = MagicMock(returncode=1, stdout="", stderr="gh auth login required")
 
-    with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=None),
-        patch("devops_cli.github.client.run_gh", return_value=failed),
-    ):
+    with patch("devops_cli.github.client.run_gh", return_value=failed):
         result = runner.invoke(app, ["labels", "sync", "-f", str(labels_file), "-R", "o/r"])
 
     assert (
@@ -780,6 +777,52 @@ def test_gh_runs_view_error_masked() -> None:
         result = runner.invoke(app, ["runs", "view", "123456"])
         assert result.exit_code == 1
         assert "ghp_secrettoken" not in result.output
+
+
+def test_a_run_log_is_masked_before_the_run_view_helper_returns_it() -> None:
+    """The helper masks the output of a successful `gh run view` itself, so a caller that prints
+    the text without the console's own masking leaks no secret (#1883). The runner it is given
+    receives the run-log timeout."""
+    from devops_cli.config.defaults import DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS
+    from devops_cli.github.run_view import RunViewResult, fetch_workflow_run_view
+
+    asked: list[tuple[list[str], dict[str, object]]] = []
+
+    def runner(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        asked.append((cmd, kwargs))
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="Job log ghp_secrettoken1234567890abcdefghijklmn\n", stderr=""
+        )
+
+    result = fetch_workflow_run_view(123, job="456", runner=runner)
+    assert result == RunViewResult(0, "Job log <masked-github-token>\n", "")
+    assert asked == [
+        (
+            ["run", "view", "123", "--job", "456"],
+            {"check": False, "timeout": DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS},
+        )
+    ]
+
+
+def test_gh_runs_view_prints_a_run_log_masked_and_gives_gh_the_run_log_timeout() -> None:
+    """`devops gh runs view` prints the log of a successful run with a secret masked, and gives
+    gh the run-log timeout, which is longer than the timeout of one request (#1883)."""
+    from devops_cli.config.defaults import DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+    )
+    answer = subprocess.CompletedProcess(
+        [], 0, stdout="Job log ghp_secrettoken1234567890abcdefghijklmn\n", stderr=""
+    )
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
+    ):
+        result = runner.invoke(app, ["runs", "view", "123456", "--log", "--repo", "owner/repo"])
+    assert (result.exit_code, result.output) == (0, "Job log <masked-github-token>\n")
+    assert gh.call_args.kwargs["timeout"] == DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS
 
 
 def test_gh_rate_limit_json() -> None:

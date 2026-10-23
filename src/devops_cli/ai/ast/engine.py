@@ -1,16 +1,14 @@
-"""Tree-Sitter Multilingual AST Engine with resilient fallback to AST/regex scanners."""
+"""Tree-Sitter Multilingual AST Engine: the symbols and queries of source files."""
 
 from __future__ import annotations
 
 import importlib
-import importlib.util
 import logging
 import re
 import threading
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.ast.fallback import FallbackASTParser
 from devops_cli.ai.ast.models import CodeSpan, PolyglotFileMap, PolyglotSymbol, SymbolKind
 from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 
@@ -147,7 +145,7 @@ NATIVE_KIND_MAP: dict[str, SymbolKind] = {
 }
 # A declarator holding a function, as `const handle = () => {}` declares one.
 _FUNCTION_VALUES = frozenset({"arrow_function", "function_expression", "function"})
-# Top-level HCL blocks, named as the fallback names them: resource "aws_vpc" "this".
+# Top-level HCL blocks, named by their type and labels: resource "aws_vpc" "this".
 _HCL_BLOCK_KINDS: dict[str, SymbolKind] = {
     "resource": SymbolKind.STRUCT,
     "data": SymbolKind.STRUCT,
@@ -184,7 +182,7 @@ _GO_RECEIVER_WRAPPERS = frozenset({"pointer_type", "generic_type", "parenthesize
 
 
 def _go_receiver_type(node: Any) -> str | None:
-    """The type a Go method's receiver names, which owns the method as the regex fallback has it:
+    """The type a Go method's receiver names, which owns the method:
     `func (w *WorkerPool) Start()` is WorkerPool's. None for a node with no receiver."""
     receiver = node.child_by_field_name("receiver")
     params = [
@@ -346,30 +344,6 @@ def _native_symbol(node: Any) -> tuple[SymbolKind, str] | None:
     return None
 
 
-def _matches_sexpr_filter(sym: PolyglotSymbol, query_sexpr: str) -> bool:
-    """Filter polyglot symbols based on S-expression query intent."""
-    q = query_sexpr.lower()
-    targets: set[str] = set()
-    if "function" in q or "func" in q:
-        targets.update(["function", "method"])
-    if "class" in q:
-        targets.add("class")
-    if "interface" in q:
-        targets.add("interface")
-    if "struct" in q:
-        targets.add("struct")
-    if "method" in q:
-        targets.add("method")
-    if "type" in q:
-        targets.add("type")
-    if "constant" in q or "const" in q:
-        targets.add("constant")
-    if "heading" in q or "section" in q:
-        targets.add("heading")
-
-    return sym.kind.value in targets if targets else True
-
-
 def _extract_node_name(node: Any) -> str:
     name_node = getattr(node, "child_by_field_name", lambda _: None)("name")
     if name_node and hasattr(name_node, "text"):
@@ -381,21 +355,14 @@ def _extract_node_name(node: Any) -> str:
 
 
 class TreeSitterEngine:
-    """Multilingual syntax tree parser supporting Tree-Sitter grammars and AST fallback."""
+    """Multilingual syntax tree parser over the Tree-Sitter grammars the project pins."""
 
     def __init__(self, max_file_size_bytes: int = DEFAULT_MAX_AST_FILE_SIZE_BYTES) -> None:
         self.max_file_size_bytes = max_file_size_bytes
-        self._fallback = FallbackASTParser()
         self._parsers: dict[str, Any] = {}
         self._languages: dict[str, Any] = {}
         self._file_cache: dict[Path, tuple[float, PolyglotFileMap]] = {}
         self._lock = threading.Lock()
-        self._has_native_ts: bool | None = None
-
-    def _check_native_tree_sitter(self) -> bool:
-        if self._has_native_ts is None:
-            self._has_native_ts = importlib.util.find_spec("tree_sitter") is not None
-        return self._has_native_ts
 
     def is_language_supported(self, lang_or_ext: str) -> bool:
         """Check if a language identifier or file extension is supported."""
@@ -410,13 +377,11 @@ class TreeSitterEngine:
         return LANG_ALIASES.get(lang_or_ext.lower(), lang_or_ext.lower())
 
     def _load_native_parser(self, lang: str) -> tuple[Any, Any] | None:
-        if not self._check_native_tree_sitter():
-            return None
         with self._lock:
             if lang in self._parsers:
                 return self._parsers[lang], self._languages[lang]
             pkg_name, entry = LANG_TO_GRAMMAR.get(lang, ("", ""))
-            if not pkg_name or not importlib.util.find_spec(pkg_name):
+            if not pkg_name:
                 return None
             try:
                 ts_mod = importlib.import_module("tree_sitter")
@@ -476,34 +441,28 @@ class TreeSitterEngine:
     ) -> PolyglotFileMap:
         """Parse source code string into PolyglotFileMap.
 
-        tree-sitter's result is kept when it finds symbols, or when the regex fallback finds
-        none either: a file that declares nothing (a `package-info.java`) was still parsed.
+        A language without a grammar, or a grammar that fails to load or parse, has no symbols.
         """
         lang = self._resolve_lang(language_or_ext)
-        native = self._parse_native(code, lang, path)
-        if native is not None and native.symbols:
-            return native
-        fallback = self._fallback.parse(path, code, lang)
-        return native if native is not None and not fallback.symbols else fallback
+        return PolyglotFileMap(
+            path=path,
+            language=lang,
+            symbols=self._parse_native_symbols(code, lang),
+            line_count=len(code.splitlines()),
+        )
 
-    def _parse_native(self, code: str, lang: str, path: str) -> PolyglotFileMap | None:
-        """The file as tree-sitter parses it, or None without a grammar for the language."""
+    def _parse_native_symbols(self, code: str, lang: str) -> list[PolyglotSymbol]:
+        """The symbols tree-sitter finds in the code, none without a grammar for the language."""
         pair = self._load_native_parser(lang)
         if pair is None:
-            return None
+            return []
         parser, _ = pair
         try:
             tree = parser.parse(bytes(code, "utf-8"))
         except Exception as exc:
-            logger.debug("Native parse failed for %s, falling back: %s", lang, exc)
-            return None
-        return PolyglotFileMap(
-            path=path,
-            language=lang,
-            symbols=self._extract_native_symbols(tree, code, lang),
-            line_count=len(code.splitlines()) if code else 0,
-            parse_engine="tree-sitter",
-        )
+            logger.debug("Native parse failed for %s: %s", lang, exc)
+            return []
+        return self._extract_native_symbols(tree, code, lang)
 
     def _mtime_within_cap(self, file_path: Path) -> float | None:
         """The file's mtime, or None when it cannot be stat'ed or exceeds the size cap.
@@ -550,45 +509,28 @@ class TreeSitterEngine:
         language_or_ext: str,
         query_sexpr: str,
     ) -> list[dict[str, Any]]:
-        """Execute S-expression or structural query across code symbols."""
-        lang = self._resolve_lang(language_or_ext)
-        pair = self._load_native_parser(lang)
-        if pair is not None:
-            _, ts_lang = pair
-            try:
-                query = ts_lang.query(query_sexpr)
-                # Parse raw CST for captures
-                parser, _ = pair
-                cst = parser.parse(bytes(code, "utf-8"))
-                captures = query.captures(cst.root_node)
-                matches: list[dict[str, Any]] = []
-                for node, capture_name in captures:
-                    text = node.text.decode("utf-8") if hasattr(node, "text") else str(node)
-                    line = node.start_point[0] + 1 if hasattr(node, "start_point") else 1
-                    matches.append(
-                        {
-                            "symbol": text,
-                            "kind": capture_name,
-                            "line": line,
-                            "signature": text,
-                            "query": query_sexpr,
-                        }
-                    )
-                return matches
-            except Exception as exc:
-                logger.debug("Native query failed for %s, falling back: %s", lang, exc)
+        """The nodes a tree-sitter S-expression query captures, in source order, each named by
+        its capture. A language without a grammar has none; a query the grammar cannot compile
+        raises tree_sitter.QueryError."""
+        from tree_sitter import Query, QueryCursor
 
-        file_map = self.parse_code(code, lang)
-        matches = []
-        for sym in file_map.symbols:
-            if _matches_sexpr_filter(sym, query_sexpr):
-                matches.append(
-                    {
-                        "symbol": sym.name,
-                        "kind": sym.kind.value,
-                        "line": sym.span.line_start,
-                        "signature": sym.signature,
-                        "query": query_sexpr,
-                    }
-                )
-        return matches
+        pair = self._load_native_parser(self._resolve_lang(language_or_ext))
+        if pair is None:
+            return []
+        parser, ts_lang = pair
+        root = parser.parse(bytes(code, "utf-8")).root_node
+        captures = QueryCursor(Query(ts_lang, query_sexpr)).captures(root)
+        captured = sorted(
+            ((name, node) for name, nodes in captures.items() for node in nodes),
+            key=lambda capture: capture[1].start_byte,
+        )
+        return [
+            {
+                "symbol": _text(node),
+                "kind": name,
+                "line": node.start_point[0] + 1,
+                "signature": _text(node),
+                "query": query_sexpr,
+            }
+            for name, node in captured
+        ]

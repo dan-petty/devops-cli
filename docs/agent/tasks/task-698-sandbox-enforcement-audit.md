@@ -1,0 +1,35 @@
+# Task: `devops sandbox audit` compares what the sandboxes declare, what the engine reports and what is enforced (#698)
+
+**Issue**: [#698](https://github.com/dan-petty/devops-cli/issues/698)
+**Scope**: type/feature, scope/security, scope/cli
+**Feasibility**: Read against the release tip. Both runners declared their hardening as Engine API kwargs built together with side effects: `WorkloadSandboxEngine._build_create_kwargs` asks the engine for the rootless user and injects the trace context, and `WorkloadSandboxRunner._build_create_kwargs` also provisions the internal network, so neither could be read without touching the engine. `DockerEngineService.security_options()` swallowed its error and cached an empty list, so an unreachable daemon looked like a daemon with no security options. The two dry runs disagreed: `devops sandbox deploy --dry-run` printed the policy's security summary and `devops docker sandbox --dry-run` printed only the read-only flag. `DockerEngineService.security_info()` was run against the dev container's daemon, which reports `name=seccomp,profile=builtin`, `name=cgroupns` and `PidsLimit: true`, and against an unreachable socket, where it returns the reason and no facts. Everything else runs against a mocked Engine API client, the one edge the tests double.
+
+## Description
+
+A sandbox declares hardening (dropped capabilities, no-new-privileges, a pids limit, a read-only root, a noexec `/tmp`, an isolated network) as Engine API kwargs, and nothing compared those declarations with what the engine reports or the kernel enforces. A policy that declares eight controls while the engine applies none of them reads as fully hardened. `devops sandbox audit` closes that gap with three columns per control: DECLARED from the runner, ENGINE from the daemon, ENFORCED from a probe or a definite negative, where anything unproven reads `not probed` and never `yes`.
+
+The item is delivered as several pull requests, all `Part of #698` until the last. This pull request builds the two data sources the audit reads and makes the dry runs read the same data.
+
+- **The engine's answer.** `DockerEngineService.security_info()` returns a frozen `EngineSecurityInfo` (`models/docker.py`) with the daemon's security options, whether it supports a pids limit, and an error bounded to 256 characters. It makes one `info()` call and, when the socket, the SDK or the engine fails, returns the reason instead of raising. A fact the daemon omits stays `None`, so the audit can say `not reported` rather than report a negative. A success is remembered for the normal cache lifetime and a failure for `DEFAULT_DOCKER_FAILURE_CACHE_TTL_SECONDS` (2 s), the lifetime `ping()` already gave a failure, so the daemon is asked again soon after it comes back. `security_options()` and `is_rootless()` read this one answer.
+- **The declared controls.** `WorkloadSandboxEngine.declared_controls(config)` and `WorkloadSandboxRunner.declared_controls()` return the policy's security kwargs, the Docker network of the network mode and the workspace mount mode. They are pure: no engine call, no network provisioning, no trace injection, and no refusal of a whitelist mode that has no egress proxy, which only creating the container needs. Each `_build_create_kwargs` starts from them, so the create call carries exactly the declared controls, and the side effects stay in the deploy and run paths. `SandboxNetworkConfig.to_docker_network_mode()` is the one network-mode mapping both runners use, over `CONST_SANDBOX_DOCKER_NETWORK_BY_MODE`, replacing the branching each runner repeated. The workspace is mounted read-only exactly when `read_only` is set: `declared_controls` declares that mode as `workspace_mount_mode` (`ro` or `rw`), and each `_build_create_kwargs` builds the `volumes` mode from the declared value instead of recomputing it, so the declared and the built mode cannot diverge.
+- **The dry runs.** `devops sandbox deploy --dry-run` and `devops docker sandbox --dry-run` both print `declared_controls` and make no engine request. `SandboxPolicy.declared_security_summary` is deleted, with no alias, since `declared_controls` replaces it.
+
+## Acceptance Criteria
+
+- [x] `security_info()` reports builtin and unconfined seccomp, a rootless engine, `PidsLimit: false`, omitted keys as unreported, and an unreachable daemon as a bounded reason, without raising (`tests/test_docker_engine.py`).
+- [x] One `info()` call backs `security_info()`, `security_options()` and `is_rootless()`; a failed answer is asked again after 2 s and a good one after the normal cache lifetime (`tests/test_docker_engine.py`).
+- [x] Each runner creates its container with every declared control unchanged, the workspace mount mode (read-only or writable) among them, and the two runners declare identical controls for the same policy and network mode (`tests/test_sandbox_lifecycle.py`).
+- [x] `declared_controls()` makes no engine request, and a whitelist mode without an egress proxy declares its network while creating the container still refuses it (`tests/test_sandbox_lifecycle.py`).
+- [x] Every network mode maps to one Docker network (`tests/test_sandbox_networking.py`).
+- [x] Both dry runs print the same declared controls for the same flags and make no engine request (`tests/test_sandbox_lifecycle.py`, `tests/test_workload_sandbox.py`).
+- The `devops sandbox audit [--json]` command, its `sandbox_audit` MCP tool and the DECLARED, ENGINE and ENFORCED columns, with the host bubblewrap and harness shell rows: the next `Part of #698` pull request.
+- `devops sandbox audit --probe`, which runs the runner's own kwargs against the kernel to turn `not probed` cells into `yes` or `no`, and the person-run check of it on the rootless Podman workstation: the pull request that closes #698.
+- `SandboxPolicy.seccomp_profile`: dropped from #698 on the owner's decision. No command or setting builds a custom container `SandboxPolicy`, so the field would be unreachable until one does. It is tracked as [#1822](https://github.com/dan-petty/devops-cli/issues/1822).
+
+## Deliverables
+
+- [x] `EngineSecurityInfo` in `src/devops_cli/models/docker.py` and `DockerEngineService.security_info()` in `src/devops_cli/docker/engine.py`; `DEFAULT_DOCKER_FAILURE_CACHE_TTL_SECONDS` in `src/devops_cli/config/defaults.py`, shared with `ping()`.
+- [x] `declared_controls()` on `WorkloadSandboxEngine` (`src/devops_cli/sandbox/engine.py`) and `WorkloadSandboxRunner` (`src/devops_cli/docker/sandbox.py`); the runner's `_network_create_kwargs` became `_provision_network_environment`, since the network name now comes from the declared controls.
+- [x] `SandboxNetworkConfig.to_docker_network_mode()` in `src/devops_cli/sandbox/models.py` and `CONST_SANDBOX_DOCKER_NETWORK_BY_MODE` in `src/devops_cli/config/constants.py`.
+- [x] The two dry runs print `declared_controls` (`src/devops_cli/commands/sandbox.py`, `WorkloadSandboxRunner.build_dry_run_details`); `SandboxPolicy.declared_security_summary` is removed.
+- [x] No changelog fragment: a `Part of` pull request adds none, and the pull request that closes #698 adds `changelog.d/698.md`.

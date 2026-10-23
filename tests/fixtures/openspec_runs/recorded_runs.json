@@ -1,0 +1,512 @@
+{
+ "scenarios": {
+  "archive-adds-a-spec": [
+   {
+    "argv": [
+     "archive",
+     "1930-export-widgets",
+     "--yes"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1930-export-widgets' archived as '2026-10-23-1930-export-widgets'.\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "\u2713 spec/widget-export\nTotals: 1 passed, 0 failed (1 items)\n"
+   }
+  ],
+  "archive-is-refused": [
+   {
+    "argv": [
+     "archive",
+     "1931-export-json",
+     "--yes"
+    ],
+    "returncode": 1,
+    "stderr": "",
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nwidget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\nAborted. No files were changed.\n"
+   }
+  ],
+  "archive-leaves-a-placeholder-purpose": [
+   {
+    "argv": [
+     "archive",
+     "1932-export-widgets",
+     "--yes"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1932-export-widgets' archived as '2026-10-23-1932-export-widgets'.\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 1,
+    "stderr": "\u2717 spec/widget-export\n  \u26a0 [WARNING] overview: Purpose section is still a placeholder rather than a Purpose anyone wrote (the sentence `openspec archive` writes for a new capability, or a `TBD`/`TODO` marker left in its place). Replace it with what this capability is for, editing the main spec directly: a `## Purpose` in a delta is read only when the capability is created, so it cannot replace this one.\n",
+    "stdout": "Totals: 0 passed, 1 failed (1 items)\nDetails: openspec validate widget-export --type spec\n"
+   }
+  ],
+  "archived-change-with-unticked-task": [
+   {
+    "argv": [
+     "validate",
+     "--archived"
+    ],
+    "returncode": 1,
+    "stderr": "\u2717 change/2026-10-01-1900-old-export\n  \u2717 1 incomplete task (0/1 completed)\n",
+    "stdout": "Totals: 0 passed, 1 failed (1 items)\n"
+   }
+  ],
+  "configuration-openspec-ignores": [
+   {
+    "argv": [
+     "new",
+     "change",
+     "gate-probe"
+    ],
+    "returncode": 0,
+    "stderr": "- Creating change 'gate-probe' with schema 'spec-driven'...\nContext too large (50.8KB, limit: 50KB)\nIgnoring context field\nRules for 'proposal' must be an array of strings, ignoring this artifact's rules. rules.proposal[0] is a mapping \u2014 an unquoted \": \" makes YAML read the item as a key/value pair; quote the whole scalar to keep it a string.\n",
+    "stdout": "Created change 'gate-probe' at openspec/changes/gate-probe/\nSchema: spec-driven\nNext: openspec status --change gate-probe\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "proposal",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "Context too large (50.8KB, limit: 50KB)\nIgnoring context field\nRules for 'proposal' must be an array of strings, ignoring this artifact's rules. rules.proposal[0] is a mapping \u2014 an unquoted \": \" makes YAML read the item as a key/value pair; quote the whole scalar to keep it a string.\nUnknown artifact ID in rules: \"nonsense\". It matches no artifact in any available schema. Known artifact IDs: design, proposal, specs, tasks\n",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"proposal\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"proposal.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/proposal.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Initial proposal document outlining the change\",\n  \"instruction\": \"Create the proposal document that establishes WHY this change is needed.\\n\\nSections:\\n- **Why**: 1-2 sentences on the problem or opportunity. What problem does this solve? Why now?\\n- **What Changes**: Bullet list of changes. Be specific about new capabilities, modifications, or removals. Mark breaking changes with **BREAKING**.\\n- **Capabilities**: Identify which specs will be created or modified:\\n  - **New Capabilities**: List capabilities being introduced. Each becomes a new `specs/<capability-path>/spec.md`. Name each capability for a durable system behavior (for example, `user-auth`), not the work in this change (for example, `add-login-endpoint`). Choose a cohesive boundary that can own related requirements as the system evolves; avoid broad catch-all capabilities. Use kebab-case for path segments you introduce (e.g., `user-auth` or `identity/user-auth`) and follow the project's existing spec organization.\\n  - **Modified Capabilities**: List existing capabilities whose REQUIREMENTS are changing. Only include if spec-level behavior changes (not just implementation details). Each needs a delta spec file. Use the exact existing path under `openspec/specs/`. Leave empty if no requirement changes.\\n- **Impact**: Affected code, APIs, dependencies, or systems.\\n\\nIMPORTANT: The Capabilities section is critical. It creates the contract between\\nproposal and specs phases. Research existing specs before filling this in:\\nrun `openspec list --specs` for the project's capability inventory, then\\n`openspec show \\\"<spec-id>\\\" --type spec --json --no-scenarios` for any that\\nlook related - that returns a capability's purpose and requirement texts\\nwithout pulling whole spec files into context. Append `--store \\\"<id>\\\"` to\\nboth commands only for a registered standalone store, and keep `--type\\nspec`: a change and a spec sharing a name is otherwise an ambiguous-item\\nerror. `openspec list` without `--specs` lists in-flight changes, not\\nspecs - it never shows what the project already covers. Reuse an existing\\ncapability's exact path instead of introducing a near-duplicate name.\\nThe filtered read is only an overview. Before deciding what is already\\ncovered or what should change, read each relevant spec in full, including\\nscenarios, with `openspec show \\\"<spec-id>\\\" --type spec` (same `--store` rule).\\nEach capability listed here will need a corresponding spec file.\\n\\nEvery change must either declare at least one capability (new or\\nmodified) or explicitly opt out of specs: `openspec validate` rejects a\\nchange with zero deltas unless the change's `.openspec.yaml` sets\\n`skip_specs: true`. Use `skip_specs: true` only when no spec-level\\nbehavior changes (pure refactor, tooling, docs) - specs describe\\nbehavior, so if behavior does not change, no spec should change either.\\nDo not invent a requirement just to satisfy validation.\\n\\nKeep it concise (1-2 pages). Focus on the \\\"why\\\" not the \\\"how\\\" -\\nimplementation details belong in design.md.\\n\\nThis is the foundation - specs, design, and tasks all build on this.\\n\",\n  \"template\": \"# Proposal\\n\\n## Why\\n\\n<!-- Explain the motivation for this change. What problem does this solve? Why now? -->\\n\\n## What Changes\\n\\n<!-- Describe what will change. Be specific about new capabilities, modifications, or removals. -->\\n\\n## Capabilities\\n\\n### New Capabilities\\n<!-- Capabilities being introduced. Name each capability for a cohesive system\\n     behavior that can own related requirements as the system evolves. Do not name\\n     implementation tasks or proposal sections. Avoid broad catch-all names. Use\\n     kebab-case for path segments you introduce (e.g., user-auth or identity/user-auth)\\n     that follow the project's existing spec organization. Each creates\\n     specs/<capability-path>/spec.md. -->\\n- `<capability-path>`: <brief description of what this capability covers>\\n\\n### Modified Capabilities\\n<!-- Existing capabilities whose REQUIREMENTS are changing (not just implementation).\\n     Only list here if spec-level behavior changes. Each needs a delta spec file.\\n     Use the exact existing path under openspec/specs/. Leave empty if no requirement\\n     changes. A change with no capabilities at all (pure refactor, tooling, docs)\\n     must set `skip_specs: true` in its .openspec.yaml - openspec validate rejects\\n     a zero-delta change without that marker. Do not invent a requirement just to\\n     satisfy validation. -->\\n- `<existing-capability-path>`: <what requirement is changing>\\n\\n## Impact\\n\\n<!-- Affected code, APIs, dependencies, systems -->\\n\",\n  \"dependencies\": [],\n  \"unlocks\": [\n    \"specs\",\n    \"design\"\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "specs",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "Context too large (50.8KB, limit: 50KB)\nIgnoring context field\nRules for 'proposal' must be an array of strings, ignoring this artifact's rules. rules.proposal[0] is a mapping \u2014 an unquoted \": \" makes YAML read the item as a key/value pair; quote the whole scalar to keep it a string.\nUnknown artifact ID in rules: \"nonsense\". It matches no artifact in any available schema. Known artifact IDs: design, proposal, specs, tasks\n",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"specs\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"specs/**/*.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/specs/**/*.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Detailed specifications for the change\",\n  \"instruction\": \"Create specification files that define WHAT the system should do.\\n\\nA spec is a behavior contract, not an implementation plan.\\n\\nGood spec content:\\n- Observable behavior users or downstream systems rely on\\n- Inputs, outputs, and error conditions\\n- External constraints (security, privacy, reliability, compatibility)\\n- Scenarios that can be tested or explicitly validated\\n\\nAvoid in specs:\\n- Internal class/function names\\n- Library or framework choices\\n- Step-by-step implementation details\\n- Detailed execution plans (those belong in design.md or tasks.md)\\n\\nQuick test: if the implementation can change without changing externally\\nvisible behavior, it likely does not belong in the spec.\\n\\nCreate one spec file per capability listed in the proposal's Capabilities section.\\n`<capability-path>` is the spec directory relative to `specs/` (for example,\\n`user-auth` or `identity/user-auth`). Preserve the full path:\\n- New capabilities: use the exact path from the proposal at `specs/<capability-path>/spec.md`. Any path segment newly introduced in the proposal must be kebab-case. Follow the project's existing organization; do not add a new domain level when the project uses a flat layout.\\n- Modified capabilities: use the exact existing path from `openspec/specs/<capability-path>/` when creating the delta at `specs/<capability-path>/spec.md`. Run `openspec list --specs` to confirm that path before writing the delta, appending `--store \\\"<id>\\\"` only for a registered standalone store - a mistyped or invented path targets a capability that does not exist rather than the one you meant. Do not move or rename the capability.\\n\\nWrite the spec files one at a time, so the user sees progress and an\\ninterrupted run keeps the files it already wrote:\\n- Before writing anything, compare the capabilities the proposal lists\\n  with the `specs/<capability-path>/spec.md` files that already exist,\\n  and start with the first capability that has no file. Do not rewrite\\n  an existing file unless the user asks you to.\\n- Before each file, say in one line which capability you are writing.\\n- Write each file as soon as you have drafted it. Do not plan every file\\n  before writing the first.\\n- Stop when every capability the proposal lists has its file.\\n\\nThere must be at least one spec file unless the change's `.openspec.yaml`\\nsets `skip_specs: true` (no spec-level behavior change) - `openspec validate`\\nrejects a zero-delta change without that marker. If the proposal lists no\\ncapabilities and `skip_specs` is not set, revisit the proposal first.\\n\\nDelta operations (use ## headers):\\n- **ADDED Requirements**: New capabilities\\n- **MODIFIED Requirements**: Changed behavior - MUST include full updated content\\n- **REMOVED Requirements**: Deprecated features - MUST include **Reason** and **Migration**\\n- **RENAMED Requirements**: Name changes only - use FROM:/TO: format\\n\\nFormat requirements:\\n- Each requirement: `### Requirement: <name>` followed by description\\n- Use SHALL/MUST for normative requirements (avoid should/may)\\n- Each scenario: `#### Scenario: <name>` with WHEN/THEN format\\n- **CRITICAL**: Scenarios MUST use exactly 4 hashtags (`####`). Using 3 hashtags or bullets will fail silently.\\n- Every requirement MUST have at least one scenario.\\n- Keep each requirement's description (the text between `### Requirement:` and its first scenario) to 500 characters or fewer. `openspec validate` flags longer descriptions in ADDED requirements and in the main spec. This is a warning: normal validation still passes, but `openspec validate --strict` fails on it. When writing a new requirement, state one behavior per requirement: move examples and edge cases into scenarios, and split a requirement that covers several behaviors into separate `### Requirement:` blocks, each with its own scenarios. Under MODIFIED, keep the existing requirement block whole; never split, trim or rewrite existing text just to meet the length. Split an existing long requirement only when the user asks for it, in a change made for that purpose: under MODIFIED, keep its header and every scenario and cut its description down to one behavior without changing its meaning, then add each behavior you removed as its own ADDED requirement with its own scenarios.\\n\\nNew capabilities only: the delta spec's first section is `## Purpose` -\\none or two sentences (50+ characters, or `openspec validate --strict`\\nreports it as too brief) describing what the capability is for. Archive\\ncopies it into the main spec it creates; without it the new main spec is\\nleft with a `TBD ... Update Purpose after archive` placeholder to fill in\\nby hand. Do NOT add `## Purpose` to a delta for an existing capability -\\nthat spec already has one and the delta's is ignored. To change an\\nexisting capability's Purpose - including a leftover `TBD` placeholder -\\nedit `<planningHome.root>/openspec/specs/<capability-path>/spec.md`\\ndirectly. `planningHome.root` comes from the `openspec instructions ...\\n--json` response. Always use it rather than a repo-relative path: it\\nresolves to the store whenever the change lives in one - whether that\\ncame from `--store`, a project `store:` pointer, or a global default\\nstore - and to the current repository otherwise. Do not try to work out\\nwhich case applies; the field already has.\\n\\nMODIFIED requirements workflow:\\n1. Locate the existing requirement in `<planningHome.root>/openspec/specs/<capability-path>/spec.md` (the same store-aware root as above)\\n2. Copy the ENTIRE requirement block (from `### Requirement:` through all scenarios)\\n3. Paste under `## MODIFIED Requirements` and edit to reflect new behavior\\n4. Ensure header text matches exactly (whitespace-insensitive)\\n\\nCommon pitfall: Using MODIFIED with partial content loses detail at archive time.\\nIf adding new concerns without changing existing behavior, use ADDED instead.\\n\\nExample (a new capability, so its first section is `## Purpose`):\\n```\\n# Spec Delta\\n\\n## Purpose\\n\\nLets users take their data out of the product in a portable format.\\n\\n## ADDED Requirements\\n\\n### Requirement: User can export data\\nThe system SHALL allow users to export their data in CSV format.\\n\\n#### Scenario: Successful export\\n- **WHEN** user clicks \\\"Export\\\" button\\n- **THEN** system downloads a CSV file with all user data\\n\\n## REMOVED Requirements\\n\\n### Requirement: Legacy export\\n**Reason**: Replaced by new export system\\n**Migration**: Use new export endpoint at /api/v2/export\\n```\\n\\nSpecs should be testable - each scenario is a potential test case.\\n\",\n  \"template\": \"# Spec Delta\\n\\n## Purpose\\n<!-- New capabilities only: one or two sentences (50+ characters) on what this capability is for. Delete this section for an existing capability. -->\\n\\n## ADDED Requirements\\n\\n### Requirement: <!-- requirement name -->\\n<!-- requirement text -->\\n\\n#### Scenario: <!-- scenario name -->\\n- **WHEN** <!-- condition -->\\n- **THEN** <!-- expected outcome -->\\n\",\n  \"dependencies\": [\n    {\n      \"id\": \"proposal\",\n      \"done\": false,\n      \"path\": \"proposal.md\",\n      \"description\": \"Initial proposal document outlining the change\"\n    }\n  ],\n  \"unlocks\": [\n    \"tasks\"\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "design",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "Context too large (50.8KB, limit: 50KB)\nIgnoring context field\nRules for 'proposal' must be an array of strings, ignoring this artifact's rules. rules.proposal[0] is a mapping \u2014 an unquoted \": \" makes YAML read the item as a key/value pair; quote the whole scalar to keep it a string.\nUnknown artifact ID in rules: \"nonsense\". It matches no artifact in any available schema. Known artifact IDs: design, proposal, specs, tasks\n",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"design\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"design.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/design.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Technical design document with implementation details\",\n  \"instruction\": \"Create the design document that explains HOW to implement the change.\\n\\nWhen to include design.md (create only if any apply):\\n- Cross-cutting change (multiple services/modules) or new architectural pattern\\n- New external dependency or significant data model changes\\n- Security, performance, or migration complexity\\n- Ambiguity that benefits from technical decisions before coding\\n\\nSections:\\n- **Context**: Only the current state and constraints needed to explain the approach. Reference the proposal for motivation instead of restating it (e.g., \\\"See proposal.md - Why\\\").\\n- **Goals / Non-Goals**: What this design achieves and explicitly excludes. Don't restate the proposal's scope - add only design-level boundaries.\\n- **Decisions**: Key technical choices with rationale (why X over Y?). Include alternatives considered for each decision.\\n- **Risks / Trade-offs**: Known limitations, things that could go wrong. Format: [Risk] \u2192 Mitigation\\n- **Migration Plan**: Steps to deploy, rollback strategy (if applicable)\\n- **Open Questions**: Unknowns that can safely be answered later without\\n  changing the specs, the approach, or the task breakdown. Omit if none.\\n\\nOpen questions are for genuinely deferrable unknowns, not decisions you\\nskipped. If a question would change the specs, the chosen approach, or\\nthe task breakdown, resolve it now - ask the user instead of guessing.\\n\\nFocus on architecture and approach, not line-by-line implementation.\\nThe proposal covers why and what; design covers how. Reference the\\nproposal for motivation and, once written, the specs for requirements -\\nif a section would only restate them, point to them instead.\\n\\nGood design docs explain the \\\"why\\\" behind technical decisions.\\n\",\n  \"template\": \"# Design\\n\\n## Context\\n\\n<!-- Current state and constraints that shape the approach. See proposal.md for motivation - don't restate it -->\\n\\n## Goals / Non-Goals\\n\\n**Goals:**\\n<!-- What this design aims to achieve -->\\n\\n**Non-Goals:**\\n<!-- What is explicitly out of scope -->\\n\\n## Decisions\\n\\n<!-- Key design decisions with rationale and alternatives considered -->\\n\\n## Risks / Trade-offs\\n\\n<!-- Known risks and trade-offs -->\\n\",\n  \"dependencies\": [\n    {\n      \"id\": \"proposal\",\n      \"done\": false,\n      \"path\": \"proposal.md\",\n      \"description\": \"Initial proposal document outlining the change\"\n    }\n  ],\n  \"unlocks\": [\n    \"tasks\"\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "tasks",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "Context too large (50.8KB, limit: 50KB)\nIgnoring context field\nRules for 'proposal' must be an array of strings, ignoring this artifact's rules. rules.proposal[0] is a mapping \u2014 an unquoted \": \" makes YAML read the item as a key/value pair; quote the whole scalar to keep it a string.\nUnknown artifact ID in rules: \"nonsense\". It matches no artifact in any available schema. Known artifact IDs: design, proposal, specs, tasks\n",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"tasks\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"tasks.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/tasks.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Implementation checklist with trackable tasks\",\n  \"instruction\": \"Create the task list that breaks down the implementation work.\\n\\nBefore writing tasks, check design.md for Open Questions. If any of them\\nwould change what gets built, resolve them with the user first - do not\\nbake an unstated assumption into the task list.\\n\\n**IMPORTANT: Follow the template below for tracked tasks.** The apply phase parses\\ncheckbox format to track progress. A box holding only `x` counts as done,\\nupper or lower case and with any spacing, so `- [ x]` is done too. Every\\nother marker, including `- [~]`, `- [-]` and an empty `- []`, reads as\\nunfinished. A line with no checkbox is not tracked at all.\\n\\nGuidelines:\\n- Group related tracked tasks under ## numbered headings\\n- Each tracked task MUST be a checkbox: `- [ ] X.Y Task description`\\n- Tasks should be small enough to complete in one session\\n- Order tasks by dependency (what must be done first?)\\n- Track implementation and verification work that can be completed before\\n  archive. If the requested workflow includes archive or work that requires\\n  this change to be archived, preserve those steps as plain bullets in an\\n  optional `## Workflow follow-up` section at the end of tasks.md. These\\n  bullets are reference information outside tracked task progress.\\n- Each task MUST state how to verify completion (a test, command,\\n  observable behavior, or delivered artifact). Put the verification in\\n  that task's checkbox description. Use a separate verification task only\\n  when it checks broader integration or system behavior that spans\\n  multiple implementation tasks.\\n- Each task group MUST land the tests and documentation its own work\\n  calls for. Do NOT collect testing or documentation into a final group -\\n  when a late group first exercises work from an early one, the failures\\n  cascade back through every group in between and force rework. A group\\n  whose work calls for neither, such as scaffolding or dependency setup,\\n  carries neither. A final group is for integration checks only, not for\\n  the tests and docs an earlier group owed.\\n\\nExample:\\n```\\n# Tasks\\n\\n## 1. Setup\\n\\n- [ ] 1.1 Create new module structure and verify expected files are present\\n- [ ] 1.2 Add dependencies to package.json and verify package installation succeeds\\n\\n## 2. Core Implementation\\n\\n- [ ] 2.1 Implement data export function and verify the export test passes\\n- [ ] 2.2 Add CSV formatting utilities and verify unit tests cover quoting and delimiters\\n- [ ] 2.3 Document the export API in docs/export.md and verify the documented command runs as written\\n```\\n\\nWhen applicable, append workflow follow-up as plain bullets, for example:\\n```\\n## Workflow follow-up\\n\\n- Archive the change after the project's review requirements are satisfied.\\n- Verify the archived result.\\n```\\n\\nReference specs for what needs to be built, design for how to build it.\\n\",\n  \"template\": \"# Tasks\\n\\n## 1. <!-- Task Group Name -->\\n\\n- [ ] 1.1 <!-- Task description -->\\n- [ ] 1.2 <!-- Task description -->\\n\\n## 2. <!-- Task Group Name -->\\n\\n- [ ] 2.1 <!-- Task description -->\\n- [ ] 2.2 <!-- Task description -->\\n\",\n  \"dependencies\": [\n    {\n      \"id\": \"specs\",\n      \"done\": false,\n      \"path\": \"specs/**/*.md\",\n      \"description\": \"Detailed specifications for the change\"\n    },\n    {\n      \"id\": \"design\",\n      \"done\": false,\n      \"path\": \"design.md\",\n      \"description\": \"Technical design document with implementation details\"\n    }\n  ],\n  \"unlocks\": [],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "apply",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "Context too large (50.8KB, limit: 50KB)\nIgnoring context field\nRules for 'proposal' must be an array of strings, ignoring this artifact's rules. rules.proposal[0] is a mapping \u2014 an unquoted \": \" makes YAML read the item as a key/value pair; quote the whole scalar to keep it a string.\n",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"schemaName\": \"spec-driven\",\n  \"contextFiles\": {},\n  \"progress\": {\n    \"total\": 0,\n    \"complete\": 0,\n    \"remaining\": 0\n  },\n  \"tasks\": [],\n  \"taskTrackingConfigured\": true,\n  \"state\": \"blocked\",\n  \"missingArtifacts\": [\n    \"tasks\"\n  ],\n  \"missingPrerequisites\": [\n    \"proposal\",\n    \"specs\",\n    \"design\",\n    \"tasks\"\n  ],\n  \"instruction\": \"Cannot apply this change yet. Missing artifacts: tasks.\\nNot created yet, in build order: proposal, specs, design, tasks. Build the ones this change needs before applying - the schema says which are conditional.\\nCreate each with `openspec instructions <artifact> --change gate-probe` (`openspec status --change gate-probe` shows what is left).\",\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   }
+  ],
+  "empty": [
+   {
+    "argv": [
+     "config",
+     "set",
+     "telemetry.enabled",
+     "false"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Set telemetry.enabled = false\n"
+   },
+   {
+    "argv": [
+     "config",
+     "set",
+     "delivery",
+     "skills"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Set delivery = \"skills\"\n"
+   },
+   {
+    "argv": [
+     "config",
+     "set",
+     "profile",
+     "custom"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Set profile = \"custom\"\n"
+   },
+   {
+    "argv": [
+     "config",
+     "set",
+     "workflows",
+     "[\"propose\", \"explore\", \"apply\", \"update\"]"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "Set workflows = propose,explore,apply,update\n"
+   },
+   {
+    "argv": [
+     "list",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changes\": [],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "No items found to validate.\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--archived"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "No archived changes found.\n"
+   },
+   {
+    "argv": [
+     "update",
+     "--force"
+    ],
+    "returncode": 0,
+    "stderr": "- Updating Claude Code...\n\u2714 Updated Claude Code\n- Updating Other / Universal (shared .agents skills)...\n\u2714 Updated Other / Universal (shared .agents skills)\n",
+    "stdout": "Force updating 2 tool(s): claude, agents\n\n\n\u2713 Updated: Claude Code, Other / Universal (shared .agents skills) (v1.14.3)\nNote: Your custom profile is missing 2 core workflows: sync, archive\nRun `openspec config profile` to add them, or `openspec config profile core` to use the core set.\nTools: Claude Code, Other / Universal (shared .agents skills)\n\n"
+   },
+   {
+    "argv": [
+     "new",
+     "change",
+     "gate-probe"
+    ],
+    "returncode": 0,
+    "stderr": "- Creating change 'gate-probe' with schema 'spec-driven'...\n",
+    "stdout": "Created change 'gate-probe' at openspec/changes/gate-probe/\nSchema: spec-driven\nNext: openspec status --change gate-probe\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "proposal",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"proposal\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"proposal.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/proposal.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Initial proposal document outlining the change\",\n  \"instruction\": \"Create the proposal document that establishes WHY this change is needed.\\n\\nSections:\\n- **Why**: 1-2 sentences on the problem or opportunity. What problem does this solve? Why now?\\n- **What Changes**: Bullet list of changes. Be specific about new capabilities, modifications, or removals. Mark breaking changes with **BREAKING**.\\n- **Capabilities**: Identify which specs will be created or modified:\\n  - **New Capabilities**: List capabilities being introduced. Each becomes a new `specs/<capability-path>/spec.md`. Name each capability for a durable system behavior (for example, `user-auth`), not the work in this change (for example, `add-login-endpoint`). Choose a cohesive boundary that can own related requirements as the system evolves; avoid broad catch-all capabilities. Use kebab-case for path segments you introduce (e.g., `user-auth` or `identity/user-auth`) and follow the project's existing spec organization.\\n  - **Modified Capabilities**: List existing capabilities whose REQUIREMENTS are changing. Only include if spec-level behavior changes (not just implementation details). Each needs a delta spec file. Use the exact existing path under `openspec/specs/`. Leave empty if no requirement changes.\\n- **Impact**: Affected code, APIs, dependencies, or systems.\\n\\nIMPORTANT: The Capabilities section is critical. It creates the contract between\\nproposal and specs phases. Research existing specs before filling this in:\\nrun `openspec list --specs` for the project's capability inventory, then\\n`openspec show \\\"<spec-id>\\\" --type spec --json --no-scenarios` for any that\\nlook related - that returns a capability's purpose and requirement texts\\nwithout pulling whole spec files into context. Append `--store \\\"<id>\\\"` to\\nboth commands only for a registered standalone store, and keep `--type\\nspec`: a change and a spec sharing a name is otherwise an ambiguous-item\\nerror. `openspec list` without `--specs` lists in-flight changes, not\\nspecs - it never shows what the project already covers. Reuse an existing\\ncapability's exact path instead of introducing a near-duplicate name.\\nThe filtered read is only an overview. Before deciding what is already\\ncovered or what should change, read each relevant spec in full, including\\nscenarios, with `openspec show \\\"<spec-id>\\\" --type spec` (same `--store` rule).\\nEach capability listed here will need a corresponding spec file.\\n\\nEvery change must either declare at least one capability (new or\\nmodified) or explicitly opt out of specs: `openspec validate` rejects a\\nchange with zero deltas unless the change's `.openspec.yaml` sets\\n`skip_specs: true`. Use `skip_specs: true` only when no spec-level\\nbehavior changes (pure refactor, tooling, docs) - specs describe\\nbehavior, so if behavior does not change, no spec should change either.\\nDo not invent a requirement just to satisfy validation.\\n\\nKeep it concise (1-2 pages). Focus on the \\\"why\\\" not the \\\"how\\\" -\\nimplementation details belong in design.md.\\n\\nThis is the foundation - specs, design, and tasks all build on this.\\n\",\n  \"context\": \"Example context for every artifact.\",\n  \"rules\": [\n    \"Cite the issue as #<issue> in Why.\"\n  ],\n  \"template\": \"# Proposal\\n\\n## Why\\n\\n<!-- Explain the motivation for this change. What problem does this solve? Why now? -->\\n\\n## What Changes\\n\\n<!-- Describe what will change. Be specific about new capabilities, modifications, or removals. -->\\n\\n## Capabilities\\n\\n### New Capabilities\\n<!-- Capabilities being introduced. Name each capability for a cohesive system\\n     behavior that can own related requirements as the system evolves. Do not name\\n     implementation tasks or proposal sections. Avoid broad catch-all names. Use\\n     kebab-case for path segments you introduce (e.g., user-auth or identity/user-auth)\\n     that follow the project's existing spec organization. Each creates\\n     specs/<capability-path>/spec.md. -->\\n- `<capability-path>`: <brief description of what this capability covers>\\n\\n### Modified Capabilities\\n<!-- Existing capabilities whose REQUIREMENTS are changing (not just implementation).\\n     Only list here if spec-level behavior changes. Each needs a delta spec file.\\n     Use the exact existing path under openspec/specs/. Leave empty if no requirement\\n     changes. A change with no capabilities at all (pure refactor, tooling, docs)\\n     must set `skip_specs: true` in its .openspec.yaml - openspec validate rejects\\n     a zero-delta change without that marker. Do not invent a requirement just to\\n     satisfy validation. -->\\n- `<existing-capability-path>`: <what requirement is changing>\\n\\n## Impact\\n\\n<!-- Affected code, APIs, dependencies, systems -->\\n\",\n  \"dependencies\": [],\n  \"unlocks\": [\n    \"specs\",\n    \"design\"\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "specs",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"specs\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"specs/**/*.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/specs/**/*.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Detailed specifications for the change\",\n  \"instruction\": \"Create specification files that define WHAT the system should do.\\n\\nA spec is a behavior contract, not an implementation plan.\\n\\nGood spec content:\\n- Observable behavior users or downstream systems rely on\\n- Inputs, outputs, and error conditions\\n- External constraints (security, privacy, reliability, compatibility)\\n- Scenarios that can be tested or explicitly validated\\n\\nAvoid in specs:\\n- Internal class/function names\\n- Library or framework choices\\n- Step-by-step implementation details\\n- Detailed execution plans (those belong in design.md or tasks.md)\\n\\nQuick test: if the implementation can change without changing externally\\nvisible behavior, it likely does not belong in the spec.\\n\\nCreate one spec file per capability listed in the proposal's Capabilities section.\\n`<capability-path>` is the spec directory relative to `specs/` (for example,\\n`user-auth` or `identity/user-auth`). Preserve the full path:\\n- New capabilities: use the exact path from the proposal at `specs/<capability-path>/spec.md`. Any path segment newly introduced in the proposal must be kebab-case. Follow the project's existing organization; do not add a new domain level when the project uses a flat layout.\\n- Modified capabilities: use the exact existing path from `openspec/specs/<capability-path>/` when creating the delta at `specs/<capability-path>/spec.md`. Run `openspec list --specs` to confirm that path before writing the delta, appending `--store \\\"<id>\\\"` only for a registered standalone store - a mistyped or invented path targets a capability that does not exist rather than the one you meant. Do not move or rename the capability.\\n\\nWrite the spec files one at a time, so the user sees progress and an\\ninterrupted run keeps the files it already wrote:\\n- Before writing anything, compare the capabilities the proposal lists\\n  with the `specs/<capability-path>/spec.md` files that already exist,\\n  and start with the first capability that has no file. Do not rewrite\\n  an existing file unless the user asks you to.\\n- Before each file, say in one line which capability you are writing.\\n- Write each file as soon as you have drafted it. Do not plan every file\\n  before writing the first.\\n- Stop when every capability the proposal lists has its file.\\n\\nThere must be at least one spec file unless the change's `.openspec.yaml`\\nsets `skip_specs: true` (no spec-level behavior change) - `openspec validate`\\nrejects a zero-delta change without that marker. If the proposal lists no\\ncapabilities and `skip_specs` is not set, revisit the proposal first.\\n\\nDelta operations (use ## headers):\\n- **ADDED Requirements**: New capabilities\\n- **MODIFIED Requirements**: Changed behavior - MUST include full updated content\\n- **REMOVED Requirements**: Deprecated features - MUST include **Reason** and **Migration**\\n- **RENAMED Requirements**: Name changes only - use FROM:/TO: format\\n\\nFormat requirements:\\n- Each requirement: `### Requirement: <name>` followed by description\\n- Use SHALL/MUST for normative requirements (avoid should/may)\\n- Each scenario: `#### Scenario: <name>` with WHEN/THEN format\\n- **CRITICAL**: Scenarios MUST use exactly 4 hashtags (`####`). Using 3 hashtags or bullets will fail silently.\\n- Every requirement MUST have at least one scenario.\\n- Keep each requirement's description (the text between `### Requirement:` and its first scenario) to 500 characters or fewer. `openspec validate` flags longer descriptions in ADDED requirements and in the main spec. This is a warning: normal validation still passes, but `openspec validate --strict` fails on it. When writing a new requirement, state one behavior per requirement: move examples and edge cases into scenarios, and split a requirement that covers several behaviors into separate `### Requirement:` blocks, each with its own scenarios. Under MODIFIED, keep the existing requirement block whole; never split, trim or rewrite existing text just to meet the length. Split an existing long requirement only when the user asks for it, in a change made for that purpose: under MODIFIED, keep its header and every scenario and cut its description down to one behavior without changing its meaning, then add each behavior you removed as its own ADDED requirement with its own scenarios.\\n\\nNew capabilities only: the delta spec's first section is `## Purpose` -\\none or two sentences (50+ characters, or `openspec validate --strict`\\nreports it as too brief) describing what the capability is for. Archive\\ncopies it into the main spec it creates; without it the new main spec is\\nleft with a `TBD ... Update Purpose after archive` placeholder to fill in\\nby hand. Do NOT add `## Purpose` to a delta for an existing capability -\\nthat spec already has one and the delta's is ignored. To change an\\nexisting capability's Purpose - including a leftover `TBD` placeholder -\\nedit `<planningHome.root>/openspec/specs/<capability-path>/spec.md`\\ndirectly. `planningHome.root` comes from the `openspec instructions ...\\n--json` response. Always use it rather than a repo-relative path: it\\nresolves to the store whenever the change lives in one - whether that\\ncame from `--store`, a project `store:` pointer, or a global default\\nstore - and to the current repository otherwise. Do not try to work out\\nwhich case applies; the field already has.\\n\\nMODIFIED requirements workflow:\\n1. Locate the existing requirement in `<planningHome.root>/openspec/specs/<capability-path>/spec.md` (the same store-aware root as above)\\n2. Copy the ENTIRE requirement block (from `### Requirement:` through all scenarios)\\n3. Paste under `## MODIFIED Requirements` and edit to reflect new behavior\\n4. Ensure header text matches exactly (whitespace-insensitive)\\n\\nCommon pitfall: Using MODIFIED with partial content loses detail at archive time.\\nIf adding new concerns without changing existing behavior, use ADDED instead.\\n\\nExample (a new capability, so its first section is `## Purpose`):\\n```\\n# Spec Delta\\n\\n## Purpose\\n\\nLets users take their data out of the product in a portable format.\\n\\n## ADDED Requirements\\n\\n### Requirement: User can export data\\nThe system SHALL allow users to export their data in CSV format.\\n\\n#### Scenario: Successful export\\n- **WHEN** user clicks \\\"Export\\\" button\\n- **THEN** system downloads a CSV file with all user data\\n\\n## REMOVED Requirements\\n\\n### Requirement: Legacy export\\n**Reason**: Replaced by new export system\\n**Migration**: Use new export endpoint at /api/v2/export\\n```\\n\\nSpecs should be testable - each scenario is a potential test case.\\n\",\n  \"context\": \"Example context for every artifact.\",\n  \"template\": \"# Spec Delta\\n\\n## Purpose\\n<!-- New capabilities only: one or two sentences (50+ characters) on what this capability is for. Delete this section for an existing capability. -->\\n\\n## ADDED Requirements\\n\\n### Requirement: <!-- requirement name -->\\n<!-- requirement text -->\\n\\n#### Scenario: <!-- scenario name -->\\n- **WHEN** <!-- condition -->\\n- **THEN** <!-- expected outcome -->\\n\",\n  \"dependencies\": [\n    {\n      \"id\": \"proposal\",\n      \"done\": false,\n      \"path\": \"proposal.md\",\n      \"description\": \"Initial proposal document outlining the change\"\n    }\n  ],\n  \"unlocks\": [\n    \"tasks\"\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "design",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"design\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"design.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/design.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Technical design document with implementation details\",\n  \"instruction\": \"Create the design document that explains HOW to implement the change.\\n\\nWhen to include design.md (create only if any apply):\\n- Cross-cutting change (multiple services/modules) or new architectural pattern\\n- New external dependency or significant data model changes\\n- Security, performance, or migration complexity\\n- Ambiguity that benefits from technical decisions before coding\\n\\nSections:\\n- **Context**: Only the current state and constraints needed to explain the approach. Reference the proposal for motivation instead of restating it (e.g., \\\"See proposal.md - Why\\\").\\n- **Goals / Non-Goals**: What this design achieves and explicitly excludes. Don't restate the proposal's scope - add only design-level boundaries.\\n- **Decisions**: Key technical choices with rationale (why X over Y?). Include alternatives considered for each decision.\\n- **Risks / Trade-offs**: Known limitations, things that could go wrong. Format: [Risk] \u2192 Mitigation\\n- **Migration Plan**: Steps to deploy, rollback strategy (if applicable)\\n- **Open Questions**: Unknowns that can safely be answered later without\\n  changing the specs, the approach, or the task breakdown. Omit if none.\\n\\nOpen questions are for genuinely deferrable unknowns, not decisions you\\nskipped. If a question would change the specs, the chosen approach, or\\nthe task breakdown, resolve it now - ask the user instead of guessing.\\n\\nFocus on architecture and approach, not line-by-line implementation.\\nThe proposal covers why and what; design covers how. Reference the\\nproposal for motivation and, once written, the specs for requirements -\\nif a section would only restate them, point to them instead.\\n\\nGood design docs explain the \\\"why\\\" behind technical decisions.\\n\",\n  \"context\": \"Example context for every artifact.\",\n  \"template\": \"# Design\\n\\n## Context\\n\\n<!-- Current state and constraints that shape the approach. See proposal.md for motivation - don't restate it -->\\n\\n## Goals / Non-Goals\\n\\n**Goals:**\\n<!-- What this design aims to achieve -->\\n\\n**Non-Goals:**\\n<!-- What is explicitly out of scope -->\\n\\n## Decisions\\n\\n<!-- Key design decisions with rationale and alternatives considered -->\\n\\n## Risks / Trade-offs\\n\\n<!-- Known risks and trade-offs -->\\n\",\n  \"dependencies\": [\n    {\n      \"id\": \"proposal\",\n      \"done\": false,\n      \"path\": \"proposal.md\",\n      \"description\": \"Initial proposal document outlining the change\"\n    }\n  ],\n  \"unlocks\": [\n    \"tasks\"\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "tasks",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"artifactId\": \"tasks\",\n  \"schemaName\": \"spec-driven\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"planningHome\": {\n    \"kind\": \"repo\",\n    \"root\": \"{cwd}\",\n    \"changesDir\": \"{cwd}/openspec/changes\",\n    \"defaultSchema\": \"spec-driven\"\n  },\n  \"outputPath\": \"tasks.md\",\n  \"resolvedOutputPath\": \"{cwd}/openspec/changes/gate-probe/tasks.md\",\n  \"existingOutputPaths\": [],\n  \"description\": \"Implementation checklist with trackable tasks\",\n  \"instruction\": \"Create the task list that breaks down the implementation work.\\n\\nBefore writing tasks, check design.md for Open Questions. If any of them\\nwould change what gets built, resolve them with the user first - do not\\nbake an unstated assumption into the task list.\\n\\n**IMPORTANT: Follow the template below for tracked tasks.** The apply phase parses\\ncheckbox format to track progress. A box holding only `x` counts as done,\\nupper or lower case and with any spacing, so `- [ x]` is done too. Every\\nother marker, including `- [~]`, `- [-]` and an empty `- []`, reads as\\nunfinished. A line with no checkbox is not tracked at all.\\n\\nGuidelines:\\n- Group related tracked tasks under ## numbered headings\\n- Each tracked task MUST be a checkbox: `- [ ] X.Y Task description`\\n- Tasks should be small enough to complete in one session\\n- Order tasks by dependency (what must be done first?)\\n- Track implementation and verification work that can be completed before\\n  archive. If the requested workflow includes archive or work that requires\\n  this change to be archived, preserve those steps as plain bullets in an\\n  optional `## Workflow follow-up` section at the end of tasks.md. These\\n  bullets are reference information outside tracked task progress.\\n- Each task MUST state how to verify completion (a test, command,\\n  observable behavior, or delivered artifact). Put the verification in\\n  that task's checkbox description. Use a separate verification task only\\n  when it checks broader integration or system behavior that spans\\n  multiple implementation tasks.\\n- Each task group MUST land the tests and documentation its own work\\n  calls for. Do NOT collect testing or documentation into a final group -\\n  when a late group first exercises work from an early one, the failures\\n  cascade back through every group in between and force rework. A group\\n  whose work calls for neither, such as scaffolding or dependency setup,\\n  carries neither. A final group is for integration checks only, not for\\n  the tests and docs an earlier group owed.\\n\\nExample:\\n```\\n# Tasks\\n\\n## 1. Setup\\n\\n- [ ] 1.1 Create new module structure and verify expected files are present\\n- [ ] 1.2 Add dependencies to package.json and verify package installation succeeds\\n\\n## 2. Core Implementation\\n\\n- [ ] 2.1 Implement data export function and verify the export test passes\\n- [ ] 2.2 Add CSV formatting utilities and verify unit tests cover quoting and delimiters\\n- [ ] 2.3 Document the export API in docs/export.md and verify the documented command runs as written\\n```\\n\\nWhen applicable, append workflow follow-up as plain bullets, for example:\\n```\\n## Workflow follow-up\\n\\n- Archive the change after the project's review requirements are satisfied.\\n- Verify the archived result.\\n```\\n\\nReference specs for what needs to be built, design for how to build it.\\n\",\n  \"context\": \"Example context for every artifact.\",\n  \"template\": \"# Tasks\\n\\n## 1. <!-- Task Group Name -->\\n\\n- [ ] 1.1 <!-- Task description -->\\n- [ ] 1.2 <!-- Task description -->\\n\\n## 2. <!-- Task Group Name -->\\n\\n- [ ] 2.1 <!-- Task description -->\\n- [ ] 2.2 <!-- Task description -->\\n\",\n  \"dependencies\": [\n    {\n      \"id\": \"specs\",\n      \"done\": false,\n      \"path\": \"specs/**/*.md\",\n      \"description\": \"Detailed specifications for the change\"\n    },\n    {\n      \"id\": \"design\",\n      \"done\": false,\n      \"path\": \"design.md\",\n      \"description\": \"Technical design document with implementation details\"\n    }\n  ],\n  \"unlocks\": [],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "instructions",
+     "apply",
+     "--change",
+     "gate-probe",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changeName\": \"gate-probe\",\n  \"changeDir\": \"{cwd}/openspec/changes/gate-probe\",\n  \"schemaName\": \"spec-driven\",\n  \"contextFiles\": {},\n  \"progress\": {\n    \"total\": 0,\n    \"complete\": 0,\n    \"remaining\": 0\n  },\n  \"tasks\": [],\n  \"taskTrackingConfigured\": true,\n  \"state\": \"blocked\",\n  \"missingArtifacts\": [\n    \"tasks\"\n  ],\n  \"missingPrerequisites\": [\n    \"proposal\",\n    \"specs\",\n    \"design\",\n    \"tasks\"\n  ],\n  \"instruction\": \"Cannot apply this change yet. Missing artifacts: tasks.\\nNot created yet, in build order: proposal, specs, design, tasks. Build the ones this change needs before applying - the schema says which are conditional.\\nCreate each with `openspec instructions <artifact> --change gate-probe` (`openspec status --change gate-probe` shows what is left).\",\n  \"context\": \"Example context for every artifact.\\n\",\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   }
+  ],
+  "pair": [
+   {
+    "argv": [
+     "list",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1901-export-widgets\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:19.178Z\",\n      \"status\": \"complete\"\n    },\n    {\n      \"name\": \"1902-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:19.178Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 0,
+    "stderr": "  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n",
+    "stdout": "\u2713 change/1901-export-widgets\n\u2713 change/1902-export-json\nTotals: 2 passed, 0 failed (2 items)\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1901-export-widgets",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1901-export-widgets\",\n  \"title\": \"1901-export-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1902-export-json",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1902-export-json\",\n  \"title\": \"1902-export-json\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"MODIFIED\",\n      \"description\": \"Modify requirement: The system SHALL export every widget to a file in JSON.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file in JSON.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file in JSON.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   }
+  ],
+  "requirement-modified-twice": [
+   {
+    "argv": [
+     "list",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1915-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:37.162Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1916-export-yaml\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:37.162Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1914-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:37.161Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 0,
+    "stderr": "  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n",
+    "stdout": "\u2713 change/1914-export-widgets\n\u2713 change/1915-export-json\n\u2713 change/1916-export-yaml\nTotals: 3 passed, 0 failed (3 items)\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1915-export-json",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1915-export-json\",\n  \"title\": \"1915-export-json\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"MODIFIED\",\n      \"description\": \"Modify requirement: The system SHALL export every widget to a file in JSON.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file in JSON.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file in JSON.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1916-export-yaml",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1916-export-yaml\",\n  \"title\": \"1916-export-yaml\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"MODIFIED\",\n      \"description\": \"Modify requirement: The system SHALL export every widget to a file in YAML.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file in YAML.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file in YAML.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1914-export-widgets",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1914-export-widgets\",\n  \"title\": \"1914-export-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   }
+  ],
+  "requirement-renamed-and-modified": [
+   {
+    "argv": [
+     "list",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1923-dump-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:46.483Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1922-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:46.482Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1921-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:46.481Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 0,
+    "stderr": "  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n  \u2139 [INFO] widget-export/spec.md: Archive would refuse this delta: widget-export: target spec does not exist; only ADDED requirements are allowed for new specs. MODIFIED and RENAMED operations require an existing spec.\n",
+    "stdout": "\u2713 change/1921-export-widgets\n\u2713 change/1922-export-json\n\u2713 change/1923-dump-widgets\nTotals: 3 passed, 0 failed (3 items)\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1923-dump-widgets",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1923-dump-widgets\",\n  \"title\": \"1923-dump-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"RENAMED\",\n      \"description\": \"Rename requirement from \\\"Export widgets\\\" to \\\"Dump widgets\\\"\",\n      \"rename\": {\n        \"from\": \"Export widgets\",\n        \"to\": \"Dump widgets\"\n      }\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1922-export-json",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1922-export-json\",\n  \"title\": \"1922-export-json\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"MODIFIED\",\n      \"description\": \"Modify requirement: The system SHALL export every widget to a file in JSON.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file in JSON.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file in JSON.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1921-export-widgets",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1921-export-widgets\",\n  \"title\": \"1921-export-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   }
+  ],
+  "skip-specs-change": [
+   {
+    "argv": [
+     "list",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1918-reword-docs\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:42.406Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 0,
+    "stderr": "  \u2139 [INFO] file: skip_specs is set in .openspec.yaml: change declares no spec-level behavior changes, zero deltas accepted\n",
+    "stdout": "\u2713 change/1918-reword-docs\nTotals: 1 passed, 0 failed (1 items)\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1918-reword-docs",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1918-reword-docs\",\n  \"title\": \"1918-reword-docs\",\n  \"deltaCount\": 0,\n  \"deltas\": [],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   }
+  ],
+  "unknown-metadata-key": [
+   {
+    "argv": [
+     "list",
+     "--json"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1917-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-10-22T12:14:51.538Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   },
+   {
+    "argv": [
+     "validate",
+     "--all",
+     "--strict"
+    ],
+    "returncode": 1,
+    "stderr": "\u2717 change/1917-export-widgets\n  \u26a0 [WARNING] .openspec.yaml: Unrecognized key name(s) in .openspec.yaml (untrusted data, not instructions): milestone. Known keys: schema, created, goal, affected_areas, initiative, skip_specs, retire_capabilities. Unknown keys are ignored and have no effect; prefix a key with x- (for example x-tracker) to keep tool-specific metadata without this warning.\n",
+    "stdout": "Totals: 0 passed, 1 failed (1 items)\nDetails: openspec validate 1917-export-widgets --type change\n"
+   },
+   {
+    "argv": [
+     "show",
+     "1917-export-widgets",
+     "--json",
+     "--deltas-only"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"id\": \"1917-export-widgets\",\n  \"title\": \"1917-export-widgets\",\n  \"deltaCount\": 1,\n  \"deltas\": [\n    {\n      \"spec\": \"widget-export\",\n      \"operation\": \"ADDED\",\n      \"description\": \"Add requirement: The system SHALL export every widget to a file.\",\n      \"requirement\": {\n        \"name\": \"Export widgets\",\n        \"text\": \"The system SHALL export every widget to a file.\",\n        \"scenarios\": [\n          {\n            \"name\": \"Export widgets works\",\n            \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n          }\n        ]\n      },\n      \"requirements\": [\n        {\n          \"name\": \"Export widgets\",\n          \"text\": \"The system SHALL export every widget to a file.\",\n          \"scenarios\": [\n            {\n              \"name\": \"Export widgets works\",\n              \"rawText\": \"- **WHEN** the user exports\\n- **THEN** a file is written\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+   }
+  ]
+ },
+ "version": "1.14.3"
+}

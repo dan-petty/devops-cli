@@ -65,7 +65,7 @@ devops ssh rotate [OPTIONS]
 
 ## `devops ssh list`
 
-**List all managed SSH keys with their age and rotation status.**
+**List the managed SSH keys of the project prefix with their age and rotation status.**
 
 ```bash
 devops ssh list [OPTIONS]
@@ -77,13 +77,14 @@ devops ssh list [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
 ## `devops ssh audit`
 
-**List all managed SSH keys with their age and rotation status.**
+**List the managed SSH keys of the project prefix with their age and rotation status.**
 
 ```bash
 devops ssh audit [OPTIONS]
@@ -95,6 +96,7 @@ devops ssh audit [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

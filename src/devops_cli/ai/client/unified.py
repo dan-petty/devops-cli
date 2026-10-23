@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import AsyncGenerator, Callable, Generator, Sequence
+from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlsplit
@@ -27,6 +27,7 @@ from devops_cli.ai.client.network import validate_base_url
 from devops_cli.ai.client.ollama import OllamaProviderMixin
 from devops_cli.ai.client.openai import OpenAICompatProviderMixin
 from devops_cli.ai.client.structured import StructuredOutputMixin
+from devops_cli.ai.client.style_request import with_style_request
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_AI_BACKEND_HOST_UNKNOWN,
@@ -528,6 +529,8 @@ class LLMClient(
             context_tag=context_tag,
             wall_seconds=getattr(res, "wall_seconds", 0.0),
             backend_info=getattr(res, "backend_info", None),
+            served_by=getattr(res, "served_by", None),
+            response_model=getattr(res, "model", None),
             tokens={
                 "prompt": getattr(res, "prompt_tokens", None),
                 "completion": getattr(res, "completion_tokens", None),
@@ -572,6 +575,8 @@ class LLMClient(
             backend_info=CONST_RESPONSE_CACHE_SERVER,
             thinking=cached_entry.thinking,
             cached=True,
+            served_by=cached_entry.served_by,
+            model=cached_entry.response_model,
         )
 
     def _record_cache_hit(self) -> None:
@@ -704,9 +709,13 @@ class LLMClient(
         priority: RequestPriority | str | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Send a multi-turn chat request with response validation, caching, and retries."""
+        """Send a multi-turn chat request with response validation, caching, and retries.
+
+        The style request joins `system` first, so the cache key holds the system prompt as sent.
+        """
         if system_prompt and not system:
             system = system_prompt
+        system = with_style_request(system)
         eff_messages = list(messages) if messages is not None else []
         eff_append = self._append_cache if append_cache is None else append_cache
         eff_start = starting_point
@@ -841,10 +850,11 @@ class LLMClient(
     ) -> Generator[str]:
         """Send a multi-turn conversation and yield streaming tokens as they arrive.
 
-        A stream that fails after yielding output records its spend with finish reason `error`
-        and re-raises; one that fails before its first chunk records nothing, as a failed
-        non-streamed call records nothing.
+        The style request joins `system` first. A stream that fails after yielding output records
+        its spend with finish reason `error` and re-raises; one that fails before its first chunk
+        records nothing, as a failed non-streamed call records nothing.
         """
+        system = with_style_request(system)
         p = self._config.provider
         t_start = time.perf_counter()
         first_token_time: float | None = None
@@ -951,131 +961,3 @@ class LLMClient(
         if p in ("copilot", "openai", "gateway"):
             return self._openai_models()
         return [self._config.model]
-
-    def direct_request_sync(
-        self,
-        prompt: str | Sequence[Any],
-        model: Any = None,
-        *,
-        system_prompt: str = "",
-        model_concurrency: Any = None,
-        **kwargs: Any,
-    ) -> Any:
-        """Make a synchronous direct model request via native Pydantic AI."""
-        from devops_cli.ai.direct import direct_model_request_sync
-
-        target_model = model or getattr(self._config, "model", "default")
-        return direct_model_request_sync(
-            prompt,
-            target_model,
-            system_prompt=system_prompt,
-            model_concurrency=model_concurrency,
-            **kwargs,
-        )
-
-    async def direct_request(
-        self,
-        prompt: str | Sequence[Any],
-        model: Any = None,
-        *,
-        system_prompt: str = "",
-        model_concurrency: Any = None,
-        **kwargs: Any,
-    ) -> Any:
-        """Make an asynchronous direct model request via native Pydantic AI."""
-        from devops_cli.ai.direct import direct_model_request
-
-        target_model = model or getattr(self._config, "model", "default")
-        return await direct_model_request(
-            prompt,
-            target_model,
-            system_prompt=system_prompt,
-            model_concurrency=model_concurrency,
-            **kwargs,
-        )
-
-    def direct_stream_sync(
-        self,
-        prompt: str | Sequence[Any],
-        model: Any = None,
-        *,
-        system_prompt: str = "",
-        model_concurrency: Any = None,
-        **kwargs: Any,
-    ) -> Generator[str]:
-        """Make a synchronous streamed direct request via native Pydantic AI."""
-        from devops_cli.ai.direct import direct_model_request_stream_sync
-
-        target_model = model or getattr(self._config, "model", "default")
-        yield from direct_model_request_stream_sync(
-            prompt,
-            target_model,
-            system_prompt=system_prompt,
-            model_concurrency=model_concurrency,
-            **kwargs,
-        )
-
-    async def direct_stream(
-        self,
-        prompt: str | Sequence[Any],
-        model: Any = None,
-        *,
-        system_prompt: str = "",
-        model_concurrency: Any = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[str]:
-        """Make an asynchronous streamed direct request via native Pydantic AI."""
-        from devops_cli.ai.direct import direct_model_request_stream
-
-        target_model = model or getattr(self._config, "model", "default")
-        async for chunk in direct_model_request_stream(
-            prompt,
-            target_model,
-            system_prompt=system_prompt,
-            model_concurrency=model_concurrency,
-            **kwargs,
-        ):
-            yield chunk
-
-
-def model_request_sync(
-    model: str,
-    prompt_or_messages: str | list[ChatMessage],
-    *,
-    system_prompt: str = "You are a helpful assistant.",
-    enable_thinking: bool = True,
-    client: LLMClient | None = None,
-    **kwargs: Any,
-) -> LLMResponse:
-    """Make a direct, synchronous request to a model without an agent wrapper."""
-    if client is not None:
-        llm_client = client
-    else:
-        from devops_cli.ai.client.factory import get_llm_client
-
-        llm_client = get_llm_client(model=model, **kwargs)
-    if isinstance(prompt_or_messages, str):
-        return llm_client.chat(system_prompt, prompt_or_messages, enable_thinking=enable_thinking)
-    return llm_client.chat_messages(
-        system_prompt, prompt_or_messages, enable_thinking=enable_thinking
-    )
-
-
-async def model_request(
-    model: str,
-    prompt_or_messages: str | list[ChatMessage],
-    *,
-    system_prompt: str = "You are a helpful assistant.",
-    enable_thinking: bool = True,
-    client: LLMClient | None = None,
-    **kwargs: Any,
-) -> LLMResponse:
-    """Make a direct asynchronous request to a model without an agent wrapper."""
-    return model_request_sync(
-        model,
-        prompt_or_messages,
-        system_prompt=system_prompt,
-        enable_thinking=enable_thinking,
-        client=client,
-        **kwargs,
-    )

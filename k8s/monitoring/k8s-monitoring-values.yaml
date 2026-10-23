@@ -337,10 +337,13 @@ collectors:
       - privileged
     alloy:
       enableReporting: false
+      # The eBPF profiler targets every pod on its node (profiling.ebpf.targetingScheme: all), so its
+      # memory follows the node's pod count. At 512Mi the pod on the busiest node was OOMKilled 31
+      # times in 148 minutes while the pods on the other nodes held 200 to 300Mi (#1815).
       resources:
         requests:
           cpu: 50m
           memory: 128Mi
         limits:
           cpu: 500m
-          memory: 512Mi
+          memory: 1024Mi

@@ -27,9 +27,6 @@ from devops_cli.ai.review.profile import (
     review_stage,
 )
 from devops_cli.ai.review.protocol import ReviewLLMClient
-from devops_cli.ai.review.review_environment import (
-    _get_reviews_base_dir as _get_reviews_base_dir,
-)
 from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
@@ -65,6 +62,7 @@ from devops_cli.review.diff import (
     diff_file_names,
     number_source_lines,
 )
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.review.suppression import (
     covering_suppressions,
     format_covering_suppressions,
@@ -80,6 +78,7 @@ from devops_cli.telemetry import trace_span
 
 if TYPE_CHECKING:
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.github.client import GitHubClient, PullRequest, PullRequestFile
 
 logger = logging.getLogger(__name__)
 
@@ -102,21 +101,19 @@ def _debug_block(title: str, payload: dict[str, Any]) -> None:
 
 
 def _find_session_dir(session_arg: str | None) -> Path | None:
-    reviews_dir = _get_reviews_base_dir()
+    reviews_dir = ReviewSessionStore.root()
     if not reviews_dir.exists():
         return None
     if session_arg:
         safe_arg = Path(session_arg).name
         target = (reviews_dir / safe_arg).resolve()
-        if target.exists() and target.is_dir() and target.is_relative_to(reviews_dir.resolve()):
+        if target.exists() and target.is_dir() and target.is_relative_to(reviews_dir):
             return target
-        matches = [d for d in reviews_dir.iterdir() if d.is_dir() and safe_arg in d.name]
-        if matches:
-            return sorted(matches)[-1]
-        return None
+        matches = [s.directory for s in ReviewSessionStore.sessions() if safe_arg in s.name]
+        return matches[0] if matches else None
 
-    sessions = [d for d in reviews_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
-    return max(sessions, key=lambda p: p.stat().st_mtime) if sessions else None
+    latest = ReviewSessionStore.latest()
+    return latest.directory if latest else None
 
 
 def _format_finding_markdown(f: Finding) -> list[str]:
@@ -787,7 +784,7 @@ def _prepare_pr_content(
     number: int,
     repo_arg: str | None = None,
     **kwargs: Any,
-) -> tuple[list[str], str, Any, str, BaseRevision | None]:
+) -> tuple[list[str], str, PullRequest, str, BaseRevision | None]:
     """Fetch PR details, diff blocks, and title for PR review target.
 
     With `head_dir`, the PR head's changed files are written under it, and the base revision
@@ -817,7 +814,7 @@ def _prepare_pr_content(
     head_dir: Path | None = kwargs.get("head_dir")
     base_revision: BaseRevision | None = None
     if head_dir is not None:
-        pr_files = list(pull.get_files())
+        pr_files = gh.get_pull_files(repo, number)
         _materialize_pr_head(gh, repo, pull, head_dir, pr_files)
         base_revision = _pr_base_revision(gh, repo, pull, pr_files)
     path_classes = load_path_classes(base_revision=base_revision)
@@ -825,29 +822,29 @@ def _prepare_pr_content(
     return pages, title, pull, repo, base_revision
 
 
-def _pr_changed_file(pr_file: Any) -> ChangedFile:
+def _pr_changed_file(pr_file: PullRequestFile) -> ChangedFile:
     """A pull request file as a change: its status, head path and, if renamed, its old path."""
     return ChangedFile(
-        change_type=CONST_GITHUB_PR_FILE_CHANGE_TYPES.get(str(pr_file.status), "unknown"),
+        change_type=CONST_GITHUB_PR_FILE_CHANGE_TYPES.get(pr_file.status, "unknown"),
         path=pr_file.filename,
-        old_path=getattr(pr_file, "previous_filename", None) or None,
+        old_path=pr_file.previous_filename or None,
     )
 
 
-def _pr_base_revision(gh: Any, repo: str, pull: Any, pr_files: Sequence[Any]) -> BaseRevision:
+def _pr_base_revision(
+    gh: GitHubClient, repo: str, pull: PullRequest, pr_files: Sequence[PullRequestFile]
+) -> BaseRevision:
     """The PR's changed files, and a reader for their text at its merge base in the base repo.
 
     `pull.base.sha` is the base branch's tip, which can be ahead of the merge base: read there,
-    a PR branched earlier would list symbols added on the base since as removed. When the merge
-    base cannot be read, nothing is read, and a modified file's delta stays unknown.
+    a PR branched earlier would list symbols added on the base since as removed. When GitHub has
+    no merge base for the two commits, nothing is read, and a modified file's delta stays
+    unknown; a comparison that fails to be read raises.
     """
-    base_obj = getattr(pull, "base", None)
-    base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
-    base_sha = getattr(base_obj, "sha", None)
-    head_sha = getattr(getattr(pull, "head", None), "sha", None)
-    merge_base = gh.get_merge_base(base_repo, base_sha, head_sha) if base_sha and head_sha else None
+    base_repo = pull.base.repository or repo
+    merge_base = gh.get_merge_base(base_repo, pull.base.sha, pull.head.sha)
     if merge_base is None:
-        logger.debug("No merge base for %s...%s in %s", base_sha, head_sha, base_repo)
+        logger.debug("No merge base for %s...%s in %s", pull.base.sha, pull.head.sha, base_repo)
 
     def read(path: str) -> str | None:
         return gh.get_file_at(base_repo, path, merge_base) if merge_base else None
@@ -855,18 +852,16 @@ def _pr_base_revision(gh: Any, repo: str, pull: Any, pr_files: Sequence[Any]) ->
     return BaseRevision(changes=tuple(_pr_changed_file(f) for f in pr_files), read=read)
 
 
-def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path, pr_files: Sequence[Any]) -> int:
+def _materialize_pr_head(
+    gh: GitHubClient, repo: str, pull: PullRequest, dest: Path, pr_files: Sequence[PullRequestFile]
+) -> int:
     """Write PR head's version of changed files, and base conventions, under `dest`."""
     from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
     from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
 
-    head_obj = getattr(pull, "head", None)
-    base_obj = getattr(pull, "base", None)
-    head_repo = getattr(getattr(head_obj, "repo", None), "full_name", None) or repo
-    base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
-    base_ref = getattr(base_obj, "sha", None) or getattr(base_obj, "ref", None) or "main"
-    head_sha = getattr(head_obj, "sha", None) or "HEAD"
-    changed = [f.filename for f in pr_files if getattr(f, "status", "") != "removed"]
+    head_repo = pull.head.repository or repo
+    base_repo = pull.base.repository or repo
+    changed = [f.filename for f in pr_files if f.status != "removed"]
     convention_files = set(_TARGET_CONVENTIONS_CANDIDATES) | {CONST_REVIEW_CONVENTIONS_FILE}
     root = dest.resolve()
     written = 0
@@ -875,11 +870,7 @@ def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path, pr_files: Se
         target = (root / rel).resolve()
         if not target.is_relative_to(root):
             continue
-        text = gh.get_file_at(base_repo, rel, base_ref) if gh else None
-        if text is None and (gh is None or not base_repo):
-            local_conv = Path.cwd() / rel
-            if local_conv.exists() and local_conv.is_file():
-                text = local_conv.read_text(encoding="utf-8")
+        text = gh.get_file_at(base_repo, rel, pull.base.sha)
         if text is not None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
@@ -891,7 +882,7 @@ def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path, pr_files: Se
         target = (root / rel).resolve()
         if not target.is_relative_to(root):
             continue
-        text = gh.get_file_at(head_repo, rel, head_sha)
+        text = gh.get_file_at(head_repo, rel, pull.head.sha)
         if text is None:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -915,14 +906,43 @@ def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
     )
 
 
+def _reports(stage_flags: ReviewStageFlags | None) -> bool:
+    """Whether the review runs its reporting stage, the one that writes findings.json."""
+    return stage_flags is None or stage_flags.reporting
+
+
+def _close_session(
+    orchestrator: ReviewPipelineOrchestrator, stage_flags: ReviewStageFlags | None
+) -> None:
+    """Publish the session a review wrote, or discard it when the review did not report.
+
+    A session is listed by its findings.json, which every reader of one needs, and only the
+    reporting stage writes it: a review run without that stage has no session to keep.
+    """
+    if _reports(stage_flags):
+        orchestrator.session.publish()
+        return
+    from devops_cli.lang import MESSAGES
+
+    orchestrator.session.discard()
+    print_info(MESSAGES.review.session_not_kept, prefix=False)
+
+
 def _write_review_profile(
-    profiler: ReviewProfiler, orchestrator: ReviewPipelineOrchestrator, target: str, files: int
+    profiler: ReviewProfiler,
+    orchestrator: ReviewPipelineOrchestrator,
+    target: str,
+    files: int,
+    *,
+    kept: bool = True,
 ) -> ReviewProfile:
-    """Write the session's profile.json and summarise where the time went."""
+    """Summarise where the time went, and write it to the session's profile.json when the
+    review keeps a session."""
     profiler.set_coverage(getattr(orchestrator, "coverage", {}))
+    profiler.set_tool_runs(orchestrator.tool_executor.runs)
     profiler.set_partial_context(getattr(orchestrator, "partial_context", False))
     profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
-    path = profile.write(orchestrator.session_dir)
+    where = f" -> {orchestrator.session.write_profile(profile)}" if kept else ""
     report_profile(profile)
     if profile.code_changed_during_run:
         from devops_cli.lang import MESSAGES
@@ -937,7 +957,7 @@ def _write_review_profile(
     capped_note = f", {capped} hit the reply cap" if capped else ""
     print_info(
         f"[dim]Profile: {format_duration(profile.total_wall_seconds)}, "
-        f"{profile.llm_calls} LLM calls{capped_note}; {stages} -> {path}[/dim]",
+        f"{profile.llm_calls} LLM calls{capped_note}; {stages}{where}[/dim]",
         prefix=False,
     )
     return profile
@@ -1005,7 +1025,10 @@ def _run_profiled_session(
             stage_flags=stage_flags,
         )
         if not is_dry_run():
-            profile = _write_review_profile(profiler, orchestrator, target_ref, len(all_files))
+            profile = _write_review_profile(
+                profiler, orchestrator, target_ref, len(all_files), kept=_reports(stage_flags)
+            )
+            _close_session(orchestrator, stage_flags)
             _record_review_metrics(results, profile.total_wall_seconds, target_type)
         return results
 
@@ -1131,7 +1154,10 @@ def _review_routed_files_only(
     )
     print_info(message.format(count=len(orchestrator.secret_scan_files)), prefix=False)
     payloads = orchestrator.scan_routed_files(stage_flags=stage_flags)
-    return _report_review(orchestrator, payloads, stage_flags)
+    results = _report_review(orchestrator, payloads, stage_flags)
+    if not is_dry_run():
+        _close_session(orchestrator, stage_flags)
+    return results
 
 
 def _check_and_warn_perimeter_changes(

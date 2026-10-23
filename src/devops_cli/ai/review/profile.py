@@ -22,7 +22,7 @@ import statistics
 import threading
 import time
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -36,11 +36,12 @@ from devops_cli.ai.spend.ledger import observe_llm_calls
 from devops_cli.config.constants import (
     CONST_FINISH_REASON_LENGTH,
     CONST_FINISH_REASON_UNKNOWN,
+    CONST_REVIEW_PROFILE_FILENAME,
 )
 from devops_cli.core.repo import own_source_state
+from devops_cli.security.tool_executor import ToolRun
 from devops_cli.tools_lock import tools_lock_digest
 
-PROFILE_FILENAME = "profile.json"
 BENCHMARKS_DIRNAME = "benchmarks"
 
 _ACTIVE: ContextVar[ReviewProfiler | None] = ContextVar("review_profiler", default=None)
@@ -124,6 +125,9 @@ class ReviewProfile(BaseModel):
     tools_lock_digest: str = ""
     # The SHA-256 digest of the OSV offline vulnerability database snapshot used (#1146).
     osv_snapshot_digest: str = ""
+    # The SHA-256 digest of the cached Semgrep registry ruleset the review scanned with; empty
+    # when it scanned with the rule pack alone (#1144).
+    semgrep_registry_digest: str = ""
     # Whether devops-cli's own checkout got a commit or an edit while the review ran, so that
     # its later stages may have run other code than its earlier ones.
     code_changed_during_run: bool = False
@@ -146,6 +150,10 @@ class ReviewProfile(BaseModel):
     # How long each analyzer's scans ran, in seconds, summed over its runs (#1079).
     static_analyzer_seconds: dict[str, float] = Field(default_factory=dict)
     coverage: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # The record of each run of a review tool, in the order the runs started: the tool, its version
+    # and binary, how it ran, the digests of its config files, ruleset files and targets, and the
+    # commit of the tree (#772). `review.md` shows the distinct records with a count.
+    tool_runs: list[ToolRun] = Field(default_factory=list)
     partial_context: bool = False
     rejections: dict[str, int] = Field(default_factory=dict)
     stages: list[StageProfile] = Field(default_factory=list)
@@ -162,17 +170,13 @@ class ReviewProfile(BaseModel):
             return None
         return self.total_wall_seconds / self.candidate_findings
 
-    def write(self, session_dir: Path) -> Path:
-        """Write the profile into the review session directory."""
-        path = session_dir / PROFILE_FILENAME
-        path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
-        return path
-
     @classmethod
     def load(cls, session_dir: Path) -> ReviewProfile | None:
         """The session's profile; None when it has none or it cannot be read."""
         try:
-            return cls.model_validate_json((session_dir / PROFILE_FILENAME).read_text("utf-8"))
+            return cls.model_validate_json(
+                (session_dir / CONST_REVIEW_PROFILE_FILENAME).read_text("utf-8")
+            )
         except OSError, ValueError:
             return None
 
@@ -195,14 +199,21 @@ class ReviewProfiler:
         self._static_analyzer_seconds: dict[str, float] = {}
         self._conventions = ""
         self._coverage: dict[str, dict[str, str]] = {}
+        self._tool_runs: list[ToolRun] = []
         self._partial_context: bool = False
         self._rejections: dict[str, int] = {}
         self._osv_snapshot_digest: str = ""
+        self._semgrep_registry_digest: str = ""
 
     def set_osv_snapshot_digest(self, digest: str) -> None:
         """Record the OSV offline database snapshot digest used in review (#1146)."""
         with self._lock:
             self._osv_snapshot_digest = digest
+
+    def set_semgrep_registry_digest(self, digest: str) -> None:
+        """Record the digest of the cached registry ruleset Semgrep scanned with (#1144)."""
+        with self._lock:
+            self._semgrep_registry_digest = digest
 
     def record_rejection(self, reason: str) -> None:
         """Record one typed candidate rejection into profile."""
@@ -287,6 +298,11 @@ class ReviewProfiler:
         with self._lock:
             self._coverage = {t: dict(m) for t, m in coverage.items()}
 
+    def set_tool_runs(self, runs: Iterable[ToolRun]) -> None:
+        """Record the runs of the review tools, in the order they started."""
+        with self._lock:
+            self._tool_runs = list(runs)
+
     def set_partial_context(self, partial_context: bool) -> None:
         """Record whether PR head was unavailable, leaving only partial context."""
         with self._lock:
@@ -304,9 +320,11 @@ class ReviewProfiler:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
             intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
             coverage = {t: dict(m) for t, m in self._coverage.items()}
+            tool_runs = list(self._tool_runs)
             partial_ctx = self._partial_context
             rejections = dict(self._rejections)
             osv_digest = self._osv_snapshot_digest
+            semgrep_registry_digest = self._semgrep_registry_digest
         for stage in stages:
             stage.wall_seconds = round(stage.wall_seconds, 3)
             stage.activity = {
@@ -321,6 +339,7 @@ class ReviewProfiler:
             conventions_digest=digest(self._conventions) if self._conventions else "",
             tools_lock_digest=self._tools_lock_digest,
             osv_snapshot_digest=osv_digest,
+            semgrep_registry_digest=semgrep_registry_digest,
             code_changed_during_run=self._own_source_changed(),
             files=files,
             total_wall_seconds=round(time.monotonic() - self._started, 3),
@@ -339,6 +358,7 @@ class ReviewProfiler:
                 name: round(seconds, 3) for name, seconds in self._static_analyzer_seconds.items()
             },
             coverage=coverage,
+            tool_runs=tool_runs,
             partial_context=partial_ctx,
             rejections=rejections,
             stages=stages,
@@ -503,7 +523,6 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
 
 __all__ = [
     "BENCHMARKS_DIRNAME",
-    "PROFILE_FILENAME",
     "BackendActivity",
     "BenchmarkSummary",
     "ReviewProfile",

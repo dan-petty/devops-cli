@@ -22,6 +22,7 @@ Agent sessions require secure configuration, isolated credentials, and read-only
 - [x] With `DEVOPS_CLI_AGENT_GRANT` set, a gateway 401 names the grant ID and says a person issues a new grant; without it, the hint is unchanged. Long grant IDs are capped at 256 characters.
 - [x] `.claude/settings.json` denies `Read(//**/.claude/settings.local.json)`, `Read(~/.claude/settings.json)`, and `Read(~/.kube/**)`.
 - [x] Unit and integration tests verify environment overrides, grant 401 hints, and settings file deny rules.
+- Removed on 2026-10-22 by the person: the three `Read` deny rules and the test module that pinned them. The person wants agents to read the project folder and the kubeconfig. See the pull request that deletes `tests/test_claude_code_settings.py`.
 - [x] `uv run devops docs check` passes with all generated documentation up to date.
 - [x] `k8s/agents/` holds ServiceAccount `devops-agent` (automount off) and ClusterRoleBinding `devops-agent-view` to the built-in `view`.
 - [x] Namespace `agents` is `restricted` and carries `Prune=false,Delete=false`.

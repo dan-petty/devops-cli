@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,6 +28,11 @@ from devops_cli.core.repo import (
     read_gitignore_patterns,
 )
 from devops_cli.main import app
+from tests.support.fakes.github import github_json
+from tests.support.paths import FIXTURES
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 runner = CliRunner()
 
@@ -84,13 +90,27 @@ def test_repos_clone_requires_a_gh_login(tmp_path: Path, no_github_identity: Non
     assert (result.exit_code != 0, "gh auth login" in result.output) == (True, True)
 
 
-def test_repos_clone_org_uses_default_org(tmp_path: Path) -> None:
+_ORG_REPOS = "/orgs/example-org/repos?type=all&per_page=100"
+
+
+def _recorded_repositories() -> list[dict[str, Any]]:
+    """The repositories GitHub listed for octocat, as recorded: Hello-World, linguist (a fork)
+    and Spoon-Knife."""
+    recorded = json.loads(
+        (FIXTURES / "github" / "hello_world_repositories.json").read_text(encoding="utf-8")
+    )
+    return list(recorded["repositories"])
+
+
+def test_repos_clone_org_uses_default_org(
+    tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    github_api.route("GET", _ORG_REPOS, github_json([]))
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
         patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -98,49 +118,28 @@ def test_repos_clone_org_uses_default_org(tmp_path: Path) -> None:
         settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
-        mock_client = MagicMock()
-        mock_client.get_org_repos.return_value = []
-        mock_client_cls.return_value = mock_client
-
         result = runner.invoke(app, ["repos", "clone-org"])
 
     assert result.exit_code == 0
-    mock_client.get_org_repos.assert_called_once_with(
-        "example-org",
-        include_private=True,
-        include_forks=False,
-        include_archived=False,
+    assert (github_api.requested, {r.headers["authorization"] for r in github_api.sent}) == (
+        [f"GET https://api.github.com{_ORG_REPOS}"],
+        {f"token {pin_github_session}"},
     )
     mock_clone_repo.assert_not_called()
     mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
     mock_reload.assert_called_once_with(settings.workspace.file)
 
 
-def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
-    archived_repo = MagicMock()
-    archived_repo.name = "archived-repo"
-    archived_repo.full_name = "example/archived-repo"
-    archived_repo.clone_url = "git@github.com:example/archived-repo.git"
-    archived_repo.ssh_url = "git@github.com:example/archived-repo.git"
-    archived_repo.archived = True
-    archived_repo.fork = False
-    archived_repo.private = False
-
-    active_repo = MagicMock()
-    active_repo.name = "active-repo"
-    active_repo.full_name = "example/active-repo"
-    active_repo.clone_url = "git@github.com:example/active-repo.git"
-    active_repo.ssh_url = "git@github.com:example/active-repo.git"
-    active_repo.archived = False
-    active_repo.fork = False
-    active_repo.private = False
+def test_repos_clone_org_skips_archived_repos(tmp_path: Path, github_api: GitHubApiFake) -> None:
+    active_repo, _fork, archived_repo = _recorded_repositories()
+    archived_repo = {**archived_repo, "archived": True}
+    github_api.route("GET", _ORG_REPOS, github_json([archived_repo, active_repo]))
 
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
         patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -148,35 +147,29 @@ def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
         settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
-        mock_client = MagicMock()
-
-        mock_client.get_org_repos.return_value = [active_repo]
-        mock_client_cls.return_value = mock_client
-
         result = runner.invoke(app, ["repos", "clone-org"])
 
     assert result.exit_code == 0
     mock_clone_repo.assert_called_once_with(
-        "https://github.com/example/active-repo.git",
-        settings.repos.base_dir / "example-org" / "active-repo",
+        "https://github.com/octocat/Hello-World.git",
+        settings.repos.base_dir / "example-org" / "Hello-World",
     )
     mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
     mock_reload.assert_called_once_with(settings.workspace.file)
 
 
-def test_repos_clone_org_skips_path_traversal_repo(tmp_path: Path) -> None:
+def test_repos_clone_org_skips_path_traversal_repo(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
     """Verify clone-org skips repositories with path traversal attempts."""
-    bad_repo = MagicMock()
-    bad_repo.name = "../escape"
-    bad_repo.full_name = "example/escape"
-    bad_repo.archived = False
+    bad_repo = {**_recorded_repositories()[0], "name": "../escape"}
+    github_api.route("GET", _ORG_REPOS, github_json([bad_repo]))
 
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos"),
         patch("devops_cli.commands.repos._reload_workspace"),
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -184,21 +177,18 @@ def test_repos_clone_org_skips_path_traversal_repo(tmp_path: Path) -> None:
         settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
-        mock_client = MagicMock()
-        mock_client.get_org_repos.return_value = [bad_repo]
-        mock_client_cls.return_value = mock_client
-
         result = runner.invoke(app, ["repos", "clone-org"])
 
     assert (result.exit_code, mock_clone_repo.called) == (0, False)
 
 
-def test_repos_clone_org_rejects_path_traversal_org(tmp_path: Path) -> None:
+def test_repos_clone_org_rejects_path_traversal_org(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
     """Verify clone-org aborts when organization name attempts path traversal."""
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
@@ -208,7 +198,25 @@ def test_repos_clone_org_rejects_path_traversal_org(tmp_path: Path) -> None:
 
         result = runner.invoke(app, ["repos", "clone-org", "../escaped-org"])
 
-    assert (result.exit_code, mock_clone_repo.called, mock_client_cls.called) == (1, False, False)
+    assert (result.exit_code, mock_clone_repo.called, github_api.requested) == (1, False, [])
+
+
+def test_repos_clone_org_names_the_missing_organization(
+    tmp_path: Path, cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """A name that is no organization and not the session's login is reported by GitHub's own
+    error, without a traceback, and nothing is created for it."""
+    github_api.route("GET", "/user", github_json({"login": "somebody-else"}))
+    destination = tmp_path / "repos"
+
+    result = cli("repos", "clone-org", "no-such-org", "--base-dir", str(destination))
+
+    assert (
+        result.exit_code,
+        isinstance(result.exception, SystemExit),
+        "HTTP 404" in result.output,
+        destination.exists(),
+    ) == (1, True, True, False)
 
 
 def test_repos_clone_rejects_path_traversal_destination(tmp_path: Path) -> None:
@@ -619,16 +627,11 @@ def test_worktrees_of_a_bare_repository_check_themselves(
     assert roots == [feature.resolve(), feature.resolve(), other.resolve()]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#582 known limit: a directory holding .git or pyproject.toml above the checkout",
-)
 def test_a_worktree_of_a_checkout_inside_another_repository_checks_itself(
     tmp_path: Path, git: Callable[..., None]
 ) -> None:
     """Verify a nested worktree of a checkout that lies below another repository, such as a
-    dotfiles repository at `$HOME`, checks itself. Today the top-most rule resolves the
-    checkout to that outer directory, and its worktree with it, as a `repos/` clone's does."""
+    dotfiles repository at `$HOME`, checks itself and resolves to its own repository (#617)."""
     outer = tmp_path / "outer"
     outer.mkdir()
     git(outer, "init", "--quiet")
@@ -639,15 +642,29 @@ def test_a_worktree_of_a_checkout_inside_another_repository_checks_itself(
     nested = checkout / ".claude" / "worktrees" / "wt"
     git(checkout, "worktree", "add", "--quiet", "-b", "nested", str(nested))
 
-    assert find_worktree_root(nested) == nested.resolve()
+    assert (
+        find_worktree_root(nested),
+        main_worktree_root(nested),
+        find_top_level_repo_root(nested),
+        find_worktree_root(checkout),
+        main_worktree_root(checkout),
+        find_top_level_repo_root(checkout),
+    ) == (
+        nested.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+        checkout.resolve(),
+    )
 
 
 def test_a_worktree_of_a_repository_outside_the_workspace_checks_itself(
     workspace_with_worktrees: Workspace, tmp_path: Path, git: Callable[..., None]
 ) -> None:
     """Verify a live worktree of an external repository, nested in the workspace, and its
-    subdirectory check that worktree, while the data directory stays the workspace's: the data
-    root starts from the top-most root, not from the tree the gate checks."""
+    subdirectory check that worktree and resolve to their own repository, not the workspace
+    around them (#617)."""
     main = workspace_with_worktrees.main
     external = main / ".claude" / "worktrees" / "lib"
     git(tmp_path / "library", "worktree", "add", "--quiet", "-b", "ext", str(external))
@@ -660,7 +677,54 @@ def test_a_worktree_of_a_repository_outside_the_workspace_checks_itself(
         main_worktree_root(external / "sub"),
     )
 
-    assert roots == (external.resolve(),) * 2 + (main.resolve(),) * 2
+    library = (tmp_path / "library").resolve()
+    assert roots == (external.resolve(),) * 2 + (library,) * 2
+
+
+def test_deeply_nested_unrelated_checkouts_and_worktrees_resolve_to_own_repositories(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """Verify checkouts and worktrees nested at multiple levels resolve to their own repositories,
+    regardless of how many unrelated repositories or projects enclose them (#617)."""
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    git(outer, "init", "--quiet")
+
+    middle = outer / "sub" / "middle"
+    middle.mkdir(parents=True)
+    git(middle, "init", "--quiet")
+
+    inner = middle / "vendor" / "inner"
+    inner.mkdir(parents=True)
+    git(inner, "init", "--quiet")
+    git(inner, "commit", "--quiet", "--allow-empty", "-m", "init")
+
+    worktree = inner / ".worktrees" / "wt"
+    git(inner, "worktree", "add", "--quiet", "-b", "wt", str(worktree))
+
+    assert (
+        find_top_level_repo_root(worktree),
+        find_worktree_root(worktree),
+        main_worktree_root(worktree),
+    ) == (inner.resolve(), worktree.resolve(), inner.resolve())
+
+    assert (
+        find_top_level_repo_root(inner),
+        find_worktree_root(inner),
+        main_worktree_root(inner),
+    ) == (inner.resolve(), inner.resolve(), inner.resolve())
+
+    assert (
+        find_top_level_repo_root(middle),
+        find_worktree_root(middle),
+        main_worktree_root(middle),
+    ) == (middle.resolve(), middle.resolve(), middle.resolve())
+
+    assert (
+        find_top_level_repo_root(outer),
+        find_worktree_root(outer),
+        main_worktree_root(outer),
+    ) == (outer.resolve(), outer.resolve(), outer.resolve())
 
 
 def test_an_undecodable_git_file_resolves_to_the_workspace(

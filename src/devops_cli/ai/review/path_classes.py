@@ -29,15 +29,13 @@ _CLASS_PRIORITY: tuple[str, ...] = ("fixture", "test", "iac", "docs", "src")
 
 
 def _read_config_content(base_revision: BaseRevision | None, repo_root: Path | None) -> str | None:
-    """Read .devops/review.toml content from the base revision or workspace root."""
+    """Read .devops/review.toml content from the base revision or workspace root.
+
+    A base revision whose read fails raises its error: a configuration that could not be read
+    is not an absent one, and the default would classify the files differently.
+    """
     if base_revision is not None and base_revision.read is not None:
-        try:
-            content = base_revision.read(CONST_REVIEW_CONFIG_FILE)
-            if content:
-                return content
-        except Exception as exc:
-            logger.debug("Failed reading %s from base revision: %s", CONST_REVIEW_CONFIG_FILE, exc)
-        return None
+        return base_revision.read(CONST_REVIEW_CONFIG_FILE) or None
 
     if repo_root is not None:
         cfg_file = repo_root / CONST_REVIEW_CONFIG_FILE

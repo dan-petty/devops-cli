@@ -10,7 +10,6 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
     CONST_ERROR_CODE_CONSTELLATION_RESUME,
     CONST_ERROR_CODE_DOCS_INGESTION,
-    CONST_ERROR_CODE_HARNESS_EXECUTION,
     CONST_ERROR_CODE_HARNESS_VALIDATION,
     CONST_ERROR_CODE_LIBRARY_INGESTION,
     CONST_ERROR_CODE_LIBRARY_NOT_FOUND,
@@ -18,8 +17,10 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_MODEL_BUNDLE,
     CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
     CONST_ERROR_CODE_REVIEW_POOL,
+    CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
     CONST_EXIT_ERROR_INFERENCE,
     CONST_EXIT_FAILURE,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 
@@ -41,57 +42,6 @@ class LLMInferenceError(DevOpsCLIError, ValueError):
         if details:
             err_details.update(details)
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
-
-
-class ContextBudgetExceededError(LLMInferenceError):
-    """Raised when prompt token payload exceeds model context window limits."""
-
-    DEFAULT_ERROR_CODE = "CONTEXT_BUDGET_EXCEEDED"
-    DEFAULT_EXIT_CODE = 11
-
-    def __init__(
-        self,
-        token_count: int,
-        budget: int,
-        *,
-        model: str | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        msg = f"Context budget exceeded: {token_count} tokens exceeds budget of {budget}"
-        err_details = {"token_count": token_count, "budget": budget}
-        if details:
-            err_details.update(details)
-        super().__init__(
-            msg,
-            model=model,
-            exit_code=11,
-            error_code="CONTEXT_BUDGET_EXCEEDED",
-            details=err_details,
-        )
-
-
-class ModelUnavailableError(LLMInferenceError):
-    """Raised when the requested LLM backend or model endpoint is unreachable."""
-
-    DEFAULT_ERROR_CODE = "MODEL_UNAVAILABLE"
-    DEFAULT_EXIT_CODE = 12
-
-    def __init__(
-        self,
-        model: str,
-        provider: str,
-        *,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        msg = f"Model '{model}' is unavailable on provider '{provider}'"
-        super().__init__(
-            msg,
-            provider=provider,
-            model=model,
-            exit_code=12,
-            error_code="MODEL_UNAVAILABLE",
-            details=details,
-        )
 
 
 class ModelGatewayUnreachableError(LLMInferenceError):
@@ -182,24 +132,6 @@ class HarnessValidationError(DevOpsCLIError, ValueError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
 
 
-class HarnessExecutionError(DevOpsCLIError, RuntimeError):
-    """Raised when execution of an AI test harness or benchmark fails."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        harness_name: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_HARNESS_EXECUTION,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        err_details = {"harness_name": harness_name}
-        if details:
-            err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
-
-
 class ConstellationQuiesceError(DevOpsCLIError, RuntimeError):
     """Raised when constellation quiesce suspension fails."""
 
@@ -271,6 +203,20 @@ class ReviewPoolError(DevOpsCLIError, RuntimeError):
         self.errors = errors or []
 
 
+class ReviewSessionExistsError(DevOpsCLIError):
+    """Raised when a review is published under the name of a session that is already published."""
+
+    def __init__(self, name: str, *, staging: str) -> None:
+        bounded_name = name[:CONST_MAX_ERROR_DETAIL_LENGTH]
+        bounded_staging = staging[:CONST_MAX_ERROR_DETAIL_LENGTH]
+        super().__init__(
+            f"Review session {bounded_name} was not published: a session of that name already "
+            f"exists. The review's files are in {bounded_staging}.",
+            error_code=CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
+            details={"session": bounded_name, "staging": bounded_staging},
+        )
+
+
 class LibraryIngestionError(DevOpsCLIError):
     """Base exception for package introspection and library ingestion errors."""
 
@@ -338,32 +284,12 @@ class StructuredOutputSchemaError(DevOpsCLIError, ValueError):
 
 _PYDANTIC_AI_NAMES: frozenset[str] = frozenset(
     {
-        "AgentRunError",
         "ApprovalRequired",
         "CallDeferred",
-        "ConcurrencyLimitExceeded",
-        "ContentFilterError",
-        "CostCalculationFailedWarning",
-        "CostNotFoundWarning",
-        "FallbackExceptionGroup",
-        "IncompleteToolCall",
-        "MessageHistoryMutatedWarning",
-        "ModelAPIError",
-        "ModelHTTPError",
         "ModelRetry",
-        "PydanticAIDeprecationWarning",
-        "RunCancelled",
-        "SkipModelRequest",
         "SkipToolExecution",
-        "SkipToolValidation",
-        "SuspendedResponseExpired",
         "ToolFailed",
-        "ToolFailedError",
-        "ToolRetryError",
-        "UndrainedPendingMessagesError",
         "UnexpectedModelBehavior",
-        "UsageLimitExceeded",
-        "UserError",
     }
 )
 
@@ -380,74 +306,31 @@ def __getattr__(name: str) -> Any:
 
 if TYPE_CHECKING:
     from devops_cli.exceptions.ai_pydantic import (
-        AgentRunError,
         ApprovalRequired,
         CallDeferred,
-        ConcurrencyLimitExceeded,
-        ContentFilterError,
-        CostCalculationFailedWarning,
-        CostNotFoundWarning,
-        FallbackExceptionGroup,
-        IncompleteToolCall,
-        MessageHistoryMutatedWarning,
-        ModelAPIError,
-        ModelHTTPError,
         ModelRetry,
-        PydanticAIDeprecationWarning,
-        RunCancelled,
-        SkipModelRequest,
         SkipToolExecution,
-        SkipToolValidation,
-        SuspendedResponseExpired,
         ToolFailed,
-        ToolFailedError,
-        ToolRetryError,
-        UndrainedPendingMessagesError,
         UnexpectedModelBehavior,
-        UsageLimitExceeded,
-        UserError,
     )
 
 __all__ = [
-    "AgentRunError",
     "ApprovalRequired",
     "CallDeferred",
     "CapabilityDegradationError",
-    "ConcurrencyLimitExceeded",
     "ConstellationFailoverError",
     "ConstellationQuiesceError",
     "ConstellationResumeError",
-    "ContentFilterError",
-    "ContextBudgetExceededError",
-    "CostCalculationFailedWarning",
-    "CostNotFoundWarning",
     "DocsIngestionError",
-    "FallbackExceptionGroup",
-    "HarnessExecutionError",
     "HarnessValidationError",
-    "IncompleteToolCall",
     "LLMInferenceError",
     "LibraryIngestionError",
     "LibraryNotFoundError",
-    "MessageHistoryMutatedWarning",
-    "ModelAPIError",
     "ModelBundleError",
-    "ModelHTTPError",
     "ModelRetry",
-    "ModelUnavailableError",
-    "PydanticAIDeprecationWarning",
     "ReviewPoolError",
-    "RunCancelled",
-    "SkipModelRequest",
     "SkipToolExecution",
-    "SkipToolValidation",
     "StructuredOutputSchemaError",
-    "SuspendedResponseExpired",
     "ToolFailed",
-    "ToolFailedError",
-    "ToolRetryError",
-    "UndrainedPendingMessagesError",
     "UnexpectedModelBehavior",
-    "UsageLimitExceeded",
-    "UserError",
 ]

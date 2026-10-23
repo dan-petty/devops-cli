@@ -177,19 +177,14 @@ class ReviewHistory:
         return sum(1 for s in self.sessions if s.subject_key is None and s.target is None)
 
 
-def load_review_history(reviews_dir: Path, exclude: Path | None = None) -> ReviewHistory:
-    """Read the completed sessions under `reviews_dir` and pick the ones the figures count.
-
-    `exclude`, the session being compared, is dropped before repeats collapse.
-    """
+def load_review_history(reviews_dir: Path) -> ReviewHistory:
+    """Read the completed sessions under `reviews_dir` and pick the ones the figures count."""
     if not reviews_dir.is_dir():
         return ReviewHistory(sessions=(), counted=())
-    excluded = exclude.resolve() if exclude is not None else None
     sessions = tuple(
         _read_session(session_dir)
         for session_dir in sorted(reviews_dir.iterdir())
         if (session_dir / CONST_REVIEW_FINDINGS_FILENAME).is_file()
-        and session_dir.resolve() != excluded
     )
     return ReviewHistory(sessions=sessions, counted=_count_once_per_subject(sessions))
 

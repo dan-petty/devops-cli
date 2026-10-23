@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_DOCUMENT_PATH,
     CONST_ROADMAP_MIGRATE_BOARD_FILTER,
     CONST_ROADMAP_OPEN_ITEMS_FILTER,
+    CONST_ROADMAP_REFINE_BOARD_FILTER,
     CONST_ROADMAP_RENDER_BOARD_FILTER,
     CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER,
     CONST_URL_GITHUB_API_BASE,
@@ -401,6 +402,10 @@ class StoreRequests:
         args = gh.create_issue_args(self.repo, _p("title"), _p("body"), labels)
         return [self.gh(args, "create_issue", subject=subject)]
 
+    def write_issue_body(self, subject: str) -> Requests:
+        args = gh.write_issue_body_args(self.repo, _number(subject), _p("body"))
+        return [self.gh(args, "issue", subject=subject)]
+
     def close_issue(self, subject: str, reason: str) -> Requests:
         args = gh.close_issue_args(self.repo, _number(subject), reason)
         return [
@@ -686,6 +691,57 @@ def close_requests(
     return (*reads, *store.budget()), tuple(writes)
 
 
+def refine_requests(
+    repo: str,
+    ref: str | None,
+    *,
+    item: int | None = None,
+    limit: int | None = None,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap refine` reads, in order, ending with its closing budget read,
+    and the writes `--confirm` makes before that last read."""
+    store = StoreRequests(repo, CONST_ROADMAP_REFINE_BOARD_FILTER)
+    texts = MESSAGES.roadmap
+    cond, rep = texts.plan_conditions, texts.plan_repeat
+    target_item = f"#{item}" if item is not None else _p("item")
+
+    if item is not None:
+        reads = [
+            *_config(store, ref),
+            *store.board_fields(),
+            *store.card(target_item),
+            *store.issue(target_item),
+        ]
+        writes = [
+            *store.write_issue_body(target_item),
+            *store.set_field(target_item, field_name="Status"),
+            *within(store.comment(target_item), cond["posted"]),
+        ]
+    else:
+        each_release = rep["release"]
+        each_candidate = rep["item"]
+        reads = [
+            *_config(store, ref),
+            *store.board_fields(),
+            *store.releases(),
+            *within(store.items(release=_p("release")), repeat=each_release),
+            *store.backlog(),
+            *within(store.issue(target_item), repeat=each_candidate),
+        ]
+        writes = [
+            *within(
+                [
+                    *store.write_issue_body(target_item),
+                    *store.set_field(target_item, field_name="Status"),
+                    *within(store.comment(target_item), cond["posted"]),
+                ],
+                repeat=each_candidate,
+            )
+        ]
+
+    return (*reads, *store.budget()), tuple(writes)
+
+
 def _git(target: str, *args: str) -> PlannedRequest:
     """A git command against the clone's `origin`."""
     return PlannedRequest(method="git", target=target, argv=("git", *args))
@@ -718,6 +774,7 @@ __all__ = [
     "migrate_requests",
     "planned_gh",
     "planned_session_read",
+    "refine_requests",
     "render_dry_run",
     "render_requests",
     "reprioritize_requests",

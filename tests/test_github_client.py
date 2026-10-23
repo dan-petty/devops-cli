@@ -1,11 +1,12 @@
-"""Tests for the GitHub client wrapper and repository models."""
+"""Tests for the GitHub client: the typed pull request, file, merge base, repository and issue
+comment calls it makes through the GitHub session, and the gh label client (#891)."""
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 import time
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
@@ -13,17 +14,67 @@ import httpx2
 import pytest
 
 from devops_cli.config.constants import CONST_GH_CLI, CONST_GITHUB_DIFF_MEDIA_TYPE
-from devops_cli.exceptions.git import GitHubUnreadError
+from devops_cli.exceptions.git import (
+    GitHubNotFoundError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
+)
 from devops_cli.github.client import (
+    CommitRef,
     GhCliClient,
-    GitHubClient,
+    PullRequest,
+    PullRequestFile,
     RepoInfo,
 )
-from tests.support.fakes.github import github_json, github_redirect, github_text
+from devops_cli.github.session import get_github_session
+from tests.support.fakes.github import (
+    github_json,
+    github_redirect,
+    github_text,
+)
+from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
     from tests.web_fakes import StubWeb
+
+_RECORDED = json.loads(
+    (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
+)
+_REPOSITORIES = json.loads(
+    (FIXTURES / "github" / "hello_world_repositories.json").read_text(encoding="utf-8")
+)
+_PULL = "/repos/octocat/Hello-World/pulls/158"
+_FILES = f"{_PULL}/files?per_page=100"
+_BASE_SHA = "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+_HEAD_SHA = "ec18ca7bca5202d8e139a58b25757dc161255245"
+_README = _RECORDED["readme_contents"]
+_README_AT_BASE = f"/repos/octocat/Hello-World/contents/README?ref={_BASE_SHA}"
+_COMPARE = f"/repos/octocat/Hello-World/compare/{_BASE_SHA}...{_HEAD_SHA}?per_page=1"
+_ORG_REPOS = "/orgs/octocat/repos?type=all&per_page=100"
+_USER_OWNED_REPOS = "/user/repos?affiliation=owner&visibility=all&per_page=100"
+
+
+def _client() -> Any:
+    """The client of the process's GitHub session, as every caller reaches it."""
+    return get_github_session().client
+
+
+def _route_the_recorded_pull_request(api: GitHubApiFake) -> None:
+    """Answer the pull request, and its two pages of files with the `Link` GitHub sent."""
+    api.route("GET", _PULL, github_json(_RECORDED["pull_request"]))
+    first, second = _RECORDED["files_pages"]
+    api.route("GET", _FILES, github_json(first["body"], headers={"link": first["link"]}))
+    api.route(
+        "GET",
+        "/repositories/1296269/pulls/158/files?per_page=1&page=2",
+        github_json(second["body"], headers={"link": second["link"]}),
+    )
+
+
+def _carried(api: GitHubApiFake) -> set[str]:
+    """The authorization every request the fake received carried."""
+    return {request.headers["authorization"] for request in api.sent}
 
 
 def test_repo_info_model() -> None:
@@ -41,221 +92,335 @@ def test_repo_info_model() -> None:
     assert info.private is True
 
 
-def test_github_client_operations() -> None:
-    """Verify GitHubClient get_org_repos, SSH key management, and PR lookups."""
-    mock_gh = MagicMock()
-    mock_user = MagicMock()
-    mock_user.login = "test-user"
-    mock_key = MagicMock()
-    mock_key.id = 1
-    mock_key.title = "key1"
-    mock_key.key = "ssh-ed25519 AAA..."
-    mock_user.get_keys.return_value = [mock_key]
-    mock_created_key = MagicMock()
-    mock_created_key.id = 2
-    mock_user.create_key.return_value = mock_created_key
-    mock_gh.get_user.return_value = mock_user
-
-    mock_repo = MagicMock()
-    mock_repo.name = "repo1"
-    mock_repo.full_name = "test-org/repo1"
-    mock_repo.ssh_url = "git@github.com:test-org/repo1.git"
-    mock_repo.clone_url = "https://github.com/test-org/repo1.git"
-    mock_repo.private = False
-    mock_repo.fork = False
-    mock_repo.archived = False
-
-    mock_org = MagicMock()
-    mock_org.get_repos.return_value = [mock_repo]
-    mock_gh.get_organization.return_value = mock_org
-
-    with patch("github.Github", return_value=mock_gh):
-        client = GitHubClient("token123")
-        repos = client.get_org_repos("test-org")
-        assert len(repos) == 1
-        assert repos[0].name == "repo1"
-
-        keys = client.get_user_ssh_keys()
-        assert len(keys) == 1
-        assert keys[0].id == 1
-
-        new_key_id = client.add_user_ssh_key("new_key", "ssh-ed25519 AAA...")
-        assert new_key_id == 2
-
-        client.delete_user_ssh_key(1)
-        mock_user.get_key.assert_called_with(1)
-
-        _ = client.get_pull("test-org/repo1", 42)
-        mock_gh.get_repo.assert_called_with("test-org/repo1")
+def test_the_client_is_the_sessions_own_and_is_built_once() -> None:
+    """The session builds one client from itself, so every caller shares its identity."""
+    session = get_github_session()
+    assert session.client is session.client
 
 
-def test_get_org_repos_falls_back_to_authenticated_user_login() -> None:
-    client = GitHubClient("token")
-
-    repos = [
-        SimpleNamespace(
-            name="public-repo",
-            full_name="octo/public-repo",
-            ssh_url="git@github.com:octo/public-repo.git",
-            clone_url="https://github.com/octo/public-repo.git",
-            private=False,
-            fork=False,
+def test_a_pull_request_is_read_with_its_title_and_both_commits(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The recorded pull request has a title, a base in octocat/Hello-World and a head whose
+    repository GitHub reports as null, since the fork it came from was deleted: that head has no
+    repository rather than a wrong one."""
+    _route_the_recorded_pull_request(github_api)
+    pull = _client().get_pull("octocat/Hello-World", 158)
+    assert (pull, github_api.requested, _carried(github_api)) == (
+        PullRequest(
+            title="Update and rename README to README.md. Also Added Bolding",
+            head=CommitRef(sha=_HEAD_SHA, ref="master", repository=None),
+            base=CommitRef(sha=_BASE_SHA, ref="master", repository="octocat/Hello-World"),
         ),
-        SimpleNamespace(
-            name="private-repo",
-            full_name="octo/private-repo",
-            ssh_url="git@github.com:octo/private-repo.git",
-            clone_url="https://github.com/octo/private-repo.git",
-            private=True,
-            fork=False,
-        ),
-        SimpleNamespace(
-            name="forked-repo",
-            full_name="octo/forked-repo",
-            ssh_url="git@github.com:octo/forked-repo.git",
-            clone_url="https://github.com/octo/forked-repo.git",
-            private=False,
-            fork=True,
-        ),
-    ]
-
-    class _FakeUser:
-        login = "octo"
-
-        def get_repos(self) -> list[SimpleNamespace]:
-            return repos
-
-    class _FakeGithub:
-        def get_organization(self, org_name: str) -> object:
-            from github.GithubException import UnknownObjectException
-
-            raise UnknownObjectException(404, None, None, f"No org {org_name}")
-
-        def get_user(self) -> _FakeUser:
-            return _FakeUser()
-
-    client._gh = _FakeGithub()  # type: ignore[assignment]
-
-    result = client.get_org_repos("octo", include_private=False, include_forks=False)
-
-    assert [repo.name for repo in result] == ["public-repo"]
-
-
-def test_get_org_repos_skips_archived_repos() -> None:
-    client = GitHubClient("token")
-
-    repos = [
-        SimpleNamespace(
-            name="active-repo",
-            full_name="octo/active-repo",
-            ssh_url="git@github.com:octo/active-repo.git",
-            clone_url="https://github.com/octo/active-repo.git",
-            private=False,
-            fork=False,
-            archived=False,
-        ),
-        SimpleNamespace(
-            name="archived-repo",
-            full_name="octo/archived-repo",
-            ssh_url="git@github.com:octo/archived-repo.git",
-            clone_url="https://github.com/octo/archived-repo.git",
-            private=False,
-            fork=False,
-            archived=True,
-        ),
-    ]
-
-    class _FakeOrg:
-        def get_repos(self, type: str) -> list[SimpleNamespace]:
-            return repos
-
-    class _FakeGithub:
-        def get_organization(self, org_name: str) -> _FakeOrg:
-            return _FakeOrg()
-
-    client._gh = _FakeGithub()  # type: ignore[assignment]
-
-    result = client.get_org_repos(
-        "octo", include_private=False, include_forks=False, include_archived=False
+        [f"GET https://api.github.com{_PULL}"],
+        {f"token {pin_github_session}"},
     )
 
-    assert [repo.name for repo in result] == ["active-repo"]
+
+def test_a_pull_request_that_lacks_a_title_is_unread(github_api: GitHubApiFake) -> None:
+    """An answer that is no pull request raises the unread error, naming the path."""
+    github_api.route("GET", _PULL, github_json({"number": 158}))
+    with pytest.raises(GitHubUnreadError) as raised:
+        _client().get_pull("octocat/Hello-World", 158)
+    assert raised.value.details["path"] == _PULL
 
 
-def test_create_pr_review_comment() -> None:
-    client = GitHubClient("token")
+def test_a_missing_pull_request_raises_the_not_found_error(github_api: GitHubApiFake) -> None:
+    """GitHub's 404 for a pull request is the not-found error, not an empty pull request."""
+    with pytest.raises(GitHubNotFoundError):
+        _client().get_pull("octocat/Hello-World", 9999)
+    assert github_api.requested == [
+        "GET https://api.github.com/repos/octocat/Hello-World/pulls/9999"
+    ]
 
-    called_kwargs: dict[str, str | int] = {}
 
-    class _FakePull:
-        head = SimpleNamespace(sha="sha-123")
-
-        def create_review_comment(self, **kwargs: str | int) -> str:
-            called_kwargs.update(kwargs)
-            return "comment-123"
-
-    class _FakeRepo:
-        def get_pull(self, number: int) -> _FakePull:
-            return _FakePull()
-
-    class _FakeGithub:
-        def get_repo(self, repo: str) -> _FakeRepo:
-            return _FakeRepo()
-
-    client._gh = _FakeGithub()  # type: ignore[assignment]
-
-    res = client.create_pr_review_comment(
-        repo="octo/repo",
-        number=42,
-        body="LGTM!",
-        commit_id="",
-        path="src/main.py",
-        line=15,
+def test_a_repository_name_is_encoded_in_the_request(github_api: GitHubApiFake) -> None:
+    """A character that is no part of a path stays inside the repository segment, so the name
+    cannot end the path or start a query."""
+    github_api.route(
+        "GET", "/repos/octocat/Hello%23World/pulls/158", github_json(_RECORDED["pull_request"])
     )
-    assert res == "comment-123"
-    assert called_kwargs["body"] == "LGTM!"
-    assert called_kwargs["commit"] == "sha-123"
-    assert called_kwargs["path"] == "src/main.py"
-    assert called_kwargs["line"] == 15
+    _client().get_pull("octocat/Hello#World", 158)
+    assert github_api.requested == [
+        "GET https://api.github.com/repos/octocat/Hello%23World/pulls/158"
+    ]
 
 
-def test_get_merge_base_reads_the_compare_endpoint() -> None:
-    """Verify the merge base comes from comparing base and head in the named repository, and a
-    failed comparison gives None rather than a ref to read at (#593)."""
-    client = GitHubClient("token")
-    compared: list[tuple[str, str, str, int | None]] = []
-
-    class _FakeRepo:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def compare(
-            self, base: str, head: str, comparison_commits_per_page: int | None = None
-        ) -> SimpleNamespace:
-            compared.append((self.name, base, head, comparison_commits_per_page))
-            if head == "unknown":
-                from github.GithubException import UnknownObjectException
-
-                raise UnknownObjectException(404, "Not Found", None)
-            return SimpleNamespace(merge_base_commit=SimpleNamespace(sha="merge-base-sha"))
-
-    class _FakeGithub:
-        def get_repo(self, repo: str, lazy: bool = False) -> _FakeRepo:
-            return _FakeRepo(f"{repo} lazy={lazy}")
-
-    client._gh = _FakeGithub()  # type: ignore[assignment]
-
-    found = client.get_merge_base("octo/repo", "base-tip", "head-sha")
-    missing = client.get_merge_base("octo/repo", "base-tip", "unknown")
-
-    assert (found, missing, compared) == (
-        "merge-base-sha",
-        None,
+def test_the_files_of_a_pull_request_come_from_every_page(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The recorded listing links a second page: both files are read, in order, with the token."""
+    _route_the_recorded_pull_request(github_api)
+    files = _client().get_pull_files("octocat/Hello-World", 158)
+    assert (files, github_api.requested, _carried(github_api)) == (
         [
-            ("octo/repo lazy=True", "base-tip", "head-sha", 1),
-            ("octo/repo lazy=True", "base-tip", "unknown", 1),
+            PullRequestFile(filename="README", status="removed", additions=0, changes=1),
+            PullRequestFile(filename="README.md", status="added", additions=1, changes=1),
+        ],
+        [
+            f"GET https://api.github.com{_FILES}",
+            "GET https://api.github.com/repositories/1296269/pulls/158/files?per_page=1&page=2",
+        ],
+        {f"token {pin_github_session}"},
+    )
+
+
+def test_a_renamed_file_names_its_previous_path(github_api: GitHubApiFake) -> None:
+    """GitHub sends `previous_filename` for a renamed file only."""
+    renamed = {**_RECORDED["files_pages"][1]["body"][0], "status": "renamed"}
+    renamed["previous_filename"] = "README"
+    github_api.route("GET", _FILES, github_json([renamed]))
+    assert _client().get_pull_files("octocat/Hello-World", 158) == [
+        PullRequestFile(
+            filename="README.md",
+            status="renamed",
+            previous_filename="README",
+            additions=1,
+            changes=1,
+        )
+    ]
+
+
+def test_a_page_with_a_malformed_file_is_unread(github_api: GitHubApiFake) -> None:
+    """A file without a status raises the unread error, so no list that misses it is returned."""
+    github_api.route("GET", _FILES, github_json([{"filename": "README"}]))
+    with pytest.raises(GitHubUnreadError) as raised:
+        _client().get_pull_files("octocat/Hello-World", 158)
+    assert raised.value.details["path"] == _FILES
+
+
+def test_a_file_is_read_as_the_text_of_its_contents(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The contents endpoint is asked for the file at the commit, and its base64 is decoded."""
+    github_api.route("GET", _README_AT_BASE, github_json(_README))
+    text = _client().get_file_at("octocat/Hello-World", "README", _BASE_SHA)
+    assert (text, github_api.requested, _carried(github_api)) == (
+        "Hello World!\n",
+        [f"GET https://api.github.com{_README_AT_BASE}"],
+        {f"token {pin_github_session}"},
+    )
+
+
+def test_a_path_and_a_ref_are_encoded_in_the_request(github_api: GitHubApiFake) -> None:
+    """A space in a path and a slash in a ref reach GitHub as one path and one ref."""
+    github_api.route(
+        "GET",
+        "/repos/octocat/Hello-World/contents/docs/a%20b%23c.md?ref=feature%2Fx",
+        github_json({**_README, "path": "docs/a b#c.md"}),
+    )
+    _client().get_file_at("octocat/Hello-World", "docs/a b#c.md", "feature/x")
+    assert github_api.requested == [
+        "GET https://api.github.com/repos/octocat/Hello-World/contents/docs/a%20b%23c.md"
+        "?ref=feature%2Fx"
+    ]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        pytest.param(github_json(_RECORDED["missing_contents"], status=404), id="no-such-file"),
+        pytest.param(github_json([{**_README, "type": "dir"}]), id="a-directory"),
+        pytest.param(github_json({**_README, "type": "symlink"}), id="a-symlink"),
+        pytest.param(github_json({**_README, "content": "", "encoding": "none"}), id="over-1-mb"),
+        pytest.param(
+            github_json({**_README, "content": base64.b64encode(b"\xff\xfe\x00").decode()}),
+            id="not-utf-8",
+        ),
+    ],
+)
+def test_a_file_that_is_absent_binary_or_too_large_is_none(
+    github_api: GitHubApiFake, answer: httpx2.Response
+) -> None:
+    """GitHub's 404, a directory listing, a link, a file over 1 MB (which comes without its
+    content) and bytes that are not UTF-8 read as no text, as before."""
+    github_api.route("GET", _README_AT_BASE, answer)
+    assert _client().get_file_at("octocat/Hello-World", "README", _BASE_SHA) is None
+
+
+@pytest.mark.parametrize(
+    ("answer", "error"),
+    [
+        pytest.param(
+            github_json({"message": "Server Error"}, status=500), GitHubUnreadError, id="500"
+        ),
+        pytest.param(
+            github_json({"message": "Bad credentials"}, status=401),
+            GitHubUnauthenticatedError,
+            id="401",
+        ),
+        pytest.param(
+            github_json({**_README, "content": "SGVsbG8"}), GitHubUnreadError, id="base64"
+        ),
+        pytest.param(github_json("README"), GitHubUnreadError, id="not-a-file"),
+    ],
+)
+def test_a_file_that_could_not_be_read_raises_instead_of_reading_as_absent(
+    github_api: GitHubApiFake, answer: httpx2.Response, error: type[Exception]
+) -> None:
+    """A 500 that outlasts the retries, a refused token and a body that is no file raise the
+    session's error: a failed read never looks like a file that is not there."""
+    github_api.route("GET", _README_AT_BASE, answer)
+    with pytest.raises(error):
+        _client().get_file_at("octocat/Hello-World", "README", _BASE_SHA)
+
+
+def test_the_merge_base_is_read_from_the_compare_endpoint(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The recorded comparison names the commit the pull request branched from, and asks for one
+    commit only."""
+    github_api.route("GET", _COMPARE, github_json(_RECORDED["comparison"]))
+    merge_base = _client().get_merge_base("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
+    assert (merge_base, github_api.requested, _carried(github_api)) == (
+        _BASE_SHA,
+        [f"GET https://api.github.com{_COMPARE}"],
+        {f"token {pin_github_session}"},
+    )
+
+
+def test_a_comparison_github_does_not_find_has_no_merge_base(github_api: GitHubApiFake) -> None:
+    """GitHub's 404 for two commits it cannot compare is no merge base."""
+    assert _client().get_merge_base("octocat/Hello-World", _BASE_SHA, "unknown") is None
+
+
+@pytest.mark.parametrize(
+    ("answer", "error"),
+    [
+        pytest.param(
+            github_json({"message": "Server Error"}, status=502), GitHubUnreadError, id="502"
+        ),
+        pytest.param(github_json({"status": "ahead"}), GitHubUnreadError, id="no-merge-base"),
+    ],
+)
+def test_a_comparison_that_could_not_be_read_raises(
+    github_api: GitHubApiFake, answer: httpx2.Response, error: type[Exception]
+) -> None:
+    """A 5xx that outlasts the retries, or a comparison without its merge base, is unread."""
+    github_api.route("GET", _COMPARE, answer)
+    with pytest.raises(error):
+        _client().get_merge_base("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
+
+
+def _listed_repositories() -> list[RepoInfo]:
+    """The repositories of the recorded listing as the client reports them."""
+    return [
+        RepoInfo(
+            name=repo["name"],
+            full_name=repo["full_name"],
+            ssh_url=repo["ssh_url"],
+            clone_url=repo["clone_url"],
+            private=repo["private"],
+            fork=repo["fork"],
+            archived=repo["archived"],
+        )
+        for repo in _REPOSITORIES["repositories"]
+    ]
+
+
+def test_the_repositories_of_an_organization_leave_out_forks_by_default(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """`GET /orgs/{org}/repos` lists every repository; the fork is left out unless asked for."""
+    github_api.route("GET", _ORG_REPOS, github_json(_REPOSITORIES["repositories"]))
+    client = _client()
+    without_forks = client.get_org_repos("octocat")
+    with_forks = client.get_org_repos("octocat", include_forks=True)
+    everything = _listed_repositories()
+    assert (without_forks, with_forks, github_api.requested, _carried(github_api)) == (
+        [repo for repo in everything if not repo.fork],
+        everything,
+        [f"GET https://api.github.com{_ORG_REPOS}"] * 2,
+        {f"token {pin_github_session}"},
+    )
+
+
+def test_an_organization_name_is_encoded_in_the_request(github_api: GitHubApiFake) -> None:
+    """A slash or a query mark in the name stays inside the organization segment, so the name
+    cannot reach another endpoint."""
+    listing = "/orgs/a%2Fb%3Fc/repos?type=all&per_page=100"
+    github_api.route("GET", listing, github_json([]))
+    _client().get_org_repos("a/b?c")
+    assert github_api.requested == [f"GET https://api.github.com{listing}"]
+
+
+def test_a_public_listing_asks_for_public_repositories_only(github_api: GitHubApiFake) -> None:
+    """Without private repositories the request names the public type, and a private one that
+    still comes back is dropped."""
+    private = {**_REPOSITORIES["repositories"][0], "name": "secret", "private": True}
+    github_api.route(
+        "GET",
+        "/orgs/octocat/repos?type=public&per_page=100",
+        github_json([private, *_REPOSITORIES["repositories"]]),
+    )
+    names = [repo.name for repo in _client().get_org_repos("octocat", include_private=False)]
+    assert names == ["Hello-World", "Spoon-Knife"]
+
+
+def test_archived_repositories_can_be_left_out(github_api: GitHubApiFake) -> None:
+    """GitHub's `archived` flag decides which repositories `include_archived=False` drops."""
+    archived = {**_REPOSITORIES["repositories"][2], "archived": True}
+    github_api.route("GET", _ORG_REPOS, github_json([*_REPOSITORIES["repositories"][:2], archived]))
+    names = [repo.name for repo in _client().get_org_repos("octocat", include_archived=False)]
+    assert names == ["Hello-World"]
+
+
+def test_the_account_of_the_session_lists_the_repositories_it_owns_when_it_is_no_organization(
+    github_api: GitHubApiFake,
+) -> None:
+    """GitHub answers 404 for `/orgs/octocat/repos` since octocat is a user. When that user is the
+    session's login, its owned repositories are listed instead, as `/user/repos`."""
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    github_api.route("GET", _USER_OWNED_REPOS, github_json(_REPOSITORIES["repositories"]))
+    repos = _client().get_org_repos("octocat")
+    assert ([repo.name for repo in repos], github_api.requested) == (
+        ["Hello-World", "Spoon-Knife"],
+        [
+            f"GET https://api.github.com{_ORG_REPOS}",
+            "GET https://api.github.com/user",
+            f"GET https://api.github.com{_USER_OWNED_REPOS}",
         ],
     )
+
+
+def test_another_account_that_is_no_organization_raises_the_not_found_error(
+    github_api: GitHubApiFake,
+) -> None:
+    """A name that is not an organization and not the session's login is not listed from
+    `/user/repos`: that listing would be the session's own repositories."""
+    github_api.route("GET", "/user", github_json({"login": "somebody-else"}))
+    with pytest.raises(GitHubNotFoundError):
+        _client().get_org_repos("octocat")
+    assert "GET https://api.github.com" + _USER_OWNED_REPOS not in github_api.requested
+
+
+def test_a_public_listing_of_the_sessions_own_account_asks_for_public_repositories(
+    github_api: GitHubApiFake,
+) -> None:
+    """The fallback keeps the visibility the caller asked for."""
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
+    github_api.route(
+        "GET",
+        "/user/repos?affiliation=owner&visibility=public&per_page=100",
+        github_json(_REPOSITORIES["repositories"]),
+    )
+    repos = _client().get_org_repos("octocat", include_private=False)
+    assert [repo.name for repo in repos] == ["Hello-World", "Spoon-Knife"]
+
+
+def test_an_issue_comment_is_posted_once_with_the_text_as_its_body(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """One `POST /repos/{repo}/issues/{n}/comments` carries the text as JSON, with the token."""
+    github_api.route(
+        "POST", "/repos/octocat/Hello-World/issues/158/comments", github_json({"id": 1}, status=201)
+    )
+    _client().create_issue_comment("octocat/Hello-World", 158, "Looks fine.")
+    assert [
+        (f"{request.method} {request.url.path}", json.loads(request.content))
+        for request in github_api.sent
+    ] == [("POST /repos/octocat/Hello-World/issues/158/comments", {"body": "Looks fine."})]
+    assert _carried(github_api) == {f"token {pin_github_session}"}
 
 
 def test_get_pr_diff_normal_and_redirect(
@@ -276,7 +441,7 @@ def test_get_pr_diff_normal_and_redirect(
             "diff --git a/redirected b/redirected", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE
         ),
     )
-    client = GitHubClient(pin_github_session)
+    client = _client()
     diffs = (client.get_pr_diff("octo/repo", 42), client.get_pr_diff("octo/moved", 7))
     carried = {(r.headers["accept"], r.headers["authorization"]) for r in github_api.sent}
     assert (diffs, github_api.requested, carried) == (
@@ -303,7 +468,7 @@ def test_an_answer_that_is_no_diff_raises_the_unread_error(
     """A diff GitHub did not send as text is unread, not an empty or stringified diff."""
     github_api.route("GET", "/repos/octo/repo/pulls/42", answer)
     with pytest.raises(GitHubUnreadError) as raised:
-        GitHubClient(pin_github_session).get_pr_diff("octo/repo", 42)
+        _client().get_pr_diff("octo/repo", 42)
     assert raised.value.details["path"] == "/repos/octo/repo/pulls/42"
 
 
@@ -320,7 +485,7 @@ def _scripted_gh(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_one_identity_reaches_pygithub_gh_and_the_quota_refresh(
+def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
     monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb
 ) -> None:
     """The PR diff, two run_gh calls and the quota refresh all act as token A from `gh auth token`."""

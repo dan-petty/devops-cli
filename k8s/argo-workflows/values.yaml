@@ -1,0 +1,77 @@
+# Argo Workflows Helm values (#1535, step 1: install the controller and measure).
+# Chart: argo/argo-workflows
+# Repo:  https://argoproj.github.io/argo-helm
+#
+# The controller watches only its own namespace, runs as one replica and keeps no database, archive
+# or argo-server. Every pod in the namespace is admitted by Pod Security `restricted`: chart 2.0.13
+# leaves the controller pod's and the executor's securityContext empty, so both are set here.
+
+# One tag for the controller and the executor. It equals the argo CLI pin in
+# src/devops_cli/tools_lock/tools.lock.
+images:
+  tag: v4.1.5
+  pullPolicy: IfNotPresent
+
+# The minimal CRDs, annotated as Argo CD's are. The full CRDs come from a pre-install hook Job
+# whose ClusterRole may create, patch and update every CRD in the cluster.
+crds:
+  install: true
+  keep: true
+  full: false
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+
+# `singleNamespace` makes the controller watch only this namespace and renders a Role, not a
+# ClusterRole.
+singleNamespace: true
+createAggregateRoles: false
+
+server:
+  enabled: false
+
+controller:
+  # One replica: the chart then rolls out with Recreate and sets LEADER_ELECTION_DISABLE, so two
+  # controllers never run at once.
+  replicas: 1
+  # Needs a ClusterRole, which `singleNamespace` does not render.
+  clusterWorkflowTemplates:
+    enabled: false
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  # The metrics port is set so the perimeter and Alloy's egress rule name the port the chart opens.
+  metricsConfig:
+    enabled: true
+    port: 9090
+  serviceMonitor:
+    enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# The init and wait containers of every workflow pod.
+executor:
+  image:
+    nonroot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+# The executor ServiceAccount and its Role, which the chart limits to create and patch on
+# workflowtaskresults.
+workflow:
+  serviceAccount:
+    create: true
+    name: argo-workflows-executor
+  rbac:
+    create: true

@@ -37,7 +37,7 @@ from devops_cli.github.branch_protection import (
     load_branch_protection_policies,
     sync_branch_protection,
 )
-from devops_cli.github.client import GhCliClient, GitHubClient
+from devops_cli.github.client import GhCliClient
 from devops_cli.github.issues import (
     audit_issues_triage,
     create_repository_issue,
@@ -86,7 +86,6 @@ from devops_cli.github.secrets import (
     list_repository_secrets,
     sync_repository_secrets,
 )
-from devops_cli.github.session import get_github_session
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print,
@@ -143,19 +142,8 @@ def _resolve_repo(repo: str | None = None) -> str:
     return target or "unknown/repo"
 
 
-def _get_github_client() -> GitHubClient | None:
-    """The session's PyGithub client; None when PyGithub cannot be set up."""
-    session = get_github_session()
-    try:
-        return session.client
-    except Exception as exc:
-        logger.warning("Failed to initialize GitHubClient: %s", exc)
-        return None
-
-
 def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
-    """Retrieve repository labels via gh CLI or GitHubClient."""
-    target_repo = _resolve_repo(repo)
+    """Retrieve repository labels via the gh CLI; none when gh cannot list them."""
     cmd = ["label", "list", "--json", "name,color,description"]
     cmd += ["--limit", str(DEFAULT_GH_LABEL_LIST_LIMIT)]
     if repo:
@@ -166,13 +154,6 @@ def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
         except json.JSONDecodeError as exc:
             logger.debug("Failed to decode JSON from gh label list: %s", exc)
-
-    client = _get_github_client()
-    if client and target_repo != "unknown/repo":
-        try:
-            return client.get_labels(target_repo)
-        except Exception as exc:
-            logger.warning("Failed to fetch labels via GitHubClient for %s: %s", target_repo, exc)
     return []
 
 
@@ -246,9 +227,10 @@ def sync_labels(
         print_error(f"Failed to load labels schema: {exc}")
         raise typer.Exit(1) from exc
 
-    client = _get_github_client() or GhCliClient(target_repo)
     try:
-        result = sync_repository_labels(client, target_repo, desired, dry_run=dry_run)
+        result = sync_repository_labels(
+            GhCliClient(target_repo), target_repo, desired, dry_run=dry_run
+        )
     except GitHubOperationError as exc:
         print_error(f"Label sync failed for {target_repo}: {exc}", safe=True)
         raise typer.Exit(1) from exc
@@ -1593,30 +1575,26 @@ def runs_view_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """View details or failure logs of a specific workflow run."""
+    from devops_cli.github.run_view import fetch_workflow_run_view
+
     target_repo = repo or _resolve_repo()
-    cmd = ["run", "view", str(run_id)]
-    if log_failed:
-        cmd.append("--log-failed")
-    elif full_log:
-        cmd.append("--log")
-    if job:
-        cmd.extend(["--job", job])
-    if repo:
-        cmd.extend(["--repo", target_repo])
-
-    res = run_gh(cmd, check=False)
+    res = fetch_workflow_run_view(
+        run_id,
+        log_failed=log_failed,
+        full_log=full_log,
+        job=job,
+        repo=target_repo if repo else None,
+        runner=run_gh,
+    )
     if res.returncode != 0:
-        from devops_cli.security.sanitizer import mask_secrets
-
-        clean_err = mask_secrets(res.stderr.strip()[:256])
+        clean_err = res.stderr.strip()[:256]
         print_error(f"Failed to view workflow run #{run_id}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
     if res.stdout:
         from devops_cli.output import write_stream
-        from devops_cli.security.sanitizer import mask_secrets
 
-        write_stream(mask_secrets(res.stdout.rstrip()) + "\n")
+        write_stream(res.stdout.rstrip() + "\n")
 
 
 # =============================================================================

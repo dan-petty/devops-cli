@@ -160,7 +160,7 @@ def test_terminal_tables_medium_and_up_details_high_and_up_and_counts_low_on_one
         [title.split("[")[1].split("]")[0] for title in _panel_titles(lines)],
         len(summary),
         "10 LOW finding(s) (6 VERIFIED, 4 UNVERIFIED)" in "".join(summary),
-        str(orchestrator.session_dir / "review.md") in "".join(summary),
+        str(orchestrator.session.directory / "review.md") in "".join(summary),
         [line.strip() for line in lines if command in line],
         any("LOW defect" in line for line in lines),
     ) == (
@@ -314,15 +314,18 @@ def test_closing_line_names_the_session_directory_and_review_md(
 
     assert (
         lines[-1].startswith("✓ Consolidated review completed"),
-        str(orchestrator.session_dir) in lines[-1],
-        str(orchestrator.session_dir / "review.md") in lines[-1],
+        str(orchestrator.session.directory) in lines[-1],
+        str(orchestrator.session.directory / "review.md") in lines[-1],
     ) == (True, True, True)
 
 
 def _saved_report(orchestrator: ReviewPipelineOrchestrator) -> tuple[dict[str, Any], list[str]]:
-    findings = json.loads((orchestrator.session_dir / "findings.json").read_text(encoding="utf-8"))
+    orchestrator.session.publish()
+    findings = json.loads(
+        (orchestrator.session.directory / "findings.json").read_text(encoding="utf-8")
+    )
     findings.pop("generated_at")
-    review_md = (orchestrator.session_dir / "review.md").read_text(encoding="utf-8")
+    review_md = (orchestrator.session.directory / "review.md").read_text(encoding="utf-8")
     return findings, [line for line in review_md.splitlines() if "Generated at" not in line]
 
 
@@ -381,6 +384,7 @@ def test_review_workflow_hands_full_output_to_the_orchestrator(tmp_path: Path) -
                 clients,
                 target_dir=tmp_path,
                 full_output=full_output,
+                session_id=f"full-{full_output}",
             )
 
     assert [orchestrator.full_output for orchestrator in built] == [True, False]

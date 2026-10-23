@@ -1,44 +1,8 @@
-"""LLM Provider abstraction layer, native Pydantic AI providers, and factory registry."""
+"""Native Pydantic AI provider factory with SSRF-validated endpoints."""
 
 from __future__ import annotations
 
 from typing import Any
-
-from devops_cli.ai.providers.anthropic import AnthropicProvider
-from devops_cli.ai.providers.base import BaseLLMProvider
-from devops_cli.ai.providers.copilot import CopilotProvider
-from devops_cli.ai.providers.ollama import OllamaProvider
-from devops_cli.ai.providers.openai import OpenAIProvider
-from devops_cli.config.settings import AIConfig
-
-_DEFAULT_PROVIDERS: dict[str, type[BaseLLMProvider]] = {
-    "ollama": OllamaProvider,
-    "openai": OpenAIProvider,
-    "claude": AnthropicProvider,
-    "anthropic": AnthropicProvider,
-    "copilot": CopilotProvider,
-}
-
-_PROVIDERS: dict[str, type[BaseLLMProvider]] = dict(_DEFAULT_PROVIDERS)
-
-
-def register_provider(name: str, provider_cls: type[BaseLLMProvider]) -> None:
-    """Register a custom or mock LLM provider class under the given canonical name."""
-    _PROVIDERS[name.lower().strip()] = provider_cls
-
-
-def reset_providers() -> None:
-    """Restore the provider registry to its built-in providers."""
-    _PROVIDERS.clear()
-    _PROVIDERS.update(_DEFAULT_PROVIDERS)
-    _PYDANTIC_PROVIDERS.clear()
-
-
-def get_provider(name: str, config: AIConfig) -> BaseLLMProvider:
-    """Factory function retrieving an instantiated legacy provider by canonical name."""
-    provider_cls = _PROVIDERS.get(name.lower(), OllamaProvider)
-    return provider_cls(config)
-
 
 _PYDANTIC_PROVIDER_SPECS: dict[str, tuple[str, str]] = {
     "ollama": ("pydantic_ai.providers.ollama", "OllamaProvider"),
@@ -155,47 +119,7 @@ def create_pydantic_ai_provider(
     return provider_cls(**init_kwargs)
 
 
-def __getattr__(name: str) -> Any:
-    _lazy_map: dict[str, tuple[str, str]] = {
-        "Provider": ("pydantic_ai.providers", "Provider"),
-        "infer_provider": ("pydantic_ai.providers", "infer_provider"),
-        "infer_provider_class": ("pydantic_ai.providers", "infer_provider_class"),
-        "NativeAnthropicProvider": ("pydantic_ai.providers.anthropic", "AnthropicProvider"),
-        "NativeDeepSeekProvider": ("pydantic_ai.providers.deepseek", "DeepSeekProvider"),
-        "NativeGoogleProvider": ("pydantic_ai.providers.google", "GoogleProvider"),
-        "NativeOllamaProvider": ("pydantic_ai.providers.ollama", "OllamaProvider"),
-        "NativeOpenAIProvider": ("pydantic_ai.providers.openai", "OpenAIProvider"),
-        "NativeOpenRouterProvider": ("pydantic_ai.providers.openrouter", "OpenRouterProvider"),
-    }
-    if name in _lazy_map:
-        mod_name, attr_name = _lazy_map[name]
-        import importlib
-
-        mod = importlib.import_module(mod_name)
-        val = getattr(mod, attr_name)
-        globals()[name] = val
-        return val
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
-    "AnthropicProvider",
-    "BaseLLMProvider",
-    "CopilotProvider",
-    "NativeAnthropicProvider",
-    "NativeDeepSeekProvider",
-    "NativeGoogleProvider",
-    "NativeOllamaProvider",
-    "NativeOpenAIProvider",
-    "NativeOpenRouterProvider",
-    "OllamaProvider",
-    "OpenAIProvider",
-    "Provider",
     "create_pydantic_ai_provider",
-    "get_provider",
-    "infer_provider",
-    "infer_provider_class",
     "is_pydantic_ai_provider",
-    "register_provider",
-    "reset_providers",
 ]

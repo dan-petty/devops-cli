@@ -35,11 +35,7 @@ from devops_cli.ai.client.streaming import (
     StreamingTokenProcessor,
 )
 from devops_cli.ai.client.structured import StructuredOutputMixin
-from devops_cli.ai.client.unified import (
-    LLMClient,
-    model_request,
-    model_request_sync,
-)
+from devops_cli.ai.client.unified import LLMClient
 
 __all__ = [
     "MAX_STREAM_BYTES",
@@ -62,8 +58,6 @@ __all__ = [
     "get_ollama_waiting_counts",
     "httpx2",
     "is_reasoning_model",
-    "model_request",
-    "model_request_sync",
     "request_limited_json",
     "request_priority_scope",
     "reset_ollama_slots",

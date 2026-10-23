@@ -22,8 +22,6 @@ from devops_cli.config.constants import (
     CONST_VAULT_PATH_LEASE_REVOKE,
     CONST_VAULT_PATH_TOKEN_RENEW_SELF,
     CONST_VAULT_PATH_TOKEN_REVOKE_SELF,
-    CONST_VAULT_PATH_TRANSIT_DECRYPT,
-    CONST_VAULT_PATH_TRANSIT_ENCRYPT,
 )
 from devops_cli.config.defaults import (
     DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS,
@@ -318,68 +316,10 @@ class LeaseRegistry:
         )
 
 
-# =============================================================================
-# Transit Envelope Encryption
-# =============================================================================
-
-
-def transit_encrypt(
-    vault_addr: str,
-    key_name: str,
-    plaintext: str,
-    *,
-    token: str,
-    namespace: str | None = None,
-) -> str:
-    """Encrypt a value with Vault's Transit engine, which never exposes the key.
-
-    Used to wrap workstation credentials at rest so the encryption key remains inside
-    Vault and the local machine only ever holds ciphertext.
-    """
-    import base64
-
-    encoded = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
-    payload = _post(
-        vault_addr,
-        f"{CONST_VAULT_PATH_TRANSIT_ENCRYPT}/{key_name}",
-        {"plaintext": encoded},
-        _token_headers(token, namespace),
-    )
-    ciphertext = (payload.get("data") or {}).get("ciphertext")
-    if not ciphertext:
-        raise VaultLeaseError(f"Transit encryption with key '{key_name}' returned no ciphertext")
-    return str(ciphertext)
-
-
-def transit_decrypt(
-    vault_addr: str,
-    key_name: str,
-    ciphertext: str,
-    *,
-    token: str,
-    namespace: str | None = None,
-) -> str:
-    """Decrypt a Transit-encrypted value back to plaintext."""
-    import base64
-
-    payload = _post(
-        vault_addr,
-        f"{CONST_VAULT_PATH_TRANSIT_DECRYPT}/{key_name}",
-        {"ciphertext": ciphertext},
-        _token_headers(token, namespace),
-    )
-    encoded = (payload.get("data") or {}).get("plaintext")
-    if not encoded:
-        raise VaultLeaseError(f"Transit decryption with key '{key_name}' returned no plaintext")
-    return base64.b64decode(str(encoded)).decode("utf-8")
-
-
 __all__ = [
     "LeaseRegistry",
     "login_approle",
     "login_kubernetes",
     "read_service_account_token",
     "revoke_self",
-    "transit_decrypt",
-    "transit_encrypt",
 ]

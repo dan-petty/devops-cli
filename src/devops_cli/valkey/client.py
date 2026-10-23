@@ -1,23 +1,25 @@
-"""Pure-Python synchronous Valkey and Redis client over standard TCP sockets."""
+"""Valkey access: valkey-py behind the egress check and the repo's exception types."""
 
 from __future__ import annotations
 
 import ipaddress
-import logging
 import socket
-import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, suppress
+from functools import partial
+from itertools import batched
 from typing import Any
 from urllib.parse import urlsplit
+
+import valkey
+from valkey import exceptions as valkey_exceptions
+from valkey.connection import Connection
 
 from devops_cli.config.constants import CONST_VALKEY_SCHEMES
 from devops_cli.config.defaults import (
     DEFAULT_VALKEY_HOST,
-    DEFAULT_VALKEY_PATTERN,
-    DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES,
     DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
     DEFAULT_VALKEY_PORT,
-    DEFAULT_VALKEY_SCAN_COUNT,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
 )
 from devops_cli.core.validation import is_non_public_ip
@@ -27,22 +29,6 @@ from devops_cli.exceptions.valkey import (
     ValkeyConnectionError,
     ValkeyTimeoutError,
 )
-from devops_cli.valkey.protocol import encode_command, parse_resp
-
-logger = logging.getLogger(__name__)
-
-
-def parse_info_response(info_text: str) -> dict[str, str]:
-    """Parse Valkey INFO text into key-value pairs."""
-    result: dict[str, str] = {}
-    for line in (info_text or "").splitlines():
-        cleaned = line.strip()
-        if not cleaned or cleaned.startswith("#"):
-            continue
-        if ":" in cleaned:
-            k, v = cleaned.split(":", 1)
-            result[k.strip()] = v.strip()
-    return result
 
 
 def parse_valkey_endpoint(
@@ -63,8 +49,93 @@ def parse_valkey_endpoint(
         return clean, default_port
 
 
+def _resolved_addresses(
+    host: str, port: int, allow_private_network: bool
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Every address a host names: the literal itself, or what the resolver answers."""
+    with suppress(ValueError):
+        return [ipaddress.ip_address(host)]
+    try:
+        answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        if allow_private_network:
+            return []
+        raise ValkeyConnectionError(
+            f"Invalid or unresolvable host '{host}': DNS resolution failed under non-private egress policy."
+        ) from exc
+    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for answer in answers:
+        with suppress(ValueError):
+            addresses.append(ipaddress.ip_address(answer[4][0]))
+    return addresses
+
+
+def validate_destination(host: str, port: int, allow_private_network: bool = True) -> None:
+    """Refuse a link-local destination always, and a non-public one unless private networks are allowed."""
+    if not host.strip():
+        raise ValkeyConnectionError("Invalid host: host cannot be empty.")
+    for address in _resolved_addresses(host.strip(), port, allow_private_network):
+        if address.is_link_local:
+            raise ValkeyConnectionError(
+                f"Invalid or prohibited host '{host}': link-local metadata endpoints are prohibited."
+            )
+        if not allow_private_network and is_non_public_ip(address):
+            raise ValkeyConnectionError(
+                f"Invalid or prohibited host '{host}': non-public IP disallowed by egress policy."
+            )
+
+
+def _invoke(command: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Call into valkey-py, whose functions carry no annotations, and type the result as Any."""
+    return command(*args, **kwargs)
+
+
+class _GuardedConnection(Connection):
+    """A valkey-py connection that checks its destination again each time it dials."""
+
+    def __init__(self, *args: Any, allow_private_network: bool = True, **kwargs: Any) -> None:
+        _invoke(super().__init__, *args, **kwargs)
+        self._allow_private_network = allow_private_network
+
+    def connect(self) -> None:
+        """Check the destination, then dial it, unless the connection is already open."""
+        if self._sock is None:
+            validate_destination(self.host, self.port, self._allow_private_network)
+        _invoke(super().connect)
+
+
+@contextmanager
+def _valkey_failures(host: str, port: int, timeout: float) -> Iterator[None]:
+    """Raise the repo's ValkeyError family for a failure valkey-py reports."""
+    try:
+        yield
+    except valkey_exceptions.AuthenticationError as exc:
+        raise ValkeyAuthenticationError(
+            f"Authentication failed for Valkey at {host}:{port}: {exc}", host=host, port=port
+        ) from exc
+    except valkey_exceptions.TimeoutError as exc:
+        raise ValkeyTimeoutError(
+            f"Valkey at {host}:{port} timed out after {timeout}s.",
+            timeout_seconds=timeout,
+            details={"host": host, "port": port},
+        ) from exc
+    except valkey_exceptions.ConnectionError as exc:
+        raise ValkeyConnectionError(
+            f"Failed to connect to Valkey at {host}:{port}: {exc}", host=host, port=port
+        ) from exc
+    except valkey_exceptions.ValkeyError as exc:
+        raise ValkeyCommandError(str(exc)) from exc
+
+
 class ValkeyClient:
-    """Lightweight pure-Python client for Valkey using RESP2/RESP3 wire protocol."""
+    """The Valkey commands devops-cli runs, sent by valkey-py after the egress check.
+
+    Construction checks the destination without connecting; every connection checks it again
+    when it dials. Failures raise the `ValkeyError` family. `execute` returns replies as the
+    server sent them, decoded to text; the named commands return what valkey-py parses.
+    `connection_pool` replaces the pool the client builds from the endpoint, which is how a
+    test connects it to an in-memory server.
+    """
 
     def __init__(
         self,
@@ -74,365 +145,85 @@ class ValkeyClient:
         db: int = 0,
         timeout: float = DEFAULT_VALKEY_TIMEOUT_SECONDS,
         allow_private_network: bool = True,
+        connection_pool: valkey.ConnectionPool | None = None,
     ) -> None:
         self.host, self.port = parse_valkey_endpoint(host, default_port=port)
-        self.password = password
         self.db = db
         self.timeout = timeout
-        self.allow_private_network = allow_private_network
-        self._sock: socket.socket | None = None
-        self._reader: Any = None
-        # RESP is a stream protocol with no request identifiers: replies are matched to
-        # commands purely by order. Two threads sharing a connection therefore read each
-        # other's replies -- silently, as plausible-looking data for the wrong key. The
-        # lock makes each request/response cycle atomic. It is reentrant because the
-        # error paths call close() from inside a held section.
-        self._lock = threading.RLock()
-        self._validate_destination()
+        validate_destination(self.host, self.port, allow_private_network)
+        pool = connection_pool or valkey.ConnectionPool(
+            connection_class=partial(
+                _GuardedConnection, allow_private_network=allow_private_network
+            ),
+            host=self.host,
+            port=self.port,
+            db=db,
+            password=password,
+            socket_timeout=timeout,
+            socket_connect_timeout=timeout,
+            decode_responses=True,
+            encoding_errors="replace",
+        )
+        self._valkey = valkey.Valkey(connection_pool=pool)
+        self._raw = valkey.Valkey(connection_pool=pool)
+        self._raw.response_callbacks.clear()
 
-    def _validate_destination(self) -> None:
-        """Validate target host safety against SSRF and metadata attack vectors."""
-        clean_host = self.host.strip()
-        if not clean_host:
-            raise ValkeyConnectionError("Invalid host: host cannot be empty.")
-        try:
-            ip = ipaddress.ip_address(clean_host)
-            self._validate_ip(ip)
-            return
-        except ValueError:
-            pass
-
-        # Resolve hostname and validate all resolved IP addresses against metadata/SSRF
-        try:
-            addrinfos = socket.getaddrinfo(clean_host, self.port, type=socket.SOCK_STREAM)
-        except (socket.gaierror, TimeoutError, OSError) as exc:
-            if not self.allow_private_network:
-                raise ValkeyConnectionError(
-                    f"Invalid or unresolvable host '{self.host}': DNS resolution failed under non-private egress policy."
-                ) from exc
-            return
-
-        for addrinfo in addrinfos:
-            try:
-                resolved_ip = ipaddress.ip_address(addrinfo[4][0])
-                self._validate_ip(resolved_ip)
-            except ValueError:
-                continue
-
-    def _validate_ip(self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
-        """Validate an individual IP against link-local metadata and non-public egress policy."""
-        if ip.is_link_local:
-            raise ValkeyConnectionError(
-                f"Invalid or prohibited host '{self.host}': link-local metadata endpoints are prohibited."
-            )
-        if not self.allow_private_network and is_non_public_ip(ip):
-            raise ValkeyConnectionError(
-                f"Invalid or prohibited host '{self.host}': non-public IP disallowed by egress policy."
-            )
-
-    def _create_socket(self) -> socket.socket:
-        """Create connected socket instance."""
-        return socket.create_connection((self.host, self.port), timeout=self.timeout)
-
-    def connect(self) -> None:
-        """Establish connection to Valkey instance and authenticate."""
-        with self._lock:
-            self._connect_locked()
-
-    def _connect_locked(self) -> None:
-        """Open the connection with the lock already held."""
-        if self._sock is not None:
-            return
-
-        self._validate_destination()
-        try:
-            sock = self._create_socket()
-            sock.settimeout(self.timeout)
-            self._sock = sock
-            self._reader = sock.makefile("rb")
-
-            if self.password:
-                self._authenticate()
-
-            if self.db != 0:
-                self.execute("SELECT", self.db)
-
-        except TimeoutError as exc:
-            self.close()
-            raise ValkeyTimeoutError(
-                f"Connection to Valkey at {self.host}:{self.port} timed out after {self.timeout}s.",
-                timeout_seconds=self.timeout,
-                details={"host": self.host, "port": self.port},
-            ) from exc
-        except ValkeyAuthenticationError:
-            self.close()
-            raise
-        except OSError as exc:
-            self.close()
-            raise ValkeyConnectionError(
-                f"Failed to connect to Valkey at {self.host}:{self.port}: {exc}",
-                host=self.host,
-                port=self.port,
-            ) from exc
-
-    def _authenticate(self) -> None:
-        """Authenticate connection using configured password."""
-        try:
-            self.execute("AUTH", self.password)
-        except ValkeyCommandError as exc:
-            raise ValkeyAuthenticationError(
-                f"Authentication failed for Valkey at {self.host}:{self.port}: {exc}",
-                host=self.host,
-                port=self.port,
-            ) from exc
+    def _call(self, command: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run one valkey-py call, raising ValkeyError subclasses for its failures."""
+        with _valkey_failures(self.host, self.port, self.timeout):
+            return command(*args, **kwargs)
 
     def execute(self, *parts: Any) -> Any:
-        """Send command and read decoded response from Valkey server."""
-        with self._lock:
-            return self._execute_locked(*parts)
-
-    def _execute_locked(self, *parts: Any) -> Any:
-        """Send one command and read its reply, with the connection already claimed."""
-        if self._sock is None or self._reader is None:
-            self.connect()
-
-        try:
-            payload = encode_command(*parts)
-            assert self._sock is not None
-            self._sock.sendall(payload)
-            assert self._reader is not None
-            return parse_resp(self._reader)
-        except TimeoutError as exc:
-            self.close()
-            raise ValkeyTimeoutError(
-                f"Valkey command '{parts[0]}' timed out after {self.timeout}s.",
-                timeout_seconds=self.timeout,
-            ) from exc
-        except (OSError, BrokenPipeError, ConnectionResetError) as exc:
-            self.close()
-            raise ValkeyConnectionError(
-                f"Connection dropped while executing Valkey command '{parts[0]}': {exc}",
-                host=self.host,
-                port=self.port,
-            ) from exc
+        """Send one command and return its reply as the server sent it."""
+        return self._call(self._raw.execute_command, *parts)
 
     def pipeline(self, commands: Sequence[Sequence[Any]]) -> list[Any]:
-        """Execute a batch of commands over a single round trip.
-
-        Every command is written in one `sendall`, then all replies are read in order.
-        A batch of N lookups costs one network round trip instead of N, which dominates
-        latency for mass embedding and AST symbol fetches.
-        """
-        if not commands:
-            return []
-        with self._lock:
-            return self._pipeline_locked(commands)
-
-    def _pipeline_locked(self, commands: Sequence[Sequence[Any]]) -> list[Any]:
-        """Run a batch with the connection claimed, in bounded chunks.
-
-        The batch is split so the serialized payload never exceeds a bounded size. Joining
-        an entire batch into one buffer is what turns a mass embedding fetch -- exactly the
-        workload this method advertises -- into memory proportional to the batch rather
-        than to the connection.
-        """
-        if self._sock is None or self._reader is None:
-            self.connect()
-
+        """Send commands in batches of one round trip each, without MULTI/EXEC; return the replies."""
         replies: list[Any] = []
-        for chunk in _chunk_commands(commands):
-            replies.extend(self._send_chunk(chunk))
+        for batch in batched(commands, DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS, strict=False):
+            queue = self._raw.pipeline(transaction=False)
+            for command in batch:
+                self._call(queue.execute_command, *command)
+            replies.extend(self._call(queue.execute))
         return replies
 
-    def _send_chunk(self, commands: Sequence[Sequence[Any]]) -> list[Any]:
-        """Write one chunk of commands and read exactly that many replies."""
-        payload = b"".join(encode_command(*parts) for parts in commands)
-        try:
-            assert self._sock is not None
-            self._sock.sendall(payload)
-            assert self._reader is not None
-            return [parse_resp(self._reader) for _ in commands]
-        except TimeoutError as exc:
-            self.close()
-            raise ValkeyTimeoutError(
-                f"Valkey pipeline of {len(commands)} command(s) timed out after {self.timeout}s.",
-                timeout_seconds=self.timeout,
-            ) from exc
-        except (OSError, BrokenPipeError, ConnectionResetError) as exc:
-            self.close()
-            raise ValkeyConnectionError(
-                f"Connection dropped during Valkey pipeline of {len(commands)} command(s): {exc}",
-                host=self.host,
-                port=self.port,
-            ) from exc
+    def ping(self) -> bool:
+        """Whether the server answers PING."""
+        return bool(self._call(self._valkey.ping))
 
-    def mget(self, keys: Sequence[str]) -> list[str | None]:
-        """Fetch many keys in one round trip, preserving request order."""
-        if not keys:
-            return []
-        raw = self.execute("MGET", *keys)
-        values = raw if isinstance(raw, list) else [raw]
-        return [v.decode() if isinstance(v, bytes) else v for v in values]
-
-    def ping(self, message: str | None = None) -> bool:
-        """Test server responsiveness via PING command."""
-        cmd = ["PING", message] if message else ["PING"]
-        res = self.execute(*cmd)
-        return res == "PONG" or res == message or res is True
-
-    def info(self, section: str | None = None) -> dict[str, str]:
-        """Fetch server telemetry, properties, and statistics."""
-        args = ["INFO", section] if section else ["INFO"]
-        raw = self.execute(*args)
-        return parse_info_response(str(raw))
+    def info(self, section: str | None = None) -> dict[str, Any]:
+        """Server telemetry, as valkey-py parses INFO."""
+        return dict(self._call(self._valkey.info, section))
 
     def get(self, key: str) -> str | None:
-        """Retrieve value associated with key."""
-        res = self.execute("GET", key)
-        return str(res) if res is not None else None
+        """The string at a key, or None."""
+        value = self._call(self._valkey.get, key)
+        return None if value is None else str(value)
 
-    def set(
-        self,
-        key: str,
-        value: Any,
-        ttl: int | None = None,
-        ex_seconds: int | None = None,
-        ex: int | None = None,
-    ) -> bool:
-        """Set key to hold string value with optional expiration seconds."""
-        effective_ttl = ex if ex is not None else (ex_seconds if ex_seconds is not None else ttl)
-        args: list[Any] = ["SET", key, str(value)]
-        if effective_ttl is not None and effective_ttl > 0:
-            args.extend(["EX", effective_ttl])
-        res = self.execute(*args)
-        return res == "OK" or res is True
+    def set(self, key: str, value: str, ex: int | None = None) -> bool:
+        """Set a string, expiring after `ex` seconds when given."""
+        return bool(self._call(self._valkey.set, key, value, ex=ex))
 
-    def delete(self, *keys: str) -> int:
-        """Remove specified keys."""
-        if not keys:
-            return 0
-        res = self.execute("DEL", *keys)
-        return int(res) if isinstance(res, (int, float)) else 0
-
-    def keys(self, pattern: str = DEFAULT_VALKEY_PATTERN) -> list[str]:
-        """Find all keys matching the given pattern."""
-        res = self.execute("KEYS", pattern)
-        if isinstance(res, list):
-            return [str(k) for k in res]
-        return []
-
-    def scan(
-        self, cursor: int = 0, match: str | None = None, count: int | None = None
-    ) -> tuple[int, list[str]]:
-        """Incrementally iterate over keys using non-blocking SCAN."""
-        args: list[Any] = ["SCAN", cursor]
-        if match is not None:
-            args.extend(["MATCH", match])
-        if count is not None:
-            args.extend(["COUNT", count])
-        res = self.execute(*args)
-        if isinstance(res, list) and len(res) == 2:
-            try:
-                next_cursor = int(res[0])
-            except ValueError, TypeError:
-                next_cursor = 0
-            keys = [str(k) for k in res[1]] if isinstance(res[1], list) else []
-            return next_cursor, keys
-        return 0, []
-
-    def scan_iter(
-        self, match: str | None = None, count: int = DEFAULT_VALKEY_SCAN_COUNT
-    ) -> list[str]:
-        """Iterate over all matching keys incrementally without blocking server."""
-        cursor = 0
-        matched_keys: list[str] = []
-        while True:
-            cursor, batch = self.scan(cursor=cursor, match=match, count=count)
-            matched_keys.extend(batch)
-            if cursor == 0:
-                break
-        return matched_keys
-
-    def flushdb(self, asynchronous: bool = False) -> bool:
-        """Delete all keys from the current database."""
-        args = ["FLUSHDB", "ASYNC"] if asynchronous else ["FLUSHDB"]
-        res = self.execute(*args)
-        return res == "OK" or res is True
-
-    def flushall(self, asynchronous: bool = False) -> bool:
-        """Delete all keys from all databases."""
-        args = ["FLUSHALL", "ASYNC"] if asynchronous else ["FLUSHALL"]
-        res = self.execute(*args)
-        return res == "OK" or res is True
+    def keys(self, pattern: str) -> list[str]:
+        """Every key matching a glob pattern."""
+        return list(self._call(self._valkey.keys, pattern))
 
     def dbsize(self) -> int:
-        """Return the total number of keys in the current database."""
-        res = self.execute("DBSIZE")
-        return int(res) if isinstance(res, (int, float)) else 0
+        """The number of keys in the current database."""
+        return int(self._call(self._valkey.dbsize))
 
-    def eval(self, script: str, numkeys: int, *keys_and_args: Any) -> Any:
-        """Execute Lua script atomically on the Valkey server."""
-        return self.execute("EVAL", script, numkeys, *keys_and_args)
+    def flushdb(self) -> bool:
+        """Delete every key in the current database."""
+        return bool(self._call(self._valkey.flushdb))
+
+    def flushall(self) -> bool:
+        """Delete every key in every database."""
+        return bool(self._call(self._valkey.flushall))
 
     def bgsave(self) -> str:
-        """Trigger asynchronous background snapshot save to disk."""
+        """Start a background snapshot; the server's acknowledgement."""
         return str(self.execute("BGSAVE"))
 
     def close(self) -> None:
-        """Close socket and reader cleanly."""
-        with self._lock:
-            self._close_locked()
-
-    def _close_locked(self) -> None:
-        """Close the connection with the lock already held."""
-        if self._reader is not None:
-            try:
-                self._reader.close()
-            except (OSError, RuntimeError) as exc:
-                logger.debug("Error closing Valkey reader: %s", exc)
-            self._reader = None
-
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except (OSError, RuntimeError) as exc:
-                logger.debug("Error closing Valkey socket: %s", exc)
-            self._sock = None
-
-    def __enter__(self) -> ValkeyClient:
-        self.connect()
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        self.close()
-
-
-def _chunk_commands(
-    commands: Sequence[Sequence[Any]],
-    max_commands: int = DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
-    max_bytes: int = DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES,
-) -> list[Sequence[Sequence[Any]]]:
-    """Split a batch so no single write buffers an unbounded amount of memory.
-
-    Both a command count and a byte budget are applied: a million tiny commands and a
-    handful of megabyte-sized values are different shapes of the same problem, and either
-    alone lets the other through.
-
-    A single command larger than the byte budget still forms its own chunk -- splitting it
-    would corrupt the protocol -- so the budget is a target, not a guarantee.
-    """
-    chunks: list[Sequence[Sequence[Any]]] = []
-    current: list[Sequence[Any]] = []
-    current_bytes = 0
-
-    for parts in commands:
-        size = sum(len(str(part)) for part in parts)
-        if current and (len(current) >= max_commands or current_bytes + size > max_bytes):
-            chunks.append(current)
-            current, current_bytes = [], 0
-        current.append(parts)
-        current_bytes += size
-
-    if current:
-        chunks.append(current)
-    return chunks
+        """Close every connection the client holds."""
+        self._valkey.connection_pool.disconnect()

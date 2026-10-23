@@ -34,14 +34,11 @@ _CORE_EXPORTS: dict[str, tuple[str, str]] = {
     "format_command": ("devops_cli.dry_run", "format_command"),
     "is_dry_run": ("devops_cli.dry_run", "is_dry_run"),
     "set_dry_run": ("devops_cli.dry_run", "set_dry_run"),
-    "cli_command_handler": ("devops_cli.core.command_decorator", "cli_command_handler"),
     "safe_resolve_subpath": ("devops_cli.core.paths", "safe_resolve_subpath"),
     "require_binary": ("devops_cli.core.binaries", "require_binary"),
     "check_binary": ("devops_cli.core.binaries", "check_binary"),
     "extract_json_block": ("devops_cli.core.serialization", "extract_json_block"),
     "run_json_subprocess": ("devops_cli.core.process", "run_json_subprocess"),
-    "ProcessExecutionPipeline": ("devops_cli.core.process_pipeline", "ProcessExecutionPipeline"),
-    "ProcessExecutionResult": ("devops_cli.core.process_pipeline", "ProcessExecutionResult"),
 }
 
 
@@ -60,11 +57,8 @@ __all__ = [
     "DEFAULT_ALLOWED_ENV_VARS",
     "DEFAULT_DENIED_ENV_PATTERNS",
     "PathKind",
-    "ProcessExecutionPipeline",
-    "ProcessExecutionResult",
     "build_subprocess_env",
     "check_binary",
-    "cli_command_handler",
     "extract_json_block",
     "find_repo_root",
     "find_top_level_repo_root",

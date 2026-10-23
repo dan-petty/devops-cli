@@ -6,17 +6,19 @@ import logging
 import os
 import shutil
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.constants import CONST_GIT_DIR_NAME
+from devops_cli.config.constants import CONST_GIT_DIR_NAME, CONST_REVIEW_STAGING_DIRNAME
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import (
     _linked_worktree_common_dir,
     _own_common_dir,
+    _repo_root_candidates,
     _stale_worktree_common_dir,
     find_worktree_root,
     main_worktree_root,
@@ -71,6 +73,18 @@ def _prune_single_item(
             summary.freed_bytes += size
     except Exception as exc:
         logger.warning("Failed to prune cleanup candidate %s: %s", item, exc)
+
+
+def _prune_candidates(directory: Path) -> Iterator[Path]:
+    """The entries of `directory` cleanup judges by their own age: each one, but for the staging
+    directory of review sessions in the making, whose sessions are judged in its place. Its own
+    age is that of the latest review to start or finish, which would keep a review abandoned
+    part-way for as long as other reviews run."""
+    for entry in directory.iterdir():
+        if entry.name == CONST_REVIEW_STAGING_DIRNAME and entry.is_dir() and not entry.is_symlink():
+            yield from entry.iterdir()
+        else:
+            yield entry
 
 
 def _listed_worktrees(main_root: Path) -> list[Path]:
@@ -181,6 +195,15 @@ def _belongs_to_an_outer_workspace(main_root: Path, current_root: Path) -> bool:
     return not owner.is_relative_to(main_root)
 
 
+def _outer_workspaces(current_root: Path) -> list[Path]:
+    """Workspace candidates enclosing `current_root` where `current_root` does not belong to them."""
+    return [
+        candidate
+        for candidate in _repo_root_candidates(current_root)[1:]
+        if _belongs_to_an_outer_workspace(candidate, current_root)
+    ]
+
+
 def cleanup_data_directory(repo_root: Path = Path(".")) -> Path:
     """The directory cleanup prunes: the configured data directory (`data.dir`,
     `DEVOPS_CLI_DATA_DIR`), resolved as the data writers resolve it.
@@ -195,11 +218,11 @@ def cleanup_data_directory(repo_root: Path = Path(".")) -> Path:
     A child directory configured on its own (`data.reviews_dir`, `DEVOPS_CLI_DATA_REVIEWS_DIR`
     and the like) lies elsewhere and is left alone.
 
-    Known limit: a checkout below another directory holding `.git` or `pyproject.toml`, such as
-    a project in a home directory kept in git, shares that outer directory's data, as its
-    writers do; cleanup cannot tell it from a `repos/` clone and prunes that directory. A linked
-    worktree placed inside another repository or project is recognised and refused instead,
-    also when that workspace's data directory links to another volume.
+    A checkout or worktree below another directory holding `.git` or `pyproject.toml`, such as
+    a project in a home directory kept in git, resolves to its own main worktree (#617). A linked
+    worktree placed inside another repository or project recognises and refuses an outer
+    workspace's data directory if configured, also when that workspace's data directory links to
+    another volume.
 
     Raises:
         SecurityError: The configured directory climbs with `..`; is the filesystem root or a
@@ -215,13 +238,15 @@ def cleanup_data_directory(repo_root: Path = Path(".")) -> Path:
     main_root = main_worktree_root(repo_root)
     current_root = find_worktree_root(repo_root)
     written = configured if configured.is_absolute() else main_root / configured
-    if any(
-        spelling.is_relative_to(main_root) for spelling in _spellings(written)
-    ) and _belongs_to_an_outer_workspace(main_root, current_root):
-        raise SecurityError(
-            f"Refusing to prune {data_dir}: it is the data of {main_root}, another workspace"
-            f" around the worktree at {current_root}."
-        )
+    outer_workspaces = [main_root, *_outer_workspaces(current_root)]
+    for outer_ws in outer_workspaces:
+        if _belongs_to_an_outer_workspace(outer_ws, current_root) and any(
+            spelling.is_relative_to(outer_ws) for spelling in _spellings(written)
+        ):
+            raise SecurityError(
+                f"Refusing to prune {data_dir}: it is the data of {outer_ws}, another workspace"
+                f" around the worktree at {current_root}."
+            )
     if _holds_more_than_data(data_dir, main_root, current_root):
         raise SecurityError(f"Refusing to prune {data_dir}: it is not a dedicated data directory.")
     if _holds_tracked_files(data_dir):
@@ -250,7 +275,7 @@ def cleanup_data_tier(
         target_sub = data_dir / subdir_name
         if not target_sub.exists() or not target_sub.is_dir():
             continue
-        for item in target_sub.iterdir():
+        for item in _prune_candidates(target_sub):
             _prune_single_item(item, data_dir, cutoff_time, dry_run, summary)
 
     return summary

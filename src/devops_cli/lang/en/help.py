@@ -79,7 +79,9 @@ class AICommandHelp:
     chat: str = "Interactive multi-turn AI chat session with optional tool execution."
     config: str = "Show or update AI provider configuration (provider, model, endpoints, keys)."
     test: str = "Send a test prompt to verify AI provider connectivity."
-    agents: str = "Generate or regenerate AGENTS.md, CLAUDE.md, and copilot-instructions.md."
+    agents: str = (
+        "Generate or regenerate AGENTS.md, CLAUDE.md, GEMINI.md, and copilot-instructions.md."
+    )
     review: str = "AI-powered code review and group analysis system."
     analyze: str = "Analyze codebase metadata and generate structural outlines."
     rag: str = "Manage RAG vector embeddings, indexing, and semantic search (Qdrant)."
@@ -466,6 +468,7 @@ class SSHCommandHelp:
     comment: str = "Comment to include in public key."
     force_rotate: str = "Rotate even if not yet due."
     prefix: str = "Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd)."
+    list_all: str = "List the managed keys of all projects, not only the keys of the prefix."
 
 
 @dataclass(frozen=True)
@@ -1324,7 +1327,7 @@ class ReviewCommandHelp:
         "Specific defect template(s) to check (default: all registered templates)."
     )
     templates_save: str = "Save sweep results into the evaluation run store (default: true)."
-    rules: str = "Verify and lock devops-cli's Semgrep review rule pack."
+    rules: str = "Verify and lock devops-cli's Semgrep review rule pack, and cache Semgrep registry rulesets."
     rules_test: str = (
         "Run `semgrep --test` on the review rule pack and write or check `rules.lock`."
     )
@@ -1332,6 +1335,9 @@ class ReviewCommandHelp:
         "Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`."
     )
     rules_check: str = "Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it."
+    rules_fetch_ruleset: str = (
+        "Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`."
+    )
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."
@@ -1372,7 +1378,7 @@ class ReviewCommandHelp:
     no_static_scan: str = "Disable static security scanning."
     static_scan_only: str = "Run static scanning only and skip subsequent stages."
     no_group_analysis: str = "Disable model-driven group analysis."
-    no_reporting: str = "Disable consolidated report generation."
+    no_reporting: str = "Disable consolidated report generation; the review keeps no session."
     reporting_only: str = "Run report generation only."
     append_cache: str = "Append cached response to the LLM prompt as context instead of using it directly as the final response."
     no_cache: str = "Bypass LLM response cache and force fresh inference."
@@ -1416,7 +1422,11 @@ class ScanCommandHelp:
     target_checkov: str = "Target directory or file to scan with Checkov IaC rules."
     scan_type: str = "Trivy scan mode: fs, image, iac, repo."
     severity: str = "Comma-separated severity levels to include."
-    semgrep_config: str = "Semgrep ruleset config (e.g. p/default, p/security-audit)."
+    semgrep_config: str = (
+        "Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads "
+        "a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of "
+        "devops-cli runs with it."
+    )
     complexity: str = "Run AST-based cyclomatic complexity and indentation depth analysis."
     sbom: str = "Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."
     target_complexity: str = "Target directory or Python file to analyze for complexity."
@@ -1541,6 +1551,28 @@ class InstallCommandHelp:
 
 
 @dataclass(frozen=True)
+class OpenSpecCommandHelp:
+    app: str = (
+        "Check the OpenSpec change folders, regenerate the agent skills and archive a change."
+    )
+    check: str = (
+        "Run the OpenSpec gate: validate every change and archived change, check the committed "
+        "skills against a regeneration, render the instructions every agent reads, and find a "
+        "requirement that two changes rewrite. Exits 1 on any problem."
+    )
+    regenerate: str = (
+        "Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated "
+        "configuration, so no developer's own profile decides what is written."
+    )
+    archive: str = (
+        "Archive a change with `openspec archive <change> --yes`, then run `openspec validate "
+        "--all --strict`. Both runs use an isolated configuration with telemetry off. The command "
+        "exits 1 when a run fails. A failed archive skips the validation."
+    )
+    archive_change: str = "Name of the change folder under openspec/changes, as <issue>-<slug>."
+
+
+@dataclass(frozen=True)
 class BenchmarkCommandHelp:
     app: str = "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
     models: str = (
@@ -1555,7 +1587,13 @@ class BenchmarkCommandHelp:
     tasks: str = "Filter specific task categories or IDs (e.g. 'security,kubernetes')."
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
     test_doc: str = "Path to large test document for in-memory tokenization and section retrieval."
-    samples: str = "Number of random sections to sample for retrieval evaluation."
+    code_dir: str = (
+        "Path to a source directory whose code chunks are the embedding corpus, each queried by "
+        "its path (relative to the directory) and its symbol names, in place of --document."
+    )
+    samples: str = (
+        "Number of document sections, or code chunks with --code, to run retrieval queries for."
+    )
     mode: str = "Benchmark mode: 'auto', 'chat', 'embedding'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
 
@@ -1656,7 +1694,7 @@ class DashboardCommandHelp:
     app: str = "Interactive terminal UI dashboard for workstation situational awareness."
     summary: str = "Print static summary panels and exit instead of starting full-screen TUI."
     refresh_interval: str = "Auto-refresh interval in seconds for live dashboard updates."
-    tab: str = "Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey)."
+    tab: str = "Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=valkey)."
     dry_run: str = "Simulate dashboard launch and print static summary."
 
 
@@ -1759,6 +1797,7 @@ class HelpCatalog:
     tls: TLSCommandHelp = field(default_factory=TLSCommandHelp)
     config: ConfigCommandHelp = field(default_factory=ConfigCommandHelp)
     install: InstallCommandHelp = field(default_factory=InstallCommandHelp)
+    openspec: OpenSpecCommandHelp = field(default_factory=OpenSpecCommandHelp)
     benchmark: BenchmarkCommandHelp = field(default_factory=BenchmarkCommandHelp)
     analyze: AnalyzeCommandHelp = field(default_factory=AnalyzeCommandHelp)
     prometheus: PrometheusCommandHelp = field(default_factory=PrometheusCommandHelp)

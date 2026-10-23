@@ -119,13 +119,14 @@ uv run devops ci
 4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
 5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
 6. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode across all source files.
-7. **Dependency Audit (`uv audit`)**: Automated vulnerability scanning of lockfile packages against OSV.
+7. **Dependency Audit (`uv audit`, `npm audit`)**: Automated vulnerability scanning of lockfile packages against OSV, and of the lockfile of each Node tool in `tools.lock` against npm's advisory database.
 8. **Security Scan (`bandit`)**: Static vulnerability, subshell safety, and code analysis of `src/` and `tests/`, the targets `.bandit` names, at medium severity and above.
 9. **Workflow Linting (`actionlint`)**: Validates GitHub Actions workflow schemas and script syntax.
 10. **Documentation Validation (`devops docs check`)**: Asserts all CLI markdown docs and README matrices are synchronized.
 11. **Project Environment Validation (`uv check`)**: Verifies project dependencies and Python environment consistency.
 12. **Lockfile Validation (`uv lock --check`)**: Verifies `uv.lock` remains strictly synchronized with `pyproject.toml`.
 13. **Dependency Freshness (`uv tree --outdated`)**: Inspects dependency tree for outdated packages.
+14. **OpenSpec Gate (`devops openspec check`)**: Validates every change folder and archived change, checks the committed skills against a regeneration under the isolated `custom` profile, renders the instructions every agent reads, and finds a requirement that two active changes rewrite ([ADR 0010](docs/adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
 
 CI (`ci.yml`) additionally runs `devops devcontainer validate --workspace .`. On pull requests, the Tests & Coverage job also writes an advisory changed-line coverage report (diff-cover) against the base branch to its job summary.
 
@@ -245,10 +246,12 @@ Upon PR merge into `main`, [`.github/workflows/release.yml`](.github/workflows/r
 3. Cuts and pushes the annotated git tag `vX.Y.Z`.
 4. Extracts release notes using `devops release notes` and creates the official GitHub Release.
 5. Builds, smoke-tests and scans the Service image from the merged tree, pushes it by digest, attests its build provenance, then tags it `vX.Y.Z` and `latest`. Within one poll, Argo CD Image Updater moves Application `devops` to the new digest, and nothing is committed ([#1486](https://github.com/dan-petty/devops-cli/issues/1486)). Every run on `main`, such as a push that recovers a failed release run, rebuilds the image and moves both tags.
+6. Builds the DevContainer image from `.devcontainer/devcontainer.json` with the Dev Containers CLI, for `linux/amd64` and `linux/arm64`. So the features of that file and the user `vscode` are in the image. The `devcontainer-image` job pushes the image by digest. The `devcontainer-smoke` job starts that digest as `vscode`. Then the `devcontainer` job attests the digest and tags it `vX.Y.Z` and `latest` ([#1895](https://github.com/dan-petty/devops-cli/issues/1895)).
 
 ### Step 6: Post-Release DevContainer Validation
-Verify DevContainer lifecycle operations:
+The `devcontainer-smoke` job of release.yml starts the pushed digest as `vscode` before the `devcontainer` job tags it. To do this check again on a workstation, run the first command below. Then verify the DevContainer lifecycle operations with the second command:
 ```bash
+docker run --rm --user vscode ghcr.io/dan-petty/devops-cli/devcontainer:vX.Y.Z id -u   # prints 1000
 uv run devops devcontainer run-lifecycle --all
 ```
 

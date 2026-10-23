@@ -65,7 +65,6 @@ VALKEY_PORT = "valkey.port"
 VALKEY_PASSWORD = "valkey.password"
 VALKEY_DB = "valkey.db"
 VALKEY_TIMEOUT = "valkey.timeout"
-AI_CACHE_BACKEND = "ai.cache.backend"
 
 # Evaluation Run Store: the shared index of benchmark and evaluation runs
 RUNS_INDEX_URL = "runs.index_url"
@@ -184,7 +183,6 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     VALKEY_PASSWORD,
     VALKEY_DB,
     VALKEY_TIMEOUT,
-    AI_CACHE_BACKEND,
     RUNS_INDEX_URL,
     RUNS_INDEX_PASSWORD,
     DATA_DIR,

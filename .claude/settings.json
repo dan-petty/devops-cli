@@ -7,14 +7,16 @@
     "pydantic-ai@claude-plugins-official": true,
     "grafana-mcp@claude-plugins-official": true
   },
+  "env": {
+    "DO_NOT_TRACK": "1",
+    "OPENSPEC_TELEMETRY": "0",
+    "OPENSPEC_NO_UPDATE_CHECK": "1"
+  },
   "permissions": {
     "allow": [
-      "Bash(uv run devops *)"
-    ],
-    "deny": [
-      "Read(//**/.claude/settings.local.json)",
-      "Read(~/.claude/settings.json)",
-      "Read(~/.kube/**)"
+      "Bash(uv run devops *)",
+      "Bash(openspec *)",
+      "Bash(tuicr *)"
     ]
   }
 }

@@ -38,8 +38,6 @@ def test_native_ollama_reexports() -> None:
 
     # Domain helpers
     assert callable(devops_ollama.normalize_ollama_base_url)
-    assert callable(devops_ollama.is_ollama_cloud)
-    assert callable(devops_ollama.get_recommended_output_mode)
     assert callable(devops_ollama.create_ollama_provider)
     assert callable(devops_ollama.create_ollama_model)
 
@@ -106,46 +104,6 @@ def test_normalize_ollama_base_url_ssrf_and_invalid_schemes(
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
     with pytest.raises(SSRFBlockedError):
         normalize_ollama_base_url("http://10.0.0.5:11434", allow_private=False)
-
-
-def test_is_ollama_cloud() -> None:
-    """Verify is_ollama_cloud accurately identifies cloud endpoints and cloud model suffixes."""
-    from devops_cli.ai.models.ollama import is_ollama_cloud
-
-    # By base_url
-    assert is_ollama_cloud(base_url="https://ollama.com/v1") is True
-    assert is_ollama_cloud(base_url="https://OLLAMA.COM/v1") is True
-    assert is_ollama_cloud(base_url="https://ollama.com./v1") is True
-    assert is_ollama_cloud(base_url="https://api.ollama.com/v1") is True
-    assert is_ollama_cloud(base_url="https://evilollama.com/v1") is False
-    assert is_ollama_cloud(base_url="http://[::1]:11434/v1") is False
-    assert is_ollama_cloud(base_url="http://localhost:11434/v1") is False
-    assert is_ollama_cloud(base_url="http://192.168.1.50:11434/v1") is False
-    assert is_ollama_cloud(base_url="https://attacker-ollama.com/v1") is False
-    assert is_ollama_cloud(base_url="https://ollama.com.attacker.com/v1") is False
-
-    # By model_name
-    assert is_ollama_cloud(model_name="qwen3-cloud") is True
-    assert is_ollama_cloud(model_name="deepseek-r1-cloud") is True
-    assert is_ollama_cloud(model_name="qwen2.5-coder:14b") is False
-
-    # Combinations
-    assert is_ollama_cloud(base_url="http://localhost:11434", model_name="qwen3-cloud") is True
-    assert is_ollama_cloud(base_url="https://ollama.com", model_name="llama3.2") is True
-    assert is_ollama_cloud(base_url="http://localhost:11434", model_name="llama3.2") is False
-
-
-def test_get_recommended_output_mode() -> None:
-    """Verify get_recommended_output_mode recommends native vs tool output based on cloud status."""
-    from devops_cli.ai.models.ollama import get_recommended_output_mode
-
-    # Self-hosted Ollama (v0.5.0+) supports grammar-constrained JSON schema decoding
-    assert get_recommended_output_mode("http://localhost:11434/v1", "qwen2.5-coder") == "native"
-    assert get_recommended_output_mode("http://example.com:11434", "deepseek-r1") == "native"
-
-    # Ollama Cloud accepts json_schema without error but does not enforce it upstream yet
-    assert get_recommended_output_mode("https://ollama.com/v1", "llama3.2") == "tool"
-    assert get_recommended_output_mode("http://localhost:11434", "qwen3-cloud") == "tool"
 
 
 def test_create_ollama_provider() -> None:
@@ -265,5 +223,3 @@ def test_public_package_reexports() -> None:
         assert hasattr(pkg, "create_ollama_model")
         assert hasattr(pkg, "create_ollama_provider")
         assert hasattr(pkg, "normalize_ollama_base_url")
-        assert hasattr(pkg, "is_ollama_cloud")
-        assert hasattr(pkg, "get_recommended_output_mode")

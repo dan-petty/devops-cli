@@ -1,274 +1,43 @@
-"""Comprehensive unit test suite for Valkey caching tier, RESP protocol, rate limiter, and CLI."""
+"""Tests of the Valkey client and the `devops valkey` commands."""
 
 from __future__ import annotations
 
-import io
 import socket
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import valkey.client
+from fakeredis import FakeServer
 from typer.testing import CliRunner
 
-from devops_cli.ai.cache.valkey_cache import ValkeyCacheProvider
 from devops_cli.commands.valkey import app
+from devops_cli.config.defaults import DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS
 from devops_cli.exceptions.valkey import (
     ValkeyAuthenticationError,
     ValkeyCommandError,
     ValkeyConnectionError,
     ValkeyTimeoutError,
 )
-from devops_cli.valkey.client import ValkeyClient, parse_info_response
-from devops_cli.valkey.protocol import encode_command, parse_resp
-from devops_cli.valkey.rate_limiter import ValkeyTokenBucketRateLimiter
+from devops_cli.valkey.client import ValkeyClient
+from tests.support.fakes.valkey import bulk_reply, serving_valkey, valkey_client_on
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 runner = CliRunner()
 
-
-# =============================================================================
-# 1. RESP Protocol Encoding & Parsing Tests
-# =============================================================================
-
-
-class TestRespProtocol:
-    """Tests for pure-Python RESP2/RESP3 encoder and stream parser."""
-
-    def test_encode_command_basic(self) -> None:
-        encoded = encode_command("PING")
-        assert encoded == b"*1\r\n$4\r\nPING\r\n"
-
-    def test_encode_command_with_mixed_arguments(self) -> None:
-        encoded = encode_command("SET", "mykey", 42, 3.14, True, b"bytesval")
-        expected = (
-            b"*6\r\n"
-            b"$3\r\nSET\r\n"
-            b"$5\r\nmykey\r\n"
-            b"$2\r\n42\r\n"
-            b"$4\r\n3.14\r\n"
-            b"$4\r\ntrue\r\n"
-            b"$8\r\nbytesval\r\n"
-        )
-        assert encoded == expected
-
-    def test_parse_resp_simple_string(self) -> None:
-        stream = io.BytesIO(b"+OK\r\n")
-        assert parse_resp(stream) == "OK"
-
-    def test_parse_resp_error(self) -> None:
-        stream = io.BytesIO(b"-ERR unknown command\r\n")
-        with pytest.raises(ValkeyCommandError, match="unknown command"):
-            parse_resp(stream)
-
-    def test_parse_resp_integer(self) -> None:
-        stream = io.BytesIO(b":1024\r\n")
-        assert parse_resp(stream) == 1024
-
-    def test_parse_resp_bulk_string(self) -> None:
-        stream = io.BytesIO(b"$11\r\nhello world\r\n")
-        assert parse_resp(stream) == "hello world"
-
-    def test_parse_resp_null_bulk_string(self) -> None:
-        stream = io.BytesIO(b"$-1\r\n")
-        assert parse_resp(stream) is None
-
-    def test_parse_resp_array(self) -> None:
-        stream = io.BytesIO(b"*2\r\n$4\r\necho\r\n$2\r\nhi\r\n")
-        assert parse_resp(stream) == ["echo", "hi"]
-
-    def test_parse_resp_null_array(self) -> None:
-        stream = io.BytesIO(b"*-1\r\n")
-        assert parse_resp(stream) is None
-
-    def test_parse_resp_empty_array(self) -> None:
-        stream = io.BytesIO(b"*0\r\n")
-        assert parse_resp(stream) == []
-
-    def test_parse_resp_null_token(self) -> None:
-        stream = io.BytesIO(b"_\r\n")
-        assert parse_resp(stream) is None
-
-    def test_parse_resp_boolean(self) -> None:
-        assert parse_resp(io.BytesIO(b"#t\r\n")) is True
-        assert parse_resp(io.BytesIO(b"#f\r\n")) is False
-
-    def test_parse_resp_map(self) -> None:
-        stream = io.BytesIO(b"%1\r\n+field\r\n$5\r\nvalue\r\n")
-        assert parse_resp(stream) == {"field": "value"}
-
-    def test_parse_resp_set(self) -> None:
-        stream = io.BytesIO(b"~2\r\n+a\r\n+b\r\n")
-        assert parse_resp(stream) == {"a", "b"}
-
-    def test_parse_resp_unknown_prefix(self) -> None:
-        stream = io.BytesIO(b"?unknown\r\n")
-        with pytest.raises(ValkeyCommandError, match="Unknown RESP type prefix"):
-            parse_resp(stream)
-
-    def test_parse_resp_premature_eof(self) -> None:
-        stream = io.BytesIO(b"")
-        with pytest.raises(ValkeyConnectionError, match="Unexpected end of stream"):
-            parse_resp(stream)
-
-    def test_parse_info_response(self) -> None:
-        info_raw = "# Server\r\nvalkey_version:8.0.0\r\nuptime_in_seconds:3600\r\n# Memory\r\nused_memory_human:1.2M\r\n"
-        parsed = parse_info_response(info_raw)
-        assert parsed["valkey_version"] == "8.0.0"
-        assert parsed["uptime_in_seconds"] == "3600"
-        assert parsed["used_memory_human"] == "1.2M"
+_PUBLIC_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("203.0.113.10", 6379))
+_LINK_LOCAL_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 6379))
+_PRIVATE_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379))
 
 
 # =============================================================================
-# 2. ValkeyClient Socket & Command Tests
+# 1. ValkeyClient: destination check, commands, failures
 # =============================================================================
 
 
-class TestValkeyClient:
-    """Tests for TCP socket-based ValkeyClient."""
-
-    def _mock_socket_connection(self, responses: list[bytes]) -> MagicMock:
-        mock_sock = MagicMock()
-        mock_file = io.BytesIO(b"".join(responses))
-        mock_sock.makefile.return_value = mock_file
-        return mock_sock
-
-    def test_ping_success(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"+PONG\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.ping() is True
-        client.close()
-
-    def test_ping_custom_message(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"$4\r\nHELO\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.ping("HELO") is True
-        client.close()
-
-    def test_authentication_success(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379, password="secretpassword")
-        mock_sock = self._mock_socket_connection([b"+OK\r\n", b"+PONG\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.ping() is True
-        client.close()
-
-    def test_authentication_failure(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379, password="badpassword")
-        mock_sock = self._mock_socket_connection([b"-ERR invalid password\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            with pytest.raises(ValkeyAuthenticationError, match="Authentication failed"):
-                client.ping()
-        client.close()
-
-    def test_db_selection(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379, db=3)
-        mock_sock = self._mock_socket_connection([b"+OK\r\n", b"+PONG\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.ping() is True
-        client.close()
-
-    def test_get_and_set(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"+OK\r\n", b"$5\r\nhello\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.set("key1", "hello", ex_seconds=60) is True
-            assert client.get("key1") == "hello"
-        client.close()
-
-    def test_pipeline_batches_commands_into_one_round_trip(self) -> None:
-        """A pipeline writes every command once and reads all replies in order.
-
-        N sequential commands cost N network round trips; batching collapses them to one,
-        which dominates latency for mass embedding and AST symbol lookups.
-        """
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"$3\r\nfoo\r\n", b"$3\r\nbar\r\n", b":1\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            replies = client.pipeline([["GET", "a"], ["GET", "b"], ["DEL", "c"]])
-
-        assert replies == ["foo", "bar", 1]
-        # One sendall for the whole batch, not one per command.
-        assert mock_sock.sendall.call_count == 1
-        client.close()
-
-    def test_empty_pipeline_performs_no_io(self) -> None:
-        """An empty batch short-circuits rather than opening a connection."""
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        with patch.object(client, "_create_socket") as create:
-            assert client.pipeline([]) == []
-        assert create.called is False
-
-    def test_pipeline_connection_drop_is_typed(self) -> None:
-        """A dropped socket mid-batch raises a typed connection error."""
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"+OK\r\n"])
-        mock_sock.sendall.side_effect = BrokenPipeError("peer reset")
-
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            with pytest.raises(ValkeyConnectionError, match="pipeline"):
-                client.pipeline([["GET", "a"]])
-
-    def test_mget_returns_values_in_request_order(self) -> None:
-        """Bulk reads preserve request order, with absent keys reported as None."""
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"*3\r\n$1\r\na\r\n$-1\r\n$1\r\nc\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.mget(["k1", "k2", "k3"]) == ["a", None, "c"]
-        client.close()
-
-    def test_mget_of_no_keys_performs_no_io(self) -> None:
-        """Requesting zero keys avoids a pointless round trip."""
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        with patch.object(client, "_create_socket") as create:
-            assert client.mget([]) == []
-        assert create.called is False
-
-    def test_delete_and_keys(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b":2\r\n", b"*2\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.delete("key1", "key2") == 2
-            assert client.keys("key*") == ["key1", "key2"]
-        client.close()
-
-    def test_flushdb_and_flushall(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"+OK\r\n", b"+OK\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.flushdb() is True
-            assert client.flushall() is True
-        client.close()
-
-    def test_dbsize_and_bgsave(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b":42\r\n", b"+Background saving started\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.dbsize() == 42
-            assert "Background saving" in client.bgsave()
-        client.close()
-
-    def test_eval_lua(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b":1\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            res = client.eval("return 1", 0)
-            assert res == 1
-        client.close()
-
-    def test_connection_error_on_socket_fail(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        with patch.object(client, "_create_socket", side_effect=OSError("Connection refused")):
-            with pytest.raises(ValkeyConnectionError, match="Failed to connect to Valkey"):
-                client.ping()
-        client.close()
-
-    def test_timeout_error_on_socket_timeout(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        with patch.object(
-            client, "_create_socket", side_effect=TimeoutError("Connection timed out")
-        ):
-            with pytest.raises(ValkeyTimeoutError, match="timed out"):
-                client.ping()
-        client.close()
+class TestValkeyClientDestination:
+    """The egress check refuses unsafe destinations before and at every dial."""
 
     def test_reject_ssrf_and_invalid_host(self) -> None:
         with pytest.raises(ValkeyConnectionError, match="Invalid or prohibited"):
@@ -283,20 +52,14 @@ class TestValkeyClient:
             ValkeyClient(host="10.0.0.1", allow_private_network=False)
 
     def test_hostname_resolving_to_link_local_rejected(self) -> None:
-        with patch(
-            "socket.getaddrinfo",
-            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 6379))],
-        ):
+        with patch("socket.getaddrinfo", return_value=[_LINK_LOCAL_ANSWER]):
             with pytest.raises(
                 ValkeyConnectionError, match="link-local metadata endpoints are prohibited"
             ):
                 ValkeyClient(host="example.com", port=6379)
 
     def test_hostname_resolving_to_private_rejected_when_not_allowed(self) -> None:
-        with patch(
-            "socket.getaddrinfo",
-            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379))],
-        ):
+        with patch("socket.getaddrinfo", return_value=[_PRIVATE_ANSWER]):
             with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
                 ValkeyClient(host="example.com", allow_private_network=False)
 
@@ -305,243 +68,241 @@ class TestValkeyClient:
             with pytest.raises(ValkeyConnectionError, match="DNS resolution failed"):
                 ValkeyClient(host="example.com", allow_private_network=False)
 
-    def test_scan_and_scan_iter(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection(
-            [
-                b"*2\r\n$2\r\n10\r\n*2\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n",
-                b"*2\r\n$1\r\n0\r\n*1\r\n$4\r\nkey3\r\n",
-            ]
-        )
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            keys = client.scan_iter(match="key*")
-            assert keys == ["key1", "key2", "key3"]
-        client.close()
+    def test_hostname_dns_failure_is_left_to_the_dial_when_private_networks_are_allowed(
+        self,
+    ) -> None:
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
+            client = ValkeyClient(host="example.com")
+        assert (client.host, client.port) == ("example.com", 6379)
 
-    def test_delete_empty_keys(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        assert client.delete() == 0
-        client.close()
+    def test_a_name_that_resolves_to_link_local_at_dial_time_is_refused_then(self) -> None:
+        """The first answer passes construction; the answer at the dial is checked again."""
+        answers = iter([[_PUBLIC_ANSWER], [_LINK_LOCAL_ANSWER]])
+        with patch("socket.getaddrinfo", side_effect=lambda *args, **kwargs: next(answers)):
+            client = ValkeyClient(host="example.com")
+            with pytest.raises(
+                ValkeyConnectionError, match="link-local metadata endpoints are prohibited"
+            ):
+                client.ping()
 
-    def test_keys_non_list_response(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"+OK\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.keys() == []
-        client.close()
+    def test_a_name_that_resolves_to_a_non_public_address_at_dial_time_is_refused_when_private_networks_are_not_allowed(
+        self, public_dns: str, refusing_port: int
+    ) -> None:
+        """The name resolves publicly at construction, then to loopback when the dial resolves it.
 
-    def test_flushdb_and_flushall_async(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"+OK\r\n", b"+OK\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            assert client.flushdb(asynchronous=True) is True
-            assert client.flushall(asynchronous=True) is True
-        client.close()
-
-    def test_context_manager(self) -> None:
-        mock_sock = self._mock_socket_connection([b"+PONG\r\n"])
-        with patch("devops_cli.valkey.client.ValkeyClient._create_socket", return_value=mock_sock):
-            with ValkeyClient(host="127.0.0.1", port=6379) as client:
-                assert client.ping() is True
-
-    def test_connect_idempotent(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = self._mock_socket_connection([b"+OK\r\n"])
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            client.connect()
-            # Second connect call should return immediately without creating another socket
-            client.connect()
-        client.close()
-
-    def test_execute_broken_pipe(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = MagicMock()
-        mock_sock.sendall.side_effect = BrokenPipeError("Broken pipe")
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            with pytest.raises(ValkeyConnectionError, match="Connection dropped"):
-                client.execute("PING")
-        client.close()
-
-    def test_execute_timeout(self) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=6379)
-        mock_sock = MagicMock()
-        mock_sock.sendall.side_effect = TimeoutError("Timed out")
-        with patch.object(client, "_create_socket", return_value=mock_sock):
-            with pytest.raises(ValkeyTimeoutError, match="timed out"):
-                client.execute("PING")
-        client.close()
-
-
-# =============================================================================
-# 3. Rate Limiter Tests
-# =============================================================================
-
-
-class TestValkeyRateLimiter:
-    """Tests for atomic token-bucket sliding-window rate limiter."""
-
-    def test_rate_limiter_allows_tokens(self) -> None:
-        mock_client = MagicMock()
-        mock_client.eval.return_value = [1, 9]
-        limiter = ValkeyTokenBucketRateLimiter(
-            client=mock_client,
-            rate_limit_per_second=10.0,
-            burst_capacity=10,
-        )
-        assert limiter.acquire("user:1", tokens=1) is True
-
-    def test_rate_limiter_exhausted(self) -> None:
-        mock_client = MagicMock()
-        mock_client.eval.return_value = [0, 0]
-        limiter = ValkeyTokenBucketRateLimiter(
-            client=mock_client,
-            rate_limit_per_second=5.0,
-            burst_capacity=5,
-        )
-        assert limiter.acquire("user:1", tokens=1) is False
-
-    def test_rate_limiter_fail_soft_on_error(self) -> None:
-        mock_client = MagicMock()
-        mock_client.eval.side_effect = ValkeyConnectionError("Valkey is down")
-        limiter = ValkeyTokenBucketRateLimiter(
-            client=mock_client,
-            rate_limit_per_second=10.0,
-            burst_capacity=10,
-        )
-        # In fail-soft mode, traffic must not be blocked when caching tier drops
-        assert limiter.acquire("user:1", tokens=1) is True
-
-    def test_rate_limiter_raises_on_programmer_error(self) -> None:
-        mock_client = MagicMock()
-        mock_client.eval.side_effect = TypeError("Unexpected parameter type")
-        limiter = ValkeyTokenBucketRateLimiter(
-            client=mock_client,
-            rate_limit_per_second=10.0,
-            burst_capacity=10,
-        )
-        with pytest.raises(TypeError):
-            limiter.acquire("user:1", tokens=1)
-
-
-# =============================================================================
-# 4. Distributed AI Cache Provider Tests
-# =============================================================================
-
-
-class TestValkeyCacheProvider:
-    """Tests for ValkeyCacheProvider embedding and finding cache."""
-
-    def test_cache_provider_availability(self) -> None:
-        mock_client = MagicMock()
-        mock_client.ping.return_value = True
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.is_available() is True
-
-        mock_client.ping.side_effect = ValkeyConnectionError("Offline")
-        assert provider.is_available() is False
-
-    def test_embedding_caching_roundtrip(self) -> None:
-        """Embeddings round-trip through the tiered cache under a namespaced key."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = "[0.12, 0.34, 0.56]"
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.get_embedding("hello world", "bge-m3") == [0.12, 0.34, 0.56]
-
-        assert provider.set_embedding("hello world", "bge-m3", [0.12, 0.34, 0.56]) is True
-        write = mock_client.execute.call_args[0]
-        assert (write[0], write[1].startswith("devops-cli:ai:embedding:")) == ("SET", True)
-
-    def test_embedding_reads_are_served_from_l1_on_repeat(self) -> None:
-        """A repeated lookup within one command is answered without a second round trip.
-
-        This is the point of the in-process tier: bulk embedding work re-requests the same
-        vectors, and each repeat previously cost a full network round trip.
+        Loopback is non-public, so with private networks disallowed the check itself refuses the
+        dial. A client that let the flag lapse would dial `refusing_port` and fail with the
+        kernel's refusal instead.
         """
-        mock_client = MagicMock()
-        mock_client.execute.return_value = "[0.1, 0.2]"
+        client = ValkeyClient(host="example.com", port=refusing_port, allow_private_network=False)
+        loopback = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", refusing_port))
+        with patch("socket.getaddrinfo", return_value=[loopback]):
+            with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
+                client.ping()
 
-        provider = ValkeyCacheProvider(client=mock_client)
-        first = provider.get_embedding("repeat me", "bge-m3")
-        reads_after_first = mock_client.execute.call_count
-        second = provider.get_embedding("repeat me", "bge-m3")
 
-        assert (first, second) == ([0.1, 0.2], [0.1, 0.2])
-        assert mock_client.execute.call_count == reads_after_first
+class TestValkeyClientCommands:
+    """The commands devops-cli sends, against an in-memory server."""
 
-    def test_batch_embedding_lookup_uses_one_round_trip(self) -> None:
-        """Many embeddings are fetched with a single MGET rather than N GETs."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = ["[0.1]", None, "[0.3]"]
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        found = provider.get_embeddings(["a", "b", "c"], "bge-m3")
-
-        assert (found["a"], found["c"], "b" in found) == ([0.1], [0.3], False)
-        assert mock_client.execute.call_args[0][0] == "MGET"
-        assert mock_client.execute.call_count == 1
-
-    def test_review_findings_caching(self) -> None:
-        """Review findings round-trip under their own namespace."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = '[{"rule_id": "SEC-01", "severity": "HIGH"}]'
-
-        provider = ValkeyCacheProvider(client=mock_client)
-        findings = provider.get_review_findings("src/main.py", "abc123hash", "devsecops")
-        assert findings == [{"rule_id": "SEC-01", "severity": "HIGH"}]
-
+    def test_a_value_is_set_and_read(self, valkey_client: ValkeyClient) -> None:
         assert (
-            provider.set_review_findings("src/main.py", "abc123hash", "devsecops", findings) is True
+            valkey_client.get("session"),
+            valkey_client.set("session", "token"),
+            valkey_client.get("session"),
+        ) == (None, True, "token")
+
+    def test_a_value_set_with_an_expiry_carries_that_lifetime(
+        self, valkey_client: ValkeyClient
+    ) -> None:
+        valkey_client.set("session", "token", ex=60)
+        assert 0 < valkey_client.execute("TTL", "session") <= 60
+
+    def test_keys_are_listed_counted_and_flushed(self, valkey_client: ValkeyClient) -> None:
+        for name in ("run:1", "run:2", "other"):
+            valkey_client.set(name, "x")
+        assert (
+            sorted(valkey_client.keys("run:*")),
+            valkey_client.dbsize(),
+            valkey_client.flushdb(),
+            valkey_client.dbsize(),
+        ) == (["run:1", "run:2"], 3, True, 0)
+
+    def test_flushall_empties_every_database(self, valkey_client: ValkeyClient) -> None:
+        valkey_client.set("a", "1")
+        assert (valkey_client.flushall(), valkey_client.dbsize()) == (True, 0)
+
+    def test_execute_returns_each_reply_as_the_server_sent_it(
+        self, valkey_client: ValkeyClient
+    ) -> None:
+        assert [
+            valkey_client.execute("PING"),
+            valkey_client.execute("SET", "a", "b"),
+            valkey_client.execute("GET", "missing"),
+            valkey_client.execute("ZADD", "scores", 1.5, "m"),
+            valkey_client.execute("ZRANGE", "scores", 0, -1),
+        ] == ["PONG", "OK", None, 1, ["m"]]
+
+    def test_ping_reports_a_live_server(self, valkey_client: ValkeyClient) -> None:
+        assert valkey_client.ping() is True
+
+    def test_a_snapshot_is_acknowledged(self, valkey_client: ValkeyClient) -> None:
+        assert valkey_client.bgsave() == "Background saving started"
+
+    def test_info_is_parsed_into_a_dict(self) -> None:
+        text = "# Server\r\nvalkey_version:8.0.0\r\nuptime_in_seconds:3600\r\n"
+        with serving_valkey({"INFO": bulk_reply(text.encode())}) as (port, _received):
+            client = ValkeyClient(host="127.0.0.1", port=port)
+            info = client.info()
+            client.close()
+        assert info == {"valkey_version": "8.0.0", "uptime_in_seconds": 3600}
+
+    def test_a_pipeline_returns_one_reply_per_command_in_order(
+        self, valkey_client: ValkeyClient
+    ) -> None:
+        replies = valkey_client.pipeline(
+            [["SET", "x", "1"], ["ZADD", "scores", 1.5, "m"], ["GET", "x"]]
         )
-        assert mock_client.execute.call_args[0][1].startswith("devops-cli:ai:finding:")
+        assert replies == ["OK", 1, "1"]
 
-    def test_llm_response_caching(self) -> None:
-        """LLM responses round-trip under their own namespace."""
-        mock_client = MagicMock()
-        mock_client.execute.return_value = '{"response": "Cached answer"}'
+    def test_an_empty_pipeline_sends_nothing(self, valkey_client: ValkeyClient) -> None:
+        assert valkey_client.pipeline([]) == []
 
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.get_llm_response("query_hash") == {"response": "Cached answer"}
-        assert provider.set_llm_response("query_hash", {"response": "Cached answer"}) is True
-        assert mock_client.execute.call_args[0][1] == "devops-cli:ai:llm:query_hash"
+    def test_a_long_pipeline_goes_out_in_bounded_batches(
+        self, valkey_client: ValkeyClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No batch holds more than the chunk size, so a mass write cannot buffer without bound."""
+        sent: list[int] = []
+        execute = valkey.client.Pipeline.execute
 
-    def test_cache_write_failure_is_reported_not_raised(self) -> None:
-        """A failed cache write is reported, never allowed to fail the caller.
+        def recording_execute(self: valkey.client.Pipeline, raise_on_error: bool = True) -> Any:
+            sent.append(len(self.command_stack))
+            return execute(self, raise_on_error)
 
-        Caching is an optimisation; losing an entry must not break the operation that
-        produced the value.
-        """
-        mock_client = MagicMock()
-        mock_client.execute.side_effect = TypeError("unserializable")
+        monkeypatch.setattr(valkey.client.Pipeline, "execute", recording_execute)
+        total = DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS * 2 + 5
+        replies = valkey_client.pipeline([["SET", f"key-{n}", n] for n in range(total)])
+        assert (sent, len(replies), valkey_client.dbsize()) == (
+            [DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS] * 2 + [5],
+            total,
+            total,
+        )
 
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.set_llm_response("k", {"a": 1}) is True
+    def test_threads_share_one_client_and_each_reads_its_own_values(
+        self, valkey_client: ValkeyClient
+    ) -> None:
+        """A reply is matched to the thread that asked, never read by another."""
 
-    def test_flush_ai_cache(self) -> None:
-        mock_client = MagicMock()
-        mock_client.scan_iter.return_value = ["devops:ai:embedding:1", "devops:ai:finding:2"]
-        mock_client.delete.return_value = 2
+        def round_trips(worker: int) -> list[tuple[str | None, str]]:
+            mismatches = []
+            for step in range(50):
+                key, value = f"key-{worker}-{step}", f"value-{worker}-{step}"
+                valkey_client.set(key, value)
+                if (read := valkey_client.get(key)) != value:
+                    mismatches.append((read, value))
+            return mismatches
 
-        provider = ValkeyCacheProvider(client=mock_client)
-        assert provider.flush_ai_cache() == 2
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(round_trips, range(8), timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        assert results == [[]] * 8
 
-    def test_get_stats(self) -> None:
-        mock_client = MagicMock()
-        mock_client.info.return_value = {
-            "used_memory_human": "2.4M",
-            "total_system_memory_human": "16G",
-        }
-        mock_client.scan_iter.return_value = ["key1", "key2"]
 
-        provider = ValkeyCacheProvider(client=mock_client)
-        stats = provider.get_stats()
-        assert stats["available"] is True
-        assert stats["ai_keys_count"] == 2
-        assert stats["used_memory_human"] == "2.4M"
+class TestValkeyClientConnection:
+    """What the client's own arguments make a new connection send and read, over a loopback socket.
+
+    These tests reach the pool the client builds from its arguments. The in-memory server of the
+    other classes connects through the `connection_pool` seam with a pool of its own, so it
+    cannot show that the client passes its password, database or decoding settings on.
+    """
+
+    @pytest.mark.parametrize(
+        ("arguments", "announced"),
+        [
+            pytest.param({}, [], id="neither"),
+            pytest.param({"password": "s3cret"}, [["AUTH", "s3cret"]], id="password"),
+            pytest.param({"db": 3}, [["SELECT", "3"]], id="database"),
+            pytest.param(
+                {"password": "s3cret", "db": 3},
+                [["AUTH", "s3cret"], ["SELECT", "3"]],
+                id="password-and-database",
+            ),
+        ],
+    )
+    def test_a_new_connection_authenticates_and_selects_what_the_client_was_given(
+        self, arguments: dict[str, Any], announced: list[list[str]]
+    ) -> None:
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+            client = ValkeyClient(host="127.0.0.1", port=port, **arguments)
+            pinged = client.ping()
+            client.close()
+        assert (pinged, received) == (True, [*announced, ["PING"]])
+
+    def test_a_reply_that_is_not_utf8_is_decoded_with_replacement(self) -> None:
+        with serving_valkey({"GET": bulk_reply(b"ok\xff")}) as (port, _received):
+            client = ValkeyClient(host="127.0.0.1", port=port)
+            values = (client.get("blob"), client.execute("GET", "blob"))
+            client.close()
+        assert values == ("ok\ufffd", "ok\ufffd")
+
+
+class TestValkeyClientFailures:
+    """Every failure arrives as the matching `ValkeyError`, never as a valkey-py exception."""
+
+    def test_a_wrong_password_is_an_authentication_error(self) -> None:
+        server = FakeServer(server_type="valkey", config={b"requirepass": b"correct"})
+        client = valkey_client_on(server, password="wrong")
+        with pytest.raises(ValkeyAuthenticationError, match="Authentication failed"):
+            client.ping()
+
+    def test_the_right_password_connects(self) -> None:
+        server = FakeServer(server_type="valkey", config={b"requirepass": b"correct"})
+        assert valkey_client_on(server, password="correct").ping() is True
+
+    def test_a_command_the_server_rejects_is_a_command_error(
+        self, valkey_client: ValkeyClient
+    ) -> None:
+        with pytest.raises(ValkeyCommandError, match="unknown command"):
+            valkey_client.execute("NOSUCHCOMMAND")
+
+    def test_a_rejected_command_in_a_pipeline_is_a_command_error(
+        self, valkey_client: ValkeyClient
+    ) -> None:
+        with pytest.raises(ValkeyCommandError, match="wrong number of arguments"):
+            valkey_client.pipeline([["SET", "x", "1"], ["SET", "x"]])
+
+    def test_a_dropped_server_is_a_connection_error_for_every_kind_of_call(
+        self, valkey_server: FakeServer, valkey_client: ValkeyClient
+    ) -> None:
+        valkey_server.connected = False
+        for call in (
+            valkey_client.ping,
+            lambda: valkey_client.execute("GET", "k"),
+            lambda: valkey_client.pipeline([["GET", "k"]]),
+            lambda: valkey_client.keys("*"),
+        ):
+            with pytest.raises(ValkeyConnectionError, match="Failed to connect to Valkey"):
+                call()
+
+    def test_a_refused_port_is_a_connection_error_naming_the_endpoint(
+        self, refusing_port: int
+    ) -> None:
+        client = ValkeyClient(host="127.0.0.1", port=refusing_port)
+        with pytest.raises(ValkeyConnectionError) as raised:
+            client.ping()
+        assert raised.value.details == {"host": "127.0.0.1", "port": refusing_port}
+
+    def test_a_silent_server_is_a_timeout_error(self, prevent_external_network_calls: None) -> None:
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            client = ValkeyClient(host="127.0.0.1", port=port, timeout=0.05)
+            with pytest.raises(ValkeyTimeoutError) as raised:
+                client.ping()
+        assert raised.value.details == {"host": "127.0.0.1", "port": port, "timeout_seconds": 0.05}
 
 
 # =============================================================================
-# 5. CLI Command Tests
+# 2. CLI Command Tests
 # =============================================================================
 
 
@@ -642,14 +403,11 @@ class TestValkeyCliCommands:
         assert res.exit_code == 0
         assert "not found" in res.output
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_set(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["set", "k", "v", "--ex", "30"])
-        assert res.exit_code == 0
-        assert "Set 'k' successfully" in res.output
+    def test_cli_set_stores_the_value_with_its_expiry(self, valkey_client: ValkeyClient) -> None:
+        with patch("devops_cli.commands.valkey._resolve_client", return_value=valkey_client):
+            res = runner.invoke(app, ["set", "k", "v", "--ex", "30"])
+        assert (res.exit_code, "Set 'k' successfully (TTL: 30s)." in res.output) == (0, True)
+        assert (valkey_client.get("k"), 0 < valkey_client.execute("TTL", "k") <= 30) == ("v", True)
 
     def test_cli_set_dry_run(self) -> None:
         res = runner.invoke(app, ["set", "k", "v", "--dry-run"])
@@ -686,16 +444,20 @@ class TestValkeyCliCommands:
         assert res.exit_code == 0
         assert "DRY_RUN" in res.output
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_raw_execution(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.execute.return_value = ["item1", "item2"]
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["cli", "LRANGE", "mylist", "0", "1"])
-        assert res.exit_code == 0
-        assert "item1" in res.output
-        assert "item2" in res.output
+    def test_cli_raw_execution_prints_replies_as_the_server_sent_them(
+        self, valkey_client: ValkeyClient
+    ) -> None:
+        with patch("devops_cli.commands.valkey._resolve_client", return_value=valkey_client):
+            outputs = [
+                runner.invoke(app, ["cli", *command]).output
+                for command in (
+                    ["PING"],
+                    ["SET", "greeting", "hello"],
+                    ["RPUSH", "mylist", "item1", "item2"],
+                    ["LRANGE", "mylist", "0", "1"],
+                )
+            ]
+        assert outputs == ["PONG\n", "OK\n", "2\n", "item1\nitem2\n"]
 
     @patch("devops_cli.commands.valkey._resolve_client")
     def test_cli_error_masks_credentials(self, mock_resolve: MagicMock) -> None:

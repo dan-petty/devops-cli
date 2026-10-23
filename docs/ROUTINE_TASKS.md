@@ -8,7 +8,7 @@ This document serves as the authoritative operational manual for developers, mai
 
 All routine operations in `devops-cli` adhere to six core engineering tenets:
 1. **Deterministic Execution**: Workflows run through standardized CLI commands (`devops ci`, `devops release`, `devops docs`, `uv`) to guarantee reproducible outcomes across local DevContainers and GitHub Actions CI.
-2. **Zero-Plaintext Credentials**: All authentication tokens (GitHub, OpenAI, Claude, Grafana, ArgoCD) are stored exclusively in the OS Keyring via `devops config set` and retrieved programmatically via Python `keyring`.
+2. **Zero-Plaintext Credentials**: No token is stored in git, configuration or logs. Tokens (GitHub, OpenAI, Claude, Grafana, ArgoCD) come from a secret store. Examples are the OS Keyring (`devops config set`, Python `keyring`), the credential store of the owning tool and a Kubernetes Secret in the cluster.
 3. **Strict Quality Assurance**: Changes must pass the automated CI validation suite (`python_version`, `test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`, `actionlint`, `docs`, `uv_check`, `lockfile`, `outdated`) before merging.
 4. **Target Branch Hierarchy & Non-Merge Policy**: Feature/bugfix PRs strictly target active release branches (`release/vX.Y.Z`). Direct pushes to `main` are blocked. AI agents stage commits and open/update PRs, while PR merge actions are strictly reserved for human maintainers.
 5. **Dynamic Documentation Freshness**: Command matrices, CLI reference guides, and FastMCP schemas are generated dynamically through code introspection (`devops docs generate`) and verified in CI (`devops docs check`).
@@ -47,12 +47,12 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
 | **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `gh pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
 | **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
-| **Release Lifecycle** | Milestone Issue Population | Step 6 | `devops roadmap intake` | Files active milestone deliverables as candidates; intake puts each on the board | Open issues populated with zero empty state |
+| **Release Lifecycle** | Milestone Issue Population | Step 6 | `devops roadmap intake` | Files active milestone deliverables as candidates; intake puts each on the board | Each deliverable is an open issue on the board |
 | **Release Lifecycle** | Historical Documentation Compaction | Step 7 | Automated / Manual | Compacts historical milestone docs in `docs/ROADMAP.md` and `RELEASE_NOTES.md` on major/minor releases | Expressive, token-efficient docs with zero bloat |
-| **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`) | Scans installed packages for known vulnerabilities | 0 known vulnerabilities |
+| **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the lockfile of each Node tool in `tools.lock` for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint` / `devops k8s check-deprecated` / `devops scan trivy <dir> --type iac` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
-| **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check .` && `uv run devops ci test tests/test_architectural_invariants.py` | Ruff `C901` enforces complexity <= 10; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
+| **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check --config pyproject.toml .` && `uv run devops ci test tests/test_architectural_invariants.py tests/test_ruff_complexity_cap.py` | Ruff `C901` enforces complexity <= 10 and the tests hold its configuration; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
 | **Observability & Diagnostics** | Command Output, Logs, Metrics & Trace Audit | Continuous / On Execution | `devops telemetry status` / `devops telemetry logfire` | Comprehensive review of command outputs, application logs (`.data/logs/`), metrics, and tracing spans for latency, misconfigurations, and warnings | Nominal latencies, zero unhandled errors/warnings |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos list` | Pulls upstream changes across all managed repos | All repositories up to date |
@@ -272,7 +272,6 @@ sequenceDiagram
 7. **Next Active Milestone Initialization & Issue/Views Population**:
    - Cut and push the next release branch (`release/vX.Y.Z`) from `main`.
    - Proactively author GitHub issues for all planned deliverables in `docs/ROADMAP.md`, assigning each to the active milestone with full taxonomy labels (`type/*`, `scope/*`, `priority/*`).
-   - Ensure the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) are populated with zero empty state.
    - Reconcile custom fields on the cards of GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
 8. **Automated Historical Documentation Compaction & Task Archival**:
    - When transitioning across major or minor release boundaries, run `uv run devops docs compact --series <series>` to automatically compact historical documentation across `docs/ROADMAP.md` (consolidating completed milestone subsections and matrix rows into summary blocks) and `docs/RELEASE_NOTES.md` (consolidating highlight sections into unified series blocks).
@@ -285,10 +284,10 @@ sequenceDiagram
 
 Executed weekly, prior to major releases, or when dependencies are updated.
 
-#### 1. Python Dependency Vulnerability Audit (`uv audit`)
+#### 1. Dependency Vulnerability Audit (`uv audit`, `npm audit`)
 - **Frequency**: Weekly & in every CI run.
-- **Methodology**: Scans packages in `uv.lock` against Open Source Vulnerabilities (OSV) database.
-- **Command**: `uv run devops ci audit` or `uv audit`.
+- **Methodology**: Scans packages in `uv.lock` against Open Source Vulnerabilities (OSV) database, and the `package-lock.json` of each Node tool in `tools.lock` against npm's advisory database, without installing it.
+- **Command**: `uv run devops ci audit`, or `uv audit` and `npm audit --package-lock-only --json --prefix src/devops_cli/tools_lock/<tool>`.
 
 #### 2. Static Application Security Testing (SAST - `bandit`)
 - **Frequency**: Pre-commit / CI gate.
@@ -354,7 +353,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 
 #### 3. SSH Key & Host Security Audit
 - **Frequency**: On-demand / Monthly.
-- **Methodology**: Lists managed SSH keys with age and rotation status (`devops ssh audit`/`list`) and shows the active key and days until rotation (`devops ssh status`).
+- **Methodology**: Lists the managed SSH keys of the project prefix with age and rotation status (`devops ssh audit`/`list`, or `--all` for the keys of all projects) and shows the active key and days until rotation (`devops ssh status`).
 - **Commands**:
   ```bash
   devops ssh status
@@ -389,4 +388,6 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 | `devops ci` fails at `docs` | CLI commands or flags changed without updating docs | Run `uv run devops docs generate --sync-readme` and verify with `devops docs check`. |
 | `pytest` intermittent test failures | Non-deterministic test ordering in multi-threaded code | Ensure assertions use order-independent checks (`any(...)` or sets) rather than fixed array indices. |
 | `uv audit` reports vulnerability | A dependency has a known security advisory | Run `uv lock --upgrade-package <name>` and verify compatibility. |
+| `npm audit` reports vulnerability | A package in a Node tool's `package-lock.json` has a known security advisory | Bump the tool with the runbook in the header of `src/devops_cli/tools_lock/tools.lock`. |
+| `devops ci audit` says an audit could not run | The registry is unreachable or serves no advisories endpoint; npm exits 1 for this as for a finding, uv exits 2 | Read the output above the verdict, restore the network or registry configuration and re-run. |
 | Agent PR targeting error | Topic branch opened against `main` instead of release branch | Update PR base branch via `devops pr edit <id> --base release/vX.Y.Z`. |

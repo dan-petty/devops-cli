@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import threading
 from pathlib import Path
@@ -25,8 +24,6 @@ from devops_cli.ai.client import (
     LLMClient,
     LLMResponse,
     _is_json_error_payload,
-    model_request,
-    model_request_sync,
     network,
     validate_base_url,
 )
@@ -523,36 +520,6 @@ def test_llm_client_embeddings_and_claude_messages(monkeypatch) -> None:
     assert "Claude message response" in str(claude_out)
 
 
-@pytest.mark.asyncio
-async def test_direct_model_request_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify model_request_sync and model_request direct API calls."""
-    from unittest.mock import MagicMock
-
-    from devops_cli.ai.client import model_request, model_request_sync
-    from devops_cli.models.ai import ChatMessage
-
-    mock_client = MagicMock()
-    mock_client.chat.return_value = "Direct chat output"
-    mock_client.chat_messages.return_value = "Direct chat_messages output"
-
-    # 1. model_request_sync with string prompt
-    res_sync = model_request_sync("gpt-4o", "Hello world", client=mock_client)
-    assert str(res_sync) == "Direct chat output"
-
-    # 2. model_request_sync with ChatMessage list
-    res_msgs = model_request_sync(
-        "gpt-4o",
-        [ChatMessage(role="user", content="Test")],
-        system_prompt="System",
-        client=mock_client,
-    )
-    assert str(res_msgs) == "Direct chat_messages output"
-
-    # 3. model_request async with string prompt
-    res_async = await model_request("gpt-4o", "Async prompt", client=mock_client)
-    assert str(res_async) == "Direct chat output"
-
-
 def test_base_provider_mixin_abstract_methods() -> None:
     mixin = BaseLLMProviderMixin()
     with pytest.raises(NotImplementedError):
@@ -830,19 +797,6 @@ def test_chat_cache_and_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
         append_cache=False,
     )
     assert res2.cached is True
-
-
-def test_direct_model_request_sync_and_async(monkeypatch: pytest.MonkeyPatch) -> None:
-    route_llm_clients(
-        monkeypatch,
-        lambda request: httpx2.Response(200, json={"message": {"content": "Direct reply"}}),
-    )
-
-    res1 = model_request_sync("llama3", "Hello direct")
-    assert "Direct reply" in str(res1)
-
-    res2 = asyncio.run(model_request("llama3", [ChatMessage(role="user", content="Hello async")]))
-    assert "Direct reply" in str(res2)
 
 
 def test_ollama_thinking_only_and_total_duration(monkeypatch: pytest.MonkeyPatch) -> None:

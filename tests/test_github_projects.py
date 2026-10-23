@@ -1100,7 +1100,6 @@ def test_mutation_budget_lifecycle() -> None:
 
 def test_the_board_template_follows_adr_0001() -> None:
     """Status is New, Ready, In Progress, In Review, Done and Blocked; Category and the Milestone text field are gone (#739)."""
-    from devops_cli.config.constants import CONST_FINDING_DETAIL_HEADER_FIELDS
     from devops_cli.github.projects import load_project_template
 
     template = load_project_template(REPO_ROOT / ".github" / "project-template.json")
@@ -1112,7 +1111,6 @@ def test_the_board_template_follows_adr_0001() -> None:
         [view.name for view in template.views if "Category" in view.model_dump_json()],
         [option.name for option in fields["Value"].options],
         [option.name for option in fields["Effort"].options],
-        ("category", "Category") in CONST_FINDING_DETAIL_HEADER_FIELDS,
     ) == (
         ["New", "Ready", "In Progress", "In Review", "Done", "Blocked"],
         ["Backlog", "Todo"],
@@ -1120,7 +1118,6 @@ def test_the_board_template_follows_adr_0001() -> None:
         [],
         ["High", "Medium", "Low"],
         ["Low", "Medium", "High"],
-        True,
     )
 
 

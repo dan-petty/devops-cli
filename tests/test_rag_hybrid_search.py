@@ -117,38 +117,7 @@ def test_lexical_match_is_immutable() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Shared scorer reuse
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_conversation_search_uses_the_shared_scorer() -> None:
-    """Conversation ranking delegates to the shared BM25 implementation.
-
-    Both consumers share one implementation so a correction to the ranking cannot apply
-    to only half the codebase.
-    """
-    from devops_cli.ai.harness.conversation import bm25_rank
-
-    documents = [
-        {"run_id": "r1", "role": "user", "content": "deploy the kubernetes cluster"},
-        {"run_id": "r2", "role": "assistant", "content": "unrelated commentary"},
-    ]
-    matches = bm25_rank("kubernetes", documents)
-
-    assert [m.run_id for m in matches] == ["r1"]
-    assert matches[0].score > 0.0
-
-
-def test_conversation_search_respects_max_matches() -> None:
-    """The conversation wrapper still truncates to the requested match count."""
-    from devops_cli.ai.harness.conversation import bm25_rank
-
-    documents = [{"run_id": f"r{i}", "role": "user", "content": "token"} for i in range(5)]
-    assert len(bm25_rank("token", documents, max_matches=2)) == 2
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. Hybrid fusion
+# 2. Hybrid fusion
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -216,7 +185,7 @@ def test_fusion_ranks_documents_found_by_both_rankers_highest() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Retriever integration
+# 3. Retriever integration
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -273,7 +242,7 @@ def test_search_can_disable_hybrid_fusion() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Vector quantization
+# 4. Vector quantization
 # ─────────────────────────────────────────────────────────────────────────────
 
 

@@ -677,39 +677,54 @@ def test_valkey_l2_cache_query_vs_document_isolation(monkeypatch: pytest.MonkeyP
     assert query_key in mock_valkey.store
 
 
+def _recording_valkey_client(answers_ping: bool) -> tuple[type, list[Any]]:
+    """A ValkeyClient stand-in that records each construction, answers PING and notes close()."""
+    built: list[Any] = []
+
+    class _RecordingValkeyClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.timeout = kwargs["timeout"]
+            self.closed = False
+            built.append(self)
+
+        def ping(self) -> bool:
+            return answers_ping
+
+        def close(self) -> None:
+            self.closed = True
+
+    return _RecordingValkeyClient, built
+
+
 def test_init_valkey_fast_probe_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _init_valkey returns None without blocking when Valkey ping fails."""
     from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
 
-    class _OfflineValkeyClient:
-        def __init__(self, **kwargs: Any) -> None:
-            self.timeout = kwargs.get("timeout", 0.1)
-
-        def ping(self) -> bool:
-            return False
-
-    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OfflineValkeyClient)
+    client_class, built = _recording_valkey_client(answers_ping=False)
+    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", client_class)
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
-    assert engine._valkey is None
+    assert (engine._valkey, [(probe.timeout, probe.closed) for probe in built]) == (
+        None,
+        [(0.1, True)],
+    )
 
 
-def test_init_valkey_fast_probe_online(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _init_valkey returns client when Valkey ping succeeds."""
+def test_init_valkey_probes_quickly_then_serves_with_the_configured_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 0.1 s probe is thrown away; the client the engine keeps waits the configured timeout."""
     from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
+    from devops_cli.config.defaults import DEFAULT_VALKEY_TIMEOUT_SECONDS
 
-    class _OnlineValkeyClient:
-        def __init__(self, **kwargs: Any) -> None:
-            self.timeout = kwargs.get("timeout", 0.1)
-            self._sock = None
-
-        def ping(self) -> bool:
-            return True
-
-    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OnlineValkeyClient)
+    client_class, built = _recording_valkey_client(answers_ping=True)
+    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", client_class)
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
-    assert engine._valkey is not None
+    assert (engine._valkey is built[1], [(c.timeout, c.closed) for c in built]) == (
+        True,
+        [(0.1, True), (DEFAULT_VALKEY_TIMEOUT_SECONDS, False)],
+    )
 
 
 def test_init_valkey_runs_without_l2_when_valkey_refuses(
@@ -718,28 +733,15 @@ def test_init_valkey_runs_without_l2_when_valkey_refuses(
     """Verify _init_valkey returns None when the network guard refuses the configured Valkey.
 
     A service binds and listens on the configured port through the C socket type, as a
-    port-forward to a live Valkey does, so the kernel would accept the probe. The guard refuses it
-    with the `ConnectionRefusedError` the client handles and reports the connect, and the service
-    sees no connection.
+    port-forward to a live Valkey does, so the kernel would accept the probe. The guard refuses
+    it and reports the connect, and the service sees no connection.
     """
     import _socket
     import socket
 
     from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
     from devops_cli.config.settings import reset_settings_cache
-    from devops_cli.valkey.client import ValkeyClient
 
-    raised: list[type[Exception]] = []
-    create_socket = ValkeyClient._create_socket
-
-    def recording_create_socket(self: ValkeyClient) -> socket.socket:
-        try:
-            return create_socket(self)
-        except Exception as exc:
-            raised.append(type(exc))
-            raise
-
-    monkeypatch.setattr(ValkeyClient, "_create_socket", recording_create_socket)
     with socket.socket() as service:
         _socket.socket.bind(service, ("127.0.0.1", 0))
         _socket.socket.listen(service)
@@ -756,11 +758,7 @@ def test_init_valkey_runs_without_l2_when_valkey_refuses(
             reported = list(unexpected_loopback_connects)
         finally:
             unexpected_loopback_connects.clear()
-    assert (engine._valkey, raised, reported) == (
-        None,
-        [ConnectionRefusedError],
-        [f"127.0.0.1:{port} (MainThread)"],
-    )
+    assert (engine._valkey, reported) == (None, [f"127.0.0.1:{port} (MainThread)"])
 
 
 def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:

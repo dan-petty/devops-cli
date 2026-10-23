@@ -15,7 +15,6 @@ from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.issues import (
     _resolve_milestone_number,
     _resolve_updated_labels,
-    edit_repository_issue,
 )
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -111,47 +110,6 @@ def test_resolve_updated_labels() -> None:
         assert new_labels == ["priority/p0-critical", "scope/cli"]
 
 
-def test_edit_repository_issue_mutation() -> None:
-    """edit_repository_issue sends PATCH mutation with resolved milestone and labels."""
-    mock_res_patch = MagicMock(
-        returncode=0,
-        stdout=json.dumps(
-            {
-                "number": 123,
-                "title": "New Issue Title",
-                "body": "New Body",
-                "state": "open",
-                "milestone": {"title": "v0.2.21"},
-                "labels": [{"name": "type/feature"}],
-            }
-        ),
-    )
-
-    with (
-        patch("devops_cli.github.issues._resolve_milestone_number", return_value=10),
-        patch("devops_cli.github.issues.run_gh", return_value=mock_res_patch) as mock_gh,
-    ):
-        issue = edit_repository_issue(
-            repo="example/repo",
-            number=123,
-            title="New Issue Title",
-            body="New Body",
-            milestone="v0.2.21",
-        )
-        assert (issue.number, issue.title, issue.milestone) == (
-            123,
-            "New Issue Title",
-            "v0.2.21",
-        )
-        args = mock_gh.call_args[0][0]
-        assert ("api", "--method", "PATCH", "repos/example/repo/issues/123") == (
-            args[1],
-            args[2],
-            args[3],
-            args[4],
-        )
-
-
 def test_cli_gh_milestones_edit_leaves_the_release_open(
     roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
 ) -> None:
@@ -195,7 +153,7 @@ def test_cli_gh_milestones_edit_changes_only_the_fields_given(
 
 
 def test_cli_gh_issues_edit() -> None:
-    """CLI devops gh issues edit invokes edit_repository_issue."""
+    """CLI devops gh issues edit sends the PATCH for the fields given."""
     with (
         patch("devops_cli.commands.gh._resolve_repo", return_value="example/repo"),
         patch("devops_cli.github.issues._resolve_milestone_number", return_value=12),

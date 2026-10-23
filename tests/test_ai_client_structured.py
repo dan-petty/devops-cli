@@ -314,7 +314,13 @@ def _answering(provider: str, *texts: str) -> Any:
 def _sent_system() -> str:
     """The system message chat_structured sends for RefinementProposal."""
     schema = json.dumps(RefinementProposal.model_json_schema(), ensure_ascii=False)
-    return "\n\n".join((_SYSTEM, load_task_prompt("structured_output_schema.md"), schema))
+    parts = (
+        _SYSTEM,
+        load_task_prompt("style_ste100.md"),
+        load_task_prompt("structured_output_schema.md"),
+        schema,
+    )
+    return "\n\n".join(parts)
 
 
 def _cached_texts(tmp_path: Path) -> list[str]:

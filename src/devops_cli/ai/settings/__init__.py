@@ -1,28 +1,10 @@
-"""Native Pydantic AI model settings subsystem for devops-cli.
-
-Provides unified cross-provider model configuration, thinking effort controls,
-tool choice restrictions, service tier routing, and multi-tier settings merging.
-"""
+"""Typed ``pydantic_ai`` ModelSettings construction that omits unset values."""
 
 from __future__ import annotations
 
 from typing import Any, cast
 
-from pydantic_ai.agent import AgentModelSettings
-from pydantic_ai.settings import (
-    ModelSettings,
-    ServiceTier,
-    ThinkingEffort,
-    ThinkingLevel,
-    ToolChoice,
-    ToolChoiceScalar,
-    ToolOrOutput,
-    merge_model_settings,
-)
-
-VALID_THINKING_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
-VALID_SERVICE_TIERS = {"auto", "default", "flex", "priority"}
-VALID_TOOL_CHOICE_SCALARS = {"none", "required", "auto"}
+from pydantic_ai.settings import ModelSettings, ServiceTier, ThinkingLevel, ToolChoice
 
 
 def create_model_settings(
@@ -72,82 +54,4 @@ def create_model_settings(
     return cast(ModelSettings, settings)
 
 
-def create_tool_or_output(*tools: str) -> ToolOrOutput:
-    """Construct a ToolOrOutput instance restricting function tools while allowing output completion."""
-    return ToolOrOutput(function_tools=list(tools))
-
-
-def normalize_thinking_level(thinking: Any) -> ThinkingLevel | None:
-    """Normalize a value into a canonical Pydantic AI ThinkingLevel."""
-    if thinking is None:
-        return None
-    if isinstance(thinking, bool):
-        return thinking
-    if isinstance(thinking, str):
-        lower = thinking.strip().lower()
-        if lower == "true":
-            return True
-        if lower == "false":
-            return False
-        if lower in VALID_THINKING_EFFORTS:
-            return cast(ThinkingEffort, lower)
-    return None
-
-
-def normalize_service_tier(tier: str | None) -> ServiceTier | None:
-    """Validate and normalize a service tier string into a canonical ServiceTier."""
-    if not tier or not isinstance(tier, str):
-        return None
-    lower = tier.strip().lower()
-    if lower in VALID_SERVICE_TIERS:
-        return cast(ServiceTier, lower)
-    return None
-
-
-def normalize_tool_choice(choice: Any) -> ToolChoice | None:
-    """Normalize a tool choice specification into a valid ToolChoice."""
-    if choice is None:
-        return None
-    if isinstance(choice, ToolOrOutput):
-        return choice
-    if isinstance(choice, list) and all(isinstance(item, str) for item in choice):
-        return choice
-    if isinstance(choice, str):
-        lower = choice.strip().lower()
-        if lower in VALID_TOOL_CHOICE_SCALARS:
-            return cast(ToolChoiceScalar, lower)
-    return None
-
-
-def resolve_runtime_model_settings(
-    base: ModelSettings | None,
-    overrides: ModelSettings | None = None,
-    *,
-    timeout: float | None = None,
-    **kwargs: Any,
-) -> ModelSettings:
-    """Merge base and override ModelSettings with additional keyword parameters."""
-    merged: ModelSettings = merge_model_settings(base, overrides) or {}
-    extra = create_model_settings(timeout=timeout, **kwargs)
-    if extra:
-        return merge_model_settings(merged, extra) or merged
-    return merged
-
-
-__all__ = [
-    "AgentModelSettings",
-    "ModelSettings",
-    "ServiceTier",
-    "ThinkingEffort",
-    "ThinkingLevel",
-    "ToolChoice",
-    "ToolChoiceScalar",
-    "ToolOrOutput",
-    "create_model_settings",
-    "create_tool_or_output",
-    "merge_model_settings",
-    "normalize_service_tier",
-    "normalize_thinking_level",
-    "normalize_tool_choice",
-    "resolve_runtime_model_settings",
-]
+__all__ = ["create_model_settings"]

@@ -20,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_DOCKER_DEFAULT_UNIX_SOCKET,
     CONST_DOCKER_DF_BUILD_CACHE_KEY,
     CONST_DOCKER_UNIX_ADAPTER_SCHEME,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PODMAN_ENGINE_COMPONENT_NAME,
     CONST_PODMAN_ROOTFUL_SOCKET_PATH,
     CONST_PODMAN_SOCKET_RELATIVE_PATH,
@@ -28,6 +29,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_DOCKER_CACHE_TTL_SECONDS,
+    DEFAULT_DOCKER_FAILURE_CACHE_TTL_SECONDS,
     DEFAULT_DOCKER_PING_TIMEOUT_SECONDS,
     DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS,
     DEFAULT_DOCKER_TIMEOUT_SECONDS,
@@ -43,6 +45,7 @@ from devops_cli.models.docker import (
     ContainerState,
     ContainerStatEntry,
     DockerEndpoint,
+    EngineSecurityInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -446,33 +449,52 @@ class DockerEngineService:
         except Exception as exc:
             logger.debug("Docker daemon ping failed after %.1fs budget: %s", timeout, exc)
             reachable = False
-        self._set_cached("ping", reachable, ttl=self._cache_ttl if reachable else 2.0)
+        self._set_cached(
+            "ping",
+            reachable,
+            ttl=self._cache_ttl if reachable else DEFAULT_DOCKER_FAILURE_CACHE_TTL_SECONDS,
+        )
         return reachable
 
     # -- Engine facts & security introspection --------------------------------
 
-    def security_options(self) -> list[str]:
-        """Return the security options reported by the daemon info endpoint."""
-        cached = self._get_cached("security_options")
+    def security_info(self) -> EngineSecurityInfo:
+        """Report the daemon's security facts from one cached info() call.
+
+        A daemon that cannot answer, because the socket, the SDK or the engine failed, does not
+        raise: the answer carries the reason and is remembered briefly, so the facts and the
+        reason for their absence are one answer.
+        """
+        from docker.errors import DockerException
+
+        cached: EngineSecurityInfo | None = self._get_cached("security_info")
         if cached is not None:
-            return list(cached)
+            return cached
         try:
             info = self.client().info() or {}
-            opts = [str(opt) for opt in (info.get("SecurityOptions") or [])]
-        except (DockerError, OSError) as exc:
-            logger.debug("Failed retrieving engine security options: %s", exc)
-            opts = []
-        self._set_cached("security_options", opts)
-        return opts
+            options, pids_limit = info.get("SecurityOptions"), info.get("PidsLimit")
+            report = EngineSecurityInfo(
+                options=None if options is None else tuple(str(opt) for opt in options),
+                pids_limit_supported=None if pids_limit is None else bool(pids_limit),
+            )
+        except (DockerError, DockerException, OSError) as exc:
+            logger.debug("Failed retrieving engine security info: %s", exc)
+            report = EngineSecurityInfo(error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
+        failed = report.error is not None
+        self._set_cached(
+            "security_info",
+            report,
+            ttl=DEFAULT_DOCKER_FAILURE_CACHE_TTL_SECONDS if failed else self._cache_ttl,
+        )
+        return report
+
+    def security_options(self) -> list[str]:
+        """Return the security options reported by the daemon info endpoint."""
+        return list(self.security_info().options or ())
 
     def is_rootless(self) -> bool:
         """Report whether the underlying engine runs in rootless mode."""
-        cached = self._get_cached("is_rootless")
-        if cached is not None:
-            return bool(cached)
-        result = CONST_SECURITY_OPT_ROOTLESS in self.security_options()
-        self._set_cached("is_rootless", result)
-        return result
+        return CONST_SECURITY_OPT_ROOTLESS in self.security_options()
 
     def kind(self) -> str:
         """Report engine kind ('Podman' or 'Docker')."""

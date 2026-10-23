@@ -1124,9 +1124,8 @@ class DocGenerator:
             "`gen_ai.response.finish_reasons` with the reason the provider gave for the reply's "
             "end (`stop`, `length`, `content_filter` or `tool_call`), and leave it out when the "
             "provider gave none.",
-            "- **Wrapper spans**: `ai.llm.chat`, `ai.client.chat_structured` and "
-            "`pydantic_ai.direct.*` are INTERNAL and set no operation, usage or response keys, so "
-            "each request is counted once.",
+            "- **Wrapper spans**: `ai.llm.chat` and `ai.client.chat_structured` are INTERNAL and "
+            "set no operation, usage or response keys, so each request is counted once.",
             "- **Gateway slot wait**: A chat call to the LLM gateway first waits in the process "
             "for one of the gateway's backend slots. The wait is an INTERNAL "
             "`ai.llm.gateway_slot` span under the call's `ai.llm.dispatch` or `ai.llm.stream` "
@@ -1292,10 +1291,7 @@ class DocGenerator:
     ) -> tuple[bool, list[str]]:
         """Verify on-disk docs match the generated docs and every devops argv in src and in
         markdown resolves."""
-        from devops_cli.docs.markdown_argv_collector import (
-            check_handwritten_docs_argv,
-            check_knowledge_base_argv,
-        )
+        from devops_cli.docs.markdown_argv_collector import check_documented_argv
         from devops_cli.docs.source_argv_collector import check_source_argv
 
         doc_set = docs if docs is not None else self.generate_all_docs(output_dir)
@@ -1304,8 +1300,7 @@ class DocGenerator:
         errors: list[str] = []
         if should_check_argv:
             errors.extend(check_source_argv())
-            errors.extend(check_knowledge_base_argv(self.root_dir))
-            errors.extend(check_handwritten_docs_argv(self.root_dir))
+            errors.extend(check_documented_argv(self.root_dir))
 
         for rel_path, expected_content in doc_set.items():
             if rel_path == "README.md":

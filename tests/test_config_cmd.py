@@ -77,6 +77,20 @@ def test_github_token_is_not_a_config_option() -> None:
     )
 
 
+def test_the_ai_cache_backend_is_not_a_config_option() -> None:
+    """The AI cache has no backend choice: no option, variable, field or key reads one."""
+    from devops_cli.config import options as opt
+    from devops_cli.config.env import get_all_env_var_specs
+    from devops_cli.config.settings import Settings
+
+    assert (
+        "ai.cache.backend" in opt.CONFIG_OPTIONS,
+        any(spec.env_var == "DEVOPS_CLI_AI_CACHE_BACKEND" for spec in get_all_env_var_specs()),
+        "backend" in Settings().ai.cache.model_dump(),
+        runner.invoke(app, ["get", "ai.cache.backend"]).exit_code,
+    ) == (False, False, False, 1)
+
+
 def test_config_env_aliases() -> None:
     res1 = runner.invoke(app, ["env"])
     assert res1.exit_code == 0

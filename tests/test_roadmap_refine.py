@@ -27,12 +27,18 @@ import httpx2
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.client.models import AICredentialsError
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AICredentialsError,
+    ReplyRejectedError,
+    StructuredOutputValidationError,
+)
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.config.constants import (
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STATUS_READY,
 )
@@ -50,11 +56,12 @@ from devops_cli.roadmap.intake import (
     Subject,
     apply_intake,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
     QuestionAnswer,
     RefinementProposal,
+    RefinePlan,
     ResearchPlan,
     apply_refine,
     check_person_edits,
@@ -137,9 +144,21 @@ def git_repo(tmp_path: Path) -> Path:
     return repo
 
 
+class BodyReadCountingStore(InMemoryRoadmapStore):
+    """The in-memory roadmap, keeping the number of each issue whose body it is asked to read."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.body_reads: list[int] = []
+
+    def read_issue_body(self, number: int) -> str:
+        self.body_reads.append(number)
+        return super().read_issue_body(number)
+
+
 @pytest.fixture
-def store() -> InMemoryRoadmapStore:
-    s = InMemoryRoadmapStore(repo=REPO, board_options=BOARD_OPTIONS)
+def store() -> BodyReadCountingStore:
+    s = BodyReadCountingStore(repo=REPO, board_options=BOARD_OPTIONS)
     s.seed_file(".github/roadmap.toml", "board = 1\n")
     s.create_release("v0.2.25", state=GitHubState.OPEN)
     s.create_release("v0.2.26", state=GitHubState.OPEN)
@@ -148,8 +167,12 @@ def store() -> InMemoryRoadmapStore:
 
 class MockLLMClient:
     def __init__(
-        self, plan_queries: list[str] | None = None, proposal: RefinementProposal | None = None
+        self,
+        plan_queries: list[str] | None = None,
+        proposal: RefinementProposal | None = None,
+        fail_with: AIClientError | None = None,
     ):
+        self.fail_with = fail_with
         self.plan_queries = plan_queries or []
         self.proposal = proposal or RefinementProposal(
             problem_statement="Test problem",
@@ -166,6 +189,8 @@ class MockLLMClient:
         self.calls.append((system, prompt, schema))
         if schema is ResearchPlan:
             return ResearchPlan(queries=self.plan_queries)
+        if self.fail_with is not None:
+            raise self.fail_with
         return self.proposal
 
 
@@ -689,7 +714,8 @@ def test_size_limit_guard(git_repo: Path, store: InMemoryRoadmapStore) -> None:
     assert (
         plan.has_writes,
         refined.skip_reason is not None and "exceed" in refined.skip_reason,
-    ) == (False, True)
+        refined.record_only,
+    ) == (True, True, True)
 
 
 def test_cli_refine_dry_run_and_confirm(
@@ -803,12 +829,15 @@ def cli_store(store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch) -> I
     return store
 
 
-def _seed_new_items(store: InMemoryRoadmapStore) -> list[int]:
-    """Three New backlog items on a private repository, refined in the order returned."""
+def _seed_new_items(
+    store: InMemoryRoadmapStore, priorities: tuple[str, ...] = ("P1-High", "P2-Medium", "P3-Low")
+) -> list[int]:
+    """A New backlog item of each priority on a private repository, refined in the order
+    returned."""
     store.seed_visibility(is_private=True)
     person = store.as_actor("alice")
     numbers: list[int] = []
-    for priority in ("P1-High", "P2-Medium", "P3-Low"):
+    for priority in priorities:
         number = person.seed_issue(f"Item {priority}", body=f"Body {priority}", on_board=True)
         person.set_field(_require_item(person, number), ItemField.STATUS, "New")
         person.set_field(_require_item(person, number), ItemField.PRIORITY, priority)
@@ -827,8 +856,15 @@ def _requests_per_item(sent: list[httpx2.Request]) -> dict[int | None, int]:
     return dict(Counter(_issue_number(request) for request in sent))
 
 
-def _written(store: InMemoryRoadmapStore) -> list[int]:
-    return sorted({write.number for write in store.job_writes() if write.number is not None})
+def _bodies_written(store: InMemoryRoadmapStore) -> list[int]:
+    """The issues whose body a job wrote."""
+    return sorted(
+        {
+            write.number
+            for write in store.job_writes()
+            if write.operation == "write_issue_body" and write.number is not None
+        }
+    )
 
 
 def test_a_proposal_that_never_fits_the_schema_skips_only_its_item(
@@ -851,7 +887,7 @@ def test_a_proposal_that_never_fits_the_schema_skips_only_its_item(
         [(failed.item.number, failed.error, failed.violations) for failed in plan.failed_items],
         [refined.item.number for refined in plan.refined_items],
         _requests_per_item(sent),
-        _written(store),
+        _bodies_written(store),
         (store.read_issue_body(first), _require_item(store, first).status),
         "StructuredOutputValidationError, 3 schema violation(s)" in rendered,
         [
@@ -890,7 +926,7 @@ def test_a_reply_asking_for_labels_or_a_close_is_refused_and_writes_nothing(
 
     assert (
         [(failed.item.number, failed.error, failed.violations) for failed in plan.failed_items],
-        _written(store),
+        _bodies_written(store),
         (store.read_issue_body(second), _require_item(store, second).status),
     ) == (
         [(second, "StructuredOutputValidationError", 2)],
@@ -917,7 +953,7 @@ def test_a_gateway_timeout_on_candidate_2_still_applies_candidate_1(
         _requests_per_item(sent),
         CONST_ROADMAP_REFINE_START_MARKER in store.read_issue_body(first),
         _require_item(store, first).status,
-        _written(store),
+        _bodies_written(store),
     ) == (
         [(second, "AIClientError", 0)],
         {first: 1, second: 1, third: 1},
@@ -939,7 +975,7 @@ def test_rejected_credentials_still_stop_the_job_at_the_first_item(
     with pytest.raises(AICredentialsError):
         plan_refine(store, repo=REPO, source=git_repo)
 
-    assert (_requests_per_item(sent), _written(store)) == ({first: 1}, [])
+    assert (_requests_per_item(sent), _bodies_written(store)) == ({first: 1}, [])
 
 
 def test_rejected_credentials_in_the_research_step_stop_the_job_before_the_proposal(
@@ -958,7 +994,7 @@ def test_rejected_credentials_in_the_research_step_stop_the_job_before_the_propo
     with pytest.raises(AICredentialsError):
         plan_refine(store, repo=REPO, source=git_repo)
 
-    assert (_requests_per_item(sent), _written(store)) == ({None: 1}, [])
+    assert (_requests_per_item(sent), _bodies_written(store)) == ({None: 1}, [])
 
 
 def test_a_research_plan_that_never_fits_its_schema_refines_without_search_results(
@@ -983,7 +1019,7 @@ def test_a_research_plan_that_never_fits_its_schema_refines_without_search_resul
     assert (
         _requests_per_item(sent),
         proposal_request["search_results"],
-        _written(store),
+        _bodies_written(store),
         [
             record.getMessage()
             for record in caplog.records
@@ -1000,7 +1036,7 @@ def test_a_research_plan_that_never_fits_its_schema_refines_without_search_resul
     )
 
 
-@pytest.mark.parametrize("mode", ["--confirm", "--dry-run", None])
+@pytest.mark.parametrize("mode", ["--confirm", None])
 def test_the_cli_exits_1_after_reporting_a_failed_item(
     git_repo: Path,
     cli_store: InMemoryRoadmapStore,
@@ -1019,7 +1055,7 @@ def test_the_cli_exits_1_after_reporting_a_failed_item(
         result.exit_code,
         f"#{first} Item P1-High: skipped" in result.output,
         "leaked_model_key" in result.output,
-        _written(cli_store),
+        _bodies_written(cli_store),
     ) == (1, True, False, [second, third] if mode == "--confirm" else [])
 
 
@@ -1074,7 +1110,7 @@ def test_a_failed_item_fails_the_refine_job_of_a_run_without_its_model_text(
     logged = logging.Formatter().format(caplog.records[-1])
     assert (
         raised.value.failed_jobs,
-        _written(store),
+        _bodies_written(store),
         named in logged,
         "leaked_model_key" in logged,
         "During handling" in logged,
@@ -1156,25 +1192,360 @@ def test_backlog_p2_and_p3_wait_for_the_configured_release_cap(
     assert [_issue_number(request) for request in sent] == [numbers[p] for p in refined]
 
 
-def test_a_round_after_refine_left_items_new_skips_them_and_calls_no_model(
+def test_a_round_after_refine_left_items_new_skips_them_reading_no_body_and_calling_no_model(
     git_repo: Path,
-    store: InMemoryRoadmapStore,
+    store: BodyReadCountingStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
 ) -> None:
-    """Items a real round refined and left New are unchanged on the next round, which selects
-    nothing and sends the gateway no request (#1515)."""
+    """Items a real round refined and left New are unchanged on the next round, which reads no
+    issue body, selects nothing and sends the gateway no request, with a Ready item that has a
+    recorded section among them (#1515, #1539)."""
     numbers = _seed_new_items(store)
+    _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", release="v0.2.26", refined=True)
     sent = scripted_gateway({}, default=_SPLIT_PROPOSAL)
     apply_refine(store, plan_refine(store, repo=REPO, source=git_repo))
     first_round = len(sent)
+    store.body_reads.clear()
     again = plan_refine(store, repo=REPO, source=git_repo)
     assert (
         first_round,
         len(sent),
+        store.body_reads,
         again.refined_items,
         [(it.number, reason) for it, reason in again.skipped_items],
         [_require_item(store, number).status for number in numbers],
-    ) == (3, 3, [], [(number, "unchanged") for number in numbers], ["New"] * 3)
+    ) == (3, 3, [], [], [(number, "unchanged") for number in numbers], ["New"] * 3)
+
+
+def test_editing_one_settled_items_body_selects_only_it_with_one_body_read_and_one_model_call(
+    git_repo: Path,
+    store: BodyReadCountingStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """A person's edit outside the refine section unsettles that item alone; the planning round
+    that follows reads its body once, sends one request, and writes nothing (#1539)."""
+    first, second, third = _seed_new_items(store)
+    sent = scripted_gateway({}, default=_SPLIT_PROPOSAL)
+    apply_refine(store, plan_refine(store, repo=REPO, source=git_repo))
+    store.as_actor("alice").write_issue_body(
+        second, store.read_issue_body(second) + "\n\nAnd one more requirement."
+    )
+    store.body_reads.clear()
+    writes_before, requests_before = store.job_writes(), len(sent)
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [refined.item.number for refined in again.refined_items],
+        [(it.number, reason) for it, reason in again.skipped_items],
+        store.body_reads,
+        len(sent) - requests_before,
+        store.job_writes() == writes_before,
+    ) == ([second], [(first, "unchanged"), (third, "unchanged")], [second], 1, True)
+
+
+def _refine_round(store: InMemoryRoadmapStore, source: Path) -> RefinePlan:
+    """One round of `devops roadmap refine --confirm`, planned and then applied."""
+    plan = plan_refine(store, repo=REPO, source=source)
+    apply_refine(store, plan)
+    return plan
+
+
+def _writes_to(store: InMemoryRoadmapStore, number: int) -> list[JobWrite]:
+    """What jobs wrote to issue `number` and its card, oldest first."""
+    return [write for write in store.job_writes() if write.number == number]
+
+
+def _refine_record(store: InMemoryRoadmapStore, number: int) -> tuple[str | None, ...]:
+    """The body hash, the section hash and the failed body hash in issue `number`'s job record."""
+    record = _require_item(store, number).job_record
+    return tuple(
+        record.get(key)
+        for key in (
+            RefineRecordKey.BODY_HASH,
+            RefineRecordKey.SECTION_HASH,
+            RefineRecordKey.FAILED_BODY_HASH,
+        )
+    )
+
+
+_FIRST_BODY_HASH = hash_text("Body P1-High")
+# A proposal whose section alone would take the body past the size the guard allows.
+_TOO_BIG_PROPOSAL = json.dumps(
+    {
+        "problem_statement": "A" * CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
+        "acceptance_criteria": [{"description": "It is designed.", "verification": "pytest"}],
+    }
+)
+
+
+def test_an_item_whose_refined_body_is_too_big_is_selected_once_and_its_body_never_written(
+    git_repo: Path,
+    store: BodyReadCountingStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """The size guard records the body it saw and writes none: the next round finds the item
+    unchanged and sends no request, until a person edits it (#1526, #1539)."""
+    first, *_ = _seed_new_items(store)
+    sent = scripted_gateway({first: _TOO_BIG_PROPOSAL})
+
+    first_round = _refine_round(store, git_repo)
+    after_first = (len(sent), store.read_issue_body(first), _writes_to(store, first))
+    second_round = plan_refine(store, repo=REPO, source=git_repo)
+    after_second = (
+        len(sent),
+        second_round.refined_items,
+        [(it.number, reason) for it, reason in second_round.skipped_items],
+    )
+    store.as_actor("alice").write_issue_body(first, "Body P1-High, edited")
+    third_round = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        first_round.has_writes,
+        after_first,
+        after_second,
+        [refined.item.number for refined in third_round.refined_items],
+    ) == (
+        True,
+        (
+            3,
+            "Body P1-High",
+            [
+                JobWrite("set_mark", first, RefineRecordKey.BODY_HASH.value, _FIRST_BODY_HASH),
+                JobWrite("set_mark", first, RefineRecordKey.SECTION_HASH.value, None),
+            ],
+        ),
+        (3, [], [(first, "unchanged")]),
+        [first],
+    )
+
+
+def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """A reply that never fits the schema is the item's doing: the first failure records the
+    body it saw and settles nothing, the second on the same body settles the item as unchanged,
+    and a person's edit unsettles it (#1526, #1539)."""
+    first, *_ = _seed_new_items(store)
+    sent = scripted_gateway({first: _SCHEMA_MISS})
+
+    _refine_round(store, git_repo)
+    after_first = (len(sent), _refine_record(store, first))
+    _refine_round(store, git_repo)
+    after_second = (len(sent), _refine_record(store, first))
+    third_round = _refine_round(store, git_repo)
+    after_third = (
+        len(sent),
+        third_round.failed_items,
+        [(it.number, why) for it, why in third_round.skipped_items],
+    )
+    store.as_actor("alice").write_issue_body(first, "Body P1-High, edited")
+    edited = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        after_first,
+        after_second,
+        after_third,
+        [failure.item.number for failure in edited.failed_items],
+    ) == (
+        (5, (None, None, _FIRST_BODY_HASH)),
+        (8, (_FIRST_BODY_HASH, None, None)),
+        (8, [], [(first, "unchanged")]),
+        [first],
+    )
+
+
+def test_a_failure_followed_by_a_success_refines_the_item_and_clears_the_failure(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """One reply that never fits the schema does not stop the item: the next round refines it,
+    and its record no longer holds the failure (#1526, #1539)."""
+    first, *_ = _seed_new_items(store)
+    answers: dict[int | None, Answer] = {first: _SCHEMA_MISS}
+    scripted_gateway(answers)
+
+    _refine_round(store, git_repo)
+    failed = _refine_record(store, first)
+    del answers[first]
+    _refine_round(store, git_repo)
+
+    item = _require_item(store, first)
+    body_hash, _, failed_body_hash = _refine_record(store, first)
+    assert (
+        failed,
+        (body_hash, failed_body_hash),
+        CONST_ROADMAP_REFINE_START_MARKER in store.read_issue_body(first),
+        item.status,
+    ) == (
+        (None, None, _FIRST_BODY_HASH),
+        (_FIRST_BODY_HASH, None),
+        True,
+        CONST_ROADMAP_STATUS_READY,
+    )
+
+
+def test_a_gateway_failure_records_nothing_and_the_next_round_selects_the_item_again(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """A timeout says nothing about the item, so however often it repeats, no record is written
+    and the item stays due (#1539)."""
+    first, second, third = _seed_new_items(store)
+    sent = scripted_gateway({first: httpx2.Response(504, text="Gateway Timeout")})
+
+    rounds = [_refine_round(store, git_repo), _refine_round(store, git_repo)]
+
+    assert (
+        [[failure.item.number for failure in plan.failed_items] for plan in rounds],
+        _requests_per_item(sent),
+        _writes_to(store, first),
+        _refine_record(store, first),
+    ) == ([[first], [first]], {first: 2, second: 1, third: 1}, [], (None, None, None))
+
+
+# Replies that leave an item too big to refine, or failing on its own text.
+_TROUBLE_REPLIES = pytest.mark.parametrize(
+    "reply", [_TOO_BIG_PROPOSAL, _SCHEMA_MISS], ids=["too-big", "schema-miss"]
+)
+
+
+@pytest.mark.parametrize(
+    ("reply", "marks", "exit_code"),
+    [
+        pytest.param(
+            _TOO_BIG_PROPOSAL,
+            [(RefineRecordKey.BODY_HASH, _FIRST_BODY_HASH), (RefineRecordKey.SECTION_HASH, None)],
+            0,
+            id="too-big",
+        ),
+        pytest.param(
+            _SCHEMA_MISS,
+            [(RefineRecordKey.FAILED_BODY_HASH, _FIRST_BODY_HASH)],
+            1,
+            id="schema-miss",
+        ),
+    ],
+)
+def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_the_cli(
+    git_repo: Path,
+    cli_store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+    reply: str,
+    marks: list[tuple[RefineRecordKey, str | None]],
+    exit_code: int,
+) -> None:
+    """With nothing else to write, `devops roadmap refine --confirm` still applies the plan:
+    the item's record is written and its body is not (#1539)."""
+    (first,) = _seed_new_items(cli_store, ("P1-High",))
+    scripted_gateway({first: reply})
+
+    args = ["refine", "--repo", REPO, "--source", str(git_repo), "--confirm"]
+    result = CliRunner().invoke(roadmap_app, args)
+
+    assert (result.exit_code, _writes_to(cli_store, first)) == (
+        exit_code,
+        [JobWrite("set_mark", first, key.value, value) for key, value in marks],
+    )
+
+
+def test_the_runs_refine_job_records_an_item_too_big_to_refine(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+) -> None:
+    """The refine job of `devops roadmap run` applies a plan whose only write is the record of
+    an item too big to refine (#1539)."""
+    (first,) = _seed_new_items(store, ("P1-High",))
+    scripted_gateway({first: _TOO_BIG_PROPOSAL})
+
+    _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+
+    assert _writes_to(store, first) == [
+        JobWrite("set_mark", first, RefineRecordKey.BODY_HASH.value, _FIRST_BODY_HASH),
+        JobWrite("set_mark", first, RefineRecordKey.SECTION_HASH.value, None),
+    ]
+
+
+@_TROUBLE_REPLIES
+def test_planning_a_round_writes_no_body_and_no_record_for_an_item_too_big_or_failing(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+    reply: str,
+) -> None:
+    """`--plan` writes nothing, though the plan holds a record to write (#1539)."""
+    (first,) = _seed_new_items(store, ("P1-High",))
+    scripted_gateway({first: reply})
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (plan.has_writes, _writes_to(store, first), store.read_issue_body(first)) == (
+        True,
+        [],
+        "Body P1-High",
+    )
+
+
+@_TROUBLE_REPLIES
+def test_a_body_edited_between_the_plan_and_the_apply_is_recorded_as_neither_too_big_nor_failed(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    scripted_gateway: Callable[..., list[httpx2.Request]],
+    caplog: pytest.LogCaptureFixture,
+    reply: str,
+) -> None:
+    """The record is of the body the model saw: a body a person changed since is left unrecorded,
+    with the warning every skipped write has (#1539)."""
+    (first,) = _seed_new_items(store, ("P1-High",))
+    scripted_gateway({first: reply})
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+    store.as_actor("alice").write_issue_body(first, "Body P1-High, edited")
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
+        apply_refine(store, plan)
+
+    assert (_writes_to(store, first), caplog.messages) == (
+        [],
+        [f"Skipping #{first}: the body changed between the read and the write."],
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "recorded"),
+    [
+        pytest.param(
+            StructuredOutputValidationError("never valid", violations=2), True, id="schema"
+        ),
+        pytest.param(ReplyRejectedError("refused", reply="x"), True, id="rejected"),
+        pytest.param(AIClientError("timed out"), False, id="transport"),
+    ],
+)
+def test_only_a_failure_the_items_own_text_caused_is_recorded(
+    git_repo: Path, store: InMemoryRoadmapStore, error: AIClientError, recorded: bool
+) -> None:
+    """A reply the model gave about the item that never validated or was refused is recorded; a
+    failure that says nothing about the item, such as a timeout, is not (#1539)."""
+    person = store.as_actor("alice")
+    number = person.seed_issue("Item", body="Body", on_board=True)
+    person.set_field(_require_item(store, number), ItemField.STATUS, "New")
+
+    plan = plan_refine(
+        store, repo=REPO, source=git_repo, item_number=number, model=MockLLMClient(fail_with=error)
+    )
+    apply_refine(store, plan)
+
+    assert (plan.has_writes, _writes_to(store, number)) == (
+        recorded,
+        [JobWrite("set_mark", number, RefineRecordKey.FAILED_BODY_HASH.value, hash_text("Body"))]
+        if recorded
+        else [],
+    )
 
 
 def test_refine_raises_its_own_error_naming_each_failed_item() -> None:

@@ -11,14 +11,15 @@ directory it was started from.
 
 Each recorded run is the real tool's, at the version `tools.lock` pins, started through its
 adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
-that finds nothing. They are kept in `tests/fixtures/scanner_runs/recorded_runs.json`, each with
-its command, in which `{tree}` stands for the scanned tree, `{workdir}` for the directory the
-scanner ran in and `{rule_pack}` for devops-cli's Semgrep rule pack. The contract suite,
-`tests/test_scanner_contract.py`, starts each adapter that way over the fake and checks that it
-still makes the recorded command and reads the run as it read the real one, and that each
-recording is of the locked version. When either changes, record the run again: start the
-adapter as the contract suite does, with the real tool at its locked version on PATH, and keep
-the command, exit code, stdout and stderr it ran with.
+that finds nothing. Semgrep's was recorded again on 2026-10-22, offline, with a rule file in
+place of the registry's `p/default`, which a recording cannot fetch. They are kept in
+`tests/fixtures/scanner_runs/recorded_runs.json`, each with its command, in which `{tree}` stands
+for the scanned tree, `{workdir}` for the directory the scanner ran in and `{rule_pack}` for
+devops-cli's Semgrep rule pack. The contract suite, `tests/test_scanner_contract.py`, starts each
+adapter that way over the fake and checks that it still makes the recorded command and reads the
+run as it read the real one, and that each recording is of the locked version. When either
+changes, record the run again: start the adapter as the contract suite does, with the real tool
+at its locked version on PATH, and keep the command, exit code, stdout and stderr it ran with.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -48,10 +49,12 @@ class RecordedScannerRun:
 
 @dataclass(frozen=True)
 class ScannerRun:
-    """A command the fake answered, and the directory it was started from."""
+    """A command the fake answered, the directory it was started from and, when the fake
+    snapshots working directories, the bytes of each file in that directory as the run started."""
 
     argv: list[str]
     cwd: str | None
+    workdir_files: dict[str, bytes] = field(default_factory=dict)
 
 
 def recorded_scanner_runs() -> dict[str, RecordedScannerRun]:
@@ -83,6 +86,7 @@ class ScannerFake:
         self.recorded = recorded
         self.bin_dir = bin_dir
         self.runs: list[ScannerRun] = []
+        self.snapshot_workdirs = False
         self._real_run = subprocess.run
         self._real_which = shutil.which
 
@@ -93,14 +97,20 @@ class ScannerFake:
             return str(self.bin_dir / program)
         return self._real_which(cmd, mode, path)
 
+    def _workdir_files(self, cwd: str | None) -> dict[str, bytes]:
+        """The name and bytes of each file in `cwd`, when the fake snapshots working directories."""
+        if cwd is None or not self.snapshot_workdirs:
+            return {}
+        return {path.name: path.read_bytes() for path in Path(cwd).iterdir() if path.is_file()}
+
     def run(self, args: Any, *popenargs: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
         """Answer a recorded scanner's command with its recorded run; run any other for real."""
         argv = [os.fsdecode(arg) for arg in args] if isinstance(args, (list, tuple)) else []
         recorded = self.recorded.get(Path(argv[0]).name) if argv else None
         if recorded is None:
             return self._real_run(args, *popenargs, **kwargs)
-        cwd = kwargs.get("cwd")
-        self.runs.append(ScannerRun(argv, None if cwd is None else os.fsdecode(cwd)))
+        cwd = None if kwargs.get("cwd") is None else os.fsdecode(kwargs["cwd"])
+        self.runs.append(ScannerRun(argv, cwd, self._workdir_files(cwd)))
         as_text = any(kwargs.get(key) for key in ("text", "universal_newlines", "encoding"))
         stdout, stderr = recorded.stdout, recorded.stderr
         answered = subprocess.CompletedProcess(

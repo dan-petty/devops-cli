@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ipaddress
+import os
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -24,10 +26,15 @@ from devops_cli.ai.tools.builtin_tools import (
     scan_osv,
     scan_pluto,
     scan_popeye,
+    scan_semgrep,
     scan_trivy,
     scan_uv_audit,
     search_code,
 )
+from devops_cli.review.rules_pack import RULE_PACK_DIR
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -392,6 +399,7 @@ def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
     )
 
 
+@pytest.mark.usefixtures("cached_default_ruleset")
 def test_builtin_security_and_iac_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
@@ -518,4 +526,116 @@ def test_rag_search_names_an_embedding_failure(
         "RAG search unavailable: Embedding model bge-m3:latest produced no embeddings: "
         "https://example.com/v1/embeddings answered HTTP 400: model not loaded. "
         "Fallback: use search_code."
+    )
+
+
+def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool's scan sends no metrics, checks no version, runs the rule pack and excludes no
+    directory (#1144)."""
+    monkeypatch.chdir(tmp_path)
+
+    scan_semgrep(str(tmp_path), config="./local-rules")
+
+    assert [run.argv for run in scanner_fake.runs] == [
+        [
+            "semgrep",
+            "scan",
+            "--json",
+            "--metrics",
+            "off",
+            "--disable-version-check",
+            "--config",
+            "./local-rules",
+            "--config",
+            str(RULE_PACK_DIR),
+            "--disable-nosem",
+            "--quiet",
+            str(tmp_path.resolve()),
+        ]
+    ]
+    assert [run.cwd for run in scanner_fake.runs] == [None]
+
+
+def test_the_agent_semgrep_tool_runs_from_the_cache_directory_with_the_cached_ruleset_named_there(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Semgrep returns plain rule ids for a config in its working directory, so the tool runs it
+    from the cache directory and names the target by its absolute path."""
+    monkeypatch.chdir(tmp_path)
+
+    scan_semgrep(str(tmp_path))
+
+    assert [(run.argv, run.cwd) for run in scanner_fake.runs] == [
+        (
+            [
+                "semgrep",
+                "scan",
+                "--json",
+                "--metrics",
+                "off",
+                "--disable-version-check",
+                "--config",
+                f"./{CACHED_RULESET_FILE_NAME}",
+                "--config",
+                str(RULE_PACK_DIR),
+                "--disable-nosem",
+                "--quiet",
+                str(tmp_path.resolve()),
+            ],
+            str(cached_default_ruleset.parent),
+        )
+    ]
+
+
+def test_the_agent_semgrep_tool_warns_when_the_cached_ruleset_is_older_than_a_day(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    clock: ClockFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    aged = time.time() - 25 * 3600
+    os.utime(cached_default_ruleset, (aged, aged))
+
+    scan_semgrep(str(tmp_path))
+
+    assert (len(scanner_fake.runs), capsys.readouterr().err) == (
+        1,
+        "! The cached registry rules p/default are 25 hours old, and the scan uses them. "
+        "Run `devops review rules fetch --ruleset p/default` to refresh them.\n",
+    )
+
+
+def test_the_agent_semgrep_tool_warns_of_nothing_when_the_cached_ruleset_is_current(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    scan_semgrep(str(tmp_path))
+
+    assert capsys.readouterr().err == ""
+
+
+def test_the_agent_semgrep_tool_without_the_cached_ruleset_names_the_fetch_command(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_semgrep(str(tmp_path))
+
+    assert (reply, scanner_fake.runs) == (
+        "The registry rules p/default are not cached, or the cached file is not a Semgrep "
+        "ruleset. Run `devops review rules fetch --ruleset p/default`.",
+        [],
     )

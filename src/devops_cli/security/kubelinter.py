@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import DefectClass, Finding, defect_class
 from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
@@ -15,6 +15,9 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +126,13 @@ class KubelinterScanner(BaseSecurityScanner):
 
 
 def run_kubelinter_scan(
-    target: Path = DEFAULT_CURRENT_PATH, *, isolated: bool = False
+    target: Path = DEFAULT_CURRENT_PATH,
+    *,
+    isolated: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Kube-linter scanner and return scan outcome; `isolated` for a review (#972)."""
-    scanner = KubelinterScanner()
+    scanner = KubelinterScanner(tool_executor)
     return scanner.scan(target, isolated=isolated)
 
 

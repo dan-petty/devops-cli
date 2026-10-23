@@ -31,12 +31,12 @@ from devops_cli.ai.analyze.cache import (
 )
 from devops_cli.ai.model_bundler import bundle_ollama_models
 from devops_cli.ai.prompt_eval import evaluate_persona_prompts
-from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.workspace import app as workspace_app
 from devops_cli.core.cleanup import cleanup_data_tier
 from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.exceptions import SecurityError
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.server.routes.workspace import list_workspaces
 
 _A_FORTNIGHT_AGO = time.time() - 14 * 86400
@@ -106,15 +106,6 @@ _WORKTREES_IN_ANOTHER_WORKSPACE = [
     "repo_with_worktree_in_another_repository",
     "repo_with_worktree_in_a_python_project",
 ]
-
-_OUTER_DIRECTORY_LIMIT = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known limit (#585): a checkout or worktree below another directory holding .git or "
-        "pyproject.toml resolves shared data to that outer directory"
-    ),
-)
-"""Marks a case of that limit: data resolves to the outer directory, not the main worktree."""
 
 
 def test_a_linked_worktree_resolves_to_the_main_worktree(
@@ -270,7 +261,7 @@ def test_reviews_saved_from_a_worktree_outlive_it(
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     monkeypatch.chdir(linked)
 
-    reviews = _get_reviews_base_dir()
+    reviews = ReviewSessionStore.root()
 
     assert reviews == (isolate_user_data_root / ".data" / "reviews").resolve()
 
@@ -440,13 +431,13 @@ def test_workspace_clean_refuses_a_parent_of_the_main_checkout_without_git(
 def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_that_workspaces_data(
     layout: str, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify cleanup run from a linked worktree inside another workspace, where the known limit
-    resolves shared data to that workspace's `.data`, refuses to prune another workspace's data
-    and leaves the main worktree's data alone too."""
+    """Verify cleanup run from a linked worktree inside another workspace, where the configured
+    data directory is that other workspace's `.data`, refuses to prune another workspace's data
+    and leaves the main worktree's data alone too (#617)."""
     main, linked = request.getfixturevalue(layout)
     shared = _stale(main / ".data" / "reviews" / "shared.json")
     host_own = _stale(linked.parent / ".data" / "reviews" / "host-own.json")
-    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(linked.parent / ".data"))
     monkeypatch.chdir(linked)
 
     with pytest.raises(SecurityError, match="another workspace"):
@@ -471,11 +462,11 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_prunes_an_absolute
     assert (summary.pruned_files, stale.exists()) == (["logs/old.log"], False)
 
 
-@pytest.mark.parametrize("configured", [None, "{host}/.data"])
+@pytest.mark.parametrize("configured", ["{host}/.data"])
 @pytest.mark.parametrize("layout", _WORKTREES_IN_ANOTHER_WORKSPACE)
 def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_its_symlinked_data(
     layout: str,
-    configured: str | None,
+    configured: str,
     request: pytest.FixtureRequest,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -488,10 +479,7 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_its_symlin
     volume = tmp_path / "volume" / "host-data"
     host_own = _stale(volume / "reviews" / "host-own.json")
     (host / ".data").symlink_to(volume, target_is_directory=True)
-    if configured is None:
-        monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
-    else:
-        monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", configured.format(host=host))
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", configured.format(host=host))
     monkeypatch.chdir(linked)
 
     with pytest.raises(SecurityError, match="another workspace"):
@@ -500,7 +488,6 @@ def test_workspace_clean_from_a_worktree_in_another_workspace_refuses_its_symlin
     assert host_own.exists()
 
 
-@_OUTER_DIRECTORY_LIMIT
 @pytest.mark.parametrize("layout", _WORKTREES_IN_ANOTHER_WORKSPACE)
 def test_workspace_clean_from_a_worktree_in_another_workspace_prunes_the_shared_data(
     layout: str, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
@@ -705,10 +692,7 @@ def test_bundle_models_help_says_a_relative_output_is_under_the_main_worktree() 
         ("repo_with_worktree", "main"),
         ("repo_with_worktree", "linked"),
         *((layout, "main") for layout in _WORKTREES_IN_ANOTHER_WORKSPACE),
-        *(
-            pytest.param(layout, "linked", marks=_OUTER_DIRECTORY_LIMIT)
-            for layout in _WORKTREES_IN_ANOTHER_WORKSPACE
-        ),
+        *((layout, "linked") for layout in _WORKTREES_IN_ANOTHER_WORKSPACE),
     ],
 )
 def test_workspace_discovery_lists_the_main_checkouts_repositories(
@@ -733,10 +717,7 @@ def test_workspace_discovery_lists_the_main_checkouts_repositories(
     "layout",
     [
         "repo_with_worktree",
-        *(
-            pytest.param(layout, marks=_OUTER_DIRECTORY_LIMIT)
-            for layout in _WORKTREES_IN_ANOTHER_WORKSPACE
-        ),
+        *_WORKTREES_IN_ANOTHER_WORKSPACE,
     ],
 )
 def test_an_analysis_saved_in_a_worktree_is_found_from_the_main_one(
@@ -874,7 +855,7 @@ def test_workspace_clean_in_a_clone_under_repos_prunes_the_workspace_data(
         summary.pruned_files,
         shared.exists(),
         clone_own.exists(),
-        _get_reviews_base_dir().is_relative_to(workspace),
+        ReviewSessionStore.root().is_relative_to(workspace),
         analysis_directory(clone),
     ) == (
         ["reviews/old.json"],
@@ -885,7 +866,6 @@ def test_workspace_clean_in_a_clone_under_repos_prunes_the_workspace_data(
     )
 
 
-@_OUTER_DIRECTORY_LIMIT
 def test_a_project_in_a_home_directory_kept_in_git_keeps_its_own_data(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, init_repo: Callable[[Path], Path]
 ) -> None:
@@ -907,13 +887,13 @@ def test_a_project_in_a_home_directory_kept_in_git_keeps_its_own_data(
         summary.pruned_files,
         own.exists(),
         home_own.exists(),
-        _get_reviews_base_dir(),
+        ReviewSessionStore.root().is_relative_to(home),
         analysis_directory(project),
     ) == (
         ["reviews/old.json"],
         False,
         True,
-        (project / ".data" / "reviews").resolve(),
+        False,
         (project / ".data" / "analysis").resolve(),
     )
 
@@ -1051,7 +1031,7 @@ def test_workspace_clean_in_a_submodule_prunes_the_superprojects_data(
         summary.pruned_files,
         shared.exists(),
         submodule_own.exists(),
-        _get_reviews_base_dir().is_relative_to(superproject),
+        ReviewSessionStore.root().is_relative_to(superproject),
         analysis_directory(submodule),
     ) == (
         superproject.resolve(),
@@ -1107,16 +1087,17 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     """Verify the controller's checkpoints and the sandbox registry and incidents use the main
     worktree's data directory from a linked worktree outside it, by default and with a relative
     `DEVOPS_CLI_DATA_DIR`, not a `.data` lost with the worktree; and that the dashboard's review
-    list reads the reviews under the user-level data root, where a review writes them (#972)."""
+    summary reads the reviews under the user-level data root, where a review writes them (#972)."""
     from devops_cli.ai.controller.manager import ConstellationManager
     from devops_cli.sandbox.logs import resolve_incident_dir
     from devops_cli.sandbox.registry import get_default_sandbox_registry_path
-    from devops_cli.ui.data_providers import _reviews_root
+    from devops_cli.ui.data_providers import fetch_review_status
 
     main, linked = repo_with_worktree
     data = main / (configured or ".data")
     reviews = (isolate_user_data_root / (configured or ".data") / "reviews").resolve()
-    reviews.mkdir(parents=True)
+    (reviews / "20261003-120000").mkdir(parents=True)
+    (reviews / "20261003-120000" / "findings.json").write_text("{}", encoding="utf-8")
     if configured is None:
         monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     else:
@@ -1124,7 +1105,8 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     monkeypatch.chdir(linked)
 
     resolved = (
-        _reviews_root(),
+        ReviewSessionStore.root(),
+        fetch_review_status().session_name,
         ConstellationManager().data_dir,
         get_default_sandbox_registry_path(),
         resolve_incident_dir(),
@@ -1133,6 +1115,7 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
     data = data.resolve()
     assert resolved == (
         reviews,
+        "20261003-120000",
         data,
         data / "sandbox" / "instances.json",
         data / "sandbox" / "incidents",

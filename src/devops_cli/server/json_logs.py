@@ -14,6 +14,7 @@ CONTEXT_LOG_KEYS: Final[tuple[str, ...]] = (
     "repo",
     "lane",
     "source",
+    "provider",
     "event",
     "action",
     "delivery",

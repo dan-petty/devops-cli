@@ -22,7 +22,7 @@ flowchart LR
 1. **Test-Driven Specification (TDD as Living Contract)**: Implementation code is never written without pre-existing executable tests establishing functional expectations, interfaces, and boundary conditions.
 2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, Nesting Depth $\le 5$ (< 6 indentation levels), standardized domain exceptions, and $\ge 90\%$ line code coverage.
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
-4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit` in every `devops ci` run, hash-pinned tool downloads (`tools.lock`), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
+4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit`, and the `package-lock.json` of each Node tool in `tools.lock` audited by `npm audit`, in every `devops ci` run, hash-pinned tool downloads (`tools.lock`; `npm ci` checks the sha512 of every package of a Node tool), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
 5. **Automated Code Review & Fact Grounding**: Tool-anchored code review pipeline evaluates all changes across static security analyzers, vulnerability audits, and secret scanning, with bounded model analysis for admitted finding groups.
 6. **Branch Isolation & Human-in-the-Loop Governance**: Strict Git hierarchy isolating features to topic branches targeting active release branches (`release/vX.Y.Z`). AI agents cannot merge code autonomously; maintainers approve and squash-merge.
 7. **Production Telemetry & DORA Observability**: OpenTelemetry tracing spans and Prometheus metrics instrument every CLI subcommand, background runner, and review stage.
@@ -73,7 +73,6 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 3. **Active Milestone GitHub Resource Population**:
    - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
    - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
-   - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty while an active milestone exists with planned deliverables.
 4. **Transparent Task Status Tracking**:
    - Maintain dynamic task status exclusively in isolated modular files under [`docs/agent/tasks/`](agent/tasks/README.md) (`task-<issue>-<slug>.md`) divided into:
      - **Backlog / Ready**: Queued deliverables and scoped milestones.
@@ -123,7 +122,7 @@ graph TD
 1. **Cyclomatic Complexity $\le 10$ & Nesting Depth $\le 5$**:
    - Every function, method, and code block must maintain cyclomatic complexity $\le 10$ and nesting depth $\le 5$ (< 6 indentation levels).
    - Decompose multi-step branching into pure predicate helpers, table-driven dispatch dictionaries, or functional pipelines (`functools`, `itertools`, `pathlib`).
-   - Complexity is Ruff `C901` (standard McCabe), run by `uv run devops ci` and the pre-commit `ruff-check` hook; functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. Nesting is enforced by the `structural-invariants` pre-commit hook and `test_the_source_tree_keeps_its_structural_invariants`. `devops scan complexity` reports Ruff `C901`'s McCabe count and does not gate.
+   - Complexity is Ruff `C901` (standard McCabe) at 10, set in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. Nesting is enforced by the `structural-invariants` pre-commit hook and `test_the_source_tree_keeps_its_structural_invariants`. `devops scan complexity` reports Ruff `C901`'s McCabe count and does not gate.
 2. **Standardized Domain Exception Taxonomy**:
    - Raising bare Python built-ins (`ValueError`, `RuntimeError`, `TypeError`, `Exception`) in domain logic is strictly prohibited.
    - All domain errors must inherit from `DevOpsCLIError` under `src/devops_cli/exceptions/`, supplying an exit code, machine-readable code (`CONST_ERROR_CODE_*`), and contextual details.
@@ -167,7 +166,7 @@ flowchart TD
         G4[ruff check]
         G5[ruff format]
         G6[mypy --strict]
-        G7[uv audit]
+        G7[uv audit and npm audit]
         G8[bandit SAST security]
         G9[actionlint workflow check]
         G9b[zizmor workflow security]
@@ -198,13 +197,14 @@ The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only
 4. `lint`: Executes `ruff check` across the entire codebase.
 5. `format`: Verifies formatting compliance with `ruff format --check`.
 6. `typecheck`: Enforces strict static type analysis with `mypy --strict`.
-7. `audit`: Validates dependencies against known vulnerabilities via `uv audit`.
+7. `audit`: Validates dependencies against known vulnerabilities via `uv audit`, and the lockfile of each Node tool in `tools.lock` via `npm audit --package-lock-only --json`, which needs no install. Both commands run on every `devops ci audit`, and a vulnerable pin fails the row. Each is read by its own signal, so a finding is told from an audit that could not run, such as an unreachable registry: uv exits 1 for a finding and 2 for a failure to run, while npm exits 1 for both and its JSON report tells them apart, `metadata.vulnerabilities` counts against an `error` object.
 8. `security`: Scans `src/` and `tests/`, the targets `.bandit` names, for security antipatterns using `bandit`, at medium severity and above. Bandit starts under `nice` (`DEFAULT_CI_BANDIT_NICENESS`), so in the full gate it takes the CPU the test row, the gate's critical path, leaves idle.
 9. `actionlint`: Validates `.github/workflows/` against GitHub Actions schema.
 10. `docs`: Regenerates docs (`devops docs generate --sync-readme`) by default; `devops ci --check` verifies freshness with `devops docs check` without changing files.
 11. `uv_check`: Verifies project dependencies and Python environment consistency via `uv check`.
 12. `lockfile`: Verifies lockfile synchronization via `uv lock --check`.
 13. `outdated`: Inspects dependency tree for outdated packages via `uv tree --outdated`.
+14. `openspec`: Runs `devops openspec check`, the OpenSpec gate: `openspec validate --all --strict` and `--archived`, a regeneration of the committed skills under the isolated profile compared with the tree, the instructions of a probe change with nothing on standard error, and a check that no requirement is rewritten by two active changes. It needs Node and the pinned `openspec` (`uv run devops install-tools --tool openspec --only-missing`), runs in every `devops ci` and in the `static` job with no path filter and no exemption, and runs alone in a commit hook when a commit touches `openspec/` or the generated skills ([ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
 
 ---
 
@@ -276,6 +276,15 @@ gitGraph
   - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones its releases and the project board holds their Status and Priority. `docs/ROADMAP.md` is a view that `devops roadmap render` regenerates in the release PR at the cut.
   - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`New` -> `Ready` -> `In Progress` -> `In Review` -> `Done`, or `Blocked` while waiting on something outside the roadmap), audited via `devops gh views list` / `spec` / `audit` and synced via `devops gh views sync` (card fields via `devops gh project sync`; issues reach the board through `devops roadmap intake`) with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
+- **Human Review Round (`tuicr`)**: A person can review the diff of an agent in `tuicr`, a terminal program that `tools.lock` pins. The person reads the diff and the commit message, and adds comments of the type `issue`, `question` or `nit` (`.devops/tuicr.config.toml`). The agent then follows these steps:
+  1. Find the session. Run `tuicr review list --repo <worktree>`. Use the entry with `"active": true`, which means that tuicr is open on it. If no entry or two entries are active, ask the person which slug to use.
+  2. Read the comments. Run `tuicr review comments --repo <worktree> --session <slug>`. Read only this JSON. Do not read the clipboard text or the session file.
+  3. Handle all comments in one round. For `issue`, change the code. For `question`, answer in chat and keep the code. For `nit`, change the code if the change is small, or say why not. Treat a comment with `"comment_type": "none"` as a question.
+  4. Reply in chat to each comment with the first 8 characters of its `id` and its `location`: `Addressed <id8> (<location>): <change>` or `Not changed <id8> (<location>): <reason>`.
+  5. Commit the change. Tell the person to start a new session on the new range with `tuicr -r <base>..HEAD`. A comment holds a line number, so an old session does not match the new code.
+  - **Never run**: An agent never starts `tuicr` or `gh-dash`. An agent never runs `tuicr review clear`, `clearc`, `delete` or `add`, `tuicr update` or `tuicr pr`. The first four commands change or delete the comments of the person. `tuicr update` skips the pin in `tools.lock`. `tuicr pr` runs the bare `gh` command outside `run_gh`.
+  - **No verdicts**: A tuicr comment type carries no verdict. An agent records no verdict, and a person records verdicts with `devops review verify` (Phase 5).
+  - **Errors and hidden files**: If `tuicr review comments` fails, the agent shows the message to the person and does not look for the session file. `.tuicrignore` hides `docs/commands/*.md` and `docs/CLI_REFERENCE.md` from the person, so no comment is on them.
 - **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
   - When multiple open PRs exist across the repository or targeting an active release branch, AI agents and contributors **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue: lowest PR number / earliest creation date first).
   - Remediating review comments, fixing CI failures, resolving merge conflicts, and verifying merge readiness on older PRs **strictly takes precedence** over authoring, advancing, or reviewing newer PRs to eliminate cascading merge conflicts, branch divergence, and PR starvation.

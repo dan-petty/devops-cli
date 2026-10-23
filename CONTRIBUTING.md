@@ -9,8 +9,8 @@ Thank you for your interest in contributing to DevOps CLI! This document outline
 DevOps CLI follows an uncompromising quality-first, test-driven engineering culture defined in [`AGENTS.md`](AGENTS.md):
 
 - **Test-First Implementation (TDD)**: All features, fixes, and refactorings **must** have tests written first. Tests serve as the executable documentation of public interfaces, edge cases, and architectural boundaries.
-- **Strict Complexity & Nesting Caps**:
-  - Cyclomatic complexity $\le 10$ is Ruff `C901` (standard McCabe), run by `uv run devops ci` and the pre-commit `ruff-check` hook. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing; `devops scan complexity` reports the same McCabe count and does not gate.
+- **Complexity and Nesting Caps**:
+  - Ruff caps cyclomatic complexity at 10 (`C901`) in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. `devops scan complexity` reports the same McCabe count and does not gate.
   - Maximum nesting depth $\le 5$ (< 6 indentation levels) project-wide.
   - Decompose multi-step procedures into dedicated single-responsibility helpers and pure predicates.
 - **Strongly Typed Domain Exceptions**:
@@ -89,6 +89,7 @@ uv run pre-commit install
   ```bash
   uv run devops docs generate --sync-readme
   ```
+  Every Markdown file belongs to exactly one class of the documentation inventory (`CONST_DOCS_INVENTORY` in `src/devops_cli/config/constants.py`), so a pull request that adds a document lists it there. `devops docs check` resolves the `devops` command lines of every hand-written and prompt document against the live command tree, so a command named in prose is a command that exists.
 
 ---
 

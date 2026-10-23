@@ -11,6 +11,10 @@
       "enabled": false
     },
     {
+      "matchManagers": ["npm"],
+      "enabled": false
+    },
+    {
       "matchManagers": ["dockerfile", "docker-compose"],
       "labels": ["type/chore", "scope/infra"]
     },

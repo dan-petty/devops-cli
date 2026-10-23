@@ -6,9 +6,17 @@ import json
 import re
 from typing import Any
 
+import yaml
+
 _MARKDOWN_CODEBLOCK_RE = re.compile(r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```")
 _JSON_UNSET = object()
 _JSONC_STRING_OR_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+# libyaml's loader composes several times faster than the pure-Python one, with the same nodes and
+# line marks; PyYAML built without libyaml has only the latter.
+YAML_SAFE_LOADER: type[yaml.SafeLoader] | type[yaml.CSafeLoader] = getattr(
+    yaml, "CSafeLoader", yaml.SafeLoader
+)
 
 
 def strip_json_comments(text: str) -> str:

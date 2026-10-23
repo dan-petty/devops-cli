@@ -134,14 +134,14 @@ feedback loop that changes what it does once the defects are gone:
 
 1. **Reactive remediation**: while invariant violations, failing tests or verified findings
    exist, an agent works on nothing else, with minimal, surgical fixes.
-2. **Proactive quality elevation**: once `uv run devops ci` passes, the agent turns to headroom:
-   functions near the complexity cap ($7 \le M \le 10$) come down to $M \le 6$ and depth $\le 3$,
-   public interfaces get complete docstrings and type hints, and tests are brought to the
-   conventions in [`docs/TESTING.md`](TESTING.md).
+2. **Proactive quality elevation**: once `uv run devops ci` passes, the agent gives public
+   interfaces complete docstrings and type hints. The agent also brings tests to the conventions in
+   [`docs/TESTING.md`](TESTING.md).
 3. **Continuous self-hardening**: each struggle, failure, inconsistency, bad pattern or useful
-   idea becomes an issue (`devops gh issues create`), and a rule for agents goes into
-   [`AGENTS.md`](../AGENTS.md). `docs/ROADMAP.md` is rendered from GitHub at the cut and never
-   edited in an item's pull request ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)).
+   idea becomes an issue (`devops gh issues create`), and a check that fails when the problem
+   returns guards it. A rule goes into [`AGENTS.md`](../AGENTS.md) only when no check is possible.
+   `docs/ROADMAP.md` is rendered from GitHub at the cut and never edited in an item's pull request
+   ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)).
 
 ---
 
@@ -199,7 +199,6 @@ This session produced 33 findings (2 CRITICAL, 11 HIGH, 15 MEDIUM, 5 LOW) and ma
 | FastAPI `0.141.1` and Uvicorn `0.53.0` are "several major releases behind" 0.110.x / 0.29.x | Version strings compared as decimals. Both pins are *ahead* of the versions cited as current, the supporting evidence was `CVE-2023-xxxx` — a placeholder, twice — and the same `findings.json` lists both packages `CLEAN` with an empty vulnerability list. |
 | `StrEnum` import breaks on Python 3.10 | `requires-python = ">=3.14"`. The installer refuses that interpreter before any import runs. |
 | Valkey pool caps idle connections at `max_size - 1` | At `len(idle) == max_size - 1` the guard is false and the append runs, giving exactly `max_size`. |
-| Token bucket permits drive the balance negative | That is the pacing mechanism: the returned delay is exactly the refill time for the shortfall, so a caller that waits leaves the bucket at zero. Clamping would forgive the overdraft and let oversized requests exceed the configured rate. |
 | SSRF via unvalidated `gateway_url` (CRITICAL) | The cited range is a display property returning a host string for a status panel; it issues no request. The suggested fix also rejected public addresses in `172.0`–`172.15` as private. |
 | Jinja2 injection in `devcontainer.json.j2` | Fixed in #378, merged before the finding was triaged. The review ran against a checkout that was already behind. |
 
@@ -307,7 +306,6 @@ This session evaluated repository review telemetry `/workspaces/devops-cli/.data
 | Unbounded refresh calculation in `LiveResourceWatcher` | **Remediated**: bounded refresh rate calculation with `min(30, max(1, int(1.0 / max(0.01, self.interval_seconds))))`. |
 | Dangling client reference on close in `HttpClientBroker` | **Remediated**: guaranteed `_sync_client = None` and `_async_client = None` are always cleared on `close()` and `aclose()`. |
 | Missing async client cleanup helper in `http/pool.py` | **Remediated**: added `aclose_shared_clients()` helper. |
-| Incomplete error metrics in `cli_command_handler` | **Remediated**: passed `error_type=type(exc).__name__` in `DevOpsCLIError` handler. |
 | Missing dictionary support in `ResourceInformer._normalize_event` | **Remediated**: extracted metadata cleanly via `_extract_event_metadata` supporting both objects and raw event dictionaries. |
 | Broad exception handling in `_fetch_metric_value` in `argo/rollouts.py` | **Remediated**: narrowed `except Exception:` to `(httpx2.HTTPError, ValueError, KeyError, IndexError, TypeError)`. |
 | Broad exception handling in `instruction_generator.py` | **Remediated**: narrowed `except Exception:` to `(tomllib.TOMLDecodeError, OSError)`. |
@@ -338,7 +336,7 @@ This session evaluated repository review telemetry `/workspaces/devops-cli/.data
 | Incomplete Exception Handling in HTTP Pool Exercise in `telemetry/memory_profiler.py:264` (HIGH) | **False Positive**: The `finally` block executes `broker.aclose()` and `broker.close()`, not `client.aclose()`. The broker is initialized prior to the `try` block and remains valid regardless of client initialization outcome. |
 | Potential Path Traversal Vulnerability in `tests/test_repos.py:171` (HIGH) | **False Positive**: Flagged `test_repos_clone_org_skips_path_traversal_repo`, an intentional unit test fixture verifying that repository names with path traversal sequences are rejected. |
 | Unpinned Container Image Tag in `k8s/llm/valkey-runs.yaml:60` & `valkey.yaml:29` (HIGH/MEDIUM) | **False Positive**: Images are pinned to specific version tags (e.g. `9.1.2-alpine`, `2026.9.3`) as required by project conventions. SHA256 digest pinning is not mandatory for these manifests. |
-| Potential Information Exposure via Error Type Disclosure in `command_decorator.py:93` (MEDIUM) | **False Positive**: `_record_error_metrics` records exception class names in telemetry and Prometheus metric labels to classify errors by type, which is standard observability practice and reveals no sensitive data. |
+| Potential Information Exposure via exception class names used as error-metric labels (MEDIUM) | **False Positive**: Exception class names as telemetry and Prometheus metric labels classify errors by type, which is standard observability practice and reveals no sensitive data. |
 | Ambiguous Command Reference in `task-701-*.md:19` (MEDIUM) | **Remediated**: Sanitized ephemeral scratchpad command path `/tmp/claude-1000/...` in `task-701-*.md` to `<scratch-dir>/probe/rewrite/p.py` in compliance with AGENTS.md zero information leakage rules. |
 | Egress NetworkPolicy Rule Lacks Port Restriction in `k8s/cloudflared/networkpolicy.yaml:40` (MEDIUM) | **False Positive**: Explicitly documented in manifest comments: kube-router fails to enforce egress rules combining peer selectors (`to:`) with port restrictions, silently dropping traffic. Scoping by `podSelector` and `namespaceSelector` alone is the required pattern. |
 | GPU Feature Discovery DaemonSet Security Warnings in `k8s/gpu-feature-discovery/daemonset.yaml` (MEDIUM/LOW) | **False Positive**: NVIDIA GPU Feature Discovery (GFD) is a hardware discovery daemonset requiring privileged access, `/sys`, and NVML to detect GPU hardware topology and label Kubernetes nodes. |
@@ -571,8 +569,16 @@ static analyzer took part (`static_analyzers`), why each that failed did, as rev
 Analyzers table says, such as `timed out after 300 s` (`static_analyzer_reasons`), and how many
 seconds each analyzer's scans ran (`static_analyzer_seconds`). `tools_lock_digest` is the digest of
 the tools lock the review started with, so two runs used the same tool versions only when theirs
-match, and `code_changed_during_run` is true, with a warning printed, when devops-cli's own
-checkout got a commit or an edit while the review ran.
+match. `semgrep_registry_digest` is the digest of the cached registry ruleset that Semgrep read. It
+is empty when Semgrep ran on the rule pack of devops-cli alone. The Static Analyzers table then
+shows a coverage gap that names `devops review rules fetch`. `devops review score` lists the digests
+of the sessions it scores. `code_changed_during_run` is true, with a warning printed, when the
+checkout of devops-cli got a commit or an edit while the review ran.
+
+Semgrep names the files that it scanned in `paths.scanned`. A file of the review that is not in this
+list is a file that Semgrep did not scan. Review.md shows such a file as `not scanned(...)` in its
+Coverage table. The profile shows it in `coverage`. The Static Analyzers table shows a coverage gap
+and the count of such files. The profile holds the same text in `static_analyzer_reasons`.
 
 Each stage also counts its replies by the reason the provider gave for their end
 (`finish_reasons`, with `unknown` when it gave none), and the replies cut at their token cap by
@@ -584,6 +590,44 @@ findings, and the time of every stage after payloads follows them. `devops revie
 same files several times with the response cache bypassed and saves the medians under
 `.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
 Compare benchmarks only when their corpus digests match.
+
+### Tool Run Records
+
+`tool_runs` holds the record of each run of a review tool, in the order the runs started. A record
+names the tool, its `version` and `binary_sha256`, and the `executor` that started it: `direct`
+means no confinement, and `sandbox` means the bubblewrap sandbox (`SECURITY.md` lists the limits of
+each). It holds `config_digest`, `ruleset_digest` and `targets_digest`, the `argv_template` of the
+command, and the `commit` of the tree. The commit ends with `-dirty` when a target differs from it.
+It is empty for a tree that is no git checkout, such as the files of a base revision that the review
+writes to a scratch directory. A digest of files covers their content, not their paths or their
+order. The digest of no files is `4f53cda18c2baa0c`. A digest is `unavailable` when the direct
+executor could not read one of the files, because a scan must not fail for its record. The template
+shows `{targets}`, `{config}` and `{ruleset}` where the command names those files by path, so the
+same scan records the same template.
+
+`review.md` lists the distinct records in the Tool Runs table, each with its number of runs.
+Gitleaks scans one file at a time, so one row can stand for hundreds of runs. The table leaves out
+the targets digest and shows the first 16 digits of the binary digest. `profile.json` keeps every
+record in full. The two digests cover these files:
+
+| Tool | Config digest | Ruleset digest |
+| :--- | :--- | :--- |
+| Bandit | the `.bandit` file that devops-cli hands the tool | none: the rules are in the package |
+| Gitleaks | the `gitleaks.toml` and the `.gitleaksignore` that devops-cli hands the tool | none: the default rules are in the binary |
+| Semgrep | none | the rule files of the pack of devops-cli, and the cached registry ruleset or the local rules file that `--config` names |
+| Trivy | the `trivy.yaml` and the `.trivyignore` that devops-cli hands the tool | the metadata file of the checks bundle for a `config` scan, else the metadata file of the vulnerability database, in the cache of Trivy |
+| kube-linter | the `kube-linter.yaml` that devops-cli hands the tool | none: the checks are in the binary |
+| Pluto | none | none: the deprecated APIs are in the binary |
+| osv-scanner | the `osv-scanner.toml` in the directory of each lockfile | none: the database has no metadata file yet |
+| Ruff | each file named `.ruff.toml`, `ruff.toml` or `pyproject.toml` in the directory of each checked file and above it, up to the tree. Not a file above the tree, and not the user config file of Ruff | none: the rules are in the binary |
+
+Ruff does not stop its search at the tree. While the direct executor runs, Ruff also applies a
+config file above the tree, and the user config file in `$XDG_CONFIG_HOME/ruff` when no project
+config file exists. The record does not name these two files, so the config digest of Ruff does not
+cover them.
+
+The record is read before the tool starts. Trivy fetches its checks bundle during a scan when the
+cache is old, so Trivy may use newer rules than the record names.
 
 ### Project Review Conventions
 
@@ -957,15 +1001,15 @@ catalog of open-source repositories:
 `devops review samples validate` runs the tooling over the fetched samples. It saves one JSON
 report per category under `.data/reviews/sample-validations/<run>/`, recording:
 
-- which parser read each file (tree-sitter, the regex fallback, or none) and the symbols it found;
+- the language tree-sitter parsed each file as, if it has a grammar for it, and its symbols;
 - what file analysis made of each file: its language, symbols and dependencies;
 - how many files and symbols the multilingual repository map shows of each sample;
 - with `--review`, a review of the category's synthetic defect corpus, scored as above. It uses
   the default persona, or every persona with `--all`.
 
-Each report ends with its problems: a language read by the regex fallback, files that yield no
-symbols, code types with no AST support, code the analysis mislabels, an empty repository map,
-and a review that found nothing or failed.
+Each report ends with its problems: files that yield no symbols, code types with no AST
+support, code the analysis mislabels, an empty repository map, and a review that found nothing
+or failed.
 
 ---
 
@@ -1092,7 +1136,7 @@ findings.json and candidates.json, and leaves the file as it was when it finds n
 record carries its session's subject, the finding's category and references, and the excerpt
 of its cited code. `devops ai prompt-eval` reports its counts per labeller and leaves out the labels a
 deterministic check wrote, a machine's labels rather than a person's (`--include-deterministic`
-counts them). `devops ai benchmark --suite` is gone: it sent empty
+counts them). The benchmark's `--suite` option is gone: it sent empty
 prompts from two task files that never existed and scored the fix as the code under test.
 
 ---
@@ -1104,7 +1148,6 @@ prompts from two task files that never existed and scored the fix as the code un
 The DevSecOps and robustness review session `20260913-231617` produced 13 findings. 11 findings were confirmed and remediated with test-first fixes; 2 findings were classified as false-positive hallucinations and disarmed:
 
 1. **Path Containment & Traversal Hardening**:
-   - `SqlitePlanStore`: Constrained database paths to project roots, temp paths, or user home; blocked arbitrary system paths.
    - `DEVOPS_CLI_CONFIG`: Validated path traversal and forbidden system paths when loading config from environment.
    - `run_subprocess` / `run_subprocess_async`: Enforced path containment and system path rejection on caller-supplied `cwd`.
    - `devcontainer` mounts: Enforced path traversal checks on volume mount targets.
@@ -1144,7 +1187,6 @@ The DevSecOps and Architecture review session `20260915-124521` produced 22 find
 3. **Symlink Traversal & Path Containment Hardening (CWE-22 / CWE-59)**:
    - `argo/gitops.py` (`_scan_directory_manifests`): Explicitly skipped symlinks (`is_symlink()`) and enforced repository root containment (`resolved.is_relative_to(repo_root)`).
    - `security/gitleaks.py` (`_resolve_scan_files`): Enforced `_is_safe_file` validation across candidate lists, individual files, and directory trees, skipping symlinks and out-of-bounds files.
-   - `ai/harness/filesystem.py` (`_list_directory`): Added symlink skipping guard.
    - `ai/rag/indexer.py` (`_is_indexable_file`): Skipped symlinks and verified root containment.
    - `config/settings.py` (`_find_project_config_path`): Disallowed symlinks and forbidden system paths.
 

@@ -7,7 +7,9 @@ the configured `release_cap` items are Ready across the next planned release and
 A planned release and the backlog's P0/P1 items also give their Ready items no refine round has
 recorded, which refine confirms Ready or sets back to New. It skips items that are Blocked,
 started, or unchanged since their last run, and items whose section a person edited
-(`check_person_edits`), so none of them takes one of the `--limit` places.
+(`check_person_edits`), so none of them takes one of the `--limit` places. Selection judges an item
+by the body its listing carried, so an item nothing changed costs no body read and no model call
+(#1539).
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
 Two model steps run with `ai.for_task("analysis")`: research plan (Tavily search when public) and proposal.
 Their prompts are `roadmap_refine_research.md` and `roadmap_refine_proposal.md`, and the issue reaches the
@@ -17,6 +19,12 @@ Status New → Ready only when complete.
 A model call that fails skips only its item: refine writes the others, then fails with
 `RoadmapRefineError` naming each skipped item, its error's class and its schema violation count.
 Rejected credentials still stop the run at the first item.
+An item whose refined body would pass the size limit is recorded rather than tried again: apply
+writes no body and records the hashes of the body it saw, so the item reads as unchanged until its
+body changes. A reply about an item that never validated (`StructuredOutputValidationError` or
+`ReplyRejectedError`) records the body's hash as failed, and a second one on the same body settles
+the item the same way. A failure that says nothing about the item, such as a timeout, records
+nothing (#1526).
 """
 
 from __future__ import annotations
@@ -37,6 +45,7 @@ from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
+    ReplyRejectedError,
     StructuredOutputValidationError,
 )
 from devops_cli.ai.common_tools import tavily_search
@@ -61,6 +70,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import get_tavily_api_key, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.lang import MESSAGES
@@ -111,6 +121,10 @@ class RefinementProposal(BaseModel):
 
 @dataclass(frozen=True)
 class RefinedItem:
+    """An item's refinement. When `skip_reason` is set none of it is written; with `record_only`
+    apply still records the hashes of the body refine saw, so the item reads as unchanged until
+    its body changes (#1526)."""
+
     item: Item
     proposal: RefinementProposal
     open_questions: list[str]
@@ -119,36 +133,51 @@ class RefinedItem:
     reason_comment: str | None
     new_body: str
     body_hash: str
-    section_hash: str
+    section_hash: str | None
     skip_reason: str | None = None
+    record_only: bool = False
 
 
 @dataclass(frozen=True)
 class RefineFailure:
     """An item refine skipped because its model call failed: the error's class name and the
     last reply's schema violation count (0 when it held no JSON, or the call got no reply),
-    never the model's text."""
+    never the model's text.
+
+    `item_caused` is set when the model answered about the item and no answer validated, which
+    the item's own text brings again, so apply records it (#1526). A timeout or a dropped stream
+    says nothing about the item.
+    """
 
     item: Item
     error: str
     violations: int = 0
+    item_caused: bool = False
 
     @classmethod
     def of(cls, item: Item, exc: AIClientError) -> RefineFailure:
         """The failure `exc` made of `item`'s model call."""
         violations = exc.violations if isinstance(exc, StructuredOutputValidationError) else 0
-        return cls(item=item, error=type(exc).__name__, violations=violations)
+        return cls(
+            item=item,
+            error=type(exc).__name__,
+            violations=violations,
+            item_caused=isinstance(exc, StructuredOutputValidationError | ReplyRejectedError),
+        )
 
 
 @dataclass(frozen=True)
 class RefinePlan:
     repo: str
-    sha: str
-    branch: str
+    sha: str = ""
+    branch: str = ""
     refined_items: list[RefinedItem] = field(default_factory=list)
     skipped_items: list[tuple[Item, str]] = field(default_factory=list)
     has_writes: bool = False
     failed_items: list[RefineFailure] = field(default_factory=list)
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
+    write_requests: tuple[PlannedRequest, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,6 +217,21 @@ def extract_section_and_outside(body: str) -> tuple[str, str | None]:
 def hash_text(text: str) -> str:
     """SHA-256 hex digest of stripped text."""
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+
+def _body_hashes(body: str) -> tuple[str, str | None]:
+    """The hash of `body` outside its refine section, and the section's, None when it holds none."""
+    outside, inside = extract_section_and_outside(body)
+    return hash_text(outside), (hash_text(inside) if inside else None)
+
+
+def _is_unchanged(item: Item, body: str) -> bool:
+    """Whether `body` hashes as refine last recorded for `item`, outside the section and in it."""
+    recorded = (
+        item.job_record.get(RefineRecordKey.BODY_HASH),
+        item.job_record.get(RefineRecordKey.SECTION_HASH),
+    )
+    return _body_hashes(body) == recorded
 
 
 # ── Git & Checkout Inspection ─────────────────────────────────────────────────
@@ -694,13 +738,7 @@ def _select_single_candidate(
         or item.state is GitHubState.CLOSED
     ):
         return [], [(item, f"status {item.status or 'closed'} is not New")]
-    # Check unchanged
-    body = store.read_issue_body(item.number)
-    outside, inside = extract_section_and_outside(body)
-    b_hash, s_hash = hash_text(outside), (hash_text(inside) if inside else None)
-    if b_hash == item.job_record.get(RefineRecordKey.BODY_HASH) and s_hash == item.job_record.get(
-        RefineRecordKey.SECTION_HASH
-    ):
+    if _is_unchanged(item, store.read_issue_body(item.number)):
         return [], [(item, "body and section unchanged")]
     return [item], []
 
@@ -768,17 +806,11 @@ def select_candidates(
     skipped: list[tuple[Item, str]] = []
 
     def _consider(it: Item) -> bool:
-        body = store.read_issue_body(it.number)
-        outside, inside = extract_section_and_outside(body)
-        b_hash = hash_text(outside)
-        s_hash = hash_text(inside) if inside else None
-        if b_hash == it.job_record.get(RefineRecordKey.BODY_HASH) and s_hash == it.job_record.get(
-            RefineRecordKey.SECTION_HASH
-        ):
+        if _is_unchanged(it, it.body):
             skipped.append((it, "unchanged"))
             return False
         # An item refine_one_item would skip for a person's edit takes no place (#1515).
-        edit_problem = check_person_edits(it, body)
+        edit_problem = check_person_edits(it, it.body)
         if edit_problem:
             skipped.append((it, edit_problem))
             return False
@@ -877,6 +909,7 @@ def refine_one_item(
     new_body = outside.rstrip() + "\n\n" + rendered_section
 
     if len(new_body) > CONST_ROADMAP_REFINE_MAX_BODY_CHARS:
+        seen_body_hash, seen_section_hash = _body_hashes(current_body)
         return RefinedItem(
             item=item,
             proposal=proposal,
@@ -885,9 +918,10 @@ def refine_one_item(
             needs_split=needs_split,
             reason_comment=None,
             new_body=current_body,
-            body_hash="",
-            section_hash="",
+            body_hash=seen_body_hash,
+            section_hash=seen_section_hash,
             skip_reason=f"new body would exceed {CONST_ROADMAP_REFINE_MAX_BODY_CHARS} characters",
+            record_only=True,
         )
 
     # Reason comment: a Ready item refine finds not ready goes back to New (#1515)
@@ -972,7 +1006,9 @@ def plan_refine(
             continue
         refined.append(res)
 
-    has_writes = any(r.skip_reason is None for r in refined)
+    has_writes = any(r.skip_reason is None or r.record_only for r in refined) or any(
+        failure.item_caused for failure in failed
+    )
     return RefinePlan(
         repo=repo,
         sha=sha,
@@ -981,6 +1017,28 @@ def plan_refine(
         skipped_items=skipped,
         has_writes=has_writes,
         failed_items=failed,
+    )
+
+
+def dry_run_refine(
+    repo: str,
+    *,
+    ref: str | None = None,
+    item: int | None = None,
+    limit: int | None = None,
+) -> RefinePlan:
+    """The plan a dry run returns, having made no external request."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    reads, writes = refine_requests(repo, ref, item=item, limit=limit)
+    return RefinePlan(
+        repo=repo,
+        sha="",
+        branch="",
+        dry_run=True,
+        requests=reads,
+        write_requests=writes,
+        has_writes=bool(writes),
     )
 
 
@@ -1018,8 +1076,57 @@ def raise_for_failed_items(plan: RefinePlan) -> None:
     )
 
 
+def _body_unchanged_since_read(store: RoadmapStore, number: int, body_hash: str) -> bool:
+    """Whether issue `number` still holds the text outside its section that `body_hash` hashes,
+    so what refine learned from the body it read still holds; a body a person changed since is
+    reported."""
+    fresh_outside, _ = extract_section_and_outside(store.read_issue_body(number))
+    if hash_text(fresh_outside) == body_hash:
+        return True
+    logger.warning("Skipping #%d: the body changed between the read and the write.", number)
+    return False
+
+
+def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
+    """Record a failure the item's own text caused: the first records the body it was about, and
+    a second on the same body settles the item as unchanged, like the size guard (#1526)."""
+    item = failure.item
+    body_hash, section_hash = _body_hashes(item.body)
+    if not _body_unchanged_since_read(store, item.number, body_hash):
+        return
+    if item.job_record.get(RefineRecordKey.FAILED_BODY_HASH) != body_hash:
+        store.set_marks(item, {RefineRecordKey.FAILED_BODY_HASH: body_hash})
+        return
+    store.set_marks(
+        item,
+        {
+            RefineRecordKey.BODY_HASH: body_hash,
+            RefineRecordKey.SECTION_HASH: section_hash,
+            RefineRecordKey.FAILED_BODY_HASH: None,
+        },
+    )
+
+
+def _record_unwritten(store: RoadmapStore, plan: RefinePlan) -> None:
+    """Record what refine saw of the items it wrote no section to, where the next round would
+    only repeat it: an item too big to refine, and an item the model's reply never validated for."""
+    for r in plan.refined_items:
+        if r.record_only and _body_unchanged_since_read(store, r.item.number, r.body_hash):
+            store.set_marks(
+                r.item,
+                {
+                    RefineRecordKey.BODY_HASH: r.body_hash,
+                    RefineRecordKey.SECTION_HASH: r.section_hash,
+                },
+            )
+    for failure in plan.failed_items:
+        if failure.item_caused:
+            _record_failure(store, failure)
+
+
 def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
-    """Applies the planned writes to GitHub: updates issue body, marks, status and comments."""
+    """Applies the planned writes to GitHub: updates issue body, marks, status and comments, and
+    records the body of an item too big to refine or failing on its own text."""
     refined_count = readied_count = split_count = comments_posted = 0
 
     for r in plan.refined_items:
@@ -1027,13 +1134,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             continue
 
         # Race condition check: ensure body did not change between read and write
-        fresh_body = store.read_issue_body(r.item.number)
-        fresh_outside, _ = extract_section_and_outside(fresh_body)
-        if hash_text(fresh_outside) != r.body_hash:
-            logger.warning(
-                "Skipping #%d: the body changed between the read and the write.",
-                r.item.number,
-            )
+        if not _body_unchanged_since_read(store, r.item.number, r.body_hash):
             continue
 
         # Write body
@@ -1045,6 +1146,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             RefineRecordKey.BODY_HASH: r.body_hash,
             RefineRecordKey.SECTION_HASH: r.section_hash,
             RefineRecordKey.NEEDS_SPLIT: "true" if r.needs_split else "false",
+            RefineRecordKey.FAILED_BODY_HASH: None,
         }
 
         # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
@@ -1064,6 +1166,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             store.comment(r.item.number, r.reason_comment)
             comments_posted += 1
 
+    _record_unwritten(store, plan)
     return RefineApplied(
         refined_count=refined_count,
         readied_count=readied_count,
@@ -1162,6 +1265,7 @@ __all__ = [
     "check_person_edits",
     "check_ready",
     "collect_context",
+    "dry_run_refine",
     "extract_section_and_outside",
     "hash_text",
     "inspect_checkout",

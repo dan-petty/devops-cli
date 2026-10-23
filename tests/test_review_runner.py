@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +38,11 @@ from devops_cli.output import (
     render_review_raw,
     render_review_result,
 )
+from devops_cli.review.session import ReviewSessionStore
+from tests.support.fakes.github import pull_request_payload, route_pull_request
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -109,7 +117,7 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
     assert len(blocks) >= 1
 
 
-def test_prepare_content_helpers(tmp_path: Path) -> None:
+def test_prepare_content_helpers(tmp_path: Path, github_api: GitHubApiFake) -> None:
     """Verify content preparation for paths, branches, and PRs."""
     test_file = Path("src/devops_cli/main.py")
 
@@ -133,15 +141,24 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         b_pages, b_title, b_target, _ = _prepare_branch_content("feat/test", "main", Path("."))
         assert (len(b_pages) >= 1, "feat/test" in b_title, b_target) == (True, True, "feat/test")
 
-    with patch("devops_cli.github.client.GitHubClient") as mock_gh_cls:
-        mock_gh = mock_gh_cls.return_value
-        mock_gh.get_pull.return_value = MagicMock(title="Mock PR Title")
-        mock_gh.get_pr_diff.return_value = "diff --git a/test.py b/test.py\n+content\n"
-        pr_pages, pr_title, _pull, _repo, pr_base = _prepare_pr_content(123, repo_arg="owner/repo")
-        assert (len(pr_pages) >= 1, "PR #123" in pr_title, pr_base is None) == (True, True, True)
+    route_pull_request(
+        github_api,
+        "owner/repo",
+        123,
+        pull_request_payload(title="Mock PR Title"),
+        diff="diff --git a/test.py b/test.py\n+content\n",
+    )
+    pr_pages, pr_title, pull, repo, pr_base = _prepare_pr_content(123, repo_arg="owner/repo")
+    assert (len(pr_pages) >= 1, pr_title, pull.title, repo, pr_base is None) == (
+        True,
+        "PR #123: Mock PR Title",
+        "Mock PR Title",
+        "owner/repo",
+        True,
+    )
 
 
-def test_review_runner_extended_branches(tmp_path: Path) -> None:
+def test_review_runner_extended_branches(review_store: type[ReviewSessionStore]) -> None:
     """Verify session lookup and markdown formatting."""
     from devops_cli.ai.review.runner import (
         _find_session_dir,
@@ -172,19 +189,18 @@ def test_review_runner_extended_branches(tmp_path: Path) -> None:
     assert ("*(mitigated)*" in md, "*(unverified)*" in md) == (True, True)
 
     # 2. Session directory lookup
-    with patch("devops_cli.ai.review.runner._get_reviews_base_dir", return_value=tmp_path):
-        s1 = tmp_path / "20260826-120000-session1"
-        s1.mkdir()
-        (s1 / "findings.json").write_text("{}", encoding="utf-8")
-        found = _find_session_dir("session1")
-        assert found == s1
+    s1 = review_store.root() / "20260826-120000-session1"
+    s1.mkdir()
+    (s1 / "findings.json").write_text("{}", encoding="utf-8")
+    found = _find_session_dir("session1")
+    assert found == s1
 
 
-def test_review_cli_commands(tmp_path: Path) -> None:
+def test_review_cli_commands(tmp_path: Path, review_store: type[ReviewSessionStore]) -> None:
     """Verify review findings, verify, stats, and export-feedback commands."""
     runner = CliRunner()
-    session_dir = tmp_path / "20260826-000000-sample-session"
-    session_dir.mkdir(parents=True)
+    session_dir = review_store.root() / "20260826-000000-sample-session"
+    session_dir.mkdir()
 
     findings = [
         SavedFinding(
@@ -217,52 +233,80 @@ def test_review_cli_commands(tmp_path: Path) -> None:
     )
     (session_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
-    with patch("devops_cli.ai.review.runner._get_reviews_base_dir", return_value=tmp_path):
-        # 1. Findings table
-        res_find = runner.invoke(review_app, ["findings", "--session", "sample-session"])
-        assert res_find.exit_code == 0
-        assert "Insecure Port Binding" in res_find.output
+    # 1. Findings table
+    res_find = runner.invoke(review_app, ["findings", "--session", "sample-session"])
+    assert res_find.exit_code == 0
+    assert "Insecure Port Binding" in res_find.output
 
-        # 2. Findings filter
-        res_find_unver = runner.invoke(
-            review_app, ["findings", "--session", "sample-session", "--unverified"]
+    # 2. Findings filter
+    res_find_unver = runner.invoke(
+        review_app, ["findings", "--session", "sample-session", "--unverified"]
+    )
+    assert res_find_unver.exit_code == 0
+
+    # 3. Verify finding by index
+    res_ver_idx = runner.invoke(
+        review_app,
+        [
+            "verify",
+            "sample-session",
+            "--index",
+            "1",
+            "--status",
+            "INVALIDATED",
+            "--reason",
+            "False positive",
+        ],
+    )
+    assert res_ver_idx.exit_code == 0
+    assert "Updated finding #1" in res_ver_idx.output
+
+    # 4. Verify finding by title
+    res_ver_title = runner.invoke(
+        review_app,
+        ["verify", "sample-session", "--title", "Missing Docstring", "--status", "MITIGATED"],
+    )
+    assert res_ver_title.exit_code == 0
+
+    # 5. Review stats
+    res_stats = runner.invoke(review_app, ["stats"])
+    assert res_stats.exit_code == 0
+    assert "devsecops" in res_stats.output
+
+    # 6. Export feedback
+    res_exp = runner.invoke(
+        review_app, ["export-feedback", "--output", str(tmp_path / "feedback.json")]
+    )
+    assert res_exp.exit_code == 0
+
+
+def test_review_findings_without_a_session_reads_the_latest_published_one(
+    cli: Callable[..., Any], review_store: type[ReviewSessionStore]
+) -> None:
+    """Verify the default session is the newest one whose review finished, not a review still
+    running, nor the one modified last (#771)."""
+    for name, title, published in (
+        ("20261001-120000", "Older review", True),
+        ("20261002-120000", "Newest finished review", True),
+        ("20261003-120000", "Review still running", False),
+    ):
+        session = review_store.session(name)
+        finding = SavedFinding(
+            title=title, severity="HIGH", location="src/app.py:10", description="d"
         )
-        assert res_find_unver.exit_code == 0
+        session.write_findings(ReviewSessionPayload(findings=[finding]))
+        if published:
+            session.publish()
+    os.utime(review_store.root() / "20261001-120000", (4_000_000_000, 4_000_000_000))
 
-        # 3. Verify finding by index
-        res_ver_idx = runner.invoke(
-            review_app,
-            [
-                "verify",
-                "sample-session",
-                "--index",
-                "1",
-                "--status",
-                "INVALIDATED",
-                "--reason",
-                "False positive",
-            ],
-        )
-        assert res_ver_idx.exit_code == 0
-        assert "Updated finding #1" in res_ver_idx.output
+    result = cli("review", "findings")
 
-        # 4. Verify finding by title
-        res_ver_title = runner.invoke(
-            review_app,
-            ["verify", "sample-session", "--title", "Missing Docstring", "--status", "MITIGATED"],
-        )
-        assert res_ver_title.exit_code == 0
-
-        # 5. Review stats
-        res_stats = runner.invoke(review_app, ["stats"])
-        assert res_stats.exit_code == 0
-        assert "devsecops" in res_stats.output
-
-        # 6. Export feedback
-        res_exp = runner.invoke(
-            review_app, ["export-feedback", "--output", str(tmp_path / "feedback.json")]
-        )
-        assert res_exp.exit_code == 0
+    assert (
+        result.exit_code,
+        "Newest finished review" in result.output,
+        "Review still running" in result.output,
+        "Older review" in result.output,
+    ) == (0, True, False, False)
 
 
 def test_detect_base_branch(tmp_path: Path) -> None:

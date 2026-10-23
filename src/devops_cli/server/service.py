@@ -7,7 +7,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -35,7 +35,11 @@ from devops_cli.config.settings import (
     load_settings,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.server.routes.webhooks import DeliveryLRUCache, create_webhook_router
+from devops_cli.server.routes.webhooks import (
+    DeliveryLRUCache,
+    WebhookConsumer,
+    create_webhook_router,
+)
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import get_tracer
 
@@ -503,11 +507,13 @@ def create_service_app(
     clock: Callable[[], datetime] | None = None,
     sleep_func: Callable[[float], Coroutine[Any, Any, None]] | None = None,
     pause_until: PauseReader | None = None,
+    consumers: Sequence[WebhookConsumer] | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
     `pause_until` reads the time a failed round's error names, before which no lane of any
-    repository starts a round."""
+    repository starts a round; `consumers` take the webhook events, the roadmap consumer when
+    none are given."""
     active_settings = settings or load_settings()
     service_secrets = _resolve_service_secrets(active_settings, secrets)
     service_clock = clock or (lambda: datetime.now(UTC))
@@ -547,7 +553,7 @@ def create_service_app(
     app.state.pause_until = pause_reader
 
     app.middleware("http")(_service_trace_middleware)
-    app.include_router(create_webhook_router(manager))
+    app.include_router(create_webhook_router(manager, consumers))
 
     @app.get("/readyz")
     async def readyz() -> Response:

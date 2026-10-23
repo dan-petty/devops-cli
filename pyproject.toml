@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.38"
+version = "0.2.39"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -13,8 +13,7 @@ dependencies = [
     "typer==0.27.2",
     "rich==15.0.0",
     "pydantic==2.13.5",
-    "PyGithub==2.10.0",
-    "gitpython==3.2.0",
+    "gitpython==3.2.1",
     "cryptography==50.0.2",
     "httpx2==2.13.1",
     "httpcore2==2.13.1",
@@ -33,20 +32,20 @@ dependencies = [
     "pathspec==1.1.1",
     "python-hcl2==8.1.4",
     "packaging==26.3",
+    "platformdirs==4.11.8",
     "fastapi==0.142.2",
     "uvicorn==0.53.0",
     "tiktoken==0.14.0",
     "pydantic-ai[spec]==2.54.0",
-    "logfire==5.1.0",
+    "logfire==5.2.0",
     "pynacl==1.6.2",
     "openai==3.26.1",
-    "pydantic-graph==2.54.0",
-    "opentelemetry-api==1.44.0",
+    "opentelemetry-api==1.45.1",
     "secretstorage==3.5.0; sys_platform == 'linux'",
     "jeepney==0.9.0",
     "dnspython[idna]==2.8.0",
     "genai-prices==0.1.9",
-    "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.45.1",
     "textual==8.2.8",
     "tenacity==9.1.4",
     "ratelimit==2.2.1",
@@ -66,12 +65,11 @@ dependencies = [
     "markdown-it-py==4.2.0",
     "mdit-py-plugins==0.6.1",
     "graphql-core==3.3.0",
-    "markdownify==1.2.3",
-    "beautifulsoup4==4.15.0",
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
     "gidgethub==6.0.0",
     "cachetools==7.1.8",
+    "valkey==6.2.0",
 ]
 
 [project.scripts]
@@ -101,6 +99,7 @@ dev = [
     "syrupy==6.1.1",
     "ast-grep-cli==0.51.0",
     "time-machine==3.5.1",
+    "fakeredis[valkey]==2.40.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -145,13 +144,6 @@ python_version = "3.14"
 strict = true
 plugins = ['pydantic.mypy']
 enable_error_code = ["ignore-without-code"]
-
-# pydantic-ai documents EnqueueContent, PendingMessage and PendingMessagePriority as members of
-# pydantic_ai.run (https://pydantic.dev/docs/ai/api/run/), but the module has no __all__, so
-# strict mode would not count them as exported.
-[[tool.mypy.overrides]]
-module = "pydantic_ai.run"
-implicit_reexport = true
 
 # statsmodels ships no type information; `devops review score` calls its fleiss_kappa and
 # aggregate_raters (#1138).
@@ -250,11 +242,13 @@ pytest_add_cli_args_test_selection = [
     "--deselect=tests/test_host_sandbox.py::test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts",
 ]
 also_copy = [
-    ".devcontainer", ".devops", ".dockerignore", ".editorconfig", ".gitattributes", ".github",
-    ".gitignore", ".mcp.json", ".pre-commit-config.yaml", ".python-version", ".trivyignore",
-    "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md", "CONTRIBUTING.md",
-    "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md", "changelog.d",
-    "config.example.yaml", "docs", "k8s", "tf",
+    ".devcontainer", ".devops", ".dockerignore", ".editorconfig", ".gh-dash.yml", ".gitattributes",
+    ".github", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", ".python-version",
+    ".tuicrignore",
+    ".trivyignore", "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md",
+    "CONTRIBUTING.md", "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md",
+    "changelog.d", "config.example.yaml", "docs", "k8s", "tf",
+    "GEMINI.md",
 ]
 
 [tool.uv]
@@ -298,11 +292,4 @@ DEP002 = [
     "tree-sitter-rust",
     "tree-sitter-typescript",
     "openai",
-]
-# External durable execution engines are optional until #1121 settles them.
-# deptry matches top-level names, which is why opentelemetry-api was declared by hand.
-DEP001 = [
-    "temporalio",
-    "dbos",
-    "prefect",
 ]

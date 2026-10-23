@@ -123,28 +123,21 @@ def is_at_or_under(host: str, domain: str) -> bool:
     return host_name.is_subdomain(domain_name)
 
 
-def _domain_field_label(info: ValidationInfo) -> str:
-    """Resolve the qualified configuration field name for domain validation error messages."""
-    title = (info.config or {}).get("title")
-    field_name = info.field_name or "domain"
-    if title == "KubernetesConfig" and field_name == "domain":
-        return "k8s.domain"
-    if title == "CloudflareConfig" and field_name == "domain":
-        return "cloudflare.domain"
-    return field_name
+_SETTINGS_KEY_BY_MODEL_TITLE: Final[dict[str, str]] = {
+    "KubernetesConfig": "k8s.domain",
+    "CloudflareConfig": "cloudflare.domain",
+}
 
 
 def validate_configured_domain(value: str, info: ValidationInfo) -> str:
-    """Validate a configured domain or IP literal entry, refusing root, leading dot, and invalid DNS labels."""
+    """Validate the `k8s.domain` or `cloudflare.domain` setting, refusing root, leading dot, and invalid DNS labels."""
     import dns.exception
 
-    if _parse_ip_literal(value) is not None:
-        return value
-    field_label = _domain_field_label(info)
     try:
         _parse_non_root_dns_name(value)
     except dns.exception.DNSException as exc:
-        raise ValueError(f"Invalid domain in {field_label}: {value!r}") from exc
+        settings_key = _SETTINGS_KEY_BY_MODEL_TITLE[(info.config or {})["title"]]
+        raise ValueError(f"Invalid domain in {settings_key}: {value!r}") from exc
     return value
 
 

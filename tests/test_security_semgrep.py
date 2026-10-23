@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -15,12 +16,25 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.review import pipeline
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review.profile import profiling
 from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.commands.scan import app as scan_app
-from devops_cli.security.base import ScanOutcome
+from devops_cli.review.rules_pack import RULE_PACK_DIR
+from devops_cli.security.base import MaterializedTargets, ScanOutcome
+from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.semgrep import (
+    SemgrepScanner,
     parse_semgrep_json,
     run_semgrep_scan,
+)
+from devops_cli.security.semgrep_registry import cached_ruleset
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.registry_cache import (
+    CACHED_RULESET,
+    CACHED_RULESET_FILE_NAME,
+    CACHED_RULESET_WORKDIR_NAME,
+    REPLACED_RULESET,
 )
 
 runner = CliRunner()
@@ -108,6 +122,7 @@ def test_run_semgrep_scan_dry_run(tmp_path: Path) -> None:
         assert "[DRY-RUN]" in findings[0].title
 
 
+@pytest.mark.usefixtures("cached_default_ruleset")
 def test_scan_semgrep_cli(tmp_path: Path) -> None:
     test_file = tmp_path / "test.py"
     test_file.write_text("x = 1\n", encoding="utf-8")
@@ -285,13 +300,13 @@ def test_semgrep_findings_carry_the_reviewed_trees_paths_and_lines(
     }
 
 
+@pytest.mark.usefixtures("cached_default_ruleset")
 def test_a_semgrep_timeout_loses_only_its_batch(
     reviewed_checkout: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """At p/default's measured rate a review's targets took more than half Semgrep's 300 s
-    timeout in one run, so a review scans them in batches, each with its own timeout. A batch
-    that runs out of time loses its own files and says which batch it was; the other batches'
-    findings stay. Ten files in batches of four make three batches."""
+    """A review scans its targets in batches, each with its own timeout. A batch that runs out of
+    time loses its own files and says which batch it was; the other batches' findings stay. Ten
+    files in batches of four make three batches."""
     monkeypatch.setattr("devops_cli.security.semgrep.DEFAULT_SEMGREP_REVIEW_BATCH_FILES", 4)
     batch_sizes: list[int] = []
 
@@ -357,3 +372,538 @@ def test_semgrep_findings_carry_paths_relative_to_scan_root(tmp_path: Path) -> N
         str(fixture_tree) in f.location,
         str(fixture_tree) in f.description,
     ) == ("app/x.py:15", False, False)
+
+
+def test_a_review_runs_the_rule_pack_whatever_config_it_names(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """The pack's rules run next to the config a review names, not only next to `p/default`,
+    and the scan sends no metrics and checks no version (#1144)."""
+    tree = (tmp_path / "tree").resolve()
+    tree.mkdir()
+    target = tree / "app.py"
+    target.write_text('print("hello")\n', encoding="utf-8")
+
+    run_semgrep_scan([target], config="./local-rules", reviewed_tree=tree)
+
+    assert [run.argv for run in scanner_fake.runs] == [
+        [
+            "semgrep",
+            "scan",
+            "--json",
+            "--metrics",
+            "off",
+            "--disable-version-check",
+            "--config",
+            "./local-rules",
+            "--config",
+            str(RULE_PACK_DIR),
+            "--disable-nosem",
+            "--quiet",
+            "./app.py",
+        ]
+    ]
+
+
+def test_scan_sast_runs_the_rule_pack_next_to_the_config_it_names(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """`devops scan sast --config ./local-rules` scans the directory with the same flags as a
+    review, excluding what a checkout holds that is not its code, and still adds the pack."""
+    result = cli("scan", "sast", str(tmp_path), "--config", "./local-rules")
+
+    assert (result.exit_code, [run.argv for run in scanner_fake.runs]) == (
+        0,
+        [
+            [
+                "semgrep",
+                "scan",
+                "--json",
+                "--metrics",
+                "off",
+                "--disable-version-check",
+                "--config",
+                "./local-rules",
+                "--config",
+                str(RULE_PACK_DIR),
+                "--disable-nosem",
+                *("--exclude", ".venv"),
+                *("--exclude", "venv"),
+                *("--exclude", "node_modules"),
+                *("--exclude", ".data"),
+                *("--exclude", "repos"),
+                *("--exclude", ".git"),
+                "--quiet",
+                str(tmp_path.resolve()),
+            ]
+        ],
+    )
+
+
+# =============================================================================
+# The registry ruleset a scan reads from the cache, offline (#1144)
+# =============================================================================
+
+OLD_CACHE_WARNING = (
+    "! The cached registry rules p/default are 25 hours old, and the scan uses them. "
+    "Run `devops review rules fetch --ruleset p/default` to refresh them.\n"
+)
+NOT_CACHED = (
+    "The registry rules p/default are not cached, or the cached file is not a Semgrep ruleset. "
+    "Run `devops review rules fetch --ruleset p/default`."
+)
+
+
+def _review_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    """A checkout holding `app.py`, and that file."""
+    tree = (tmp_path / "tree").resolve()
+    tree.mkdir()
+    target = tree / "app.py"
+    target.write_text('print("hello")\n', encoding="utf-8")
+    return tree, target
+
+
+def test_a_review_scans_with_the_cached_registry_ruleset_written_into_its_working_directory(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    tree, target = _review_inputs(tmp_path)
+    scanner_fake.snapshot_workdirs = True
+
+    outcome = run_semgrep_scan([target], reviewed_tree=tree, ruleset=cached_ruleset("p/default"))
+
+    assert outcome.status == "ran"
+    assert [run.argv for run in scanner_fake.runs] == [
+        [
+            "semgrep",
+            "scan",
+            "--json",
+            "--metrics",
+            "off",
+            "--disable-version-check",
+            "--config",
+            f"./{CACHED_RULESET_WORKDIR_NAME}",
+            "--config",
+            str(RULE_PACK_DIR),
+            "--disable-nosem",
+            "--quiet",
+            "./app.py",
+        ]
+    ]
+    assert [run.workdir_files for run in scanner_fake.runs] == [
+        {"app.py": b'print("hello")\n', CACHED_RULESET_WORKDIR_NAME: CACHED_RULESET}
+    ]
+
+
+def test_a_reviewed_file_named_like_the_written_ruleset_does_not_replace_it(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    """The ruleset is written before the reviewed files are placed, so a file of the tree cannot
+    take its place as the config."""
+    tree, target = _review_inputs(tmp_path)
+    planted = tree / CACHED_RULESET_WORKDIR_NAME
+    planted.write_text("rules:\n- id: planted\n  pattern: $X\n", encoding="utf-8")
+    scanner_fake.snapshot_workdirs = True
+
+    run_semgrep_scan([target, planted], reviewed_tree=tree, ruleset=cached_ruleset("p/default"))
+
+    assert [run.workdir_files for run in scanner_fake.runs] == [
+        {"app.py": b'print("hello")\n', CACHED_RULESET_WORKDIR_NAME: CACHED_RULESET}
+    ]
+
+
+def test_every_batch_of_a_review_scans_with_the_bytes_that_were_read_when_the_cache_is_replaced(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `devops review rules fetch` can replace the cached file while a review runs. The review
+    recorded the digest of the bytes it read, so each batch scans with those bytes and no other."""
+    tree, _ = _review_inputs(tmp_path)
+    files = []
+    for number in range(3):
+        files.append(tree / f"module_{number}.py")
+        files[-1].write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr("devops_cli.security.semgrep.DEFAULT_SEMGREP_REVIEW_BATCH_FILES", 1)
+    scanner_fake.snapshot_workdirs = True
+    read = cached_ruleset("p/default")
+    cached_default_ruleset.write_bytes(REPLACED_RULESET)
+
+    run_semgrep_scan(files, reviewed_tree=tree, ruleset=read)
+
+    assert [run.workdir_files[CACHED_RULESET_WORKDIR_NAME] for run in scanner_fake.runs] == [
+        CACHED_RULESET
+    ] * 3
+
+
+def test_a_review_without_the_cached_ruleset_runs_the_rule_pack_alone_and_reports_a_coverage_gap(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    tree, target = _review_inputs(tmp_path)
+
+    outcome = run_semgrep_scan([target], reviewed_tree=tree)
+
+    assert (outcome.status, outcome.reason) == ("coverage_gap", NOT_CACHED)
+    assert [run.argv for run in scanner_fake.runs] == [
+        [
+            "semgrep",
+            "scan",
+            "--json",
+            "--metrics",
+            "off",
+            "--disable-version-check",
+            "--config",
+            str(RULE_PACK_DIR),
+            "--disable-nosem",
+            "--quiet",
+            "./app.py",
+        ]
+    ]
+
+
+def test_a_scan_through_the_scanner_registry_reads_the_cached_ruleset_it_finds(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    """`devops scan report` runs every registered scanner with its default config, which for
+    Semgrep is `p/default`; the scanner reads the cache without being handed it. It runs from the
+    cache directory and names the file there, so that Semgrep returns plain rule ids."""
+    outcomes = global_scanner_registry.scan_all(tmp_path, names=["semgrep"])
+
+    (semgrep_run,) = scanner_fake.runs
+    assert (
+        outcomes["semgrep"].status,
+        semgrep_run.argv[semgrep_run.argv.index("--config") + 1],
+        semgrep_run.cwd,
+    ) == ("ran", f"./{CACHED_RULESET_FILE_NAME}", str(cached_default_ruleset.parent))
+
+
+def test_a_scan_through_the_scanner_registry_warns_when_the_cached_ruleset_is_older_than_a_day(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    clock: ClockFake,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    aged = time.time() - 25 * 3600
+    os.utime(cached_default_ruleset, (aged, aged))
+
+    outcomes = global_scanner_registry.scan_all(tmp_path, names=["semgrep"])
+
+    assert (outcomes["semgrep"].status, len(scanner_fake.runs)) == ("ran", 1)
+    assert capsys.readouterr().err == OLD_CACHE_WARNING
+
+
+def test_a_scan_through_the_scanner_registry_warns_of_nothing_when_the_cached_ruleset_is_current(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    global_scanner_registry.scan_all(tmp_path, names=["semgrep"])
+
+    assert capsys.readouterr().err == ""
+
+
+def test_a_scan_through_the_scanner_registry_without_the_cache_is_a_coverage_gap(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    outcomes = global_scanner_registry.scan_all(tmp_path, names=["semgrep"])
+
+    (semgrep_run,) = scanner_fake.runs
+    assert (
+        outcomes["semgrep"].status,
+        outcomes["semgrep"].reason,
+        semgrep_run.argv.count("--config"),
+    ) == ("coverage_gap", NOT_CACHED, 1)
+
+
+def test_a_review_of_a_local_config_needs_no_cached_ruleset(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    tree, target = _review_inputs(tmp_path)
+
+    outcome = run_semgrep_scan([target], config="./local-rules", reviewed_tree=tree)
+
+    assert (outcome.status, outcome.reason) == ("ran", "")
+
+
+def test_a_dry_run_review_scan_is_no_coverage_gap_for_a_missing_cache(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree, target = _review_inputs(tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+
+    outcome = run_semgrep_scan([target], reviewed_tree=tree)
+
+    assert (outcome.status, scanner_fake.runs) == ("dry-run", [])
+
+
+def test_scan_sast_scans_from_the_cache_directory_with_the_cached_ruleset_named_there(
+    cli: Callable[..., Any],
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+) -> None:
+    """Semgrep returns plain rule ids for a config in its working directory and ids led by the
+    dotted path of the directory for any other, so the scan runs from the cache directory."""
+    result = cli("scan", "sast", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert [(run.argv, run.cwd) for run in scanner_fake.runs] == [
+        (
+            [
+                "semgrep",
+                "scan",
+                "--json",
+                "--metrics",
+                "off",
+                "--disable-version-check",
+                "--config",
+                f"./{CACHED_RULESET_FILE_NAME}",
+                "--config",
+                str(RULE_PACK_DIR),
+                "--disable-nosem",
+                *("--exclude", ".venv"),
+                *("--exclude", "venv"),
+                *("--exclude", "node_modules"),
+                *("--exclude", ".data"),
+                *("--exclude", "repos"),
+                *("--exclude", ".git"),
+                "--quiet",
+                str(tmp_path.resolve()),
+            ],
+            str(cached_default_ruleset.parent),
+        )
+    ]
+
+
+def test_scan_sast_of_a_file_scans_from_the_cache_directory_with_an_absolute_target(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    target = tmp_path / "app.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+
+    result = cli("scan", "sast", str(target))
+
+    (semgrep_run,) = scanner_fake.runs
+    assert (result.exit_code, semgrep_run.argv[-1], semgrep_run.cwd) == (
+        0,
+        str(target.resolve()),
+        str(cached_default_ruleset.parent),
+    )
+
+
+def test_scan_sast_without_the_cached_ruleset_exits_1_and_names_the_fetch_command(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    result = cli("scan", "sast", str(tmp_path))
+
+    assert (result.exit_code, result.output, scanner_fake.runs) == (1, f"✗ {NOT_CACHED}\n", [])
+
+
+@pytest.mark.parametrize("output_format", ["json", "yaml"])
+def test_scan_sast_without_the_cached_ruleset_prints_no_report(
+    output_format: str, cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    result = cli("scan", "sast", str(tmp_path), "--format", output_format)
+
+    assert (result.exit_code, result.stdout, result.output, scanner_fake.runs) == (
+        1,
+        "",
+        f"✗ {NOT_CACHED}\n",
+        [],
+    )
+
+
+def test_scan_sast_of_a_local_config_needs_no_cached_ruleset_and_runs_from_its_target(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    result = cli("scan", "sast", str(tmp_path), "--config", "./local-rules")
+
+    assert (result.exit_code, [run.cwd for run in scanner_fake.runs]) == (0, [str(tmp_path)])
+
+
+def test_scan_sast_dry_run_needs_no_cached_ruleset(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    result = cli("scan", "sast", str(tmp_path), "--dry-run")
+
+    assert (result.exit_code, scanner_fake.runs) == (0, [])
+
+
+def test_scan_sast_warns_when_the_cached_ruleset_is_older_than_a_day_and_uses_it(
+    cli: Callable[..., Any],
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    clock: ClockFake,
+    tmp_path: Path,
+) -> None:
+    aged = time.time() - 25 * 3600
+    os.utime(cached_default_ruleset, (aged, aged))
+
+    result = cli("scan", "sast", str(tmp_path), "--json")
+
+    assert (result.exit_code, len(scanner_fake.runs)) == (0, 1)
+    assert result.stderr == OLD_CACHE_WARNING
+    assert json.loads(result.stdout.splitlines()[-1]) == []
+
+
+def test_scan_sast_warns_of_nothing_when_the_cached_ruleset_is_current(
+    cli: Callable[..., Any],
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+) -> None:
+    result = cli("scan", "sast", str(tmp_path), "--json")
+
+    assert (result.exit_code, result.stderr) == (0, "")
+
+
+# =============================================================================
+# The files Semgrep did not scan (#1144)
+# =============================================================================
+
+# What a review says of a file its Semgrep command named and its report left out of
+# `paths.scanned`. The recorded run lists `app.py` and no other file.
+NOT_LISTED = "Semgrep did not list the file as scanned"
+
+
+def _write_files(tree: Path, *names: str) -> list[Path]:
+    """Files with some content, one for each of `names`, in `tree`."""
+    paths = [tree / name for name in names]
+    for path in paths:
+        path.write_text("body\n", encoding="utf-8")
+    return paths
+
+
+def test_a_review_lists_the_files_semgrep_does_not_list_as_scanned_and_reports_a_coverage_gap(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    """Semgrep scans a file it is named only when a rule applies to its language, and reports the
+    files it scanned in `paths.scanned`. The recorded run lists `app.py`; the review also named
+    `style.css`, so that file is left out and the outcome is a coverage gap."""
+    tree, target = _review_inputs(tmp_path)
+    stylesheet = _write_files(tree, "style.css")
+
+    outcome = run_semgrep_scan(
+        [target, *stylesheet], reviewed_tree=tree, ruleset=cached_ruleset("p/default")
+    )
+
+    assert [run.argv[-2:] for run in scanner_fake.runs] == [["./app.py", "./style.css"]]
+    assert (outcome.status, outcome.reason, outcome.unscanned) == (
+        "coverage_gap",
+        "",
+        {"style.css": NOT_LISTED},
+    )
+
+
+def test_a_review_whose_files_semgrep_lists_as_scanned_has_no_coverage_gap(
+    scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
+) -> None:
+    tree, target = _review_inputs(tmp_path)
+
+    outcome = run_semgrep_scan([target], reviewed_tree=tree, ruleset=cached_ruleset("p/default"))
+
+    assert (outcome.status, outcome.unscanned) == ("ran", {})
+
+
+def test_the_files_each_batch_of_a_review_leaves_out_are_all_listed(
+    scanner_fake: ScannerFake,
+    cached_default_ruleset: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recorded run lists `app.py` for each batch. With one file in each batch the first
+    batch is complete and the other two each leave out their file; the merged outcome lists both."""
+    tree, target = _review_inputs(tmp_path)
+    stylesheets = _write_files(tree, "first.css", "second.css")
+    monkeypatch.setattr("devops_cli.security.semgrep.DEFAULT_SEMGREP_REVIEW_BATCH_FILES", 1)
+
+    outcome = run_semgrep_scan(
+        [target, *stylesheets], reviewed_tree=tree, ruleset=cached_ruleset("p/default")
+    )
+
+    assert (len(scanner_fake.runs), outcome.status, outcome.unscanned) == (
+        3,
+        "coverage_gap",
+        {"first.css": NOT_LISTED, "second.css": NOT_LISTED},
+    )
+
+
+def test_a_review_without_the_cached_ruleset_still_lists_the_files_semgrep_left_out(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """The missing ruleset is the scan's own gap and keeps its reason; the files stay listed."""
+    tree, target = _review_inputs(tmp_path)
+    stylesheet = _write_files(tree, "style.css")
+
+    outcome = run_semgrep_scan([target, *stylesheet], reviewed_tree=tree)
+
+    assert (outcome.status, outcome.reason, outcome.unscanned) == (
+        "coverage_gap",
+        NOT_CACHED,
+        {"style.css": NOT_LISTED},
+    )
+
+
+def test_a_scan_of_a_directory_names_no_files_and_so_leaves_none_out(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """Semgrep walks a directory and reports what it found there; no named file is missing."""
+    tree, _ = _review_inputs(tmp_path)
+    _write_files(tree, "style.css")
+
+    outcome = run_semgrep_scan(tree, config="./local-rules")
+
+    assert (outcome.status, outcome.unscanned) == ("ran", {})
+
+
+def test_a_report_without_a_list_of_scanned_paths_leaves_no_file_unscanned() -> None:
+    """Only the list of scanned paths can show a file missing. A report with no such list says
+    nothing of the files, and an empty list says that Semgrep scanned none of them."""
+    staged = MaterializedTargets({"app.py": Path("/tree/app.py")})
+    scanner = SemgrepScanner()
+
+    assert (
+        scanner.unscanned_files({"results": []}, staged),
+        scanner.unscanned_files({"results": [], "paths": {"scanned": []}}, staged),
+        scanner.unscanned_files({"paths": {"scanned": ["./app.py"]}}, staged),
+    ) == ({}, {"app.py": NOT_LISTED}, {})
+
+
+def test_a_review_shows_the_files_semgrep_left_out_in_its_coverage_and_analyzer_sections(
+    reviewed_checkout: Path, cached_default_ruleset: Path
+) -> None:
+    """Semgrep scanned two of the four files. The coverage matrix names the two files it left
+    out, and the other files stay scanned. Review.md and the profile give the count of two in the
+    Static Analyzers section, and review.md lists the files in the Coverage section."""
+    files = _REVIEWED_FILES[:4]
+    left_out = {"pkg2/mod_2.py", "pkg3/mod_3.py"}
+    count_text = "Files not scanned: 2. The Coverage section lists them."
+
+    def semgrep(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
+        scanned = [os.path.normpath(name) for name in _named_targets(cmd)]
+        report = {"results": [], "paths": {"scanned": [n for n in scanned if n not in left_out]}}
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(report), "")
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="semgrep", target_dir=reviewed_checkout)
+    with (
+        profiling() as profiler,
+        patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)),
+    ):
+        orchestrator._run_static_scanners(files)
+    profile = profiler.build(session_id="semgrep", target=str(reviewed_checkout))
+    coverage = "\n".join(orchestrator._build_coverage_section())
+    analyzers = "\n".join(orchestrator._build_static_analyzers_section())
+
+    assert orchestrator.static_analyzers["Semgrep"] == "coverage_gap"
+    assert orchestrator.coverage["Semgrep"] == {
+        "pkg0/mod_0.py": "scanned",
+        "pkg1/mod_1.py": "scanned",
+        "pkg2/mod_2.py": f"not scanned({NOT_LISTED})",
+        "pkg3/mod_3.py": f"not scanned({NOT_LISTED})",
+    }
+    assert f"| Semgrep | `pkg2/mod_2.py` | not scanned({NOT_LISTED}) |" in coverage
+    assert f"| Semgrep | `pkg3/mod_3.py` | not scanned({NOT_LISTED}) |" in coverage
+    assert f"| Semgrep | coverage_gap: {count_text} |" in analyzers
+    assert profile.static_analyzer_reasons == {"Semgrep": count_text}

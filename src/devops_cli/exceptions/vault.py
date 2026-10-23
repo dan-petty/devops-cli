@@ -115,7 +115,7 @@ class VaultAuthenticationError(VaultError):
 
 
 class VaultLeaseError(VaultError):
-    """Raised when a Vault lease, login, token or Transit call fails, with Vault's HTTP status.
+    """Raised when a Vault lease, login or token call fails, with Vault's HTTP status.
 
     `status_code` is the status Vault answered with, or None when the call failed before that.
     """

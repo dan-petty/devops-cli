@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.agents.tools import AgentTool
-from devops_cli.ai.harness.filesystem import FileSystem
 from devops_cli.ai.review.exporter import export_invalidated_feedback
 from devops_cli.commands.vault import _validate_vault_path
 from devops_cli.core.repo import list_repo_files
@@ -78,16 +77,6 @@ def test_mask_secrets_preserves_function_invocations() -> None:
     # The function call settings_mod.get_ai_api_key(st) must NOT be replaced with <masked-api-key>(st)
     assert "<masked-api-key>(st)" not in masked
     assert "settings_mod.get_ai_api_key(st)" in masked
-
-
-def test_filesystem_search_files_redos_guard(tmp_path: Path) -> None:
-    fs = FileSystem(root=tmp_path)
-    (tmp_path / "hello.txt").write_text("hello world\n", encoding="utf-8")
-
-    # Excessively long query string
-    huge_query = "a" * 500
-    res = fs._search_files(query=huge_query)
-    assert "Error:" in res or "exceeds" in res or "No matches" in res
 
 
 def test_mask_secrets_unquoted_token_with_dots() -> None:

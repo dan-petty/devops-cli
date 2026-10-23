@@ -28,24 +28,31 @@ over the fake and over `RecordedGitHubApi`, which answers with GitHub's own answ
 `github_api` fixture installs the fake, and refuses any gh command the rate limiter would run
 (`run_gh` and the quota refresh).
 
+`pull_request_payload`, `pull_request_file_payload`, `route_pull_request`, `route_file` and
+`route_merge_base` give a test a pull request to read: the fields devops-cli reads of one, and the
+routes that answer the reads a review or an analysis makes of it (#891).
+
 `RunnerSession` is a session whose listings a scripted gh runner answers, for the roadmap store
 tests that script gh for the board as well.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 import time
-from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from typing import Any, NoReturn
+from urllib.parse import quote, urlencode
 
 import anyio
 import httpx2
 import pytest
 
+from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE
 from devops_cli.http.egress import EgressLevel
 from tests.web_fakes import egress_level_of, install_async_client_fake, vetted_handler
 
@@ -109,6 +116,87 @@ def quota_headers(
         "x-ratelimit-used": str(limit - remaining),
         "x-ratelimit-resource": resource,
     }
+
+
+def pull_request_payload(
+    *,
+    title: str = "Change the app",
+    head_sha: str = "abc123",
+    head_repo: str | None = "fork/app",
+    base_sha: str = "base456",
+    base_repo: str = "base/app",
+    base_ref: str = "main",
+) -> dict[str, Any]:
+    """A pull request as GitHub sends it, cut to the fields devops-cli reads. A `head_repo` of
+    None is the head of a pull request whose fork was deleted: GitHub sends `repo` as null."""
+    head: dict[str, Any] = {
+        "sha": head_sha,
+        "ref": "feature",
+        "repo": None if head_repo is None else {"full_name": head_repo},
+    }
+    base = {"sha": base_sha, "ref": base_ref, "repo": {"full_name": base_repo}}
+    return {"title": title, "head": head, "base": base}
+
+
+def pull_request_file_payload(
+    filename: str,
+    status: str = "modified",
+    *,
+    previous_filename: str | None = None,
+    additions: int = 1,
+    changes: int = 1,
+) -> dict[str, Any]:
+    """One entry of `GET /repos/{repo}/pulls/{n}/files`; `previous_filename` is sent for a
+    renamed file only."""
+    entry: dict[str, Any] = {
+        "filename": filename,
+        "status": status,
+        "additions": additions,
+        "changes": changes,
+    }
+    if previous_filename is not None:
+        entry["previous_filename"] = previous_filename
+    return entry
+
+
+def route_pull_request(
+    api: GitHubApiFake,
+    repo: str,
+    number: int,
+    pull: Mapping[str, Any],
+    *,
+    files: Sequence[Mapping[str, Any]] = (),
+    diff: str = "",
+) -> None:
+    """Answer the reads of one pull request: `pull` and then `diff` at its URL, as the object is
+    read before the diff, and `files` as the one page of its files."""
+    path = f"/repos/{repo}/pulls/{number}"
+    api.route(
+        "GET",
+        path,
+        github_json(pull),
+        github_text(diff, media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
+    )
+    api.route("GET", f"{path}/files?per_page=100", github_json(list(files)))
+
+
+def route_file(api: GitHubApiFake, repo: str, path: str, ref: str, text: str) -> None:
+    """Answer the read of `path` at `ref` in `repo` with `text`, as the contents endpoint does."""
+    content = base64.encodebytes(text.encode()).decode()
+    api.route(
+        "GET",
+        f"/repos/{repo}/contents/{quote(path, safe='/')}?{urlencode({'ref': ref})}",
+        github_json({"type": "file", "encoding": "base64", "content": content}),
+    )
+
+
+def route_merge_base(api: GitHubApiFake, repo: str, base: str, head: str, sha: str) -> None:
+    """Answer the comparison of `base` and `head` in `repo` with `sha` as their merge base."""
+    api.route(
+        "GET",
+        f"/repos/{repo}/compare/{base}...{head}?per_page=1",
+        github_json({"merge_base_commit": {"sha": sha}}),
+    )
 
 
 class PacedClock:

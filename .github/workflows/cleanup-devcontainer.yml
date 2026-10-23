@@ -104,6 +104,9 @@ jobs:
           delete-tags: ${{ steps.target.outputs.tag }}
           exclude-tags: ${{ steps.target.outputs.exclude_tags }}
           delete-untagged: true
+          # The release pushes its image by digest and tags it only after the smoke test, so a
+          # young untagged digest may be a release in progress (#1895).
+          older-than: 1 day
           delete-ghost-images: true
           delete-orphaned-images: true
           dry-run: ${{ inputs.dry_run || false }}

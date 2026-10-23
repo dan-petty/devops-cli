@@ -17,7 +17,10 @@ from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
     CONST_USER_DATA_ROOT,
 )
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_REPOS_BASE_DIR,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import SecurityError
@@ -61,11 +64,6 @@ def _repo_root_candidates(start_path: Path | str | None) -> list[Path]:
         if (p / ".git").exists() or (p / "pyproject.toml").exists()
     ]
     return found or [current]
-
-
-def find_top_level_repo_root(start_path: Path | str | None = None) -> Path:
-    """Find the top-most workspace root directory containing .git or pyproject.toml."""
-    return _repo_root_candidates(start_path)[-1]
 
 
 def _read_git_path_file(path: Path) -> str:
@@ -139,6 +137,106 @@ def _own_common_dir(root: Path) -> Path:
     return _linked_worktree_common_dir(root) or gitdir
 
 
+def _is_under_repos(target: Path, workspace: Path) -> bool:
+    """Whether `target` lies under `workspace`'s configured or default repos directory."""
+    try:
+        from devops_cli.config.settings import load_settings
+
+        configured_base = load_settings().repos.base_dir
+    except OSError, TypeError, ValueError, AttributeError, RuntimeError:
+        configured_base = DEFAULT_REPOS_BASE_DIR
+
+    resolved_target = target.resolve()
+    repos_dir = (workspace / configured_base).resolve()
+    default_dir = (workspace / "repos").resolve()
+    return (resolved_target.is_relative_to(repos_dir) and resolved_target != repos_dir) or (
+        resolved_target.is_relative_to(default_dir) and resolved_target != default_dir
+    )
+
+
+def _is_relative_safely(path: Path, base: Path) -> bool:
+    """Whether `path` is relative to `base`, returning False if unresolvable or mismatched."""
+    try:
+        return path.is_relative_to(base)
+    except ValueError, TypeError:
+        return False
+
+
+def _worktree_owner(common_dir: Path) -> Path:
+    """The checkout or repository root owning `common_dir`."""
+    return common_dir.parent if common_dir.name == CONST_GIT_DIR_NAME else common_dir
+
+
+def _worktree_belongs_to_workspace(
+    child: Path, parent: Path, common_dir: Path, parent_git: Path
+) -> bool:
+    """Whether linked worktree `child` at `common_dir` belongs to `parent` workspace."""
+    if _is_relative_safely(common_dir, parent_git):
+        return True
+    owner = _worktree_owner(common_dir)
+    if _is_under_repos(owner, parent):
+        return True
+    if owner.exists() and not owner.is_relative_to(parent):
+        return False
+    return child.is_relative_to(parent)
+
+
+def _submodule_belongs_to_workspace(child: Path, parent_git: Path) -> bool:
+    """Whether `child` is a git submodule whose git directory lies in `parent_git`."""
+    gitdir = _gitdir_named_by(child)
+    return gitdir is not None and _is_relative_safely(gitdir, parent_git)
+
+
+def _is_standalone_project(path: Path) -> bool:
+    """Whether `path` is an independent standalone repository or project root."""
+    return (path / CONST_GIT_DIR_NAME).is_dir() or (path / "pyproject.toml").is_file()
+
+
+def _is_nested_by_design(child: Path, parent: Path) -> bool:
+    """Whether `child` is nested within `parent` by design:
+    - a linked worktree (live or stale) of `parent` or its submodules,
+    - a git submodule of `parent`,
+    - cloned under `parent`'s `repos/` directory (or a worktree of such a clone),
+    - an internal directory inside `parent` that names no external repository.
+
+    An unrelated repository or checkout sitting below `parent` (such as a project inside
+    a home directory kept in git) is not nested by design (#617).
+    """
+    if child == parent:
+        return True
+
+    parent_git = _own_common_dir(parent)
+    common_dir = _linked_worktree_common_dir(child) or _stale_worktree_common_dir(child)
+    if common_dir is not None:
+        return _worktree_belongs_to_workspace(child, parent, common_dir, parent_git)
+
+    if _is_under_repos(child, parent) or _submodule_belongs_to_workspace(child, parent_git):
+        return True
+
+    if _is_standalone_project(child):
+        return False
+
+    return child.is_relative_to(parent)
+
+
+def find_top_level_repo_root(start_path: Path | str | None = None) -> Path:
+    """Find the top-most workspace root directory containing .git or pyproject.toml.
+
+    Climbing stops when an enclosing directory holds a repository or project that does not own
+    the current candidate by design: a repository cloned under `repos/`, a submodule, or a
+    worktree of the workspace's own repository resolves to that workspace; an unrelated
+    checkout or worktree sitting below another directory (such as a project inside a home
+    directory kept in git) resolves to its own repository root (#617).
+    """
+    candidates = _repo_root_candidates(start_path)
+    current = candidates[0]
+    for parent in candidates[1:]:
+        if not _is_nested_by_design(current, parent):
+            break
+        current = parent
+    return current
+
+
 def _checks_as_its_own_tree(root: Path, workspace_root: Path) -> bool:
     """Whether a verifying command stops its climb at `root`, a candidate below `workspace_root`.
 
@@ -164,14 +262,18 @@ def find_worktree_root(start_path: Path | str | None = None) -> Path:
     workspace. A stale worktree, whose git directory is missing, still resolves to itself
     rather than to the checkout around it; `is_stale_linked_worktree` tells callers to warn.
 
-    Known limit: a checkout below another directory holding `.git` or `pyproject.toml`, such as
-    a dotfiles repository at `$HOME`, resolves to that outer directory, and its worktrees resolve
-    with it as a `repos/` clone's do; the `devops ci` header names the root it checks.
+    A checkout or worktree below another directory holding `.git` or `pyproject.toml`, such as
+    a dotfiles repository at `$HOME`, resolves to its own repository's root (#617).
     """
     candidates = _repo_root_candidates(start_path)
-    workspace_root = candidates[-1]
+    workspace_root = find_top_level_repo_root(start_path)
+    try:
+        idx = candidates.index(workspace_root)
+        relevant = candidates[: idx + 1]
+    except ValueError:
+        relevant = candidates
     return next(
-        (root for root in candidates if _checks_as_its_own_tree(root, workspace_root)),
+        (root for root in relevant if _checks_as_its_own_tree(root, workspace_root)),
         workspace_root,
     )
 
@@ -183,11 +285,10 @@ def main_worktree_root(start_path: Path | str | None = None) -> Path:
     the repository's shared git directory, inside the main worktree. A submodule's git
     directory has no `commondir` and stays its own repository.
 
-    It starts from the top-most root on purpose: a worktree nested in a checkout reaches that
-    checkout directly, and a `repos/` clone shares the workspace data. Only a worktree that
-    is itself the top-most root needs the `commondir` step. A stale one, whose git directory
-    was pruned, reaches the shared git directory its `.git` file still names, while that
-    directory exists.
+    A worktree nested in a checkout reaches that checkout directly, and a `repos/` clone
+    shares the workspace data. Only a worktree that is itself the top-most root of its workspace
+    needs the `commondir` step. A stale one, whose git directory was pruned, reaches the shared
+    git directory its `.git` file still names, while that directory exists (#617).
     """
     root = find_top_level_repo_root(start_path)
     common_dir = _linked_worktree_common_dir(root) or _stale_worktree_common_dir(root)
@@ -222,7 +323,7 @@ def _is_installed_copy(package_dir: Path) -> bool:
     return any(package_dir.is_relative_to(Path(d).resolve()) for d in install_dirs)
 
 
-def _nearest_checkout(start: Path) -> Path | None:
+def nearest_checkout(start: Path) -> Path | None:
     """The nearest directory holding `.git` from `start` upward, or None outside any checkout."""
     return next((d for d in (start, *start.parents) if (d / CONST_GIT_DIR_NAME).exists()), None)
 
@@ -234,7 +335,7 @@ def _source_repository(package_dir: Path) -> Path | None:
     repository's source even inside its checkout, and outside any checkout there is none."""
     if _is_installed_copy(package_dir):
         return None
-    checkout = _nearest_checkout(package_dir)
+    checkout = nearest_checkout(package_dir)
     return _own_common_dir(checkout) if checkout is not None else None
 
 
@@ -250,7 +351,7 @@ def own_source_state() -> tuple[str, str] | None:
     track are not devops-cli's code and do not count.
     """
     package_dir = _own_source_dir()
-    checkout = None if _is_installed_copy(package_dir) else _nearest_checkout(package_dir)
+    checkout = None if _is_installed_copy(package_dir) else nearest_checkout(package_dir)
     if checkout is None:
         return None
     head, diff = (
@@ -267,7 +368,7 @@ def own_source_state() -> tuple[str, str] | None:
 @functools.lru_cache(maxsize=64)
 def _repository_at(start: str) -> Path | None:
     """The shared git directory of the nearest checkout holding `start`, or None outside one."""
-    checkout = _nearest_checkout(Path(start).resolve())
+    checkout = nearest_checkout(Path(start).resolve())
     return _own_common_dir(checkout) if checkout is not None else None
 
 

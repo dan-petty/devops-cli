@@ -6,12 +6,12 @@ import time
 from pathlib import Path
 
 import pytest
+from tree_sitter import QueryError
 from typer.testing import CliRunner
 
 from devops_cli.ai.ast.engine import TreeSitterEngine, detect_language
-from devops_cli.ai.ast.fallback import FallbackASTParser
-from devops_cli.ai.ast.graph import CodeGraphBuilder
-from devops_cli.ai.ast.models import PolyglotFileMap, SymbolKind
+from devops_cli.ai.ast.graph import CodeGraphBuilder, _link_call_edges
+from devops_cli.ai.ast.models import PolyglotFileMap
 from devops_cli.ai.repomap import generate_repo_map
 from devops_cli.main import app
 
@@ -33,216 +33,6 @@ def test_language_detection() -> None:
     assert detect_language(Path("config.hcl")) == "hcl"
     assert detect_language(Path("README.md")) == "markdown"
     assert detect_language(Path("notes.txt")) is None
-
-
-def test_fallback_python_parsing() -> None:
-    """Verify fallback parser parses Python classes and functions."""
-    code = """
-class DataProcessor:
-    \"\"\"Processes streaming batches.\"\"\"
-    def process_item(self, item: str) -> bool:
-        return len(item) > 0
-
-async def fetch_feed(url: str) -> list[str]:
-    \"\"\"Fetches remote items.\"\"\"
-    return [url]
-"""
-    parser = FallbackASTParser()
-    file_map = parser.parse("app.py", code, "python")
-    assert file_map.language == "python"
-    assert len(file_map.symbols) == 3
-
-    cls_sym = next(s for s in file_map.symbols if s.name == "DataProcessor")
-    assert cls_sym.kind == SymbolKind.CLASS
-    assert "Processes streaming batches" in cls_sym.docstring
-
-    method_sym = next(s for s in file_map.symbols if s.name == "process_item")
-    assert method_sym.kind == SymbolKind.METHOD
-    assert method_sym.parent_scope == "DataProcessor"
-
-    fn_sym = next(s for s in file_map.symbols if s.name == "fetch_feed")
-    assert fn_sym.kind == SymbolKind.FUNCTION
-    assert "Fetches remote items" in fn_sym.docstring
-
-
-def test_fallback_typescript_parsing() -> None:
-    """Verify fallback parser parses TypeScript classes, interfaces, and functions."""
-    code = """
-export interface UserPayload {
-    id: string;
-    email: string;
-}
-
-export class AuthService {
-    login(payload: UserPayload): boolean {
-        return true;
-    }
-}
-
-export function validateEmail(email: string): boolean {
-    return email.includes("@");
-}
-"""
-    parser = FallbackASTParser()
-    file_map = parser.parse("auth.ts", code, "typescript")
-    assert file_map.language == "typescript"
-
-    names = {s.name for s in file_map.symbols}
-    assert "UserPayload" in names
-    assert "AuthService" in names
-    assert "login" in names
-    assert "validateEmail" in names
-
-    iface_sym = next(s for s in file_map.symbols if s.name == "UserPayload")
-    assert iface_sym.kind == SymbolKind.INTERFACE
-
-
-def test_fallback_go_parsing() -> None:
-    """Verify fallback parser parses Go structs, interfaces, and functions."""
-    code = """
-package worker
-
-type JobQueue interface {
-    Enqueue(id string) error
-}
-
-type WorkerPool struct {
-    concurrency int
-}
-
-func NewWorkerPool(workers int) *WorkerPool {
-    return &WorkerPool{concurrency: workers}
-}
-
-func (w *WorkerPool) Start() error {
-    return nil
-}
-"""
-    parser = FallbackASTParser()
-    file_map = parser.parse("worker.go", code, "go")
-    assert file_map.language == "go"
-
-    names = {s.name for s in file_map.symbols}
-    assert "JobQueue" in names
-    assert "WorkerPool" in names
-    assert "NewWorkerPool" in names
-    assert "Start" in names
-
-    method_sym = next(s for s in file_map.symbols if s.name == "Start")
-    assert method_sym.kind == SymbolKind.METHOD
-    assert method_sym.parent_scope == "WorkerPool"
-
-
-def test_fallback_rust_parsing() -> None:
-    """Verify fallback parser parses Rust structs, traits, and functions."""
-    code = """
-pub trait StorageEngine {
-    fn write_block(&self, data: &[u8]) -> Result<(), Error>;
-}
-
-pub struct MemoryCache {
-    capacity: usize,
-}
-
-impl MemoryCache {
-    pub fn new(capacity: usize) -> Self {
-        Self { capacity }
-    }
-}
-
-pub fn hash_payload(data: &[u8]) -> u64 {
-    42
-}
-"""
-    parser = FallbackASTParser()
-    file_map = parser.parse("engine.rs", code, "rust")
-    assert file_map.language == "rust"
-
-    names = {s.name for s in file_map.symbols}
-    assert "StorageEngine" in names
-    assert "MemoryCache" in names
-    assert "new" in names
-    assert "hash_payload" in names
-
-
-def test_fallback_java_parsing() -> None:
-    """Verify fallback parser parses Java classes, interfaces, and methods."""
-    code = """
-package com.devops;
-
-public interface MetricsRegistry {
-    void record(String metric, double value);
-}
-
-public class MetricsClient implements MetricsRegistry {
-    public void record(String metric, double value) {
-        // record
-    }
-
-    public static MetricsClient createDefault() {
-        return new MetricsClient();
-    }
-}
-"""
-    parser = FallbackASTParser()
-    file_map = parser.parse("MetricsClient.java", code, "java")
-    assert file_map.language == "java"
-
-    names = {s.name for s in file_map.symbols}
-    assert "MetricsRegistry" in names
-    assert "MetricsClient" in names
-    assert "record" in names
-    assert "createDefault" in names
-
-
-def test_fallback_hcl_parsing() -> None:
-    """Verify fallback parser parses Terraform / HCL blocks."""
-    code = """
-resource "aws_s3_bucket" "audit_logs" {
-    bucket = "company-audit-logs"
-    acl    = "private"
-}
-
-variable "region" {
-    type    = string
-    default = "us-east-1"
-}
-
-output "bucket_arn" {
-    value = aws_s3_bucket.audit_logs.arn
-}
-"""
-    parser = FallbackASTParser()
-    file_map = parser.parse("main.tf", code, "hcl")
-    assert file_map.language == "hcl"
-
-    names = {s.name for s in file_map.symbols}
-    assert 'resource "aws_s3_bucket" "audit_logs"' in names or "aws_s3_bucket.audit_logs" in names
-    assert 'variable "region"' in names or "variable.region" in names
-
-
-def test_fallback_finds_generic_and_qualified_rust_and_typescript_functions() -> None:
-    """Verify the regex fallback names generic, const, unsafe and extern Rust functions and
-    generic and default-exported TypeScript ones; it wanted `(` straight after the name and
-    allowed only `pub` and `async` before `fn` (#959)."""
-    rust = (
-        "pub fn plain(x: i32) -> i32 { x }\n"
-        "pub fn process<T: Clone>(x: T) -> T { x }\n"
-        "pub const fn c() -> u8 { 1 }\n"
-        "unsafe fn u() {}\n"
-        'pub(crate) unsafe extern "C" fn g() {}\n'
-        "pub async fn f<'a>(x: &'a str) {}\n"
-    )
-    typescript = (
-        "export function identity<T>(value: T): T { return value; }\n"
-        "export default function main(): void {}\n"
-    )
-    parser = FallbackASTParser()
-
-    assert (
-        [s.name for s in parser.parse("lib.rs", rust, "rust").symbols],
-        [s.name for s in parser.parse("main.ts", typescript, "typescript").symbols],
-    ) == (["plain", "process", "c", "u", "g", "f"], ["identity", "main"])
 
 
 SIGNED_DECLARATIONS: dict[str, str] = {
@@ -300,28 +90,55 @@ SIGNED_DECLARATIONS: dict[str, str] = {
 }
 
 
-@pytest.mark.parametrize(
-    ("language", "code"), list(SIGNED_DECLARATIONS.items()), ids=list(SIGNED_DECLARATIONS)
-)
-def test_fallback_signs_symbols_with_their_declaration_line_as_tree_sitter_does(
-    language: str, code: str
-) -> None:
-    """Verify the regex fallback and tree-sitter give a symbol the same signature, its
-    declaration line; the fallback kept only the parameter list, `(x: string, y: number)`, with
-    no name or return type, and tree-sitter took a Java annotation, C# attribute or TypeScript
-    decorator above the declaration, `@Override`, for it (#959)."""
-    fallback = FallbackASTParser().parse("snippet", code, language).symbols
-    native = TreeSitterEngine().parse_code(code, language).symbols
+# What each fixture's symbols are signed with: the line holding the name, never the annotation,
+# attribute or decorator above it.
+DECLARATION_LINES: dict[str, list[tuple[str, str]]] = {
+    "python": [
+        ("DataProcessor", "class DataProcessor:"),
+        ("fetch_feed", "async def fetch_feed(url: str) -> list[str]:"),
+        ("process_item", "def process_item(item: str) -> bool:"),
+    ],
+    "typescript": [
+        ("AuthService", "export class AuthService {"),
+        ("TokenStore", "class TokenStore {}"),
+        ("a", "export function a(x: string, y: number): Promise<void> {}"),
+        ("login", "login(payload: UserPayload): boolean {"),
+    ],
+    "go": [
+        ("NewWorkerPool", "func NewWorkerPool(workers int) *WorkerPool {"),
+        ("Start", "func (w *WorkerPool) Start() error {"),
+        ("WorkerPool", "type WorkerPool struct {"),
+    ],
+    "rust": [
+        ("MemoryCache", "pub struct MemoryCache {"),
+        ("hash_payload", "pub fn hash_payload(data: &[u8]) -> u64 {"),
+    ],
+    "java": [
+        ("MetricsClient", "public class MetricsClient {"),
+        ("createDefault", "public static MetricsClient createDefault() {"),
+        ("placeOrder", "public Order placeOrder(Cart cart) throws OrderException {"),
+        ("toString", "public String toString() {"),
+    ],
+    "csharp": [
+        ("Get", "public ActionResult<User> Get(int id)"),
+        ("UsersController", "public class UsersController : ControllerBase"),
+    ],
+}
 
-    assert sorted((s.name, s.signature) for s in fallback) == sorted(
-        (s.name, s.signature) for s in native
-    )
+
+@pytest.mark.parametrize("language", list(SIGNED_DECLARATIONS))
+def test_symbols_are_signed_with_their_declaration_line(language: str) -> None:
+    """Verify tree-sitter gives a symbol the line holding its name as its signature, not the Java
+    annotation, C# attribute or TypeScript decorator above the declaration, `@Override` (#959)."""
+    symbols = TreeSitterEngine().parse_code(SIGNED_DECLARATIONS[language], language).symbols
+
+    assert sorted((s.name, s.signature) for s in symbols) == DECLARATION_LINES[language]
 
 
 def test_go_methods_belong_to_their_receiver_type() -> None:
     """Verify tree-sitter scopes a Go method to the type its receiver names, through a pointer,
-    type arguments or parentheses, as the regex fallback does; it gave every Go method no
-    owner, so Level 0 listed none of them (#959)."""
+    type arguments or parentheses; it gave every Go method no owner, so Level 0 listed none of
+    them (#959)."""
     code = (
         "package p\n\n"
         "func (w *WorkerPool) Start() error { return nil }\n"
@@ -360,16 +177,45 @@ def test_tree_sitter_engine_parse_file_and_cache(tmp_path: Path) -> None:
     assert len(res2.symbols) == len(res1.symbols)
 
 
-def test_query_tree_execution() -> None:
-    """Verify S-expression query execution or structural query matching."""
+def test_query_answers_with_the_nodes_it_captures() -> None:
+    """Verify a query returns the nodes it captures, each named by its capture, in source order;
+    the callee query answered with the enclosing function `f` because the engine matched the
+    query text against its symbols whenever the native query raised."""
+    code = "def f(x):\n    return g(x)\n\n\ndef h():\n    return k()\n"
     engine = TreeSitterEngine()
-    code = "def handle_event(event: dict) -> None:\n    pass\n"
-    query_sexpr = "(function_definition name: (identifier) @name)"
+    callees = "(call function: (identifier) @callee)"
+    function_parts = "(function_definition name: (identifier) @name body: (block) @body)"
 
-    matches = engine.query_code(code, "python", query_sexpr)
-    assert isinstance(matches, list)
-    assert len(matches) >= 1
-    assert any("handle_event" in str(m) for m in matches)
+    assert (
+        engine.query_code(code, "python", callees),
+        [
+            (m["symbol"], m["kind"], m["line"])
+            for m in engine.query_code(code, "python", function_parts)
+        ],
+    ) == (
+        [
+            {"symbol": "g", "kind": "callee", "line": 2, "signature": "g", "query": callees},
+            {"symbol": "k", "kind": "callee", "line": 6, "signature": "k", "query": callees},
+        ],
+        [
+            ("f", "name", 1),
+            ("return g(x)", "body", 2),
+            ("h", "name", 5),
+            ("return k()", "body", 6),
+        ],
+    )
+
+
+def test_a_malformed_query_raises_instead_of_answering_with_symbols() -> None:
+    """Verify an S-expression the grammar cannot compile raises tree-sitter's QueryError; the
+    engine swallowed it and answered every query with every symbol of the file."""
+    with pytest.raises(QueryError):
+        TreeSitterEngine().query_code("def f(): ...\n", "python", "(((")
+
+
+def test_a_language_without_a_grammar_has_no_captures() -> None:
+    """Verify a query over a language no grammar parses answers with no captures."""
+    assert TreeSitterEngine().query_code("puts 1\n", "ruby", "(call) @c") == []
 
 
 def test_query_file_checks_size_and_language_before_reading(tmp_path: Path) -> None:
@@ -431,6 +277,44 @@ def test_code_graph_builder(tmp_path: Path) -> None:
 
     dot_repr = graph.to_dot()
     assert "digraph CodeGraph" in dot_repr
+
+
+def test_a_symbol_serialises_the_fields_tree_sitter_fills() -> None:
+    """Verify a symbol's JSON, as `devops ai ast parse --json` and the code graph print it, has
+    no `docstring`: only the deleted regex parser ever filled it (#1839)."""
+    (symbol,) = (
+        TreeSitterEngine().parse_code("def add(x, y):\n    return x + y\n", "python").symbols
+    )
+
+    assert symbol.to_dict() == {
+        "name": "add",
+        "kind": "function",
+        "line_start": 1,
+        "line_end": 2,
+        "signature": "def add(x, y):",
+        "language": "python",
+        "parent_scope": None,
+    }
+
+
+def test_code_graph_links_a_call_and_skips_a_file_it_cannot_read(tmp_path: Path) -> None:
+    """Verify a function that calls another in the file is linked to it, and a file that is gone
+    by the time its calls are read links nothing."""
+    source = tmp_path / "calc.py"
+    source.write_text("def add(x, y):\n    return x + y\n\n\ndef twice(x):\n    return add(x, x)\n")
+
+    graph = CodeGraphBuilder(root_dir=tmp_path).build()
+    file_map = TreeSitterEngine().parse_file(source)
+    assert file_map is not None
+    source.unlink()
+
+    assert (
+        [(e.source_symbol, e.target_symbol) for e in graph.edges],
+        _link_call_edges(graph.nodes, file_map),
+    ) == (
+        [(f"{source}::twice", f"{source}::add")],
+        [],
+    )
 
 
 def test_repomap_multilingual(tmp_path: Path) -> None:

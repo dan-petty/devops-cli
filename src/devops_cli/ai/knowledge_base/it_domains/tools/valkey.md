@@ -18,8 +18,7 @@ Valkey is a high-performance, open-source (BSD-3-Clause) key-value data store de
 
 In the `devops-cli` ecosystem, Valkey serves as:
 - **Workstation & Cluster In-Memory Cache**: Powers GitOps state caching for ArgoCD in the `argocd` namespace and in-memory cache for local LLM inference services in the `llm` namespace.
-- **Distributed Embedding & Review Cache Tier**: Provides high-throughput SHA-256 keyed cache storage for dense text embeddings and AI code review findings, eliminating redundant LLM calls across workstations and CI runners.
-- **Distributed Rate Limiting & Token Bucket**: Enforces cross-process concurrency limits to protect local GPUs (Ollama) from VRAM exhaustion and prevent HTTP 429 throttling against cloud AI provider APIs.
+- **Distributed Embedding Cache**: Provides high-throughput SHA-256 keyed cache storage for dense text embeddings, eliminating redundant embedding calls across workstations and CI runners.
 - **Agent Pub/Sub & Event Streaming**: Backing store for event distribution across continuous file watchers (`devops ai review path --watch`) and agent coordination loops.
 
 ---
@@ -56,11 +55,11 @@ devops valkey info
 # View Rich terminal dashboard of hit rates, ops/sec, and memory distribution
 devops valkey stats
 
-# Search active cache keys matching a pattern
-devops valkey keys "ai:cache:*"
+# Search active embedding cache keys
+devops valkey keys "valkey:rag:embedding:*"
 
 # Read or write key values with TTL
-devops valkey get "ai:cache:embedding:a1b2c3d4"
+devops valkey get "valkey:rag:embedding:<sha256-hex-digest>"
 devops valkey set "config:override" "true" --ex 3600
 
 # Flush cache databases safely
@@ -94,8 +93,8 @@ from typing import Any
 import valkey.asyncio as valkey
 
 
-class ValkeyCacheProvider:
-    """High-performance async Valkey cache provider for AI review findings and embeddings."""
+class EmbeddingCache:
+    """Async Valkey cache for embedding vectors."""
 
     def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0) -> None:
         self.client = valkey.Valkey(

@@ -13,7 +13,10 @@ from pathlib import Path
 from devops_cli.ai.analyze.scanner import detect_language
 from devops_cli.ai.rag.metadata import extract_code_metadata, extract_doc_metadata
 from devops_cli.ai.rag.models import CodeChunk
-from devops_cli.config.constants import CONST_RAG_MAX_CHUNK_TOKENS
+from devops_cli.config.constants import (
+    CONST_CHUNK_MODULE_PREAMBLE_SYMBOL,
+    CONST_RAG_MAX_CHUNK_TOKENS,
+)
 from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
@@ -400,7 +403,7 @@ class SemanticChunker:
                     language="python",
                     category="code",
                     project_name=project_name,
-                    symbols=["<module>"],
+                    symbols=[CONST_CHUNK_MODULE_PREAMBLE_SYMBOL],
                 )
                 chunks.insert(0, preamble_chunk)
 

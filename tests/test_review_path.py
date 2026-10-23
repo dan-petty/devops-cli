@@ -16,6 +16,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
 from devops_cli.review.diff import diff_blocks
+from devops_cli.review.session import ReviewSessionStore
 from tests.llm_stream_fakes import route_client
 
 runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -109,20 +110,16 @@ def test_review_path_append_cache_flag(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 def test_run_review_dry_run_skips_client_calls(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, review_store: type[ReviewSessionStore]
 ) -> None:
     """Verify a dry-run review calls no LLM client, writes no session files, and records no stats session (#872)."""
-    from devops_cli.ai.review import pipeline, review_environment
     from devops_cli.ai.review import runner as review_runner
 
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir()
+    reviews_dir = review_store.root()
     target_dir = tmp_path / "target"
     target_dir.mkdir()
     (target_dir / "app.py").write_text("print('hello')\n", encoding="utf-8")
 
-    for mod in (review_runner, pipeline, review_environment):
-        monkeypatch.setattr(mod, "_get_reviews_base_dir", lambda: reviews_dir)
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
 
     call_count = 0
@@ -157,22 +154,18 @@ def test_run_review_dry_run_skips_client_calls(
 
 
 def test_dry_run_routed_files_only_leaves_reviews_dir_empty(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, review_store: type[ReviewSessionStore]
 ) -> None:
     """Verify a dry-run review whose only change is a routed file creates no session directory (#872)."""
     from unittest.mock import MagicMock
 
-    from devops_cli.ai.review import pipeline, review_environment
     from devops_cli.ai.review import runner as review_runner
 
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir()
+    reviews_dir = review_store.root()
     target_dir = tmp_path / "target"
     target_dir.mkdir()
     (target_dir / "uv.lock").write_text("version = 1\n", encoding="utf-8")
 
-    for mod in (review_runner, pipeline, review_environment):
-        monkeypatch.setattr(mod, "_get_reviews_base_dir", lambda: reviews_dir)
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
 
     results = review_runner._execute_review_workflow(

@@ -174,6 +174,7 @@ class WorkloadSandboxRunner:
             "cpu_limit": self.config.cpu_limit,
             "network_mode": self.config.network_mode,
             "network_config": self.config.network_config.model_dump(),
+            "declared_controls": self.declared_controls(),
             "user": user_str,
             "note": "A rootless engine runs as container root (the host user).",
         }
@@ -198,8 +199,25 @@ class WorkloadSandboxRunner:
         {SandboxNetworkMode.PUBLIC_WHITELIST, SandboxNetworkMode.LOCAL_WHITELIST}
     )
 
-    def _network_create_kwargs(self) -> dict[str, Any]:
-        """Resolve Engine API network and proxy settings for the configured isolation tier."""
+    def declared_controls(self) -> dict[str, Any]:
+        """The hardening this runner declares to the engine, before any engine call.
+
+        These are the policy's security options, the Docker network of the network mode and the
+        mode the workspace is mounted in. The method is pure: it asks the engine nothing,
+        provisions no network and injects no trace, so the dry run and the enforcement audit read
+        the controls the container is created with.
+        """
+        return {
+            **self.config.policy.to_docker_security_kwargs(read_only=self.config.read_only),
+            "network_mode": self.config.network_config.to_docker_network_mode(),
+            "workspace_mount_mode": "ro" if self.config.read_only else "rw",
+        }
+
+    def _provision_network_environment(self) -> dict[str, str]:
+        """Provision the configured isolation tier and return the container environment for it.
+
+        A whitelist needs the egress proxy that enforces it, which the environment points at.
+        """
         mode = self.config.network_config.mode
         if mode in self._PROXY_ENFORCED_MODES and not self.config.network_config.egress_proxy:
             raise DockerSandboxError(
@@ -207,37 +225,28 @@ class WorkloadSandboxRunner:
             )
         if mode in self._INTERNAL_NETWORK_MODES:
             _ensure_internal_network()
-
-        if mode == SandboxNetworkMode.ISOLATED:
-            return {"network_mode": "none", "environment": dict(self.config.env)}
-        if mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
-            return {
-                "network_mode": CONST_SANDBOX_DOCKER_INTERNAL_NET,
-                "environment": dict(self.config.env),
-            }
-        if mode in self._PROXY_ENFORCED_MODES:
-            proxy_url = self.config.network_config.egress_proxy or ""
-            return {
-                "network_mode": CONST_SANDBOX_DOCKER_INTERNAL_NET,
-                "environment": {
-                    "HTTP_PROXY": proxy_url,
-                    "HTTPS_PROXY": proxy_url,
-                    "ALL_PROXY": proxy_url,
-                    **self.config.env,
-                },
-            }
-        return {"network_mode": "bridge", "environment": dict(self.config.env)}
+        if mode not in self._PROXY_ENFORCED_MODES:
+            return dict(self.config.env)
+        proxy_url = self.config.network_config.egress_proxy or ""
+        return {
+            "HTTP_PROXY": proxy_url,
+            "HTTPS_PROXY": proxy_url,
+            "ALL_PROXY": proxy_url,
+            **self.config.env,
+        }
 
     def _build_create_kwargs(self, ws_resolved: Path) -> dict[str, Any]:
         """Assemble the hardened Engine API container creation payload.
 
-        The container's environment carries the active trace context, so a workload that
-        traces is parented to the span that runs it.
+        The declared controls come first, and the workspace is mounted in the mode they declare.
+        The container's environment carries the active trace context, so a workload that traces
+        is parented to the span that runs it.
         """
-        mount_mode = "ro" if self.config.read_only else "rw"
+        declared = self.declared_controls()
+        mount_mode = declared.pop("workspace_mount_mode")
         user_str = resolve_sandbox_user(self.config.rootless)
-        network = self._network_create_kwargs()
-        get_tracer().inject_trace_env(network["environment"])
+        environment = self._provision_network_environment()
+        get_tracer().inject_trace_env(environment)
         kwargs: dict[str, Any] = {
             "image": self.config.image,
             "command": self.config.command,
@@ -246,8 +255,8 @@ class WorkloadSandboxRunner:
             "mem_limit": self.config.memory_limit,
             "nano_cpus": int(self.config.cpu_limit * 1e9) if self.config.cpu_limit else None,
             "detach": True,
-            **self.config.policy.to_docker_security_kwargs(read_only=self.config.read_only),
-            **network,
+            "environment": environment,
+            **declared,
         }
         if user_str is not None:
             kwargs["user"] = user_str

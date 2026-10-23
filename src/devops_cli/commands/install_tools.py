@@ -3,10 +3,12 @@
 The lock (`devops_cli.tools_lock`) is the registry: nothing installs at a version it does not
 name. A binary tool's build for this platform is downloaded from the lock's URL alone and refused
 unless its SHA-256 is the lock's. A Python tool installs from its hashed requirements file into a
-relocatable virtual environment of its own. Each install is staged beside its version directory,
-moved into place with one rename, and linked from the target directory, so a tool is at its pin
-exactly when its command links into that version directory. Once linked, the tool's other version
-directories are removed.
+relocatable virtual environment of its own. A Node tool installs with `npm ci` from the
+`package.json` and `package-lock.json` the lock names, and npm refuses any package whose sha512
+the lockfile does not list. The installer provisions no runtime: uv and npm must already be on
+PATH. Each install is staged beside its version directory, moved into place with one rename, and
+linked from the target directory, so a tool is at its pin exactly when its command links into
+that version directory. Once linked, the tool's other version directories are removed.
 """
 
 from __future__ import annotations
@@ -22,12 +24,13 @@ import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
 import httpx2
 import typer
 
-from devops_cli.config.constants import CONST_PERM_EXEC
+from devops_cli.config.commands import BIN_NPM, build_npm_ci_cmd
+from devops_cli.config.constants import CONST_NPM_PROJECT_FILES, CONST_PERM_EXEC
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS, DEFAULT_LOCAL_BIN_DIR
 from devops_cli.core.binaries import require_binary
 from devops_cli.core.cli import new_typer
@@ -47,6 +50,8 @@ from devops_cli.tools_lock import (
     LOCK_DIR,
     Artifact,
     BinaryTool,
+    LockedTool,
+    NpmTool,
     PythonTool,
     installed_commands,
     load_tools_lock,
@@ -172,7 +177,7 @@ def _link(command: Path, installed: Path) -> None:
     os.replace(temporary, command)
 
 
-def _link_commands(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> None:
+def _link_commands(name: str, entry: LockedTool, target_dir: Path) -> None:
     """Link the tool's commands to its locked version, then remove the tool's other versions."""
     for command, installed in installed_commands(name, entry).items():
         _link(target_dir / command, installed)
@@ -200,14 +205,40 @@ def install_binary(name: str, entry: BinaryTool, target_dir: Path) -> None:
 _UV_ENV: Final[frozenset[str]] = frozenset({"UV_MALWARE_CHECK", "UV_CACHE_DIR", "UV_LINK_MODE"})
 
 
+def _stderr_tail(stderr: str) -> str:
+    """The last 256 characters of `stderr`, where uv puts its reason."""
+    return stderr.strip()[-256:]
+
+
+def _stderr_head(stderr: str) -> str:
+    """The first 256 characters of `stderr`, where npm puts its reason: with its log level at
+    `error`, the output is its error lines, which lead with the code (`EINTEGRITY`) and end with
+    a pointer to a log."""
+    return stderr.strip()[:256]
+
+
+def _run_installer(
+    name: str,
+    cmd: list[str],
+    *,
+    reason: Callable[[str], str] = _stderr_tail,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    extra_allowed_env: frozenset[str] | None = None,
+) -> None:
+    """Run the installer program `cmd` starts for tool `name`, and raise with its `reason` when it
+    exits non-zero."""
+    result = run_subprocess(cmd, quiet=True, cwd=cwd, env=env, extra_allowed_env=extra_allowed_env)
+    if result.returncode != 0:
+        raise ToolExecutionError(
+            f"{cmd[0]} could not install {name}: {reason(result.stderr)}", tool_name=name
+        )
+
+
 def _run_uv(name: str, args: list[str]) -> None:
     """Run `uv --no-config <args>`, so a `uv.toml` or `[tool.uv]` in the current directory cannot
     change the install, and raise with uv's reason when it fails."""
-    result = run_subprocess(["uv", "--no-config", *args], quiet=True, extra_allowed_env=_UV_ENV)
-    if result.returncode != 0:
-        raise ToolExecutionError(
-            f"uv could not install {name}: {result.stderr.strip()[-256:]}", tool_name=name
-        )
+    _run_installer(name, ["uv", "--no-config", *args], extra_allowed_env=_UV_ENV)
 
 
 def install_python_tool(name: str, entry: PythonTool, target_dir: Path) -> None:
@@ -228,15 +259,59 @@ def install_python_tool(name: str, entry: PythonTool, target_dir: Path) -> None:
     _link_commands(name, entry, target_dir)
 
 
-def install_tool(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> None:
+def install_npm_tool(name: str, entry: NpmTool, target_dir: Path) -> None:
+    """Install `name` with `npm ci` from the `package.json` and `package-lock.json` the lock names
+    for it, and link its commands.
+
+    npm installs in a stage beside the version directory that holds only those two files, so a
+    package that fails its sha512, which can leave a partial `node_modules`, is removed with the
+    stage. The caller's npm settings do not reach npm: the environment names an empty user and
+    global configuration, since a configured registry would rewrite the lockfile's URLs, a cache
+    of its own, which goes with the stage's scratch directory, no check for a newer npm, and a log
+    level at which the output of a failure is npm's error lines alone.
+    """
+    require_binary(BIN_NPM, install_hint=MESSAGES.install.npm_missing_hint)
+    with (
+        _staged(tool_install_dir(name, entry.version)) as stage,
+        tempfile.TemporaryDirectory(prefix=f"npm-{name}-") as scratch,
+    ):
+        for filename in CONST_NPM_PROJECT_FILES:
+            shutil.copyfile(LOCK_DIR / name / filename, stage / filename)
+        user_config, global_config = (
+            Path(scratch) / f"{kind}.npmrc" for kind in ("user", "global")
+        )
+        user_config.touch()
+        global_config.touch()
+        _run_installer(
+            name,
+            build_npm_ci_cmd(),
+            reason=_stderr_head,
+            cwd=stage,
+            env={
+                "npm_config_cache": str(Path(scratch) / "cache"),
+                "npm_config_userconfig": str(user_config),
+                "npm_config_globalconfig": str(global_config),
+                "npm_config_update_notifier": "false",
+                "npm_config_loglevel": "error",
+            },
+        )
+    _link_commands(name, entry, target_dir)
+
+
+# Installs a tool of each kind of the lock.
+_INSTALLERS: Final[dict[type, Callable[[str, Any, Path], None]]] = {
+    BinaryTool: install_binary,
+    PythonTool: install_python_tool,
+    NpmTool: install_npm_tool,
+}
+
+
+def install_tool(name: str, entry: LockedTool, target_dir: Path) -> None:
     """Install `name` at its locked version and link its commands into `target_dir`."""
-    if isinstance(entry, PythonTool):
-        install_python_tool(name, entry, target_dir)
-    else:
-        install_binary(name, entry, target_dir)
+    _INSTALLERS[type(entry)](name, entry, target_dir)
 
 
-def _at_pin(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> bool:
+def _at_pin(name: str, entry: LockedTool, target_dir: Path) -> bool:
     """Whether each of the tool's commands in `target_dir` links to its locked version."""
     return all(
         installed.is_file() and (target_dir / command).resolve() == installed.resolve()
@@ -244,14 +319,12 @@ def _at_pin(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> bool
     )
 
 
-def _off_pin(
-    tools: dict[str, BinaryTool | PythonTool], target_dir: Path
-) -> dict[str, BinaryTool | PythonTool]:
+def _off_pin(tools: dict[str, LockedTool], target_dir: Path) -> dict[str, LockedTool]:
     """The tools whose commands in `target_dir` do not link to their locked versions."""
     return {name: entry for name, entry in tools.items() if not _at_pin(name, entry, target_dir)}
 
 
-def _installed(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> str:
+def _installed(name: str, entry: LockedTool, target_dir: Path) -> str:
     """`at pin`; else the command PATH finds, searching `target_dir` first; else `not installed`."""
     if _at_pin(name, entry, target_dir):
         return MESSAGES.install.at_pin
@@ -265,7 +338,7 @@ def _installed(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> s
 # =============================================================================
 
 
-def _resolve_install_targets(tool: str | None) -> dict[str, BinaryTool | PythonTool]:
+def _resolve_install_targets(tool: str | None) -> dict[str, LockedTool]:
     tools = load_tools_lock().tools()
     if tool is None:
         return tools
@@ -275,7 +348,7 @@ def _resolve_install_targets(tool: str | None) -> dict[str, BinaryTool | PythonT
     return {tool: tools[tool]}
 
 
-def _install_single_target(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> bool:
+def _install_single_target(name: str, entry: LockedTool, target_dir: Path) -> bool:
     """Install one tool, printing its command's path or why it was refused; whether it installed."""
     print_info(
         MESSAGES.install.installing_tool.format(name=name, version=entry.version),
@@ -290,7 +363,7 @@ def _install_single_target(name: str, entry: BinaryTool | PythonTool, target_dir
     return True
 
 
-def _check_pins(targets: dict[str, BinaryTool | PythonTool], target_dir: Path) -> None:
+def _check_pins(targets: dict[str, LockedTool], target_dir: Path) -> None:
     """Print each tool not at its pin and exit 1, or confirm that every tool is."""
     off_pin = _off_pin(targets, target_dir)
     for name, entry in off_pin.items():

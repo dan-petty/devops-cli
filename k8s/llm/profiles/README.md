@@ -64,9 +64,9 @@ model_list:
       model: ollama_chat/qwen3-coder:30b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
 
-  - model_name: bge-m3:latest
+  - model_name: qwen3-embedding:0.6b
     litellm_params:
-      model: ollama/bge-m3:latest
+      model: ollama/qwen3-embedding:0.6b
       api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
       weight: 3
     model_info:
@@ -84,11 +84,6 @@ model_list:
       api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
       weight: 6
       num_retries: 0
-
-  - model_name: embeddinggemma:300m
-    litellm_params:
-      model: ollama/embeddinggemma:300m
-      api_base: http://ollama-16gib.llm.svc.cluster.local:11434
 ```
 
 ---

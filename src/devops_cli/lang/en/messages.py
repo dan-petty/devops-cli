@@ -44,6 +44,10 @@ class ReviewMessages:
     fetching_pr: str = "Fetching PR #{number} from {repo}..."
     findings_saved: str = "  ✓ findings saved → {path}"
     review_saved: str = "Review saved → {path}"
+    session_not_kept: str = (
+        "No review session is kept: the reporting stage is off, and it is the one that writes "
+        "the findings a session is listed by."
+    )
     code_changed_during_run: str = (
         "devops-cli's own source changed while this review ran, by a commit or an edit to its "
         "checkout, so its later stages may have run different code than its earlier ones. "
@@ -121,6 +125,33 @@ class ReviewMessages:
         "Tested {count} rule(s) with Semgrep {version}; [bold]{path}[/bold] is up to date."
     )
     rules_test_dry_run: str = r"[yellow]\[dry-run][/yellow] Would run `semgrep --test --metrics off {path}` and write {lock}."
+    rules_fetch_dry_run_heading: str = (
+        "Dry run: no request was made. rules fetch would make these requests, in order:"
+    )
+    rules_fetch_dry_run_writes: str = (
+        "It would then write the ruleset to {rules} and its ETag to {etag}."
+    )
+    rules_fetch_cached: str = "Cached {count} rule(s) of {ruleset} in [bold]{path}[/bold]."
+    rules_fetch_current: str = "The cached {ruleset} in [bold]{path}[/bold] is current."
+    registry_ruleset_invalid: str = (
+        "'{ruleset}' is not a Semgrep registry id. Write the kind ({kinds}), a slash and one name "
+        "with no path, query or fragment in it, such as p/default."
+    )
+    registry_answer_refused: str = "the registry answered HTTP {status}"
+    registry_answer_too_large: str = "the ruleset is larger than {limit} bytes"
+    registry_answer_not_a_ruleset: str = (
+        "The answer from {url} is not a Semgrep ruleset: it needs a `rules` list of at least one "
+        "rule, each with an id."
+    )
+    registry_not_cached: str = (
+        "The registry rules {ruleset} are not cached, or the cached file is not a Semgrep "
+        "ruleset. Run `devops review rules fetch --ruleset {ruleset}`."
+    )
+    registry_cache_old: str = (
+        "The cached registry rules {ruleset} are {hours} hours old, and the scan uses them. "
+        "Run `devops review rules fetch --ruleset {ruleset}` to refresh them."
+    )
+    files_not_scanned: str = "Files not scanned: {count}. The Coverage section lists them."
 
 
 @dataclass(frozen=True)
@@ -194,8 +225,59 @@ class InstallMessages:
     not_installed: str = "not installed"
     check_off_pin: str = "{name} {version}: {installed}"
     check_all_pinned: str = "All {count} tools are linked at their locked versions in {path}."
+    npm_missing_hint: str = (
+        "A Node tool installs with npm, and the installer provisions no runtime: install Node.js at "
+        "the version in .node-version, which brings npm."
+    )
     path_hint: str = (
         'Note: {path} is not in your PATH.\nAdd to your shell config:  export PATH="{path}:$PATH"'
+    )
+
+
+@dataclass(frozen=True)
+class OpenSpecMessages:
+    missing_hint: str = (
+        "OpenSpec is a pinned Node tool: install it with "
+        "`uv run devops install-tools --tool openspec --only-missing`."
+    )
+    command_timed_out: str = "{command} ran past its {timeout} timeout and was stopped."
+    command_failed: str = "{command} failed with exit code {code}: {reason}"
+    check_passed: str = "OpenSpec check passed."
+    check_failed: str = "OpenSpec check found {count} problem(s)."
+    finding_line: str = "{check}: {detail}"
+    skill_differs: str = (
+        "{path} is not what `openspec update` writes under the isolated custom profile: run "
+        "`uv run devops openspec regenerate` and commit the result."
+    )
+    skill_missing: str = (
+        "{path} is what `openspec update` writes under the isolated custom profile and is not in "
+        "the tree: run `uv run devops openspec regenerate` and commit the result."
+    )
+    skill_unexpected: str = (
+        "{path} is not written by `openspec update` under the isolated custom profile: delete it, "
+        "or run `uv run devops openspec regenerate` and commit the result."
+    )
+    skill_tree_missing: str = (
+        "No file matches {pattern}. `openspec update` writes a skill tree only where one exists, "
+        "so `uv run devops openspec regenerate` cannot write it back: restore it from git."
+    )
+    overlap: str = (
+        '{spec}: the requirement "{requirement}" is rewritten by {changes}: both would archive '
+        "and the later would overwrite the earlier with no signal, so fold the items into one "
+        "change or order them with a blocker, so that the second waits until the first archives."
+    )
+    config_missing: str = (
+        "{path} is missing: it carries the planning conventions every agent reads through "
+        "`openspec instructions`."
+    )
+    regenerated: str = "Regenerated the OpenSpec skills under the isolated custom profile."
+    archived: str = "Archived {change}. Every spec and change validates."
+    archive_failed: str = (
+        "{command} failed with exit code {code}. The reason is above. The validation did not run."
+    )
+    archive_left_invalid: str = (
+        "{command} failed with exit code {code}. The archive is applied. Fix the specs that the "
+        "tool names above. Then run `uv run devops openspec check`. Do not run the archive again."
     )
 
 
@@ -208,13 +290,8 @@ class GeneralMessages:
     key_already_exists: str = "Key already exists: {key_path}"
     generated_key: str = "Generated: {key_path}"
     public_key_path: str = "Public key: {pub_path}"
-    no_ssh_key_found: str = "No managed SSH key found. Run 'devops ssh generate' first."
     public_key_not_found: str = "Public key not found: {pub_path}"
     failed_to_register_key: str = "Failed to register key on GitHub: {error}"
-    gh_auth_refresh_tip: str = (
-        "Tip: run 'gh auth refresh -h github.com -s admin:public_key,write:ssh_signing_key' "
-        "and retry."
-    )
     vscode_cli_unavailable: str = "Workspace updated, but VS Code CLI is not available to reload."
     invalid_url_scheme: str = "Invalid {purpose} URL: must use http:// or https:// with a hostname."
     refusing_non_public_url: str = (
@@ -429,6 +506,10 @@ class DocsMessages:
         "Documentation check failed. Run 'devops docs generate' to refresh documentation."
     )
     argv_unresolved: str = "{location} {owner}: 'devops {command_line}': {problem}."
+    inventory_entry_missing: str = (
+        "{entry}: the document inventory lists it, but no file matches, so its command lines "
+        "cannot be checked."
+    )
     argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
     argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
     argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"
@@ -909,6 +990,7 @@ class ScanMessages:
     semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
     semgrep_default_message: str = "Code pattern flaw detected by Semgrep"
     semgrep_batch_failed: str = "batch {batch} of {batches}, {files} files: {reason}"
+    semgrep_file_not_scanned: str = "Semgrep did not list the file as scanned"
     checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
     checkov_passed: str = "✓ No IaC policy violations detected."
 
@@ -958,9 +1040,14 @@ class TLSMessages:
 @dataclass(frozen=True)
 class SSHMessages:
     key_generated: str = "Generated Ed25519 SSH keypair: {path}"
-    no_managed_keys: str = "No managed SSH keys found. Run 'devops ssh generate' first."
+    no_project_key: str = (
+        "No managed SSH key with the prefix '{prefix}' exists in {key_dir}. "
+        "Run 'devops ssh generate' to make one."
+    )
+    list_all_tip: str = "Add '--all' to show the keys of all projects."
+    all_with_prefix: str = "Use '--all' or '--prefix'. Do not use both."
     no_managed_keys_pattern: str = (
-        "No managed SSH keys found (expected: [prefix-]id_ed25519-YYYYMMDD)."
+        "No managed SSH keys found (expected: PREFIX-id_ed25519-YYYYMMDD or id_ed25519-YYYYMMDD)."
     )
     registered_and_configured: str = "Registered new key and updated git signing config."
     cleaned_unregistered_keys: str = (
@@ -1067,19 +1154,20 @@ class CIMessages:
     uv_check: str = "uv check"
     uv_lock: str = "uv lockfile freshness"
     uv_outdated: str = "uv tree --outdated"
-    uv_audit: str = "uv audit"
+    dependency_audit: str = "uv audit and npm audit"
     deptry: str = "deptry"
     deps: str = "deptry"
     constructs: str = "ast-grep scan (hand-rolled network constructs)"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     zizmor: str = "zizmor (github workflow security)"
-    audit_vulnerable: str = "Dependency audit found vulnerabilities (uv audit exited {code})."
+    audit_vulnerable: str = "Dependency audit found vulnerabilities ({tool} audit exited {code})."
     audit_not_run: str = (
-        "Dependency audit could not run (uv audit exited {code}); uv's error is above."
+        "Dependency audit could not run ({tool} audit exited {code}); {tool}'s error is above."
     )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
+    openspec_validation: str = "openspec validation"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"
     col_result: str = "Result"
@@ -1279,6 +1367,9 @@ class ServeMessages:
     openapi_json: str = "  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]"
     health_endpoint: str = "  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]"
     metrics_endpoint: str = "  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n"
+    # Logged once for each webhook delivery, whatever came of it; its record carries the provider,
+    # event, action, delivery, repository and outcome (#1386).
+    webhook_delivery: str = "Webhook delivery handled."
     # Logged once for each new time a failed Service round names (#1400).
     rounds_paused: str = (
         "No repository starts a Service round before {until}, the time the failed round for "
@@ -2290,6 +2381,7 @@ class LanguageCatalog:
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)
+    openspec: OpenSpecMessages = field(default_factory=OpenSpecMessages)
     branches: BranchMessages = field(default_factory=BranchMessages)
     workspace: WorkspaceMessages = field(default_factory=WorkspaceMessages)
     repos: RepoMessages = field(default_factory=RepoMessages)

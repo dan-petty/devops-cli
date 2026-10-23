@@ -24,7 +24,10 @@ SymbolDelta = tuple[list[str], list[str], list[str]]
 @dataclass(frozen=True)
 class BaseRevision:
     """The revision a reviewed diff starts from: the files the diff changed, and `read`, which
-    returns a file's text there by its path at that revision, or None when it cannot.
+    returns a file's text there by its path at that revision, or None when there is none.
+
+    A revision read from GitHub raises the error of the GitHub session when GitHub cannot answer,
+    so a failed read is never taken for a file that is not there.
 
     `read_head` does the same where the diff ends, when that is a commit rather than the files
     on disk: a branch that is not checked out, or one whose checkout has uncommitted edits the
@@ -51,11 +54,14 @@ def extract_python_source_symbols(content: str | None) -> set[str]:
     except SyntaxError, ValueError, RecursionError:
         return set()
 
-    from devops_cli.ai.ast_cache import _extract_symbols_from_tree
     from devops_cli.ai.repomap import _extract_class_methods
 
-    symbols = set(_extract_symbols_from_tree(tree))
-    for node in getattr(tree, "body", []):
+    symbols: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            symbols.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            symbols.add(node.name)
         if isinstance(node, ast.ClassDef):
             for method in _extract_class_methods(node):
                 symbols.add(method.name)

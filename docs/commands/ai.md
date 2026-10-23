@@ -98,7 +98,7 @@ devops ai prewarm [OPTIONS]
 
 ## `devops ai agents`
 
-**Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md).**
+**Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md).**
 
 ```bash
 devops ai agents [OPTIONS]
@@ -546,7 +546,7 @@ devops ai review path [OPTIONS] <targets>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -586,7 +586,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -624,7 +624,7 @@ devops ai review pr [OPTIONS] <number>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -988,6 +988,26 @@ devops ai review rules test [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+#### `devops ai review rules fetch`
+
+**Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).**
+
+Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
+
+This is the one step that reaches the registry, and a review never runs it. A review,
+`devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
+
+```bash
+devops ai review rules fetch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ruleset` | `string` | `p/default` | Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## `devops ai analyze`
@@ -1261,7 +1281,8 @@ devops ai benchmark [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas. |
 | `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval. |
-| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation. |
+| `--code` | `path` | - | Path to a source directory whose code chunks are the embedding corpus, each queried by its path (relative to the directory) and its symbol names, in place of --document. |
+| `--samples` | `integer` | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
 
 ---
 

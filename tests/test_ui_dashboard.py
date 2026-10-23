@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
-from textual.widgets import TabbedContent
+from textual.widgets import ContentSwitcher, Static, TabbedContent
 from typer.testing import CliRunner
 
 import devops_cli.commands.dashboard as dashboard_command
@@ -32,6 +32,9 @@ from devops_cli.ui.data_providers import (
 )
 from devops_cli.ui.projections import k8s_banner
 from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
+from tests.support.fakes.valkey import bulk_reply, serving_valkey
+
+pytestmark = pytest.mark.usefixtures("mock_keyring")
 
 runner = CliRunner()
 
@@ -375,29 +378,96 @@ def test_fetch_review_status_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert summary.total_findings == 0
 
 
-def test_fetch_valkey_status_success() -> None:
-    """fetch_valkey_status returns parsed info and hit ratios."""
-    mock_client = MagicMock()
-    mock_client.info.return_value = {
-        "server": {"valkey_version": "8.0.1", "uptime_in_seconds": "3600"},
-        "clients": {"connected_clients": "4"},
-        "memory": {"used_memory_human": "2.4M", "used_memory_peak_human": "4.1M"},
-        "stats": {
-            "keyspace_hits": "800",
-            "keyspace_misses": "200",
-            "total_commands_processed": "5000",
-        },
-    }
-    mock_client.dbsize.return_value = 150
+def test_the_review_summary_reads_sessions_written_where_the_reviews_directory_setting_points(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """Verify the summary looks where a review writes, not under `data.dir` beside it.
 
-    with patch("devops_cli.ui.data_providers.ValkeyClient", return_value=mock_client):
+    With `data.reviews_dir` pointed away from `data.dir`, the dashboard read `data.dir/reviews`,
+    found nothing, and showed no session of a review that had just run (#771).
+    """
+    elsewhere = tmp_path / "elsewhere"
+    session_dir = elsewhere / "20261001-120000"
+    session_dir.mkdir(parents=True)
+    (session_dir / "findings.json").write_text('{"findings": [{}, {}]}', encoding="utf-8")
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR")
+    monkeypatch.setenv("DEVOPS_CLI_DATA_REVIEWS_DIR", str(elsewhere))
+    config(data={"dir": str(tmp_path / "data")})
+
+    summary = fetch_review_status()
+
+    assert (summary.has_session, summary.session_name, summary.total_findings) == (
+        True,
+        "20261001-120000",
+        2,
+    )
+
+
+def test_the_review_summary_has_no_session_for_a_reviews_directory_setting_that_is_not_a_path(
+    monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """Verify a settings file the schema refuses leaves the review summary empty, not raising.
+
+    `data.reviews_dir: [1, 2]` fails the settings schema with a `ValidationError`, which is a
+    `ValueError` and not a `DevOpsCLIError` (#771).
+    """
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR")
+    config(data={"reviews_dir": [1, 2]})
+
+    assert fetch_review_status() == ReviewSummary(has_session=False)
+
+
+# The text a Valkey 8 server answers to INFO: one flat list of `field:value` lines under section
+# headings. valkey-py drops the headings, so the client returns one flat mapping.
+_VALKEY_INFO_TEXT = (
+    "# Server\r\nredis_version:7.2.4\r\nserver_name:valkey\r\nvalkey_version:8.0.0\r\n"
+    "uptime_in_seconds:3600\r\n\r\n"
+    "# Clients\r\nconnected_clients:4\r\n\r\n"
+    "# Memory\r\nused_memory:2516582\r\nused_memory_human:2.40M\r\n\r\n"
+    "# Stats\r\ntotal_commands_processed:5000\r\nkeyspace_hits:800\r\nkeyspace_misses:200\r\n"
+)
+
+
+def test_fetch_valkey_status_reads_the_flat_info_the_client_returns(
+    config: Callable[..., Path],
+) -> None:
+    """The panel shows what a server reports: version, uptime, memory, clients, commands, hits."""
+    replies = {"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode()), "DBSIZE": b":150\r\n"}
+    with serving_valkey(replies) as (port, _received):
+        config(valkey={"host": "127.0.0.1", "port": port})
         summary = fetch_valkey_status()
-        assert isinstance(summary, ValkeySummary)
-        assert summary.connected is True
-        assert summary.version == "8.0.1"
-        assert summary.used_memory == "2.4M"
-        assert summary.hit_ratio == 80.0
-        assert summary.key_count == 150
+
+    assert summary == ValkeySummary(
+        connected=True,
+        endpoint=f"127.0.0.1:{port}",
+        version="8.0.0",
+        uptime_seconds=3600,
+        used_memory="2.40M",
+        hit_ratio=80.0,
+        connected_clients=4,
+        total_commands=5000,
+        key_count=150,
+    )
+
+
+@pytest.mark.parametrize(
+    "plaintext_password",
+    [
+        pytest.param(None, id="keyring-only"),
+        pytest.param("plaintext-password", id="keyring-over-plaintext-setting"),
+    ],
+)
+def test_fetch_valkey_status_authenticates_with_the_keyring_password(
+    config: Callable[..., Path], mock_keyring: Any, plaintext_password: str | None
+) -> None:
+    """The panel sends the password `get_valkey_password` resolves, never the plaintext setting."""
+    mock_keyring.values["valkey_password"] = "keyring-password"
+    valkey_settings = {"host": "127.0.0.1", "password": plaintext_password}
+    with serving_valkey({"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode())}) as (port, received):
+        config(valkey={**valkey_settings, "port": port})
+        fetch_valkey_status()
+
+    assert received[0] == ["AUTH", "keyring-password"]
 
 
 def test_fetch_valkey_status_failure() -> None:
@@ -442,13 +512,8 @@ async def test_textual_dashboard_app_lifecycle() -> None:
         await pilot.pause()
         assert tabs.active == "tab-telemetry"
 
-        # Switch to AI Review tab via key '4'
+        # Switch to Valkey tab via key '4'
         await pilot.press("4")
-        await pilot.pause()
-        assert tabs.active == "tab-ai"
-
-        # Switch to Valkey tab via key '5'
-        await pilot.press("5")
         await pilot.pause()
         assert tabs.active == "tab-valkey"
 
@@ -474,17 +539,48 @@ async def test_textual_dashboard_app_lifecycle() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("empty_docker_engine")
+async def test_the_dashboard_shows_four_domain_tabs_and_the_logs_tab() -> None:
+    """The dashboard holds no AI Review tab: `devops review findings --details` shows findings
+    (#1883)."""
+    app = DashboardApp()
+    async with app.run_test():
+        tabs = app.query_one("#dashboard-tabs", TabbedContent)
+        shown = [pane.id for pane in tabs.get_child_by_type(ContentSwitcher).children]
+
+    assert shown == ["tab-k8s", "tab-docker", "tab-telemetry", "tab-valkey", "tab-logs"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_docker_engine")
+async def test_the_help_screen_numbers_the_four_domain_tabs_and_lists_no_finding_key() -> None:
+    """Help names tab 4 as Valkey, and it lists no key for the finding detail pane (#1883)."""
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        app.push_screen(HelpScreen())
+        await pilot.pause()
+        help_text = str(app.screen.query_one("#help-body", Static).content)
+
+    assert (
+        "1=Kubernetes  2=Docker  3=Telemetry  4=Valkey Cache" in help_text,
+        "finding" in help_text,
+    ) == (
+        True,
+        False,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_docker_engine")
 async def test_dashboard_refresh_before_mount_does_not_fail_worker() -> None:
     """A panel update before the panel is mounted is deferred or dropped, never failing the worker."""
     from devops_cli.ui.state import DomainSnapshot
-    from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, ReviewPanel
+    from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel
 
     panels: list[Any] = [
         DomainPanel("telemetry"),
         DomainPanel("valkey"),
         K8sPanel("k8s"),
         DockerPanel("docker"),
-        ReviewPanel("ai"),
     ]
     snapshots = [DomainSnapshot(domain=p.domain) for p in panels]
     for p, s in zip(panels, snapshots, strict=True):
@@ -514,10 +610,25 @@ async def test_dashboard_refresh_before_mount_does_not_fail_worker() -> None:
 # =============================================================================
 
 
-def test_dashboard_app_disable_auto_refresh() -> None:
-    """DashboardApp handles refresh_interval=0 without scheduling timer."""
-    tui = DashboardApp(refresh_interval=0)
-    assert tui._refresh_interval == 0
+@pytest.mark.parametrize(
+    ("refresh_interval", "timer_started"),
+    [pytest.param(5, True, id="positive-interval"), pytest.param(0, False, id="zero-interval")],
+)
+def test_the_dashboard_starts_its_refresh_timer_only_for_a_positive_interval(
+    refresh_interval: int, timer_started: bool
+) -> None:
+    """Mounting refreshes every domain once. A positive interval also starts one timer that
+    repeats the refresh, and an interval of 0 starts none (#1883)."""
+    tui = DashboardApp(refresh_interval=refresh_interval)
+    with (
+        patch.object(tui, "action_refresh_data") as refresh,
+        patch.object(tui, "set_interval") as set_interval,
+    ):
+        tui.on_mount()
+    assert refresh.call_args_list == [call()]
+    assert set_interval.call_args_list == (
+        [call(refresh_interval, refresh)] if timer_started else []
+    )
 
 
 @pytest.mark.usefixtures("empty_docker_engine")

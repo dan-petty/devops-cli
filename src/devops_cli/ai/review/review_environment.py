@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import os
 import shlex
 import warnings
 from collections.abc import Callable, Sequence
@@ -164,25 +163,6 @@ def _read_candidate_conventions_file(directory: Path, read_file: _FileReader) ->
         if (content := read_file(directory / name)) and content.strip():
             return content
     return ""
-
-
-def _get_reviews_base_dir() -> Path:
-    """Resolve and ensure the review data storage directory, under the review data root when
-    relative, for whichever command reads or writes it (`resolve_review_data_path`, #972)."""
-    from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import resolve_review_data_path
-    from devops_cli.dry_run.state import is_dry_run
-
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_data_dir:
-        d = Path(env_data_dir) / "reviews"
-    else:
-        settings = load_settings()
-        d = settings.data.reviews_dir
-    d = resolve_review_data_path(d)
-    if not is_dry_run():
-        d.mkdir(parents=True, exist_ok=True)
-    return d
 
 
 # ── Executable Verification Criteria Sandbox ─────────────────────────────────

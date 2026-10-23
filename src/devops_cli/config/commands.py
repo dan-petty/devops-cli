@@ -10,7 +10,6 @@ from devops_cli.config.defaults import (
     DEFAULT_FIND_MAXDEPTH,
     DEFAULT_GIT_LOG_COUNT,
     DEFAULT_REST_HOST,
-    DEFAULT_SEMGREP_CONFIG,
     DEFAULT_TRIVY_HIGH_SEVERITY,
     DEFAULT_TRIVY_SCAN_TYPE,
 )
@@ -32,7 +31,9 @@ BIN_KUBELINTER: str = "kube-linter"
 BIN_KUSTOMIZE: str = "kustomize"
 BIN_KYVERNO: str = "kyverno"
 BIN_MYPY: str = "mypy"
+BIN_NPM: str = "npm"
 BIN_OPA: str = "opa"
+BIN_OPENSPEC: str = "openspec"
 BIN_OSV_SCANNER: str = "osv-scanner"
 BIN_PLUTO: str = "pluto"
 BIN_POPEYE: str = "popeye"
@@ -200,6 +201,47 @@ def build_uv_audit_cmd() -> list[str]:
     return [BIN_UV, "audit"]
 
 
+def build_npm_ci_cmd() -> list[str]:
+    """Build the npm command that installs exactly what a `package-lock.json` records.
+
+    `npm ci` refuses a manifest and lockfile that disagree and checks the sha512 of every package.
+    No package script runs, the engine range of every package is enforced, a configured registry
+    does not rewrite the lockfile's URLs, and neither the audit nor the funding request is sent.
+    """
+    return [
+        BIN_NPM,
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--engine-strict",
+        "--replace-registry-host=never",
+    ]
+
+
+def build_npm_audit_cmd(project_dir: Path | str) -> list[str]:
+    """Build the npm command that audits the `package-lock.json` in `project_dir` for known
+    vulnerabilities without installing anything, and checks for no newer npm.
+
+    npm exits 1 for a finding and for an audit that could not run alike, so it reports as JSON:
+    the report tells the two apart (`devops_cli.core.dependency_audit`).
+    """
+    return [
+        BIN_NPM,
+        "audit",
+        "--package-lock-only",
+        "--json",
+        "--no-update-notifier",
+        "--prefix",
+        str(project_dir),
+    ]
+
+
+def build_openspec_cmd(*args: str) -> list[str]:
+    """Build an `openspec` command: the pinned OpenSpec's program, then its arguments."""
+    return [BIN_OPENSPEC, *args]
+
+
 def build_iac_cmd(binary: str, subcommand: str, args: Sequence[str] | None = None) -> list[str]:
     """Build an Infrastructure-as-Code command (terraform or tofu)."""
     bin_name = BIN_TOFU if binary.lower() in ("tofu", "opentofu", BIN_TOFU) else BIN_TERRAFORM
@@ -236,16 +278,21 @@ def build_zizmor_cmd(*targets: Path | str) -> list[str]:
 
 
 def build_semgrep_cmd(
-    target_path: Path | str,
-    config: str = DEFAULT_SEMGREP_CONFIG,
-    exclude_paths: Sequence[str] | None = None,
+    targets: Sequence[Path | str],
+    configs: Sequence[str],
+    exclude_paths: Sequence[str] = (),
 ) -> list[str]:
-    """Build a Semgrep AST security and code quality scan command."""
-    cmd = [BIN_SEMGREP, "scan", "--json", "--config", config, "--disable-nosem"]
-    if exclude_paths:
-        for p in exclude_paths:
-            cmd.extend(["--exclude", p])
-    cmd.append(str(target_path))
+    """Build a Semgrep scan: JSON on stdout, no metrics sent, no version check, and every
+    finding reported whatever inline `nosemgrep` marker it carries. Every `semgrep scan`
+    devops-cli starts is built here (#1144)."""
+    cmd = [BIN_SEMGREP, "scan", "--json", "--metrics", "off", "--disable-version-check"]
+    for config in configs:
+        cmd.extend(["--config", config])
+    cmd.append("--disable-nosem")
+    for exclude_path in exclude_paths:
+        cmd.extend(["--exclude", exclude_path])
+    cmd.append("--quiet")
+    cmd.extend(map(str, targets))
     return cmd
 
 

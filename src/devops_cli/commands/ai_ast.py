@@ -41,6 +41,19 @@ def _exit_unparsable(file_path: Path) -> NoReturn:
     raise typer.Exit(code=1)
 
 
+def _query_file(
+    engine: TreeSitterEngine, file_path: Path, query: str
+) -> list[dict[str, Any]] | None:
+    """The file's captures of the query; a query tree-sitter cannot compile exits with its error."""
+    from tree_sitter import QueryError
+
+    try:
+        return engine.query_file(file_path, query)
+    except QueryError as exc:
+        print_error(f"Invalid tree-sitter query: {str(exc)[:256]}")
+        raise typer.Exit(code=1) from exc
+
+
 @app.command(name="parse")
 def ast_parse_cmd(
     file_path: Annotated[Path, typer.Argument(help=HELP.ai.ast_parse)],
@@ -67,7 +80,7 @@ def ast_parse_cmd(
 
     engine = TreeSitterEngine()
     if query:
-        matches = engine.query_file(file_path, query)
+        matches = _query_file(engine, file_path, query)
         if matches is None:
             _exit_unparsable(file_path)
         resolved = resolve_format(

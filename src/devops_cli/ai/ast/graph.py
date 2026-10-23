@@ -39,8 +39,6 @@ def _read_file_lines(path_str: str) -> list[str]:
 
 def _extract_symbol_body(sym: PolyglotSymbol, file_lines: list[str]) -> str:
     """Extract symbol body text excluding signature declaration line."""
-    if not file_lines:
-        return sym.docstring
     lines = file_lines[sym.span.line_start - 1 : sym.span.line_end]
     if len(lines) > 1:
         return "\n".join(lines[1:])

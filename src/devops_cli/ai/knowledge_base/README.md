@@ -47,7 +47,6 @@ The Knowledge Base is divided into two primary structural divisions:
 | **JSON Repair** | LLM Resilience | Resilient parser repairing malformed and truncated JSON payloads from LLMs. | [json_repair.md](devops_cli/libraries/json_repair.md) |
 | **Qdrant Client** | Vector Search | Local and remote vector database for RAG context indexing and search. | [qdrant_client.md](devops_cli/libraries/qdrant_client.md) |
 | **GitPython** | Git VCS | Object-oriented Git inspection, diff generation, and branch operations. | [gitpython.md](devops_cli/libraries/gitpython.md) |
-| **PyGithub** | GitHub API | GitHub REST/GraphQL client for PR reviews, checks, and release automation. | [pygithub.md](devops_cli/libraries/pygithub.md) |
 | **Cryptography** | X.509 & TLS | Rust-backed X.509 Certificate Authority, TLS leaf cert, and Ed25519 engine. | [cryptography.md](devops_cli/libraries/cryptography.md) |
 | **Kubernetes Client** | K8s SDK | Official Python client for Kubernetes cluster management and diagnostics. | [kubernetes.md](devops_cli/libraries/kubernetes.md) |
 | **Docker SDK** | Containers | Python client for Docker Engine daemon, real-time stats, and lifecycle. | [docker.md](devops_cli/libraries/docker.md) |
@@ -71,7 +70,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Infrastructure Provisioning** | Infrastructure as Code | Declarative IaC workflows (init, plan, apply, output, state inspect) with OpenTofu/Terraform. | [infrastructure_provisioning.md](devops_cli/tasks/infrastructure_provisioning.md) |
 | **CI Quality Gate** | Continuous Integration | Local quality gate execution (`devops ci`) running every check and pre-commit verification. | [ci_quality_gate.md](devops_cli/tasks/ci_quality_gate.md) |
 | **Release Management** | Release Engineering | Semantic version bumping, release quality verification, changelog updates, and release branch PRs. | [release_management.md](devops_cli/tasks/release_management.md) |
-| **Agent Instructions Scaffolding** | Agentic AI | Automatic generation and synchronization of canonical `AGENTS.md`, `CLAUDE.md`, and Copilot stubs. | [agent_instructions_scaffolding.md](devops_cli/tasks/agent_instructions_scaffolding.md) |
+| **Agent Instructions Scaffolding** | Agentic AI | Automatic generation and synchronization of canonical `AGENTS.md` and the `CLAUDE.md`, `GEMINI.md`, and Copilot stubs. | [agent_instructions_scaffolding.md](devops_cli/tasks/agent_instructions_scaffolding.md) |
 | **RAG Context Indexing** | Semantic Search & AI | Local vector embedding store, document chunking, and grounded context retrieval. | [rag_context_indexing.md](devops_cli/tasks/rag_context_indexing.md) |
 | **Telemetry & Observability** | Observability | OpenTelemetry span tracing, Prometheus client metric scraping, and latency profiling. | [telemetry_and_observability.md](devops_cli/tasks/telemetry_and_observability.md) |
 | **REST API Service Engine** | Workstation API | Running the background REST and OpenAPI service engine (`devops serve`) for tool inspection. | [rest_api_service.md](devops_cli/tasks/rest_api_service.md) |

@@ -31,6 +31,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings, load_settings, reset_settings_cache
+from tests.support.registry_cache import CACHED_RULESET_WORKDIR_NAME
 
 # The gateway the repository under review names, and the one the user's own config names.
 _PLANTED_GATEWAY = "http://example.com:4000"
@@ -190,10 +191,10 @@ def test_a_reviews_data_lives_under_the_user_level_data_root(
     """Review history and baselines and the LLM response cache resolved under the repository the
     review started in. They follow the data directory to the user-level data root."""
     from devops_cli.ai.response_cache import LLMResponseCache
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
+    from devops_cli.review.session import ReviewSessionStore
 
     def data_paths(_: Settings) -> list[Path]:
-        return [_get_reviews_base_dir(), LLMResponseCache()._resolve_cache_dir()]
+        return [ReviewSessionStore.root(), LLMResponseCache()._resolve_cache_dir()]
 
     exit_code, [paths] = _seen_by_a_review(hostile_repo, data_paths, monkeypatch)
 
@@ -210,12 +211,12 @@ def test_every_review_command_resolves_data_where_a_review_wrote_it(
 ) -> None:
     """`devops review findings` and the other commands that read what a review wrote resolve the
     data directory as the review does, or a session would land where they never look."""
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
+    from devops_cli.review.session import ReviewSessionStore
 
     seen: list[Path] = []
 
     def record(*_: Any, **__: Any) -> None:
-        seen.append(_get_reviews_base_dir())
+        seen.append(ReviewSessionStore.root())
 
     monkeypatch.chdir(hostile_repo)
     with patch("devops_cli.commands.review._find_session_dir", side_effect=record):
@@ -228,14 +229,14 @@ def _review_data_locations() -> dict[str, Path]:
     """Where each kind of data a review keeps resolves, for whichever command asks."""
     from devops_cli.ai.rag.library_store import library_contracts_dir
     from devops_cli.ai.review.exporter import _resolve_output_path
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.ai.review.samples import samples_dir
     from devops_cli.ai.run_store import runs_dir
     from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.ai.spend.pricing import PricingRegistry
+    from devops_cli.review.session import ReviewSessionStore
 
     return {
-        "reviews": _get_reviews_base_dir(),
+        "reviews": ReviewSessionStore.root(),
         "feedback dataset": _resolve_output_path(None, None),
         "runs": runs_dir(),
         "samples": samples_dir(),
@@ -267,17 +268,17 @@ def test_review_data_has_one_location_inside_a_review_and_out(
 def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
     hostile_repo: Path, user_level: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The dashboard, `devops ai prompt-eval` and `devops ai runs` resolved their data under the
+    """The dashboard summary, `devops ai prompt-eval` and `devops ai runs` resolved their data under the
     repository they ran in, so none found the session, the recorded verdict or the run a review
     started there wrote under the user-level data root. Each now finds them."""
     from datetime import UTC, datetime
 
     from devops_cli.ai.prompt_eval import evaluate_persona_prompts
     from devops_cli.ai.review.exporter import _resolve_output_path
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.ai.run_store import Mechanism, RunRecord, save_run
     from devops_cli.commands.ai import app as ai_app
-    from devops_cli.ui.data_providers import list_review_sessions
+    from devops_cli.review.session import ReviewSessionStore
+    from devops_cli.ui.data_providers import fetch_review_status
 
     verdict = {
         "title": "SSRF: urlopen fetches a URL the caller chooses",
@@ -295,8 +296,8 @@ def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
     )
 
     def keep_as_a_review_does(_: Settings) -> None:
-        session = _get_reviews_base_dir() / "20261003-120000"
-        session.mkdir()
+        session = ReviewSessionStore.root() / "20261003-120000"
+        session.mkdir(parents=True)
         findings = json.dumps({"findings": [verdict]})
         (session / "findings.json").write_text(findings, encoding="utf-8")
         dataset = _resolve_output_path(None, None)
@@ -306,14 +307,15 @@ def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
 
     exit_code, _ = _seen_by_a_review(hostile_repo, keep_as_a_review_does, monkeypatch)
     listed = CliRunner().invoke(ai_app, ["runs", "list", "--format", "json"])
+    summary = fetch_review_status()
 
     assert (
         exit_code,
-        [(session.name, session.finding_count) for session in list_review_sessions()],
+        (summary.session_name, summary.total_findings),
         evaluate_persona_prompts("devsecops").total_cases,
         [record["run_id"] for record in json.loads(listed.output)],
         (hostile_repo / ".data").exists(),
-    ) == (0, [("20261003-120000", 1)], 1, [run.run_id], False)
+    ) == (0, ("20261003-120000", 1), 1, [run.run_id], False)
 
 
 # =============================================================================
@@ -427,9 +429,12 @@ def _review_scanner_calls(
     calls: list[tuple[str, Path, dict[str, Path], dict[str, str]]] = []
 
     def scanner(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
-        # Semgrep's `--config p/default` names a registry rule set, not a file.
+        # Semgrep's configs name the rule pack, a directory, or a file written in its working
+        # directory by a relative path (#1144): none is a file handed from outside.
         named = {flag: Path(cmd[cmd.index(flag) + 1]) for flag in _FILE_FLAGS if flag in cmd}
-        handed = {flag: path for flag, path in named.items() if path.is_absolute()}
+        handed = {
+            flag: path for flag, path in named.items() if path.is_absolute() and path.is_file()
+        }
         texts = {flag: path.read_text(encoding="utf-8") for flag, path in handed.items()}
         calls.append((Path(cmd[0]).name, Path(cwd or ".").resolve(), handed, texts))
         return subprocess.CompletedProcess(cmd, 0, "{}", "")
@@ -526,23 +531,44 @@ def _semgrep_runs(
     return seen
 
 
-def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(scanned_tree: Path) -> None:
-    """Semgrep runs on its targets linked or copied under its working directory (#1079). Only
-    the targets are there: the tree's `.semgrepignore`, `.semgrep.yml` and `.semgrep/` rule stay
-    out, and the rules still come from `--config` alone."""
-    (scanned_tree / ".semgrep.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
-    (scanned_tree / ".semgrep").mkdir()
-    (scanned_tree / ".semgrep" / "planted.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
+def _planted_semgrep_runs(tree: Path) -> list[Any]:
+    """Plant Semgrep rules in `tree`, as `.semgrep.yml` and a `.semgrep/` directory, and return
+    the files and the first `--config` of each Semgrep run of a review of `tree`."""
+    (tree / ".semgrep.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
+    (tree / ".semgrep").mkdir()
+    (tree / ".semgrep" / "planted.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
 
     def workdir_files_and_rules(cmd: list[str], workdir: Path) -> tuple[list[str], str]:
         files = sorted(path.relative_to(workdir).as_posix() for path in workdir.rglob("*"))
         return files, cmd[cmd.index("--config") + 1]
 
-    runs = _semgrep_runs(
-        scanned_tree, ["app.py", "deploy.yaml", "Dockerfile"], workdir_files_and_rules
-    )
+    return _semgrep_runs(tree, ["app.py", "deploy.yaml", "Dockerfile"], workdir_files_and_rules)
 
-    assert runs == [(["Dockerfile", "app.py", "deploy.yaml"], "p/default")]
+
+@pytest.mark.usefixtures("cached_default_ruleset")
+def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(scanned_tree: Path) -> None:
+    """Semgrep runs on its targets linked or copied under its working directory (#1079). Only
+    the targets and the cached registry ruleset are there: the tree's `.semgrepignore`,
+    `.semgrep.yml` and `.semgrep/` rule stay out, and the rules still come from `--config`
+    alone (#1144)."""
+    runs = _planted_semgrep_runs(scanned_tree)
+
+    assert runs == [
+        (
+            sorted(["Dockerfile", "app.py", "deploy.yaml", CACHED_RULESET_WORKDIR_NAME]),
+            f"./{CACHED_RULESET_WORKDIR_NAME}",
+        )
+    ]
+
+
+def test_semgrep_without_the_cached_ruleset_takes_its_rules_from_the_rule_pack_alone(
+    scanned_tree: Path,
+) -> None:
+    from devops_cli.review.rules_pack import RULE_PACK_DIR
+
+    runs = _planted_semgrep_runs(scanned_tree)
+
+    assert runs == [(["Dockerfile", "app.py", "deploy.yaml"], str(RULE_PACK_DIR))]
 
 
 def test_no_symlink_in_the_tree_takes_semgrep_outside_it(
@@ -723,8 +749,8 @@ def test_every_worktree_of_devops_clis_own_repository_is_trusted(
     """Worktrees of one repository share its git directory, so each is devops-cli's own
     repository, whichever of them holds the running source, outside the checkout or nested in it.
     A review started in a linked worktree keeps its data under the main worktree's `.data`."""
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.core.repo import is_own_source_repository
+    from devops_cli.review.session import ReviewSessionStore
 
     linked = tmp_path / "worktrees" / "feature"
     git(own_repo, "worktree", "add", "--quiet", "-b", "feature", str(linked))
@@ -733,7 +759,7 @@ def test_every_worktree_of_devops_clis_own_repository_is_trusted(
     checkouts = (own_repo, linked, nested / "src")
 
     run_from_main = [is_own_source_repository(checkout) for checkout in checkouts]
-    exit_code, reviews = _seen_by_a_review(linked, lambda _: _get_reviews_base_dir(), monkeypatch)
+    exit_code, reviews = _seen_by_a_review(linked, lambda _: ReviewSessionStore.root(), monkeypatch)
     monkeypatch.setattr(
         "devops_cli.core.repo._own_source_dir", lambda: (linked / "src" / "devops_cli").resolve()
     )
@@ -753,8 +779,8 @@ def test_a_clone_nested_in_devops_clis_own_checkout_is_not_trusted(
     """A clone under the checkout's `repos/` or `.data/samples/` is another repository, with a git
     directory of its own, though the checkout is the top-most root around it. A review started in
     it reads none of the project config it commits and keeps its data under the user-level root."""
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
     from devops_cli.core.repo import is_own_source_repository
+    from devops_cli.review.session import ReviewSessionStore
 
     clone = own_repo / "repos" / "owner" / "tool"
     clone.mkdir(parents=True)
@@ -769,7 +795,7 @@ def test_a_clone_nested_in_devops_clis_own_checkout_is_not_trusted(
         clone,
         lambda settings: (
             settings.ai.gateway_url,
-            _get_reviews_base_dir().is_relative_to(user_level),
+            ReviewSessionStore.root().is_relative_to(user_level),
         ),
         monkeypatch,
     )

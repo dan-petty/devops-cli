@@ -4,27 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import pydantic_ai.output as pai_output
 from pydantic import BaseModel, Field
+from pydantic_ai.output import NativeOutput, PromptedOutput, StructuredDict, ToolOutput
 
-from devops_cli.ai.output import (
-    REVIEW_RESULT_NATIVE,
-    REVIEW_RESULT_PROMPTED,
-    REVIEW_RESULT_TOOL,
-    NativeOutput,
-    OutputContext,
-    OutputObjectDefinition,
-    PromptedOutput,
-    StructuredDict,
-    TextOutput,
-    ToolOutput,
-    build_output_spec,
-    extract_output_json_schema,
-    get_review_output_spec,
-    resolve_output_mode,
-    unwrap_output_spec,
-)
-from devops_cli.ai.review_schema import ReviewResult
+from devops_cli.ai.output import TextOutput, extract_output_json_schema, unwrap_output_spec
 
 
 class SampleOutputModel(BaseModel):
@@ -34,17 +17,6 @@ class SampleOutputModel(BaseModel):
 
 def sample_text_processor(text: str) -> list[str]:
     return [word.strip() for word in text.split() if word.strip()]
-
-
-def test_native_output_symbols_reexported() -> None:
-    """Verify devops_cli.ai.output re-exports exact native Pydantic AI output constructs."""
-    assert ToolOutput is pai_output.ToolOutput
-    assert NativeOutput is pai_output.NativeOutput
-    assert PromptedOutput is pai_output.PromptedOutput
-    assert TextOutput is pai_output.TextOutput
-    assert StructuredDict is pai_output.StructuredDict
-    assert OutputObjectDefinition is pai_output.OutputObjectDefinition
-    assert OutputContext is pai_output.OutputContext
 
 
 def test_unwrap_output_spec_varieties() -> None:
@@ -117,93 +89,6 @@ def test_extract_output_json_schema() -> None:
     schema5 = extract_output_json_schema(text_out)
     assert isinstance(schema5, dict)
     assert schema5.get("type") == "string"
-
-
-def test_resolve_output_mode() -> None:
-    """Verify resolve_output_mode recommends native vs tool outputs based on endpoints."""
-    # Local self-hosted Ollama endpoint -> native
-    assert resolve_output_mode("llama3:8b", base_url="http://localhost:11434/v1") == "native"
-
-    # Ollama Cloud domain -> tool
-    assert resolve_output_mode("llama3:8b", base_url="https://ollama.com/v1") == "tool"
-
-    # Cloud model suffix -> tool
-    assert resolve_output_mode("deepseek-r1:7b-cloud") == "tool"
-
-    # Standard model default -> native
-    assert resolve_output_mode("gpt-4o") == "native"
-
-
-def test_build_output_spec_factory() -> None:
-    """Verify build_output_spec wraps schemas into appropriate output marker instances."""
-    # Native
-    spec_native = build_output_spec(SampleOutputModel, mode="native", name="test_native")
-    assert isinstance(spec_native, NativeOutput)
-    assert spec_native.name == "test_native"
-
-    # Tool
-    spec_tool = build_output_spec(SampleOutputModel, mode="tool", name="test_tool", strict=True)
-    assert isinstance(spec_tool, ToolOutput)
-    assert spec_tool.name == "test_tool"
-    assert spec_tool.strict is True
-
-    # Prompted
-    spec_prompted = build_output_spec(
-        SampleOutputModel, mode="prompted", template="Format: {schema}"
-    )
-    assert isinstance(spec_prompted, PromptedOutput)
-    assert spec_prompted.template == "Format: {schema}"
-
-    # Text
-    spec_text = build_output_spec(sample_text_processor, mode="text")
-    assert isinstance(spec_text, TextOutput)
-    assert spec_text.output_function is sample_text_processor
-
-    # Pre-wrapped instance identity preservation
-    assert build_output_spec(spec_tool, mode="native") is spec_tool
-
-
-def test_predefined_review_output_specs() -> None:
-    """Verify predefined review output markers and factory for ReviewResult."""
-    assert isinstance(REVIEW_RESULT_NATIVE, NativeOutput)
-    assert REVIEW_RESULT_NATIVE.outputs is ReviewResult
-
-    assert isinstance(REVIEW_RESULT_TOOL, ToolOutput)
-    assert REVIEW_RESULT_TOOL.output is ReviewResult
-    assert REVIEW_RESULT_TOOL.name == "submit_review"
-
-    assert isinstance(REVIEW_RESULT_PROMPTED, PromptedOutput)
-    assert REVIEW_RESULT_PROMPTED.outputs is ReviewResult
-
-    # Factory selection
-    spec1 = get_review_output_spec(mode="native")
-    assert isinstance(spec1, NativeOutput)
-
-    spec2 = get_review_output_spec(mode="tool")
-    assert isinstance(spec2, ToolOutput)
-
-    spec3 = get_review_output_spec(mode="auto", model_name="deepseek-r1-cloud")
-    assert isinstance(spec3, ToolOutput)
-
-
-def test_create_pydantic_ai_agent_with_output_spec() -> None:
-    """Verify create_pydantic_ai_agent accepts OutputSpec markers and output_mode."""
-    from devops_cli.ai.pydantic_ai_bridge import create_pydantic_ai_agent
-
-    # 1. Direct NativeOutput
-    agent_native = create_pydantic_ai_agent(
-        model_name="test",
-        output_type=NativeOutput(ReviewResult, name="review_native"),
-    )
-    assert agent_native is not None
-
-    # 2. Output mode auto-wrapping
-    agent_tool = create_pydantic_ai_agent(
-        model_name="test",
-        output_type=ReviewResult,
-        output_mode="tool",
-    )
-    assert agent_tool is not None
 
 
 def test_pydantic_agent_callable_and_dict_output_json_schema() -> None:

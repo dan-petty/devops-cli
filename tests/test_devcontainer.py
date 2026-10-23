@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -448,10 +449,19 @@ class TestDevcontainerCli:
         assert "Installed pre-commit Git hooks" in result.output
         assert any(c == ["uv", "run", "pre-commit", "install"] for c in calls)
 
+    @pytest.mark.parametrize(
+        "target_key_name",
+        ["test-local-dev-id_ed25519-20260908", "test_local_dev-id_ed25519-20260908"],
+    )
     def test_post_start_honors_workspace_ssh_key_prefix(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        target_key_name: str,
     ) -> None:
-        """Verify post-start selects the SSH key matching the workspace config.yaml key_prefix."""
+        """Verify post-start selects the SSH key matching the workspace config.yaml key_prefix,
+        whether the key spells the prefix separators with hyphens or with underscores."""
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         ssh_dir = fake_home / ".ssh"
@@ -465,7 +475,7 @@ class TestDevcontainerCli:
         (ws / ".git").mkdir()
         (ws / "config.yaml").write_text("ssh:\n  key_prefix: test-local-dev\n", encoding="utf-8")
 
-        key_target = ssh_dir / "test-local-dev-id_ed25519-20260908"
+        key_target = ssh_dir / target_key_name
         key_foreign = ssh_dir / "devops_cli-id_ed25519-20260908"
         key_target.write_text("target", encoding="utf-8")
         key_foreign.write_text("foreign", encoding="utf-8")
@@ -482,10 +492,7 @@ class TestDevcontainerCli:
 
         result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
         assert result.exit_code == 0
-        assert (
-            "Configured Git SSH commit signing with key test-local-dev-id_ed25519-20260908"
-            in result.output
-        )
+        assert f"Configured Git SSH commit signing with key {target_key_name}" in result.output
         assert any(
             c[:5] == ["git", "-C", str(ws.resolve()), "config", "--local"]
             and c[5:] == ["user.signingkey", str(key_target)]
@@ -526,6 +533,60 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Configured Git SSH commit signing" not in result.output
         assert not any("user.signingkey" in c for c in calls)
+
+    @pytest.mark.parametrize(
+        ("key_ages", "expected_key"),
+        [
+            ({"id_ed25519-20260801": 1, "id_rsa": 2}, "id_ed25519-20260801"),
+            ({"id_rsa": 1, "id_ecdsa": 2}, "id_ecdsa"),
+        ],
+    )
+    def test_post_start_signs_with_a_key_without_a_prefix_when_the_workspace_has_none(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        key_ages: dict[str, int],
+        expected_key: str,
+    ) -> None:
+        """Verify post-start falls back to the managed key without a prefix, though a newer key of
+        another kind exists, then to the newest unmanaged key, and never to a key of another
+        project, though that key is the newest of all."""
+        fake_home = tmp_path / "home"
+        ssh_dir = fake_home / ".ssh"
+        ssh_dir.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        ws = tmp_path / "isolated-proj"
+        ws.mkdir()
+        (ws / ".git").mkdir()
+        (ws / "config.yaml").write_text("ssh:\n  key_prefix: isolated-proj\n", encoding="utf-8")
+
+        for key_name, age_rank in {**key_ages, "devops_cli-id_ed25519-20260908": 3}.items():
+            key_path = ssh_dir / key_name
+            key_path.write_text(key_name, encoding="utf-8")
+            os.utime(key_path, (age_rank * 1_000_000, age_rank * 1_000_000))
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
+        assert result.exit_code == 0
+        assert f"Configured Git SSH commit signing with key {expected_key}" in result.output
+        assert any(
+            c[:5] == ["git", "-C", str(ws.resolve()), "config", "--local"]
+            and c[5:] == ["user.signingkey", str(ssh_dir / expected_key)]
+            for c in calls
+        )
 
     def test_post_create_installs_pre_commit_when_missing(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -634,6 +695,47 @@ class TestDevcontainerCli:
         assert (
             result.exit_code,
             "Warning: Failed to install standalone claude CLI" in result.output,
+        ) == (0, True)
+
+    def test_post_create_warns_and_succeeds_when_a_node_tool_has_no_npm_to_install_with(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Post-create installs every tool in the lock, and a Node tool needs npm, which the
+        installer does not provision: without it the tool is one warning and post-create still
+        succeeds."""
+        import subprocess
+
+        from devops_cli.commands import install_tools
+        from devops_cli.tools_lock import ToolsLock, load_tools_lock
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.delenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP")
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: (
+                "/usr/local/bin/" + prog if prog in ("uv", "pre-commit", "claude") else None
+            ),
+        )
+        monkeypatch.setattr(
+            "devops_cli.commands.devcontainer.run_subprocess",
+            lambda cmd, **_: subprocess.CompletedProcess(cmd, 0, "", ""),
+        )
+        lock = ToolsLock(
+            python_version="3.14",
+            binary={},
+            python={},
+            npm={"openspec": load_tools_lock().npm["openspec"]},
+        )
+        monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+
+        assert (
+            result.exit_code,
+            "Warning: Failed to install openspec (Required dependency 'npm' is not installed"
+            in " ".join(result.output.split()),
         ) == (0, True)
 
     def test_init_scaffolds_claude_extension_and_feature(
@@ -2379,4 +2481,42 @@ def test_devcontainer_validate_cli_dry_run_with_oci(runner: CliRunner) -> None:
         "validate_devcontainer_manifest",
         True,
         "https://github.com/dan-petty/devops-cli",
+    )
+
+
+def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() -> None:
+    """The tool OpenSpec needs Node 20.19 or later and the feature floated to whatever the current
+    LTS was: `.node-version`, this repository's devcontainer, the template and the feature's entry
+    in the devcontainer lock name one Node."""
+    from devops_cli.core.templating import render_json_template
+
+    pinned = (REPO_ROOT / ".node-version").read_text(encoding="utf-8").strip()
+    repository = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text("utf-8"))
+    scaffolded = json.loads(
+        render_json_template(
+            "devcontainer.json.j2",
+            project_name="demo",
+            python_version="3.14",
+            image=None,
+            published=False,
+            home_volume=None,
+            minikube=False,
+        )
+    )
+    lock = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer-lock.json").read_text("utf-8"))
+
+    feature = "ghcr.io/devcontainers/features/node"
+    versions = {
+        name: next(
+            options["version"] for ref, options in features.items() if ref.startswith(feature)
+        )
+        for name, features in (
+            ("repository", repository["features"]),
+            ("template", scaffolded["features"]),
+        )
+    }
+    assert (pinned, versions, any(ref.startswith(feature) for ref in lock["features"])) == (
+        "24",
+        {"repository": "24", "template": "24"},
+        True,
     )

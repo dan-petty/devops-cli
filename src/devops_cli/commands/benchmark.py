@@ -56,6 +56,12 @@ def _validate_benchmark_type(benchmark_type: str) -> None:
         )
 
 
+def _validate_corpus_choice(document: Path | None, code: Path | None) -> None:
+    """Refuse `--document` with `--code`: each chooses the corpus the embedding run ranks."""
+    if document and code:
+        raise ValidationError(ERRORS.ai.benchmark_corpus_conflict, field="code")
+
+
 def _parse_server_list(servers: str | None) -> list[str] | None:
     """Parse and validate comma-separated Ollama server endpoints."""
     if not servers:
@@ -116,6 +122,7 @@ def _execute_embedding_benchmark(
     safe_concurrency: int,
     server_list: list[str] | None,
     document: Path | None,
+    code: Path | None,
     samples: int,
     output: Path | None,
     format_type: str,
@@ -131,17 +138,24 @@ def _execute_embedding_benchmark(
         concurrency=safe_concurrency,
         servers=server_list,
         document_path=document,
+        code_path=code,
         sample_count=samples,
     )
-    embed_report = embed_runner.run()
+    with exit_on_error(ValidationError):
+        embed_report = embed_runner.run()
     if not dry_run:
+        from devops_cli.ai.benchmark.code_chunk_corpus import code_tree_digest
         from devops_cli.ai.run_store import file_digest
 
         _record_benchmark(
             "embedding",
             embed_report,
             setup=_benchmark_setup(model_list, settings, provider, safe_concurrency, server_list),
-            subject={"document": file_digest(document) if document else None, "samples": samples},
+            subject={
+                "document": file_digest(document) if document else None,
+                "samples": samples,
+                **({"code": code_tree_digest(code)} if code else {}),
+            },
             format_type=format_type,
         )
 
@@ -286,6 +300,16 @@ def run_benchmark(
             readable=True,
         ),
     ] = None,
+    code: Annotated[
+        Path | None,
+        typer.Option(
+            "--code",
+            help=HELP.benchmark.code_dir,
+            exists=True,
+            file_okay=False,
+            readable=True,
+        ),
+    ] = None,
     samples: Annotated[
         int,
         typer.Option("--samples", help=HELP.benchmark.samples),
@@ -303,6 +327,7 @@ def run_benchmark(
 
     with exit_on_error(ValidationError):
         _validate_benchmark_type(benchmark_type)
+        _validate_corpus_choice(document, code)
 
     from devops_cli.config.settings import load_settings
 
@@ -325,6 +350,7 @@ def run_benchmark(
             safe_concurrency=safe_concurrency,
             server_list=server_list,
             document=document,
+            code=code,
             samples=samples,
             output=output,
             format_type=format_type,

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from textual.containers import VerticalScroll
 from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
 
 import devops_cli.ui.dashboard as dashboard_module
@@ -19,7 +18,6 @@ import devops_cli.ui.data_providers as data_providers
 import devops_cli.ui.refresh as refresh_module
 from devops_cli.commands.dashboard import TAB_NUM_MAP
 from devops_cli.config.constants import (
-    CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAINS,
     CONST_DOCKER_RESOURCES,
@@ -27,32 +25,27 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
+from devops_cli.review.session import ReviewSession
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
     DockerSummary,
     K8sSummary,
-    ReviewSessionInfo,
-    ReviewSummary,
     TelemetrySummary,
     ValkeySummary,
     fetch_review_status,
     fetch_telemetry_status,
-    list_review_sessions,
 )
 from devops_cli.ui.log_buffer import LogLine, VirtualLogBuffer, tail
 from devops_cli.ui.pod_inspector import PodInspector
 from devops_cli.ui.projections import (
     DOCKER_RESOURCE_COLUMNS,
     DOMAIN_COLUMNS,
-    ai_banner,
-    ai_rows,
     docker_banner,
     docker_resource_keys,
     docker_resource_label,
     docker_resource_rows,
     docker_rows,
     filter_pods,
-    finding_detail,
     k8s_banner,
     k8s_rows,
     log_title,
@@ -64,8 +57,6 @@ from devops_cli.ui.projections import (
     render_domain,
     render_keys,
     render_rows,
-    review_session_keys,
-    review_session_rows,
     row_keys,
     telemetry_banner,
     telemetry_rows,
@@ -79,7 +70,7 @@ from devops_cli.ui.refresh import (
     refresh_domain,
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane
 from tests.k8s_fakes import NOW, FakeCoreV1, crashlooping_pod, event, pod, running, terminated
 from tests.k8s_fakes import status as container_status
 from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
@@ -160,24 +151,6 @@ def _telemetry() -> TelemetrySummary:
     )
 
 
-def _review() -> ReviewSummary:
-    return ReviewSummary(
-        has_session=True,
-        session_name="20260921-101500",
-        total_findings=2,
-        verified_count=1,
-        severity_distribution={"HIGH": 1, "LOW": 1},
-        findings=[
-            {
-                "severity": "HIGH",
-                "title": "Unbounded log retention",
-                "location": "ui/log_buffer.py:42",
-                "status": "VERIFIED",
-            }
-        ],
-    )
-
-
 def _valkey() -> ValkeySummary:
     return ValkeySummary(
         connected=True,
@@ -194,7 +167,6 @@ SAMPLES: dict[str, Any] = {
     "k8s": _k8s,
     "docker": _docker,
     "telemetry": _telemetry,
-    "ai": _review,
     "valkey": _valkey,
 }
 
@@ -419,15 +391,18 @@ def test_an_errored_snapshot_retains_the_age_of_the_data_it_shows(
 # =============================================================================
 
 
-def test_refresh_domain_publishes_the_fetched_result(state: DashboardState) -> None:
+def test_refresh_domain_publishes_the_fetched_result(
+    state: DashboardState, patched_fetchers: Callable[..., None]
+) -> None:
     """A successful fetch lands in the store."""
-    snapshot = refresh_domain(state, "k8s", {"k8s": _k8s})
+    patched_fetchers(k8s=_k8s)
+    snapshot = refresh_domain(state, "k8s")
     assert snapshot is not None
     assert (snapshot.error, snapshot.data.connected) == (None, True)
 
 
 def test_refresh_domain_converts_a_provider_failure_into_a_snapshot(
-    state: DashboardState,
+    state: DashboardState, patched_fetchers: Callable[..., None]
 ) -> None:
     """An exception on a worker thread must never escape.
 
@@ -438,24 +413,29 @@ def test_refresh_domain_converts_a_provider_failure_into_a_snapshot(
     def broken() -> Any:
         raise ConnectionError("cluster unreachable")
 
-    snapshot = refresh_domain(state, "k8s", {"k8s": broken})
+    patched_fetchers(k8s=broken)
+    snapshot = refresh_domain(state, "k8s")
     assert snapshot is not None
     assert snapshot.error == "ConnectionError: cluster unreachable"
 
 
-def test_refresh_domain_releases_its_claim_after_a_failure(state: DashboardState) -> None:
+def test_refresh_domain_releases_its_claim_after_a_failure(
+    state: DashboardState, patched_fetchers: Callable[..., None]
+) -> None:
     """A failed fetch must not leave the domain permanently locked out of refreshing."""
 
     def broken() -> Any:
         raise ConnectionError("down")
 
-    refresh_domain(state, "k8s", {"k8s": broken})
-    recovered = refresh_domain(state, "k8s", {"k8s": _k8s})
+    patched_fetchers(k8s=broken)
+    refresh_domain(state, "k8s")
+    patched_fetchers(k8s=_k8s)
+    recovered = refresh_domain(state, "k8s")
     assert (state.in_flight(), recovered is not None) == ([], True)
 
 
 def test_a_refresh_tick_does_not_stack_a_second_fetch_on_a_slow_domain(
-    state: DashboardState,
+    state: DashboardState, patched_fetchers: Callable[..., None]
 ) -> None:
     """Ticks arriving while a fetch is in flight are skipped rather than queued.
 
@@ -473,11 +453,12 @@ def test_a_refresh_tick_does_not_stack_a_second_fetch_on_a_slow_domain(
         release.wait(timeout=5)
         return _k8s()
 
-    worker = threading.Thread(target=refresh_domain, args=(state, "k8s", {"k8s": slow}))
+    patched_fetchers(k8s=slow)
+    worker = threading.Thread(target=refresh_domain, args=(state, "k8s"))
     worker.start()
     assert entered.wait(timeout=5)
 
-    assert (refresh_domain(state, "k8s", {"k8s": slow}), state.in_flight()) == (None, ["k8s"])
+    assert (refresh_domain(state, "k8s"), state.in_flight()) == (None, ["k8s"])
 
     release.set()
     worker.join(timeout=5)
@@ -488,15 +469,17 @@ def test_refresh_domain_reports_an_unregistered_domain_as_an_error(
     state: DashboardState,
 ) -> None:
     """A domain with no provider surfaces as a visible error, not a silent blank panel."""
-    snapshot = refresh_domain(state, "nonexistent", {})
+    snapshot = refresh_domain(state, "nonexistent")
     assert snapshot is not None
     assert snapshot.error == "No provider registered for domain 'nonexistent'"
 
 
-def test_refresh_all_publishes_every_requested_domain(state: DashboardState) -> None:
+def test_refresh_all_publishes_every_requested_domain(
+    state: DashboardState, patched_fetchers: Callable[..., None]
+) -> None:
     """The sequential path covers each domain once."""
-    fetchers = {domain: SAMPLES[domain] for domain in CONST_DASHBOARD_DOMAINS}
-    published = refresh_all(state, CONST_DASHBOARD_DOMAINS, fetchers)
+    patched_fetchers()
+    published = refresh_all(state, CONST_DASHBOARD_DOMAINS)
     assert [snap.domain for snap in published] == list(CONST_DASHBOARD_DOMAINS)
 
 
@@ -583,22 +566,6 @@ def test_telemetry_banner_reports_a_failed_backend_query() -> None:
     assert "refused" in telemetry_banner(summary)
 
 
-def test_ai_banner_summarises_the_latest_session() -> None:
-    """The banner names the session and its severity distribution."""
-    banner = ai_banner(_review())
-    assert ("20260921-101500" in banner, "HIGH: 1" in banner) == (True, True)
-
-
-def test_ai_banner_states_when_no_session_exists() -> None:
-    """Absence of review history is stated, not rendered as a session with zero findings."""
-    assert ai_banner(ReviewSummary()) == "No active or past AI code review sessions found."
-
-
-def test_ai_banner_handles_a_session_with_no_severity_distribution() -> None:
-    """An empty distribution renders as None rather than a trailing separator."""
-    assert ai_banner(ReviewSummary(has_session=True, session_name="s")).endswith("| None")
-
-
 def test_valkey_banner_carries_version_memory_and_hit_ratio() -> None:
     """All three operational figures appear in one line."""
     banner = valkey_banner(_valkey())
@@ -633,18 +600,6 @@ def test_telemetry_rows_label_counters_and_gauges_distinctly() -> None:
         ("errors", "Counter", "1.0"),
         ("queue_depth", "Gauge", "3.0"),
     ]
-
-
-def test_ai_rows_truncate_long_finding_titles() -> None:
-    """An overlong title is clipped so it cannot push other columns off screen."""
-    summary = ReviewSummary(has_session=True, findings=[{"title": "T" * 200}])
-    assert ai_rows(summary)[0][1] == "T" * 45
-
-
-def test_ai_rows_substitute_defaults_for_absent_finding_fields() -> None:
-    """A partially written findings file renders rather than raising on the UI thread."""
-    summary = ReviewSummary(has_session=True, findings=[{}])
-    assert ai_rows(summary) == [("MEDIUM", "Untitled", "—", "UNVERIFIED")]
 
 
 def test_valkey_rows_render_every_server_property() -> None:
@@ -755,6 +710,14 @@ def _pods(count: int) -> K8sSummary:
     return K8sSummary(connected=True, pods=[_pod(f"pod-{index:02d}") for index in range(count)])
 
 
+def _wide_pods(count: int) -> K8sSummary:
+    """Pods whose names run past the pod table's width, as real generated names do."""
+    folder = "nested-" * 12
+    return K8sSummary(
+        connected=True, pods=[_pod(f"{folder}pod-{index:02d}") for index in range(count)]
+    )
+
+
 def _containers(count: int) -> DockerSummary:
     return DockerSummary(
         connected=True,
@@ -762,26 +725,6 @@ def _containers(count: int) -> DockerSummary:
             {"id": f"c{index:05d}", "name": f"app-{index}", "image": "app:1", "status": "running"}
             for index in range(count)
         ],
-    )
-
-
-def _finding(index: int, **fields: Any) -> dict[str, Any]:
-    return {
-        "persona": "qa",
-        "severity": "LOW",
-        "title": f"Finding {index}",
-        "location": f"src/app.py:{index}",
-        "status": "UNVERIFIED",
-        **fields,
-    }
-
-
-def _findings(count: int, session: str = "20260930-000000") -> ReviewSummary:
-    return ReviewSummary(
-        has_session=True,
-        session_name=session,
-        total_findings=count,
-        findings=[_finding(index) for index in range(count)],
     )
 
 
@@ -801,22 +744,12 @@ def test_every_docker_resource_keys_each_row_it_projects(resource: str) -> None:
     )
 
 
-def test_review_sessions_are_keyed_row_for_row() -> None:
-    """The session picker keeps its place through a refresh like every other table."""
-    summary = ReviewSummary(has_session=True, sessions=_sessions())
-    snapshot = DomainSnapshot(domain="ai", data=summary, updated_at=time.time())
-    assert [json.loads(key)[0] for key in review_session_keys(snapshot)] == [
-        row[0] for row in review_session_rows(snapshot)
-    ]
-
-
 def test_an_unloaded_snapshot_has_no_row_keys() -> None:
     """Keys come from the data, so a domain that has not loaded has none."""
     assert (
         render_keys(DomainSnapshot(domain="k8s")),
         docker_resource_keys("images", DomainSnapshot(domain="docker")),
-        review_session_keys(DomainSnapshot(domain="ai")),
-    ) == ([], [], [])
+    ) == ([], [])
 
 
 def test_row_keys_number_each_repeat_of_an_identity() -> None:
@@ -828,135 +761,11 @@ def test_row_keys_number_each_repeat_of_an_identity() -> None:
     ]
 
 
-def test_findings_are_keyed_by_persona_location_and_full_title() -> None:
-    """The row shows neither the persona nor the full title, so the key cannot come from it."""
-    title = "T" * 60
-    summary = ReviewSummary(
-        has_session=True,
-        findings=[
-            {"persona": "qa", "location": "a.py:1", "title": f"{title}1"},
-            {"persona": "qa", "location": "a.py:1", "title": f"{title}2"},
-            {"persona": "architect", "location": "a.py:1", "title": f"{title}1"},
-        ],
-    )
-    keys = render_keys(DomainSnapshot(domain="ai", data=summary, updated_at=time.time()))
-    assert (len(set(keys)), json.loads(keys[0])) == (3, ["qa", "a.py:1", f"{title}1", 0])
-
-
 def test_pods_are_keyed_by_namespace_and_name() -> None:
     """A pod name is unique only within its namespace."""
     summary = K8sSummary(connected=True, pods=[_pod("api-0"), _pod("api-0", "b")])
     keys = render_keys(DomainSnapshot(domain="k8s", data=summary, updated_at=time.time()))
     assert [json.loads(key) for key in keys] == [["default", "api-0", 0], ["b", "api-0", 0]]
-
-
-# =============================================================================
-# Finding Detail
-# =============================================================================
-
-
-def test_finding_detail_lists_the_header_then_each_section_in_order() -> None:
-    """Short fields read as labelled lines, long ones as titled sections below them."""
-    record = {
-        **_finding(7, title="A title longer than the forty-five characters the table shows"),
-        "persona_title": "QA Engineer",
-        "category": "correctness",
-        "confidence_score": 0.875,
-        "citation_line": 12,
-        "verified_by": "llm",
-        "description": "What is wrong.",
-        "observed_value": "None",
-        "expected_value": "a list",
-        "fix": "Line one.\nLine two.",
-        "references": ["https://example.com", "CWE-20"],
-        "invalidation_reason": "Reason.",
-        "mitigating_mechanism": "Mechanism.",
-    }
-    assert finding_detail(record) == (
-        "Title: A title longer than the forty-five characters the table shows\n"
-        "Severity: LOW\n"
-        "Status: UNVERIFIED\n"
-        "Persona: QA Engineer\n"
-        "Category: correctness\n"
-        "Confidence: 0.88\n"
-        "Location: src/app.py:7\n"
-        "Citation line: 12\n"
-        "Verified by: llm\n\n"
-        "Description:\nWhat is wrong.\n\n"
-        "Observed value:\nNone\n\n"
-        "Expected value:\na list\n\n"
-        "Fix:\nLine one.\nLine two.\n\n"
-        "References:\nhttps://example.com\nCWE-20\n\n"
-        "Invalidation reason:\nReason.\n\n"
-        "Mitigating mechanism:\nMechanism."
-    )
-
-
-def test_finding_detail_keeps_zero_values_and_omits_empty_fields() -> None:
-    """Zero is a value; only None, a blank string or an empty list means absent."""
-    text = finding_detail(
-        {
-            "title": "T",
-            "confidence_score": 0.0,
-            "citation_line": 0,
-            "category": None,
-            "verified_by": "",
-            "observed_value": "   ",
-            "references": [],
-        }
-    )
-    assert text == "Title: T\nConfidence: 0.00\nCitation line: 0"
-
-
-def test_finding_detail_names_the_persona_by_its_title_falling_back_to_its_key() -> None:
-    """`review findings --details` shows the persona's title, and its key when untitled."""
-    titled = finding_detail({"persona": "devsecops", "persona_title": "Security Engineer"})
-    untitled = finding_detail({"persona": "devsecops", "persona_title": ""})
-    assert (titled, untitled) == ("Persona: Security Engineer", "Persona: devsecops")
-
-
-def test_finding_detail_leaves_out_the_verdict_and_the_scratchpad() -> None:
-    """The persona's merge verdict is not advice about the finding, and thinking is #690's."""
-    record = _finding(0, recommendation="REQUEST CHANGES", thinking="SCRATCHPAD", finding_id=3)
-    text = finding_detail(record)
-    assert ("REQUEST CHANGES" in text, "SCRATCHPAD" in text, "3" in text) == (False, False, False)
-
-
-def test_finding_detail_cleans_the_description_and_fix_like_the_cli_panel() -> None:
-    """Description and fix pass through the cleaner `review findings --details` uses."""
-    text = finding_detail({"description": "['first', 'second']", "fix": "step\n---\nnext"})
-    assert text == "Description:\nfirst\nsecond\n\nFix:\nstep\nnext"
-
-
-def test_finding_detail_writes_control_characters_as_visible_escapes() -> None:
-    """Model output can carry raw escapes, which would otherwise reach the terminal."""
-    description = finding_detail({"description": "a \x1b[31mred\x1b[0m [bold]x[/]"})
-    observed = finding_detail({"observed_value": "nul\x00 del\x7f nel\x85 tab\tend"})
-    assert (description, observed) == (
-        "Description:\na \\x1b[31mred\\x1b[0m [bold]x[/]",
-        "Observed value:\nnul\\x00 del\\x7f nel\\x85 tab\tend",
-    )
-
-
-def test_finding_detail_keeps_quoted_code_aligned() -> None:
-    """Stripping the whole value took the first line's indent and left the others'."""
-    text = finding_detail(
-        {
-            "observed_value": "\n    x = 1\n    y = 2  \n",
-            "expected_value": "        if x:\n    return y\n",
-            "description": "    first = 1\n    second = 2",
-        }
-    )
-    assert text == (
-        "Description:\nfirst = 1\nsecond = 2\n\n"
-        "Observed value:\nx = 1\ny = 2\n\n"
-        "Expected value:\n    if x:\nreturn y"
-    )
-
-
-def test_finding_detail_tolerates_a_confidence_that_is_not_a_number() -> None:
-    """A malformed findings file must not raise on the UI thread."""
-    assert finding_detail({"confidence_score": "high"}) == "Confidence: high"
 
 
 # =============================================================================
@@ -1243,7 +1052,6 @@ async def test_the_dashboard_mounts_one_panel_per_configured_domain(
     async with app.run_test():
         panels = {panel.domain for panel in app.query(DomainPanel).results(DomainPanel)}
         panels |= {panel.domain for panel in app.query(DockerPanel).results(DockerPanel)}
-        panels |= {panel.domain for panel in app.query(ReviewPanel).results(ReviewPanel)}
         panels |= {panel.domain for panel in app.query(K8sPanel).results(K8sPanel)}
         assert panels == set(CONST_DASHBOARD_DOMAINS)
 
@@ -1261,11 +1069,11 @@ async def test_every_panel_declares_the_columns_its_domain_projects(
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
         widths["k8s"] = len(app.query_one("#k8s-table", DataTable).columns)
-        # Docker and AI Review compose nested tabs, so they are not plain DomainPanels.
+        # Docker composes nested tabs, so it is not a plain DomainPanel.
         assert widths == {
             domain: len(DOMAIN_COLUMNS[domain])
             for domain in CONST_DASHBOARD_DOMAINS
-            if domain not in (CONST_DASHBOARD_DOMAIN_DOCKER, CONST_DASHBOARD_DOMAIN_AI)
+            if domain != CONST_DASHBOARD_DOMAIN_DOCKER
         }
 
 
@@ -1289,8 +1097,7 @@ async def test_the_initial_refresh_populates_every_panel(
         }
         counts["k8s"] = app.query_one("#k8s-table", DataTable).row_count
         counts["docker"] = app.query_one("#docker-table", DataTable).row_count
-        counts["ai"] = app.query_one("#ai-table", DataTable).row_count
-        assert counts == {"k8s": 1, "docker": 1, "telemetry": 3, "ai": 1, "valkey": 7}
+        assert counts == {"k8s": 1, "docker": 1, "telemetry": 3, "valkey": 7}
 
 
 @pytest.mark.asyncio
@@ -1987,78 +1794,20 @@ async def test_the_docker_panel_populates_every_resource_table(
 
 
 # =============================================================================
-# Review Session Selection
-# =============================================================================
-
-
-def _sessions() -> list[ReviewSessionInfo]:
-    """Sessions as the provider returns them: newest first."""
-    return [
-        ReviewSessionInfo(name="20260921-212653", completed=False),
-        ReviewSessionInfo(name="20260920-124350", completed=True, finding_count=55),
-        ReviewSessionInfo(name="20260919-145233", completed=True, finding_count=286),
-    ]
-
-
-def test_review_sessions_render_newest_first() -> None:
-    """The provider orders them; re-sorting here would let the two disagree."""
-    summary = ReviewSummary(has_session=True, sessions=_sessions())
-    snapshot = DomainSnapshot(domain="ai", data=summary, updated_at=time.time())
-    assert [row[0] for row in review_session_rows(snapshot)] == [
-        "20260921-212653",
-        "20260920-124350",
-        "20260919-145233",
-    ]
-
-
-def test_an_incomplete_session_shows_no_finding_count() -> None:
-    """A session that never wrote findings has no count, and zero would imply it found none."""
-    summary = ReviewSummary(has_session=True, sessions=_sessions())
-    snapshot = DomainSnapshot(domain="ai", data=summary, updated_at=time.time())
-    rows = review_session_rows(snapshot)
-    assert (rows[0][1], rows[0][2], rows[1][1], rows[1][2]) == (
-        "incomplete",
-        "-",
-        "complete",
-        "55",
-    )
-
-
-def test_review_sessions_render_nothing_before_the_first_fetch() -> None:
-    """An unloaded panel renders empty rather than raising."""
-    assert review_session_rows(DomainSnapshot(domain="ai")) == []
-
-
-def test_the_review_banner_reports_incomplete_sessions() -> None:
-    """A run still in progress is worth knowing about without being shown as the result."""
-    summary = ReviewSummary(
-        has_session=True,
-        session_name="20260920-124350",
-        total_findings=55,
-        incomplete=["20260921-212653"],
-    )
-    assert "1 incomplete" in ai_banner(summary)
-
-
-def test_the_review_banner_omits_the_note_when_every_session_completed() -> None:
-    """There is nothing to report when nothing is outstanding."""
-    summary = ReviewSummary(has_session=True, session_name="s", total_findings=1)
-    assert "incomplete" not in ai_banner(summary)
-
-
-# =============================================================================
 # Review Session Discovery
 # =============================================================================
 
 
 def _make_sessions(tmp_path: Path, spec: dict[str, int | None]) -> Path:
-    """Create review session directories; a None count writes no findings.json."""
+    """Create review sessions; a None count leaves the session in staging, still being written."""
     reviews = tmp_path / "reviews"
     reviews.mkdir(parents=True, exist_ok=True)
     for name, count in spec.items():
         directory = reviews / name
-        directory.mkdir()
-        if count is not None:
+        if count is None:
+            ReviewSession(directory).create()
+        else:
+            directory.mkdir()
             payload = {"findings": [{"severity": "LOW", "title": f"f{i}"} for i in range(count)]}
             (directory / "findings.json").write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
@@ -2067,10 +1816,10 @@ def _make_sessions(tmp_path: Path, spec: dict[str, int | None]) -> Path:
 def test_an_in_progress_review_does_not_displace_the_last_completed_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A running review creates its directory before it writes any findings.
+    """A running review writes into staging before it publishes anything.
 
-    Taking the newest directory therefore presented an empty session as the latest result
-    and hid the last real review behind it.
+    Taking the newest session therefore presented an empty one as the latest result and hid
+    the last real review behind it.
     """
     root = _make_sessions(
         tmp_path, {"20260921-212653": None, "20260920-124350": 55, "20260919-145233": 286}
@@ -2078,51 +1827,6 @@ def test_an_in_progress_review_does_not_displace_the_last_completed_one(
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
     summary = fetch_review_status()
     assert (summary.session_name, summary.total_findings) == ("20260920-124350", 55)
-
-
-def test_sessions_are_listed_newest_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Session names are timestamps, so reverse lexical order is reverse chronological."""
-    root = _make_sessions(
-        tmp_path, {"20260919-145233": 1, "20260921-212653": None, "20260920-124350": 2}
-    )
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
-    assert [info.name for info in list_review_sessions()] == [
-        "20260921-212653",
-        "20260920-124350",
-        "20260919-145233",
-    ]
-
-
-def test_an_explicitly_selected_session_is_displayed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Choosing an earlier review opens it rather than the newest completed one."""
-    root = _make_sessions(tmp_path, {"20260920-124350": 55, "20260919-145233": 286})
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
-    summary = fetch_review_status("20260919-145233")
-    assert (summary.session_name, summary.total_findings) == ("20260919-145233", 286)
-
-
-def test_a_selected_session_name_cannot_escape_the_reviews_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The selection names a session, so it must not be usable as a path."""
-    root = _make_sessions(tmp_path, {"20260920-124350": 5})
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
-    assert fetch_review_status("../../etc").has_session is False
-
-
-def test_incomplete_sessions_are_reported_without_being_shown_as_results(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """They are worth knowing about, but they are not findings."""
-    root = _make_sessions(tmp_path, {"20260921-212653": None, "20260920-124350": 55})
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
-    summary = fetch_review_status()
-    assert (summary.incomplete, summary.session_name) == (
-        ["20260921-212653"],
-        "20260920-124350",
-    )
 
 
 def test_a_review_with_nothing_completed_still_shows_the_session(
@@ -2139,29 +1843,18 @@ def test_a_review_with_nothing_completed_still_shows_the_session(
     )
 
 
-def test_a_malformed_findings_file_counts_as_zero_rather_than_raising(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """One corrupt session must not break the session list."""
-    reviews = tmp_path / "reviews" / "20260920-124350"
-    reviews.mkdir(parents=True)
-    (reviews / "findings.json").write_text("{not json", encoding="utf-8")
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    assert [(i.name, i.finding_count) for i in list_review_sessions()] == [("20260920-124350", 0)]
-
-
-def test_no_reviews_directory_lists_no_sessions(
+def test_a_workspace_that_was_never_reviewed_has_no_review_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A workspace that has never been reviewed is not an error."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    assert (list_review_sessions(), fetch_review_status().has_session) == ([], False)
+    assert fetch_review_status().has_session is False
 
 
 def test_every_finding_of_a_session_is_listed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The banner counts every finding, so the table must list every one it counts."""
+    """The provider keeps every finding of a session, so a session of 60 findings gives 60."""
     root = _make_sessions(tmp_path, {"20260930-000000": 60})
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
     summary = fetch_review_status()
@@ -2192,14 +1885,12 @@ def _place(table: DataTable[Any]) -> tuple[int, str | None]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("tab", "table_id"), [("1", "k8s-table"), ("2", "docker-table"), ("4", "ai-table")]
-)
+@pytest.mark.parametrize(("tab", "table_id"), [("1", "k8s-table"), ("2", "docker-table")])
 async def test_a_refresh_with_unchanged_data_keeps_the_highlighted_row(
     patched_fetchers: Callable[..., None], tab: str, table_id: str
 ) -> None:
     """The cursor jumped back to the first row on every refresh, every five seconds."""
-    patched_fetchers(k8s=lambda: _pods(3), docker=lambda: _containers(3), ai=lambda: _findings(3))
+    patched_fetchers(k8s=lambda: _pods(3), docker=lambda: _containers(3))
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:
         await _loaded(pilot, app)
@@ -2213,26 +1904,13 @@ async def test_a_refresh_with_unchanged_data_keeps_the_highlighted_row(
         assert (before[0], _place(table)) == (2, before)
 
 
-def _wide_findings(count: int) -> ReviewSummary:
-    """Findings whose locations run past the findings table's width, as real ones do."""
-    folder = "src/devops_cli/" + "nested/" * 12
-    return ReviewSummary(
-        has_session=True,
-        session_name="20260930-000000",
-        total_findings=count,
-        findings=[
-            _finding(index, location=f"{folder}module_{index}.py:{index}") for index in range(count)
-        ],
-    )
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("tab", "table_id", "size", "row", "scroll"),
     [
         ("1", "k8s-table", (100, 24), 12, (0, 10)),
         ("1", "k8s-table", (100, 24), 2, (0, 20)),
-        ("4", "ai-table", (80, 24), 20, (30, 10)),
+        ("1", "k8s-table", (80, 24), 20, (30, 10)),
     ],
 )
 async def test_a_refresh_keeps_the_cursor_and_scroll_of_a_long_table(
@@ -2245,10 +1923,10 @@ async def test_a_refresh_keeps_the_cursor_and_scroll_of_a_long_table(
 ) -> None:
     """The view stays where it was, including when the cursor is scrolled out of sight.
 
-    Beside the detail pane, a finding's Location and Status columns are read scrolled to
-    the right, so a refresh must not snap the view back to the left edge either.
+    A table wider than the screen is read scrolled to the right, so a refresh must not snap
+    the view back to the left edge either.
     """
-    patched_fetchers(k8s=lambda: _pods(50), ai=lambda: _wide_findings(50))
+    patched_fetchers(k8s=lambda: _pods(50) if size[0] > 80 else _wide_pods(50))
     app = DashboardApp(refresh_interval=0)
     async with app.run_test(size=size) as pilot:
         await _loaded(pilot, app)
@@ -2317,29 +1995,6 @@ async def test_a_vanished_record_leaves_the_cursor_at_its_index(
 
 
 @pytest.mark.asyncio
-async def test_repeated_findings_are_separate_rows_that_keep_the_cursor(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """Two findings with one persona, location and title are still two rows."""
-    twin = _finding(0)
-    patched_fetchers(
-        ai=lambda: ReviewSummary(
-            has_session=True, session_name="s", total_findings=2, findings=[dict(twin), dict(twin)]
-        )
-    )
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        await _loaded(pilot, app)
-        await pilot.press("4")
-        table = app.query_one("#ai-table", DataTable)
-        table.focus()
-        table.move_cursor(row=1)
-        await pilot.pause()
-        await _refresh(pilot, app)
-        assert (table.row_count, table.cursor_row) == (2, 1)
-
-
-@pytest.mark.asyncio
 async def test_containers_without_an_id_are_separate_rows(
     patched_fetchers: Callable[..., None],
 ) -> None:
@@ -2359,280 +2014,6 @@ async def test_containers_without_an_id_are_separate_rows(
             state.failed_domains(),
             "render failed" in banner,
         ) == (2, [], False)
-
-
-@pytest.mark.asyncio
-async def test_a_different_review_session_returns_the_findings_to_the_top(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """Row 20 of one review means nothing in another, so the view starts again at the top."""
-    patched_fetchers(ai=lambda: _findings(40, "20260930-000000"))
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        await _loaded(pilot, app)
-        await pilot.press("4")
-        table = app.query_one("#ai-table", DataTable)
-        table.focus()
-        table.move_cursor(row=20)
-        await pilot.pause()
-        moved = (table.cursor_row, table.scroll_y > 0)
-        app.query_one("#panel-ai", ReviewPanel).apply(
-            DomainSnapshot(
-                domain="ai", data=_findings(40, "20260929-000000"), updated_at=time.time()
-            )
-        )
-        await pilot.pause()
-        assert (moved, (table.cursor_row, table.scroll_y)) == ((20, True), (0, 0))
-
-
-# =============================================================================
-# Finding Detail Pane
-# =============================================================================
-
-
-def _detail_text(app: DashboardApp) -> str:
-    return str(app.query_one("#finding-detail", Static).render())
-
-
-async def _findings_focused(pilot: Any, app: DashboardApp) -> DataTable[Any]:
-    """Open AI Review with the findings table focused, once the first refresh is drawn."""
-    await _loaded(pilot, app)
-    await pilot.press("4")
-    table = app.query_one("#ai-table", DataTable)
-    table.focus()
-    await pilot.pause()
-    return table
-
-
-@pytest.mark.asyncio
-async def test_highlighting_a_finding_shows_its_full_text(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """The table cuts the title at 45 characters and shows none of the finding's text."""
-    title = "A finding title far longer than the forty-five characters of its cell"
-    detailed = _finding(
-        1,
-        title=title,
-        description="The description.",
-        fix="The fix.",
-        mitigating_mechanism="The mechanism.",
-        thinking="SCRATCHPAD",
-        recommendation="REQUEST CHANGES",
-    )
-    patched_fetchers(
-        ai=lambda: ReviewSummary(
-            has_session=True, session_name="s", total_findings=2, findings=[_finding(0), detailed]
-        )
-    )
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test(size=(160, 40)) as pilot:
-        table = await _findings_focused(pilot, app)
-        table.move_cursor(row=1)
-        await pilot.pause()
-        text = _detail_text(app)
-        assert tuple(
-            part in text
-            for part in (
-                f"Title: {title}",
-                "The description.",
-                "The fix.",
-                "The mechanism.",
-                "SCRATCHPAD",
-                "REQUEST CHANGES",
-            )
-        ) == (True, True, True, True, False, False)
-
-
-@pytest.mark.asyncio
-async def test_the_detail_pane_follows_the_cursor_and_holds_through_a_refresh(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """Moving the cursor changes the pane; a refresh with the same data does not."""
-    patched_fetchers(ai=lambda: _findings(3))
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        table = await _findings_focused(pilot, app)
-        first = _detail_text(app)
-        table.move_cursor(row=2)
-        await pilot.pause()
-        third = _detail_text(app)
-        await _refresh(pilot, app)
-        assert (first.splitlines()[0], third.splitlines()[0], _detail_text(app)) == (
-            "Title: Finding 0",
-            "Title: Finding 2",
-            third,
-        )
-
-
-@pytest.mark.asyncio
-async def test_the_detail_pane_reads_no_finding_selected_without_findings(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """Once a session's findings are gone, the pane drops the last one it showed."""
-    patched_fetchers(ai=lambda: _findings(3))
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        table = await _findings_focused(pilot, app)
-        table.move_cursor(row=1)
-        await pilot.pause()
-        before = _detail_text(app).splitlines()[0]
-        app.query_one("#panel-ai", ReviewPanel).apply(
-            DomainSnapshot(domain="ai", data=_findings(0), updated_at=time.time())
-        )
-        await pilot.pause()
-        assert (before, _detail_text(app)) == ("Title: Finding 1", "No finding selected.")
-
-
-@pytest.mark.asyncio
-async def test_another_finding_is_detailed_from_the_top(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """A pane scrolled down one finding would open the next mid-text, its header unseen.
-
-    A refresh shows the same finding again, so it keeps the reader's offset.
-    """
-    description = "\n".join(f"Line {number}." for number in range(80))
-    patched_fetchers(
-        ai=lambda: ReviewSummary(
-            has_session=True,
-            session_name="s",
-            total_findings=3,
-            findings=[_finding(index, description=description) for index in range(3)],
-        )
-    )
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        table = await _findings_focused(pilot, app)
-        pane = app.query_one("#finding-detail-pane", VerticalScroll)
-        pane.scroll_to(y=40, animate=False)
-        await pilot.pause()
-        scrolled = pane.scroll_y
-        await _refresh(pilot, app)
-        refreshed = pane.scroll_y
-        table.move_cursor(row=2)
-        await pilot.pause()
-        assert (scrolled, refreshed, pane.scroll_y, _detail_text(app).splitlines()[0]) == (
-            40,
-            40,
-            0,
-            "Title: Finding 2",
-        )
-
-
-@pytest.mark.asyncio
-async def test_highlighting_another_finding_scrolls_the_pane_up_at_once(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """The pane is at the top as soon as another finding is shown, not after the next screen
-    refresh, which a slower machine may not have drawn by the time anyone reads the pane."""
-    description = "\n".join(f"Line {number}." for number in range(80))
-    patched_fetchers(
-        ai=lambda: ReviewSummary(
-            has_session=True,
-            session_name="s",
-            total_findings=3,
-            findings=[_finding(index, description=description) for index in range(3)],
-        )
-    )
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        table = await _findings_focused(pilot, app)
-        pane = app.query_one("#finding-detail-pane", VerticalScroll)
-        pane.scroll_to(y=40, animate=False)
-        await pilot.pause()
-        scrolled = pane.scroll_y
-        app.query_one("#panel-ai", ReviewPanel).on_data_table_row_highlighted(
-            DataTable.RowHighlighted(table, 2, table.ordered_rows[2].key)
-        )
-        assert (scrolled, pane.scroll_y, _detail_text(app).splitlines()[0]) == (
-            40,
-            0,
-            "Title: Finding 2",
-        )
-
-
-@pytest.mark.asyncio
-async def test_a_session_highlight_leaves_the_detail_pane_alone(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """The pane shows findings; a row of the session picker is not one."""
-    summary = _findings(2)
-    summary.sessions = _sessions()
-    patched_fetchers(ai=lambda: summary)
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        table = await _findings_focused(pilot, app)
-        table.move_cursor(row=1)
-        await pilot.pause()
-        before = _detail_text(app)
-        sessions = app.query_one("#review-sessions-table", DataTable)
-        sessions.move_cursor(row=2)
-        await pilot.pause()
-        assert (before.splitlines()[0], _detail_text(app)) == ("Title: Finding 1", before)
-
-
-@pytest.mark.asyncio
-async def test_model_written_markup_and_escapes_render_literally_in_the_pane(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """Finding text quotes repository content, so it is neither markup nor terminal control."""
-    finding = _finding(0, description="a \x1b[31mred\x1b[0m [bold]x[/]")
-    patched_fetchers(
-        ai=lambda: ReviewSummary(
-            has_session=True, session_name="s", total_findings=1, findings=[finding]
-        )
-    )
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        await _findings_focused(pilot, app)
-        text = _detail_text(app)
-        assert ("[bold]x[/]" in text, "\\x1b" in text, "\x1b" in text) == (True, True, False)
-
-
-@pytest.mark.asyncio
-async def test_i_toggles_the_detail_pane_from_the_findings_table(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """The pane takes width from the table, so it can be put away and brought back."""
-    patched_fetchers(ai=lambda: _findings(3))
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        await _findings_focused(pilot, app)
-        pane = app.query_one("#finding-detail-pane")
-        await pilot.press("i")
-        hidden = pane.display
-        await pilot.press("i")
-        assert (hidden, pane.display) == (False, True)
-
-
-@pytest.mark.asyncio
-async def test_i_does_nothing_outside_ai_review(patched_fetchers: Callable[..., None]) -> None:
-    """The key belongs to the review panel, so another tab's table never sees it act."""
-    patched_fetchers()
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        await _loaded(pilot, app)
-        app.query_one("#k8s-table", DataTable).focus()
-        await pilot.press("i")
-        await pilot.pause()
-        assert (
-            app.query_one(TabbedContent).active,
-            app.query_one("#finding-detail-pane").display,
-        ) == ("tab-k8s", True)
-
-
-@pytest.mark.asyncio
-async def test_the_help_screen_lists_the_detail_toggle(
-    patched_fetchers: Callable[..., None],
-) -> None:
-    """The key is hidden from the crowded footer, so help is where it is found."""
-    patched_fetchers()
-    app = DashboardApp(refresh_interval=0)
-    async with app.run_test() as pilot:
-        app.push_screen(HelpScreen())
-        await pilot.pause()
-        help_text = str(app.screen.query_one("#help-body", Static).content)
-        assert "i   : Toggle finding detail (AI Review)" in help_text
 
 
 # =============================================================================
@@ -2677,13 +2058,22 @@ async def test_quitting_does_not_wait_on_a_silent_log_stream(
     A followed log never ends, and the read blocks until the next line arrives -- which
     for a quiet pod may be never. Textual waits for its thread workers on shutdown, so
     reading inside the worker meant quitting hung until the process was killed.
+
+    The stream stays silent until the test releases it, after the application has shut down.
+    A quit that does not wait for the stream ends with the stream still held: `release` is
+    unset and the hold did not run out. A quit that waits ends only when the hold runs out,
+    which the check reads. No clock decides the verdict: a slow host delays the quit and
+    nothing more.
     """
     producing = threading.Event()
     release = threading.Event()
+    hold_ran_out = threading.Event()
 
     def silent() -> Any:
         producing.set()
-        release.wait(timeout=30)
+        # The hold outlives every wait that observes it, and records that it ran out by itself.
+        if not release.wait(timeout=2 * THREAD_HANDOFF_BOUND_SECONDS):
+            hold_ran_out.set()
         yield "eventually"
 
     patched_fetchers()
@@ -2692,15 +2082,14 @@ async def test_quitting_does_not_wait_on_a_silent_log_stream(
         async with app.run_test() as pilot:
             pane = app.query_one("#log-pane", LogPane)
             pane.start_stream(silent)
-            assert producing.wait(timeout=10)
-            started = time.monotonic()
+            assert producing.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             await pilot.press("q")
             assert await _settle(pilot, lambda: not app.is_running), "q did not stop the app"
-        elapsed = time.monotonic() - started
+        held = (release.is_set(), hold_ran_out.is_set())
     finally:
         release.set()
 
-    assert elapsed < 5.0, f"quitting took {elapsed:.1f}s while a stream was open"
+    assert held == (False, False), "the application shut down only after the stream was released"
 
 
 @pytest.mark.asyncio

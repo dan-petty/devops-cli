@@ -16,7 +16,7 @@ from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.scan import app as scan_app
 from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
 from devops_cli.security.bandit import BanditScanner
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, merge_outcomes
 from devops_cli.security.dive import DiveScanner
 from devops_cli.security.pipeline import build_report
 from devops_cli.security.popeye import PopeyeScanner
@@ -44,6 +44,35 @@ def test_scan_outcome_model_properties_and_equality() -> None:
     )
     assert outcome == ScanOutcome(status="ran", findings=[finding], reason="Completed scan")
     assert "ScanOutcome(status='ran'" in repr(outcome)
+
+
+def test_a_scan_outcome_keeps_the_files_it_did_not_scan_with_their_reasons() -> None:
+    """`unscanned` maps each file a scan left out to the reason, and takes part in equality."""
+    outcome = ScanOutcome("coverage_gap", unscanned={"style.css": "no rule applies"})
+
+    assert (
+        outcome.unscanned,
+        outcome == ScanOutcome("coverage_gap", unscanned={"style.css": "no rule applies"}),
+        outcome == ScanOutcome("coverage_gap"),
+        ScanOutcome("ran").unscanned,
+    ) == ({"style.css": "no rule applies"}, True, False, {})
+
+
+def test_merged_outcomes_keep_the_files_every_run_did_not_scan() -> None:
+    """A scanner's batches merge into one outcome that lists the files of each batch that
+    left some out, with the worst status of the batches (#1144)."""
+    merged = merge_outcomes(
+        [
+            ScanOutcome("coverage_gap", unscanned={"a.css": "first batch"}),
+            ScanOutcome("ran"),
+            ScanOutcome("coverage_gap", unscanned={"b.css": "third batch"}),
+        ]
+    )
+
+    assert (merged.status, merged.unscanned) == (
+        "coverage_gap",
+        {"a.css": "first batch", "b.css": "third batch"},
+    )
 
 
 def test_dive_and_popeye_applicability_preflight(tmp_path: Path) -> None:
@@ -78,6 +107,7 @@ def test_dive_and_popeye_applicability_preflight(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.usefixtures("cached_default_ruleset")
 def test_single_scanner_commands_not_run_when_unavailable_or_failed(tmp_path: Path) -> None:
     """Single-scanner commands display 'not run' and never claim 'passed' when unrun."""
     unavail = ScanOutcome(

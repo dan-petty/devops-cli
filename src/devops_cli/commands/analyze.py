@@ -519,11 +519,12 @@ def analyze_pr(  # noqa: C901
         print_error(MESSAGES.analyze.github_origin_failed, prefix=False)
         raise typer.Exit(1)
 
-    gh_client = session.client
-    pull = gh_client.get_pull(repo_name, pr_number)
+    with exit_on_error(GitHubOperationError):
+        pull = session.client.get_pull(repo_name, pr_number)
+        pull_files = session.client.get_pull_files(repo_name, pr_number)
     file_metas: list[FileAnalysisMeta] = []
 
-    for f_file in pull.get_files():
+    for f_file in pull_files:
         path = f_file.filename
         if not path or ".." in path or path.startswith(("/", "\\")):
             continue
@@ -533,7 +534,7 @@ def analyze_pr(  # noqa: C901
             file_path = safe_resolve_subpath(repo, path)
         except Exception:
             continue
-        status = str(f_file.status)
+        status = f_file.status
         if file_path.exists() and status != "removed":
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
@@ -556,9 +557,9 @@ def analyze_pr(  # noqa: C901
         file_metas.append(
             FileAnalysisMeta(
                 path=path,
-                size_bytes=int(f_file.changes),
-                line_count=int(f_file.additions),
-                char_count=int(f_file.changes),
+                size_bytes=f_file.changes,
+                line_count=f_file.additions,
+                char_count=f_file.changes,
                 language=detect_language(path),
                 primary_purpose=f"PR file {Path(path).name}",
                 key_symbols=[],

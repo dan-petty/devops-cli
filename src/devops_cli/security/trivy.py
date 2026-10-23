@@ -3,18 +3,31 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from platformdirs import user_cache_dir
 
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_TRIVY, build_trivy_scan_cmd
-from devops_cli.config.constants import CONST_REVIEW_SCAN_TRIVY_CONFIG
+from devops_cli.config.constants import (
+    CONST_REVIEW_SCAN_TRIVY_CONFIG,
+    CONST_TRIVY_CACHE_DIR_ENV,
+    CONST_TRIVY_CACHE_DIR_NAME,
+    CONST_TRIVY_CHECKS_METADATA,
+    CONST_TRIVY_CONFIG_SCAN_TYPE,
+    CONST_TRIVY_DB_METADATA,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
 )
 from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +111,17 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
     return findings
 
 
+def _trivy_cache_dir() -> Path:
+    """Where Trivy keeps its cache: `TRIVY_CACHE_DIR`, else `trivy` in the user cache directory of
+    the platform. `platformdirs` names that directory as the Go standard library does for Trivy.
+    A host with no home directory gives a path that does not exist, and a record must not fail a
+    scan."""
+    configured = os.environ.get(CONST_TRIVY_CACHE_DIR_ENV)
+    return Path(
+        os.path.expanduser(configured) if configured else user_cache_dir(CONST_TRIVY_CACHE_DIR_NAME)
+    )
+
+
 class TrivyScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Aqua Trivy vulnerability detector."""
 
@@ -110,6 +134,28 @@ class TrivyScanner(BaseSecurityScanner):
         ScannerConfigFile("--config", "trivy.yaml", CONST_REVIEW_SCAN_TRIVY_CONFIG),
         ScannerConfigFile("--ignorefile", ".trivyignore", ""),
     )
+
+    def ruleset_files(
+        self,
+        target_path: Any,
+        cwd: Path,
+        *,
+        scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
+        **kwargs: Any,
+    ) -> tuple[Path, ...]:
+        """The metadata file of what Trivy scans with, if Trivy has fetched it already (#772).
+
+        A `config` scan reads the checks bundle. Any other scan reads the vulnerability database.
+        Trivy fetches either one during a scan when its cache holds none or an old one, so the
+        file may change while the scan runs.
+        """
+        kind = (
+            CONST_TRIVY_CHECKS_METADATA
+            if scan_type == CONST_TRIVY_CONFIG_SCAN_TYPE
+            else CONST_TRIVY_DB_METADATA
+        )
+        metadata = _trivy_cache_dir().joinpath(*kind)
+        return (metadata,) if metadata.is_file() else ()
 
     def build_command(
         self,
@@ -147,7 +193,8 @@ def run_trivy_scan(
     severity: str = DEFAULT_TRIVY_SEVERITIES,
     *,
     isolated: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Trivy scanner and return scan outcome; `isolated` for a review (#972)."""
-    scanner = TrivyScanner()
+    scanner = TrivyScanner(tool_executor)
     return scanner.scan(target, isolated=isolated, scan_type=scan_type, severity=severity)

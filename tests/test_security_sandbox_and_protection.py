@@ -3,7 +3,7 @@
 TDD specifications covering:
 
 - Ground-truth importability of DEFAULT_HTTP_BROKER
-- Path traversal and symlink prevention across prompt_eval, ssh_keys, ast_stream, complexity, tflint, sandbox
+- Path traversal and symlink prevention across prompt_eval, ssh_keys, complexity, tflint, sandbox
 - Secret redaction across agent memory summaries, telemetry error samples, CLI failures, tool errors, helm diff
 - URL and reference validation in difftastic, ollama provider, and create_pydantic_ai_provider
 - Information disclosure mitigation in pipeline error messages and status endpoints
@@ -112,33 +112,6 @@ def test_agent_memory_masks_secrets_in_auto_summarize() -> None:
     assert summarized is True
     assert "sk-proj-super_confidential_api_token" not in mem.summary
     assert "<masked" in mem.summary.lower() or "[REDACTED" in mem.summary
-
-
-# 7. Symlink rejection in stream_ast_symbols (Finding 7)
-def test_stream_ast_symbols_rejects_symlinks(tmp_path: Path) -> None:
-    """Verify stream_ast_symbols refuses symlink paths."""
-    from devops_cli.ai.ast_stream import stream_ast_symbols
-
-    real_py = tmp_path / "real.py"
-    real_py.write_text("def hello(): pass", encoding="utf-8")
-    sym_py = tmp_path / "symlink.py"
-    try:
-        sym_py.symlink_to(real_py)
-        with pytest.raises(SecurityError):
-            list(stream_ast_symbols(sym_py))
-    except OSError:
-        pass
-
-
-# 8. URL validation in OllamaProvider (Finding 8)
-def test_ollama_provider_validates_urls() -> None:
-    """Verify OllamaProvider validates base_url against invalid schemes and formats."""
-    from devops_cli.ai.providers.ollama import OllamaProvider
-
-    cfg_mock = MagicMock()
-    cfg_mock.get_ollama_urls = ["ftp://example.com:11434"]
-    prov = OllamaProvider(cfg_mock)
-    assert prov.is_available() is False
 
 
 # 9. Telemetry error sample secret sanitization (Finding 9)

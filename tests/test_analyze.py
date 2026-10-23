@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +23,17 @@ from devops_cli.commands.analyze import (
 from devops_cli.main import app
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
+from tests.support.fakes.github import (
+    github_json,
+    pull_request_file_payload,
+    pull_request_payload,
+    route_pull_request,
+)
 from tests.support.github_identity import fail_the_github_lookup
+from tests.support.paths import FIXTURES
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -265,25 +277,20 @@ def test_ai_analyze_quality_and_confidence_scores(tmp_path: Path) -> None:
     assert 0.0 <= file_meta.quality_score <= 1.0
 
 
-def test_ai_analyze_branch_and_pr_execution(tmp_path: Path) -> None:
-    """Test analyze branch and pr with mocked git and github interactions."""
+def test_ai_analyze_branch_and_pr_execution(tmp_path: Path, github_api: GitHubApiFake) -> None:
+    """Test analyze branch and pr with mocked git interactions and the GitHub API fake."""
     (tmp_path / ".git").mkdir()
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     worker_file = src_dir / "worker.py"
     worker_file.write_text("def do_work(): pass\n", encoding="utf-8")
-
-    mock_pull = MagicMock()
-    mock_pull.number = 42
-    mock_pull.title = "Add worker"
-    mock_pull.head_ref = "feat/worker"
-    mock_pull.base_ref = "main"
-
-    mock_file = MagicMock()
-    mock_file.filename = "src/worker.py"
-    mock_file.status = "modified"
-    mock_file.patch = "@@ -1 +1 @@\n+def do_work(): pass\n"
-    mock_pull.get_files.return_value = [mock_file]
+    route_pull_request(
+        github_api,
+        "org/repo",
+        42,
+        pull_request_payload(title="Add worker"),
+        files=[pull_request_file_payload("src/worker.py")],
+    )
 
     with (
         patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
@@ -297,7 +304,6 @@ def test_ai_analyze_branch_and_pr_execution(tmp_path: Path) -> None:
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.read_file_at_revision", return_value=None),
         patch("devops_cli.core.repo.get_repo_origin_name", return_value="org/repo"),
-        patch("devops_cli.github.client.GitHubClient.get_pull", return_value=mock_pull),
     ):
         res_branch = runner.invoke(analyze_app, ["branch", "feat/worker", "--no-enhanced"])
         assert res_branch.exit_code == 0
@@ -310,6 +316,11 @@ def test_ai_analyze_branch_and_pr_execution(tmp_path: Path) -> None:
 
         res_pr_explain = runner.invoke(analyze_app, ["pr", "42", "--explain"])
         assert res_pr_explain.exit_code == 0
+
+    assert github_api.requested == [
+        "GET https://api.github.com/repos/org/repo/pulls/42",
+        "GET https://api.github.com/repos/org/repo/pulls/42/files?per_page=100",
+    ]
 
 
 def test_scanner_ast_and_purpose_heuristics() -> None:
@@ -473,8 +484,10 @@ def test_analyze_path_errors(tmp_path: Path) -> None:
         assert res_out.exit_code == 1
 
 
-def test_analyze_pr_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify devops analyze pr with no gh login, missing origin, and mock client."""
+def test_analyze_pr_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+) -> None:
+    """Verify devops analyze pr with no gh login, missing origin, and the GitHub API fake."""
     from devops_cli.config.settings import Settings
 
     # 1. No token from `gh auth token`
@@ -502,27 +515,111 @@ def test_analyze_pr_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     sample_file = tmp_path / "pr_mod.py"
     sample_file.write_text("def pr_func(): pass\n", encoding="utf-8")
 
-    mock_pr_file = MagicMock()
-    mock_pr_file.filename = "pr_mod.py"
-    mock_pr_file.status = "modified"
-    mock_pr_file.changes = 5
-    mock_pr_file.additions = 5
-
-    mock_pr = MagicMock()
-    mock_pr.title = "Add feature"
-    mock_pr.get_files.return_value = [mock_pr_file]
-
-    mock_gh = MagicMock()
-    mock_gh.get_pull.return_value = mock_pr
+    route_pull_request(
+        github_api,
+        "owner/repo",
+        42,
+        pull_request_payload(title="Add feature"),
+        files=[pull_request_file_payload("pr_mod.py", additions=5, changes=5)],
+    )
 
     with (
         patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
         patch("devops_cli.commands.analyze.load_settings", return_value=empty_settings),
         patch("devops_cli.commands.analyze.get_repo_origin_name", return_value="owner/repo"),
-        patch("devops_cli.github.client.GitHubClient", return_value=mock_gh),
     ):
         res_pr_ok = runner.invoke(analyze_app, ["pr", "42", "--no-enhanced"])
         assert res_pr_ok.exit_code == 0
+
+
+def test_analyze_pr_lists_the_title_and_the_files_of_every_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    git: Callable[..., None],
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+) -> None:
+    """For the recorded pull request, whose second page of files GitHub links, the analysis holds
+    the pull request's title and both changed files, with the token of the session on every read."""
+    recorded = json.loads(
+        (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
+    )
+    first, second = recorded["files_pages"]
+    github_api.route(
+        "GET", "/repos/octocat/Hello-World/pulls/158", github_json(recorded["pull_request"])
+    )
+    github_api.route(
+        "GET",
+        "/repos/octocat/Hello-World/pulls/158/files?per_page=100",
+        github_json(first["body"], headers={"link": first["link"]}),
+    )
+    github_api.route(
+        "GET",
+        "/repositories/1296269/pulls/158/files?per_page=1&page=2",
+        github_json(second["body"], headers={"link": second["link"]}),
+    )
+    root = tmp_path / "checkout"
+    root.mkdir()
+    git(root, "init", "-q")
+    git(root, "remote", "add", "origin", "https://github.com/octocat/Hello-World.git")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
+
+    result = runner.invoke(analyze_app, ["pr", "158", "--no-enhanced"])
+
+    saved = AnalysisMetadata.model_validate_json(
+        (tmp_path / "analysis" / "pr-158-metadata.json").read_text(encoding="utf-8")
+    )
+    assert (
+        result.exit_code,
+        saved.project.title,
+        [(meta.path, meta.change_type) for meta in saved.files],
+        len(github_api.sent),
+        {request.headers["authorization"] for request in github_api.sent},
+    ) == (
+        0,
+        "checkout PR #158 analysis: Update and rename README to README.md. Also Added Bolding",
+        [("README", "removed"), ("README.md", "added")],
+        3,
+        {f"token {pin_github_session}"},
+    )
+
+
+@pytest.mark.parametrize("unreadable", ["the pull request", "its files"])
+def test_analyze_pr_ends_with_the_github_error_when_the_pull_request_cannot_be_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    git: Callable[..., None],
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    unreadable: str,
+) -> None:
+    """A 500 that outlasts the retries, on the pull request or on its files, ends the command with
+    the session's message and status 1, and prints no traceback."""
+    recorded = json.loads(
+        (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
+    )
+    pull = "/repos/octocat/Hello-World/pulls/158"
+    failure = github_json({"message": "Server Error"}, status=500)
+    if unreadable == "the pull request":
+        github_api.route("GET", pull, failure)
+    else:
+        github_api.route("GET", pull, github_json(recorded["pull_request"]))
+        github_api.route("GET", f"{pull}/files?per_page=100", failure)
+    root = tmp_path / "checkout"
+    root.mkdir()
+    git(root, "init", "-q")
+    git(root, "remote", "add", "origin", "https://github.com/octocat/Hello-World.git")
+    monkeypatch.chdir(root)
+
+    result = cli("ai", "analyze", "pr", "158", "--no-enhanced")
+
+    assert (
+        result.exit_code,
+        isinstance(result.exception, SystemExit),
+        "(HTTP 500)" in result.output,
+        "Traceback" in result.output,
+    ) == (1, True, True, False)
 
 
 def test_scan_directory_and_heuristics(tmp_path: Path) -> None:
@@ -657,6 +754,42 @@ class RetainedClass:
         "kept_func" in retained,
         "RetainedClass" in retained,
     ) == (True, True, True, True, True, True)
+
+
+def test_python_source_symbols_name_declarations_assignments_and_methods() -> None:
+    """Verify a Python source's symbols are its top-level functions, classes and assigned names,
+    and each method both bare and by class, and that source which does not parse has none."""
+    from devops_cli.ai.analyze.symbols import extract_python_source_symbols
+
+    source = (
+        '__all__ = ["fetch"]\n'
+        "LIMIT = 1\n"
+        "first = second = 2\n"
+        "class Client:\n"
+        "    def send(self): ...\n"
+        "async def fetch(): ...\n"
+        "def helper(): ...\n"
+    )
+
+    assert (
+        extract_python_source_symbols(source),
+        extract_python_source_symbols("def (:\n"),
+        extract_python_source_symbols(None),
+    ) == (
+        {
+            "__all__",
+            "LIMIT",
+            "first",
+            "second",
+            "Client",
+            "send",
+            "Client.send",
+            "fetch",
+            "helper",
+        },
+        set(),
+        set(),
+    )
 
 
 def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:

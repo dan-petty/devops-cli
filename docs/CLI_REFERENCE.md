@@ -10,6 +10,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops devcontainer`](#devops-devcontainer) — Manage devcontainer configurations.
 - [`devops workspace`](#devops-workspace) — Manage multi-root VS Code workspace files (.code-workspace).
 - [`devops install-tools`](#devops-install-tools) — Install and manage DevOps tool binaries.
+- [`devops openspec`](#devops-openspec) — Check the OpenSpec change folders, regenerate the agent skills and archive a change.
 - [`devops k8s`](#devops-k8s) — Manage Kubernetes clusters, pods, services, and workloads.
 - [`devops kustomize`](#devops-kustomize) — Kustomize build and apply operations.
 - [`devops docker`](#devops-docker) — Docker image management.
@@ -242,7 +243,7 @@ devops ssh rotate [OPTIONS]
 
 ### `devops ssh list`
 
-**List all managed SSH keys with their age and rotation status.**
+**List the managed SSH keys of the project prefix with their age and rotation status.**
 
 ```bash
 devops ssh list [OPTIONS]
@@ -254,11 +255,12 @@ devops ssh list [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh audit`
 
-**List all managed SSH keys with their age and rotation status.**
+**List the managed SSH keys of the project prefix with their age and rotation status.**
 
 ```bash
 devops ssh audit [OPTIONS]
@@ -270,6 +272,7 @@ devops ssh audit [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--all` | `boolean` | - | List the managed keys of all projects, not only the keys of the prefix. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh status`
@@ -658,6 +661,54 @@ devops install-tools status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
+
+---
+
+## devops openspec
+
+Check the OpenSpec change folders, regenerate the agent skills and archive a change.
+
+### `devops openspec check`
+
+**Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and find a requirement that two changes rewrite. Exits 1 on any problem.**
+
+```bash
+devops openspec check
+```
+
+### `devops openspec regenerate`
+
+**Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written.**
+
+```bash
+devops openspec regenerate [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops openspec archive`
+
+**Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation.**
+
+```bash
+devops openspec archive [OPTIONS] <change>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -2657,7 +2708,7 @@ devops ci typecheck [OPTIONS]
 
 ### `devops ci audit`
 
-**Run uv audit to check for known package vulnerabilities.**
+**Run uv audit and npm audit to check for known package vulnerabilities.**
 
 ```bash
 devops ci audit [OPTIONS]
@@ -3023,7 +3074,7 @@ devops scan sast [OPTIONS] <target>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of devops-cli runs with it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
@@ -3286,7 +3337,7 @@ devops ai prewarm [OPTIONS]
 
 ### `devops ai agents`
 
-**Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md).**
+**Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md).**
 
 ```bash
 devops ai agents [OPTIONS]
@@ -3698,7 +3749,7 @@ devops ai review path [OPTIONS] <targets>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -3738,7 +3789,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -3776,7 +3827,7 @@ devops ai review pr [OPTIONS] <number>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -4140,6 +4191,26 @@ devops ai review rules test [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+##### `devops ai review rules fetch`
+
+**Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).**
+
+Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
+
+This is the one step that reaches the registry, and a review never runs it. A review,
+`devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
+
+```bash
+devops ai review rules fetch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ruleset` | `string` | `p/default` | Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ai analyze`
 
 **Analyze codebase metadata and generate structural outlines.**
@@ -4407,7 +4478,8 @@ devops ai benchmark [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas. |
 | `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval. |
-| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation. |
+| `--code` | `path` | - | Path to a source directory whose code chunks are the embedding corpus, each queried by its path (relative to the directory) and its symbol names, in place of --document. |
+| `--samples` | `integer` | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
 
 ### `devops ai cache`
 
@@ -5426,7 +5498,7 @@ devops review path [OPTIONS] <targets>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -5466,7 +5538,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -5504,7 +5576,7 @@ devops review pr [OPTIONS] <number>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
-| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
 | `--reporting-only` | `boolean` | - | Run report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
@@ -5866,6 +5938,26 @@ devops review rules test [OPTIONS]
 | `--rules-dir` | `path` | - | Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`. |
 | `--check` | `boolean` | - | Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops review rules fetch`
+
+**Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).**
+
+Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
+
+This is the one step that reaches the registry, and a review never runs it. A review,
+`devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
+
+```bash
+devops review rules fetch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ruleset` | `string` | `p/default` | Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -9504,7 +9596,7 @@ devops dashboard [OPTIONS]
 |---|---|---|---|
 | `--summary`, `-s` | `boolean` | - | Print static summary panels and exit instead of starting full-screen TUI. |
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
-| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
+| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
 
 ---
@@ -9529,7 +9621,7 @@ devops tui [OPTIONS]
 |---|---|---|---|
 | `--summary`, `-s` | `boolean` | - | Print static summary panels and exit instead of starting full-screen TUI. |
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
-| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
+| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
 
 ---

@@ -66,6 +66,14 @@ def test_sandbox_runner_dry_run(tmp_path: Path) -> None:
     assert dry["network_mode"] == "none"
 
 
+def test_sandbox_runner_dry_run_prints_the_controls_it_declares(tmp_path: Path) -> None:
+    """The dry-run details carry the declared controls, which the run would send the engine."""
+    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["true"], read_only=True)
+    sandbox = WorkloadSandboxRunner(cfg)
+
+    assert sandbox.build_dry_run_details()["declared_controls"] == sandbox.declared_controls()
+
+
 def test_sandbox_runner_docker_execution_success(tmp_path: Path, docker_engine: Any) -> None:
     """Test running a sandboxed command successfully using Docker SDK."""
     cfg = WorkloadSandboxConfig(

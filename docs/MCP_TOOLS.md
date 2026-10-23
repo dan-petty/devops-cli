@@ -133,7 +133,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`scan_uv_audit`](#scan-uv-audit) | `true` | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
 | [`security_intel_network`](#security-intel-network) | `true` | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
 | [`security_intel_package`](#security-intel-package) | `true` | Query the OSV.dev vulnerability database for package CVE intelligence. |
-| [`ssh_audit`](#ssh-audit) | `true` | List all managed SSH keys with their age and rotation status. |
+| [`ssh_audit`](#ssh-audit) | `true` | List the managed SSH keys of the project prefix with their age and rotation status. |
 | [`ssh_status`](#ssh-status) | `true` | Show the active SSH key and days until rotation. |
 | [`telemetry_logfire`](#telemetry-logfire) | `true` | Display Logfire structured observability bridge status and token metrics. |
 | [`telemetry_profile`](#telemetry-profile) | `true` | Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it. |
@@ -212,7 +212,8 @@ Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `explain` | `boolean` | No | `False` | Explain benchmark metrics, terminology, and mathematical formulas. |
 | `document` | `string` | No | - | Path to large test document for in-memory tokenization and section retrieval. |
-| `samples` | `integer` | No | `5` | Number of random sections to sample for retrieval evaluation. |
+| `code` | `string` | No | - | Path to a source directory whose code chunks are the embedding corpus, each queried by its path (relative to the directory) and its symbol names, in place of --document. |
+| `samples` | `integer` | No | `5` | Number of document sections, or code chunks with --code, to run retrieval queries for. |
 
 ### `ai_chaos_model`
 
@@ -1695,7 +1696,7 @@ Review a git branch diff.
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
-| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
@@ -1770,7 +1771,7 @@ Review source files directly (no git required).
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
-| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
@@ -1803,7 +1804,7 @@ Review a GitHub pull request.
 | `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
-| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation. |
+| `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
 | `reporting_only` | `boolean` | No | `False` | Run report generation only. |
 | `no_cache` | `boolean` | No | `False` | Bypass LLM response cache and force fresh inference. |
 | `force` | `boolean` | No | `False` | Force fresh review execution without cache. |
@@ -2106,7 +2107,7 @@ Run static application security testing (SAST) via Semgrep.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory or file to scan with Semgrep AST rules. |
-| `config` | `string` | No | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
+| `config` | `string` | No | `p/default` | Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of devops-cli runs with it. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
@@ -2199,7 +2200,7 @@ Query the OSV.dev vulnerability database for package CVE intelligence.
 
 ### `ssh_audit`
 
-List all managed SSH keys with their age and rotation status.
+List the managed SSH keys of the project prefix with their age and rotation status.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2209,6 +2210,7 @@ List all managed SSH keys with their age and rotation status.
 |---|---|---|---|---|
 | `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
 | `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `all_projects` | `boolean` | No | `False` | List the managed keys of all projects, not only the keys of the prefix. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ssh_status`

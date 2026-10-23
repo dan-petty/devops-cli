@@ -10,10 +10,11 @@ import subprocess
 import sys
 import tempfile
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
@@ -25,9 +26,13 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import nearest_checkout
 from devops_cli.dry_run import state as dry_run_state
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,9 @@ class ScanOutcome(list[Finding]):
 
     The reason reaches SARIF notifications, the CLI and review.md, and often quotes a scanner's
     output or an exception, so `masked_reason` masks and bounds it here, for every producer.
+
+    The reason says why the scan as a whole fell short. `unscanned` says which files a scan that
+    ran left out, each with its reason (#1144); a scan that left files out is a `coverage_gap`.
     """
 
     def __init__(
@@ -89,32 +97,38 @@ class ScanOutcome(list[Finding]):
         status: str,
         findings: list[Finding] | None = None,
         reason: str = "",
+        unscanned: Mapping[str, str] | None = None,
     ) -> None:
         items = list(findings) if findings is not None else []
         super().__init__(items)
         self.status: str = status
         self.findings: list[Finding] = items
         self.reason: str = masked_reason(reason)
+        self.unscanned: dict[str, str] = dict(unscanned or {})
         # When the scanner started and finished, in UTC; set by `BaseSecurityScanner.scan`.
         self.started_utc: str | None = None
         self.ended_utc: str | None = None
 
     def __repr__(self) -> str:
-        return f"ScanOutcome(status={self.status!r}, findings={self.findings!r}, reason={self.reason!r})"
+        return (
+            f"ScanOutcome(status={self.status!r}, findings={self.findings!r}, "
+            f"reason={self.reason!r}, unscanned={self.unscanned!r})"
+        )
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, ScanOutcome):
-            return (self.status, self.findings, self.reason) == (
+            return (self.status, self.findings, self.reason, self.unscanned) == (
                 other.status,
                 other.findings,
                 other.reason,
+                other.unscanned,
             )
         return super().__eq__(other)
 
 
 def merge_outcomes(outcomes: list[ScanOutcome]) -> ScanOutcome:
-    """Combine the outcomes of one scanner's runs, keeping every finding, the worst status and
-    each distinct reason, from the first run's start to the last run's end."""
+    """Combine the outcomes of one scanner's runs, keeping every finding, the worst status, each
+    distinct reason and every file left out, from the first run's start to the last run's end."""
     status = min(
         (o.status for o in outcomes),
         key=lambda s: (
@@ -123,7 +137,8 @@ def merge_outcomes(outcomes: list[ScanOutcome]) -> ScanOutcome:
     )
     findings = [f for o in outcomes for f in o.findings]
     reasons = dict.fromkeys(o.reason for o in outcomes if o.reason)
-    merged = ScanOutcome(status, findings, "; ".join(reasons))
+    unscanned = {path: why for o in outcomes for path, why in o.unscanned.items()}
+    merged = ScanOutcome(status, findings, "; ".join(reasons), unscanned)
     starts = [o.started_utc for o in outcomes if o.started_utc]
     ends = [o.ended_utc for o in outcomes if o.ended_utc]
     merged.started_utc, merged.ended_utc = min(starts, default=None), max(ends, default=None)
@@ -269,6 +284,61 @@ def materialize_targets(targets: Iterable[Path], tree: Path, workdir: Path) -> M
     return MaterializedTargets(origins)
 
 
+def _scan_targets(target_path: Any) -> tuple[Path, ...]:
+    """The files or directories a scan reads, as absolute paths in the scanned tree.
+
+    A review's isolated scan links its files under a scratch directory. The tree holds the files
+    it was given, so those are the targets. A relative path stands in the current directory. A
+    name that is no path, such as the image `ghcr.io/org/img:latest`, stands there as a path that
+    does not exist.
+    """
+    if isinstance(target_path, MaterializedTargets):
+        paths: Iterable[Any] = target_path.origins.values()
+    elif isinstance(target_path, list | tuple):
+        paths = target_path
+    else:
+        paths = (target_path,)
+    return tuple(Path(path).resolve() for path in paths)
+
+
+def _scan_tree(targets: tuple[Path, ...]) -> Path:
+    """The tree that holds `targets`: the checkout of their common directory, else that directory.
+
+    The common directory is the nearest one that exists, because a target can name no file.
+    """
+    common = Path(os.path.commonpath(targets))
+    directory = next(path for path in (common, *common.parents) if path.is_dir())
+    return nearest_checkout(directory) or directory
+
+
+def _named_files(
+    names: Sequence[str], targets: Iterable[Path], *, up_to: Path | None = None
+) -> tuple[Path, ...]:
+    """The files called one of `names` in the directory of each target, nearest first, each once.
+
+    With `up_to`, also in each directory above it that is inside `up_to`: a tool that looks for its
+    config file there takes the nearest one, and any of them may change what it does.
+    """
+    found: dict[Path, None] = {}
+    for target in targets:
+        directory = target if target.is_dir() else target.parent
+        ancestors = (directory, *directory.parents) if up_to else (directory,)
+        for here in (d for d in ancestors if up_to is None or d.is_relative_to(up_to)):
+            candidates = (here / name for name in names)
+            found.update(dict.fromkeys(path for path in candidates if path.is_file()))
+    return tuple(found)
+
+
+class ToolFiles(NamedTuple):
+    """The files a scan's tool reads besides its targets: its config files and its ruleset files.
+
+    A review records a digest of each group (#772).
+    """
+
+    config: tuple[Path, ...] = ()
+    ruleset: tuple[Path, ...] = ()
+
+
 def _evaluate_preflight(
     scanner: BaseSecurityScanner, target_path: Any, **kwargs: Any
 ) -> ScanOutcome | None:
@@ -385,7 +455,8 @@ def _handle_json_output(
                     f"Scanner exited with code {returncode}; used built-in patterns",
                 )
         return ScanOutcome("failed", [], f"Scanner exited with code {returncode}: {stderr.strip()}")
-    return ScanOutcome("ran", findings)
+    unscanned = scanner.unscanned_files(data, target_path)
+    return ScanOutcome("coverage_gap" if unscanned else "ran", findings, unscanned=unscanned)
 
 
 def _utc_now() -> str:
@@ -402,6 +473,12 @@ def _is_mocked(module_name: str | None, attr_name: str) -> Any:
         return None
     target = getattr(mod, attr_name, None)
     return target if isinstance(target, NonCallableMock) else None
+
+
+def _patched_run_subprocess(scanner_module: str) -> Any:
+    """The `run_subprocess` a test patched in this module or in `scanner_module`, else None."""
+    own = getattr(sys.modules.get(scanner_module), "run_subprocess", None)
+    return next((c for c in (run_subprocess, own) if isinstance(c, NonCallableMock)), None)
 
 
 class ScannerConfigFile(NamedTuple):
@@ -422,6 +499,19 @@ class BaseSecurityScanner(ABC):
     # The files an isolated scan hands the scanner in place of the config and ignore files it
     # would read from its working directory or the scanned tree (#972).
     isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = ()
+    # The names under which the tool finds a config file of its own that a review does not hand it,
+    # in the directory of each target, and in each directory above it up to the tree when
+    # `config_search_upward` (#772).
+    config_names: ClassVar[tuple[str, ...]] = ()
+    config_search_upward: ClassVar[bool] = False
+
+    def __init__(self, tool_executor: ToolExecutor | None = None) -> None:
+        """Start the scanner's tool through `tool_executor`; without one, as a child process."""
+        if tool_executor is None:
+            from devops_cli.security.tool_executor import DirectToolExecutor
+
+            tool_executor = DirectToolExecutor()
+        self._tool_executor: ToolExecutor = tool_executor
 
     @abstractmethod
     def build_command(self, target_path: Any, **kwargs: Any) -> list[str]:
@@ -431,12 +521,44 @@ class BaseSecurityScanner(ABC):
     def parse_output(self, data: Any, target_path: Any) -> list[Finding]:
         """Parse raw scanner JSON/structure payload into Finding models."""
 
+    def unscanned_files(self, data: Any, target_path: Any) -> dict[str, str]:
+        """The targets the scanner's own report leaves out, each with its reason: none by default.
+
+        A scanner that lists the files it scanned opts in here, as Semgrep does (#1144). The
+        outcome of a run that leaves files out is a coverage gap.
+        """
+        return {}
+
     def is_applicable(self, target_path: Any, **kwargs: Any) -> tuple[bool, str]:
         """Determine if scanner applies to the given target and kwargs.
 
         Returns (True, "") if applicable, or (False, reason) if not applicable.
         """
         return True, ""
+
+    def ruleset_files(self, target_path: Any, cwd: Path, **kwargs: Any) -> tuple[Path, ...]:
+        """The rule files and the database metadata files the scan's tool reads: none by default.
+
+        A tool whose rules are in its binary reads none, and the version of the binary names them.
+        `kwargs` are those the scan passed to `build_command`, and `cwd` is where the tool starts.
+        """
+        return ()
+
+    def _tool_files(
+        self, target_path: Any, cwd: Path, handed: Sequence[str], scan_kwargs: Mapping[str, Any]
+    ) -> ToolFiles:
+        """The config files and the ruleset files of a scan: the files devops-cli handed the tool
+        (`handed` holds each flag and the path after it), the config files the tool finds on its
+        own, and the rule files it reads."""
+        targets = _scan_targets(target_path)
+        up_to = _scan_tree(targets) if self.config_search_upward else None
+        return ToolFiles(
+            config=(
+                *(Path(path) for path in handed[1::2]),
+                *_named_files(self.config_names, targets, up_to=up_to),
+            ),
+            ruleset=self.ruleset_files(target_path, cwd, **scan_kwargs),
+        )
 
     def fallback_scan(self, target_path: Any) -> list[Finding]:
         """Execute fallback scan logic when primary binary is unavailable."""
@@ -472,21 +594,52 @@ class BaseSecurityScanner(ABC):
             mock_cb = _is_mocked(mod_name, "check_binary")
             if mock_cb is not None:
                 return bool(mock_cb(self.binary_name))
-        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
-            if _is_mocked(mod_name, "run_subprocess") is not None:
-                return True
+        if _patched_run_subprocess(self.__class__.__module__) is not None:
+            return True
         return check_binary(self.binary_name)
 
-    def _run_subprocess(self, cmd: list[str], **kwargs: Any) -> Any:
-        """Execute subprocess command, honoring module-level test mocks."""
-        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
-            mock_proc = _is_mocked(mod_name, "run_subprocess")
-            if mock_proc is not None:
-                return mock_proc(cmd, **kwargs)
-        return run_subprocess(cmd, **kwargs)
+    def _run_tool(
+        self,
+        cmd: list[str],
+        cwd_dir: Path,
+        target_path: Any,
+        timeout: float,
+        files: Callable[[], ToolFiles] = ToolFiles,
+    ) -> Any:
+        """Start `cmd` through the tool executor and answer as a finished process, honoring
+        module-level test mocks. `files` names the config files and the ruleset files the tool
+        reads, so the record of the run holds a digest of each.
 
-    def _resolve_cwd(self, target_path: Any) -> Path:
-        """Safely resolve working directory for subprocess execution."""
+        A run that ran out of time raises `subprocess.TimeoutExpired`, as the process would.
+        """
+        if (patched := _patched_run_subprocess(self.__class__.__module__)) is not None:
+            return patched(cmd, cwd=cwd_dir, timeout=timeout, check=False, input="")
+        # Imported here: the executor pulls in the sandbox and the canary, which a scanner that
+        # never runs does not need.
+        from devops_cli.security.tool_executor import ToolLimits, ToolRequest
+
+        targets = _scan_targets(target_path)
+        read = files()
+        request = ToolRequest(
+            tool=cmd[0],
+            arguments=tuple(cmd[1:]),
+            workdir=_scan_tree(targets),
+            cwd=cwd_dir,
+            targets=targets,
+            config_files=read.config,
+            ruleset_files=read.ruleset,
+            limits=ToolLimits(wall_seconds=timeout),
+        )
+        result = self._tool_executor.run(request)
+        if result.timed_out:
+            raise subprocess.TimeoutExpired(cmd, timeout, result.stdout, result.stderr)
+        return subprocess.CompletedProcess(cmd, result.exit_code, result.stdout, result.stderr)
+
+    def _resolve_cwd(self, target_path: Any, **kwargs: Any) -> Path:
+        """Safely resolve working directory for subprocess execution: the target's.
+
+        A scanner that must run elsewhere reads its scan's `kwargs` here, as Semgrep does (#1144).
+        """
         try:
             if isinstance(target_path, Path) and target_path.exists():
                 return target_path if target_path.is_dir() else target_path.parent
@@ -509,6 +662,7 @@ class BaseSecurityScanner(ABC):
         cwd_dir: Path,
         target_path: Any,
         timeout: float,
+        files: Callable[[], ToolFiles] = ToolFiles,
     ) -> ScanOutcome:
         """Execute scanner command subprocess with output parsing and fallback handling.
 
@@ -518,9 +672,7 @@ class BaseSecurityScanner(ABC):
         @trace_span(f"security.{self.name}")
         def _run() -> ScanOutcome:
             try:
-                proc = self._run_subprocess(
-                    cmd, cwd=cwd_dir, timeout=timeout, check=False, input=""
-                )
+                proc = self._run_tool(cmd, cwd_dir, target_path, timeout, files)
                 is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
                 if not is_valid_json:
                     return _handle_non_json_output(self, proc, target_path)
@@ -576,7 +728,7 @@ class BaseSecurityScanner(ABC):
             return preflight
         if not isolated:
             return self._run_built_command(
-                target_path, self._resolve_cwd(target_path), timeout, [], **kwargs
+                target_path, self._resolve_cwd(target_path, **kwargs), timeout, [], **kwargs
             )
         with tempfile.TemporaryDirectory(prefix=f"devops-scan-{self.name}-") as scan_dir:
             workdir = Path(scan_dir)
@@ -592,7 +744,8 @@ class BaseSecurityScanner(ABC):
         cmd = self.build_command(target_path, **kwargs)
         if not cmd:
             return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
-        return self._run_scanner_command([*cmd, *handed], cwd, target_path, timeout)
+        files = partial(self._tool_files, target_path, cwd, handed, kwargs)
+        return self._run_scanner_command([*cmd, *handed], cwd, target_path, timeout, files)
 
     def isolated_targets(self, target_path: Any, workdir: Path, **kwargs: Any) -> Any:
         """The targets an isolated scan names from `workdir`: as given.
@@ -622,6 +775,7 @@ __all__ = [
     "MaterializedTargets",
     "ScanOutcome",
     "ScannerConfigFile",
+    "ToolFiles",
     "materialize_targets",
     "merge_outcomes",
     "relativize_scan_path",

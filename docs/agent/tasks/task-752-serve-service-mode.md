@@ -24,7 +24,7 @@ Exposes `/healthz` (liveness monitoring background task health), `/readyz` (read
 - [x] Prometheus metrics on `GET /metrics` record `webhook_deliveries_total`, `triggers_total`, `jobs_total`, `job_seconds_total`, `job_start_timestamp_seconds`, and `queue_depth`.
 - [x] JSON log formatter formats all logs as single-line JSON containing `time`, `level`, `logger`, `message`, and contextual fields, with zero credential/secret/signature leakage.
 - [x] CLI flags: `devops serve --service` rejects `--workers > 1` and `--reload` with exit code 2. Requires non-empty `service.repos`, present `service.machine_account`, and valid JSON object for `service.webhook_secrets` (failing with exit code 1 naming the credential).
-- [x] Cleaned up dead webhook symbols: `git grep -n -E "WebhookEventDispatcher|WebhookEvent\b|GitHubWebhookVerificationError" -- src tests docs/ERRORS.md` returns 0 lines. Canonical `verify_webhook_signature` resides in `src/devops_cli/server/routes/webhooks.py` and reads `CONST_GH_WEBHOOK_SIGNATURE_HEADER`.
+- [x] Cleaned up dead webhook symbols: `git grep -n -E "WebhookEventDispatcher|WebhookEvent\b|GitHubWebhookVerificationError" -- src tests docs/ERRORS.md` returns 0 lines. The signature check is `HmacSha256.verify` in `src/devops_cli/server/routes/webhooks.py` (#1386), which reads `CONST_GH_WEBHOOK_SIGNATURE_HEADER`.
 - [x] Fast in-gate tests in `tests/test_server_service.py` total under 1 s and open no network sockets. `uv run devops ci` passes.
 - [x] `changelog.d/752.md` created; `CHANGELOG.md` and `docs/ROADMAP.md` remain untouched.
 - Pending a person: local smoke test running `devops serve --service --port 8787`, verifying delivery flow, ready probe, and metrics emission.

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
@@ -44,9 +44,8 @@ from devops_cli.ai.review.path_classes import (
 )
 from devops_cli.ai.review.profile import active_profiler
 from devops_cli.ai.review.protocol import ReviewLLMClient
-from devops_cli.ai.review.review_environment import _get_reviews_base_dir, reviewed_tree
+from devops_cli.ai.review.review_environment import reviewed_tree
 from devops_cli.ai.review.sanitization import (
-    _sanitize_filename,
     balance_markdown_fences,
     escape_markdown_title,
 )
@@ -81,12 +80,9 @@ from devops_cli.config.constants import (
     CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
     CONST_LOCKFILE_NAMES,
     CONST_MAX_FILE_SIZE_BYTES,
-    CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_CONSOLE_PANEL_SEVERITIES,
     CONST_REVIEW_CONSOLE_TABLE_SEVERITIES,
     CONST_REVIEW_GENERATED_FILES,
-    CONST_REVIEW_PAGES_DIRNAME,
-    CONST_REVIEW_SARIF_FILENAME,
     CONST_REVIEW_SECRET_SCANNER_RULES,
     CONST_REVIEW_STATUS_ORDER,
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
@@ -99,10 +95,12 @@ from devops_cli.config.defaults import (
     DEFAULT_MAX_COMPLEXITY,
     DEFAULT_REVIEW_CONCURRENCY,
     DEFAULT_REVIEW_MAX_CONCURRENCY,
+    DEFAULT_SEMGREP_CONFIG,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.exceptions import SecurityError
+from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
 from devops_cli.models.vulnerability import (
@@ -121,6 +119,7 @@ from devops_cli.output import (
     print_success,
     print_table,
 )
+from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.review.severity import load_severity_caps
 from devops_cli.review.suppression import load_review_suppressions
 from devops_cli.security.reference_extractor import (
@@ -135,6 +134,9 @@ from devops_cli.security.vulnerability_lookup import (
 )
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -607,6 +609,7 @@ def _scan_kubernetes_manifests(
     tree: Path | None = None,
     kubernetes_version: str | None = None,
     require_kubernetes_version: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Scan Kubernetes YAML manifests with Kube-linter and Pluto.
 
@@ -619,7 +622,7 @@ def _scan_kubernetes_manifests(
     manifests = [yp for yp in yaml_paths if _is_scannable_manifest(yp)]
     findings: list[SavedFinding] = []
     for yp in manifests:
-        kl = run_kubelinter_scan(yp, isolated=True)
+        kl = run_kubelinter_scan(yp, isolated=True, tool_executor=tool_executor)
         _observe_outcome(outcomes, "Kube-linter", kl)
         if kl:
             findings.extend(_wrap_static_findings(kl, tool="kube-linter"))
@@ -630,6 +633,7 @@ def _scan_kubernetes_manifests(
             tree=tree,
             kubernetes_version=kubernetes_version,
             require_version=require_kubernetes_version,
+            tool_executor=tool_executor,
         )
         _observe_outcome(outcomes, "Pluto", pl)
         if pl:
@@ -640,13 +644,17 @@ def _scan_kubernetes_manifests(
 def _scan_container_and_lockfiles(
     container_paths: list[Path],
     outcomes: dict[str, Any] | None = None,
+    *,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Scan container files with Trivy."""
     from devops_cli.security.trivy import run_trivy_scan
 
     findings: list[SavedFinding] = []
     for dp in container_paths:
-        t_findings = run_trivy_scan(dp, scan_type="config", isolated=True)
+        t_findings = run_trivy_scan(
+            dp, scan_type="config", isolated=True, tool_executor=tool_executor
+        )
         _observe_outcome(outcomes, "Trivy", t_findings)
         if t_findings:
             findings.extend(_wrap_static_findings(t_findings, tool="trivy"))
@@ -657,6 +665,7 @@ def _scan_lockfiles(
     lockfiles: list[Path],
     outcomes: dict[str, Any] | None = None,
     tree: Path | None = None,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Scan lockfiles with osv-scanner offline (#1146)."""
     from devops_cli.security.base import ScanOutcome
@@ -674,7 +683,7 @@ def _scan_lockfiles(
                 _observe_outcome(outcomes, "osv-scanner", gap_outcome)
         return []
 
-    outcome = run_osv_scan(lockfiles, tree=tree, isolated=True)
+    outcome = run_osv_scan(lockfiles, tree=tree, isolated=True, tool_executor=tool_executor)
     _observe_outcome(outcomes, "osv-scanner", outcome)
     if profiler := active_profiler():
         scanner_digest = getattr(outcome, "snapshot_digest", "") or get_or_compute_snapshot_digest()
@@ -789,7 +798,7 @@ def _checked_session_dir(session_dir: Path) -> Path:
     if any(part == ".." for part in session_dir.parts):
         raise SecurityError(f"Path traversal detected in session_dir: {session_dir}")
     allowed = (
-        _get_reviews_base_dir().resolve(),
+        ReviewSessionStore.root(),
         Path.cwd().resolve(),
         Path(tempfile.gettempdir()).resolve(),
     )
@@ -1047,12 +1056,43 @@ def _static_analyzer_reasons(
     return reasons
 
 
-def _resolve_single_tool_state(state: str, reason: str | None) -> str:
-    """Map single analyzer state and reason to tool-level outcome."""
+def _static_analyzer_unscanned(
+    observed_outcomes: dict[str, Any] | None = None,
+) -> dict[str, dict[str, str]]:
+    """The files each analyzer's scan left out, with the reason, for the coverage matrix (#1144)."""
+    return {
+        name: dict(unscanned)
+        for name, outcome in (observed_outcomes or {}).items()
+        if (unscanned := getattr(outcome, "unscanned", None))
+    }
+
+
+def _reasons_with_files_not_scanned(
+    reasons: Mapping[str, str], unscanned: Mapping[str, Mapping[str, str]]
+) -> dict[str, str]:
+    """Each analyzer's reason for the report, with a count of the files it left out added."""
+    notes = {
+        name: MESSAGES.review.files_not_scanned.format(count=len(files))
+        for name, files in unscanned.items()
+    }
+    return {
+        name: "; ".join(part for part in (reasons.get(name), notes.get(name)) if part)
+        for name in {**reasons, **notes}
+    }
+
+
+def _resolve_single_tool_state(state: str, reason: str | None, files_left_out: bool = False) -> str:
+    """Map single analyzer state and reason to tool-level outcome.
+
+    A coverage gap with no reason of its own and files left out is a scan that ran: it is a gap of
+    those files, which the matrix names (#1144).
+    """
     if reason and "timed out after" in reason:
         return reason
     if reason == "canary failed":
         return "canary failed"
+    if state == "coverage_gap" and files_left_out and not reason:
+        return "ran"
     if state == "coverage_gap" or (reason and "uv.lock hash does not match" in str(reason)):
         return f"coverage gap ({reason})" if reason else "coverage gap"
     if state == ANALYZER_FAILED:
@@ -1065,11 +1105,15 @@ def _resolve_single_tool_state(state: str, reason: str | None) -> str:
 
 
 def _resolve_effective_tool_states(
-    states: dict[str, str], reasons: dict[str, str]
+    states: dict[str, str],
+    reasons: dict[str, str],
+    unscanned: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, str]:
     """Map analyzer states and reasons to tool-level outcomes for coverage calculation."""
+    left_out = unscanned or {}
     return {
-        tool: _resolve_single_tool_state(state, reasons.get(tool)) for tool, state in states.items()
+        tool: _resolve_single_tool_state(state, reasons.get(tool), bool(left_out.get(tool)))
+        for tool, state in states.items()
     }
 
 
@@ -1091,8 +1135,10 @@ def _resolve_tool_file_status(
     resolved_path: Path,
     tool_state: str | None,
     path_classes: Mapping[str, Sequence[str]],
+    not_scanned: str | None = None,
 ) -> str:
-    """Resolve status of a single (tool, file) pairing."""
+    """Resolve status of a single (tool, file) pairing; `not_scanned` is the reason the tool left
+    the file out of a scan that ran (#1144)."""
     if tool != "Gitleaks" and is_fixture_path(resolved_path, path_classes):
         return "skipped(fixture)"
 
@@ -1104,6 +1150,9 @@ def _resolve_tool_file_status(
 
     if tool == "Trivy" and not _is_tool_container_or_lockfile_match(resolved_path):
         return "skipped(not container or lockfile)"
+
+    if not_scanned is not None:
+        return f"not scanned({not_scanned})"
 
     if tool_state == "ran":
         return "scanned"
@@ -1117,13 +1166,19 @@ def _compute_coverage_matrix(
     resolve_fn: Callable[[str], Path],
     tool_states: dict[str, str],
     path_classes: Mapping[str, Sequence[str]],
+    unscanned: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, dict[str, str]]:
-    """Compute (tool, file) coverage matrix recording scanned, skipped, failed, etc."""
+    """Compute (tool, file) coverage matrix recording scanned, skipped, failed, not scanned, etc.
+
+    `unscanned` maps a tool to the files its scan left out and why (#1144)."""
     matrix: dict[str, dict[str, str]] = {}
     for tool in tools:
         tool_state = tool_states.get(tool)
+        left_out = (unscanned or {}).get(tool, {})
         matrix[tool] = {
-            f: _resolve_tool_file_status(tool, resolve_fn(f), tool_state, path_classes)
+            f: _resolve_tool_file_status(
+                tool, resolve_fn(f), tool_state, path_classes, left_out.get(f)
+            )
             for f in files
         }
     return matrix
@@ -1138,6 +1193,7 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
     ]
     missing = [name for name, state in states.items() if state == ANALYZER_NOT_INSTALLED]
     failed = [name for name, state in states.items() if state == ANALYZER_FAILED]
+    gapped = [name for name, state in states.items() if state == "coverage_gap"]
     lines = (
         [f"    [dim]✓ Static analyzers found {findings} finding(s): {', '.join(ran)} ran[/dim]"]
         if ran
@@ -1150,12 +1206,18 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
             f"    [yellow]! Failed during execution: {', '.join(failed)} "
             "(the report's Static Analyzers table says why)[/yellow]"
         )
+    if gapped:
+        lines.append(
+            f"    [yellow]! Coverage gap: {', '.join(gapped)} "
+            "(the report's Static Analyzers table says why)[/yellow]"
+        )
     return lines
 
 
 # The analyzer line's lists after those that ran, in order.
 _ANALYZER_LINE_LISTS: tuple[tuple[str, str], ...] = (
     (ANALYZER_BUILTIN_PATTERNS, "Built-in patterns only"),
+    ("coverage_gap", "Coverage gap"),
     (ANALYZER_FAILED, "Failed"),
     (ANALYZER_NOT_INSTALLED, "Not installed"),
 )
@@ -1194,13 +1256,15 @@ def _static_analysis_line(states: dict[str, str], severities: Counter[str]) -> s
 def _scan_secrets(
     paths: list[Path],
     outcomes: dict[str, Any] | None = None,
+    *,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Run the Gitleaks secret scan."""
     if not paths:
         return []
     from devops_cli.security.gitleaks import run_gitleaks_scan
 
-    gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True)
+    gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True, tool_executor=tool_executor)
     _observe_outcome(outcomes, "Gitleaks", gl)
     return _wrap_static_findings(gl, tool="gitleaks")
 
@@ -1210,14 +1274,21 @@ def _scan_semgrep(
     outcomes: dict[str, Any] | None = None,
     *,
     tree: Path,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Run Semgrep AST static analysis on the reviewed files of `tree`, linked or copied under
-    its working directory (#1079)."""
+    its working directory (#1079), with the cached registry ruleset (#1144)."""
     if not paths:
         return []
     from devops_cli.security.semgrep import run_semgrep_scan
+    from devops_cli.security.semgrep_registry import cached_ruleset, warn_of_old_cache
 
-    sg = run_semgrep_scan(paths, reviewed_tree=tree)
+    ruleset = cached_ruleset(DEFAULT_SEMGREP_CONFIG)
+    if ruleset is not None:
+        if profiler := active_profiler():
+            profiler.set_semgrep_registry_digest(ruleset.digest)
+        warn_of_old_cache(DEFAULT_SEMGREP_CONFIG, ruleset, to_stderr=False)
+    sg = run_semgrep_scan(paths, reviewed_tree=tree, ruleset=ruleset, tool_executor=tool_executor)
     _observe_outcome(outcomes, "Semgrep", sg)
     return _wrap_static_findings(sg, tool="semgrep")
 
@@ -1602,6 +1673,7 @@ def _run_scanners_for_buckets(
     observed_outcomes: dict[str, Any] | None = None,
     kubernetes_version: str | None = None,
     require_kubernetes_version: bool = False,
+    tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Execute Bandit, Kube-linter/Pluto, Trivy, Gitleaks, and Semgrep scanners (#871)."""
     from devops_cli.security.bandit import run_bandit_scan
@@ -1609,7 +1681,9 @@ def _run_scanners_for_buckets(
     outcomes = observed_outcomes if observed_outcomes is not None else {}
     findings: list[SavedFinding] = []
     if buckets.python:
-        bandit_res = run_bandit_scan(buckets.python, isolated=True, tree=tree)
+        bandit_res = run_bandit_scan(
+            buckets.python, isolated=True, tree=tree, tool_executor=tool_executor
+        )
         if observed_outcomes is not None:
             _observe_outcome(outcomes, "Bandit", bandit_res)
         findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
@@ -1623,22 +1697,36 @@ def _run_scanners_for_buckets(
                 tree=tree,
                 kubernetes_version=kubernetes_version,
                 require_kubernetes_version=require_kubernetes_version,
+                tool_executor=tool_executor,
             )
         )
 
     if buckets.container:
         findings.extend(
-            _call_scanner_helper(_scan_container_and_lockfiles, buckets.container, outcomes)
+            _call_scanner_helper(
+                _scan_container_and_lockfiles,
+                buckets.container,
+                outcomes,
+                tool_executor=tool_executor,
+            )
         )
 
     if buckets.lockfiles or tree is not None:
-        findings.extend(_scan_lockfiles(buckets.lockfiles, outcomes, tree=tree))
+        findings.extend(
+            _scan_lockfiles(buckets.lockfiles, outcomes, tree=tree, tool_executor=tool_executor)
+        )
 
     if buckets.leak_targets:
-        findings.extend(_call_scanner_helper(_scan_secrets, buckets.leak_targets, outcomes))
+        findings.extend(
+            _call_scanner_helper(
+                _scan_secrets, buckets.leak_targets, outcomes, tool_executor=tool_executor
+            )
+        )
 
     if buckets.any_files and tree is not None:
-        findings.extend(_scan_semgrep(buckets.any_files, outcomes, tree=tree))
+        findings.extend(
+            _scan_semgrep(buckets.any_files, outcomes, tree=tree, tool_executor=tool_executor)
+        )
 
     return findings
 
@@ -1698,6 +1786,7 @@ def _collect_base_revision_fingerprints(
     secret_scan_files: Sequence[str],
     path_classes: Mapping[str, Sequence[str]] | None = None,
     severity_caps: Mapping[str, str] | None = None,
+    tool_executor: ToolExecutor | None = None,
 ) -> set[str]:
     """Scan base revision files to collect pre-existing finding fingerprints (#871)."""
     if base_revision is None or not getattr(base_revision, "read", None):
@@ -1717,7 +1806,9 @@ def _collect_base_revision_fingerprints(
         extra_leak_files = [tmp_root / p for p in secret_scan_files if (tmp_root / p).is_file()]
 
         buckets = _classify_scanner_files(base_resolved, extra_leak_files, path_classes)
-        base_findings = _run_scanners_for_buckets(buckets, tree=tmp_root)
+        base_findings = _run_scanners_for_buckets(
+            buckets, tree=tmp_root, tool_executor=tool_executor
+        )
 
         base_admitted, _ = _admit_scanner_findings(
             base_findings,
@@ -1860,7 +1951,15 @@ class ReviewPipelineOrchestrator:
         partial_context: bool = False,
         added_diff_lines: set[tuple[str, int]] | None = None,
         threat_intel: bool = False,
+        tool_executor: ToolExecutor | None = None,
     ) -> None:
+        # Imported here: the executor pulls in the sandbox, which a review that does not start a
+        # tool does not need.
+        from devops_cli.security.tool_executor import DirectToolExecutor, RecordingToolExecutor
+
+        # One executor for the whole review, so every analyzer starts its tool the same way. It
+        # keeps the record of every run, for the report and the profile (#772).
+        self.tool_executor = RecordingToolExecutor(tool_executor or DirectToolExecutor())
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.base_revision = base_revision
         self.partial_context = partial_context
@@ -1889,20 +1988,23 @@ class ReviewPipelineOrchestrator:
         self.subject = subject or {}
         self.concurrency = concurrency
         self.parallel = parallel
-        self.session_dir = _checked_session_dir(
-            session_dir or _get_reviews_base_dir().resolve() / self.session_id
+        self.session = (
+            ReviewSession(session_dir)
+            if session_dir
+            else ReviewSessionStore.session(self.session_id)
         )
-        self.files_dir = self.session_dir / CONST_REVIEW_PAGES_DIRNAME
+        _checked_session_dir(self.session.directory)
         from devops_cli.dry_run.state import is_dry_run
 
         if not is_dry_run():
-            self.session_dir.mkdir(parents=True, exist_ok=True)
-            self.files_dir.mkdir(parents=True, exist_ok=True)
+            self.session.create()
         self.llm_client: ReviewLLMClient | None = llm_client
         self.verification_client: ReviewLLMClient | None = verification_client
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self.static_analyzer_reasons: dict[str, str] = {}
+        # The files each analyzer's scan left out, with the reason (#1144).
+        self.static_analyzer_unscanned: dict[str, dict[str, str]] = {}
         # The static analyzers' findings by severity, for the report's analyzer line.
         self.static_severities: Counter[str] = Counter()
         self.admitted_scanner_findings: list[Any] = []
@@ -2168,6 +2270,7 @@ class ReviewPipelineOrchestrator:
                         observed_outcomes=observed_outcomes,
                         kubernetes_version=self.kubernetes_version,
                         require_kubernetes_version=True,
+                        tool_executor=self.tool_executor,
                     )
                 )
 
@@ -2178,6 +2281,7 @@ class ReviewPipelineOrchestrator:
                         secret_scan_files=self.secret_scan_files,
                         path_classes=self.path_classes,
                         severity_caps=self.severity_caps,
+                        tool_executor=self.tool_executor,
                     )
 
                 eff_added = (
@@ -2211,7 +2315,9 @@ class ReviewPipelineOrchestrator:
                 tools = [name for name, _, _ in _STATIC_ANALYZERS]
                 all_files_to_cover = sorted(set(file_paths) | set(self.secret_scan_files))
                 tool_effective_states = _resolve_effective_tool_states(
-                    self.static_analyzers, self.static_analyzer_reasons
+                    self.static_analyzers,
+                    self.static_analyzer_reasons,
+                    self.static_analyzer_unscanned,
                 )
                 self.coverage = _compute_coverage_matrix(
                     tools,
@@ -2219,6 +2325,7 @@ class ReviewPipelineOrchestrator:
                     self._resolve_file_path,
                     tool_effective_states,
                     self.path_classes,
+                    self.static_analyzer_unscanned,
                 )
                 active_prof = active_profiler()
                 if active_prof:
@@ -2278,6 +2385,7 @@ class ReviewPipelineOrchestrator:
                 isolated=True,
                 tree=rev_tree,
                 require_version=True,
+                tool_executor=self.tool_executor,
             )
             all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
 
@@ -2335,6 +2443,7 @@ class ReviewPipelineOrchestrator:
         self.static_analyzer_reasons = _static_analyzer_reasons(
             self.static_analyzers, observed_outcomes
         )
+        self.static_analyzer_unscanned = _static_analyzer_unscanned(observed_outcomes)
         for tool_key, analyzer_name in CONST_CANARY_TOOL_TO_ANALYZER.items():
             if self.canary_results.get(tool_key) is False and self.static_analyzers.get(
                 analyzer_name
@@ -2342,7 +2451,7 @@ class ReviewPipelineOrchestrator:
                 self.static_analyzers[analyzer_name] = ANALYZER_FAILED
                 self.static_analyzer_reasons[analyzer_name] = "canary failed"
         if profiler := active_profiler():
-            profiler.set_static_analyzers(self.static_analyzers, self.static_analyzer_reasons)
+            profiler.set_static_analyzers(self.static_analyzers, self._static_analyzer_notes())
 
     def _fetch_threat_intel(
         self, file_paths: list[str]
@@ -2557,10 +2666,7 @@ class ReviewPipelineOrchestrator:
         from devops_cli.dry_run.state import is_dry_run
 
         if not is_dry_run():
-            sanitized_name = _sanitize_filename(fpath) + ".json"
-            json_file = self.files_dir / sanitized_name
-            json_file.parent.mkdir(parents=True, exist_ok=True)
-            json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+            self.session.write_payload(payload)
         return payload
 
     def _assemble_single_file_payload(
@@ -2921,10 +3027,8 @@ class ReviewPipelineOrchestrator:
         findings_to_use = all_findings if all_findings is not None else reportable_findings
         if not findings_to_use:
             return []
-        # findings.json is already written, so the session leaves itself out of its own history.
-        return format_category_baseline_markdown(
-            findings_to_use, self.session_dir.parent, exclude=self.session_dir
-        )
+        # The session is not published, so it is not in the history it is compared to.
+        return format_category_baseline_markdown(findings_to_use, self.session.directory.parent)
 
     def _build_verdict_distributions_section(
         self, candidate_findings: list[SavedFinding] | None
@@ -3013,6 +3117,7 @@ class ReviewPipelineOrchestrator:
 
         lines.extend(self._build_static_analyzers_section())
         lines.extend(self._build_coverage_section())
+        lines.extend(self._build_tool_runs_section())
 
         baseline_lines = self._build_category_baseline_section(
             candidate_findings or all_findings, reportable_findings
@@ -3078,23 +3183,36 @@ class ReviewPipelineOrchestrator:
             llm_client=self.llm_client,
             file_contents=file_contents,
             environment=env,
-            session_dir=self.session_dir,
             concurrency=self.concurrency,
         )
+        self.session.write_analysis(report)
         self.analysis_report = report
         return report
+
+    def _static_analyzer_notes(self) -> dict[str, str]:
+        """Each analyzer's reason as the report says it, with the files it left out counted."""
+        return _reasons_with_files_not_scanned(
+            self.static_analyzer_reasons, self.static_analyzer_unscanned
+        )
 
     def _build_static_analyzers_section(self) -> list[str]:
         """Which static analyzers ran, so a scan with no findings is not read as clean."""
         if not self.static_analyzers:
             return []
         rows = []
+        notes = self._static_analyzer_notes()
         for name, state in self.static_analyzers.items():
-            reason = self.static_analyzer_reasons.get(name)
+            reason = notes.get(name)
             result = f"{state}: {reason}" if reason else state
             cell = " ".join(result.split()).replace("|", "\\|")
             rows.append(f"| {name} | {cell} |")
         return ["## Static Analyzers", "| Analyzer | Result |", "|---|---|", *rows, ""]
+
+    def _build_tool_runs_section(self) -> list[str]:
+        """Which tools ran, at which versions, how, and over which config and rules (#772)."""
+        from devops_cli.ai.review.tool_runs import tool_runs_section
+
+        return tool_runs_section(self.tool_executor.runs)
 
     def _build_coverage_section(self) -> list[str]:
         """Coverage matrix per (tool, file) in review.md."""
@@ -3278,10 +3396,10 @@ class ReviewPipelineOrchestrator:
             Counter(f.status.upper() for f in minor), CONST_REVIEW_STATUS_ORDER
         )
         filters = " ".join(f"--severity {severity}" for severity in severities)
-        command = f"devops review findings {self.session_dir.name} {filters} --details"
+        command = f"devops review findings {self.session.name} {filters} --details"
         return (
             f"Not shown: {len(minor)} {' and '.join(severities)} finding(s) ({statuses}). "
-            f"They are in {self.session_dir / 'review.md'}; list them with:",
+            f"They are in {self.session.report_path}; list them with:",
             command,
         )
 
@@ -3574,8 +3692,8 @@ class ReviewPipelineOrchestrator:
             [
                 ["Dependencies", deps_str],
                 ["Network Endpoints", nets_str],
-                ["Markdown Report", str(self.session_dir / "review.md")],
-                ["Findings JSON", str(self.session_dir / "findings.json")],
+                ["Markdown Report", str(self.session.report_path)],
+                ["Findings JSON", str(self.session.findings_path)],
             ]
         )
 
@@ -3606,20 +3724,18 @@ class ReviewPipelineOrchestrator:
         candidates: ReviewSessionPayload,
         report_md: str,
     ) -> None:
-        """Persist session findings, candidates, SARIF, and markdown report unless in dry-run."""
+        """Stage session findings, candidates, SARIF, and markdown report unless in dry-run.
+
+        The run publishes the session after the profile.
+        """
         from devops_cli.dry_run.state import is_dry_run
 
         if is_dry_run():
             return
-        self.session_dir.mkdir(parents=True, exist_ok=True)
-        (self.session_dir / "findings.json").write_text(
-            payload_out.model_dump_json(indent=2), encoding="utf-8"
-        )
-        (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
-            candidates.model_dump_json(indent=2), encoding="utf-8"
-        )
+        self.session.write_findings(payload_out)
+        self.session.write_raised(candidates)
         from devops_cli.security.normalization import NormalizedFinding
-        from devops_cli.security.sarif import write_sarif
+        from devops_cli.security.sarif import to_sarif
 
         sarif_findings = [
             NormalizedFinding(
@@ -3642,8 +3758,8 @@ class ReviewPipelineOrchestrator:
             )
             for af in getattr(self, "admitted_scanner_findings", [])
         ]
-        write_sarif(sarif_findings, self.session_dir / CONST_REVIEW_SARIF_FILENAME)
-        (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
+        self.session.write_sarif(to_sarif(sarif_findings))
+        self.session.write_report(report_md)
 
     def generate_consolidated_report(
         self,
@@ -3739,8 +3855,8 @@ class ReviewPipelineOrchestrator:
             symbol_delta_summary=symbol_delta,
         )
 
-        session_path = escape_text(str(self.session_dir))
-        report_path = escape_text(str(self.session_dir / "review.md"))
+        session_path = escape_text(str(self.session.directory))
+        report_path = escape_text(str(self.session.report_path))
         print_success(
             f"Consolidated review completed for session {escape_text(self.session_id)} "
             f"([bold]{len(all_findings)}[/bold] finding(s) saved to [dim]{session_path}[/dim]; "

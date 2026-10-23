@@ -908,24 +908,6 @@ class GitHubRateLimiter:
                     self._sync_from_disk_locked()
             return self._last_request_epoch
 
-    def get_all_quotas(self) -> dict[str, QuotaState]:
-        """Return all tracked quotas synced from disk."""
-        with self._lock:
-            if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
-                    self._sync_from_disk_locked()
-            return {
-                k: QuotaState(
-                    limit=v.limit,
-                    remaining=v.remaining,
-                    used=v.used,
-                    reset_epoch=v.reset_epoch,
-                    last_updated=v.last_updated,
-                    last_request_epoch=v.last_request_epoch,
-                )
-                for k, v in self._quotas.items()
-            }
-
     def _resolve_quota_state(self, subcommand: str) -> QuotaState:
         """The quota for `subcommand` under lock: the stored one while valid, else refreshed once.
 

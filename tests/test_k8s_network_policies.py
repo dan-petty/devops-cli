@@ -24,7 +24,7 @@ K8S_DIR = REPO_ROOT / "k8s"
 # or leaves its file; the guard below fails until then.
 UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {}
 
-TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops")
+TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops", "argo-workflows")
 METADATA_SSRF_IP = "169.254.169.254/32"
 TRAEFIK_PEER = {
     "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
@@ -258,7 +258,7 @@ def test_monitoring_ingress_admits_no_world_cidr() -> None:
     ) == ([], [([TRAEFIK_PEER], MONITORING_TRAEFIK_PORTS)])
 
 
-@pytest.mark.parametrize("namespace", ("argocd", "otel"))
+@pytest.mark.parametrize("namespace", ("argocd", "otel", "argo-workflows"))
 def test_ingress_admits_no_world_cidr(namespace: str) -> None:
     """Verify ingress perimeter defines no ingress ipBlocks (#1371).
 
@@ -275,10 +275,11 @@ def test_ingress_admits_no_world_cidr(namespace: str) -> None:
     assert cidrs == []
 
 
-@pytest.mark.parametrize("namespace", ["argocd", "cloudflared"])
+@pytest.mark.parametrize("namespace", ["argocd", "cloudflared", "argo-workflows"])
 def test_api_server_egress_admits_6443_through_ipblock(namespace: str) -> None:
-    """Argo CD reconciles through the API server (#1371), and cloudflared carries the tunnel's
-    `k8s.<domain>` TCP route to it (#1595).
+    """Argo CD reconciles through the API server (#1371), cloudflared carries the tunnel's
+    `k8s.<domain>` TCP route to it (#1595), and the Argo Workflows controller and the executors
+    of its Workflows reach it (#1535).
 
     Namespace-only selectors (default, kube-system) never match the node IP the
     `kubernetes` service resolves to. An ipBlock peer with metadata SSRF protection

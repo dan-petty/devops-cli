@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.personas import PersonaDefinition
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
+    from devops_cli.github.client import PullRequest
     from devops_cli.review.score import Agreement, ScoreReport
 
 import typer
@@ -31,22 +32,24 @@ from devops_cli.config.defaults import (
     DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_BENCHMARK_RUNS,
     DEFAULT_REVIEW_CORPUS_SEED,
+    DEFAULT_SEMGREP_CONFIG,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
-from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan, set_dry_run
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format, resolve_format
+from devops_cli.telemetry import trace_span
 
 __all__ = [
     "app",
     "export_invalidated_feedback",
 ]
 
-from devops_cli.ai.review import runner
 from devops_cli.ai.review.adjudication import (
     Verdict,
     adjudicating,
@@ -138,6 +141,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.review.session import ReviewSessionStore
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
@@ -542,31 +546,31 @@ def branch(
 # =============================================================================
 
 
-def _resolve_pr_files(pages: list[str], pull: Any) -> list[str]:
-    """Extract changed file paths from PR pages or pull object."""
+def _resolve_pr_files(pages: list[str], repo_name: str, number: int) -> list[str]:
+    """Extract changed file paths from PR pages, or from the pull request's files when the diff
+    holds none."""
+    from devops_cli.github.session import get_github_session
     from devops_cli.review.diff import diff_file_names
 
     all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
-    if not all_files and pull:
-        try:
-            return [f.filename for f in pull.get_files() if getattr(f, "status", "") != "removed"]
-        except Exception:
-            return []
-    return all_files
+    if all_files:
+        return all_files
+    files = get_github_session().client.get_pull_files(repo_name, number)
+    return [f.filename for f in files if f.status != "removed"]
 
 
 def _post_pr_review_comment(
     reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
     pages: list[str],
     head_dir: Path,
-    pull: Any,
     repo_name: str,
     number: int,
 ) -> None:
     """Post formatted review comment to GitHub PR."""
     from devops_cli.ai.review.runner import format_pr_review_comment
+    from devops_cli.github.session import get_github_session
 
-    all_files = _resolve_pr_files(pages, pull)
+    all_files = _resolve_pr_files(pages, repo_name, number)
     comment_body = format_pr_review_comment(
         reviews=reviews,
         files=all_files,
@@ -581,14 +585,14 @@ def _post_pr_review_comment(
         )
         print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
         return
-    pull.create_issue_comment(comment_body)
+    get_github_session().client.create_issue_comment(repo_name, number, comment_body)
     print_success(f"Review posted as comment on PR #{number}")
 
 
 def _run_pr_review_workflow(
     pages: list[str],
     title: str,
-    pull: Any,
+    pull: PullRequest,
     number: int,
     head_dir: Path,
     base_revision: BaseRevision | None,
@@ -605,7 +609,7 @@ def _run_pr_review_workflow(
     from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.git.worktree import fetch_pr_head, review_worktrees_context
 
-    base_sha = getattr(getattr(pull, "base", None), "sha", None)
+    base_sha = pull.base.sha
     local_repo = get_repo_origin_name(Path.cwd())
     if repo_arg is not None and local_repo is not None and repo_arg != local_repo:
         pr_commit = None
@@ -773,35 +777,37 @@ def pr(
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent)
-        pages, title, pull, repo_name, base_revision = _prepare_pr_content(
-            number, repo, head_dir=head_dir
-        )
-        reviews = _run_pr_review_workflow(
-            pages,
-            title,
-            pull,
-            number,
-            head_dir,
-            base_revision,
-            summary,
-            clients,
-            stage_flags,
-            concurrency,
-            parallel,
-            full,
-            session_id,
-            repo_arg=repo,
-        )
+        with exit_on_error(GitHubOperationError):
+            pages, title, pull, repo_name, base_revision = _prepare_pr_content(
+                number, repo, head_dir=head_dir
+            )
+        with exit_on_error(GitHubOperationError):
+            reviews = _run_pr_review_workflow(
+                pages,
+                title,
+                pull,
+                number,
+                head_dir,
+                base_revision,
+                summary,
+                clients,
+                stage_flags,
+                concurrency,
+                parallel,
+                full,
+                session_id,
+                repo_arg=repo,
+            )
 
     if post_comment and reviews:
-        _post_pr_review_comment(
-            reviews=reviews,
-            pages=pages,
-            head_dir=head_dir,
-            pull=pull,
-            repo_name=repo_name,
-            number=number,
-        )
+        with exit_on_error(GitHubOperationError):
+            _post_pr_review_comment(
+                reviews=reviews,
+                pages=pages,
+                head_dir=head_dir,
+                repo_name=repo_name,
+                number=number,
+            )
 
 
 # =============================================================================
@@ -962,7 +968,7 @@ def list_findings(
     session_dir = _find_session_dir(target_session)
     if not session_dir:
         # A review's data directory may not be the repository's `.data` (#972), so say where.
-        reviews_dir = runner._get_reviews_base_dir()
+        reviews_dir = ReviewSessionStore.root()
         print_warning(
             MESSAGES.review.no_review_sessions_found.format(reviews_dir=reviews_dir), prefix=False
         )
@@ -1239,7 +1245,7 @@ def review_stats(
     ] = None,
 ) -> None:
     """Compute and display review accuracy statistics across saved sessions."""
-    r_dir = reviews_dir or runner._get_reviews_base_dir()
+    r_dir = reviews_dir or ReviewSessionStore.root()
     if not r_dir.exists():
         print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
         raise typer.Exit(0)
@@ -1406,7 +1412,7 @@ def benchmark(
         raise typer.Exit(1)
     summary = summarize_profiles(profiles)
     summary.corpus_digest = _corpus_digest(targets, pattern)
-    _render_benchmark(summary, summary.write(runner._get_reviews_base_dir()))
+    _render_benchmark(summary, summary.write(ReviewSessionStore.root()))
     setup = review_setup(
         pre_analysis=not no_pre_analysis,
         static_scan=not no_static_scan,
@@ -1581,11 +1587,17 @@ def _materialise_golden(
 
 
 def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
-    """What could change the scored reviews: their prompts, conventions and pinned tools."""
+    """What could change the scored reviews: their prompts, conventions, pinned tools and the
+    registry rules Semgrep scanned with."""
     profiles = [p for p in (ReviewProfile.load(d) for d in sessions) if p is not None]
     return {
         name: sorted({digest for p in profiles if (digest := getattr(p, name))})
-        for name in ("prompt_digest", "conventions_digest", "tools_lock_digest")
+        for name in (
+            "prompt_digest",
+            "conventions_digest",
+            "tools_lock_digest",
+            "semgrep_registry_digest",
+        )
     }
 
 
@@ -1697,9 +1709,7 @@ def corpus_generate(
         print_error(str(exc))
         raise typer.Exit(1) from exc
     names = [source.resolve().name for source in sources]
-    corpus_dir = out or runner._get_reviews_base_dir() / CORPORA_DIRNAME / (
-        f"{'-'.join(names)}-{seed}"
-    )
+    corpus_dir = out or ReviewSessionStore.root() / CORPORA_DIRNAME / (f"{'-'.join(names)}-{seed}")
     if corpus_dir.exists() and any(corpus_dir.iterdir()):
         print_error(f"{corpus_dir} already exists; choose another --seed or --out.")
         raise typer.Exit(1)
@@ -1738,7 +1748,7 @@ def corpus_generate(
 
 def _corpus_session_dirs(files_dir: Path) -> list[Path]:
     """Every session whose profile shows it reviewed the corpus, oldest first."""
-    reviews_dir = runner._get_reviews_base_dir()
+    reviews_dir = ReviewSessionStore.root()
     if not reviews_dir.exists():
         return []
     target = str(files_dir.resolve())
@@ -2084,7 +2094,7 @@ def _by_category(samples: list[SampleRepository]) -> dict[str, list[SampleReposi
 
 
 def _scored_session(corpus: DefectCorpus, session_id: str) -> CorpusScore:
-    session_dir = runner._get_reviews_base_dir() / session_id
+    session_dir = ReviewSessionStore.root() / session_id
     reported = _session_findings(session_dir / "findings.json")
     candidates_file = session_dir / CONST_REVIEW_CANDIDATES_FILENAME
     candidates = _session_findings(candidates_file) if candidates_file.exists() else reported
@@ -2135,7 +2145,6 @@ def _render_validation(reports: list[CategoryReport], run_dir: Path) -> None:
         columns=[
             ("Category", "cyan"),
             ("Files", "right"),
-            ("Parsers", ""),
             ("Symbols", "right"),
             ("Repomap files", "right"),
             ("Review found/reported/injected", ""),
@@ -2145,7 +2154,6 @@ def _render_validation(reports: list[CategoryReport], run_dir: Path) -> None:
             [
                 report.category,
                 str(len(report.files)),
-                ", ".join(f"{name} {count}" for name, count in sorted(report.parsers.items())),
                 str(sum(result.symbols for result in report.files)),
                 str(sum(repomap.files_mapped for repomap in report.repomaps)),
                 _review_cell(report),
@@ -2190,7 +2198,7 @@ def samples_validate(
         )
         raise typer.Exit(1)
     run_dir = (
-        runner._get_reviews_base_dir()
+        ReviewSessionStore.root()
         / SAMPLE_VALIDATIONS_DIRNAME
         / datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     )
@@ -2458,7 +2466,7 @@ def export_feedback(
         reviews_dir=reviews_dir, output_file=output, status_filter=status_filter
     )
     if count == 0:
-        target_dir = reviews_dir or runner._get_reviews_base_dir()
+        target_dir = reviews_dir or ReviewSessionStore.root()
         print_warning(
             MESSAGES.review.no_findings_to_export.format(
                 status=status, target=target_dir, path=out_path
@@ -2472,7 +2480,7 @@ def export_feedback(
 
 
 # =============================================================================
-# Commands: devops review rules test
+# Commands: devops review rules test, devops review rules fetch
 # =============================================================================
 
 rules_app = new_typer(help=HELP.review.rules, no_args_is_help=True)
@@ -2527,4 +2535,53 @@ def rules_test(
             version=versions[0] if versions else "unknown",
             path=lock_path,
         )
+    )
+
+
+@rules_app.command("fetch")
+@trace_span("review.rules.fetch")
+def rules_fetch(
+    ruleset: Annotated[
+        str,
+        typer.Option("--ruleset", help=HELP.review.rules_fetch_ruleset),
+    ] = DEFAULT_SEMGREP_CONFIG,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Download a Semgrep registry ruleset into the user data root unless the cached one is current (#1144).
+
+    This is the one step that reaches the registry, and a review never runs it. A review,
+    `devops scan sast`, `devops scan report` and the agent tool read the cached ruleset offline.
+    """
+    from devops_cli.security.semgrep_registry import (
+        fetch_registry_ruleset,
+        registry_cache_paths,
+        registry_ruleset_url,
+    )
+
+    if dry_run:
+        set_dry_run(True)
+    with exit_on_error(DevOpsCLIError):
+        if is_dry_run():
+            paths = registry_cache_paths(ruleset)
+            render_request_plan(
+                MESSAGES.review.rules_fetch_dry_run_heading,
+                [PlannedRequest(method="GET", target=registry_ruleset_url(ruleset))],
+                [
+                    MESSAGES.review.rules_fetch_dry_run_writes.format(
+                        rules=paths.rules, etag=paths.etag
+                    )
+                ],
+            )
+            return
+        cached = fetch_registry_ruleset(ruleset)
+    template = (
+        MESSAGES.review.rules_fetch_current
+        if cached is None
+        else MESSAGES.review.rules_fetch_cached
+    )
+    print_success(
+        template.format(count=cached, ruleset=ruleset, path=registry_cache_paths(ruleset).rules)
     )

@@ -1,4 +1,4 @@
-"""Extractors for software dependencies (manifests) and network references (IPs and URLs)."""
+"""Extractors for network references (IPs and URLs) in source and configuration text."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from packaging.requirements import InvalidRequirement, Requirement
 
 from devops_cli.config.constants import (
     CONST_DEFAULT_LINE_NUMBER,
@@ -34,7 +33,7 @@ from devops_cli.config.defaults import DEFAULT_FORMAT_TYPE
 from devops_cli.core.dns_names import get_tld_extractor
 from devops_cli.core.validation import parse_numeric_ip
 from devops_cli.http.urls import extract_domain_target
-from devops_cli.models.vulnerability import DependencySpec, NetworkReference, NetworkTargetClass
+from devops_cli.models.vulnerability import NetworkReference, NetworkTargetClass
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,6 @@ _OFCOM_EXAMPLE_PHONE_REGEX = re.compile(
 __all__ = [
     "classify_network_target",
     "deduplicate_network_references",
-    "extract_dependencies_from_text",
     "extract_network_references",
     "is_example_ip",
     "is_example_or_invalid_domain",
@@ -746,201 +744,3 @@ def extract_network_references(
                 results.append(ref)
 
     return deduplicate_network_references(results)
-
-
-def _find_package_line(lines: list[str], pkg_token: str) -> int | None:
-    token_lower = pkg_token.lower()
-    for idx, line in enumerate(lines, start=1):
-        if token_lower in line.lower():
-            return idx
-    return None
-
-
-def _extract_pip_dependencies(content_lines: list[str], file_name: str) -> list[DependencySpec]:
-    """Parse dependencies from requirements.txt format."""
-    deps: list[DependencySpec] = []
-    for line_idx, line in enumerate(content_lines, start=1):
-        line = line.strip()
-        if not line or line.startswith(("#", "-", "--")):
-            continue
-        try:
-            req = Requirement(line)
-            version_spec = str(req.specifier) if str(req.specifier) else "*"
-            deps.append(
-                DependencySpec(
-                    name=req.name,
-                    version_range=version_spec,
-                    ecosystem="PyPI",
-                    source_file=file_name,
-                    line_number=line_idx,
-                )
-            )
-        except InvalidRequirement:
-            pass
-    return deps
-
-
-def _extract_pyproject_dependencies(  # noqa: C901
-    content: str, content_lines: list[str], file_name: str
-) -> list[DependencySpec]:
-    """Parse dependencies from pyproject.toml format."""
-    try:
-        data = tomllib.loads(content)
-    except (tomllib.TOMLDecodeError, ValueError) as exc:
-        logger.warning("Failed to parse pyproject.toml %s: %s", file_name, exc)
-        return []
-
-    req_strings: list[str] = []
-
-    # Standard PEP 621 project.dependencies
-    proj_deps = data.get("project", {}).get("dependencies", [])
-    if isinstance(proj_deps, list):
-        req_strings.extend(d for d in proj_deps if isinstance(d, str))
-
-    # Standard PEP 621 project.optional-dependencies
-    opt_deps = data.get("project", {}).get("optional-dependencies", {})
-    if isinstance(opt_deps, dict):
-        for opt_list in opt_deps.values():
-            if isinstance(opt_list, list):
-                req_strings.extend(d for d in opt_list if isinstance(d, str))
-
-    # PEP 735 dependency-groups
-    dep_groups = data.get("dependency-groups", {})
-    if isinstance(dep_groups, dict):
-        for grp_list in dep_groups.values():
-            if isinstance(grp_list, list):
-                req_strings.extend(d for d in grp_list if isinstance(d, str))
-
-    deps: list[DependencySpec] = []
-    for req_str in req_strings:
-        try:
-            req = Requirement(req_str)
-            line_no = _find_package_line(content_lines, req.name)
-            version_spec = str(req.specifier) if str(req.specifier) else "*"
-            deps.append(
-                DependencySpec(
-                    name=req.name,
-                    version_range=version_spec,
-                    ecosystem="PyPI",
-                    source_file=file_name,
-                    line_number=line_no,
-                )
-            )
-        except InvalidRequirement:
-            pass
-    return deps
-
-
-def _extract_package_json_dependencies(
-    content: str, content_lines: list[str], file_name: str
-) -> list[DependencySpec]:
-    """Parse dependencies from package.json format."""
-    try:
-        data = json.loads(content)
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning("Failed to parse package.json %s: %s", file_name, exc)
-        return []
-
-    all_deps: dict[str, str] = {}
-    for section in (
-        "dependencies",
-        "devDependencies",
-        "peerDependencies",
-        "optionalDependencies",
-    ):
-        if section in data and isinstance(data[section], dict):
-            all_deps.update(data[section])
-
-    deps: list[DependencySpec] = []
-    for pkg, ver in all_deps.items():
-        line_no = _find_package_line(content_lines, f'"{pkg}"') or _find_package_line(
-            content_lines, pkg
-        )
-        deps.append(
-            DependencySpec(
-                name=pkg,
-                version_range=str(ver),
-                ecosystem="npm",
-                source_file=file_name,
-                line_number=line_no,
-            )
-        )
-    return deps
-
-
-def _extract_cargo_dependencies(
-    content: str, content_lines: list[str], file_name: str
-) -> list[DependencySpec]:
-    """Parse dependencies from Cargo.toml or Cargo.lock format."""
-    try:
-        data = tomllib.loads(content)
-    except (tomllib.TOMLDecodeError, ValueError) as exc:
-        logger.warning("Failed to parse Cargo file %s: %s", file_name, exc)
-        return []
-
-    cargo_deps = data.get("dependencies", {})
-    if not isinstance(cargo_deps, dict):
-        return []
-
-    deps: list[DependencySpec] = []
-    for pkg, ver in cargo_deps.items():
-        ver_str = ver if isinstance(ver, str) else ver.get("version", "*")
-        line_no = _find_package_line(content_lines, pkg)
-        deps.append(
-            DependencySpec(
-                name=pkg,
-                version_range=str(ver_str),
-                ecosystem="crates.io",
-                source_file=file_name,
-                line_number=line_no,
-            )
-        )
-    return deps
-
-
-def _extract_go_mod_dependencies(content_lines: list[str], file_name: str) -> list[DependencySpec]:
-    """Parse dependencies from go.mod format."""
-    deps: list[DependencySpec] = []
-    in_require_block = False
-    for line_idx, line in enumerate(content_lines, start=1):
-        line = line.strip()
-        if line.startswith("require ("):
-            in_require_block = True
-            continue
-        if in_require_block and line == ")":
-            in_require_block = False
-            continue
-        if not (in_require_block or line.startswith("require ")):
-            continue
-        raw = line.removeprefix("require").strip()
-        parts = raw.split()
-        if len(parts) >= 2:
-            deps.append(
-                DependencySpec(
-                    name=parts[0],
-                    version_range=parts[1],
-                    ecosystem="Go",
-                    source_file=file_name,
-                    line_number=line_idx,
-                )
-            )
-    return deps
-
-
-def extract_dependencies_from_text(content: str, file_name: str) -> list[DependencySpec]:
-    """Extract dependency specifications from manifest file content using standard parsers."""
-    name_lower = Path(file_name).name.lower()
-    content_lines = content.splitlines()
-
-    if name_lower in ("requirements.txt", "requirements-dev.txt", "requirements.in"):
-        return _extract_pip_dependencies(content_lines, file_name)
-    if name_lower == "pyproject.toml":
-        return _extract_pyproject_dependencies(content, content_lines, file_name)
-    if name_lower == "package.json":
-        return _extract_package_json_dependencies(content, content_lines, file_name)
-    if name_lower in ("cargo.toml", "cargo.lock"):
-        return _extract_cargo_dependencies(content, content_lines, file_name)
-    if name_lower == "go.mod":
-        return _extract_go_mod_dependencies(content_lines, file_name)
-
-    return []

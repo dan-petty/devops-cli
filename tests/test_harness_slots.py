@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.capability import TaskComplexity
-from devops_cli.ai.harness.skills import ParsedSkill
+from devops_cli.ai.harness.skills import ParsedSkill, normalize_skill_name
 from devops_cli.ai.harness.slots import (
     AgentHarness,
     BaseSlot,
@@ -149,6 +149,15 @@ def test_model_slot_lifecycle_and_swapping() -> None:
     assert slot.is_local
     # Now ensure_local should succeed without error
     slot.ensure_local()
+
+
+def test_skill_names_normalize_to_lowercase_hyphenated_form() -> None:
+    """Skill names normalize with NFKC and refuse a leading or trailing hyphen and more than 64 characters."""
+    assert normalize_skill_name("Code-Review") == "code-review"
+    assert normalize_skill_name(" release-notes ") == "release-notes"
+    for invalid_name in ("-invalid-start", "invalid-end-", "x" * 70):
+        with pytest.raises(HarnessValidationError, match="Invalid skill name"):
+            normalize_skill_name(invalid_name)
 
 
 def test_skill_slot_attach_detach(tmp_path: Path) -> None:

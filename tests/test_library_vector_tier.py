@@ -12,7 +12,10 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.rag.library_store import LibraryVectorStore
 from devops_cli.commands.ai import app as ai_app
-from devops_cli.config.defaults import DEFAULT_RAG_LIBRARIES_COLLECTION
+from devops_cli.config.defaults import (
+    DEFAULT_RAG_LIBRARIES_COLLECTION,
+    DEFAULT_VALKEY_SYMBOL_TTL_SECONDS,
+)
 from devops_cli.models.library import (
     ClassSignature,
     DocChunk,
@@ -22,6 +25,7 @@ from devops_cli.models.library import (
     ModuleContract,
     ParameterSignature,
 )
+from devops_cli.valkey.client import ValkeyClient
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -133,11 +137,11 @@ def test_ensure_collection_already_exists() -> None:
     mock_qdrant.create_collection.assert_not_called()
 
 
-def test_index_contract_and_valkey_cache() -> None:
+def test_index_contract_caches_each_symbol_in_valkey_for_the_symbol_lifetime(
+    valkey_client: ValkeyClient,
+) -> None:
     mock_qdrant = MagicMock()
     mock_qdrant.get_collection_info.return_value = {"status": "green"}
-    mock_valkey = MagicMock()
-    mock_valkey.ping.return_value = True
 
     mock_embedder = MagicMock()
     mock_embedder.embed_text.return_value = [0.1] * 384
@@ -145,16 +149,18 @@ def test_index_contract_and_valkey_cache() -> None:
 
     store = LibraryVectorStore(
         qdrant_client=mock_qdrant,
-        valkey_client=mock_valkey,
+        valkey_client=valkey_client,
         embedder=mock_embedder,
     )
 
     contract = _create_sample_contract()
     count = store.index_contract(contract)
 
+    lifetimes = {key: valkey_client.execute("TTL", key) for key in valkey_client.keys("symbol:*")}
     assert count >= 3  # function, class, and method
     mock_qdrant.upsert_points.assert_called_once()
-    assert mock_valkey.set.call_count >= 3  # function, class, and method cached in Valkey
+    assert len(lifetimes) >= 3  # function, class, and method cached in Valkey
+    assert all(0 < ttl <= DEFAULT_VALKEY_SYMBOL_TTL_SECONDS for ttl in lifetimes.values())
 
 
 def test_index_contract_the_model_cannot_embed_raises_and_upserts_nothing() -> None:

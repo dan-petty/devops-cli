@@ -39,8 +39,10 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8
     hooks:
+      # `--config pyproject.toml` makes this file the only Ruff configuration, so a nested
+      # ruff.toml cannot outrank the complexity cap of 10 (C901).
       - id: ruff-check
-        args: [--fix]
+        args: [--config, pyproject.toml, --fix]
         stages: [pre-commit]
       - id: ruff-format
         stages: [pre-commit]
@@ -89,6 +91,18 @@ repos:
         stages: [pre-commit]
         pass_filenames: false
         always_run: true
+
+      # The OpenSpec gate (ADR 0010) over the plans and the committed skills: it needs Node and the
+      # pinned openspec (`uv run devops install-tools --tool openspec --only-missing`), so it runs
+      # only when a commit touches the files it checks, and `devops ci` runs it on every push.
+      - id: openspec-gate
+        name: openspec gate (change folders and generated skills)
+        entry: uv run devops ci --only openspec
+        language: system
+        stages: [pre-commit]
+        files: ^(openspec/|\.claude/skills/|\.agents/skills/)
+        pass_filenames: false
+        require_serial: true
 
       - id: devops-ci-pre-push
         name: devops ci (pre-push quality gate)

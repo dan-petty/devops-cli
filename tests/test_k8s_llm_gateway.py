@@ -4,19 +4,26 @@ from __future__ import annotations
 
 import copy
 import re
+import sys
 from collections.abc import Callable
+from functools import reduce
+from itertools import chain
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
 import yaml
+from docker.utils import parse_repository_tag
 
+from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_CLUSTER_URL,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
+from devops_cli.k8s.gpu_matrix import get_gateway_routing_entries
+from tests.support.markdown_examples import YAML_FENCE_LANGUAGES, code_snippets, fences, headings
 
 GATEWAY_DIR = Path("k8s/llm/gateway")
 PROFILES_DIR = Path("k8s/llm/profiles")
@@ -25,6 +32,8 @@ SERVICES_MANIFEST = PROFILES_DIR / "services.yaml"
 NETWORKPOLICY_MANIFEST = PROFILES_DIR / "networkpolicy.yaml"
 LLM_KUSTOMIZATION = Path("k8s/llm/kustomization.yaml")
 OPEN_WEBUI_VALUES = Path("k8s/llm/values-open-webui.yaml")
+DEVOPS_CONFIGMAP_EXAMPLE = Path("k8s/devops/configmap.example.yaml")
+GATEWAY_READMES = [Path("k8s/README.md"), PROFILES_DIR / "README.md"]
 
 GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.0"
 GATEWAY_SECRET = "llm-gateway-secrets"
@@ -66,6 +75,150 @@ def _gateway_config() -> dict[str, Any]:
 def _deployments(group: str) -> list[dict[str, Any]]:
     """Return the gateway deployments of one model group, in configuration order."""
     return [m for m in _gateway_config()["model_list"] if m["model_name"] == group]
+
+
+def _gateway_embedding_groups() -> set[str]:
+    """Return the model groups the gateway ConfigMap serves as embeddings."""
+    return {
+        m["model_name"]
+        for m in _gateway_config()["model_list"]
+        if m.get("model_info", {}).get("mode") == "embedding"
+    }
+
+
+def _job_configmap_embedding_models() -> set[str]:
+    """Return the embedding model the example ConfigMap of the in-cluster jobs sets."""
+    configmap = _load_kind(DEVOPS_CONFIGMAP_EXAMPLE, "ConfigMap")
+    settings = yaml.safe_load(configmap["data"]["devops-cli.yaml"])
+    return {_at(settings, "ai", "tasks", "embedding", "model")}
+
+
+def _default_route_embedding_models() -> set[str]:
+    """Return the target model of the `devops-embedding` default gateway route."""
+    return {
+        route["target_model"]
+        for route in DEFAULT_GATEWAY_ROUTES
+        if route["virtual_model"] == "devops-embedding"
+    }
+
+
+def _gpu_matrix_embedding_models() -> set[str]:
+    """Return the embedding groups that the GPU matrix lists as gateway routes."""
+    return {
+        entry["model_name"]
+        for entry in get_gateway_routing_entries()
+        if entry.get("model_info", {}).get("mode") == "embedding"
+    }
+
+
+def _gateway_providers() -> set[str]:
+    """Return the LiteLLM providers the gateway ConfigMap's backends name (`ollama`, `ollama_chat`)."""
+    return {m["litellm_params"]["model"].partition("/")[0] for m in _gateway_config()["model_list"]}
+
+
+def _without_provider(model: str, providers: set[str]) -> str:
+    """Return `model` without a leading provider (`ollama/qwen3-embedding:0.6b` is
+    `qwen3-embedding:0.6b`)."""
+    provider, _, rest = model.partition("/")
+    return rest if provider in providers else model
+
+
+def _gateway_served_models() -> set[str]:
+    """Return the models the gateway ConfigMap names: each group and each backend's model."""
+    entries, providers = _gateway_config()["model_list"], _gateway_providers()
+    return {m["model_name"] for m in entries} | {
+        _without_provider(m["litellm_params"]["model"], providers) for m in entries
+    }
+
+
+def _at(node: Any, *keys: str) -> Any:
+    """Return the value under `keys` in nested mappings, or None where a level is absent, empty
+    or not a mapping."""
+    return reduce(
+        lambda level, key: level.get(key) if isinstance(level, dict) else None, keys, node
+    )
+
+
+def _yaml_documents(readme: Path) -> list[dict[str, Any]]:
+    """Return every mapping document in the README's YAML fences; an empty fence or a document
+    that is no mapping adds none."""
+    return [
+        document
+        for fence in fences(readme, YAML_FENCE_LANGUAGES)
+        for document in yaml.safe_load_all(fence.text)
+        if isinstance(document, dict)
+    ]
+
+
+def _configured_models(document: dict[str, Any], providers: set[str]) -> list[str]:
+    """Return the models a YAML document sets: each `model_list` entry's group and backend model,
+    and the model of `ai.tasks.embedding`."""
+    entries = _at(document, "model_list")
+    named = [
+        _at(entry, *path)
+        for entry in (entries if isinstance(entries, list) else [])
+        for path in (("model_name",), ("litellm_params", "model"))
+    ] + [_at(document, "ai", "tasks", "embedding", "model")]
+    return [_without_provider(model, providers) for model in named if isinstance(model, str)]
+
+
+def _is_model_reference(span: str) -> bool:
+    """Whether a code span is one word that Docker's reference convention, which Ollama's model
+    references follow, splits into a name and a tag (`qwen3-embedding:0.6b`)."""
+    return len(span.split()) == 1 and bool(parse_repository_tag(span)[1])
+
+
+def _gateway_sections(readme: Path) -> list[range]:
+    """Return the lines of each section whose heading names the gateway, through to the next
+    heading at its level or above."""
+    found = headings(readme)
+    return [
+        range(
+            heading.line,
+            next((h.line for h in found[i + 1 :] if h.level <= heading.level), sys.maxsize),
+        )
+        for i, heading in enumerate(found)
+        if "gateway" in heading.text.lower()
+    ]
+
+
+def _gateway_section_models(readme: Path, providers: set[str]) -> list[str]:
+    """Return the model references in the inline code spans of the README's gateway sections."""
+    sections = _gateway_sections(readme)
+    return [
+        _without_provider(span.text, providers)
+        for span in code_snippets(readme)
+        if not span.fenced
+        and any(span.line in section for section in sections)
+        and _is_model_reference(span.text)
+    ]
+
+
+def _gateway_readme_findings(readme: Path) -> tuple[list[str], list[str]]:
+    """Return the models the README names for the gateway that the ConfigMap does not name, and
+    the ConfigMap's embedding groups the README does not name.
+
+    A README names a model in a YAML fence, as a `model_list` entry or the embedding task's
+    model, or in an inline code span of a section whose heading names the gateway.
+    """
+    providers = _gateway_providers()
+    named = set(
+        chain(
+            _gateway_section_models(readme, providers),
+            *(_configured_models(d, providers) for d in _yaml_documents(readme)),
+        )
+    )
+    return sorted(named - _gateway_served_models()), sorted(_gateway_embedding_groups() - named)
+
+
+def _gateway_readme(body: str, *, names_embedding_model: bool = True) -> str:
+    """Return a README whose gateway section holds `body`, after a sentence naming the embedding
+    model unless `names_embedding_model` is False, and whose next section names an image."""
+    served = "The embedding model is `qwen3-embedding:0.6b`.\n\n" if names_embedding_model else ""
+    return (
+        f"# Cluster\n\n## LLM Gateway\n\n{served}{body}\n\n"
+        "## GitOps\n\nThe image is `service:latest`.\n"
+    )
 
 
 def _routes(deployments: list[dict[str, Any]]) -> list[tuple[str, str, int | None]]:
@@ -174,7 +327,7 @@ class TestK8sLLMGatewayManifests:
                 "devops-chat",
                 "devops-coder",
                 "devops-reasoning",
-                "bge-m3:latest",
+                "qwen3-embedding:0.6b",
                 "devops-background",
                 "devops-review",
                 "qwen3-coder:30b",
@@ -293,12 +446,12 @@ class TestK8sLLMGatewayManifests:
     def test_gateway_routes_to_provider_vram_services(self) -> None:
         """Verify Gateway routes target standardized <llm_provider>-<vram_gib> services."""
         chat_deployments = _deployments("devops-chat")
-        bge_deployments = _deployments("bge-m3:latest")
+        embedding_deployments = _deployments("qwen3-embedding:0.6b")
 
         assert (
             sorted(m["litellm_params"]["api_base"] for m in chat_deployments),
-            [m["litellm_params"]["api_base"] for m in bge_deployments],
-            [m.get("model_info", {}).get("mode") for m in bge_deployments],
+            [m["litellm_params"]["api_base"] for m in embedding_deployments],
+            [m.get("model_info", {}).get("mode") for m in embedding_deployments],
         ) == (
             [
                 "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
@@ -308,6 +461,25 @@ class TestK8sLLMGatewayManifests:
             ["http://ollama-48gib-slow.llm.svc.cluster.local:11434"],
             ["embedding"],
         )
+
+    @pytest.mark.parametrize(
+        "embedding_models",
+        [
+            pytest.param(_job_configmap_embedding_models, id="the-example-configmap-of-the-jobs"),
+            pytest.param(_default_route_embedding_models, id="the-default-gateway-routes"),
+            pytest.param(_gpu_matrix_embedding_models, id="the-gpu-matrix-gateway-routes"),
+        ],
+    )
+    def test_every_registry_that_names_an_embedding_model_names_a_group_the_gateway_serves(
+        self, embedding_models: Callable[[], set[str]]
+    ) -> None:
+        """Verify the embedding model that each of three places names is an embedding group of
+        the gateway ConfigMap: the example ConfigMap of the in-cluster jobs, the default
+        gateway routes and the GPU matrix routes. A place that falls behind a renamed group
+        sends its requests to a model the gateway refuses (#481)."""
+        named = embedding_models()
+
+        assert (bool(named), named - _gateway_embedding_groups()) == (True, set())
 
     def test_the_slow_tier_serves_embeddings_and_devops_background_alone(self) -> None:
         """Verify ollama-48gib-slow is in no interactive or review pool: every generation
@@ -328,6 +500,114 @@ class TestK8sLLMGatewayManifests:
             ["devops-background"],
             [("ollama_chat/qwen3.8:27b", slow, None)],
         )
+
+    @pytest.mark.parametrize("readme", GATEWAY_READMES, ids=str)
+    def test_a_gateway_readme_names_exactly_the_embedding_groups_the_gateway_serves(
+        self, readme: Path
+    ) -> None:
+        """Verify every model a README names for the gateway, in a YAML fence or in a gateway
+        section's code spans, is one the ConfigMap names, and every embedding group the ConfigMap
+        serves is named: one a README names but the gateway dropped fails the embedding task with
+        HTTP 400, which turns RAG off for the run (#481, #1064). The README must have a gateway
+        section, or the code spans would go unread."""
+        assert (_gateway_readme_findings(readme), bool(_gateway_sections(readme))) == (
+            ([], []),
+            True,
+        )
+
+    @pytest.mark.parametrize(
+        ("readme_text", "unserved", "missing"),
+        [
+            pytest.param(
+                _gateway_readme(
+                    "Also `ollama/qwen3-embedding:0.6b`, `ollama_chat/qwen3-coder:30b`, `qwen3.8:27b`,"
+                    " `hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S`, `model_info.mode: embedding`"
+                    " and `devops-review`."
+                ),
+                [],
+                [],
+                id="every-spelling-the-gateway-serves",
+            ),
+            pytest.param(
+                _gateway_readme("A stale option is `mxbai-embed-large:latest`."),
+                ["mxbai-embed-large:latest"],
+                [],
+                id="an-embedding-model-no-table-sizes",
+            ),
+            pytest.param(
+                _gateway_readme("Or `ollama/embeddinggemma:300m`."),
+                ["embeddinggemma:300m"],
+                [],
+                id="a-provider-prefixed-span",
+            ),
+            pytest.param(
+                _gateway_readme(
+                    "- Models: `qwen3.8:27b`\n- Embeddings: `qwen3-embedding:0.6b`, `embeddinggemma:300m`"
+                ),
+                ["embeddinggemma:300m"],
+                [],
+                id="a-list-item",
+            ),
+            pytest.param(
+                _gateway_readme("### Detail\n\nTry `mxbai-embed-large:latest`."),
+                ["mxbai-embed-large:latest"],
+                [],
+                id="a-subsection-of-the-gateway-section",
+            ),
+            pytest.param(
+                _gateway_readme(
+                    "```yml title=config\nai:\n  tasks:\n    embedding:\n"
+                    "      model: embeddinggemma:300m\n```"
+                ),
+                ["embeddinggemma:300m"],
+                [],
+                id="a-yml-fence-with-an-info-string",
+            ),
+            pytest.param(
+                _gateway_readme(
+                    "```yaml\nkind: ConfigMap\n---\nai:\n  tasks:\n    embedding:\n"
+                    "      model: embeddinggemma:300m\n```"
+                ),
+                ["embeddinggemma:300m"],
+                [],
+                id="the-second-document-of-a-fence",
+            ),
+            pytest.param(
+                _gateway_readme(
+                    "```yaml\nmodel_list:\n  - model_name: embeddinggemma:300m\n"
+                    "    litellm_params:\n      model: ollama/embeddinggemma:300m\n```"
+                ),
+                ["embeddinggemma:300m"],
+                [],
+                id="a-model-list-entry",
+            ),
+            pytest.param(
+                _gateway_readme(
+                    "```yaml\n```\n\n```yaml\nai:\n  tasks:\n    embedding:\n```"
+                    "\n\n```yaml\n- a\n- b\n```\n\n```yaml\nai: text\nmodel_list: text\n```"
+                ),
+                [],
+                [],
+                id="an-empty-fence-a-valueless-key-and-documents-that-are-no-mapping",
+            ),
+            pytest.param(
+                _gateway_readme("Chat models only: `qwen3.8:27b`.", names_embedding_model=False),
+                [],
+                ["qwen3-embedding:0.6b"],
+                id="a-readme-that-drops-the-embedding-group",
+            ),
+        ],
+    )
+    def test_the_readme_guard_finds_a_stale_model_wherever_a_gateway_section_names_it(
+        self, tmp_path: Path, readme_text: str, unserved: list[str], missing: list[str]
+    ) -> None:
+        """Verify the guard reads a model the ConfigMap lacks from a code span, a list item, a
+        subsection and every `yaml` or `yml` fence document, whether or not the RAG embedder has a
+        dimension for it, and reads nothing from a section whose heading does not name the gateway
+        (each README names `service:latest` there, an image rather than a model)."""
+        readme = tmp_path / "README.md"
+        readme.write_text(readme_text, encoding="utf-8")
+        assert _gateway_readme_findings(readme) == (unserved, missing)
 
     def test_devops_background_frees_its_slot_before_the_review_client_gives_up(self) -> None:
         """Verify the gateway abandons a devops-background call before the review client's read

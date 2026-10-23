@@ -140,7 +140,7 @@ from devops_cli.models.security import (
     UvAuditRequest,
     UvAuditResult,
 )
-from devops_cli.models.ssh import ManagedSSHKey, SSHKeyInfo
+from devops_cli.models.ssh import ManagedSSHKey
 from devops_cli.models.statuspage import (
     StatuspageComponent,
     StatuspageIncident,
@@ -290,7 +290,6 @@ __all__ = [
     "ReviewStatsResult",
     "SSHKeyAuditRequest",
     "SSHKeyAuditResult",
-    "SSHKeyInfo",
     "ScratchpadBuffer",
     "ScratchpadEntry",
     "SecurityScanRequest",

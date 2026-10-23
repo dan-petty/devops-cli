@@ -27,7 +27,7 @@ Address verified security and reliability findings identified in review session 
    - `src/devops_cli/server/routes/status.py`: Mask tool paths to `[bin]/<tool>` (CWE-200).
    - `src/devops_cli/server/routes/stream.py`: Enforce maximum WebSocket message size (1MB) (CWE-400).
 4. **Memory Bounds & Error Sanitization**:
-   - `src/devops_cli/ai/cache/valkey_cache.py`: Batch keys in `flush_ai_cache` to prevent memory spikes (CWE-400).
+   - `src/devops_cli/ai/cache/valkey_cache.py`: Batch keys in `flush_ai_cache` to prevent memory spikes (CWE-400). Item #1113 deleted this module.
    - `src/devops_cli/pipeline/pipeline.py`: Sanitize and truncate exception messages to $\le 256$ chars (CWE-209).
    - `src/devops_cli/security/vulnerability_lookup.py`: Cap `OSVClient._cache` to 1000 items with LRU eviction (CWE-400).
    - `src/devops_cli/telemetry/metrics.py`: Cap metric names and label combinations in `InMemoryMetricsRegistry` (CWE-400).

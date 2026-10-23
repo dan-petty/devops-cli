@@ -25,13 +25,11 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 |---|---|---|---|---|
 | `AIClientError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when an AI provider request fails with a user-actionable message. |
 | `AICredentialsError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when a provider rejects the request's credentials; retrying cannot help. |
-| `AgentRunError` | `AGENT_RUN_ERROR` | `20` | Ai | Raised when an error occurs during an agent run lifecycle. |
 | `ApprovalRequired` | `APPROVAL_REQUIRED` | `17` | Ai | Raised by a tool or validator when human approval is required to proceed. |
 | `ArgoCDGateError` | `ARGOCD_GATE_ERROR` | `1` | K8s | Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343). |
 | `ArgoError` | `ARGO_ERROR` | `1` | Argo | Base exception for Argo CD, Rollouts, and Workflows operations. |
 | `ArgoResourceNotFoundError` | `ARGO_RESOURCE_NOT_FOUND` | `1` | Argo | Raised when an Argo custom resource does not exist in the target cluster. |
 | `BranchAlreadyExistsError` | `BRANCH_ALREADY_EXISTS` | `1` | Git | Raised when attempting to create a branch that already exists. |
-| `BudgetExceededError` | `BUDGET_EXCEEDED` | `1` | Devops_cli.ai.agents.spend | Raised when an agent execution exceeds defined token or financial spend limits. |
 | `CallDeferred` | `CALL_DEFERRED` | `18` | Ai | Raised by a tool when execution is deferred to an external worker or async system. |
 | `CapabilityDegradationError` | `CAPABILITY_DEGRADATION` | `1` | Ai | Raised when a fallback or failover model breaches minimum capability tier requirements. |
 | `ChaosExecutionError` | `CHAOS_EXECUTION_ERROR` | `1` | K8s | Raised when chaos engineering injection or validation fails. |
@@ -42,13 +40,10 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ClusterJobError` | `K8S_CLUSTER_JOB_ERROR` | `1` | K8s | Raised when a devops-cli Job cannot be created or followed in the cluster. |
 | `ClusterSecretPushError` | `K8S_SECRET_PUSH_ERROR` | `1` | K8s | Raised when cluster Secrets cannot be pushed from the keyring; nothing was written. |
 | `ClusterSecretWriteError` | `K8S_SECRET_PUSH_ERROR` | `1` | K8s | Raised when writing a planned push fails part-way; `completed` names what was written. |
-| `ConcurrencyLimitExceeded` | `CONCURRENCY_LIMIT_EXCEEDED` | `25` | Ai | Raised when the concurrency queue depth exceeds max_queued. |
 | `ConfigurationError` | `CONFIGURATION_ERROR` | `1` | Config | Base exception for configuration loading, validation, and serialization errors. |
 | `ConstellationFailoverError` | `CONSTELLATION_FAILOVER_ERROR` | `1` | Ai | Raised when emergency failover routing fails. |
 | `ConstellationQuiesceError` | `CONSTELLATION_QUIESCE_ERROR` | `1` | Ai | Raised when constellation quiesce suspension fails. |
 | `ConstellationResumeError` | `CONSTELLATION_RESUME_ERROR` | `1` | Ai | Raised when resuming suspended constellation tasks fails. |
-| `ContentFilterError` | `CONTENT_FILTER_TRIGGERED` | `19` | Ai | Raised when a model response is filtered or refused by upstream content safety filters. |
-| `ContextBudgetExceededError` | `CONTEXT_BUDGET_EXCEEDED` | `11` | Ai | Raised when prompt token payload exceeds model context window limits. |
 | `CopilotPassRefusedError` | `COPILOT_PASS_REFUSED` | `1` | Git | Raised when `devops pr copilot-pass` refuses to request a Copilot pass. |
 | `CosignError` | `COSIGN_ERROR` | `1` | Docker | Raised when Sigstore Cosign image signing fails. |
 | `CosignVerificationError` | `COSIGN_VERIFICATION_FAILED` | `1` | Docker | Raised when Sigstore Cosign signature or attestation verification fails. |
@@ -71,9 +66,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `GitOperationError` | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GitOpsSyncError` | `GITOPS_SYNC_ERROR` | `1` | K8s | Raised when GitOps synchronization trigger or reconciliation fails. |
 | `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |
-| `HarnessExecutionError` | `HARNESS_EXECUTION_ERROR` | `1` | Ai | Raised when execution of an AI test harness or benchmark fails. |
 | `HarnessValidationError` | `HARNESS_VALIDATION_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |
-| `IncompleteToolCall` | `INCOMPLETE_TOOL_CALL` | `27` | Ai | Raised when a model stops due to token limit while emitting a tool call. |
 | `InsecureConfigError` | `E_INSECURE_CONFIG` | `126` | Security | Raised when an unencrypted plaintext secret token is found in configuration files. |
 | `InvalidBranchNameError` | `INVALID_BRANCH_NAME` | `1` | Git | Raised when a proposed Git branch name violates naming conventions. |
 | `InvalidURLError` | `INVALID_URL` | `1` | Validation | Raised when an invalid URL or URI scheme is provided. |
@@ -87,15 +80,11 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `LibraryIngestionError` | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
 | `LibraryNotFoundError` | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package cannot be imported or found in the environment. |
 | `LogfireConfigurationError` | `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when Logfire configuration fails or credentials cannot be retrieved. |
-| `MemoryOperationConflictError` | `HARNESS_EXECUTION_ERROR` | `1` | Devops_cli.ai.harness.memory | Raised when an optimistic concurrency conflict or duplicate operation occurs in memory store. |
 | `MemoryProfilerError` | `PROFILER_ERROR` | `1` | Devops_cli.telemetry.memory_profiler | Domain exception raised when memory profiling target resolution or execution fails. |
-| `ModelAPIError` | `MODEL_API_ERROR` | `22` | Ai | Raised when a model provider API request fails. |
 | `ModelBundleError` | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |
 | `ModelGatewayUnreachableError` | `MODEL_GATEWAY_UNREACHABLE` | `1` | Ai | Raised when a model call through the gateway fails, so the command decided and wrote nothing. |
-| `ModelHTTPError` | `MODEL_HTTP_ERROR` | `23` | Ai | Raised when a model provider response has a status code of 4xx or 5xx. |
 | `ModelNotAllowedError` | `MODEL_REQUESTS_DISABLED` | `1` | Devops_cli.ai.agents.testing | Raised when a non-test model request is attempted while ALLOW_MODEL_REQUESTS is False. |
 | `ModelRetry` | `MODEL_RETRY_REQUESTED` | `14` | Ai | Raised by tools or output validators to request the model to retry with corrective feedback. |
-| `ModelUnavailableError` | `MODEL_UNAVAILABLE` | `12` | Ai | Raised when the requested LLM backend or model endpoint is unreachable. |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `ReleaseBranchMissingError` | `RELEASE_BRANCH_MISSING` | `1` | Git | Raised when the remote release branch tracking ref does not exist. |
@@ -106,13 +95,14 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ReleaseWorkingTreeDirtyError` | `RELEASE_WORKING_TREE_DIRTY` | `1` | Git | Raised when the working tree has uncommitted changes before cutting a release. |
 | `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
+| `ReviewSessionExistsError` | `REVIEW_SESSION_EXISTS` | `1` | Ai | Raised when a review is published under the name of a session that is already published. |
 | `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Devops_cli.review.state | Exception raised for invalid review finding state or state transition. |
 | `RoadmapCardChangedError` | `ROADMAP_CARD_CHANGED` | `1` | Roadmap | Raised before a job's board write that would revert a change made since it read the card. |
 | `RoadmapIntakeError` | `ROADMAP_INTAKE_FAILED` | `1` | Roadmap | Raised after an intake round in which the writes failed for one or more candidates. |
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |
-| `RunCancelled` | `RUN_CANCELLED` | `26` | Ai | Raised when an agent run was cancelled by the application or timeout. |
 | `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |
+| `SSHRegistrationError` | `GITHUB_OPERATION_FAILED` | `1` | Devops_cli.github.ssh | Raised when SSH/signing key registration on GitHub fails. |
 | `SSRFBlockedError` | `SSRF_BLOCKED` | `2` | Security | Raised when an outbound HTTP request targets a private or forbidden network IP. |
 | `SandboxError` | `SANDBOX_ERROR` | `1` | Sandbox | Base exception for workload sandbox lifecycle operations. |
 | `SandboxNotFoundError` | `SANDBOX_NOT_FOUND_ERROR` | `1` | Sandbox | Raised when requested sandbox instance or container cannot be found. |
@@ -126,7 +116,6 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `StructuredOutputSchemaError` | `STRUCTURED_OUTPUT_SCHEMA_INVALID` | `1` | Ai | Raised when a schema class is missing or invalid for structured LLM output generation. |
 | `StructuredOutputValidationError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the model answered, but no answer validated against the schema after retries. |
 | `SubprocessError` | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
-| `SuspendedResponseExpired` | `SUSPENDED_RESPONSE_EXPIRED` | `28` | Ai | Raised when resuming a suspended response whose server-side job is no longer available. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Devops_cli.core.templating | Raised when a template cannot be rendered into valid output. |
 | `ThreadFilingRefusedError` | `THREAD_FILING_REFUSED` | `1` | Git | Raised when `devops pr threads file-issues` refuses to file a pull request's threads. |
@@ -135,8 +124,6 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ToolFailed` | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |
 | `TraceValidationError` | `VALIDATION_ERROR` | `1` | Devops_cli.telemetry.context | Raised when trace metadata or flags fail validation. |
 | `UnexpectedModelBehavior` | `UNEXPECTED_MODEL_BEHAVIOR` | `15` | Ai | Raised when model retry budget is exhausted or model emits unrecoverable response. |
-| `UsageLimitExceeded` | `USAGE_LIMIT_EXCEEDED` | `24` | Ai | Raised when an agent run exceeds configured request or token limits. |
-| `UserError` | `USER_ERROR` | `21` | Ai | Raised when an invalid configuration or argument is provided by the application developer. |
 | `ValidationError` | `VALIDATION_ERROR` | `1` | Validation | Base exception for user input and format validation failures. |
 | `ValkeyAuthenticationError` | `VALKEY_AUTHENTICATION_ERROR` | `1` | Valkey | Raised when Valkey password authentication fails. |
 | `ValkeyCommandError` | `VALKEY_COMMAND_ERROR` | `1` | Valkey | Raised when a Valkey command execution returns an error from server. |
@@ -147,7 +134,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `VaultConfigurationError` | `VAULT_CONFIGURATION_ERROR` | `1` | Vault | Raised when Vault environment or connection settings are missing or invalid. |
 | `VaultError` | `VAULT_ERROR` | `1` | Vault | Base exception for HashiCorp Vault operations. |
 | `VaultKeyError` | `VAULT_KEY_ERROR` | `1` | Vault | Raised when a secret key or field is not found in Vault. |
-| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login, token or Transit call fails, with Vault's HTTP status. |
+| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login or token call fails, with Vault's HTTP status. |
 | `VaultOperationError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when an API request to Vault fails or returns an error response. |
 | `VaultUnreachableError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when no reply came back from Vault: the connection failed or timed out. |
 | `VolumeReclaimError` | `K8S_VOLUME_RECLAIM_ERROR` | `1` | K8s | Raised when volume reclaim fails or is refused due to active claims or mounts. |

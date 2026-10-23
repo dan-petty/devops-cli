@@ -15,7 +15,6 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.context_budget import (
     TokenBudgetReport,
-    budget_diff_chunks,
     count_file_tokens,
     count_tokens,
     truncate_to_token_limit,
@@ -67,30 +66,6 @@ def test_validate_and_budget_prompt() -> None:
     assert "...[content condensed to fit context window budget]" in budgeted
 
 
-def test_budget_diff_chunks_small_diff() -> None:
-    diff = """diff --git a/src/main.py b/src/main.py
---- a/src/main.py
-+++ b/src/main.py
-@@ -1,3 +1,4 @@
-+import os
- def main():
-     pass
-"""
-    chunks = budget_diff_chunks(diff, max_tokens=500)
-    assert len(chunks) == 1
-    assert chunks[0] == diff
-    assert budget_diff_chunks("") == []
-
-
-def test_budget_diff_chunks_large_multi_file_diff() -> None:
-    file_diff_1 = "diff --git a/file1.py b/file1.py\n" + ("+ line in file 1\n" * 50)
-    file_diff_2 = "diff --git a/file2.py b/file2.py\n" + ("+ line in file 2\n" * 50)
-    multi_diff = f"{file_diff_1}\n{file_diff_2}"
-
-    chunks = budget_diff_chunks(multi_diff, max_tokens=60)
-    assert len(chunks) >= 2
-
-
 def test_token_budget_report_model() -> None:
     rep = TokenBudgetReport(
         text_length=100,
@@ -119,20 +94,6 @@ def test_ai_token_count_cli(tmp_path: Path) -> None:
     res_text = runner.invoke(ai_app, ["token-count", "some raw prompt text", "--budget", "100"])
     assert res_text.exit_code == 0
     assert "AI Context Token Budget Report" in res_text.stdout
-
-
-def test_budget_diff_chunks_single_file_hunks() -> None:
-    """Verify hunk-level partitioning when a single file diff exceeds token limits."""
-    header = "diff --git a/big.py b/big.py\nindex 123..456 100644\n--- a/big.py\n+++ b/big.py"
-    hunk1 = "\n@@ -1,10 +1,20 @@\n" + ("+ line 1\n" * 40)
-    hunk2 = "\n@@ -50,10 +60,20 @@\n" + ("+ line 2\n" * 40)
-    hunk3 = "\n@@ -100,10 +120,20 @@\n" + ("+ line 3\n" * 40)
-    big_diff = header + hunk1 + hunk2 + hunk3
-
-    chunks = budget_diff_chunks(big_diff, max_tokens=50)
-    assert len(chunks) >= 2
-    for c in chunks:
-        assert "diff --git a/big.py b/big.py" in c
 
 
 def _prepare_o200k_cache_dir(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

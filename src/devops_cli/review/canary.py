@@ -27,6 +27,7 @@ from devops_cli.config.commands import (
     BIN_PLUTO,
     BIN_RUFF,
     BIN_SEMGREP,
+    build_semgrep_cmd,
 )
 from devops_cli.config.constants import (
     CONST_CANARY_DOCKERFILE_SOURCE,
@@ -386,7 +387,19 @@ def _hash_binary_path(resolved_path: str) -> str:
         return "unavailable"
 
 
-def _resolve_tool_version_and_sha(tool: str) -> tuple[str, str]:
+def resolve_tool_binary(tool: str) -> Path | None:
+    """Where `tool`'s program is: on PATH, or beside the running interpreter for ruff, bandit and
+    mypy, which a virtual environment installs there. None when the host has none."""
+    norm = tool.lower()
+    bin_name = _TOOL_BINARIES.get(norm, norm)
+    found = shutil.which(bin_name)
+    if not found and norm in ("ruff", "bandit", "mypy"):
+        candidate = Path(sys.executable).parent / bin_name
+        found = str(candidate) if candidate.is_file() else None
+    return Path(found).resolve() if found else None
+
+
+def resolve_tool_version_and_sha(tool: str) -> tuple[str, str]:
     """Resolve installed version and binary SHA-256 for `tool`."""
     norm = tool.lower()
     locked = _load_locked_tool_versions()
@@ -397,14 +410,8 @@ def _resolve_tool_version_and_sha(tool: str) -> tuple[str, str]:
         except importlib.metadata.PackageNotFoundError:
             version = "unknown"
 
-    bin_name = _TOOL_BINARIES.get(norm, norm)
-    which_path = shutil.which(bin_name)
-    if not which_path and norm in ("ruff", "bandit", "mypy"):
-        candidate = Path(sys.executable).parent / bin_name
-        if candidate.is_file():
-            which_path = str(candidate)
-    binary_sha = _hash_binary_path(str(Path(which_path).resolve())) if which_path else "unavailable"
-    return version, binary_sha
+    binary = resolve_tool_binary(norm)
+    return version, _hash_binary_path(str(binary)) if binary else "unavailable"
 
 
 def _default_ruleset_digest(tool: str) -> str:
@@ -415,16 +422,7 @@ def _default_ruleset_digest(tool: str) -> str:
 
 
 def _build_semgrep_canary_cmd(_workdir: Path, _lang_ver: str) -> list[str]:
-    return [
-        BIN_SEMGREP,
-        "scan",
-        "--json",
-        "--quiet",
-        "--metrics=off",
-        "--config",
-        "semgrep_probes.yaml",
-        "canary.py",
-    ]
+    return build_semgrep_cmd(["canary.py"], ["semgrep_probes.yaml"])
 
 
 def _build_ruff_canary_cmd(_workdir: Path, lang_ver: str) -> list[str]:
@@ -572,7 +570,7 @@ def run_tool_canary(
 ) -> CanaryResult:
     """Run the canary for `tool` once per `(tool, version, binary_sha, language_version, ruleset_digest)`."""
     norm = tool.lower()
-    det_ver, det_sha = _resolve_tool_version_and_sha(norm)
+    det_ver, det_sha = resolve_tool_version_and_sha(norm)
     eff_ver = version if version is not None else det_ver
     eff_sha = binary_sha if binary_sha is not None else det_sha
     eff_lang = language_version or "default"
@@ -616,5 +614,7 @@ __all__ = [
     "resolve_mypy_python_version",
     "resolve_review_kubernetes_version",
     "resolve_ruff_target_version",
+    "resolve_tool_binary",
+    "resolve_tool_version_and_sha",
     "run_tool_canary",
 ]

@@ -82,19 +82,16 @@ def compute_category_metrics(
 
 def collect_historical_category_metrics(
     reviews_dir: Path | None = None,
-    exclude: Path | None = None,
 ) -> tuple[dict[str, CategoryMetric], ReviewHistory]:
     """Aggregate per-category metrics over every finding raised by the sessions history counts.
-
-    `exclude`, the session being compared, is left out before repeats of a subject collapse.
 
     Returns:
         (category_metrics, history)
     """
     from devops_cli.ai.review.history import load_review_history
-    from devops_cli.ai.review.review_environment import _get_reviews_base_dir
+    from devops_cli.review.session import ReviewSessionStore
 
-    history = load_review_history(reviews_dir or _get_reviews_base_dir(), exclude=exclude)
+    history = load_review_history(reviews_dir or ReviewSessionStore.root())
     raised = [f for session in history.counted for f in session.raised]
     return compute_category_metrics(raised), history
 
@@ -102,17 +99,16 @@ def collect_historical_category_metrics(
 def format_category_baseline_markdown(
     session_findings: Sequence[Finding | SavedFinding],
     reviews_dir: Path | None = None,
-    exclude: Path | None = None,
 ) -> list[str]:
     """Render Markdown section comparing session category false-positive rates to historical baseline.
 
-    `exclude` is the current session's directory, which the pipeline writes before the report.
+    The current session is not published while its report is built, so it is not in the history.
     """
     session_metrics = compute_category_metrics(session_findings)
     if not session_metrics:
         return []
 
-    hist_metrics, history = collect_historical_category_metrics(reviews_dir, exclude)
+    hist_metrics, history = collect_historical_category_metrics(reviews_dir)
 
     lines = [
         "## Category Verification & False-Positive Baseline",

@@ -270,7 +270,7 @@ class LibraryVectorStore:
         if self.valkey_client is None:
             return
         try:
-            self.valkey_client.set(key, payload_json, ttl=DEFAULT_VALKEY_SYMBOL_TTL_SECONDS)
+            self.valkey_client.set(key, payload_json, ex=DEFAULT_VALKEY_SYMBOL_TTL_SECONDS)
         except Exception as exc:
             logger.debug("Failed to cache symbol '%s' in Valkey: %s", key, exc)
 

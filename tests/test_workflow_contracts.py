@@ -8,7 +8,9 @@ risks from inline expressions inside run blocks are eliminated.
 from __future__ import annotations
 
 import copy
+import os
 import re
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -64,6 +66,86 @@ def _assert_attest_build_provenance_contract(workflow: dict[str, Any]) -> None:
         assert not has_digest or has_name, (
             f"attest-build-provenance in job '{job_id}' has subject-digest without subject-name"
         )
+
+
+def _git(repo: Path, *args: str) -> str:
+    """Run git in `repo` and return its output; a failure raises."""
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _commit_in_a_clone(tmp_path: Path) -> tuple[Path, str, str]:
+    """A clone of a bare origin with two commits, both pushed: the repository, its first commit
+    and its second."""
+    origin = tmp_path / "origin.git"
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    _git(repo, "config", "user.name", "Test")
+    _git(repo, "config", "user.email", "test@example.com")
+    shas = []
+    for number in (1, 2):
+        (repo / "version.txt").write_text(f"{number}\n", encoding="utf-8")
+        _git(repo, "add", "version.txt")
+        _git(repo, "commit", "-q", "-m", f"commit {number}")
+        shas.append(_git(repo, "rev-parse", "HEAD"))
+    _git(repo, "push", "-q", "origin", "HEAD")
+    return repo, shas[0], shas[1]
+
+
+def _run_tag_step(repo: Path, tag: str, published_sha: str) -> subprocess.CompletedProcess[str]:
+    """Run the release job's tag step script for `tag`, publishing `published_sha`."""
+    steps = _load_workflow(RELEASE_PATH)["jobs"]["release"]["steps"]
+    script = next(s for s in steps if s.get("name", "").startswith("Create Git Tag"))["run"]
+    env = {**os.environ, "TAG": tag, "TITLE": tag, "GITHUB_SHA": published_sha}
+    return subprocess.run(
+        ["bash", "-e", "-c", script], cwd=repo, env=env, capture_output=True, text=True, check=False
+    )
+
+
+@pytest.mark.live("bash")
+def test_the_release_tags_the_commit_it_publishes(tmp_path: Path) -> None:
+    """With no tag for the version, the tag step creates it on the published commit and pushes
+    it."""
+    repo, _first, second = _commit_in_a_clone(tmp_path)
+
+    done = _run_tag_step(repo, "v0.2.38", second)
+
+    assert (done.returncode, _git(repo, "ls-remote", "origin", "refs/tags/v0.2.38").split()[0]) == (
+        0,
+        _git(repo, "rev-parse", "v0.2.38"),
+    )
+
+
+@pytest.mark.live("bash")
+def test_a_tag_already_on_the_published_commit_is_kept(tmp_path: Path) -> None:
+    """A rerun of the same release finds the tag on its commit, and the step goes on."""
+    repo, _first, second = _commit_in_a_clone(tmp_path)
+    _git(repo, "tag", "-a", "v0.2.38", "-m", "v0.2.38", second)
+
+    done = _run_tag_step(repo, "v0.2.38", second)
+
+    assert (done.returncode, "already exists" in done.stdout) == (0, True)
+
+
+@pytest.mark.live("bash")
+def test_a_tag_on_another_commit_stops_the_release_naming_both(tmp_path: Path) -> None:
+    """A version already tagged on another commit is not published again. This is a push to main
+    whose pyproject still holds the last release's version: the step fails, naming both commits,
+    before the release, its assets or the images are touched (#1805)."""
+    repo, first, second = _commit_in_a_clone(tmp_path)
+    _git(repo, "tag", "-a", "v0.2.37", "-m", "v0.2.37", first)
+    _git(repo, "push", "-q", "origin", "v0.2.37")
+
+    done = _run_tag_step(repo, "v0.2.37", second)
+
+    assert (
+        done.returncode != 0,
+        first in done.stdout + done.stderr,
+        second in done.stdout + done.stderr,
+        _git(repo, "rev-parse", "v0.2.37^{commit}"),
+    ) == (True, True, True, first)
 
 
 def test_release_workflow_attest_build_provenance_contract() -> None:
@@ -381,4 +463,230 @@ def test_workflow_contract_fail_to_pass() -> None:
         False,
         True,
         [None, None],
+    )
+
+
+# ── The OpenSpec gate's workflows (#1844) ─────────────────────────────────────
+
+
+def _steps(workflow: Path, job: str) -> list[dict[str, Any]]:
+    """The steps of `job` in the workflow file `workflow`."""
+    loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    return list(loaded["jobs"][job]["steps"])
+
+
+SETUP_NODE = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1"
+
+
+def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() -> None:
+    """`setup-node` is pinned by the commit of v7.1.0 and reads `.node-version`, the install step
+    follows it, and both come before the gate that runs the openspec row; the checkout is the
+    default shallow one, since the gate reads no git history."""
+    steps = _steps(WORKFLOWS_DIR / "ci.yml", "static")
+    names = [step.get("name") for step in steps]
+    node, install = (steps[names.index(name)] for name in ("Set up Node.js", "Install OpenSpec"))
+    checkout = steps[names.index("Check out repository")]
+    assert (
+        node["uses"].split(" ")[0],
+        node["with"],
+        install["run"].splitlines(),
+        names.index("Set up Node.js") < names.index("Install OpenSpec"),
+        names.index("Install OpenSpec") < names.index("Static Analysis Quality Gate"),
+        "fetch-depth" in checkout["with"],
+    ) == (
+        SETUP_NODE,
+        {"node-version-file": ".node-version"},
+        [
+            'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
+            "uv run devops install-tools --tool openspec --only-missing",
+        ],
+        True,
+        True,
+        False,
+    )
+
+
+def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() -> None:
+    """GitHub runs the `copilot-setup-steps` job from the default branch before the Copilot cloud
+    agent starts. The file is written by hand, since `openspec init --copilot-cloud` writes a
+    workflow that runs an unpinned checkout and `npm install -g`: here every action is pinned
+    (the workflow contract tests check each), nothing installs globally, and the job asks for
+    no more than to read the repository."""
+    path = WORKFLOWS_DIR / "copilot-setup-steps.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["copilot-setup-steps"]
+    scripts = [str(step["run"]) for step in job["steps"] if "run" in step]
+
+    assert (
+        workflow["env"],
+        job["permissions"],
+        [step.get("uses", "").split(" ")[0] for step in job["steps"]][2:3],
+        job["steps"][2]["with"],
+        [line for script in scripts for line in script.splitlines()],
+    ) == (
+        {
+            "DO_NOT_TRACK": "1",
+            "OPENSPEC_TELEMETRY": "0",
+            "OPENSPEC_NO_UPDATE_CHECK": "1",
+            "UV_MANAGED_PYTHON": "1",
+        },
+        {"contents": "read"},
+        [SETUP_NODE],
+        {"node-version-file": ".node-version"},
+        [
+            'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
+            "uv run devops install-tools --tool openspec --only-missing",
+        ],
+    )
+    code = "\n".join(
+        line for line in path.read_text(encoding="utf-8").splitlines() if not line.startswith("#")
+    )
+    assert ("npm install -g" in code, "--copilot-cloud" in code) == (False, False)
+
+
+# ── The devcontainer image build (#1895) ─────────────────────────────────────
+
+DEVCONTAINER_ACTIONS_DIR = GITHUB_DIR / "actions"
+
+
+def _composite_steps(name: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """A composite action of this repository, and each of its steps as the fields it sets."""
+    action = _load_workflow(DEVCONTAINER_ACTIONS_DIR / name / "action.yml")
+    fields = ("name", "uses", "with", "env", "run")
+    return action, [
+        {field: step[field] for field in fields if field in step}
+        for step in action["runs"]["steps"]
+    ]
+
+
+def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli() -> None:
+    """The action builds .devcontainer/devcontainer.json with the Dev Containers CLI that the tools
+    lock pins, so the Dev Container Features and the user vscode are in the image, for both
+    platforms, pushed by digest. The labels, the SBOM, the provenance and the metadata file that
+    holds the digest reach buildx through `build.options`, which the CLI passes on for a
+    Dockerfile configuration where `--label` does nothing (devcontainers/cli#930). The action
+    writes no GITHUB_PATH, so it changes nothing for its caller's later steps."""
+    action, steps = _composite_steps("devcontainer-image")
+    cli = load_tools_lock().npm["devcontainers-cli"]
+
+    assert ((cli.version, cli.bin), action["outputs"], steps) == (
+        ("0.89.0", "devcontainer"),
+        {
+            "digest": {
+                "description": "Digest of the pushed image index.",
+                "value": "${{ steps.build.outputs.digest }}",
+            }
+        },
+        [
+            {
+                "name": "Set up QEMU",
+                "uses": "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1",
+            },
+            {
+                "name": "Set up Docker Buildx",
+                "uses": "docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069",
+                "with": {"driver-opts": "network=host"},
+            },
+            {
+                "name": "Set up Node.js",
+                "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "with": {"node-version-file": ".node-version"},
+            },
+            {
+                "name": "Install the Dev Containers CLI",
+                "run": "uv run devops install-tools --tool devcontainers-cli --only-missing",
+            },
+            {
+                "name": "Write the build configuration",
+                "env": {"LABELS": "${{ inputs.labels }}"},
+                "run": "set -euo pipefail\n"
+                'jq --arg labels "$LABELS" --arg metadata '
+                '"$RUNNER_TEMP/devcontainer-build-metadata.json" \'\n'
+                "  .build.options = (.build.options // [])\n"
+                '    + [$labels | split("\\n")[] | select(length > 0) | ("--label", .)]\n'
+                '    + ["--sbom=true", "--provenance=mode=max", "--metadata-file", $metadata]\n'
+                "' .devcontainer/devcontainer.json > .devcontainer/devcontainer.build.json\n",
+            },
+            {
+                "name": "Build the image with its features and push it by digest",
+                "env": {
+                    "IMAGE": "${{ inputs.image }}",
+                    "CACHE_FROM": "${{ inputs.cache-from }}",
+                    "CACHE_TO": "${{ inputs.cache-to }}",
+                },
+                "run": "set -euo pipefail\n"
+                'export PATH="$HOME/.local/bin:$PATH"\n'
+                "CACHE_ARGS=()\n"
+                'if [ -n "$CACHE_FROM" ]; then CACHE_ARGS+=(--cache-from "$CACHE_FROM"); fi\n'
+                'if [ -n "$CACHE_TO" ]; then CACHE_ARGS+=(--cache-to "$CACHE_TO"); fi\n'
+                "devcontainer build \\\n"
+                "  --workspace-folder . \\\n"
+                "  --config .devcontainer/devcontainer.build.json \\\n"
+                "  --frozen-lockfile \\\n"
+                '  --image-name "$IMAGE" \\\n'
+                "  --platform linux/amd64,linux/arm64 \\\n"
+                "  --output type=image,push-by-digest=true,name-canonical=true,push=true \\\n"
+                '  "${CACHE_ARGS[@]}"\n'
+                'echo "digest=$(jq -er \'."containerimage.digest"\' '
+                '"$RUNNER_TEMP/devcontainer-build-metadata.json")" >> "$GITHUB_OUTPUT"\n',
+            },
+            {"name": "Free the builder's disk space", "run": "docker buildx prune --all --force"},
+        ],
+    )
+
+
+def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> None:
+    """A child repository that names only the image must open as vscode through the image's
+    devcontainer.metadata label, and each platform must run as vscode, uid and gid 1000, with a
+    command from each Dev Container Feature on its path (#1895). Each platform runs by its own
+    manifest digest, because the classic image store holds one image for each repository@digest
+    and refuses a second platform of the index digest (#<issue>)."""
+    action, steps = _composite_steps("devcontainer-smoke")
+
+    assert (action["inputs"], steps) == (
+        {
+            "image-ref": {
+                "description": "The image to start, as repository@digest.",
+                "required": True,
+            }
+        },
+        [
+            {
+                "name": "Set up QEMU",
+                "uses": "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1",
+            },
+            {
+                "name": "Set up Node.js",
+                "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "with": {"node-version-file": ".node-version"},
+            },
+            {
+                "name": "Install the Dev Containers CLI",
+                "run": "uv run devops install-tools --tool devcontainers-cli --only-missing",
+            },
+            {
+                "name": "Start the image as its remote user",
+                "env": {"REF": "${{ inputs.image-ref }}"},
+                "run": "set -euo pipefail\n"
+                'export PATH="$HOME/.local/bin:$PATH"\n'
+                'CHILD="$RUNNER_TEMP/devcontainer-child"\n'
+                'mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"\n'
+                "jq -n --arg image \"$REF\" '{image: $image, updateRemoteUserUID: false}' > "
+                '"$CHILD/.devcontainer/devcontainer.json"\n'
+                'devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null\n'
+                'test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode\n'
+                'INDEX="$(docker buildx imagetools inspect --raw "$REF")"\n'
+                "for PLATFORM in linux/amd64 linux/arm64; do\n"
+                '  DIGEST="$(jq -er --arg os "${PLATFORM%/*}" --arg arch "${PLATFORM#*/}" '
+                "'first(.manifests[] | select(.platform.os == $os and .platform.architecture == "
+                '$arch) | .digest)\' <<< "$INDEX")"\n'
+                '  docker run --rm --platform "$PLATFORM" --user vscode "${REF%@*}@$DIGEST" sh -ec \'\n'
+                '    test "$(id -u):$(id -g)" = 1000:1000\n'
+                "    for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do\n"
+                '      command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }\n'
+                "    done\n"
+                "    devops --version > /dev/null'\n"
+                "done\n",
+            },
+        ],
     )

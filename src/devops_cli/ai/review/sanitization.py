@@ -27,12 +27,6 @@ def _truncate_for_prompt(
     return budgeted_text
 
 
-def _sanitize_filename(path: str) -> str:
-    """Sanitize relative file path to safe JSON filename."""
-    clean = path.replace("/", "_").replace("\\", "_").replace(":", "_").replace(".", "_")
-    return clean.strip("_")
-
-
 def balance_markdown_fences(text: str) -> tuple[str, bool]:
     """Inspect line-start code fence delimiters and ensure any unclosed code block is closed.
 

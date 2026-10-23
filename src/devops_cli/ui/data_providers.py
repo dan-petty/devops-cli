@@ -24,12 +24,11 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_PORT,
 )
-from devops_cli.config.settings import load_settings
-from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
-from devops_cli.core.repo import resolve_review_data_path
+from devops_cli.config.settings import get_valkey_password, load_settings
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.k8s.service_http import describe_endpoint
 from devops_cli.models.k8s import PodEventInfo, PodInfo, node_is_ready
+from devops_cli.review.session import ReviewSessionStore
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.valkey.client import ValkeyClient
@@ -99,18 +98,11 @@ class ReviewSessionInfo(BaseModel):
 
     name: str
     completed: bool = False
-    finding_count: int = 0
 
 
 class ReviewSummary(BaseModel):
     """AI code review session and findings summary."""
 
-    # Sessions newest first, so the panel can offer selection without re-sorting.
-    sessions: list[ReviewSessionInfo] = Field(default_factory=list)
-    # Sessions that created a directory but never wrote findings.json. A session writes
-    # no running-marker, so one that is still in progress is indistinguishable on disk from
-    # one that was abandoned; calling them "incomplete" claims only what can be observed.
-    incomplete: list[str] = Field(default_factory=list)
     has_session: bool = False
     session_name: str = ""
     total_findings: int = 0
@@ -495,108 +487,56 @@ def fetch_telemetry_status() -> TelemetrySummary:
         return fallback.model_copy(update={"error_message": f"{base_url}: {exc}"})
 
 
-def _reviews_root() -> Path | None:
-    """Resolve the directory holding review sessions: a relative data directory is under the
-    review data root, where a review writes them (`resolve_review_data_path`, #972)."""
-    raw_data_dir = os.getenv("DEVOPS_CLI_DATA_DIR")
-    if not raw_data_dir:
-        try:
-            raw_data_dir = str(load_settings().data.dir)
-        except Exception as exc:
-            logger.debug("Failed loading settings for data.dir: %s", exc)
-            raw_data_dir = "./.data"
-    try:
-        validate_no_path_traversal(raw_data_dir, label="DEVOPS_CLI_DATA_DIR")
-        data_path = resolve_review_data_path(Path(raw_data_dir)).resolve()
-        if is_forbidden_system_path(data_path):
-            return None
-    except (DevOpsCLIError, OSError, ValueError) as exc:
-        logger.warning("Invalid review data directory %s: %s", raw_data_dir, exc)
-        return None
-    reviews_dir = data_path / "reviews"
-    return reviews_dir if reviews_dir.exists() and reviews_dir.is_dir() else None
+def _listed_sessions() -> list[tuple[ReviewSessionInfo, Path]]:
+    """Each review session, newest first, with the directory it is read from.
 
-
-def _count_findings(findings_file: Path) -> int:
-    """Count findings in a session file without raising on a malformed one."""
-    try:
-        data = json.loads(findings_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.debug("Unreadable findings file %s: %s", findings_file, exc)
-        return 0
-    findings = data.get("findings") if isinstance(data, dict) else None
-    return len(findings) if isinstance(findings, list) else 0
-
-
-def list_review_sessions() -> list[ReviewSessionInfo]:
-    """List review sessions newest first, recording which ones actually completed.
-
-    Session names are timestamps, so a reverse lexical sort is a reverse chronological one.
+    The published sessions are read from their own, the ones a review is still writing from
+    staging. A refused or missing directory lists none: a settings file the schema refuses raises
+    a `ValidationError`, a `ValueError`, which is answered as a refused directory is.
     """
-    reviews_dir = _reviews_root()
-    if reviews_dir is None:
-        return []
-
-    sessions: list[ReviewSessionInfo] = []
-    for directory in sorted(reviews_dir.iterdir(), key=lambda d: d.name, reverse=True):
-        if not directory.is_dir():
-            continue
-        findings_file = directory / "findings.json"
-        completed = findings_file.is_file()
-        sessions.append(
-            ReviewSessionInfo(
-                name=directory.name,
-                completed=completed,
-                finding_count=_count_findings(findings_file) if completed else 0,
+    try:
+        published = [
+            (
+                ReviewSessionInfo(name=session.name, completed=True),
+                session.directory,
             )
-        )
-    return sessions
+            for session in ReviewSessionStore.sessions()
+        ]
+        running = [
+            (ReviewSessionInfo(name=session.name), session.staging)
+            for session in ReviewSessionStore.in_flight()
+        ]
+    except (DevOpsCLIError, OSError, ValueError) as exc:
+        logger.warning("Invalid review data directory: %s", exc)
+        return []
+    return sorted(published + running, key=lambda listed: listed[0].name, reverse=True)
 
 
-def _get_latest_review_session_dir(session: str | None = None) -> Path | None:
-    """Resolve the session directory to display.
+def _get_latest_review_session_dir() -> Path | None:
+    """Resolve the session directory to display: the newest **completed** session.
 
-    Defaults to the newest **completed** session. A review that is still running creates its
-    directory immediately but writes findings.json only at the end, so taking the newest
-    directory showed an empty in-flight session as the latest result and hid the last real
-    one behind it.
+    A review that is still running writes into staging and is published only at the end, so
+    taking the newest session showed an empty in-flight one as the latest result and hid the
+    last real one behind it.
     """
-    reviews_dir = _reviews_root()
-    if reviews_dir is None:
-        return None
-
-    if session:
-        # A name chosen from the session list, so it is matched as a name rather than
-        # interpreted as a path.
-        candidate = reviews_dir / Path(session).name
-        return candidate if candidate.is_dir() else None
-
-    sessions = list_review_sessions()
-    completed = [info for info in sessions if info.completed]
-    if completed:
-        return reviews_dir / completed[0].name
-    # Nothing has completed yet. Showing the in-flight session beats showing nothing, and
+    listed = _listed_sessions()
+    # With nothing completed yet, showing the in-flight session beats showing nothing, and
     # the summary reports that it is still running.
-    return reviews_dir / sessions[0].name if sessions else None
+    return next(
+        (directory for info, directory in listed if info.completed),
+        listed[0][1] if listed else None,
+    )
 
 
-def fetch_review_status(session: str | None = None) -> ReviewSummary:
-    """Summarise a review session, defaulting to the newest completed one."""
-    sessions = list_review_sessions()
-    incomplete = [info.name for info in sessions if not info.completed]
-
-    session_dir = _get_latest_review_session_dir(session)
+def fetch_review_status() -> ReviewSummary:
+    """Summarise the newest completed review session."""
+    session_dir = _get_latest_review_session_dir()
     if not session_dir:
-        return ReviewSummary(has_session=False, sessions=sessions, incomplete=incomplete)
+        return ReviewSummary(has_session=False)
 
     findings_file = session_dir / "findings.json"
     if not (findings_file.exists() and findings_file.is_file()):
-        return ReviewSummary(
-            has_session=True,
-            session_name=session_dir.name,
-            sessions=sessions,
-            incomplete=incomplete,
-        )
+        return ReviewSummary(has_session=True, session_name=session_dir.name)
 
     try:
         data = json.loads(findings_file.read_text(encoding="utf-8"))
@@ -614,8 +554,6 @@ def fetch_review_status(session: str | None = None) -> ReviewSummary:
         return ReviewSummary(
             has_session=True,
             session_name=session_dir.name,
-            sessions=sessions,
-            incomplete=incomplete,
             total_findings=len(raw_findings),
             verified_count=verified_count,
             unverified_count=unverified_count,
@@ -637,23 +575,14 @@ def fetch_valkey_status() -> ValkeySummary:
         client = ValkeyClient(
             host=endpoint,
             port=int(getattr(cfg, "port", DEFAULT_VALKEY_PORT)),
-            password=getattr(cfg, "password", None),
+            password=get_valkey_password(settings),
             db=int(getattr(cfg, "db", 0)),
             timeout=DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
         )
         endpoint = f"{client.host}:{client.port}"
         info = client.info()
-        server_raw = info.get("server")
-        server_dict: dict[str, Any] = server_raw if isinstance(server_raw, dict) else {}
-        clients_raw = info.get("clients")
-        clients_dict: dict[str, Any] = clients_raw if isinstance(clients_raw, dict) else {}
-        memory_raw = info.get("memory")
-        memory_dict: dict[str, Any] = memory_raw if isinstance(memory_raw, dict) else {}
-        stats_raw = info.get("stats")
-        stats_dict: dict[str, Any] = stats_raw if isinstance(stats_raw, dict) else {}
-
-        hits = float(stats_dict.get("keyspace_hits", 0))
-        misses = float(stats_dict.get("keyspace_misses", 0))
+        hits = float(info.get("keyspace_hits", 0))
+        misses = float(info.get("keyspace_misses", 0))
         total_queries = hits + misses
         hit_ratio = round((hits / total_queries) * 100.0, 1) if total_queries > 0 else 0.0
 
@@ -666,12 +595,12 @@ def fetch_valkey_status() -> ValkeySummary:
         return ValkeySummary(
             connected=True,
             endpoint=endpoint,
-            version=str(server_dict.get("valkey_version", "unknown")),
-            uptime_seconds=int(server_dict.get("uptime_in_seconds", 0)),
-            used_memory=str(memory_dict.get("used_memory_human", "0M")),
+            version=str(info.get("valkey_version", "unknown")),
+            uptime_seconds=int(info.get("uptime_in_seconds", 0)),
+            used_memory=str(info.get("used_memory_human", "0M")),
             hit_ratio=hit_ratio,
-            connected_clients=int(clients_dict.get("connected_clients", 0)),
-            total_commands=int(stats_dict.get("total_commands_processed", 0)),
+            connected_clients=int(info.get("connected_clients", 0)),
+            total_commands=int(info.get("total_commands_processed", 0)),
             key_count=key_count,
         )
     except Exception as exc:

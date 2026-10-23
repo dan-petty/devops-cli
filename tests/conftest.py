@@ -38,6 +38,7 @@ import typer.rich_utils
 
 if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
+    from devops_cli.review.session import ReviewSessionStore
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
     from tests.support.fakes.model import ModelFake
@@ -80,30 +81,18 @@ def isolate_kubeconfig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Non
             os.environ["KUBECONFIG"] = previous
 
 
-@pytest.fixture(autouse=True, scope="session")
-def register_test_mock_provider():
-    """Register test MockProvider for unit testing."""
-    from devops_cli.ai.providers import register_provider
-    from tests.mock_provider import MockProvider
-
-    register_provider("mock", MockProvider)
-
-
 _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.benchmark.document_chunker": ("reset_document_chunker_cache",),
     "devops_cli.ai.benchmark.embedding_tasks": ("reset_embedding_tasks_cache",),
     "devops_cli.ai.client.factory": ("reset_llm_client_override",),
     "devops_cli.ai.client.network": ("reset_ollama_slots",),
-    "devops_cli.ai.concurrency": ("reset_shared_limiters",),
     "devops_cli.ai.context_budget": ("reset_tiktoken_encoding_cache",),
     "devops_cli.ai.gateway": ("clear_gateway_reasoning_cache",),
-    "devops_cli.ai.harness.compaction": ("reset_overflow_memory_fallback",),
     "devops_cli.ai.kb": ("reset_uv_lock_cache",),
     "devops_cli.ai.mcp.dispatcher": ("reset_mcp_dispatcher",),
     "devops_cli.ai.mcp.generator": ("reset_click_command_cache",),
     "devops_cli.ai.mcp.server": ("reset_hydrated_domains",),
     "devops_cli.ai.personas": ("reset_persona_caches",),
-    "devops_cli.ai.providers": ("reset_providers",),
     "devops_cli.ai.rag.embeddings": ("reset_model_dimension_cache",),
     "devops_cli.ai.rag.investigator": ("clear_investigation_cache",),
     "devops_cli.ai.rag.kb_sync": ("reset_kb_sync_state",),
@@ -111,7 +100,6 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.response_cache": ("reset_llm_response_cache",),
     "devops_cli.ai.spend.ledger": ("reset_spend_ledger",),
     "devops_cli.ai.spend.pricing": ("reset_pricing_registry",),
-    "devops_cli.cache.tiered": ("reset_cache",),
     "devops_cli.commands.vault": ("reset_lease_registry",),
     "devops_cli.config.metadata": ("reset_project_metadata_cache",),
     "devops_cli.config.settings": ("reset_settings_cache", "clear_ephemeral_ci_secrets"),
@@ -149,7 +137,6 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.telemetry.logfire": ("reset_logfire_bridge",),
     "devops_cli.telemetry.tracer": ("clear_span_buffer", "reset_tracer"),
     "devops_cli.tools_lock": ("reset_tools_lock_cache",),
-    "devops_cli.valkey.pool": ("reset_pool",),
 }
 
 
@@ -167,11 +154,6 @@ def _reset_loaded_process_state() -> None:
                     break
             if callable(target):
                 target()
-    providers_module = sys.modules.get("devops_cli.ai.providers")
-    if providers_module is not None:
-        from tests.mock_provider import MockProvider
-
-        providers_module.register_provider("mock", MockProvider)
 
 
 @pytest.fixture(autouse=True)
@@ -792,6 +774,17 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
     reset_settings_cache()
 
 
+@pytest.fixture
+def review_store(isolate_data_dir: Path) -> type[ReviewSessionStore]:
+    """The review session store, rooted in the test's own data directory with its root created
+    (#771). Naming `ReviewSessionStore.root()` creates nothing, as a review that has not yet
+    written a session finds it, so a test that lists or searches sessions asks for the store."""
+    from devops_cli.review.session import ReviewSessionStore
+
+    ReviewSessionStore.root().mkdir(parents=True)
+    return ReviewSessionStore
+
+
 @pytest.fixture(autouse=True)
 def isolate_user_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Keep the user-level data root, where a review's relative data paths resolve (#972) and
@@ -1191,17 +1184,14 @@ def symbol_removal_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
 
 @pytest.fixture
 def write_review_session() -> Callable[..., Path]:
-    """Write a completed review session as the pipeline lays one out: findings.json, plus
+    """Write a published review session as the pipeline lays one out: findings.json, plus
     candidates.json and a profile.json naming `target` when they are given.
 
     Review history, baseline and stats tests share it.
     """
     from devops_cli.ai.review.profile import ReviewProfile
     from devops_cli.ai.review_schema import ReviewSessionPayload
-    from devops_cli.config.constants import (
-        CONST_REVIEW_CANDIDATES_FILENAME,
-        CONST_REVIEW_FINDINGS_FILENAME,
-    )
+    from devops_cli.review.session import ReviewSession
 
     def write(
         session_dir: Path,
@@ -1212,22 +1202,19 @@ def write_review_session() -> Callable[..., Path]:
         candidates: Sequence[Any] | None = None,
         target: str | None = None,
     ) -> Path:
-        session_dir.mkdir(parents=True)
-        files = (
-            (CONST_REVIEW_FINDINGS_FILENAME, findings),
-            (CONST_REVIEW_CANDIDATES_FILENAME, candidates),
-        )
-        for name, saved in files:
-            if saved is not None:
-                payload = ReviewSessionPayload(
-                    generated_at=generated_at,
-                    subject=subject or {},
-                    findings=list(saved),
-                )
-                (session_dir / name).write_text(payload.model_dump_json(), encoding="utf-8")
+        session = ReviewSession(session_dir)
+
+        def payload(saved: Sequence[Any]) -> ReviewSessionPayload:
+            return ReviewSessionPayload(
+                generated_at=generated_at, subject=subject or {}, findings=list(saved)
+            )
+
+        session.write_findings(payload(findings))
+        if candidates is not None:
+            session.write_raised(payload(candidates))
         if target is not None:
-            ReviewProfile(session_id=session_dir.name, target=target).write(session_dir)
-        return session_dir
+            session.write_profile(ReviewProfile(session_id=session_dir.name, target=target))
+        return session.publish()
 
     return write
 

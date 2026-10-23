@@ -348,12 +348,31 @@ def scan_gitleaks(target: str = ".") -> str:
 
 
 def scan_semgrep(target: str = ".", config: str = DEFAULT_SEMGREP_CONFIG) -> str:
-    """Run Semgrep multilingual static AST pattern matching scan."""
+    """Run Semgrep multilingual static AST pattern matching scan.
+
+    A registry ruleset such as `p/default` is read from the cache `devops review rules fetch`
+    writes: the scan reaches no registry, runs from the cache directory so that rule ids are
+    plain, and with no cache it names the fetch command (#1144).
+    """
+    from devops_cli.security.semgrep import rules_configs, semgrep_scan_command
+    from devops_cli.security.semgrep_registry import (
+        cached_ruleset,
+        is_registry_id,
+        warn_of_old_cache,
+    )
+
+    from_registry = is_registry_id(config)
+    ruleset = cached_ruleset(config) if from_registry else None
+    if ruleset is not None:
+        warn_of_old_cache(config, ruleset)
+    elif from_registry:
+        return MESSAGES.review.registry_not_cached.format(ruleset=config)
     return _run_workspace_security_scan(
         target,
-        lambda p: ["semgrep", "scan", "--json", "--config", config, str(p)],
+        lambda p: semgrep_scan_command([p], rules_configs(config, ruleset)),
         fallback_msg="No AST code pattern flaws detected by Semgrep.",
         missing_tool_name="semgrep",
+        cwd=ruleset.path.parent if ruleset else None,
     )
 
 
