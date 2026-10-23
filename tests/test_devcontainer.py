@@ -1975,17 +1975,23 @@ def test_an_abandoned_prompt_ends_its_line_before_the_next_message(
 
 
 def test_the_password_prompt_gives_up_after_its_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A lifecycle pty nobody types into would otherwise block post-start forever."""
+    """A lifecycle pty nobody types into would otherwise block post-start forever.
+
+    The prompt answers only after the handoff bound, far past the 1 s timeout. A prompt that did
+    not give up would return the answer, and no TimeoutError would come, so the test reads no
+    clock (#1902).
+    """
     import time
 
     from devops_cli.commands.devcontainer import _read_password
+    from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
-    monkeypatch.setattr("getpass.getpass", lambda prompt="": time.sleep(5) or "late")
+    monkeypatch.setattr(
+        "getpass.getpass", lambda prompt="": time.sleep(THREAD_HANDOFF_BOUND_SECONDS) or "late"
+    )
 
-    start = time.monotonic()
     with pytest.raises(TimeoutError):
         _read_password("Keyring password: ", timeout=1)
-    assert time.monotonic() - start < 3
 
 
 def test_post_start_asks_for_the_keyring_password_on_a_terminal(

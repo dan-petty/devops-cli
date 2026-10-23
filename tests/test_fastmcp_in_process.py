@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -118,16 +117,16 @@ def test_resource_subscription_manager() -> None:
 
 
 def test_in_process_dispatcher_typer_dispatch() -> None:
-    """Verify in-process execution via Typer CliRunner and execution latency."""
+    """Verify in-process execution via Typer CliRunner.
+
+    The hermetic floor refuses to start `devops` as a process, so the output shows that the
+    command ran in this process. The test reads no clock (#1902).
+    """
     dispatcher = InProcessDispatcher()
 
-    # Dispatch a known fast command
-    start_t = time.perf_counter()
     code, output = dispatcher.dispatch(["devops", "workspace", "-h"])
-    elapsed_ms = (time.perf_counter() - start_t) * 1000
 
     assert (code, "Usage: devops workspace" in output) == (0, True)
-    assert elapsed_ms < 10000.0, f"Runaway bound exceeded: {elapsed_ms:.2f}ms >= 10000.0ms"
 
 
 def test_in_process_dispatcher_subprocess_fallback() -> None:

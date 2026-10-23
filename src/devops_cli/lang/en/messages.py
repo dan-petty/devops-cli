@@ -955,7 +955,7 @@ class CIMessages:
     dependency_audit: str = "uv audit and npm audit"
     deptry: str = "deptry"
     deps: str = "deptry"
-    constructs: str = "ast-grep scan (hand-rolled network constructs)"
+    constructs: str = "ast-grep scan (network constructs in src, elapsed-time bounds in tests)"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     zizmor: str = "zizmor (github workflow security)"

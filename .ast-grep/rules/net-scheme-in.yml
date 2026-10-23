@@ -1,6 +1,8 @@
 id: net-scheme-in
 language: python
 severity: error
+files:
+  - "src/**"
 message: Scheme detected by substring. Read it with urllib.parse.urlsplit(value).scheme.
 rule:
   any:

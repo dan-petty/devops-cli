@@ -1,0 +1,119 @@
+id: test-elapsed-upper-bound
+language: python
+severity: error
+files:
+  - "tests/**"
+message: An assert bounds elapsed wall-clock time from above. A loaded machine makes the time longer, and the assert fails correct code.
+note: |
+  Show the behaviour without the clock (docs/TESTING.md, section Clock):
+  - Wait for the event with THREAD_HANDOFF_BOUND_SECONDS or wait_until from tests/support/waits.py.
+  - Count something that the run decides, such as the requests sent.
+  - Use the clock fixture of tests/support/fakes/clock.py and assert on its waits.
+  - An operation that does not stop fails at the pytest-timeout hang bound.
+# A clock read is a call of a function of the time or datetime module that reads the current time.
+# Elapsed time is a clock reading minus an earlier time, and it grows. Remaining time is a time
+# minus a clock reading, and it gets smaller. A reading is a clock read, or a local name bound to
+# one. The rule finds an operand of an ordering comparison in an assert that holds elapsed time
+# and is bounded from above, or that holds remaining time and is bounded from below.
+utils:
+  clock-read:
+    kind: call
+    has:
+      field: function
+      regex: '^(?:time\.)?(?:monotonic|perf_counter|process_time|thread_time|clock_gettime)(?:_ns)?$|^time\.time(?:_ns)?$|^(?:\w+\.)?datetime\.(?:now|utcnow|today)$|^(?:\w+\.)?date\.today$'
+  later-reading:
+    any:
+      - matches: clock-read
+      - all:
+          - kind: identifier
+          - pattern: $LATER
+          - inside:
+              kind: function_definition
+              stopBy: end
+              has:
+                kind: assignment
+                stopBy: end
+                all:
+                  - has: { field: left, pattern: $LATER }
+                  - has: { field: right, matches: clock-read }
+  earlier-reading:
+    any:
+      - matches: clock-read
+      - all:
+          - kind: identifier
+          - pattern: $EARLIER
+          - inside:
+              kind: function_definition
+              stopBy: end
+              has:
+                kind: assignment
+                stopBy: end
+                all:
+                  - has: { field: left, pattern: $EARLIER }
+                  - has: { field: right, matches: clock-read }
+  elapsed:
+    kind: binary_operator
+    all:
+      - has: { field: operator, regex: '^-$' }
+      - has: { field: left, matches: later-reading }
+  remaining:
+    kind: binary_operator
+    all:
+      - has: { field: operator, regex: '^-$' }
+      - has: { field: right, matches: earlier-reading }
+      - has: { field: left, not: { matches: later-reading } }
+  holds-elapsed:
+    any:
+      - matches: elapsed
+      - has: { matches: elapsed, stopBy: end }
+      - all:
+          - kind: identifier
+          - pattern: $ELAPSED
+          - inside:
+              kind: function_definition
+              stopBy: end
+              has:
+                kind: assignment
+                stopBy: end
+                all:
+                  - has: { field: left, pattern: $ELAPSED }
+                  - has:
+                      field: right
+                      any:
+                        - matches: elapsed
+                        - has: { matches: elapsed, stopBy: end }
+  holds-remaining:
+    any:
+      - matches: remaining
+      - has: { matches: remaining, stopBy: end }
+      - all:
+          - kind: identifier
+          - pattern: $REMAINING
+          - inside:
+              kind: function_definition
+              stopBy: end
+              has:
+                kind: assignment
+                stopBy: end
+                all:
+                  - has: { field: left, pattern: $REMAINING }
+                  - has:
+                      field: right
+                      any:
+                        - matches: remaining
+                        - has: { matches: remaining, stopBy: end }
+rule:
+  kind: comparison_operator
+  inside: { kind: assert_statement, stopBy: end }
+  has:
+    any:
+      - all:
+          - matches: holds-elapsed
+          - any:
+              - precedes: { regex: '^<=?$' }
+              - follows: { regex: '^>=?$' }
+      - all:
+          - matches: holds-remaining
+          - any:
+              - precedes: { regex: '^>=?$' }
+              - follows: { regex: '^<=?$' }

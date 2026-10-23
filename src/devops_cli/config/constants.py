@@ -3932,13 +3932,12 @@ CONST_FILE_DIRECTIVE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
     r"|(?:mypy|pyright)[^\S\n]*:|(?:pylint|bandit)[^\S\n]*:[^\S\n]*skip-file\b)",
     re.IGNORECASE,
 )
+# An ast-grep suppression comment. Its `ids` group is the comma-separated list of rule ids.
 CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
     r"(?:^|[^\S\n])#[^\S\n]*ast-grep-ignore(?:[^\S\n]*:[^\S\n]*(?P<ids>[^\n#]+))?\b",
     re.IGNORECASE,
 )
-CONST_AST_GREP_NET_RULE_ID_RE: Final[re.Pattern[str]] = re.compile(
-    r"\bnet-[a-z0-9-]+\b", re.IGNORECASE
-)
+CONST_AST_GREP_RULE_ID_SEPARATOR: Final[str] = ","
 CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "net-address-list",
     "net-bracket-affix",
@@ -3953,11 +3952,20 @@ CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "net-scheme-in",
     "net-url-build",
 )
+# The rule that holds the tests: no assert bounds elapsed wall-clock time from above (#1902).
+CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("test-elapsed-upper-bound",)
+# The trees that the `constructs` scan reads, and the `files` globs of each rule: the network
+# construct rules hold src/, and the test rules hold tests/.
+CONST_AST_GREP_SCAN_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
+CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
+    **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
+    **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
+}
 CONST_AST_GREP_SCAN_ARGS: Final[tuple[str, ...]] = (
     "scan",
     "--error=unused-suppression",
     "--error=no-suppress-all",
-    "src",
+    *CONST_AST_GREP_SCAN_ROOTS,
 )
 CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
     "socket.inet_aton",

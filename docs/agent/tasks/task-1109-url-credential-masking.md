@@ -77,7 +77,7 @@ To eliminate these vulnerabilities, standardize masking behaviors, and adhere to
 - [x] Userinfo is stripped from `served_by` across blocking and streaming paths (`test_gateway_served_by_blocking_and_streaming_strips_credentials`).
 - [x] Only `config/constants.py` and `ai/client/network.py` reference `x-litellm-model-api-base` or `CONST_AI_GATEWAY_SERVED_BY_HEADER`.
 - [x] Vault `get_status` span attribute `vault_addr` contains no credentials (`test_vault_broker_status_span_masks_credentials`).
-- [x] Free-text URL masking runs in under 1.0 second across 100 KB fixtures (`test_free_text_masking_speed`).
+- [x] Free-text URL masking finishes the 100 KB inputs that make a scan backtrack, and masks each credential in them (`test_free_text_masking_finishes_100_kb_inputs_that_make_a_scan_backtrack`). #1902 removed the bound of 1.0 second, because a loaded machine stretches it.
 - [x] Forbidden constructs (`_replace(netloc`, `partition("@")`, `https?://[^`, `://([^:]*)`) are completely eliminated from `exceptions/security.py` and `security/sanitizer.py` (`test_no_forbidden_constructs_remain`).
 - [x] `mask_uri_credentials(str(` eliminated from `src/`.
 - [x] `_sanitize_telemetry_endpoint` wrapper eliminated from `src/` and `tests/`.

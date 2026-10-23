@@ -1195,13 +1195,17 @@ async def test_a_refresh_keypress_never_blocks_on_the_providers(
     """The key that triggers a refresh must return immediately.
 
     Dispatching to workers is what keeps the keypress handler from becoming the place the
-    interface hangs, so the handler is timed rather than merely assumed to be fast.
+    interface hangs. Each provider is held until the test releases it after the handler returns.
+    A handler that called a provider would return only after the hold, with that fetch done, so
+    the test reads no clock (#1902).
     """
     release = threading.Event()
+    fetched: list[str] = []
 
     def slow_for(domain: str) -> Callable[[], Any]:
         def fetch() -> Any:
-            release.wait(timeout=10)
+            release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+            fetched.append(domain)
             return SAMPLES[domain]()
 
         return fetch
@@ -1210,12 +1214,11 @@ async def test_a_refresh_keypress_never_blocks_on_the_providers(
     app = DashboardApp(refresh_interval=0)
     try:
         async with app.run_test() as pilot:
-            started = time.monotonic()
             app.action_refresh_data()
-            elapsed = time.monotonic() - started
+            fetched_when_returned = list(fetched)
             release.set()
             await pilot.pause()
-        assert elapsed < 1.0, f"refresh blocked the UI thread for {elapsed:.2f}s"
+        assert fetched_when_returned == []
     finally:
         release.set()
 

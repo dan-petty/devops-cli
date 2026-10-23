@@ -1,6 +1,8 @@
 id: net-cidr-build
 language: python
 severity: error
+files:
+  - "src/**"
 message: CIDR built as text. Use ipaddress.ip_network(value, strict=False).with_prefixlen.
 rule:
   kind: string

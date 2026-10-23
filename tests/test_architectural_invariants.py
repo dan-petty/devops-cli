@@ -20,8 +20,10 @@ import pytest
 
 from devops_cli.config.constants import (
     CONST_AST_GREP_IGNORE_COMMENT_RE,
-    CONST_AST_GREP_NET_RULE_ID_RE,
+    CONST_AST_GREP_RULE_FILES,
+    CONST_AST_GREP_RULE_ID_SEPARATOR,
     CONST_AST_GREP_SCAN_ARGS,
+    CONST_AST_GREP_SCAN_ROOTS,
     CONST_BANNED_HAND_ROLLED_APIS,
     CONST_BLIND_EXCEPTION_TYPES,
     CONST_COMPLEXITY_CAP_ROOTS,
@@ -29,7 +31,6 @@ from devops_cli.config.constants import (
     CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
-    CONST_NET_CONSTRUCT_RULES,
     CONST_NOQA_COMMENT_RE,
     CONST_NOQA_RULE_CODE_RE,
     CONST_NOSEC_COMMENT_RE,
@@ -58,9 +59,9 @@ from devops_cli.config.constants import (
     CONST_TYPE_IGNORE_COMMENT_RE,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AST_GREP_SUPPRESSION_CEILING,
     DEFAULT_C901_SUPPRESSION_CEILING,
     DEFAULT_MAX_NESTING_DEPTH,
-    DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
     DEFAULT_SUPPRESSION_CEILINGS,
 )
 from devops_cli.core.code_metrics import measure_tree
@@ -1151,7 +1152,7 @@ def _names_rule(rule: str, code: str) -> bool:
 def _ignore_file_escapes(
     project: Path, covered: Sequence[Path], sources: Sequence[Path]
 ) -> list[str]:
-    """Report an ignore file that drops a covered source from the walk of the network construct gate.
+    """Report an ignore file that drops a covered source from the walk of the construct gate.
 
     The root `.gitignore` is the project's own and stays, so only a source it matches is an
     escape; an ignore file under a covered root, or a root `.ignore`, is one by being there.
@@ -1234,12 +1235,14 @@ def _sgconfig_escapes(project: Path) -> list[str]:
 
 
 def _rule_file_escapes(data: dict[str, Any], rid: str) -> list[str]:
-    """Check rule properties: severity must be error, and files/ignores may not be set."""
+    """Check rule properties: severity must be error, files must name the tree the rule holds,
+    and ignores may not be set (#1902)."""
     escapes: list[str] = []
     if data.get("severity") != "error":
         escapes.append(f"[{rid}] severity: {data.get('severity')}, not error")
-    if "files" in data:
-        escapes.append(f"[{rid}] files: outside the allowlist")
+    files = list(CONST_AST_GREP_RULE_FILES.get(rid, ()))
+    if files and data.get("files") != files:
+        escapes.append(f"[{rid}] files: {data.get('files')}, not {files}")
     if "ignores" in data:
         escapes.append(f"[{rid}] ignores: outside the allowlist")
     return escapes
@@ -1284,9 +1287,9 @@ def _read_test_files(project: Path) -> dict[str, dict[str, Any]]:
 
 
 def _rule_test_case_escapes(tests: dict[str, dict[str, Any]]) -> list[str]:
-    """Verify each net construct rule has at least one valid and one invalid case."""
+    """Verify each ast-grep rule has at least one valid and one invalid case."""
     escapes: list[str] = []
-    for rid in sorted(CONST_NET_CONSTRUCT_RULES):
+    for rid in sorted(CONST_AST_GREP_RULE_FILES):
         tdata = tests.get(rid)
         if not tdata or not tdata.get("valid"):
             escapes.append(f"[{rid}] has no valid case")
@@ -1299,10 +1302,10 @@ def _ast_grep_rules_and_tests_escapes(project: Path) -> list[str]:
     """Report missing or unlisted ast-grep rules, severity/filter escapes, or missing test cases."""
     rules, rule_escapes = _read_rule_files(project)
     found_ids = set(rules.keys())
-    expected_ids = set(CONST_NET_CONSTRUCT_RULES)
+    expected_ids = set(CONST_AST_GREP_RULE_FILES)
     id_escapes = [
         f"{rid}: missing from .ast-grep/rules" for rid in sorted(expected_ids - found_ids)
-    ] + [f"[{rid}] outside CONST_NET_CONSTRUCT_RULES" for rid in sorted(found_ids - expected_ids)]
+    ] + [f"[{rid}] outside CONST_AST_GREP_RULE_FILES" for rid in sorted(found_ids - expected_ids)]
     tests = _read_test_files(project)
     return [*id_escapes, *rule_escapes, *_rule_test_case_escapes(tests)]
 
@@ -1368,10 +1371,10 @@ def _tid251_escapes(lint: Mapping[str, Any]) -> list[str]:
     return escapes
 
 
-def _network_construct_escapes(pyproject: Mapping[str, Any], project: Path) -> list[str]:
-    """Report every way a committed file lets a hand-rolled network construct past the gate (#1107)."""
+def _construct_gate_escapes(pyproject: Mapping[str, Any], project: Path) -> list[str]:
+    """Report every way a committed file lets a construct past the ast-grep gate (#1107, #1902)."""
     lint = pyproject.get("tool", {}).get("ruff", {}).get("lint", {})
-    covered = [project / name for name in _tracked_paths(project, "src")]
+    covered = [project / name for name in _tracked_paths(project, *CONST_AST_GREP_SCAN_ROOTS)]
     sources = [p for p in covered if p.suffix in CONST_RUFF_SOURCE_SUFFIXES]
     return [
         *_sgconfig_escapes(project),
@@ -1399,8 +1402,8 @@ def _edit(table: dict[str, Any], path: Sequence[str], value: object) -> None:
     table[key] = value
 
 
-def _complying_network_construct_pyproject() -> dict[str, Any]:
-    """Build, as a fresh dict, a pyproject.toml the network construct meta-test accepts."""
+def _complying_construct_gate_pyproject() -> dict[str, Any]:
+    """Build, as a fresh dict, a pyproject.toml the construct gate meta-test accepts."""
     lint = {
         "select": ["E", "TID251"],
         "ignore": [],
@@ -1414,8 +1417,8 @@ def _complying_network_construct_pyproject() -> dict[str, Any]:
     return {"tool": {"ruff": {"lint": lint}}}
 
 
-def _populate_complying_network_construct_tree(project: Path) -> None:
-    """Populate a tmp_path tree with files complying with the network construct gate."""
+def _populate_complying_construct_gate_tree(project: Path) -> None:
+    """Populate a tmp_path tree with files complying with the construct gate."""
     (project / "sgconfig.yml").write_text(
         "ruleDirs:\n  - .ast-grep/rules\ntestConfigs:\n  - testDir: .ast-grep/rule-tests\n",
         encoding="utf-8",
@@ -1430,6 +1433,8 @@ def _populate_complying_network_construct_tree(project: Path) -> None:
     )
     (project / "src").mkdir(parents=True, exist_ok=True)
     (project / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (project / "tests").mkdir(parents=True, exist_ok=True)
+    (project / "tests" / "test_app.py").write_text("x = 1\n", encoding="utf-8")
     (project / ".gitignore").write_text("target/\n", encoding="utf-8")
 
     rules_dir = project / ".ast-grep" / "rules"
@@ -1437,9 +1442,10 @@ def _populate_complying_network_construct_tree(project: Path) -> None:
     rules_dir.mkdir(parents=True, exist_ok=True)
     tests_dir.mkdir(parents=True, exist_ok=True)
 
-    for rid in CONST_NET_CONSTRUCT_RULES:
+    for rid, files in CONST_AST_GREP_RULE_FILES.items():
         (rules_dir / f"{rid}.yml").write_text(
-            f"id: {rid}\nlanguage: python\nseverity: error\nmessage: msg\nrule:\n  pattern: $X\n",
+            f"id: {rid}\nlanguage: python\nseverity: error\nfiles: {list(files)}\nmessage: msg\n"
+            "rule:\n  pattern: $X\n",
             encoding="utf-8",
         )
         (tests_dir / f"{rid}-test.yml").write_text(
@@ -1504,7 +1510,7 @@ def test_a_git_project_leaves_the_repository_of_a_commit_hook_alone(
     )
 
 
-_NETWORK_CONSTRUCT_ESCAPES = [
+_CONSTRUCT_GATE_ESCAPES = [
     pytest.param((), None, {}, [], id="complying"),
     pytest.param(
         (),
@@ -1557,7 +1563,7 @@ _NETWORK_CONSTRUCT_ESCAPES = [
                 "id: net-custom\nlanguage: python\nseverity: error\nrule:\n  pattern: $X\n"
             )
         },
-        ["[net-custom] outside CONST_NET_CONSTRUCT_RULES"],
+        ["[net-custom] outside CONST_AST_GREP_RULE_FILES"],
         id="rule-unlisted",
     ),
     pytest.param(
@@ -1565,7 +1571,8 @@ _NETWORK_CONSTRUCT_ESCAPES = [
         None,
         {
             ".ast-grep/rules/net-port-table.yml": (
-                "id: net-port-table\nlanguage: python\nseverity: warning\nrule:\n  pattern: $X\n"
+                "id: net-port-table\nlanguage: python\nseverity: warning\nfiles: ['src/**']\n"
+                "rule:\n  pattern: $X\n"
             )
         },
         ["[net-port-table] severity: warning, not error"],
@@ -1576,20 +1583,43 @@ _NETWORK_CONSTRUCT_ESCAPES = [
         None,
         {
             ".ast-grep/rules/net-port-table.yml": (
-                "id: net-port-table\nlanguage: python\nseverity: error\nfiles: [src]\n"
+                "id: net-port-table\nlanguage: python\nseverity: error\nfiles: [src/ai/**]\n"
                 "rule:\n  pattern: $X\n"
             )
         },
-        ["[net-port-table] files: outside the allowlist"],
-        id="rule-files-set",
+        ["[net-port-table] files: ['src/ai/**'], not ['src/**']"],
+        id="rule-files-narrowed",
     ),
     pytest.param(
         (),
         None,
         {
             ".ast-grep/rules/net-port-table.yml": (
-                "id: net-port-table\nlanguage: python\nseverity: error\nignores: [src]\n"
-                "rule:\n  pattern: $X\n"
+                "id: net-port-table\nlanguage: python\nseverity: error\nrule:\n  pattern: $X\n"
+            )
+        },
+        ["[net-port-table] files: None, not ['src/**']"],
+        id="rule-files-missing",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/test-elapsed-upper-bound.yml": (
+                "id: test-elapsed-upper-bound\nlanguage: python\nseverity: error\n"
+                "files: ['src/**']\nrule:\n  pattern: $X\n"
+            )
+        },
+        ["[test-elapsed-upper-bound] files: ['src/**'], not ['tests/**']"],
+        id="test-rule-files-moved",
+    ),
+    pytest.param(
+        (),
+        None,
+        {
+            ".ast-grep/rules/net-port-table.yml": (
+                "id: net-port-table\nlanguage: python\nseverity: error\nfiles: ['src/**']\n"
+                "ignores: [src]\nrule:\n  pattern: $X\n"
             )
         },
         ["[net-port-table] ignores: outside the allowlist"],
@@ -1643,6 +1673,13 @@ _NETWORK_CONSTRUCT_ESCAPES = [
         id="ignore-file-hides-source",
     ),
     pytest.param(
+        (),
+        None,
+        {".gitignore": "tests/test_app.py\n"},
+        ["tests/test_app.py: matched by .gitignore"],
+        id="ignore-file-hides-a-test",
+    ),
+    pytest.param(
         ("lint", "select"),
         ["E"],
         {},
@@ -1677,17 +1714,17 @@ _NETWORK_CONSTRUCT_ESCAPES = [
 ]
 
 
-@pytest.mark.parametrize("path, value, files, expected", _NETWORK_CONSTRUCT_ESCAPES)
-def test_every_network_construct_escape_is_reported(
+@pytest.mark.parametrize("path, value, files, expected", _CONSTRUCT_GATE_ESCAPES)
+def test_every_construct_gate_escape_is_reported(
     git_project: Path,
     path: Sequence[str],
     value: object,
     files: Mapping[str, str | None],
     expected: list[str],
 ) -> None:
-    """Every way to bypass the network construct gate without detection is reported (#1107)."""
-    _populate_complying_network_construct_tree(git_project)
-    pyproject = _complying_network_construct_pyproject()
+    """Every way to bypass the construct gate without detection is reported (#1107, #1902)."""
+    _populate_complying_construct_gate_tree(git_project)
+    pyproject = _complying_construct_gate_pyproject()
     if path:
         _edit(pyproject["tool"]["ruff"], path, value)
     for name, content in files.items():
@@ -1700,12 +1737,12 @@ def test_every_network_construct_escape_is_reported(
             dest.write_text(content, encoding="utf-8")
     _track_everything(git_project)
 
-    assert _network_construct_escapes(pyproject, git_project) == expected
+    assert _construct_gate_escapes(pyproject, git_project) == expected
 
 
 def test_a_second_sgconfig_that_git_does_not_track_is_not_reported(git_project: Path) -> None:
     """Scratch under `.data` and a checkout nested under `.claude/worktrees` hold an `sgconfig.yml` no commit holds (#1787)."""
-    _populate_complying_network_construct_tree(git_project)
+    _populate_complying_construct_gate_tree(git_project)
     _track_everything(git_project)
     _git_output(git_project, "commit", "--quiet", "--message", "tree")
     scratch = git_project / ".data" / "agent" / "scratch" / "astgrep" / "sgconfig.yml"
@@ -1731,7 +1768,7 @@ def test_a_second_sgconfig_that_git_does_not_track_is_not_reported(git_project: 
 
 def test_a_tracked_second_sgconfig_is_named_beside_untracked_ones(git_project: Path) -> None:
     """Only the `sgconfig.yml` a commit would hold is reported; the untracked scratch beside it is not (#1787)."""
-    _populate_complying_network_construct_tree(git_project)
+    _populate_complying_construct_gate_tree(git_project)
     for tracked in ("subdir/sgconfig.yml", "subdir/deeper/sgconfig.yml"):
         (git_project / tracked).parent.mkdir(parents=True, exist_ok=True)
         (git_project / tracked).write_text("ruleDirs: []\n", encoding="utf-8")
@@ -1748,13 +1785,13 @@ def test_a_tracked_second_sgconfig_is_named_beside_untracked_ones(git_project: P
 
 def test_a_source_that_git_does_not_track_is_not_reported_as_hidden(git_project: Path) -> None:
     """A source file `.gitignore` matches but no commit holds hides nothing from the gate (#1787)."""
-    _populate_complying_network_construct_tree(git_project)
+    _populate_complying_construct_gate_tree(git_project)
     _track_everything(git_project)
     ignored = git_project / "src" / "target" / "scratch.py"
     ignored.parent.mkdir()
     ignored.write_text("x = 1\n", encoding="utf-8")
 
-    assert _network_construct_escapes(_complying_network_construct_pyproject(), git_project) == []
+    assert _construct_gate_escapes(_complying_construct_gate_pyproject(), git_project) == []
 
 
 def test_a_project_that_is_not_a_git_repository_fails_the_check(
@@ -1765,16 +1802,16 @@ def test_a_project_that_is_not_a_git_repository_fails_the_check(
     The ceiling stops git at `tmp_path`, so a temporary directory inside a repository is no repository here.
     """
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
-    _populate_complying_network_construct_tree(tmp_path)
+    _populate_complying_construct_gate_tree(tmp_path)
 
     with pytest.raises(pytest.fail.Exception, match="git ls-files failed in"):
-        _network_construct_escapes(_complying_network_construct_pyproject(), tmp_path)
+        _construct_gate_escapes(_complying_construct_gate_pyproject(), tmp_path)
 
 
-def test_the_network_construct_gate_has_no_escape() -> None:
-    """The ast-grep rules, sgconfig, pre-commit and TID251 gate network constructs with no escape (#1107)."""
+def test_the_construct_gate_has_no_escape() -> None:
+    """The ast-grep rules, sgconfig, pre-commit and TID251 gate the constructs with no escape (#1107, #1902)."""
     pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert _network_construct_escapes(pyproject, REPO_ROOT) == []
+    assert _construct_gate_escapes(pyproject, REPO_ROOT) == []
 
 
 def _missing_stack_lifecycle_paths(
@@ -1949,13 +1986,12 @@ def _noqa_kinds_from_comment(tree_name: str, comment: str) -> list[str]:
 
 
 def _ast_grep_kinds_from_comment(tree_name: str, comment: str) -> list[str]:
-    """Extract one ast-grep-ignore kind per net-* rule id in a src comment token."""
-    if tree_name != "src":
-        return []
+    """Extract one ast-grep-ignore kind per rule id that a comment token lists (#1902)."""
     return [
         f"{tree_name} {CONST_SUPPRESSION_KIND_AST_GREP_IGNORE}"
         for match in CONST_AST_GREP_IGNORE_COMMENT_RE.finditer(comment)
-        for _ in CONST_AST_GREP_NET_RULE_ID_RE.findall(match.group("ids") or "")
+        for rule_id in (match.group("ids") or "").split(CONST_AST_GREP_RULE_ID_SEPARATOR)
+        if rule_id.strip()
     ]
 
 
@@ -2098,10 +2134,12 @@ def test_suppressions_stay_under_their_ceilings() -> None:
         len(CONST_SUPPRESSION_KINDS),
         DEFAULT_SUPPRESSION_CEILINGS["src noqa: C901"],
         DEFAULT_SUPPRESSION_CEILINGS["src ast-grep-ignore"],
+        DEFAULT_SUPPRESSION_CEILINGS["tests ast-grep-ignore"],
     ) == (
         10,
         DEFAULT_C901_SUPPRESSION_CEILING,
-        DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
+        DEFAULT_AST_GREP_SUPPRESSION_CEILING,
+        DEFAULT_AST_GREP_SUPPRESSION_CEILING,
     )
     breaches = _suppression_ceiling_breaches(REPO_ROOT)
     assert breaches == [], "\n".join(breaches)
@@ -2194,6 +2232,9 @@ def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path)
         "e = 5  # ast-grep-ignore: net-url-split, net-host-parse\n",
         encoding="utf-8",
     )
+    (tmp_path / "tests" / "test_mod.py").write_text(
+        "f = 6  # ast-grep-ignore: test-elapsed-upper-bound\n", encoding="utf-8"
+    )
     pyproject = {
         "tool": {
             "ruff": {"lint": {"per-file-ignores": {"tests/*": ["S101", "D100"]}}},
@@ -2210,6 +2251,7 @@ def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path)
         "src pragma: no cover": {"src/mod.py": 1},
         "src pragma: no mutate": {"src/mod.py": 1},
         "src ast-grep-ignore": {"src/mod.py": 2},
+        "tests ast-grep-ignore": {"tests/test_mod.py": 1},
         "per-file-ignores": {"pyproject.toml": 2},
         "[[tool.mypy.overrides]]": {"pyproject.toml": 2},
         "coverage omit": {"pyproject.toml": 1},

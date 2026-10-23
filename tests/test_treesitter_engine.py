@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pytest
@@ -241,21 +240,21 @@ def test_query_file_checks_size_and_language_before_reading(tmp_path: Path) -> N
     ) == (["f"], None, None, None, ["writer"])
 
 
-def test_query_resolution_latency(tmp_path: Path) -> None:
-    """Verify AST query resolution takes < 5ms per file."""
+def test_a_second_parse_of_an_unchanged_file_returns_the_first_map(tmp_path: Path) -> None:
+    """A file parsed again with the same mtime is not parsed again: the engine returns the map it
+    cached, so the test shows the fast path without a clock (#1902)."""
     engine = TreeSitterEngine()
     code = "\n".join([f"def func_{i}(x: int) -> int:\n    return x + {i}" for i in range(10)])
     test_file = tmp_path / "bench.py"
     test_file.write_text(code)
 
-    # Warmup
-    engine.parse_file(test_file)
+    first = engine.parse_file(test_file)
+    second = engine.parse_file(test_file)
 
-    start = time.perf_counter()
-    engine.parse_file(test_file)
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
-
-    assert elapsed_ms < 1000.0, f"Runaway bound exceeded: {elapsed_ms:.2f}ms >= 1000.0ms"
+    assert (
+        second is first,
+        [symbol.name for symbol in first.symbols] if first else None,
+    ) == (True, [f"func_{i}" for i in range(10)])
 
 
 def test_code_graph_builder(tmp_path: Path) -> None:

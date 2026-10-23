@@ -641,8 +641,9 @@ DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ may carry, and tests/ none: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
 DEFAULT_C901_SUPPRESSION_CEILING: int = 25
-# The `net-*` rule ids listed in `# ast-grep-ignore:` comments under src/ (#849, #1107).
-DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING: int = 0
+# The rule ids listed in `# ast-grep-ignore:` comments in each tree that the ast-grep scan
+# reads (#849, #1107, #1902).
+DEFAULT_AST_GREP_SUPPRESSION_CEILING: int = 0
 # Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
 # pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
 # ceiling of 0.
@@ -657,7 +658,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src pragma: no cover": 1,
     "src pragma: no mutate": 0,
     "src file-level directive": 0,
-    "src ast-grep-ignore": DEFAULT_NET_CONSTRUCT_SUPPRESSION_CEILING,
+    "src ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
     "tests type: ignore": 79,
     "tests noqa: F401": 3,
     "tests noqa: N803": 1,
@@ -665,6 +666,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "tests pragma: no cover": 0,
     "tests pragma: no mutate": 0,
     "tests file-level directive": 0,
+    "tests ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
     "per-file-ignores": 0,
     "[[tool.mypy.overrides]]": 1,
     "coverage omit": 0,

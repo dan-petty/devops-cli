@@ -12,6 +12,7 @@ import pytest
 from devops_cli.core.process import run_subprocess, run_subprocess_async
 from tests.support.hung_children import (
     SUMMARY_LINE,
+    HungChildWatch,
     hung_script,
     hung_with_grandchild,
     interrupted_like_pytest,
@@ -26,10 +27,6 @@ pytestmark = [
     pytest.mark.usefixtures("refuse_nested_test_runs", "default_signal_dispositions"),
     pytest.mark.live("true", "sh", "false", "sleep", "echo", "python", "pwd"),
 ]
-
-# A hung run's timeout: its child writes its pids within milliseconds, and this leaves a loaded
-# host sufficient headroom before the run's process group is stopped (#1748).
-HUNG_RUN_TIMEOUT_SECONDS = 1.0
 
 # A run's timeout counts from when it starts waiting for its child. A test that returns the spawn
 # only once the child has written its pids needs a short one: the child hangs, so it always fires.
@@ -195,19 +192,9 @@ async def test_run_subprocess_async_timeout_kills_process_group(
 ) -> None:
     """Verify run_subprocess_async timeout kills entire process group including grandchildren.
 
-    A run's timeout counts from when it starts waiting for its child. The spawn here returns only
-    once the child has written its pids, so the timeout fires after the child and its grandchild
-    exist, however busy the host is, and no wall-clock deadline for them to start remains. The
-    child hangs, so the timeout always fires, and a short one is enough (#1888)."""
-    real_spawn = asyncio.create_subprocess_exec
+    The spawn returns only once the child has written its pids (#1888)."""
     with watching(tmp_path / "pids") as watch:
-
-        async def spawn_once_started(*argv: Any, **kwargs: Any) -> asyncio.subprocess.Process:
-            process = await real_spawn(*argv, **kwargs)
-            assert await _until(watch.started), "the child wrote no pids"
-            return process
-
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_once_started)
+        _spawn_once_started(monkeypatch, watch)
         with pytest.raises(subprocess.TimeoutExpired):
             await run_subprocess_async(
                 hung_with_grandchild(watch.pid_file), timeout=STARTED_RUN_TIMEOUT_SECONDS
@@ -241,6 +228,22 @@ def _records(log: Path) -> list[str]:
 async def _until(condition: Any) -> bool:
     """Whether `condition` came to hold within the handoff bound, polled off the event loop."""
     return await asyncio.to_thread(wait_until, condition)
+
+
+def _spawn_once_started(monkeypatch: pytest.MonkeyPatch, watch: HungChildWatch) -> None:
+    """Make each spawn return only once the hung child has written its pids (#1888, #1902).
+
+    A run's timeout counts from when it starts waiting for its child. With this spawn, the timeout
+    fires after the child and its grandchild exist, however busy the host is, so no wall-clock
+    deadline for them to start remains. The child hangs, so the timeout always fires."""
+    real_spawn = asyncio.create_subprocess_exec
+
+    async def spawn_once_started(*argv: Any, **kwargs: Any) -> asyncio.subprocess.Process:
+        process = await real_spawn(*argv, **kwargs)
+        assert await _until(watch.started), "the child wrote no pids"
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_once_started)
 
 
 @pytest.mark.anyio
@@ -419,51 +422,50 @@ async def test_a_cancellation_after_the_child_exited_stays_a_cancellation(
 
 @pytest.mark.anyio
 async def test_a_run_that_hangs_after_its_summary_line_is_stopped_at_its_bound_with_its_group(
-    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A serial narrowed run that prints its summary line and then hangs, here a fake pytest
     with a grandchild, is stopped with its whole group at the run's timeout, which counts from
     the start of the run, not from the summary line (#1669). `devops ci test` has no timeout
     option, so its 1800 s bound cannot be shortened through it; the test drives the runner it
-    uses, `run_subprocess_async`, with a short one."""
+    uses, `run_subprocess_async`, with a short one. The spawn returns only once the child has
+    written its pids, so a loaded host cannot stop the child before it writes them (#1902)."""
     script = hung_script(before=f'echo "{SUMMARY_LINE}"; ')
     with watching(tmp_path / "pids") as watch:
+        _spawn_once_started(monkeypatch, watch)
         hung = hung_with_grandchild(watch.pid_file, script)
-        run = asyncio.create_task(
-            run_subprocess_async(hung, capture_output=False, timeout=HUNG_RUN_TIMEOUT_SECONDS)
-        )
-        started = await _until(watch.started)
         with pytest.raises(subprocess.TimeoutExpired):
-            await run
+            await run_subprocess_async(
+                hung, capture_output=False, timeout=STARTED_RUN_TIMEOUT_SECONDS
+            )
 
-        assert (
-            SUMMARY_LINE in capfd.readouterr().out,
-            started,
-            await _until(watch.stopped),
-        ) == (True, True, True)
+        assert (SUMMARY_LINE in capfd.readouterr().out, await _until(watch.stopped)) == (
+            True,
+            True,
+        )
 
 
 @pytest.mark.anyio
 async def test_a_timed_out_check_is_stopped_with_sigterm_first_and_reports_as_before(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A timeout, which `devops ci`'s checks share, still sends SIGTERM first, never the SIGINT a
-    cancellation forwards, and still raises TimeoutExpired with the command and timeout (#1669)."""
+    cancellation forwards, and still raises TimeoutExpired with the command and timeout (#1669).
+    The spawn returns only once the child has written its pids, so its traps are set before the
+    timeout fires, however busy the host is (#1902)."""
     signals = tmp_path / "signals"
     script = hung_script(
         before=f'trap \'echo term >> "{signals}"; kill "$c"; exit 143\' TERM; ',
         on_interrupt=f'echo int >> "{signals}"',
     )
     with watching(tmp_path / "pids") as watch:
+        _spawn_once_started(monkeypatch, watch)
         hung = hung_with_grandchild(watch.pid_file, script)
-        run = asyncio.create_task(run_subprocess_async(hung, timeout=HUNG_RUN_TIMEOUT_SECONDS))
-        started = await _until(watch.started)
         with pytest.raises(subprocess.TimeoutExpired) as timed_out:
-            await run
+            await run_subprocess_async(hung, timeout=STARTED_RUN_TIMEOUT_SECONDS)
 
         assert (
-            started,
             (timed_out.value.cmd, timed_out.value.timeout),
             await _until(watch.stopped),
             signals.read_text(encoding="utf-8"),
-        ) == (True, (hung, HUNG_RUN_TIMEOUT_SECONDS), True, "term\n")
+        ) == ((hung, STARTED_RUN_TIMEOUT_SECONDS), True, "term\n")

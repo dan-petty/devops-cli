@@ -1,6 +1,8 @@
 id: net-domain-list
 language: python
 severity: error
+files:
+  - "src/**"
 message: Literal list of domain suffixes. Use tldextract (Public Suffix List) or dns.name is_subdomain.
 rule:
   kind: assignment

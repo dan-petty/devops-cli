@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-import time
 from contextlib import nullcontext
 from typing import Any
 from unittest.mock import MagicMock
@@ -369,25 +368,29 @@ def test_gateway_served_by_blocking_and_streaming_strips_credentials(
     assert stream_served_by.get() is None
 
 
-def test_free_text_masking_speed() -> None:
-    """Verify candidate URL masking takes under 1.0 second across 100 KB fixtures."""
+def test_free_text_masking_finishes_100_kb_inputs_that_make_a_scan_backtrack() -> None:
+    """Candidate URL masking masks each credential in 100 KB inputs and keeps text with none.
+
+    The inputs have the shapes that make a backtracking scan go on without end: many candidates,
+    no `://`, `://` with no space, and one URL again and again. Such a scan does not return, and
+    the pytest-timeout hang bound fails the test, so the test reads no clock (#1902).
+    """
     cases = [
         (
-            "100 KB with 1000 credential URLs",
-            ("https://user:secret123@example.com/path " * 1000)[:100_000],
+            "100 KB with 2500 credential URLs",
+            "https://user:secret123@example.com/path " * 2500,
             "secret123",
         ),
         ("100 KB letters with no ://", "a" * 100_000, None),
-        ("100 KB no whitespace with 25000 a://", ("a://" * 25_000)[:100_000], None),
+        ("100 KB no whitespace with 25000 a://", "a://" * 25_000, None),
         ("100 KB repeated credential URL", ("https://user:pw@example.com," * 4000)[:100_000], "pw"),
     ]
-    for label, text, secret in cases:
-        start = time.perf_counter()
-        redacted = redact_text(text)
-        elapsed = time.perf_counter() - start
-        assert elapsed < 1.0, f"{label} exceeded 1s: {elapsed:.3f}s"
-        if secret:
-            assert secret not in redacted, f"{label} leaked {secret}"
+    outcomes = {label: (redact_text(text), text, secret) for label, text, secret in cases}
+
+    assert {
+        label: secret not in redacted if secret else redacted == text
+        for label, (redacted, text, secret) in outcomes.items()
+    } == dict.fromkeys(outcomes, True)
 
 
 def test_no_forbidden_constructs_remain() -> None:
