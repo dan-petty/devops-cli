@@ -794,3 +794,73 @@ def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> N
             },
         ],
     )
+
+
+# ── The docs site build (#1651) ───────────────────────────────────────────────
+
+PATHS_FILTER = "dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d"
+CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+PAGES_BUILDER = (
+    "ghcr.io/actions/jekyll-build-pages"
+    "@sha256:6791ebfd912185ed59bfb5fb102664fa872496b79f87ff8b9cfba292a7345041"
+)
+
+
+def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder() -> None:
+    """GitHub Pages publishes `main:/docs` when a pull request merges, so a Liquid or Jekyll error
+    in `docs/` breaks the site at the merge. The `docs-site` job builds `docs/` on the pull request
+    first, with the image that `actions/jekyll-build-pages` v1.0.13 runs, by digest, because the
+    action names its image by a tag. The job runs for every pull request and builds only when
+    `docs/` or `ci.yml` changed, so on any other pull request it reports success. Its `if` names
+    no branch, no job needs it, and it holds no write scope. The container has no network and
+    mounts `docs/` read-only, so the build needs no token and writes nothing to the checkout. Its
+    resolver is loopback: the GitHub metadata plugin then gets a failed DNS lookup, which it
+    catches, and builds without metadata. The runner's own resolver is unreachable without a
+    network, which raises an error that the plugin does not catch (#1651)."""
+    jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
+    job = jobs["docs-site"]
+    built = "steps.changes.outputs.docs == 'true'"
+
+    assert (
+        job["if"],
+        job["permissions"],
+        job["timeout-minutes"],
+        [name for name, other in jobs.items() if "docs-site" in _needs(other)],
+        job["steps"],
+    ) == (
+        "github.event_name == 'pull_request'",
+        {"contents": "read", "pull-requests": "read"},
+        10,
+        [],
+        [
+            {
+                "name": "Detect Docs Site Changes",
+                "id": "changes",
+                "uses": PATHS_FILTER,
+                "with": {"filters": "docs:\n  - 'docs/**'\n  - '.github/workflows/ci.yml'\n"},
+            },
+            {
+                "name": "Check out repository",
+                "if": built,
+                "uses": CHECKOUT,
+                "with": {"persist-credentials": False},
+            },
+            {
+                "name": "Build the Site with the GitHub Pages Builder",
+                "if": built,
+                "env": {"PAGES_BUILDER": PAGES_BUILDER},
+                "run": "docker run --rm --network none --dns 127.0.0.1 \\\n"
+                '  --volume "$GITHUB_WORKSPACE/docs:/github/workspace/docs:ro" \\\n'
+                "  --env GITHUB_WORKSPACE=/github/workspace \\\n"
+                "  --env GITHUB_REPOSITORY \\\n"
+                "  --env GITHUB_API_URL \\\n"
+                "  --env INPUT_SOURCE=docs \\\n"
+                "  --env INPUT_DESTINATION=../site \\\n"
+                '  --env INPUT_BUILD_REVISION="$GITHUB_SHA" \\\n'
+                "  --env INPUT_VERBOSE=true \\\n"
+                "  --env INPUT_FUTURE=false \\\n"
+                "  --env DO_NOT_TRACK=1 \\\n"
+                '  "$PAGES_BUILDER"\n',
+            },
+        ],
+    )

@@ -8,5 +8,8 @@
 # These files are internal tracking artifacts rather than published documentation, so
 # they are excluded from the site rather than escaped one by one -- there are 60 of them
 # and each new task adds another.
+#
+# The `docs-site` job of `.github/workflows/ci.yml` builds this directory with the GitHub Pages
+# builder on each pull request that changes it, so a Liquid error fails before the merge.
 exclude:
   - agent/

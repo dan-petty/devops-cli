@@ -452,3 +452,58 @@ jobs:
           uv run devops install-tools --tool semgrep --only-missing
           semgrep --test --metrics off src/devops_cli/review/rules
           uv run devops review rules test --check
+
+  # Builds docs/ with the GitHub Pages builder when a pull request changes the site or this
+  # workflow, because Pages publishes main:/docs at each merge (#1651). A Liquid or Jekyll error
+  # then fails the pull request before it breaks the site. The action names its image by a tag,
+  # so the step runs the image of actions/jekyll-build-pages v1.0.13 by digest. The container has
+  # no network, so the GitHub metadata plugin makes no API call and needs no token. It mounts
+  # docs/ read-only and keeps the built site inside the container. A pull request that changes
+  # neither path skips the build, and the job reports success.
+  docs-site:
+    name: Docs Site Build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter reads the changed files from the REST API
+
+    steps:
+      - name: Detect Docs Site Changes
+        id: changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Check out repository
+        if: steps.changes.outputs.docs == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # The variables are the ones that entrypoint.sh of the image reads. PAGES_BUILDER is the
+      # digest of ghcr.io/actions/jekyll-build-pages:v1.0.13 on 2026-10-23. The resolver is
+      # loopback: the GitHub metadata plugin catches the failed lookup and builds without
+      # metadata, but the runner's resolver is unreachable with no network and raises
+      # Errno::ENETUNREACH, which the plugin does not catch.
+      - name: Build the Site with the GitHub Pages Builder
+        if: steps.changes.outputs.docs == 'true'
+        env:
+          PAGES_BUILDER: ghcr.io/actions/jekyll-build-pages@sha256:6791ebfd912185ed59bfb5fb102664fa872496b79f87ff8b9cfba292a7345041
+        run: |
+          docker run --rm --network none --dns 127.0.0.1 \
+            --volume "$GITHUB_WORKSPACE/docs:/github/workspace/docs:ro" \
+            --env GITHUB_WORKSPACE=/github/workspace \
+            --env GITHUB_REPOSITORY \
+            --env GITHUB_API_URL \
+            --env INPUT_SOURCE=docs \
+            --env INPUT_DESTINATION=../site \
+            --env INPUT_BUILD_REVISION="$GITHUB_SHA" \
+            --env INPUT_VERBOSE=true \
+            --env INPUT_FUTURE=false \
+            --env DO_NOT_TRACK=1 \
+            "$PAGES_BUILDER"
