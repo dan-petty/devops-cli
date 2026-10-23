@@ -12,6 +12,7 @@ import contextlib
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -155,6 +156,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     The grouping must apply to that series, not to another in the same query, and the latency
     panels chart command p50, p95 and p99, review p50 and p95, RAG p50 and p95 of whole queries
     and RAG p95 of each stage (#975). Qdrant retries are charted by operation and error type.
+    AI requests and tokens are charted by operation, so chat and embeddings are told apart (#1623).
     """
     wanted = {
         ("devops_cli_command_duration_seconds", "command"),
@@ -164,6 +166,8 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
         ('devops_cli_rag_query_duration_ms{stage=~"embedding|search|ranking"}', "stage"),
         ("devops_cli_qdrant_retries_total", "operation"),
         ("devops_cli_qdrant_retries_total", "error_type"),
+        ("devops_cli_ai_requests_total", "operation"),
+        ("devops_cli_ai_tokens_total", "operation"),
     }
     queries = _all_queries()
     grouped = {
@@ -207,9 +211,11 @@ def test_a_command_group_without_errors_charts_a_zero_error_share() -> None:
 
 
 def test_the_hit_share_panel_divides_cached_requests_by_all_requests_over_an_hour() -> None:
-    """Verify the response-cache hit share is cached requests over every request, each counted
-    over the last hour, and shows 0 for an hour with requests and no hits (#816).
+    """Verify the response-cache hit share is cached requests over every chat request, each
+    counted over the last hour, and shows 0 for an hour with requests and no hits (#816).
 
+    The response cache answers no embedding request, so embedding requests stay out of the
+    share; a series sent before requests carried an operation still counts as chat (#1623).
     Active backends still count only uncached requests: the cache is no backend.
     """
     panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "ai-spend.json")}
@@ -221,7 +227,7 @@ def test_the_hit_share_panel_divides_cached_requests_by_all_requests_over_an_hou
         'cached="false"' in _panel_queries(panels["Active AI Backends"]),
     ) == (
         f'(sum(increase(devops_cli_ai_requests_total{{cached="true"}}[1h])) or {requests} * 0)',
-        "sum(increase(devops_cli_ai_requests_total[1h]))",
+        'sum(increase(devops_cli_ai_requests_total{operation!="embeddings"}[1h]))',
         True,
     )
 
@@ -470,6 +476,63 @@ def test_local_ai_calls_emit_equivalent_spend_instrument(
         "ollama",
         0,
     )
+
+
+def test_ai_calls_count_requests_and_tokens_by_operation(
+    captured: Captured, spend_ledger: SpendLedger
+) -> None:
+    """Verify a chat call counts as the `chat` operation and an embedding request as the
+    `embeddings` operation, with its input tokens as prompt tokens (#1623)."""
+    for model, request_type, completion in (
+        ("qwen3:8b", "chat_dispatch", 200),
+        ("bge-m3:latest", "embedding", 0),
+    ):
+        track_request_spend(
+            provider="gateway",
+            model=model,
+            server="example.com:4000",
+            prompt_tokens=1000,
+            completion_tokens=completion,
+            request_type=request_type,
+        )
+
+    assert (
+        [
+            (a["model"], a["operation"], v)
+            for a, v in captured.points("devops_cli_ai_requests_total")
+        ],
+        sorted(
+            (a["operation"], a["type"], v) for a, v in captured.points("devops_cli_ai_tokens_total")
+        ),
+    ) == (
+        [("qwen3:8b", "chat", 1.0), ("bge-m3:latest", "embeddings", 1.0)],
+        [
+            ("chat", "completion", 200.0),
+            ("chat", "prompt", 1000.0),
+            ("embeddings", "completion", 0.0),
+            ("embeddings", "prompt", 1000.0),
+        ],
+    )
+
+
+def test_local_embedding_savings_are_priced_at_the_embedding_reference(
+    captured: Captured, spend_ledger: SpendLedger, config: Callable[..., Path]
+) -> None:
+    """Verify a local embedding request's savings price its tokens at text-embedding-3-small's
+    $0.02/M input, not at the chat reference gpt-4o's $2.50/M (#1623)."""
+    config(ai={"reference_model": "gpt-4o"})
+    track_request_spend(
+        provider="ollama",
+        model="bge-m3:latest",
+        server="localhost:11434",
+        prompt_tokens=1_000_000,
+        request_type="embedding",
+    )
+
+    assert [
+        (a["operation"], v)
+        for a, v in captured.points("devops_cli_ai_local_cost_equivalent_usd_total")
+    ] == [("embeddings", 0.02)]
 
 
 def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status(

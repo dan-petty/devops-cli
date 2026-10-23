@@ -122,6 +122,33 @@ def test_cached_replies_are_counted_apart_from_backend_calls(tmp_path: Path) -> 
     assert (profile.llm_calls, profile.cached_calls, profile.completion_tokens) == (1, 1, 10)
 
 
+def test_embedding_requests_are_counted_apart_from_llm_calls(tmp_path: Path) -> None:
+    """Verify an embedding request adds no LLM call, chat token or backend call, and the stage
+    and the profile count it and its input tokens apart (#1623)."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+
+    with profiling() as profiler:
+        with review_stage("persona_review"):
+            _call(ledger, REMOTE)
+            track_request_spend(
+                provider="gateway",
+                model="bge-m3:latest",
+                server="gateway.example.com:4000",
+                served_by=OLLAMA,
+                prompt_tokens=50,
+                request_type="embedding",
+                ledger=ledger,
+            )
+        profile = profiler.build(session_id="s", target="t")
+
+    (stage,) = profile.stages
+    assert (
+        (profile.llm_calls, profile.prompt_tokens, profile.completion_tokens),
+        (profile.embedding_calls, profile.embedding_tokens),
+        (stage.embedding_calls, stage.embedding_tokens, stage.backends),
+    ) == ((1, 100, 10), (1, 50), (1, 50, {REMOTE: 1}))
+
+
 def _observed(profiler: ReviewProfiler, served_by: str | None, reason: str | None) -> None:
     """Show the profiler one served reply, as the spend ledger does when a call finishes."""
     profiler.observe({"served_by": served_by, "finish_reason": reason, "completion_tokens": 10})

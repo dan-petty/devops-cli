@@ -154,7 +154,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM calls over the dashboard's time range, replies the response cache answered included; Response Cache Hit Share shows how many those were. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "LLM calls and embedding requests over the dashboard's time range, replies the response cache answered included; Response Cache Hit Share shows how many those were. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -203,7 +203,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Prompt and completion tokens over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Prompt and completion tokens of LLM calls and embedding requests over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -762,8 +762,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (type) (rate(devops_cli_ai_tokens_total[5m]))",
-          "legendFormat": "{{type}} tokens/sec",
+          "expr": "sum by (operation, type) (rate(devops_cli_ai_tokens_total[5m]))",
+          "legendFormat": "{{operation}} {{type}} tokens/sec",
           "refId": "A"
         },
         {
@@ -782,7 +782,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM calls per second by model, replies the response cache answered included.",
+      "description": "LLM calls and embedding requests per second by operation and model, replies the response cache answered included.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -817,8 +817,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (model, provider) (rate(devops_cli_ai_requests_total[5m]))",
-          "legendFormat": "{{model}} ({{provider}})",
+          "expr": "sum by (operation, model, provider) (rate(devops_cli_ai_requests_total[5m]))",
+          "legendFormat": "{{model}} ({{provider}}, {{operation}})",
           "refId": "A"
         },
         {
@@ -837,7 +837,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Share of the last hour's LLM calls the response cache answered; an hour with calls and no cache answers shows 0. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "description": "Share of the last hour's LLM calls the response cache answered, embedding requests left out; an hour with calls and no cache answers shows 0. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -874,7 +874,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(increase(devops_cli_ai_requests_total{cached=\"true\"}[1h])) or sum(increase(devops_cli_ai_requests_total[1h])) * 0) / sum(increase(devops_cli_ai_requests_total[1h]))",
+          "expr": "(sum(increase(devops_cli_ai_requests_total{cached=\"true\"}[1h])) or sum(increase(devops_cli_ai_requests_total{operation!=\"embeddings\"}[1h])) * 0) / sum(increase(devops_cli_ai_requests_total{operation!=\"embeddings\"}[1h]))",
           "legendFormat": "Cache answered",
           "refId": "A"
         }

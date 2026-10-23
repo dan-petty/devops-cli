@@ -41,6 +41,7 @@ dependencies = [
     "pynacl==1.6.2",
     "openai==3.26.1",
     "opentelemetry-api==1.45.1",
+    "opentelemetry-semantic-conventions==0.66b1",
     "secretstorage==3.5.0; sys_platform == 'linux'",
     "jeepney==0.9.0",
     "dnspython[idna]==2.8.0",

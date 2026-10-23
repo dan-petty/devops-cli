@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import re
+import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 import httpx2
 import pytest
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+from devops_cli.ai.spend.ledger import SpendLedger
+from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.settings import AIConfig
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -403,7 +409,6 @@ async def test_ollama_embedding_model_properties_and_embed(
     assert res_query.input_type == "query"
     assert res_query.model_name == "all-minilm"
     assert res_query.provider_name == "ollama"
-    assert res_query.usage.input_tokens > 0
 
     # Document embedding
     docs = ["Doc 1", "Doc 2"]
@@ -992,3 +997,217 @@ def test_embeddings_429_no_deployments_is_transient() -> None:
     with pytest.raises(EmbeddingsError) as exc_info:
         _reply_vectors(res, "http://example.com/api/embed", 1, lambda b: b)
     assert exc_info.value.is_transient is True
+
+
+# =============================================================================
+# Tests: each embedding request reaches the spend ledger (#1623)
+# =============================================================================
+
+_GATEWAY_URL = "http://example.com:4000/v1"
+_SERVING_BACKEND = "http://example.com:11434"
+_LEDGER_ROWS = (
+    "SELECT provider, server, model, prompt_tokens, completion_tokens, cached, request_type,"
+    " served_by FROM ai_spend_records ORDER BY id"
+)
+
+
+def _serve(
+    monkeypatch: pytest.MonkeyPatch, *replies: Callable[[httpx2.Request], httpx2.Response]
+) -> list[httpx2.Request]:
+    """Answer the engine's requests with `replies` in turn, the last one for every later request.
+
+    httpx2's own `MockTransport` stands behind every client the engine opens, so each reply
+    passes through the real client: its headers, JSON body and status reach the engine as sent.
+    """
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
+    )
+    queued = list(replies)
+    sent: list[httpx2.Request] = []
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request)
+        reply = queued.pop(0) if len(queued) > 1 else queued[0]
+        return reply(request)
+
+    transport = httpx2.MockTransport(answer)
+    monkeypatch.setattr(
+        httpx2.HTTPTransport,
+        "handle_request",
+        lambda _self, request: transport.handle_request(request),
+    )
+    return sent
+
+
+def _inputs(request: httpx2.Request) -> list[str]:
+    return list(json.loads(request.content)["input"])
+
+
+def _gateway_reply(request: httpx2.Request) -> httpx2.Response:
+    """A gateway `/v1/embeddings` reply that counts seven input tokens per text."""
+    texts = _inputs(request)
+    return httpx2.Response(
+        200,
+        headers={CONST_AI_GATEWAY_SERVED_BY_HEADER: _SERVING_BACKEND},
+        json={
+            "data": [{"index": i, "embedding": [0.5] * 4} for i in range(len(texts))],
+            "usage": {"prompt_tokens": 7 * len(texts), "total_tokens": 7 * len(texts)},
+        },
+    )
+
+
+def _ollama_reply(request: httpx2.Request) -> httpx2.Response:
+    """An Ollama `/api/embed` reply that counts five input tokens per text."""
+    texts = _inputs(request)
+    return httpx2.Response(
+        200, json={"embeddings": [[0.5] * 4 for _ in texts], "prompt_eval_count": 5 * len(texts)}
+    )
+
+
+def _rate_limited(_request: httpx2.Request) -> httpx2.Response:
+    return httpx2.Response(429, headers={"retry-after": "0"}, text="rate limited")
+
+
+def _gateway_engine() -> EmbeddingsEngine:
+    ai_cfg = AIConfig(provider="gateway", gateway_url=_GATEWAY_URL, allow_private_network=True)
+    ai_cfg.tasks.embedding.model = "bge-m3:latest"
+    return EmbeddingsEngine(ai_cfg, api_key="sk-gateway", valkey_client=None)
+
+
+def _ollama_config() -> AIConfig:
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[_SERVING_BACKEND], allow_private_network=True)
+    ai_cfg.tasks.embedding.model = "bge-m3"
+    return ai_cfg
+
+
+def _ledger_rows(ledger: SpendLedger) -> list[tuple[Any, ...]]:
+    with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
+        return conn.execute(_LEDGER_ROWS).fetchall()
+
+
+_GATEWAY_ROW = (
+    "gateway",
+    "example.com:4000",
+    "bge-m3:latest",
+    7,
+    0,
+    0,
+    "embedding",
+    _SERVING_BACKEND,
+)
+
+
+def test_a_gateway_batch_records_one_embedding_row_with_the_replys_tokens_and_backend(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """One `/v1/embeddings` request writes one ledger row with the tokens the reply counted.
+
+    The row names the gateway as its server and the backend the gateway's header names.
+    """
+    sent = _serve(monkeypatch, _gateway_reply)
+
+    _gateway_engine().embed_texts(["first chunk", "second chunk"])
+
+    assert (len(sent), _ledger_rows(spend_ledger)) == (
+        1,
+        [(*_GATEWAY_ROW[:3], 14, *_GATEWAY_ROW[4:])],
+    )
+
+
+def test_a_batch_retried_after_http_429_records_one_row(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """A batch the gateway refuses once and then answers is one request in the ledger."""
+    sent = _serve(monkeypatch, _rate_limited, _gateway_reply)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    _gateway_engine().embed_texts(["rate limited chunk"])
+
+    assert (len(sent), _ledger_rows(spend_ledger)) == (2, [_GATEWAY_ROW])
+
+
+def test_batches_sent_in_parallel_record_one_row_each(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Each batch the engine sends in parallel writes its own row."""
+    sent = _serve(monkeypatch, _gateway_reply)
+    engine = _gateway_engine()
+    engine._current_batch_size = 1
+
+    engine.embed_texts(["chunk one", "chunk two", "chunk three"])
+
+    assert (len(sent), _ledger_rows(spend_ledger)) == (3, [_GATEWAY_ROW] * 3)
+
+
+def test_an_ollama_batch_records_the_tokens_its_reply_counted(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """An Ollama `/api/embed` batch takes its tokens from the reply's `prompt_eval_count`."""
+    _serve(monkeypatch, _ollama_reply)
+
+    EmbeddingsEngine(_ollama_config(), valkey_client=None).embed_texts(["one", "two"])
+
+    assert _ledger_rows(spend_ledger) == [
+        ("ollama", "example.com:11434", "bge-m3", 10, 0, 0, "embedding", None)
+    ]
+
+
+def test_a_call_the_cache_answers_records_no_request(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Texts the cache answers send no request, so they add no row and no tokens."""
+    sent = _serve(monkeypatch, _gateway_reply)
+    engine = _gateway_engine()
+
+    engine.embed_texts(["cached chunk"])
+    engine.embed_texts(["cached chunk"])
+
+    assert (len(sent), _ledger_rows(spend_ledger)) == (1, [_GATEWAY_ROW])
+
+
+@pytest.mark.parametrize(
+    ("make_engine", "reply", "row"),
+    [
+        (_gateway_engine, _gateway_reply, _GATEWAY_ROW),
+        (
+            lambda: EmbeddingsEngine(_ollama_config(), valkey_client=None),
+            _ollama_reply,
+            ("ollama", "example.com:11434", "bge-m3", 5, 0, 0, "embedding", None),
+        ),
+    ],
+    ids=["gateway", "ollama"],
+)
+def test_the_dimension_probe_records_its_request(
+    monkeypatch: pytest.MonkeyPatch,
+    spend_ledger: SpendLedger,
+    make_engine: Callable[[], EmbeddingsEngine],
+    reply: Callable[[httpx2.Request], httpx2.Response],
+    row: tuple[Any, ...],
+) -> None:
+    """The request that probes the model's dimension is an embedding request like any other."""
+    _serve(monkeypatch, reply)
+
+    dimension = make_engine().dimension
+
+    assert (dimension, _ledger_rows(spend_ledger)) == (4, [row])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("wrapper", ["ollama", "engine"])
+async def test_the_embedding_models_report_the_tokens_the_provider_counted(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, wrapper: str
+) -> None:
+    """Both pydantic-ai embedding models report the reply's token count, not an estimate."""
+    from devops_cli.ai.agents.embeddings import EngineEmbeddingModel
+    from devops_cli.ai.rag.embeddings import OllamaEmbeddingModel
+
+    _serve(monkeypatch, _ollama_reply)
+    model = (
+        OllamaEmbeddingModel("bge-m3", ai_config=_ollama_config())
+        if wrapper == "ollama"
+        else EngineEmbeddingModel(EmbeddingsEngine(_ollama_config(), valkey_client=None))
+    )
+
+    result = await model.embed(["three words here", "two words"], input_type="document")
+
+    assert result.usage.input_tokens == 10

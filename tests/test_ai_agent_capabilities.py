@@ -211,7 +211,8 @@ async def test_embedder_and_embedding_result() -> None:
     assert len(res_query) == 1
     assert res_query[0] == [0.1, 0.2, 0.3, 0.4]
     assert res_query["What is Kubernetes?"] == [0.1, 0.2, 0.3, 0.4]
-    assert res_query.usage.input_tokens > 0
+    # The engine sent no request, so no provider counted a token and none is estimated.
+    assert res_query.usage.input_tokens == 0
     cost = res_query.cost()
     assert cost.total_price >= 0.0
 
