@@ -1,0 +1,15 @@
+# Task: `devops config set` Stores a Multi-Line Secret from a File or Stdin (#1649)
+
+**Issue**: [#1649](https://github.com/dan-petty/devops-cli/issues/1649)
+**Scope**: scope/config, scope/security
+**Feasibility**: Checked against the code at `4b06d316`. `_value_or_prompt` (`commands/config.py`) returned the argv value or one line from `typer.prompt(..., hide_input=True)`. `dotted_set` sends a key in `_SECRET_FIELDS` to `_keyring_set` and writes no secret to `config.yaml`. Click 8.5's `File` type, which `typer.FileBinaryRead` selects, opens `-` as the binary stdin and reports a path it cannot open as a usage error with exit code 2.
+
+## Description
+
+A GitHub App private key is a multi-line PEM block. `devops config set` took a credential only on argv, which puts it in the process list and the shell history, or at a hidden prompt that reads one line. A pasted key kept only its first line, and the shell ran the other lines as commands.
+
+- [x] **`--from-file PATH`** (`commands/config.py`, `HELP.config.from_file`): `devops config set <key> --from-file key.pem` reads the credential from the file, and `--from-file -` reads stdin to its end. The bytes are decoded as UTF-8 and stored as they are, with every line and the last newline. The value goes to the OS keyring through `dotted_set`, as a typed credential does. No output and no log record holds it.
+- [x] **Refusals**: each of these exits 2 with a message that names `--from-file` and the problem, before the keyring or `config.yaml` is written. The key is not a credential. A VALUE is given as well. The input is empty or holds only white space. The input is larger than `CONST_SECRET_FILE_MAX_BYTES` (64 KiB, in `config/constants.py`). The input is not UTF-8 text. The path does not open. No message quotes the input: the UTF-8 decode error, which quotes the bytes it cannot decode, is not chained.
+- [x] **Bounded read**: `_read_to_end` stops after `CONST_SECRET_FILE_MAX_BYTES + 1` bytes, so a wrong path to a large file is not read whole. It reads until a read returns nothing, because the io contract lets one read of a terminal return less than it asks for.
+- [x] **Help and docs**: the `set` help shows the PEM case, and the VALUE help says that the prompt reads one line. The ENV_VARS usage note (`docs/generator.py`) shows the hidden prompt and `--from-file` in place of a value on argv, and so does the knowledge base article `configuration_and_settings.md`. `uv run devops docs generate --sync-readme` regenerated `README.md`, `docs/CLI_REFERENCE.md`, `docs/ENV_VARS.md` and `docs/commands/config.md`.
+- [x] **Tests first** (`tests/test_config_commands.py`, through the `cli` fixture and the in-memory `FakeKeyring`): a three-line PEM-shaped value from a `tmp_path` file and from stdin reaches the keyring byte for byte, and no line of it is in the command output, the captured log records or `config.yaml`. Seven refusal cases each exit 2, name the problem, write no keyring entry and leave `config.yaml` unchanged. On `4b06d316` all nine tests failed: the two storage tests and seven refusal cases on the missing option, and the oversize case on the missing constant.

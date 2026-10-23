@@ -26,6 +26,10 @@ CONST_KEYRING_SERVICE = CONST_APP_NAME
 # An entry never stored: looking it up tells a locked keyring from an unlocked one, reading no
 # secret (`require_persistent_keyring`).
 CONST_KEYRING_UNLOCK_PROBE_KEY = "keyring-unlock-probe"
+# The most `devops config set <key> --from-file` reads into the keyring. A 4096-bit RSA private key
+# in PEM is about 3.3 KiB, so a key with its certificate chain fits; a wrong path to a large file
+# is refused after this many bytes, not read whole (#1649).
+CONST_SECRET_FILE_MAX_BYTES: Final[int] = 64 * 1024
 CONST_PROJECT_CONFIG_FILENAME = "config.yaml"
 CONST_PROJECT_CONFIG_CANDIDATES: Final[tuple[str, ...]] = (
     CONST_PROJECT_CONFIG_FILENAME,
@@ -2731,22 +2735,30 @@ CONST_GRAPHQL_REQUEST_KEYS: Final[tuple[str, ...]] = (
     CONST_GRAPHQL_QUERY_KEY,
     CONST_GRAPHQL_OPERATION_NAME_KEY,
 )
+# The `gh api` flags after which stdout does not end with the response body as GitHub sent it:
+# the values jq selects, a Go template's rendering, no body, all pages in one array, or the
+# request and response log around the body (gh 2.103.1). `--include` only puts the status line
+# and headers before the body.
+CONST_GH_API_OUTPUT_VALUE_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("-q", "--jq"),
+    ("-t", "--template"),
+)
+CONST_GH_API_OUTPUT_SWITCH_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("--silent",),
+    ("--slurp",),
+    ("--verbose",),
+)
 # The other `gh api` flags, so the argv parser skips them and their values.
 CONST_GH_API_VALUE_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
     ("--cache",),
     ("-H", "--header"),
     ("--hostname",),
-    ("-q", "--jq"),
     ("-p", "--preview"),
-    ("-t", "--template"),
 )
 CONST_GH_API_SWITCH_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
     ("--allow-escape-sequences",),
     ("-i", "--include"),
     ("--paginate",),
-    ("--silent",),
-    ("--slurp",),
-    ("--verbose",),
 )
 
 CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(

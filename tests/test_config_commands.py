@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -107,6 +109,115 @@ def test_config_set_requires_a_value_for_a_non_credential_key() -> None:
     with patch("devops_cli.commands.config.save_settings") as save:
         result = runner.invoke(config_app, ["set", "ai.model"])
     assert (result.exit_code, save.called) == (2, False)
+
+
+# A PEM-shaped value (RFC 7468) with a label no secret scanner takes for a real private key.
+_PEM_SHAPED_SECRET = (
+    "-----BEGIN EXAMPLE KEY-----\nZmFrZS1rZXktYm9keQ==\n-----END EXAMPLE KEY-----\n"
+)
+
+
+def _shows_the_secret(*captured: str) -> bool:
+    return any(line in text for line in _PEM_SHAPED_SECRET.splitlines() for text in captured)
+
+
+def test_config_set_stores_a_multi_line_secret_from_a_file_byte_for_byte(
+    cli: Any,
+    mock_keyring: Any,
+    isolate_devops_cli_config: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A pem key typed at the one-line prompt kept only its first line (#1649)."""
+    key_file = tmp_path / "app.private-key.pem"
+    key_file.write_bytes(_PEM_SHAPED_SECRET.encode())
+    caplog.set_level(logging.DEBUG)
+
+    result = cli("config", "set", "ai.api_key", "--from-file", str(key_file))
+
+    config_text = isolate_devops_cli_config.read_text(encoding="utf-8")
+    assert (result.exit_code, mock_keyring.writes) == (0, {"ai_api_key": _PEM_SHAPED_SECRET})
+    assert not _shows_the_secret(result.output, caplog.text, config_text)
+
+
+def test_config_set_stores_a_multi_line_secret_from_stdin_byte_for_byte(
+    cli: Any, mock_keyring: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`--from-file -` reads stdin to its end, so a piped key reaches the keyring whole."""
+    caplog.set_level(logging.DEBUG)
+
+    result = cli("config", "set", "ai.api_key", "--from-file", "-", input=_PEM_SHAPED_SECRET)
+
+    assert (result.exit_code, mock_keyring.writes) == (0, {"ai_api_key": _PEM_SHAPED_SECRET})
+    assert not _shows_the_secret(result.output, caplog.text)
+
+
+def _oversize_secret_file(tmp_path: Path) -> list[str]:
+    from devops_cli.config.constants import CONST_SECRET_FILE_MAX_BYTES
+
+    big = tmp_path / "big.pem"
+    big.write_bytes(b"A" * (CONST_SECRET_FILE_MAX_BYTES + 1))
+    return ["ai.api_key", "--from-file", str(big)]
+
+
+def _secret_file(tmp_path: Path, content: bytes, *args: str) -> list[str]:
+    path = tmp_path / "secret.pem"
+    path.write_bytes(content)
+    return [*args, "--from-file", str(path)]
+
+
+@pytest.mark.parametrize(
+    ("argv_for", "named_problem"),
+    [
+        pytest.param(
+            lambda tmp: _secret_file(tmp, _PEM_SHAPED_SECRET.encode(), "ai.model"),
+            "ai.model is not a credential",
+            id="non-secret-key",
+        ),
+        pytest.param(
+            lambda tmp: _secret_file(tmp, _PEM_SHAPED_SECRET.encode(), "ai.api_key", "inline"),
+            "Give VALUE or --from-file, not both",
+            id="positional-value",
+        ),
+        pytest.param(
+            lambda tmp: _secret_file(tmp, b"", "ai.api_key"),
+            "holds no value",
+            id="empty-file",
+        ),
+        pytest.param(
+            lambda tmp: _secret_file(tmp, b"\n \n", "ai.api_key"),
+            "holds no value",
+            id="blank-file",
+        ),
+        pytest.param(_oversize_secret_file, "is larger than", id="oversize-file"),
+        pytest.param(
+            lambda tmp: _secret_file(tmp, b"\xff\xfe-----BEGIN", "ai.api_key"),
+            "is not UTF-8 text",
+            id="not-text",
+        ),
+        pytest.param(
+            lambda tmp: ["ai.api_key", "--from-file", str(tmp / "missing.pem")],
+            "No such file or directory",
+            id="missing-file",
+        ),
+    ],
+)
+def test_config_set_from_file_refuses_an_unusable_source_and_stores_nothing(
+    cli: Any,
+    mock_keyring: Any,
+    isolate_devops_cli_config: Path,
+    tmp_path: Path,
+    argv_for: Any,
+    named_problem: str,
+) -> None:
+    config_before = isolate_devops_cli_config.read_text(encoding="utf-8")
+
+    result = cli("config", "set", *argv_for(tmp_path))
+
+    assert (result.exit_code, mock_keyring.writes) == (2, {})
+    assert named_problem in result.output
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == config_before
+    assert not _shows_the_secret(result.output)
 
 
 def test_config_init_wizard_flow(tmp_path: Path) -> None:
