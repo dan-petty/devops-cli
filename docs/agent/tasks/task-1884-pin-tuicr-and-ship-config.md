@@ -46,36 +46,13 @@ The upkeep of a bump is one version, four URLs and four hashes. tuicr is below 1
 - [x] `tests/test_tuicr_config.py` and `tests/test_tools_lock.py` pass. They run offline and never start tuicr. `devops ci` passes in the pre-push hook before the push.
 - [x] `docs/SDLC.md` Phase 6 describes the human review round, `docs/VISION.md` item 15 describes the open-tool canvas, and `docs/DEVCONTAINER_USAGE.md` says how to start tuicr.
 - [x] `changelog.d/1884.md` records the change. `CHANGELOG.md` and `docs/ROADMAP.md` are not edited.
-- Pending a person: merge these permission entries into `.claude/settings.json`. An agent must not edit its own permission file. The same entries close the gh-dash part of [#1882](https://github.com/dan-petty/devops-cli/issues/1882). The `gh-dash` deny entry and the `tuicr` deny entries are one settings change. First compare the file with the settings entries of the GitHub request budget design. The file must hold one set and no duplicate.
-
-  ```json
-  {
-    "permissions": {
-      "allow": [
-        "Bash(tuicr review list *)",
-        "Bash(tuicr review comments *)"
-      ],
-      "deny": [
-        "Bash(tuicr review clear *)",
-        "Bash(tuicr review clearc *)",
-        "Bash(tuicr review delete *)",
-        "Bash(tuicr review add *)",
-        "Bash(tuicr update*)",
-        "Bash(tuicr pr *)",
-        "Bash(tuicr)",
-        "Bash(tuicr -*)",
-        "Bash(tuicr tui*)",
-        "Bash(gh-dash*)"
-      ]
-    }
-  }
-  ```
-
-- Pending a person: check the three start patterns of the deny list. `Bash(tuicr)`, `Bash(tuicr -*)` and `Bash(tuicr tui*)` must block a start of the interface. They must not match `tuicr review list` or `tuicr review comments`. They also block `tuicr --help`, which is acceptable. The Gemini and Copilot equivalents are not verified.
+- [x] The entry `Bash(tuicr *)` is in `.claude/settings.json`. A person applied it, because an agent must not edit its own permission file. It allows every `tuicr` command without a prompt.
+- Not done: the deny entries for the start and write forms of `tuicr` and for `gh-dash`. A person decided on 2026-10-22 to add no deny entry. The settings allow the interface, `tuicr review clear`, `clearc`, `delete` and `add`, `tuicr update` and `tuicr pr`. No entry covers `gh-dash`, so an agent run of it prompts like any other command that no entry covers. The rule that an agent never starts `tuicr` or `gh-dash` stays in `docs/DEVCONTAINER_USAGE.md` and in `docs/SDLC.md` Phase 6. The settings do not enforce it.
+- Pending a person: when the GitHub request budget design merges, compare its settings entries with `.claude/settings.json`. The file must hold one set and no duplicate.
 - Pending a person: run `devops install-tools --tool tuicr`, then `devops install-tools --check`. The check exits 0 when every tool has its locked version.
 - Pending a person: copy the template with `mkdir -p ~/.config/tuicr && cp .devops/tuicr.config.toml ~/.config/tuicr/config.toml`. If that file exists, copy it first to `~/.config/tuicr/config.toml.bak-<YYYYMMDD-HHMMSS>`.
 - Pending a person: run one real review. In a worktree of an agent, run `tuicr -r <release-branch>..HEAD`, add a comment, press `y` and check the export. In another terminal, run `tuicr review list --repo <worktree>` and `tuicr review comments --repo <worktree> --session <slug>`. Check the JSON fields `id`, `location`, `path`, `start_line`, `end_line`, `side`, `comment_type`, `author`, `lifecycle_state`, `created_at` and `content`. Judge the VS Code terminal. The clipboard (OSC 52) and Shift-Enter are not verified (issue 782 of the tuicr repository).
-- Pending a person: run one agent round. Ask an agent to address the comments of that review, with the "Human Review Round" bullet of `docs/SDLC.md`. Keep tuicr open during the round, or give the agent the session slug, because `"active"` is true only while tuicr is open. Check that the allow entries stop the permission prompt for the two read commands. Check that a deny entry blocks `tuicr review clear` and a start of `tuicr`. Report what failed.
+- Pending a person: run one agent round. Ask an agent to address the comments of that review, with the "Human Review Round" bullet of `docs/SDLC.md`. Keep tuicr open during the round, or give the agent the session slug, because `"active"` is true only while tuicr is open. Check that the entry `Bash(tuicr *)` stops the permission prompt for the `tuicr review` commands. Report what failed.
 
 ## Deliverables
 

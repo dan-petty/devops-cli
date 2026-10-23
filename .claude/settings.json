@@ -14,12 +14,9 @@
   },
   "permissions": {
     "allow": [
-      "Bash(uv run devops *)"
-    ],
-    "deny": [
-      "Read(//**/.claude/settings.local.json)",
-      "Read(~/.claude/settings.json)",
-      "Read(~/.kube/**)"
+      "Bash(uv run devops *)",
+      "Bash(openspec *)",
+      "Bash(tuicr *)"
     ]
   }
 }
