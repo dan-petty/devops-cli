@@ -7,6 +7,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -20,7 +21,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, masked_reason
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, ToolFiles, masked_reason
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -184,9 +185,17 @@ class DiveScanner(BaseSecurityScanner):
         return [self.binary_name, str(image_name)]
 
     def _run_scanner_command(
-        self, cmd: list[str], cwd_dir: Path, target_path: Any, timeout: float
+        self,
+        cmd: list[str],
+        cwd_dir: Path,
+        target_path: Any,
+        timeout: float,
+        files: Callable[[], ToolFiles] = ToolFiles,
     ) -> ScanOutcome:
-        """Run dive through `run_dive_analysis`, since dive writes its analysis to a file."""
+        """Run dive through `run_dive_analysis`, since dive writes its analysis to a file.
+
+        Dive starts no tool through the executor, so it has no record of files to digest.
+        """
         analysis = run_dive_analysis(cmd[1], timeout=timeout)
         if analysis.status != "ran":
             return ScanOutcome(analysis.status, [], analysis.reason)

@@ -1953,14 +1953,13 @@ class ReviewPipelineOrchestrator:
         threat_intel: bool = False,
         tool_executor: ToolExecutor | None = None,
     ) -> None:
-        if tool_executor is None:
-            # Imported here: the executor pulls in the sandbox, which a review that does not
-            # start a tool does not need.
-            from devops_cli.security.tool_executor import DirectToolExecutor
+        # Imported here: the executor pulls in the sandbox, which a review that does not start a
+        # tool does not need.
+        from devops_cli.security.tool_executor import DirectToolExecutor, RecordingToolExecutor
 
-            tool_executor = DirectToolExecutor()
-        # One executor for the whole review, so every analyzer starts its tool the same way.
-        self.tool_executor: ToolExecutor = tool_executor
+        # One executor for the whole review, so every analyzer starts its tool the same way. It
+        # keeps the record of every run, for the report and the profile (#772).
+        self.tool_executor = RecordingToolExecutor(tool_executor or DirectToolExecutor())
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.base_revision = base_revision
         self.partial_context = partial_context
@@ -3118,6 +3117,7 @@ class ReviewPipelineOrchestrator:
 
         lines.extend(self._build_static_analyzers_section())
         lines.extend(self._build_coverage_section())
+        lines.extend(self._build_tool_runs_section())
 
         baseline_lines = self._build_category_baseline_section(
             candidate_findings or all_findings, reportable_findings
@@ -3207,6 +3207,12 @@ class ReviewPipelineOrchestrator:
             cell = " ".join(result.split()).replace("|", "\\|")
             rows.append(f"| {name} | {cell} |")
         return ["## Static Analyzers", "| Analyzer | Result |", "|---|---|", *rows, ""]
+
+    def _build_tool_runs_section(self) -> list[str]:
+        """Which tools ran, at which versions, how, and over which config and rules (#772)."""
+        from devops_cli.ai.review.tool_runs import tool_runs_section
+
+        return tool_runs_section(self.tool_executor.runs)
 
     def _build_coverage_section(self) -> list[str]:
         """Coverage matrix per (tool, file) in review.md."""

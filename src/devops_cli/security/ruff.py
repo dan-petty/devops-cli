@@ -11,6 +11,7 @@ from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_RUFF
 from devops_cli.config.constants import (
     CONST_DEFAULT_REVIEW_ADVISORY_RULES,
+    CONST_RUFF_CONFIG_FILE_NAMES,
     CONST_SARIF_LEVEL_TO_SEVERITY,
     CONST_SARIF_LEVEL_WARNING,
     CONST_SARIF_LEVELS,
@@ -225,6 +226,9 @@ class RuffScanner(BaseSecurityScanner):
     binary_name: str = BIN_RUFF
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # Ruff reads the config file nearest to each file it checks, whatever directory it starts in.
+    config_names: ClassVar[tuple[str, ...]] = CONST_RUFF_CONFIG_FILE_NAMES
+    config_search_upward: ClassVar[bool] = True
 
     def build_command(
         self,

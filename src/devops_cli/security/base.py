@@ -10,8 +10,9 @@ import subprocess
 import sys
 import tempfile
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 from unittest.mock import NonCallableMock
@@ -310,6 +311,34 @@ def _scan_tree(targets: tuple[Path, ...]) -> Path:
     return nearest_checkout(directory) or directory
 
 
+def _named_files(
+    names: Sequence[str], targets: Iterable[Path], *, up_to: Path | None = None
+) -> tuple[Path, ...]:
+    """The files called one of `names` in the directory of each target, nearest first, each once.
+
+    With `up_to`, also in each directory above it that is inside `up_to`: a tool that looks for its
+    config file there takes the nearest one, and any of them may change what it does.
+    """
+    found: dict[Path, None] = {}
+    for target in targets:
+        directory = target if target.is_dir() else target.parent
+        ancestors = (directory, *directory.parents) if up_to else (directory,)
+        for here in (d for d in ancestors if up_to is None or d.is_relative_to(up_to)):
+            candidates = (here / name for name in names)
+            found.update(dict.fromkeys(path for path in candidates if path.is_file()))
+    return tuple(found)
+
+
+class ToolFiles(NamedTuple):
+    """The files a scan's tool reads besides its targets: its config files and its ruleset files.
+
+    A review records a digest of each group (#772).
+    """
+
+    config: tuple[Path, ...] = ()
+    ruleset: tuple[Path, ...] = ()
+
+
 def _evaluate_preflight(
     scanner: BaseSecurityScanner, target_path: Any, **kwargs: Any
 ) -> ScanOutcome | None:
@@ -470,6 +499,11 @@ class BaseSecurityScanner(ABC):
     # The files an isolated scan hands the scanner in place of the config and ignore files it
     # would read from its working directory or the scanned tree (#972).
     isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = ()
+    # The names under which the tool finds a config file of its own that a review does not hand it,
+    # in the directory of each target, and in each directory above it up to the tree when
+    # `config_search_upward` (#772).
+    config_names: ClassVar[tuple[str, ...]] = ()
+    config_search_upward: ClassVar[bool] = False
 
     def __init__(self, tool_executor: ToolExecutor | None = None) -> None:
         """Start the scanner's tool through `tool_executor`; without one, as a child process."""
@@ -501,6 +535,30 @@ class BaseSecurityScanner(ABC):
         Returns (True, "") if applicable, or (False, reason) if not applicable.
         """
         return True, ""
+
+    def ruleset_files(self, target_path: Any, cwd: Path, **kwargs: Any) -> tuple[Path, ...]:
+        """The rule files and the database metadata files the scan's tool reads: none by default.
+
+        A tool whose rules are in its binary reads none, and the version of the binary names them.
+        `kwargs` are those the scan passed to `build_command`, and `cwd` is where the tool starts.
+        """
+        return ()
+
+    def _tool_files(
+        self, target_path: Any, cwd: Path, handed: Sequence[str], scan_kwargs: Mapping[str, Any]
+    ) -> ToolFiles:
+        """The config files and the ruleset files of a scan: the files devops-cli handed the tool
+        (`handed` holds each flag and the path after it), the config files the tool finds on its
+        own, and the rule files it reads."""
+        targets = _scan_targets(target_path)
+        up_to = _scan_tree(targets) if self.config_search_upward else None
+        return ToolFiles(
+            config=(
+                *(Path(path) for path in handed[1::2]),
+                *_named_files(self.config_names, targets, up_to=up_to),
+            ),
+            ruleset=self.ruleset_files(target_path, cwd, **scan_kwargs),
+        )
 
     def fallback_scan(self, target_path: Any) -> list[Finding]:
         """Execute fallback scan logic when primary binary is unavailable."""
@@ -540,9 +598,17 @@ class BaseSecurityScanner(ABC):
             return True
         return check_binary(self.binary_name)
 
-    def _run_tool(self, cmd: list[str], cwd_dir: Path, target_path: Any, timeout: float) -> Any:
+    def _run_tool(
+        self,
+        cmd: list[str],
+        cwd_dir: Path,
+        target_path: Any,
+        timeout: float,
+        files: Callable[[], ToolFiles] = ToolFiles,
+    ) -> Any:
         """Start `cmd` through the tool executor and answer as a finished process, honoring
-        module-level test mocks.
+        module-level test mocks. `files` names the config files and the ruleset files the tool
+        reads, so the record of the run holds a digest of each.
 
         A run that ran out of time raises `subprocess.TimeoutExpired`, as the process would.
         """
@@ -553,12 +619,15 @@ class BaseSecurityScanner(ABC):
         from devops_cli.security.tool_executor import ToolLimits, ToolRequest
 
         targets = _scan_targets(target_path)
+        read = files()
         request = ToolRequest(
             tool=cmd[0],
             arguments=tuple(cmd[1:]),
             workdir=_scan_tree(targets),
             cwd=cwd_dir,
             targets=targets,
+            config_files=read.config,
+            ruleset_files=read.ruleset,
             limits=ToolLimits(wall_seconds=timeout),
         )
         result = self._tool_executor.run(request)
@@ -593,6 +662,7 @@ class BaseSecurityScanner(ABC):
         cwd_dir: Path,
         target_path: Any,
         timeout: float,
+        files: Callable[[], ToolFiles] = ToolFiles,
     ) -> ScanOutcome:
         """Execute scanner command subprocess with output parsing and fallback handling.
 
@@ -602,7 +672,7 @@ class BaseSecurityScanner(ABC):
         @trace_span(f"security.{self.name}")
         def _run() -> ScanOutcome:
             try:
-                proc = self._run_tool(cmd, cwd_dir, target_path, timeout)
+                proc = self._run_tool(cmd, cwd_dir, target_path, timeout, files)
                 is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
                 if not is_valid_json:
                     return _handle_non_json_output(self, proc, target_path)
@@ -674,7 +744,8 @@ class BaseSecurityScanner(ABC):
         cmd = self.build_command(target_path, **kwargs)
         if not cmd:
             return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
-        return self._run_scanner_command([*cmd, *handed], cwd, target_path, timeout)
+        files = partial(self._tool_files, target_path, cwd, handed, kwargs)
+        return self._run_scanner_command([*cmd, *handed], cwd, target_path, timeout, files)
 
     def isolated_targets(self, target_path: Any, workdir: Path, **kwargs: Any) -> Any:
         """The targets an isolated scan names from `workdir`: as given.
@@ -704,6 +775,7 @@ __all__ = [
     "MaterializedTargets",
     "ScanOutcome",
     "ScannerConfigFile",
+    "ToolFiles",
     "materialize_targets",
     "merge_outcomes",
     "relativize_scan_path",

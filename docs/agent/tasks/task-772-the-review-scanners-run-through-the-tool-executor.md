@@ -17,7 +17,7 @@ A scanner builds the command of its tool. It now hands the command to a `ToolExe
 ### Decisions
 
 - The default executor is `DirectToolExecutor`. It is the smallest way to keep the behavior. It calls `run_subprocess` with the arguments that the scanners used before. The program is the name of the tool. The directory and the time limit are those of the scan. The tool reads an empty standard input (#1079).
-- A scan must end as it ended before the executor existed. The default executor builds a `ToolRun` with `record_tool_run`, as the sandbox executor does. Nothing reads the record yet. So the record must never stop a scan.
+- A scan must end as it ended before the executor existed. The default executor builds a `ToolRun` with `record_tool_run`, as the sandbox executor does. The review profile and `review.md` show the record (Part C). A record is no reason to stop a scan, so the record must never stop one.
 - Git cannot read some checkouts. A checkout that another user owns is one example. `record_tool_run` takes `require_commit`. The sandbox executor and the fake keep the default, `True`, and they refuse such a checkout. `DirectToolExecutor` passes `False`. Then the record holds no commit, and the scan runs.
 - The record has a cost. Each run reads the commit of the tree with two git commands. They took about 2 ms and 4 ms in this repository. The first run of a tool in a process also reads the binary of the tool for its digest. `_hash_binary_path` in the canary caches the digest for the process. The read took 0.20 s for the 173 MB Trivy binary and less than 0.07 s for each other tool.
 - `ToolRequest` has a new field, `cwd`. A review scan starts in a scratch directory outside the tree, so that the tool reads no config file of the tree. `workdir` is the tree. The request needs both. `SandboxToolExecutor` starts the tool in `cwd` and binds a `cwd` outside the tree read-only.
@@ -75,11 +75,8 @@ A scanner builds the command of its tool. It now hands the command to a `ToolExe
 - [x] `DirectToolExecutor` passes the environment of the request and replaces `{targets}`. It answers a failure of the tool as a result and records the run. It records no commit for a checkout that git cannot read. It refuses a target outside the tree. Six cases in `tests/test_tool_executor_contract.py` assert it.
 - [x] `docs/TESTING.md` names the direct executor and the tests that give the scanners the fake.
 - Not done: mypy and the canary runner take a `ToolExecutor`. A request must first name a program that is not a tool of the lock. The part that does this also removes the patch of `run_mypy_scan` from two review tests (a later Part of #772).
-- Not done: a scan that needs no record skips it. The default executor reads the commit and the binary digest for a record that nothing reads. The cost is two git commands and 0.2 s for Trivy at most, once for each tool in a process (a later Part of #772, with the part that records the runs).
 - Not done: no review or scanner module probes `Path.cwd()`. A new test file holds that rule. The three named pipeline tests pass a temporary workspace and run under 5 seconds (a later Part of #772).
 - Not done: `scanner_fake` is rebuilt over the executor fake. Its recordings and `tests/test_scanner_contract.py` stay (a later Part of #772).
-- Not done: a request names the config files and the ruleset files of a scan. The argument template holds `{targets}` in place of paths. So the digests of a `ToolRun` cover what the tool read (a later Part of #772, with the part that records the runs).
-- Not done: the `ToolRun` records and the limits in force enter the review profile, `review.md` and `SECURITY.md` (a later Part of #772).
 - Not done: the sandbox executor becomes the production default (a later Part of #772).
 - Not done: `changelog.d/772.md` (the closing Part of #772 adds it).
 - Pending a person: run `devops review path` over one small tree with the release tip and with this change. Compare the table of static analyzers in the two `review.md` files. The six-tool check above shows equal scans, but a full review also calls a model, and an agent does not run it.

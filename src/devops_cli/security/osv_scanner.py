@@ -12,6 +12,7 @@ import logging
 import tempfile
 import time
 from collections.abc import Sequence
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -20,6 +21,7 @@ from devops_cli.config.commands import BIN_OSV_SCANNER, build_osv_scan_cmd
 from devops_cli.config.constants import (
     CONST_LOCKFILE_NAMES,
     CONST_MANIFEST_TO_LOCKFILES,
+    CONST_OSV_CONFIG_FILE_NAMES,
     CONST_OSV_OFFLINE_DB_TTL_SECONDS,
     CONST_SEVERITY_ALIASES,
 )
@@ -249,6 +251,8 @@ class OsvScanner(BaseSecurityScanner):
     binary_name: str = BIN_OSV_SCANNER
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # osv-scanner reads `osv-scanner.toml` from the directory of each lockfile it scans.
+    config_names: ClassVar[tuple[str, ...]] = CONST_OSV_CONFIG_FILE_NAMES
 
     def __init__(
         self, snapshot_digest: str | None = None, tool_executor: ToolExecutor | None = None
@@ -318,15 +322,16 @@ class OsvScanner(BaseSecurityScanner):
             return ScanOutcome("clean", [], "No lockfiles found")
 
         cmd = self.build_command(effective_lockfiles[0], lockfiles=effective_lockfiles)
+
+        def run_from(cwd: Path) -> ScanOutcome:
+            files = partial(self._tool_files, effective_lockfiles, cwd, (), {})
+            return self._run_scanner_command(cmd, cwd, effective_lockfiles, timeout, files)
+
         if isolated:
             with tempfile.TemporaryDirectory(prefix="devops-scan-osv-") as scan_dir:
-                outcome = self._run_scanner_command(
-                    cmd, Path(scan_dir), effective_lockfiles, timeout=timeout
-                )
+                outcome = run_from(Path(scan_dir))
         else:
-            outcome = self._run_scanner_command(
-                cmd, scan_tree, effective_lockfiles, timeout=timeout
-            )
+            outcome = run_from(scan_tree)
 
         if gaps and outcome.status == "ran":
             outcome.reason = "; ".join(gaps)

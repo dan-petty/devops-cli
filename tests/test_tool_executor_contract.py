@@ -30,11 +30,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
+from devops_cli.ai.run_store import digest, file_digest
 from devops_cli.config.constants import (
     CONST_ERROR_CODE_SANDBOX,
     CONST_ERROR_CODE_SANDBOX_VALIDATION,
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
+    CONST_TOOL_DIGEST_UNAVAILABLE,
+    CONST_TOOL_EXECUTOR_DIRECT,
 )
 from devops_cli.config.defaults import DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 from devops_cli.exceptions.sandbox import SandboxError, SandboxValidationError
@@ -49,7 +53,7 @@ from devops_cli.security.tool_executor import (
     ToolRun,
 )
 from devops_cli.tools_lock import load_tools_lock
-from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
+from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer, ToolExecutorFake
 from tests.support.waits import wait_until
 
 # A tool that `tools.lock` pins, so the run records the locked version; the stand-in is not it.
@@ -583,6 +587,12 @@ def test_the_sandbox_gives_the_tool_an_empty_standard_input(scenario: Scenario) 
     assert SandboxToolExecutor().run(scenario.request("stdin")).stdout == "STDIN=[]\n"
 
 
+@pytest.mark.bwrap
+def test_the_sandbox_names_itself_in_the_record_of_its_run(scenario: Scenario) -> None:
+    """The record of a run in the sandbox says so, as the record of a direct run says it was not."""
+    assert SandboxToolExecutor().run(scenario.request("where")).run.executor == "sandbox"
+
+
 # The direct executor: git is the one program that the floor of the suite lets a test start.
 
 
@@ -666,6 +676,43 @@ def test_the_direct_executor_records_no_commit_for_a_checkout_that_git_cannot_re
     result = DirectToolExecutor().run(request)
 
     assert (result.exit_code, result.run.commit) == (0, None)
+
+
+@pytest.mark.parametrize("unreadable", ["config_files", "ruleset_files"])
+def test_the_direct_executor_records_a_file_it_cannot_digest_and_still_starts_the_tool(
+    unreadable: str, scenario: Scenario
+) -> None:
+    """A scan must end as it ended before the record existed. A config file or a ruleset file that
+    the record cannot read as a regular file is recorded as unavailable, and the tool starts all
+    the same. The sandbox executor refuses such a file: it must bind the file into the sandbox."""
+    config = digest([file_digest(scenario.config_file)])
+    ruleset = digest([file_digest(scenario.ruleset_file)])
+    request = _git_request(scenario, "--version", **{unreadable: (scenario.target,)})
+
+    result = DirectToolExecutor().run(request)
+
+    assert (result.exit_code, result.run.config_digest, result.run.ruleset_digest) == (
+        0,
+        CONST_TOOL_DIGEST_UNAVAILABLE if unreadable == "config_files" else config,
+        CONST_TOOL_DIGEST_UNAVAILABLE if unreadable == "ruleset_files" else ruleset,
+    )
+
+
+def test_each_executor_names_itself_in_the_record_of_its_run(scenario: Scenario) -> None:
+    """A reader of a record sees whether the run was confined: the direct executor started the tool
+    as a child process of devops-cli."""
+    direct = DirectToolExecutor().run(_git_request(scenario, "--version"))
+    fake = ToolExecutorFake().run(scenario.request())
+
+    assert (direct.run.executor, fake.run.executor) == (CONST_TOOL_EXECUTOR_DIRECT, FAKE_EXECUTOR)
+
+
+def test_a_record_that_names_no_executor_is_no_record(scenario: Scenario) -> None:
+    """A reader of a record must see whether the run was confined, so the name is never empty."""
+    run = ToolExecutorFake().run(scenario.request()).run
+
+    with pytest.raises(ValidationError):
+        ToolRun.model_validate({**run.model_dump(), "executor": ""})
 
 
 def test_the_direct_executor_refuses_a_target_outside_the_tree_before_it_starts_the_tool(

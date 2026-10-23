@@ -4547,6 +4547,35 @@ CONST_TOOL_GO_MEMORY_LIMIT: Final[str] = "1GiB"
 CONST_TOOL_PRLIMIT_BINARY: Final[str] = "prlimit"
 # The element of a tool's arguments that stands for the paths the tool scans.
 CONST_TOOL_TARGETS_PLACEHOLDER: Final[str] = "{targets}"
+# The elements that stand, in the recorded argument template of a run, for the config files and
+# the ruleset files that the arguments name by path. The path of a scratch directory is new in each run.
+CONST_TOOL_CONFIG_PLACEHOLDER: Final[str] = "{config}"
+CONST_TOOL_RULESET_PLACEHOLDER: Final[str] = "{ruleset}"
+# How an executor started a tool, as a record names it: as a child process of devops-cli with no
+# confinement, or in the bubblewrap sandbox.
+CONST_TOOL_EXECUTOR_DIRECT: Final[str] = "direct"
+CONST_TOOL_EXECUTOR_SANDBOX: Final[str] = "sandbox"
+# The digest of a binary or of a group of files that a record could not read. It stands in the record
+# of a run that must not fail for the record. The digest of no files is not this value.
+CONST_TOOL_DIGEST_UNAVAILABLE: Final[str] = "unavailable"
+# The names under which a tool finds its own config file. Ruff looks in the directory of each file
+# it checks and in each directory above it (docs.astral.sh/ruff/configuration). It also read the
+# nearest `pyproject.toml` when a nearer `.ruff.toml` held the settings. osv-scanner looks in the
+# directory of each lockfile only. Both facts come from `strace` on Ruff 0.16.8 and osv-scanner
+# 2.6.0. A review hands every other tool its own config file. A request names these files up to
+# the tree only. While the direct executor runs, Ruff also applies a config file above the tree and
+# one in its user config directory, and the record does not name them.
+CONST_RUFF_CONFIG_FILE_NAMES: Final[tuple[str, ...]] = (".ruff.toml", "ruff.toml", "pyproject.toml")
+CONST_OSV_CONFIG_FILE_NAMES: Final[tuple[str, ...]] = ("osv-scanner.toml",)
+# Where Trivy keeps the metadata of what it scans with, below its cache directory
+# (`--cache-dir`, the environment variable `TRIVY_CACHE_DIR`, else `trivy` in the user cache of
+# the platform). A `config` scan reads the checks bundle. Any other scan reads the vulnerability
+# database. The metadata names the version of the bundle or database and the time of its download.
+CONST_TRIVY_CACHE_DIR_ENV: Final[str] = "TRIVY_CACHE_DIR"
+CONST_TRIVY_CACHE_DIR_NAME: Final[str] = "trivy"
+CONST_TRIVY_CONFIG_SCAN_TYPE: Final[str] = "config"
+CONST_TRIVY_CHECKS_METADATA: Final[tuple[str, ...]] = ("policy", "metadata.json")
+CONST_TRIVY_DB_METADATA: Final[tuple[str, ...]] = ("db", "metadata.json")
 
 # Maximum window duration permitted for Prometheus pool load queries (30 days in seconds)
 # to prevent resource exhaustion and unbounded range vectors (CWE-400).

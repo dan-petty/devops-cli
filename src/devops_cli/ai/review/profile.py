@@ -22,7 +22,7 @@ import statistics
 import threading
 import time
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -39,6 +39,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_PROFILE_FILENAME,
 )
 from devops_cli.core.repo import own_source_state
+from devops_cli.security.tool_executor import ToolRun
 from devops_cli.tools_lock import tools_lock_digest
 
 BENCHMARKS_DIRNAME = "benchmarks"
@@ -149,6 +150,10 @@ class ReviewProfile(BaseModel):
     # How long each analyzer's scans ran, in seconds, summed over its runs (#1079).
     static_analyzer_seconds: dict[str, float] = Field(default_factory=dict)
     coverage: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # The record of each run of a review tool, in the order the runs started: the tool, its version
+    # and binary, how it ran, the digests of its config files, ruleset files and targets, and the
+    # commit of the tree (#772). `review.md` shows the distinct records with a count.
+    tool_runs: list[ToolRun] = Field(default_factory=list)
     partial_context: bool = False
     rejections: dict[str, int] = Field(default_factory=dict)
     stages: list[StageProfile] = Field(default_factory=list)
@@ -194,6 +199,7 @@ class ReviewProfiler:
         self._static_analyzer_seconds: dict[str, float] = {}
         self._conventions = ""
         self._coverage: dict[str, dict[str, str]] = {}
+        self._tool_runs: list[ToolRun] = []
         self._partial_context: bool = False
         self._rejections: dict[str, int] = {}
         self._osv_snapshot_digest: str = ""
@@ -292,6 +298,11 @@ class ReviewProfiler:
         with self._lock:
             self._coverage = {t: dict(m) for t, m in coverage.items()}
 
+    def set_tool_runs(self, runs: Iterable[ToolRun]) -> None:
+        """Record the runs of the review tools, in the order they started."""
+        with self._lock:
+            self._tool_runs = list(runs)
+
     def set_partial_context(self, partial_context: bool) -> None:
         """Record whether PR head was unavailable, leaving only partial context."""
         with self._lock:
@@ -309,6 +320,7 @@ class ReviewProfiler:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
             intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
             coverage = {t: dict(m) for t, m in self._coverage.items()}
+            tool_runs = list(self._tool_runs)
             partial_ctx = self._partial_context
             rejections = dict(self._rejections)
             osv_digest = self._osv_snapshot_digest
@@ -346,6 +358,7 @@ class ReviewProfiler:
                 name: round(seconds, 3) for name, seconds in self._static_analyzer_seconds.items()
             },
             coverage=coverage,
+            tool_runs=tool_runs,
             partial_context=partial_ctx,
             rejections=rejections,
             stages=stages,
