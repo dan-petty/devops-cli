@@ -218,7 +218,7 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
   - `devops_cli.commands.docker`: Collects real-time container CPU/memory statistics, checks container health, and inspects image layers.
 
 #### `fastmcp` ([Dedicated Manual](libraries/fastmcp.md))
-- **Pinned Version**: `fastmcp==4.0.11`
+- **Pinned Version**: `fastmcp==4.1.2`
 - **Ecosystem Role**: High-level Model Context Protocol (MCP) server framework exposing Python functions as standardized tools and prompts.
 - **Codebase Integration**:
   - `devops_cli.ai.mcp.server`: Exposes `devops-cli` tools (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) to AI assistants via stdio and SSE transports.
