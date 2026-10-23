@@ -1178,6 +1178,31 @@ def _ignore_file_escapes(
     return [*nested, *beside, *matched]
 
 
+def _git_output(project: Path, *args: str) -> str:
+    """Run git in `project` and return what it prints; a git failure ends the test with git's reason."""
+    done = subprocess.run(
+        ["git", "-C", str(project), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=_GIT_TIMEOUT_SECONDS,
+    )
+    if done.returncode:
+        pytest.fail(
+            f"git {args[0]} failed in {project}: {done.stderr.strip()[:256]}", pytrace=False
+        )
+    return done.stdout
+
+
+def _tracked_paths(project: Path, *pathspecs: str) -> list[str]:
+    """Name the files git tracks under `project` that the pathspecs select, or every one when none is given (#1787)."""
+    return [
+        name
+        for name in _git_output(project, "ls-files", "-z", "--", *pathspecs).split("\0")
+        if name
+    ]
+
+
 def _sgconfig_escapes(project: Path) -> list[str]:
     """Report unlisted keys, modified ruleDirs, or extra sgconfig.yml files (#1107)."""
     sgconfig = project / "sgconfig.yml"
@@ -1200,9 +1225,10 @@ def _sgconfig_escapes(project: Path) -> list[str]:
         else [f"[sgconfig.yml] ruleDirs: {rule_dirs}, not ['.ast-grep/rules']"]
     )
     seconds = [
-        f"{p.relative_to(project).as_posix()}: a second sgconfig.yml"
-        for p in sorted(project.rglob("sgconfig.yml"))
-        if p != sgconfig and not any(part == "repos" for part in p.parts)
+        f"{name}: a second sgconfig.yml"
+        for name in sorted(
+            _tracked_paths(project, ":(glob)**/sgconfig.yml", ":(exclude)sgconfig.yml")
+        )
     ]
     return [*unlisted, *rule_dirs_escape, *seconds]
 
@@ -1345,7 +1371,7 @@ def _tid251_escapes(lint: Mapping[str, Any]) -> list[str]:
 def _network_construct_escapes(pyproject: Mapping[str, Any], project: Path) -> list[str]:
     """Report every way a committed file lets a hand-rolled network construct past the gate (#1107)."""
     lint = pyproject.get("tool", {}).get("ruff", {}).get("lint", {})
-    covered = [p for p in (project / "src").rglob("*") if p.is_file()]
+    covered = [project / name for name in _tracked_paths(project, "src")]
     sources = [p for p in covered if p.suffix in CONST_RUFF_SOURCE_SUFFIXES]
     return [
         *_sgconfig_escapes(project),
@@ -1422,6 +1448,62 @@ def _populate_complying_network_construct_tree(project: Path) -> None:
         )
 
 
+@pytest.fixture
+def git_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the variables git sets for a hook, which would point each git call at the committer's repository (#1787)."""
+    local_variables = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=_GIT_TIMEOUT_SECONDS,
+    ).stdout.split()
+    for name in local_variables:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def git_project(tmp_path: Path, git_environment: None) -> Path:
+    """An empty git repository, in which a commit needs neither a signature nor an identity from the host (#1787)."""
+    _git_output(tmp_path, "init", "--quiet")
+    for key, value in (("user.name", "Test"), ("user.email", "test@example.com")):
+        _git_output(tmp_path, "config", key, value)
+    _git_output(tmp_path, "config", "commit.gpgsign", "false")
+    return tmp_path
+
+
+def _track_everything(project: Path) -> None:
+    """Stage every file under `project`, one `.gitignore` matches too, as a committed tree holds it (#1787)."""
+    _git_output(project, "add", "--force", "--all")
+
+
+@pytest.fixture
+def hook_git_variables(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Set the repository variables of a commit hook in a linked worktree, to an empty directory that is returned (#1787).
+
+    A test lists this fixture before `git_project`, so the variables are set when `git_environment` runs.
+    """
+    hook_directory = tmp_path_factory.mktemp("hook")
+    monkeypatch.setenv("GIT_DIR", str(hook_directory / "git-dir"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(hook_directory / "index"))
+    return hook_directory
+
+
+def test_a_git_project_leaves_the_repository_of_a_commit_hook_alone(
+    hook_git_variables: Path, git_project: Path
+) -> None:
+    """A commit hook runs this file, so git in a temporary repository must not write to the repository of the commit (#1787)."""
+    (git_project / "tracked.txt").write_text("x\n", encoding="utf-8")
+    _track_everything(git_project)
+
+    assert (_tracked_paths(git_project, "tracked.txt"), list(hook_git_variables.iterdir())) == (
+        ["tracked.txt"],
+        [],
+    )
+
+
 _NETWORK_CONSTRUCT_ESCAPES = [
     pytest.param((), None, {}, [], id="complying"),
     pytest.param(
@@ -1450,8 +1532,14 @@ _NETWORK_CONSTRUCT_ESCAPES = [
     pytest.param(
         (),
         None,
-        {"subdir/sgconfig.yml": "ruleDirs: []\n"},
-        ["subdir/sgconfig.yml: a second sgconfig.yml"],
+        {
+            "subdir/sgconfig.yml": "ruleDirs: []\n",
+            "subdir/deeper/sgconfig.yml": "ruleDirs: []\n",
+        },
+        [
+            "subdir/deeper/sgconfig.yml: a second sgconfig.yml",
+            "subdir/sgconfig.yml: a second sgconfig.yml",
+        ],
         id="second-sgconfig",
     ),
     pytest.param(
@@ -1591,27 +1679,96 @@ _NETWORK_CONSTRUCT_ESCAPES = [
 
 @pytest.mark.parametrize("path, value, files, expected", _NETWORK_CONSTRUCT_ESCAPES)
 def test_every_network_construct_escape_is_reported(
-    tmp_path: Path,
+    git_project: Path,
     path: Sequence[str],
     value: object,
     files: Mapping[str, str | None],
     expected: list[str],
 ) -> None:
     """Every way to bypass the network construct gate without detection is reported (#1107)."""
-    _populate_complying_network_construct_tree(tmp_path)
+    _populate_complying_network_construct_tree(git_project)
     pyproject = _complying_network_construct_pyproject()
     if path:
         _edit(pyproject["tool"]["ruff"], path, value)
     for name, content in files.items():
-        dest = tmp_path / name
+        dest = git_project / name
         if content is None:
             if dest.exists():
                 dest.unlink()
         else:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content, encoding="utf-8")
+    _track_everything(git_project)
 
-    assert _network_construct_escapes(pyproject, tmp_path) == expected
+    assert _network_construct_escapes(pyproject, git_project) == expected
+
+
+def test_a_second_sgconfig_that_git_does_not_track_is_not_reported(git_project: Path) -> None:
+    """Scratch under `.data` and a checkout nested under `.claude/worktrees` hold an `sgconfig.yml` no commit holds (#1787)."""
+    _populate_complying_network_construct_tree(git_project)
+    _track_everything(git_project)
+    _git_output(git_project, "commit", "--quiet", "--message", "tree")
+    scratch = git_project / ".data" / "agent" / "scratch" / "astgrep" / "sgconfig.yml"
+    scratch.parent.mkdir(parents=True, exist_ok=True)
+    scratch.write_text("ruleDirs: []\n", encoding="utf-8")
+    _git_output(
+        git_project, "worktree", "add", "--quiet", ".claude/worktrees/nested", "-b", "nested"
+    )
+
+    in_working_tree = sorted(
+        found.relative_to(git_project).as_posix() for found in git_project.rglob("sgconfig.yml")
+    )
+
+    assert (in_working_tree, _sgconfig_escapes(git_project)) == (
+        [
+            ".claude/worktrees/nested/sgconfig.yml",
+            ".data/agent/scratch/astgrep/sgconfig.yml",
+            "sgconfig.yml",
+        ],
+        [],
+    )
+
+
+def test_a_tracked_second_sgconfig_is_named_beside_untracked_ones(git_project: Path) -> None:
+    """Only the `sgconfig.yml` a commit would hold is reported; the untracked scratch beside it is not (#1787)."""
+    _populate_complying_network_construct_tree(git_project)
+    for tracked in ("subdir/sgconfig.yml", "subdir/deeper/sgconfig.yml"):
+        (git_project / tracked).parent.mkdir(parents=True, exist_ok=True)
+        (git_project / tracked).write_text("ruleDirs: []\n", encoding="utf-8")
+    _track_everything(git_project)
+    scratch = git_project / ".data" / "sgconfig.yml"
+    scratch.parent.mkdir(exist_ok=True)
+    scratch.write_text("ruleDirs: []\n", encoding="utf-8")
+
+    assert _sgconfig_escapes(git_project) == [
+        "subdir/deeper/sgconfig.yml: a second sgconfig.yml",
+        "subdir/sgconfig.yml: a second sgconfig.yml",
+    ]
+
+
+def test_a_source_that_git_does_not_track_is_not_reported_as_hidden(git_project: Path) -> None:
+    """A source file `.gitignore` matches but no commit holds hides nothing from the gate (#1787)."""
+    _populate_complying_network_construct_tree(git_project)
+    _track_everything(git_project)
+    ignored = git_project / "src" / "target" / "scratch.py"
+    ignored.parent.mkdir()
+    ignored.write_text("x = 1\n", encoding="utf-8")
+
+    assert _network_construct_escapes(_complying_network_construct_pyproject(), git_project) == []
+
+
+def test_a_project_that_is_not_a_git_repository_fails_the_check(
+    tmp_path: Path, git_environment: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no git repository to name the committed files, the gate fails instead of passing on none (#1787).
+
+    The ceiling stops git at `tmp_path`, so a temporary directory inside a repository is no repository here.
+    """
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    _populate_complying_network_construct_tree(tmp_path)
+
+    with pytest.raises(pytest.fail.Exception, match="git ls-files failed in"):
+        _network_construct_escapes(_complying_network_construct_pyproject(), tmp_path)
 
 
 def test_the_network_construct_gate_has_no_escape() -> None:
@@ -1961,18 +2118,15 @@ def test_no_tracked_file_under_the_scanned_roots_is_one_the_suppression_scan_ski
     assert _unscanned_tracked_sources(REPO_ROOT) == []
 
 
-def test_a_tracked_stub_or_notebook_under_a_scanned_root_is_named(tmp_path: Path) -> None:
+def test_a_tracked_stub_or_notebook_under_a_scanned_root_is_named(git_project: Path) -> None:
     """A stub or notebook tracked under `src` or `tests` is named, and a module or a docs file is not."""
     names = ("src/api.pyi", "tests/analysis.ipynb", "src/mod.py", "docs/demo.ipynb")
     for name in names:
-        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_text("", encoding="utf-8")
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, timeout=_GIT_TIMEOUT_SECONDS)
-    subprocess.run(
-        ["git", "add", "-f", "--", *names], cwd=tmp_path, check=True, timeout=_GIT_TIMEOUT_SECONDS
-    )
+        (git_project / name).parent.mkdir(parents=True, exist_ok=True)
+        (git_project / name).write_text("", encoding="utf-8")
+    _git_output(git_project, "add", "-f", "--", *names)
 
-    assert _unscanned_tracked_sources(tmp_path) == ["src/api.pyi", "tests/analysis.ipynb"]
+    assert _unscanned_tracked_sources(git_project) == ["src/api.pyi", "tests/analysis.ipynb"]
 
 
 def test_adding_a_type_ignore_in_src_fails_naming_kind_ceiling_and_file(tmp_path: Path) -> None:
