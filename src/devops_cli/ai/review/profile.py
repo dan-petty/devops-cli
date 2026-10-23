@@ -37,6 +37,7 @@ from devops_cli.config.constants import (
     CONST_FINISH_REASON_LENGTH,
     CONST_FINISH_REASON_UNKNOWN,
     CONST_REVIEW_PROFILE_FILENAME,
+    CONST_SPEND_REQUEST_TYPE_EMBEDDING,
 )
 from devops_cli.core.repo import own_source_state
 from devops_cli.security.tool_executor import ToolRun
@@ -94,6 +95,9 @@ class StageProfile(BaseModel):
     cached_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Embedding requests and their input tokens, kept out of the LLM calls and tokens (#1623).
+    embedding_calls: int = 0
+    embedding_tokens: int = 0
     cost_usd: float = 0.0
     backends: dict[str, int] = Field(default_factory=dict)
     activity: dict[str, BackendActivity] = Field(default_factory=dict)
@@ -137,6 +141,9 @@ class ReviewProfile(BaseModel):
     cached_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Embedding requests and their input tokens, kept out of the LLM calls and tokens (#1623).
+    embedding_calls: int = 0
+    embedding_tokens: int = 0
     cost_usd: float = 0.0
     candidate_findings: int = 0
     verified_findings: int = 0
@@ -229,6 +236,8 @@ class ReviewProfiler:
         """Credit an LLM call to the stage running in the caller's context.
 
         A reply served from the response cache is counted apart: no backend did any work for it.
+        An embedding request is counted apart too, so it moves no LLM call or token benchmark;
+        its cost is part of the stage's cost.
         """
         name = _STAGE.get() or "unstaged"
         with self._lock:
@@ -236,10 +245,14 @@ class ReviewProfiler:
             if call.get("cached"):
                 stage.cached_calls += 1
                 return
+            stage.cost_usd = round(stage.cost_usd + float(call.get("cost_usd") or 0.0), 6)
+            if call.get("request_type") == CONST_SPEND_REQUEST_TYPE_EMBEDDING:
+                stage.embedding_calls += 1
+                stage.embedding_tokens += int(call.get("prompt_tokens") or 0)
+                return
             stage.llm_calls += 1
             stage.prompt_tokens += int(call.get("prompt_tokens") or 0)
             stage.completion_tokens += int(call.get("completion_tokens") or 0)
-            stage.cost_usd = round(stage.cost_usd + float(call.get("cost_usd") or 0.0), 6)
             reason = call.get("finish_reason") or CONST_FINISH_REASON_UNKNOWN
             stage.finish_reasons[reason] = stage.finish_reasons.get(reason, 0) + 1
             served_by = call.get("served_by")
@@ -347,6 +360,8 @@ class ReviewProfiler:
             cached_calls=sum(s.cached_calls for s in stages),
             prompt_tokens=sum(s.prompt_tokens for s in stages),
             completion_tokens=sum(s.completion_tokens for s in stages),
+            embedding_calls=sum(s.embedding_calls for s in stages),
+            embedding_tokens=sum(s.embedding_tokens for s in stages),
             cost_usd=round(sum(s.cost_usd for s in stages), 6),
             candidate_findings=candidates,
             verified_findings=verified,

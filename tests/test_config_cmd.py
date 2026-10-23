@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -145,6 +145,31 @@ def test_config_show_includes_allow_private_network_and_active_path(
         "True" in result.stdout,
         str(custom_cfg) in result.stdout,
     ) == (0, True, True, True, True, True, True, True, True, True)
+
+
+def test_config_show_includes_the_reference_models_and_their_provider(
+    config: Callable[..., Path],
+) -> None:
+    """`devops config show` lists both reference models and the provider that prices them."""
+    config(
+        ai={
+            "reference_model": "gpt-4o",
+            "reference_embedding_model": "text-embedding-3-large",
+            "reference_provider": "openai",
+        }
+    )
+
+    result = runner.invoke(app, ["show"])
+    rows = {
+        cells[0]: cells[1] for line in result.stdout.splitlines() if len(cells := line.split()) >= 2
+    }
+
+    assert (
+        result.exit_code,
+        rows.get("ai.reference_model"),
+        rows.get("ai.reference_embedding_model"),
+        rows.get("ai.reference_provider"),
+    ) == (0, "gpt-4o", "text-embedding-3-large", "openai")
 
 
 def test_dotted_set_rejects_top_level_section_overwrite() -> None:

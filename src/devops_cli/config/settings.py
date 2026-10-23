@@ -47,7 +47,9 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
     DEFAULT_AI_REASONING_EFFORT,
+    DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
     DEFAULT_AI_REFERENCE_MODEL,
+    DEFAULT_AI_REFERENCE_PROVIDER,
     DEFAULT_AI_SUPPORTS_REASONING,
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
@@ -451,6 +453,8 @@ class AIConfig(BaseModel):
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
     reference_model: str = DEFAULT_AI_REFERENCE_MODEL
+    reference_embedding_model: str = DEFAULT_AI_REFERENCE_EMBEDDING_MODEL
+    reference_provider: str = DEFAULT_AI_REFERENCE_PROVIDER
     hardware_cost_usd: float = DEFAULT_AI_HARDWARE_COST_USD
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
     supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING

@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from devops_cli.ai.spend.models import (
     BackendSpendSummary,
@@ -21,9 +21,14 @@ from devops_cli.ai.spend.models import (
     SpendRecord,
     StageSpendSummary,
 )
-from devops_cli.config.constants import CONST_RESPONSE_CACHE_SERVER
+from devops_cli.config.constants import (
+    CONST_RESPONSE_CACHE_SERVER,
+    CONST_SPEND_REQUEST_TYPE_EMBEDDING,
+)
 from devops_cli.config.defaults import (
+    DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
     DEFAULT_AI_REFERENCE_MODEL,
+    DEFAULT_AI_REFERENCE_PROVIDER,
     DEFAULT_AI_SPEND_DB_FILENAME,
 )
 from devops_cli.config.settings import load_settings
@@ -84,9 +89,10 @@ SELECT
     COALESCE(SUM(prompt_tokens), 0) as p_tokens,
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens,
     COALESCE(SUM(cost_usd), 0.0) as s_cost
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= ?)
+WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
 GROUP BY stage_name
 ORDER BY s_cost DESC, t_tokens DESC;
 """
@@ -97,6 +103,7 @@ SELECT
     COALESCE(SUM(prompt_tokens), 0) as total_prompt,
     COALESCE(SUM(completion_tokens), 0) as total_comp,
     COALESCE(SUM(total_tokens), 0) as total_tok,
+    COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as total_emb,
     COALESCE(SUM(cost_usd), 0.0) as total_spend,
     COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as total_cached,
     COUNT(DISTINCT CASE WHEN cached=0 THEN server END) as srv_count,
@@ -104,7 +111,7 @@ SELECT
     MIN(timestamp) as first_ts,
     MAX(timestamp) as last_ts
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= ?);
+WHERE (:cutoff IS NULL OR timestamp >= :cutoff);
 """
 
 _QUERY_SERVER_BREAKDOWN = """
@@ -115,12 +122,13 @@ SELECT
     COALESCE(SUM(prompt_tokens), 0) as p_tokens,
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens,
     COALESCE(SUM(cost_usd), 0.0) as s_cost,
     GROUP_CONCAT(DISTINCT model) as model_list,
     MIN(timestamp) as f_seen,
     MAX(timestamp) as l_seen
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= ?)
+WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
 GROUP BY server, provider
 ORDER BY s_cost DESC, t_tokens DESC;
 """
@@ -133,10 +141,11 @@ SELECT
     COALESCE(SUM(prompt_tokens), 0) as p_tokens,
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens,
     COALESCE(SUM(cost_usd), 0.0) as m_cost,
     COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as cached_count
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= ?)
+WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
 GROUP BY model, provider
 ORDER BY m_cost DESC, t_tokens DESC;
 """
@@ -149,7 +158,7 @@ SELECT
     COALESCE(SUM(cost_usd), 0.0) as p_cost,
     COUNT(DISTINCT CASE WHEN cached=0 THEN server END) as s_count
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= ?)
+WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
 GROUP BY provider
 ORDER BY p_cost DESC;
 """
@@ -164,7 +173,7 @@ SELECT
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(AVG(duration_seconds), 0.0) as mean_duration
 FROM ai_spend_records
-WHERE served_by IS NOT NULL AND (? IS NULL OR timestamp >= ?)
+WHERE served_by IS NOT NULL AND (:cutoff IS NULL OR timestamp >= :cutoff)
 GROUP BY served_by
 ORDER BY req_count DESC, t_tokens DESC;
 """
@@ -173,42 +182,103 @@ _QUERY_COUNT_RECORDS = "SELECT COUNT(*) FROM ai_spend_records;"
 _QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
 
 
+# Named parameters of the report queries: the date-range cutoff and the embedding request type.
+_QueryParams = dict[str, str | None]
+
+
+def _ai_setting(name: str, default: str) -> str:
+    """A string AI setting, stripped; its default when it is blank or the settings cannot load."""
+    try:
+        value = getattr(load_settings().ai, name)
+    except Exception:
+        return default
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
+def _resolve_reference_model(reference_model: str | None = None) -> str:
+    """The chat reference model: the one given, else `ai.reference_model`."""
+    if reference_model and reference_model.strip():
+        return reference_model.strip()
+    return _ai_setting("reference_model", DEFAULT_AI_REFERENCE_MODEL)
+
+
+class _ReferencePricing(NamedTuple):
+    """The hosted models local tokens are priced against, one for each kind of request."""
+
+    chat_model: str
+    embedding_model: str
+    chat: ModelPricing
+    embedding: ModelPricing
+
+    def cost(self, prompt_tokens: int, completion_tokens: int, embedding_tokens: int = 0) -> float:
+        """The hosted cost of the tokens, of which `embedding_tokens` prompt tokens embedded text."""
+        chat_cost = self.chat.calculate_cost(prompt_tokens - embedding_tokens, completion_tokens)
+        return round(chat_cost + self.embedding.calculate_cost(embedding_tokens, 0), 6)
+
+
+def _resolve_reference_pricing(reference_model: str | None = None) -> _ReferencePricing:
+    """Both reference models and their prices, from genai-prices under `ai.reference_provider`."""
+    from devops_cli.ai.spend.pricing import get_pricing_registry
+
+    chat_model = _resolve_reference_model(reference_model)
+    embedding_model = _ai_setting("reference_embedding_model", DEFAULT_AI_REFERENCE_EMBEDDING_MODEL)
+    provider = _ai_setting("reference_provider", DEFAULT_AI_REFERENCE_PROVIDER)
+    registry = get_pricing_registry()
+    return _ReferencePricing(
+        chat_model=chat_model,
+        embedding_model=embedding_model,
+        chat=registry.get_pricing(chat_model, provider=provider),
+        embedding=registry.get_pricing(embedding_model, provider=provider),
+    )
+
+
+class _LocalUsage(NamedTuple):
+    """What the local servers of a report served."""
+
+    requests: int
+    prompt_tokens: int
+    completion_tokens: int
+    embedding_tokens: int
+
+
 def _tally_and_annotate_servers(
-    servers: list[ServerSpendSummary], ref_pricing: ModelPricing
-) -> tuple[int, int, int, int]:
+    servers: list[ServerSpendSummary], ref_pricing: _ReferencePricing
+) -> _LocalUsage:
     """Annotate servers with local status and cost equivalent, tallying local usage.
 
     The response cache ran no model, local or hosted, so its replies are no local requests.
     """
     from devops_cli.ai.spend.pricing import is_local
 
-    local_requests = 0
-    local_prompt_tokens = 0
-    local_completion_tokens = 0
     for s in servers:
         s.is_local = s.server != CONST_RESPONSE_CACHE_SERVER and is_local(
             server=s.server, provider=s.provider
         )
-        s.cost_equivalent_usd = ref_pricing.calculate_cost(s.prompt_tokens, s.completion_tokens)
-        if s.is_local:
-            local_requests += s.request_count
-            local_prompt_tokens += s.prompt_tokens
-            local_completion_tokens += s.completion_tokens
-    local_tokens = local_prompt_tokens + local_completion_tokens
-    return local_requests, local_prompt_tokens, local_completion_tokens, local_tokens
+        s.cost_equivalent_usd = ref_pricing.cost(
+            s.prompt_tokens, s.completion_tokens, s.embedding_tokens
+        )
+    local = [s for s in servers if s.is_local]
+    return _LocalUsage(
+        requests=sum(s.request_count for s in local),
+        prompt_tokens=sum(s.prompt_tokens for s in local),
+        completion_tokens=sum(s.completion_tokens for s in local),
+        embedding_tokens=sum(s.embedding_tokens for s in local),
+    )
 
 
-def _annotate_models(models: list[ModelSpendSummary], ref_pricing: ModelPricing) -> None:
+def _annotate_models(models: list[ModelSpendSummary], ref_pricing: _ReferencePricing) -> None:
     """Annotate model summaries with hosted cost equivalent."""
     for m in models:
-        m.cost_equivalent_usd = ref_pricing.calculate_cost(m.prompt_tokens, m.completion_tokens)
+        m.cost_equivalent_usd = ref_pricing.cost(
+            m.prompt_tokens, m.completion_tokens, m.embedding_tokens
+        )
 
 
-def _annotate_stages(stages: list[StageSpendSummary], ref_pricing: ModelPricing) -> None:
+def _annotate_stages(stages: list[StageSpendSummary], ref_pricing: _ReferencePricing) -> None:
     """Annotate stage summaries with hosted cost equivalent."""
     for stg in stages:
-        stg.cost_equivalent_usd = ref_pricing.calculate_cost(
-            stg.prompt_tokens, stg.completion_tokens
+        stg.cost_equivalent_usd = ref_pricing.cost(
+            stg.prompt_tokens, stg.completion_tokens, stg.embedding_tokens
         )
 
 
@@ -339,25 +409,15 @@ class SpendLedger:
             # Defensive logging: database failure must never crash user workflows
             return None
 
-    def _build_where_params(self, days: int | None) -> tuple[str | None, str | None]:
-        """Construct parameterized filter values for date range."""
-        if days is None or days <= 0:
-            return (None, None)
-        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
-        return (cutoff, cutoff)
-
-    @staticmethod
-    def _resolve_reference_model(reference_model: str | None = None) -> str:
-        """Resolve the effective reference model for counterfactual calculations."""
-        if reference_model and reference_model.strip():
-            return reference_model.strip()
-        try:
-            settings = load_settings()
-            if settings.ai.reference_model and settings.ai.reference_model.strip():
-                return settings.ai.reference_model.strip()
-        except Exception:
-            pass
-        return DEFAULT_AI_REFERENCE_MODEL
+    def _build_where_params(self, days: int | None) -> _QueryParams:
+        """The report queries' parameters: the cutoff of the date range, and the request type
+        whose prompt tokens they count as embedding tokens."""
+        cutoff = (
+            None
+            if days is None or days <= 0
+            else (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        )
+        return {"cutoff": cutoff, "embedding": CONST_SPEND_REQUEST_TYPE_EMBEDDING}
 
     @staticmethod
     def _resolve_hardware_cost(hardware_cost_usd: float | None = None) -> float:
@@ -379,9 +439,11 @@ class SpendLedger:
         reference_model: str | None = None,
         hardware_cost_usd: float | None = None,
     ) -> LifetimeSpendReport:
-        """Aggregate lifetime spend metrics grouped by server, model, provider, and stage."""
-        from devops_cli.ai.spend.pricing import get_pricing_registry
+        """Aggregate lifetime spend metrics grouped by server, model, provider, and stage.
 
+        Local tokens are priced at the hosted reference models: embedding tokens at
+        `ai.reference_embedding_model`, every other token at `reference_model`.
+        """
         params = self._build_where_params(days)
         with contextlib.closing(self._get_connection()) as conn:
             summary = self._query_overall_summary(conn, params)
@@ -391,24 +453,29 @@ class SpendLedger:
             backends = self._query_backend_breakdown(conn, params)
             stages = self._query_stage_breakdown(conn, params)
 
-        ref_model = self._resolve_reference_model(reference_model)
-        pricing_reg = get_pricing_registry()
-        ref_pricing = pricing_reg.get_pricing(ref_model)
+        ref_pricing = _resolve_reference_pricing(reference_model)
+        ref_model = ref_pricing.chat_model
 
-        loc_reqs, loc_p_tok, loc_c_tok, loc_tok = _tally_and_annotate_servers(servers, ref_pricing)
+        local = _tally_and_annotate_servers(servers, ref_pricing)
         _annotate_models(models, ref_pricing)
         _annotate_stages(stages, ref_pricing)
 
         eff_hardware_cost = self._resolve_hardware_cost(hardware_cost_usd)
         summary.hardware_cost_usd = eff_hardware_cost
         summary.reference_model = ref_model
-        summary.local_requests = loc_reqs
-        summary.local_prompt_tokens = loc_p_tok
-        summary.local_completion_tokens = loc_c_tok
-        summary.local_tokens = loc_tok
-        summary.local_cost_equivalent_usd = ref_pricing.calculate_cost(loc_p_tok, loc_c_tok)
-        summary.counterfactual_spend_usd = ref_pricing.calculate_cost(
-            summary.total_prompt_tokens, summary.total_completion_tokens
+        summary.reference_embedding_model = ref_pricing.embedding_model
+        summary.local_requests = local.requests
+        summary.local_prompt_tokens = local.prompt_tokens
+        summary.local_completion_tokens = local.completion_tokens
+        summary.local_embedding_tokens = local.embedding_tokens
+        summary.local_tokens = local.prompt_tokens + local.completion_tokens
+        summary.local_cost_equivalent_usd = ref_pricing.cost(
+            local.prompt_tokens, local.completion_tokens, local.embedding_tokens
+        )
+        summary.counterfactual_spend_usd = ref_pricing.cost(
+            summary.total_prompt_tokens,
+            summary.total_completion_tokens,
+            summary.total_embedding_tokens,
         )
         summary.counterfactual_savings_usd = round(
             max(0.0, summary.counterfactual_spend_usd - summary.total_spend_usd), 6
@@ -434,7 +501,7 @@ class SpendLedger:
         return summary
 
     def _query_overall_summary(
-        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+        self, conn: sqlite3.Connection, params: _QueryParams
     ) -> LifetimeSpendReport:
         """Fetch high-level aggregate summary across all records."""
         row = conn.execute(_QUERY_OVERALL_SUMMARY, params).fetchone()
@@ -447,6 +514,7 @@ class SpendLedger:
             total_prompt_tokens=int(row["total_prompt"] or 0),
             total_completion_tokens=int(row["total_comp"] or 0),
             total_tokens=int(row["total_tok"] or 0),
+            total_embedding_tokens=int(row["total_emb"] or 0),
             cached_requests=int(row["total_cached"] or 0),
             active_servers_count=int(row["srv_count"] or 0),
             active_models_count=int(row["mdl_count"] or 0),
@@ -455,7 +523,7 @@ class SpendLedger:
         )
 
     def _query_server_breakdown(
-        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+        self, conn: sqlite3.Connection, params: _QueryParams
     ) -> list[ServerSpendSummary]:
         """Aggregate spend records grouped by backend service/server."""
         results: list[ServerSpendSummary] = []
@@ -469,6 +537,7 @@ class SpendLedger:
                     prompt_tokens=int(r["p_tokens"] or 0),
                     completion_tokens=int(r["c_tokens"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
+                    embedding_tokens=int(r["e_tokens"] or 0),
                     approx_spend_usd=round(float(r["s_cost"] or 0.0), 6),
                     models=m_list,
                     first_seen=r["f_seen"],
@@ -478,7 +547,7 @@ class SpendLedger:
         return results
 
     def _query_model_breakdown(
-        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+        self, conn: sqlite3.Connection, params: _QueryParams
     ) -> list[ModelSpendSummary]:
         """Aggregate spend records grouped by model."""
         results: list[ModelSpendSummary] = []
@@ -491,6 +560,7 @@ class SpendLedger:
                     prompt_tokens=int(r["p_tokens"] or 0),
                     completion_tokens=int(r["c_tokens"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
+                    embedding_tokens=int(r["e_tokens"] or 0),
                     approx_spend_usd=round(float(r["m_cost"] or 0.0), 6),
                     cached_requests=int(r["cached_count"] or 0),
                 )
@@ -498,7 +568,7 @@ class SpendLedger:
         return results
 
     def _query_provider_breakdown(
-        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+        self, conn: sqlite3.Connection, params: _QueryParams
     ) -> list[ProviderSpendSummary]:
         """Aggregate spend records grouped by provider."""
         results: list[ProviderSpendSummary] = []
@@ -515,7 +585,7 @@ class SpendLedger:
         return results
 
     def _query_backend_breakdown(
-        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+        self, conn: sqlite3.Connection, params: _QueryParams
     ) -> list[BackendSpendSummary]:
         """Aggregate gateway calls by the backend that served them."""
         results: list[BackendSpendSummary] = []
@@ -539,7 +609,7 @@ class SpendLedger:
         return results
 
     def _query_stage_breakdown(
-        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+        self, conn: sqlite3.Connection, params: _QueryParams
     ) -> list[StageSpendSummary]:
         """Aggregate spend records grouped by execution stage."""
         results: list[StageSpendSummary] = []
@@ -551,6 +621,7 @@ class SpendLedger:
                     prompt_tokens=int(r["p_tokens"] or 0),
                     completion_tokens=int(r["c_tokens"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
+                    embedding_tokens=int(r["e_tokens"] or 0),
                     approx_spend_usd=round(float(r["s_cost"] or 0.0), 6),
                 )
             )
@@ -619,15 +690,18 @@ def _emit_local_cost_equivalent(
     provider: str | None,
     prompt_tokens: int,
     completion_tokens: int,
+    request_type: str,
 ) -> None:
-    from devops_cli.ai.spend.pricing import get_pricing_registry, is_local
+    """Send what a local call would have cost hosted, at the reference model of its kind."""
+    from devops_cli.ai.spend.pricing import is_local
     from devops_cli.telemetry.instruments import AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, emit
 
     if not is_local(server=server, provider=provider):
         return
-    ref_model = SpendLedger._resolve_reference_model()
-    ref_pricing = get_pricing_registry().get_pricing(ref_model)
-    local_equiv = ref_pricing.calculate_cost(prompt_tokens, completion_tokens)
+    embedding_tokens = prompt_tokens if request_type == CONST_SPEND_REQUEST_TYPE_EMBEDDING else 0
+    local_equiv = _resolve_reference_pricing().cost(
+        prompt_tokens, completion_tokens, embedding_tokens
+    )
     if local_equiv > 0:
         emit(AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, local_equiv, source)
 
@@ -651,8 +725,13 @@ def track_request_spend(
     """Calculate pricing, persist to lifetime ledger, and emit OpenTelemetry metrics.
 
     ``finish_reason`` is why the provider says the reply ended, None when it did not say; the
-    ledger stores it and observers receive it.
+    ledger stores it and observers receive it. The metrics carry the call's GenAI operation:
+    `embeddings` for an embedding request, `chat` for every other call.
     """
+    from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
+        GenAiOperationNameValues,
+    )
+
     from devops_cli.ai.spend.pricing import get_pricing_registry
     from devops_cli.ai.spend.stage import resolve_spend_stage
     from devops_cli.telemetry.instruments import (
@@ -712,11 +791,17 @@ def track_request_spend(
             "finish_reason": finish_reason,
         }
     )
+    operation = (
+        GenAiOperationNameValues.EMBEDDINGS
+        if request_type == CONST_SPEND_REQUEST_TYPE_EMBEDDING
+        else GenAiOperationNameValues.CHAT
+    )
     source = {
         "provider": provider,
         "model": model,
         "server": server,
         "backend": backend_name(served_by),
+        "operation": operation.value,
     }
     emit(AI_REQUESTS_TOTAL, 1, source | {"cached": str(cached).lower()})
     emit(AI_TOKENS_TOTAL, prompt_tokens, source | {"type": "prompt"})
@@ -730,5 +815,6 @@ def track_request_spend(
             provider=provider,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            request_type=request_type,
         )
     return rec

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import sqlite3
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -840,3 +841,60 @@ def test_a_new_ledger_opens_from_several_threads_at_once(tmp_path: Path) -> None
             thread.join()
 
     assert failures == []
+
+
+def test_local_savings_price_embedding_tokens_at_the_embedding_reference(tmp_path: Path) -> None:
+    """Embedding tokens price at text-embedding-3-small's $0.02/M input, chat tokens at gpt-4o's
+    $2.50/M input, in the report's total and in each server, model and stage (#1623)."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    for model, request_type in (("qwen3:8b", "chat"), ("bge-m3:latest", "embedding")):
+        ledger.record_request(
+            provider="ollama",
+            server="localhost:11434",
+            model=model,
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+            cost_usd=0.0,
+            request_type=request_type,
+            stage="embedding" if request_type == "embedding" else "chat",
+        )
+
+    report = ledger.get_lifetime_report(reference_model="gpt-4o")
+
+    assert (
+        report.reference_embedding_model,
+        report.local_cost_equivalent_usd,
+        report.counterfactual_spend_usd,
+        [(s.server, s.cost_equivalent_usd) for s in report.servers],
+        sorted((m.model, m.cost_equivalent_usd) for m in report.models),
+        sorted((s.stage, s.cost_equivalent_usd) for s in report.stages),
+    ) == (
+        "text-embedding-3-small",
+        2.52,
+        2.52,
+        [("localhost:11434", 2.52)],
+        [("bge-m3:latest", 0.02), ("qwen3:8b", 2.5)],
+        [("chat", 2.5), ("embedding", 0.02)],
+    )
+
+
+def test_the_embedding_reference_is_a_setting(tmp_path: Path, config: Callable[..., Path]) -> None:
+    """`ai.reference_embedding_model` prices the embedding tokens of the report (#1623)."""
+    config(ai={"reference_embedding_model": "text-embedding-3-large"})
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="bge-m3:latest",
+        prompt_tokens=1_000_000,
+        completion_tokens=0,
+        cost_usd=0.0,
+        request_type="embedding",
+    )
+
+    report = ledger.get_lifetime_report()
+
+    assert (report.reference_embedding_model, report.local_cost_equivalent_usd) == (
+        "text-embedding-3-large",
+        0.13,
+    )

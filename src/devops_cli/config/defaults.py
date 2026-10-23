@@ -65,6 +65,11 @@ DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 DEFAULT_AI_FALLBACK_MODEL = "qwen2.5-coder:7b"
 DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o-mini"
+# The hosted model that local embedding tokens are priced against, and the genai-prices provider
+# that prices both reference models: genai-prices finds no provider for an embedding model by its
+# name alone (#1623).
+DEFAULT_AI_REFERENCE_EMBEDDING_MODEL: str = "text-embedding-3-small"
+DEFAULT_AI_REFERENCE_PROVIDER: str = "openai"
 DEFAULT_AI_HARDWARE_COST_USD: float = 0.0
 DEFAULT_AI_REASONING_EFFORT: str | None = None
 DEFAULT_AI_SUPPORTS_REASONING: Final[bool] = False

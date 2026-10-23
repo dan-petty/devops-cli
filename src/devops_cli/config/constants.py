@@ -1117,6 +1117,9 @@ CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 # The `backend_info` of a reply the response cache answered, and the server its spend-ledger row
 # names: no backend served it, so spend reports leave it out of their server counts (#816).
 CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"
+# The `request_type` of a spend-ledger row that records one embedding request. Its tokens are
+# all input tokens, and its local savings use the embedding reference model (#1623).
+CONST_SPEND_REQUEST_TYPE_EMBEDDING: Final[str] = "embedding"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 # What the GitHub session sends with every REST request (#983): GitHub requires a User-Agent
 # naming the project or user, and the API version pins the REST contract the session reads.

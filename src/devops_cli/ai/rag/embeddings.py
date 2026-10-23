@@ -16,6 +16,7 @@ from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlsplit
 
 import httpx2
 from pydantic_ai.embeddings import (
@@ -41,6 +42,7 @@ from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_KNOWN_EMBEDDING_DIMENSIONS,
     CONST_QWEN3_EMBEDDING_QUERY_PREFIX,
+    CONST_SPEND_REQUEST_TYPE_EMBEDDING,
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
 from devops_cli.config.defaults import (
@@ -199,6 +201,53 @@ def _ollama_reply_vectors(body: Any) -> Any:
     return body["embeddings"] if "embeddings" in body else [body["embedding"]]
 
 
+def _openai_reply_input_tokens(body: Any) -> Any:
+    """The input tokens an OpenAI-compatible `/embeddings` reply says it embedded."""
+    return body["usage"]["prompt_tokens"]
+
+
+def _ollama_reply_input_tokens(body: Any) -> Any:
+    """The input tokens an Ollama `/api/embed` reply says it embedded."""
+    return body["prompt_eval_count"]
+
+
+def _reply_input_tokens(
+    res: httpx2.Response, parse: Callable[[Any], Any], texts: Sequence[str]
+) -> int:
+    """The input tokens a reply counted; the local count of the texts when it counted none.
+
+    The local count is the one a chat reply without usage gets.
+    """
+    try:
+        tokens = parse(res.json())
+    except ValueError, KeyError, TypeError, AttributeError:
+        tokens = None
+    if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0:
+        return tokens
+    from devops_cli.ai.context_budget import count_tokens
+
+    return sum(count_tokens(text) for text in texts)
+
+
+def embed_counting_tokens[T](embed: Callable[[], T]) -> tuple[T, int]:
+    """Run `embed`, with the input tokens of the embedding requests it sent.
+
+    The tokens are those each reply counted, as the spend ledger records them, so a pydantic-ai
+    embedding result reports what the provider counted. Texts the cache answered add none.
+    """
+    from devops_cli.ai.spend.ledger import observe_llm_calls
+
+    counted: list[int] = []
+
+    def count(call: dict[str, Any]) -> None:
+        if call.get("request_type") == CONST_SPEND_REQUEST_TYPE_EMBEDDING:
+            counted.append(int(call.get("prompt_tokens") or 0))
+
+    with observe_llm_calls(count):
+        result = embed()
+    return result, sum(counted)
+
+
 def _parsed_vectors(res: httpx2.Response, parse: Callable[[Any], Any]) -> list[list[float]]:
     """The vectors `parse` finds in a reply's JSON body, or none for a body it cannot read."""
     try:
@@ -278,18 +327,6 @@ def _compute_retry_delay(attempt: int, res: httpx2.Response | None = None) -> fl
             return min(30.0, float(retry_after))
     base = min(10.0, 0.5 * (2 ** (attempt - 1)))
     return float(base + random.uniform(0.1, 0.5))
-
-
-def _probe_ollama_embed_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:
-    res = client.post(
-        f"{base_url}/api/embed",
-        json={"model": model, "input": ["probe"]},
-    )
-    if res.status_code != 200:
-        return None
-    data = res.json()
-    embs = data.get("embeddings") or ([data["embedding"]] if "embedding" in data else None)
-    return len(embs[0]) if embs and embs[0] else None
 
 
 def _probe_ollama_show_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:
@@ -639,9 +676,58 @@ class EmbeddingsEngine:
             return None
 
     def _parse_ollama_node_metadata(self, client: httpx2.Client, base_url: str) -> int | None:
-        return _probe_ollama_embed_dimension(
+        return self._probe_ollama_embed_dimension(client, base_url) or _probe_ollama_show_dimension(
             client, base_url, self.model
-        ) or _probe_ollama_show_dimension(client, base_url, self.model)
+        )
+
+    def _probe_ollama_embed_dimension(self, client: httpx2.Client, base_url: str) -> int | None:
+        """The dimension of one probe text's vector; the probe is recorded like any request."""
+        endpoint = _ollama_embed_endpoint(base_url)
+        texts = ["probe"]
+        started = time.monotonic()
+        res = client.post(endpoint, json={"model": self.model, "input": texts})
+        seconds = time.monotonic() - started
+        if res.status_code != 200:
+            return None
+        data = res.json()
+        embs = data.get("embeddings") or ([data["embedding"]] if "embedding" in data else None)
+        if not (embs and embs[0]):
+            return None
+        self._record_embedding_request(
+            res, endpoint, self.model, texts, _ollama_reply_input_tokens, seconds
+        )
+        return len(embs[0])
+
+    def _record_embedding_request(
+        self,
+        res: httpx2.Response,
+        endpoint: str,
+        model: str,
+        texts: Sequence[str],
+        parse_tokens: Callable[[Any], Any],
+        seconds: float,
+    ) -> None:
+        """Record one answered embedding request in the spend ledger and the AI usage counters.
+
+        The provider and server are those a chat call names, so both are local or hosted alike;
+        a gateway's header names the backend that served the request.
+        """
+        from devops_cli.ai.client.network import extract_served_by
+        from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
+
+        provider = self.ai_config.provider
+        server = urlsplit(endpoint).netloc
+        track_request_spend(
+            provider=provider,
+            model=model,
+            server=server,
+            backend_info=f"{provider} ({server})",
+            served_by=extract_served_by(res.headers),
+            prompt_tokens=_reply_input_tokens(res, parse_tokens, texts),
+            request_type=CONST_SPEND_REQUEST_TYPE_EMBEDDING,
+            duration_seconds=seconds,
+            stage=resolve_spend_stage(None, self.ai_config.task_name),
+        )
 
     def _probe_openai_dimension(self) -> int | None:
         """Probe OpenAI-compatible endpoint for actual embedding vector dimension."""
@@ -662,16 +748,22 @@ class EmbeddingsEngine:
                 else f"{base_url}/v1/embeddings"
             )
             client_timeout = httpx2.Timeout(min(self.timeout, 5.0), connect=min(self.timeout, 2.0))
+            texts = ["probe"]
             with httpx2.Client(timeout=client_timeout) as client:
+                started = time.monotonic()
                 res = client.post(
                     endpoint,
                     headers=headers,
-                    json={"model": self.model, "input": ["probe"]},
+                    json={"model": self.model, "input": texts},
                 )
+                seconds = time.monotonic() - started
                 if res.status_code == 200:
                     data = res.json()
                     items = data.get("data", [])
                     if items and "embedding" in items[0]:
+                        self._record_embedding_request(
+                            res, endpoint, self.model, texts, _openai_reply_input_tokens, seconds
+                        )
                         return len(items[0]["embedding"])
         except Exception as exc:
             logger.debug("Probing OpenAI endpoint failed: %s", exc)
@@ -801,8 +893,12 @@ class EmbeddingsEngine:
             client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 2.0))
             with httpx2.Client(timeout=client_timeout) as client:
                 res = client.post(endpoint, json={"model": self.model, "input": batch_texts})
+            seconds = time.monotonic() - start_t
             embs = _reply_vectors(res, endpoint, len(batch_texts), _ollama_reply_vectors)
-            self._record_batch_latency(time.monotonic() - start_t)
+            self._record_embedding_request(
+                res, endpoint, self.model, batch_texts, _ollama_reply_input_tokens, seconds
+            )
+            self._record_batch_latency(seconds)
             self._record_dimension(len(embs[0]))
             return embs
 
@@ -907,8 +1003,11 @@ class EmbeddingsEngine:
 
     def _post_openai_batch_with_retry(
         self, endpoint: str, headers: dict[str, str], model: str, batch: list[str]
-    ) -> httpx2.Response:
-        """Send one embedding batch request with exponential backoff on transient network errors."""
+    ) -> tuple[httpx2.Response, float]:
+        """Send one embedding batch request with exponential backoff on transient network errors.
+
+        Returns the last reply and the seconds its request took, without the earlier attempts.
+        """
         max_retries = max(
             1, getattr(self.ai_config, "max_retries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES
         )
@@ -917,6 +1016,7 @@ class EmbeddingsEngine:
         for attempt in range(1, max_retries + 1):
             client = self._get_http_client()
             try:
+                started = time.monotonic()
                 res = client.post(endpoint, headers=headers, json={"model": model, "input": batch})
                 if res.status_code in (429, 502, 503, 504) and attempt < max_retries:
                     delay = _compute_retry_delay(attempt, res)
@@ -930,7 +1030,7 @@ class EmbeddingsEngine:
                     )
                     time.sleep(delay)
                     continue
-                return res
+                return res, time.monotonic() - started
             except Exception as exc:
                 last_exc = exc
                 if not _is_transient_embedding_error(exc) or attempt >= max_retries:
@@ -956,8 +1056,13 @@ class EmbeddingsEngine:
     def _embed_single_openai_batch(
         self, endpoint: str, headers: dict[str, str], model: str, batch: list[str]
     ) -> list[list[float]]:
-        res = self._post_openai_batch_with_retry(endpoint, headers, model, batch)
-        return _reply_vectors(res, endpoint, len(batch), _openai_reply_vectors)
+        """Embed one batch; a batch the endpoint answers is recorded once, after any retry."""
+        res, seconds = self._post_openai_batch_with_retry(endpoint, headers, model, batch)
+        vectors = _reply_vectors(res, endpoint, len(batch), _openai_reply_vectors)
+        self._record_embedding_request(
+            res, endpoint, model, batch, _openai_reply_input_tokens, seconds
+        )
+        return vectors
 
     def _embed_parallel_openai_batches(
         self,
@@ -1087,8 +1192,9 @@ class OllamaEmbeddingModel(EmbeddingModel):
     ) -> PydanticEmbeddingResult:
         texts = [inputs] if isinstance(inputs, str) else list(inputs)
         is_query = input_type == "query"
-        vectors = await asyncio.to_thread(self.engine.embed_texts, texts, is_query=is_query)
-        est_tokens = sum(max(1, int(len(t.split()) * 1.3)) for t in texts)
+        vectors, input_tokens = await asyncio.to_thread(
+            embed_counting_tokens, partial(self.engine.embed_texts, texts, is_query=is_query)
+        )
         return PydanticEmbeddingResult(
             vectors,
             inputs=texts,
@@ -1096,5 +1202,5 @@ class OllamaEmbeddingModel(EmbeddingModel):
             model_name=self._model_name,
             provider_name="ollama",
             timestamp=datetime.now(UTC),
-            usage=RequestUsage(input_tokens=est_tokens),
+            usage=RequestUsage(input_tokens=input_tokens),
         )

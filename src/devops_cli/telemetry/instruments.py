@@ -59,25 +59,28 @@ AI_REQUESTS_TOTAL = Instrument(
     "devops_cli_ai_requests_total",
     InstrumentKind.COUNTER,
     "1",
-    "LLM calls, by provider, model, server, serving backend and whether the cache answered",
+    "LLM calls and embedding requests, by operation (chat or embeddings), provider, model, server, "
+    "serving backend and whether the cache answered",
 )
 AI_TOKENS_TOTAL = Instrument(
     "devops_cli_ai_tokens_total",
     InstrumentKind.COUNTER,
     "1",
-    "LLM tokens, by type (prompt or completion), provider, model, server and backend",
+    "LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), "
+    "provider, model, server and backend",
 )
 AI_SPEND_USD_TOTAL = Instrument(
     "devops_cli_ai_spend_usd_total",
     InstrumentKind.COUNTER,
     "USD",
-    "Approximate LLM spend, by provider, model, server and backend",
+    "Approximate LLM and embedding spend, by operation, provider, model, server and backend",
 )
 AI_LOCAL_COST_EQUIVALENT_USD_TOTAL = Instrument(
     "devops_cli_ai_local_cost_equivalent_usd_total",
     InstrumentKind.COUNTER,
     "USD",
-    "Equivalent hosted cloud spend avoided by local model execution",
+    "Equivalent hosted cloud spend avoided by local model execution, by operation, at the "
+    "reference model of the operation",
 )
 AI_JSON_REPAIRS_TOTAL = Instrument(
     "devops_cli_ai_json_repairs_total",

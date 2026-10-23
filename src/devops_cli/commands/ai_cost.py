@@ -29,6 +29,7 @@ app = new_typer(
 
 def _render_report_summary_table(report: LifetimeSpendReport) -> None:
     """Render high-level spend and token overview table."""
+    references = f"{report.reference_model}, embeddings at {report.reference_embedding_model}"
     rows: list[list[str]] = [
         ["Total Approximate Spend", f"${report.total_spend_usd:,.4f} USD"],
         ["Total Requests Processed", f"{report.total_requests:,}"],
@@ -40,11 +41,11 @@ def _render_report_summary_table(report: LifetimeSpendReport) -> None:
         ["Active Models Evaluated", str(report.active_models_count)],
         [
             "Local Calls Hosted Equivalent",
-            f"${report.local_cost_equivalent_usd:,.4f} USD ({report.reference_model})",
+            f"${report.local_cost_equivalent_usd:,.4f} USD ({references})",
         ],
         [
             "All-Hosted Counterfactual Spend",
-            f"${report.counterfactual_spend_usd:,.4f} USD ({report.reference_model})",
+            f"${report.counterfactual_spend_usd:,.4f} USD ({references})",
         ],
         [
             "Estimated Cloud Spend Avoided",

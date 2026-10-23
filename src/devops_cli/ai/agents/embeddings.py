@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -77,18 +78,13 @@ class EngineEmbeddingModel(EmbeddingModel):
         input_type: Literal["query", "document"],
         settings: EmbeddingSettings | None = None,
     ) -> PydanticEmbeddingResult:
+        from devops_cli.ai.rag.embeddings import embed_counting_tokens
+
         texts = [inputs] if isinstance(inputs, str) else list(inputs)
         is_query = input_type == "query"
-        if is_query and len(texts) == 1 and hasattr(self._engine, "embed_query"):
-            vectors: list[list[float]] = [
-                await asyncio.to_thread(self._engine.embed_query, texts[0])
-            ]
-        elif hasattr(self._engine, "embed_texts"):
-            vectors = await asyncio.to_thread(self._engine.embed_texts, texts, is_query=is_query)
-        else:
-            vectors = [[0.0] * 768 for _ in texts]
-
-        est_tokens = sum(max(1, int(len(t.split()) * 1.3)) for t in texts)
+        vectors, input_tokens = await asyncio.to_thread(
+            embed_counting_tokens, partial(self._embed_sync, texts, is_query)
+        )
         return PydanticEmbeddingResult(
             vectors,
             inputs=texts,
@@ -96,8 +92,17 @@ class EngineEmbeddingModel(EmbeddingModel):
             model_name=self._model_name,
             provider_name=self._provider_name,
             timestamp=datetime.now(UTC),
-            usage=RequestUsage(input_tokens=est_tokens),
+            usage=RequestUsage(input_tokens=input_tokens),
         )
+
+    def _embed_sync(self, texts: list[str], is_query: bool) -> list[list[float]]:
+        """The engine's vectors for `texts`, one query through its query method."""
+        if is_query and len(texts) == 1 and hasattr(self._engine, "embed_query"):
+            return [self._engine.embed_query(texts[0])]
+        if hasattr(self._engine, "embed_texts"):
+            vectors: list[list[float]] = self._engine.embed_texts(texts, is_query=is_query)
+            return vectors
+        return [[0.0] * 768 for _ in texts]
 
 
 @dataclass

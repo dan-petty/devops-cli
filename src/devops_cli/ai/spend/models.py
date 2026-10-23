@@ -6,6 +6,11 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.config.defaults import (
+    DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
+    DEFAULT_AI_REFERENCE_MODEL,
+)
+
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
 else:
@@ -65,6 +70,8 @@ class ServerSpendSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    # The input tokens of embedding requests, counted in `prompt_tokens` too (#1623).
+    embedding_tokens: int = 0
     approx_spend_usd: float = 0.0
     models: list[str] = Field(default_factory=list)
     first_seen: str | None = None
@@ -86,6 +93,8 @@ class ModelSpendSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    # The input tokens of embedding requests, counted in `prompt_tokens` too (#1623).
+    embedding_tokens: int = 0
     approx_spend_usd: float = 0.0
     prompt_usd_per_million: float = 0.0
     completion_usd_per_million: float = 0.0
@@ -127,6 +136,8 @@ class StageSpendSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    # The input tokens of embedding requests, counted in `prompt_tokens` too (#1623).
+    embedding_tokens: int = 0
     approx_spend_usd: float = 0.0
     cost_equivalent_usd: float = 0.0
 
@@ -141,6 +152,8 @@ class LifetimeSpendReport(BaseModel):
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     total_tokens: int = 0
+    # The input tokens of embedding requests, counted in `total_prompt_tokens` too (#1623).
+    total_embedding_tokens: int = 0
     cached_requests: int = 0
     active_servers_count: int = 0
     active_models_count: int = 0
@@ -151,11 +164,15 @@ class LifetimeSpendReport(BaseModel):
     providers: list[ProviderSpendSummary] = Field(default_factory=list)
     backends: list[BackendSpendSummary] = Field(default_factory=list)
     stages: list[StageSpendSummary] = Field(default_factory=list)
-    reference_model: str = "gpt-4o-mini"
+    reference_model: str = DEFAULT_AI_REFERENCE_MODEL
+    # The model that prices embedding tokens, which `reference_model` does not (#1623).
+    reference_embedding_model: str = DEFAULT_AI_REFERENCE_EMBEDDING_MODEL
     local_requests: int = 0
     local_prompt_tokens: int = 0
     local_completion_tokens: int = 0
     local_tokens: int = 0
+    # The input tokens of local embedding requests, counted in `local_prompt_tokens` too.
+    local_embedding_tokens: int = 0
     local_cost_equivalent_usd: float = 0.0
     counterfactual_spend_usd: float = 0.0
     counterfactual_savings_usd: float = 0.0
@@ -176,4 +193,4 @@ class HardwarePayoffSummary(BaseModel):
     remaining_usd: float = 0.0
     daily_savings_usd: float = 0.0
     estimated_days_to_payoff: float | None = None
-    reference_model: str = "gpt-4o-mini"
+    reference_model: str = DEFAULT_AI_REFERENCE_MODEL
