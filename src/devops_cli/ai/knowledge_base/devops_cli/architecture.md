@@ -83,7 +83,7 @@ Every stage in the review pipeline can be selectively enabled or bypassed via CL
 Specialized personas available for interactive conversations via `devops ai chat --persona <name>`:
 - **`devsecops`**: Zero-Trust security, credential exposure, dependency CVEs, SAST rules (Bandit/Trivy), injection vulnerabilities.
 - **`architect`**: Separation of concerns, indentation limits, functional naming, standard library leverage, system scalability.
-- **`pm`**: Product scope alignment, user experience, documentation freshness, release readiness.
+- **`pm`**: Product scope alignment, user experience, documentation freshness and scope.
 - **`auditor`**: Compliance, license integrity, regulatory hygiene, audit trail logging.
 - **`qa`**: Deterministic test isolation, edge-case coverage, mock boundaries, flaky test mitigation.
 - **`challenger`**: Argues against a claim, design, or plan put to it in chat and names the evidence that would settle it.

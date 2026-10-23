@@ -1,18 +1,8 @@
-Generate a comprehensive `AGENTS.md` file providing structured guidance and engineering principles for AI coding assistants using a 4-step chain-of-thought synthesis:
+Write the `AGENTS.md` of the project that the user message describes. Every AI coding agent reads this file in full at the start of each session, so the file is a short router, not a manual.
 
-### Step 1: Project Stack & Runtime Deconstruction
-- Analyze the project runtime (e.g. Python, Go, Rust, TypeScript, Java, C#, HCL), toolchains, package managers, and lockfiles.
-
-### Step 2: Verification & Workflow Scaffolding
-- Detail the progressive testing strategy and mandatory iterative CI loop: make all planned code changes, run the primary CI verification gate (e.g. `devops ci` or project test suite), fix reported issues, and run verification again until passing.
-- Define pre-coding feasibility checks (confirming premises against real systems) and stopping with an evidence comment rather than adding compensating code when an item cannot be built as specified.
-- Define Git hygiene: topic branches (`feat/*`, `fix/*`) that target the default branch, Conventional Commit pull request titles, draft pull requests, and remote CI checks monitoring.
-
-### Step 3: Architecture & Security Synthesis
-- Define clean architecture: separation of concerns, static typing, and aiming for fewer than 6 indentations project-wide by decomposing complex nested logic into dedicated functions.
-- Define zero-trust security: secure credential management, SSRF mitigation, bounded subprocesses, and strict prohibition on leaking data from hidden, private, or `.gitignored` files into documents or code.
-- Define prompt isolation: all LLM system prompts and task instructions in dedicated markdown files (zero inline strings).
-- Define canonical output convention: project-wide `filename.ext:n-n` location referencing.
-
-### Step 4: Output Assembly
-- Format the final document with clear Markdown headings, tables, and clickable references.
+1. Start with the title `# <project name> — AI Agent Instructions`. Then write the purpose of the project in at most two sentences.
+2. Write the Canonical Source note as one paragraph: "This file is the single source of truth for AI agent instructions. [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md) and [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers to this file."
+3. Under `## Rules for every task`, write at most 12 numbered rules that every task needs, such as the branch and pull request rule, the test-first rule, the checks to run before a push and the rule to keep secrets out of the repository. Take each command from the project files. Do not invent a command.
+4. Under `## Where to look`, write a table with the header `| When you | Read |`. Send each kind of task to one of these documents, which exist in the project: {documents}. Name no other path.
+5. Keep the whole file under {max_chars} characters.
+6. Write short sentences, with one instruction in each sentence. Return only the Markdown of the file.

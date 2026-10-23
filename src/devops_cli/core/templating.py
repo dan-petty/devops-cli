@@ -1,10 +1,11 @@
 """Rendering of packaged templates into configuration files.
 
-The templates in this package emit JSON — `devcontainer.json` and `mcp.json` — and were
-rendered with autoescaping disabled, interpolating values directly between quotes. A value
-containing a quote therefore produced invalid JSON, and a crafted one produced *valid* JSON
-of the author's choosing: a project name could close its key, finish the entry and open a
-new MCP server with an arbitrary `command`, which the editor executes when it loads the
+Most templates in this package emit JSON — `devcontainer.json` and `mcp.json`; the Markdown
+templates `AGENTS.md.j2` and `pointer_stub.md.j2` render through `render_template`. The JSON
+templates were rendered with autoescaping disabled, interpolating values directly between
+quotes. A value containing a quote therefore produced invalid JSON, and a crafted one produced
+*valid* JSON of the author's choosing: a project name could close its key, finish the entry and
+open a new MCP server with an arbitrary `command`, which the editor executes when it loads the
 file.
 
 The fix is to encode values as JSON rather than paste them as text, which is what `tojson`

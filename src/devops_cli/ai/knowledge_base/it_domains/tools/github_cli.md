@@ -40,8 +40,8 @@ devops repos clone-org dan-petty
 
 ### Standard & Advanced `gh` CLI Commands
 ```bash
-# Authenticate GitHub CLI with token from standard input
-echo "$GITHUB_TOKEN" | gh auth login --with-token
+# Authenticate GitHub CLI interactively; gh keeps the token in its own credential store
+gh auth login
 
 # Check authentication and token scopes
 gh auth status
@@ -62,15 +62,15 @@ devops gh runs list --branch main --limit 5
 # View failure logs for a specific GitHub Actions workflow run
 devops gh runs view <run_id> --log-failed
 
-# Download release assets
-gh release download <tag> --pattern "*.tar.gz"
+# Read a release and its assets through the rate-managed client
+devops gh api repos/<owner>/<repo>/releases/tags/<tag>
 ```
 
 ---
 
 ## 4. Best Practice Guidance
 
-1. **Target the Default Branch**: PRs for features and bug fixes target `main`. release-please opens the only release PR, and agents do not touch it.
+1. **Target the Default Branch**: PRs for features and bug fixes target `main`. release-please opens the only release PR, and a person merges it.
 2. **Monitor Remote CI to Green**: Never submit a PR without actively monitoring remote CI checks (`devops pr monitor <pr>`) until all checks pass.
 3. **Structured PR Titles**: Follow Conventional Commits format in PR titles (`feat(scope): ...`, `fix(scope): ...`). The squash commit takes the title, and release-please writes it as the changelog line.
 4. **Fine-Grained Permissions**: Use fine-grained GitHub Personal Access Tokens scoped to specific repositories with minimal required permissions (`Contents: Read/Write`, `Pull Requests: Read/Write`, `Workflows: Read`).

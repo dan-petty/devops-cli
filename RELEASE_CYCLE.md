@@ -1,6 +1,6 @@
 # Release Cycle — devops-cli
 
-This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`, and a person merges its pull request. Agents take no part in a release ([`AGENTS.md`](AGENTS.md), section 3).
+This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`, and a person merges its pull request. release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([`AGENTS.md`](AGENTS.md)).
 
 ## How the Release Pull Request Is Made
 

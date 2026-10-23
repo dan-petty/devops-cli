@@ -38,7 +38,7 @@ In `devops-cli`:
 | :--- | :--- | :--- | :--- |
 | **`tldextract`** | Uses official Public Suffix List, accurately handles multi-part suffixes (`.co.uk`), caches snapshot offline. | Requires cached PSL file. | **Selected**: The only reliable method to parse public suffixes without false positives. |
 | **`urllib.parse`** (Stdlib) | Built into standard library. | Only extracts `netloc` (e.g. `foo.co.uk`), cannot distinguish domain from TLD or multi-part suffix. | Rejected: Naive splits cause security misclassifications. |
-| **Custom Regex Splitters** | Zero dependencies. | High error rate on internationalized TLDs and multi-level cloud domains. | Rejected: Violates robust parser rules in `AGENTS.md`. |
+| **Custom Regex Splitters** | Zero dependencies. | High error rate on internationalized TLDs and multi-level cloud domains. | Rejected: Violates the standard-parser rule in `CONTRIBUTING.md`. |
 
 ---
 

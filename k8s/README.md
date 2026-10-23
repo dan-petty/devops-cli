@@ -11,6 +11,8 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | **`logging`** | Loki, Fluent Bit (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
 | **`all`** | All components from the three stacks | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
 
+Register each manifest, Helm release and post-Helm step that runs in the cluster in `_MANIFESTS_BY_STACK`, `_HELM_RELEASES_BY_STACK` or `_POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging` and `devops` stacks.
+
 ## Prerequisites
 
 - minikube running (`minikube status` or auto-started by `devops devcontainer post-start`)

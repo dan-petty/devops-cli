@@ -4,7 +4,7 @@ context: |
   devops-cli is pre-1.0 alpha software with no backwards compatibility. Artifacts describe the final state, never a transition, a shim or a legacy mode.
   One roadmap item is one GitHub issue, one change named <issue>-<slug>, for example 1144-semgrep-registry-fetch, and one pull request into main that closes the issue. An issue too large for one pull request becomes sub-issues, each with its own change.
   Status, priority, milestone and pull request numbers live on GitHub: never write them in an artifact. Artifacts are committed exactly as they will read once merged, so a task is ticked [x] only when its work is in the merged tree.
-  Engineering standards (complexity caps, typing, security, telemetry) are in AGENTS.md and are not restated here. Never write an internal hostname, private address or private registry: use example.com, RFC 5737 addresses and roles such as <storage-node>.
+  Engineering standards are in the documents that AGENTS.md routes to (CONTRIBUTING.md, ARCHITECTURE.md, SECURITY.md, docs/TESTING.md), and are not restated here. Never write an internal hostname, private address or private registry: use example.com, RFC 5737 addresses and roles such as <storage-node>.
 
 rules:
   proposal:

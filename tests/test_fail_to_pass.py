@@ -375,7 +375,6 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
             description="CLI",
             version="0.2.36",
             requires_python=">=3.14",
-            is_devops_cli=True,
         )
     )
     assert (

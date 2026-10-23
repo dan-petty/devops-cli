@@ -2,7 +2,7 @@
 sends a gateway chat call only once it holds one of the gateway's backend slots.
 
 Replies are answered by httpx2's own `MockTransport` with bodies that record how many of their
-chunks were read, so no socket is opened. Hosts are `example.com`, as AGENTS.md requires.
+chunks were read, so no socket is opened. Hosts are `example.com`, as docs/TESTING.md requires.
 """
 
 from __future__ import annotations

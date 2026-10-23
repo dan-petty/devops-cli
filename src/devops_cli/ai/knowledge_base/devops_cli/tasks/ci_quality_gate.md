@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-The Local CI Quality Gate (`devops ci`) provides a local quality gate that runs every check `devops ci` reports (Python version, tests, coverage, ruff lint, ruff format, mypy --strict, uv audit and npm audit, bandit, actionlint, docs, devcontainer, openspec, uv check, uv lock --check, outdated deps). By executing these checks locally, developers guarantee release readiness before pushing commits.
+The Local CI Quality Gate (`devops ci`) provides a local quality gate that runs every check `devops ci` reports (Python version, tests, coverage, ruff lint, ruff format, mypy --strict, uv audit and npm audit, bandit, actionlint, docs, devcontainer, openspec, uv check, uv lock --check, outdated deps). The pre-push hook runs the same gate, so a push goes only when every check passes.
 
 ---
 
@@ -56,7 +56,7 @@ uv run mypy path/to/file.py
 # 3. Fast Targeted Unit Test
 uv run devops ci test tests/test_feature.py
 
-# 4. Final Comprehensive Milestone Gate
+# 4. The full gate, which the pre-push hook also runs
 devops ci
 ```
 
@@ -67,7 +67,7 @@ devops ci
 1. **Fix Errors Progressively**: Resolve linting and formatting first, then type checking, then unit tests, and finally documentation sync.
 2. **Synchronize Docs**: If the docs gate reports discrepancies, run `devops docs generate --sync-readme` to regenerate markdown reference files.
 3. **Parallel Test Execution**: `devops ci test` runs the full suite on every logical CPU via `pytest-xdist`; a run narrowed to a few test files (`devops ci test <paths>`) runs serially, and a larger selection on a few workers. pytest-timeout fails a test that hangs, so no run stalls on one.
-4. **Pre-Commit Enforcement**: Pre-commit hooks run essential subsets of `devops ci` on `git commit`.
+4. **Pre-Commit Enforcement**: Pre-commit hooks run essential subsets of `devops ci` on `git commit`. The pre-push hook runs `uv run devops ci`. Push only when it passes, and never use `--no-verify`.
 
 ---
 
@@ -80,7 +80,7 @@ devops ci
 
 ## 6. General Standards & Reference Guidelines
 
-- **Quality Threshold**: 100% pass requirement on all Gated verification checks before a pull request merges into `main`.
+- **Gate**: Every check of `devops ci` passes before a push. A check that averages more than 5 minutes is a P0 bug.
 - **Coverage Floor**: Minimum 90% branch and line coverage enforced across `src/devops_cli/`.
 
 ---

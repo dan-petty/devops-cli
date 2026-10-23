@@ -5,7 +5,7 @@ Analyze the following GitHub Actions workflow snippet that exhibits intermittent
 name: Deploy Staging
 on:
   push:
-    branches: [ 'feat/*', 'release/*' ]
+    branches: [ 'feat/*', 'main' ]
 jobs:
   deploy:
     runs-on: ubuntu-latest

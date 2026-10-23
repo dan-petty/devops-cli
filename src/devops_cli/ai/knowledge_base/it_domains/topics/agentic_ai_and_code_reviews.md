@@ -73,7 +73,7 @@ graph TD
 All system prompts, task instructions and evaluation rubrics are stored in dedicated Markdown files under `src/devops_cli/ai/tasks/` and `src/devops_cli/ai/personas/`. Prompt text is never declared inline in Python code.
 
 ### Canonical Instruction Model (`AGENTS.md`)
-AI assistants operate best when provided with a single authoritative source of truth. `devops-cli` establishes `AGENTS.md` at the repository root as the canonical instruction file, while `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` serve as thin redirection pointers.
+AI assistants operate best when provided with a single authoritative source of truth. `devops-cli` establishes `AGENTS.md` at the repository root as the canonical instruction file: a short router that holds the rules for every task and sends each kind of task to the document that owns it. `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` serve as thin redirection pointers.
 
 ### Common Commands
 ```bash

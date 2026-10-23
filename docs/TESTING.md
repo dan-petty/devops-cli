@@ -111,6 +111,12 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 - An output whose whole text is the contract, such as a command's output, a rendered manifest or a prompt, is checked against a snapshot that syrupy stores. Any other expected value is a literal written in the test. A Pydantic model is snapshotted through `model_dump()` or syrupy's Amber Pydantic plugin.
 - A snapshot is regenerated, never edited by hand, with `uv run pytest <test-file> --snapshot-update --snapshot-file-lock`, and the commit says why it changed. The file lock is required: without it, an update under xdist can lose entries from a shared `.ambr` file ([syrupy issue 1237](https://github.com/syrupy-project/syrupy/issues/1237)).
 
+### Hosts, sockets and the shared container
+
+- A mock host is `example.com`, with no subdomain.
+- Bandit scans `tests/` (`devops ci security`). A test binds a socket to `127.0.0.1` or `::1`, and writes under `tmp_path`. Use `# nosec BXXX` only on a literal that the test examines.
+- No test sets `RLIMIT_NPROC`, which Linux counts for every process of the user in the container, and no test starts processes without a bound ([ARCHITECTURE.md](../ARCHITECTURE.md), section 7).
+
 ### Property tests
 
 - State machines, such as the roadmap lifecycle, and pure functions over open-ended input, such as parsers, policy evaluation and redaction, are tested with Hypothesis properties.

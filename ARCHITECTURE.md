@@ -170,6 +170,7 @@ Every command is registered on a `new_typer()` app (`OTelTyper`, `devops_cli/cor
 Domain results are modelled with Pydantic in `devops_cli.models`. The REST routes define their own response models in `server/routes/`, and MCP tools return the CLI's text output:
 - **Strict Typing**: Mandatory field descriptions, `Field(default_factory=...)` mutable defaults, and zero hardcoded synthetic scoring floats.
 - **Bi-Directional JSON Schema Generation**: Clean schema generation for IDE completions and LLM tool calling.
+- **Closed Tool Schemas**: An MCP tool and an agent schema refuse unknown arguments: `extra="forbid"` in Pydantic, `additionalProperties: false` in JSON Schema. The validation error names the arguments that the tool accepts.
 
 ### 3. Safe Subprocess Execution & Process Group Management
 All external binaries run through `run_subprocess` / `run_subprocess_async` (`devops_cli.core.process`):
@@ -177,6 +178,8 @@ All external binaries run through `run_subprocess` / `run_subprocess_async` (`de
 - Explicit bounded timeouts (default 1800 s) with standardized `TimeoutExpired` domain error translation.
 - An audit-record writer (`devops_cli.core.audit.record_audit_event`, `.data/logs/audit.jsonl`) exists but is not yet called from command or subprocess execution.
 - Deterministic mock isolation protocols for fast offline unit testing, dry-run reporting, environment isolation, and OpenTelemetry spans.
+- **Process groups**: Start a child with `start_new_session=True`, and stop it by its process group (`os.killpg`), as `_terminate_process_group` in `src/devops_cli/sandbox/host.py` does. Do not signal a pid below 2, the own process group (`os.getpgrp()`) or a process group below 2.
+- **Shared container**: Never set `RLIMIT_NPROC`: Linux counts it for the real user across the container, so it starves VS Code Server and the shells. Never set `O_NONBLOCK` on descriptors 0, 1 or 2: it corrupts the terminal.
 
 ### 4. Multi-Stage Workflow Architecture
 The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, payload init, persona review, re-ranking, reporting), and `ai/review/stages/` holds `reporting.py`:
@@ -189,3 +192,7 @@ The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, 
 - Native HTTP/2 connection pooling with persistent keepalive and backoff retries where supported.
 - Connect-time egress checks by level (public, loopback-allowed, private-allowed), with cloud metadata addresses refused at every level.
 - Automatic W3C `traceparent` header injection for distributed trace waterfalls.
+- A client backs off with jitter on HTTP 429 and obeys `Retry-After`. It caches idempotent reads under `.data/` or in Valkey.
+
+### 6. Files
+Check the size of a file before you read it into memory (`MAX_REPOMAP_FILE_SIZE_BYTES`, 50 MiB). Resolve a path inside a root with `safe_resolve_subpath` (`devops_cli.core.paths`), which refuses a symlink or `..` that leaves the root.

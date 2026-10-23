@@ -564,6 +564,12 @@ DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
 DEFAULT_PROJECT_VERSION: str = "0.1.0"
 DEFAULT_PYTHON_REQUIRES: str = ">=3.14"
+# The checks a generated AGENTS.md names before a push when the project has no pre-push hook.
+DEFAULT_AGENTS_MD_CHECK_COMMANDS: tuple[str, ...] = (
+    "uv run pytest",
+    "uv run ruff check",
+    "uv run mypy src",
+)
 
 DEFAULT_AI_PROMPT_CACHE_TTL: str = "5m"
 DEFAULT_FINDING_STATUS: str = "UNVERIFIED"
@@ -654,7 +660,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src noqa: F401": 15,
     "src noqa: SIM115": 1,
     "src noqa: UP036": 1,
-    "src nosec": 14,
+    "src nosec": 13,
     "src pragma: no cover": 1,
     "src pragma: no mutate": 0,
     "src file-level directive": 0,

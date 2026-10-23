@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-The AI Agent Instructions Scaffolding subsystem (`devops ai agents`, `devops devcontainer init`, and `src/devops_cli/ai/instruction_generator.py`) generates and synchronizes canonical engineering guidelines (`AGENTS.md`) and tool pointer stubs (`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`) across repositories. This ensures AI coding assistants (Claude, Gemini, Copilot, Cursor, Codex) strictly follow the project's engineering philosophy, testing workflows, and architectural rules.
+The AI Agent Instructions Scaffolding subsystem (`devops ai agents`, `devops devcontainer init`, and `src/devops_cli/ai/instruction_generator.py`) generates the router `AGENTS.md` and the tool pointer stubs (`CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`) across repositories. `AGENTS.md` gives AI coding assistants one short file that routes each task to the document that owns it. The text comes from the Jinja2 templates `src/devops_cli/templates/AGENTS.md.j2` and `pointer_stub.md.j2`.
 
 ---
 
@@ -21,7 +21,7 @@ graph TD
     E --> H[Target Repo: .github/copilot-instructions.md]
 ```
 
-- **Single Source of Truth**: `AGENTS.md` is the canonical instruction manual containing full architecture guidelines, build/lint/test commands, git hygiene, and security policies.
+- **Single Source of Truth**: `AGENTS.md` holds the rules for every task and a table that routes each kind of task to the document that owns it. It stays within `CONST_AGENTS_MD_MAX_CHARS`. The table has a row for each document of `CONST_AGENTS_MD_ROUTES` that exists in the target, and the push rule names the pre-push hooks of the target, or the uv defaults. A model answer longer than the cap is replaced by the template.
 - **Thin Redirection Pointers**: Tool-specific instruction files (`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md`) are lightweight pointer stubs that direct tools to `AGENTS.md`, avoiding duplicated or out-of-sync documentation. One table, `POINTER_STUBS`, holds what differs between the stubs. It holds the tool name, the title and the link to `AGENTS.md`. It also holds the import line of a tool that expands one, in the form that the documentation of the tool shows: `@AGENTS.md` for Claude Code and `@./AGENTS.md` for Gemini CLI.
 - **Dynamic Metadata Extraction**: Uses Python's standard `tomllib` to inspect `pyproject.toml` dynamically for project name, description, Python runtime requirements, entry points, and dependencies.
 
@@ -48,7 +48,7 @@ devops devcontainer post-create
 
 ## 4. Best Practice Guidance
 
-1. **Keep `AGENTS.md` Updated**: Whenever new testing commands, linters, or architectural conventions are introduced, update `AGENTS.md`.
+1. **Put Each Rule in Its Owner**: Write a new rule in the document that owns its subject. Change `AGENTS.md` only for a rule that every task needs, or for a route to a new document. In devops-cli, `--force` replaces the hand-written `AGENTS.md` with the generic router.
 2. **Never Duplicate Content in Stubs**: Always keep `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` as thin pointers redirecting to `AGENTS.md`.
 3. **Idempotent Scaffolding**: `scaffold_agent_instructions` checks for existing files and skips generation unless `--force` is specified.
 4. **Target Path Safety**: Always validate file paths to prevent directory traversal outside the target repository root.

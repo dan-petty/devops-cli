@@ -1,25 +1,33 @@
 """AI agent instruction generator and scaffolding utilities.
 
-Scaffolds canonical AGENTS.md instructions along with pointer stubs for
-CLAUDE.md, GEMINI.md and .github/copilot-instructions.md across repositories
-and project initialization workflows.
+Scaffolds the router AGENTS.md (the rules every task needs, and a table that sends each kind of
+task to the document that owns it) with pointer stubs for CLAUDE.md, GEMINI.md and
+.github/copilot-instructions.md. The text comes from the Jinja2 templates `AGENTS.md.j2` and
+`pointer_stub.md.j2`, so no Markdown lives in this module.
 """
 
 from __future__ import annotations
 
-import html
 import logging
 import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME
+from devops_cli.config.constants import (
+    CONST_AGENTS_MD_FILENAME,
+    CONST_AGENTS_MD_ROUTES,
+    CONST_PRE_COMMIT_CONFIG_FILENAME,
+    CONST_PRE_COMMIT_PRE_PUSH_STAGE,
+)
 from devops_cli.config.defaults import (
+    DEFAULT_AGENTS_MD_CHECK_COMMANDS,
     DEFAULT_PROJECT_VERSION,
     DEFAULT_PYTHON_REQUIRES,
 )
+from devops_cli.core.templating import render_template
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +88,12 @@ class ProjectMetadata(BaseModel):
     entry_point: str = ""
     dependencies: list[str] = Field(default_factory=list)
     dev_dependencies: list[str] = Field(default_factory=list)
-    has_devcontainer: bool = False
-    has_docker: bool = False
-    is_devops_cli: bool = False
+    # The paths of `CONST_AGENTS_MD_ROUTES` that exist in the project, in the order of its table.
+    routed_documents: list[str] = Field(default_factory=list)
+    # The commands the project runs before a push: its pre-push hooks, or the uv defaults.
+    check_commands: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_AGENTS_MD_CHECK_COMMANDS)
+    )
 
 
 def _extract_pyproject_deps(data: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -118,6 +129,35 @@ def _extract_pyproject_meta(
     return name, desc, ver, req_py, entry
 
 
+def _pre_push_commands(repo_path: Path) -> list[str]:
+    """The command of each pre-push hook in the project's `.pre-commit-config.yaml`.
+
+    A local hook runs its `entry`; a hook from another repository is named by its `id`. A file
+    that does not parse, or a project without one, has no pre-push commands.
+    """
+    config_file = repo_path / CONST_PRE_COMMIT_CONFIG_FILENAME
+    try:
+        config = (
+            yaml.safe_load(config_file.read_text(encoding="utf-8"))
+            if config_file.is_file()
+            else None
+        )
+    except (yaml.YAMLError, OSError) as exc:
+        logger.debug("Failed parsing %s: %s", config_file, exc)
+        return []
+    if not isinstance(config, dict):
+        return []
+    default_stages = config.get("default_stages") or []
+    return [
+        str(hook.get("entry") or hook.get("id"))
+        for repo in config.get("repos") or []
+        if isinstance(repo, dict)
+        for hook in repo.get("hooks") or []
+        if isinstance(hook, dict)
+        and CONST_PRE_COMMIT_PRE_PUSH_STAGE in (hook.get("stages") or default_stages)
+    ]
+
+
 def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
     """Extract structured metadata from pyproject.toml and repository structure."""
     resolved_path = repo_path.resolve()
@@ -144,14 +184,6 @@ def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
         except (tomllib.TOMLDecodeError, OSError) as exc:
             logger.debug("Failed parsing pyproject.toml at %s: %s", pyproject_file, exc)
 
-    has_devcontainer = (resolved_path / ".devcontainer" / "devcontainer.json").is_file() or (
-        resolved_path / ".devcontainer.json"
-    ).is_file()
-    has_docker = (resolved_path / "Dockerfile").is_file() or (
-        resolved_path / ".devcontainer" / "Dockerfile"
-    ).is_file()
-    is_devops_cli = name == "devops-cli" or "devops_cli" in entry_point
-
     return ProjectMetadata(
         name=name,
         description=description,
@@ -160,9 +192,10 @@ def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
         entry_point=entry_point,
         dependencies=dependencies,
         dev_dependencies=dev_dependencies,
-        has_devcontainer=has_devcontainer,
-        has_docker=has_docker,
-        is_devops_cli=is_devops_cli,
+        routed_documents=[
+            path for path, _task in CONST_AGENTS_MD_ROUTES if (resolved_path / path).exists()
+        ],
+        check_commands=_pre_push_commands(resolved_path) or list(DEFAULT_AGENTS_MD_CHECK_COMMANDS),
     )
 
 
@@ -173,282 +206,34 @@ def generate_pointer_stub(
     canonical_relpath: str,
     *,
     import_line: str | None = None,
-    is_devops_cli: bool = False,
 ) -> str:
     """Generate a thin pointer stub that redirects tools to the canonical AGENTS.md.
 
     With `import_line`, the stub also holds that line, which the tool expands into its context.
     """
-    alpha_notice = (
-        "\n>\n"
-        "> **Pre-1.0 Alpha Notice**: This codebase is active alpha software prior to release `1.0.0`\n"
-        "> with no backwards compatibility guarantees. The codebase must remain clean of legacy\n"
-        "> references and obsolete shims at all times. Post-1.0 releases adhere strictly to\n"
-        "> Semantic Versioning and enterprise change management (feature flags, deprecations, migrations)."
-        if is_devops_cli
-        else ""
+    return render_template(
+        "pointer_stub.md.j2",
+        title=title,
+        tool_name=tool_name,
+        filename=filename,
+        canonical_relpath=canonical_relpath,
+        import_line=import_line,
     )
-    import_directive = f"{import_line}\n\n" if import_line else ""
-    return f"""\
-# {title}
-
-{import_directive}> **This file is a pointer, not the source.** {tool_name} looks specifically for
-> `{filename}`, so this stub exists to redirect it. All actual instructions — project
-> overview, build/test commands, code conventions, architecture, AI features,
-> environment & modernization policy, and security notes — live in
-> [AGENTS.md]({canonical_relpath}). Read that file. `devops ai agents` regenerates
-> this stub and leaves an existing AGENTS.md alone unless `--force` is given;
-> do not duplicate content here.{alpha_notice}
-"""
 
 
 def generate_agents_md(meta: ProjectMetadata) -> str:
-    """Generate canonical AGENTS.md document tailored to project metadata."""
-    entry_point_line = f"- **Entry Point**: `{meta.entry_point}`\n" if meta.entry_point else ""
-
-    if meta.is_devops_cli:
-        build_commands_block = """\
-```bash
-uv sync                              # Synchronize dependencies with lockfile
-uv run devops ci test <test-file>    # Run targeted tests, serial for a few files
-uv run pytest                        # Run the full test suite
-uv run ruff check                    # Run fast lint inspection
-uv run ruff format                   # Run code formatting
-uv run mypy src                      # Run strict typecheck
-devops ci                            # Comprehensive quality gate
-devops docs generate --sync-readme   # Synchronize CLI docs and README matrix
-```"""
-    else:
-        build_commands_block = """\
-```bash
-uv sync                              # Synchronize dependencies with lockfile
-uv run pytest                        # Run test suite
-uv run ruff check                    # Run fast lint inspection
-uv run ruff format                   # Run code formatting
-uv run mypy src                      # Run strict static type validation
-devops --help                        # Access global DevOps automation CLI
-```"""
-
-    devcontainer_context = (
-        "- **DevContainer Environment**: Configured with pre-baked Python runtime\n"
-        "  and DevOps tooling (`uv`, `docker`, `kubectl`, `helm`, `devops`).\n"
-        if meta.has_devcontainer
-        else ""
+    """Generate the router AGENTS.md of a project: its purpose, the rules for every task, and a
+    row for each routed document that exists in it."""
+    tasks = dict(CONST_AGENTS_MD_ROUTES)
+    return render_template(
+        "AGENTS.md.j2",
+        name=meta.name,
+        description=meta.description,
+        requires_python=meta.requires_python,
+        entry_point=meta.entry_point,
+        check_commands=meta.check_commands,
+        routes=[(path, tasks[path]) for path in meta.routed_documents if path in tasks],
     )
-
-    alpha_lifecycle_block = (
-        "- **Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee**: Prior to release 1.0.0,\n"
-        "  this codebase is active alpha software with no intention of maintaining backwards compatibility.\n"
-        "  The codebase must remain clean of legacy references, obsolete shims, and compatibility remnants\n"
-        "  at all times so that it can reach maturity at a reasonable rate. Releases after 1.0.0 will strictly\n"
-        "  follow Semantic Versioning conventions with feature flags, formal deprecations, and migration tooling.\n"
-        if meta.is_devops_cli
-        else ""
-    )
-
-    devops_roadmap_governance_block = (
-        "- **Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement**:\n"
-        "  - AI agents must cultivate continuous, innovative self-improvement across all tasks, interactions, and engineering sessions. Every issue, struggle, insight, API or contract inconsistency, anti-pattern, missing capability, integration or useful suggestion they find is filed as a candidate, never placed in a milestone or written into a document directly:\n"
-        "    - **Filing Work Through Intake ([#742](https://github.com/dan-petty/devops-cli/issues/742))**:\n"
-        '      - File each candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); without `--confirm` intake only previews (`--plan`), and `--dry-run` makes no request. The body states the root friction or finding, its evidence, and the proposed remedy or guardrail. Intake checks it for a duplicate, files it only when it is new, labels it `source/agent`, gives it a type, Priority, Value and Effort, and puts it in the backlog.\n'
-        "      - A duplicate is not filed: intake prints the original's number, and the finding goes into that item as an amendment or a comment.\n"
-        "      - Agents never set a milestone or a priority on a new issue. A person plans the milestones on the board ([ADR 0013](docs/adr/0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md)).\n"
-        "    - **In-Cluster `roadmap-service` & Concurrency Guardrails**:\n"
-        "      - Continuous daemon running in namespace `devops` (`deployment/roadmap-service`) executing `devops serve --service --workers 1` to process webhooks and batch jobs (`intake`, `refine`, `metrics`).\n"
-        "      - When active, agents must avoid running overlapping mutating commands (`devops roadmap intake --confirm`) to prevent rate limit depletion and git lock contention. Preview with `--plan` or `--dry-run`.\n"
-        "      - Inspect liveness via `kubectl -n devops get deployment roadmap-service` or HTTP probe `GET /readyz` on port 8000; fall back to manual execution only if confirmed offline.\n"
-        "    - **Feasibility Check & Stop Rather Than Add Compensating Code ([#1348](https://github.com/dan-petty/devops-cli/issues/1348))**:\n"
-        "      - Before authoring code or tests, perform a feasibility check confirming the premise against the real system (upstream docs, library source, cluster state, CLI runtime) and record how in the task file's `**Feasibility**` field.\n"
-        '      - When an item cannot be built as specified, or requires an architectural refactor beyond its scope, write no compensating code. Comment on the issue with the evidence and proposed re-scope/refactor, ask a person to return the item to `New` (`devops roadmap return <number> --comment "<evidence>" --confirm`), and stop.\n'
-        "      - Signals to stop rather than add code: swallowing an error; product code that detects tests; a second fix on top of a fix in the same area within one release; a review loop that keeps finding new defects in the same feature.\n"
-        if meta.is_devops_cli
-        else ""
-    )
-
-    return f"""\
-# {meta.name} — AI Agent Instructions & Engineering Best Practices
-
-This document provides foundational context, architectural principles, and operational best
-practices for AI coding assistants (GitHub Copilot, Claude, Cursor, Codex) working on this
-codebase or reviewing target repositories.
-
-> **Canonical Source**: This file is the single source of truth for AI coding agent
-> instructions in this repo. [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md) and
-> [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
-> to this file.
-
-## 1. Project Overview & Architecture
-
-- **Project Name**: `{meta.name}`
-- **Description**: {html.escape(meta.description, quote=True)}
-- **Language & Runtime**: Python {meta.requires_python}
-{entry_point_line}- **Virtual Environment**: `.venv/` (managed by `uv`)
-{devcontainer_context}
-## 2. Core Engineering Philosophy & Best Practices
-
-- **High Reliability & Quality First**: Build robust, resilient workstation automation and developer
-  tooling with defensive error handling, explicit timeouts, and zero tolerance for flaky tests.
-- **Poetic Conciseness & Architectural Elegance**: The codebase is an expressive, poetically concise
-  integration of tools, libraries, docs, AI, and automation. Control code complexity by aiming for
-  fewer than 6 indentations across all functions and code blocks. Decompose complex tasks, deep
-  branching, and nested iterations into dedicated, single-responsibility functions. Prefer clean
-  functional pipelines, Pydantic models, and standard library composition over low-level nested
-  loops or ad-hoc procedural parsing.
-- **Line Breaks Belong to Source Files, Not to Output**: Hard-wrap text only where a line length
-  limit applies -- source files and repository Markdown. Never hand-wrap text the program emits or
-  sends: terminal messages, log records, commit bodies, pull request descriptions, release notes,
-  issue comments, and API payloads. Those are wrapped by the terminal or the receiving surface at
-  its own width, so an embedded newline that looked right at one width reads as a ragged break at
-  every other, and it breaks copy-paste and search. Where a long string must still satisfy the
-  source line limit, split it with implicit string concatenation rather than inserting a newline.
-- **Responsible Use of `devops ai` (Token Cost & Local Inference Capacity)**: Every `devops ai`
-  command spends tokens and, on a local stack, holds GPU VRAM and an inference slot for the
-  duration of the call. Use these commands where they are the right tool, not as a default: a
-  question answerable by reading a file or running a deterministic check must be answered that
-  way. Pass the most specific parameters that still achieve the intended use, and run **at most
-  one `devops ai` call at a time** -- concurrent calls queue against the same finite slots and
-  make each other slower.
-- **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and
-  established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`).
-  Avoid custom workarounds when standard library or robust open-source tools exist.
-- **Zero-Trust Security & Egress Safety**:
-  - Never store plaintext secrets or tokens in code, configuration files, or logs. Always use OS
-    Keyring or secure secret stores.
-  - Never leak or extract information from hidden, private, or `.gitignored` files (`.env*`,
-    `.ssh/`, `.data/`, `~/.gemini/`, local credentials, private keys) into any documents,
-    changelogs, review findings, public commits, or code artifacts.
-  - **Comprehensive Sanitization of Internal Systems & Homelab Data**: Never record or expose concrete
-    internal hostnames (`*.lan`, `*.local`, physical machine names), private RFC 1918 IP addresses
-    (`192.168.0.0/16`, `10.0.0.0/8`, `172.16.0.0/12`), private container registries, non-standard local
-    NodePort endpoints, physical storage devices/mount paths (`/mnt/nvme*`, `/dev/sd*`), or private cluster
-    topology details in task tracking (`docs/agent/tasks/`), documentation, roadmaps, tests, manifests (`k8s/`),
-    or configuration templates (`config.yaml`). Always use abstract roles (`<storage-node>`, `<gpu-node>`,
-    `<worker-node>`, `<host>`), RFC 5737 documentation IPs (`192.0.2.0/24`), and standard localhost endpoints.
-  - When constructing documentation, reviews, prompt context, or code examples, always redact,
-    mask, or generalize any sensitive local environments, file system trees, or user identifiers.
-  - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination
-    endpoints.
-  - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error
-    handling.
-  - **Mandatory Third-Party Telemetry & Phone-Home Opt-Outs**:
-    - **Strict Opt-Out of Non-Functional Third-Party Telemetry**: AI agents, automated workflows,
-      and configuration templates MUST always disable and opt out of third-party telemetry, phone-home
-      mechanisms, anonymous usage reporting, crash analytics, and background update checks across all
-      tools, services, workloads, container environments, and CLI configurations whenever doing so does
-      not impact the functional user experience (e.g. Grafana reporting, Alloy telemetry, Loki usage
-      reports, Traefik anonymous usage, Open WebUI analytics, LiteLLM telemetry, and DevContainer
-      toolchain opt-outs like `DO_NOT_TRACK=1`, `GOTELEMETRY=off`, `PIP_DISABLE_PIP_VERSION_CHECK=1`,
-      `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`).
-    - **Confirmation Required for Functional Web Integrations**: For web integrations and external
-      network calls that provide tangible user-facing functionality or dynamic content (such as IDE
-      plugin and extension update notifications, live community news feeds, or marketplace catalogs),
-      AI agents MUST NOT unilaterally disable them without confirming with the user first. Always
-      distinguish purely passive background telemetry and phone-home traffic from active user-facing
-      capabilities, confirming user intent before suppressing functional web integrations.
-- **Strict Prohibition of Brittle Pattern Subsets & Mandatory Constants/Defaults Placement**:
-  - Matching against a list of strings or regular expressions is **ONLY acceptable if it covers 100% of possible scenarios** (i.e. mathematically bounded, closed, exhaustive domains defined by official RFCs or deterministic language grammars).
-  - Matching against a **limited or arbitrary subset of a larger or unknown list of possible values is strictly prohibited**. Never guess or match against ad-hoc prefixes, suffixes, or partial word lists (e.g. arbitrary identifier prefixes, property suffixes, or selective web TLDs). Instead, use mature, robust engineering solutions such as programming language symbol parsers (e.g. Python AST visitors, tokenizer pipelines), official registries (e.g. Mozilla Public Suffix List via `tldextract`), or system domain lookup tooling.
-  - Any string list, tuple, or frozen set that exists for matching, classification, or filtering purposes **MUST be declared in the `constants` or `defaults` submodule** (`src/devops_cli/config/constants.py` or `src/devops_cli/config/defaults.py`) rather than scattered ad-hoc across functional modules, so that it can easily be audited and reviewed for brittleness.
-- **Standard Parsers & Dynamic Introspection**: Always use established language-agnostic code
-  quality standards, standard library parsers (`ast`, `tokenize`, `json`, `tomllib`, `yaml`,
-  `urllib.parse`, `ipaddress`, `mimetypes`, `functools.lru_cache`), and official specifications
-  over hardcoded literal subsets.
-- **Knowledge Base Consultation**: Always consult project documentation and knowledge base
-  guides (`src/devops_cli/ai/knowledge_base/` or `docs/`) before designing, implementing, or
-  modifying system components.
-- **Never Lower Security Standards or Quality Thresholds**: AI agents and assistants must never
-  lower, relax, disable or bypass a security standard or quality threshold unless the user says so.
-  Replacing a check with a standard tool that enforces at least the same property is not lowering it.
-- **Mandatory Documentation Synchronization After Every Change**: AI agents and assistants must always
-  update project documents, architecture references, command documentation, and README files
-  (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals)
-  after every change to maintain 100% documentation integrity and prevent documentation drift.
-- **Dedicated Agent Workspace Data Isolation**: The workspace data directory is configured via `DEVOPS_CLI_DATA_DIR` (or configuration setting `data.dir`, defaulting to `./.data`). AI agents executing CLI review sessions, background benchmarks, analysis scans, test executions, or temporary operational tasks must isolate agent work products under the dedicated `agent/` subfolder (`<data_dir>/agent`, e.g. `./.data/agent`) to separate agent artifacts from the user workspace data tier.
-- **Mandatory Backup for Files Outside Workspace (`.bak-<YYYYMMDD-HHMMSS>`)**: Whenever modifying, overwriting, editing, or truncating any file located anywhere outside of the project workspace directory (such as files in user home directories, global configuration files, `~/.ssh/`, `~/.bashrc`, `~/.zshrc`, `/etc/`, or system files), AI agents and assistants **MUST ALWAYS** create a timestamped backup of the target file named `<original-filepath>.bak-<YYYYMMDD-HHMMSS>` prior to making any edits.
-- **Iterative CI Quality Gate & Zero Tooling Redundancy**: AI agents must always make all planned
-  code changes, run `devops ci`, fix all reported issues, and run `devops ci` again, iteratively
-  fixing issues and running `devops ci` until passing. Agents should not run any other tooling
-  that is already covered and automatically executed by `devops ci`.
-- **API Rate Limit Honor, Resilient Backoff & Quota Budgeting**: AI agents and automated workflows MUST
-  actively respect API rate limits, complexity budgets, and resource quotas across all external services
-  (GitHub REST/GraphQL APIs, AI LLM/embedding inference endpoints, package registries, and cloud APIs).
-  Proactively monitor rate limits (`devops gh rate-limit`, `x-ratelimit-remaining`, `Retry-After`), gracefully
-  fall back from complexity-constrained or rate-limited GraphQL queries to targeted REST endpoints, apply
-  exponential backoff with random jitter, and avoid aggressive polling loops.
-- **AI Inference Rate Limit & Token Budget Management**: Review pipelines and AI agent stages calling
-  local or remote LLMs (Ollama, Anthropic, Gemini, OpenAI) must budget token consumption and honor
-  provider quotas (Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM). Bound concurrency with
-  semaphores (`asyncio.Semaphore(5)` for 4–8 concurrent workers) to prevent overloading inference endpoints. On HTTP 429 or
-  provider overload errors, implement exponential backoff with jitter and retry reflection rather than
-  unthrottled burst retries.
-{alpha_lifecycle_block}- **Clean Solutions Over Legacy Remnants (Zero Zombie Code)**: When modifying, refactoring, or
-  replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
-  and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
-  Never leave remnants or vestigial fallback paths.
-- **Mandatory Root-Cause Remediation**: Investigate and fix the cause at the source. If an external
-  constraint blocks the fix, add a check that fails when the problem returns, and link the incident.
-  Add prose here only when no check is possible.
-{devops_roadmap_governance_block}- **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
-  - In every interaction with the user, peer agents, or development workflows, AI agents must actively look for and suggest concrete, actionable ways to improve developer ergonomics, workflow speed, system resilience, documentation clarity, test coverage, and tooling efficiency whenever relevant.
-
-
-
-## 3. Build, Lint & Test Commands
-
-{build_commands_block}
-
-## 4. Git Hygiene & Branch Management
-
-- **Branch Hierarchy & Isolation**:
-  - All feature and fix work must be conducted on dedicated topic branches
-    (`feat/<description>`, `fix/<description>`, `docs/<description>`, `refactor/<description>`).
-  - Feature, fix, and refactoring PRs target the default branch. The PR title is a Conventional Commit, and the squash commit takes it as its subject.
-- **Commit Standards**:
-  - Follow **Conventional Commits** format (`feat(scope): ...`, `fix(scope): ...`,
-    `refactor(scope): ...`, `docs(scope): ...`).
-  - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid overly verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects. State clearly and directly what the change accomplishes.
-  - Maintain atomic, cohesive commits with clean commit messages.
-  - **No Internal References or Numeric IDs**: Commit messages and PR titles must describe technical changes using descriptive engineering terminology, never internal session timestamps, review numbers, subagent IDs, or prompt phase numbers.
-- **Pull Request Governance & Two-Stage Review Lifecycle**:
-  - **Sequential Pull Request Processing (Oldest to Newest / FIFO)**: When multiple open pull requests exist, AI agents MUST process, remediate, and shepherd pull requests in strict chronological order from oldest to newest (FIFO queue: lowest PR number / earliest creation date first). Remediating review comments, fixing CI checks, resolving merge conflicts, and verifying merge readiness on older PRs strictly takes precedence over newer PRs to eliminate cascading merge conflicts and PR starvation. Process only your own pull requests. Skip a pull request that a bot or another person owns, such as a release pull request that a release tool opens.
-  - AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge approval to maintainers.
-  - **Stage 1: Every Pull Request Opens as a Draft**:
-    - AI agents open every pull request with `devops pr create`, which always opens a draft. A draft pull request signals active work in progress and prevents premature review cycles. It also satisfies the requirement that every remote topic branch have an open pull request.
-    - Actively monitor remote CI checks (`devops pr monitor <pr_number>` or `devops pr checks <pr_number>`) on every push. Remediate any failures immediately with test-first commits. Fix PRs cite the `fail-to-pass` check run (`devops ci fail-to-pass --base <ref>`) instead of typing failure counts by hand. The check fails any PR whose replay pytest could not run on base: pytest was interrupted, stopped with an internal or usage error, or wrote no complete JUnit report, as when the overlaid `tests/` import support the base lacks or the PR changes dependencies or the test harness. Such a PR declares `Fail-to-pass: not applicable: <reason>` in its body. A changed test that only fails to collect on base is reported as errored.
-  - **Stage 2: Transition to Ready for Review & Post-Ready Review Remediation**:
-    - **Marking Ready for Review**: Once all implementation logic, test-first coverage (>= 90%), documentation synchronization (`devops docs generate --sync-readme`), and all local/remote CI quality gates pass cleanly, and any initial review comments are addressed, AI agents MUST convert the pull request to ready for review (`devops pr ready <pr_number>`).
-    - **Post-Ready Secondary Review & Copilot Monitoring Gate**:
-      - Marking a pull request as ready for review transitions it to public review state and triggers CI workflows, CodeQL scans, and reviewer notifications. Copilot reviews a pull request only when a person requests it, because an automatic review of every pull request would spend the monthly token budget.
-      - AI agents are STRICTLY PROHIBITED from concluding a task immediately after marking a PR ready.
-      - **5-Minute Completion Allowance & 60-Second Polling Interval**:
-        - Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete.
-        - Wait at least a full minute (60 seconds) between request cycles when monitoring pull request status. Never poll in rapid or sub-minute intervals.
-      - Actively check for newly posted review comments/threads (`devops pr threads list <pr_number> --unresolved-only`), and address all findings.
-      - If Copilot or reviewers submit review comments:
-        1. Remediate all feedback iteratively using Test-First Development (author/update tests first).
-        2. Reply directly within each specific review thread on the exact comment addressed (`devops pr threads reply <thread_id> "<body>"`). Never rely solely on top-level PR summary comments.
-        3. Programmatically resolve review threads (`devops pr threads resolve <thread_id>`).
-      - Re-verify that all remote CI checks remain 100% green (`devops pr monitor <pr_number>`).
-    - **Task Completion Guarantee**: A task is ONLY complete when the PR is marked ready, all remote CI checks pass, any review a person requested has settled, and 0 unresolved review threads remain.
-  - **Mandatory PR Monitoring Gate (`devops pr monitor`) (Zero Premature Completions & Unmonitored PRs)**:
-    - AI agents **MUST ALWAYS** actively monitor pull requests by running `devops pr monitor <pr_number>` (or FastMCP `pr_monitor`) immediately after opening a PR (`devops pr create`) or pushing commits to any branch with an active PR (`git push`).
-    - **Strict Prohibition of Premature Completion**: Never conclude a turn, declare a task done, switch branches, or ask the user to review or merge while CI checks are pending, failing, or while a requested code review session (such as a GitHub Copilot review) is in progress or unresolved.
-    - **Wait for Requested Review Sessions to Settle**: Code review bots submit reviews asynchronously. When a person requests a Copilot review, agents wait for that review session to complete.
-    - **Remediate Check Failures Immediately**: If any CI check fails (exit code 1), immediately inspect failed logs (`devops gh runs view <run_id> --log-failed`), diagnose root causes, apply test-first fixes with concise effect-driven commit messages, push, and re-run `devops pr monitor <pr_number>`.
-    - **Remediate Review Feedback In-Thread & Resolve**: If Copilot or reviewers leave review comments (exit code 2):
-      1. Inspect all open threads: `devops pr threads list <pr_number> --unresolved-only`.
-      2. Author test-first fixes in `src/` and `tests/`.
-      3. Commit with concise message stating the direct effect and push.
-      4. Post direct in-thread replies: `devops pr threads reply <thread_id> "<body>"`. Never rely solely on top-level PR summary comments.
-      5. Resolve threads: `devops pr threads resolve <thread_id>`.
-      6. Re-run `devops pr monitor <pr_number>` until exit code 0 is achieved.
-    - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, any requested review session has settled, and 0 unresolved review discussion threads remain.
-- **GitHub Projects, Issues & Views Governance**:
-  - File new work through `devops roadmap intake`, which puts each new issue in the backlog. A person plans the milestones, and a milestone never names a version.
-  - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and reconcile custom fields on the cards already on the board via `devops gh project sync` (sets Status only on a card that has none, from its `status/*` label or else `New`, and sets `Done` when the issue closes; the board's built-in `Pull request linked to issue` workflow sets `In Review`). Sync adds no card: `devops roadmap intake` places issues, and a pull request gets no card.
-  - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
-  - Respect GitHub API rate limits: monitor `devops gh rate-limit`, adaptively fall back to REST when GraphQL complexity limits are reached, avoid unthrottled polling, and honor `Retry-After` reset windows.
-"""  # nosec B608  # Static Markdown template containing documentation prose, not executable SQL
 
 
 def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str:
@@ -462,7 +247,6 @@ def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str
             filename=filename,
             canonical_relpath=stub.canonical_relpath,
             import_line=stub.import_line,
-            is_devops_cli=meta.is_devops_cli,
         )
     return generate_agents_md(meta)
 

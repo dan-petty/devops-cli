@@ -1,7 +1,7 @@
 """Kubernetes API objects and a fake CoreV1 client for tests that must not reach a cluster.
 
 The objects are the SDK's own models, so code under test reads them exactly as it reads a
-real API response. Names are generic, as AGENTS.md requires of fixtures.
+real API response. Names are generic, as SECURITY.md requires of fixtures.
 """
 
 from __future__ import annotations

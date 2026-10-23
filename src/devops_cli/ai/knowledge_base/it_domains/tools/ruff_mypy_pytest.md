@@ -79,7 +79,7 @@ uv run pytest --cov=src/devops_cli --cov-report=html:coverage_html
 
 ## 4. Best Practice Guidance
 
-1. **Progressive Verification**: During active coding loops, run isolated checks (`uv run ruff check <file>`, `uv run pytest <test_file>`); only run full test suites prior to commit/PR milestones.
+1. **Progressive Verification**: During active coding loops, run isolated checks (`uv run ruff check <file>`, `uv run pytest <test_file>`); run the full gate before a push.
 2. **Modern Python 3.14+ Idioms**:
    - Use `from __future__ import annotations`.
    - Use union syntax `A | B` instead of `Union[A, B]` or `Optional[T]`.
