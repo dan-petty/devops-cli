@@ -638,7 +638,9 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
 def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> None:
     """A child repository that names only the image must open as vscode through the image's
     devcontainer.metadata label, and each platform must run as vscode, uid and gid 1000, with a
-    command from each Dev Container Feature on its path (#1895)."""
+    command from each Dev Container Feature on its path (#1895). Each platform runs by its own
+    manifest digest, because the classic image store holds one image for each repository@digest
+    and refuses a second platform of the index digest (#<issue>)."""
     action, steps = _composite_steps("devcontainer-smoke")
 
     assert (action["inputs"], steps) == (
@@ -673,8 +675,12 @@ def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> N
                 '"$CHILD/.devcontainer/devcontainer.json"\n'
                 'devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null\n'
                 'test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode\n'
+                'INDEX="$(docker buildx imagetools inspect --raw "$REF")"\n'
                 "for PLATFORM in linux/amd64 linux/arm64; do\n"
-                '  docker run --rm --platform "$PLATFORM" --user vscode "$REF" sh -ec \'\n'
+                '  DIGEST="$(jq -er --arg os "${PLATFORM%/*}" --arg arch "${PLATFORM#*/}" '
+                "'first(.manifests[] | select(.platform.os == $os and .platform.architecture == "
+                '$arch) | .digest)\' <<< "$INDEX")"\n'
+                '  docker run --rm --platform "$PLATFORM" --user vscode "${REF%@*}@$DIGEST" sh -ec \'\n'
                 '    test "$(id -u):$(id -g)" = 1000:1000\n'
                 "    for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do\n"
                 '      command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }\n'
