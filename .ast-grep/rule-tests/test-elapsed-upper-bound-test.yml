@@ -1,0 +1,100 @@
+id: test-elapsed-upper-bound
+valid:
+  - |
+    def test_a_wait_lasts_at_least_its_duration():
+        start = time.monotonic()
+        wait()
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.03
+  - |
+    def test_a_stale_snapshot():
+        old = Snapshot(updated_at=time.time() - 120.0)
+        assert old.is_stale(max_age=30.0) == True
+  - |
+    def test_a_count():
+        total = 5
+        count = 3
+        assert total - count < 3
+  - |
+    def test_the_clock_fake(clock):
+        run()
+        assert clock.waits == [60.0]
+  - |
+    def test_a_name_bound_to_no_clock_read():
+        start = time.monotonic()
+        other = compute()
+        age = time.time() - other
+        assert age > 5
+  - |
+    def test_time_left_bounded_from_above():
+        deadline = time.monotonic() + 30.0
+        assert deadline - time.monotonic() <= 30.0
+  - |
+    def test_elapsed_time_in_a_message_only():
+        start = time.perf_counter()
+        run()
+        print(time.perf_counter() - start)
+invalid:
+  - |
+    def test_a_name_bound_to_elapsed_time():
+        start = time.perf_counter()
+        run()
+        elapsed = time.perf_counter() - start
+        assert elapsed < 1.0
+  - |
+    def test_elapsed_time_in_the_assert():
+        start = time.monotonic()
+        assert time.monotonic() - start < 3
+  - |
+    def test_elapsed_time_in_a_tuple_assert():
+        started = time.monotonic()
+        assert (time.monotonic() - started < 5.0, caller.is_alive()) == (True, False)
+  - |
+    def test_scaled_elapsed_time():
+        start = time.perf_counter()
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        assert elapsed_ms < 1000.0, "too slow"
+  - |
+    def test_elapsed_time_on_the_right():
+        start = time.monotonic()
+        elapsed = time.monotonic() - start
+        assert 1.0 > elapsed
+  - |
+    def test_a_chained_comparison():
+        start = time.monotonic()
+        elapsed = time.monotonic() - start
+        assert 0 < elapsed <= 1
+  - |
+    def test_two_named_readings():
+        before = time.time()
+        after = time.time()
+        assert after - before <= 1
+  - |
+    def test_a_datetime_reading():
+        start = datetime.now(UTC)
+        assert datetime.now(UTC) - start < timedelta(seconds=1)
+  - |
+    def test_an_age_bound():
+        record = make_record()
+        assert record.updated_at > time.time() - 120.0
+  - |
+    def test_time_left_bounded_from_below():
+        deadline = time.monotonic() + 5.0
+        run()
+        assert deadline - time.monotonic() > 0
+  - |
+    def test_a_name_bound_to_time_left():
+        deadline = time.monotonic() + 5.0
+        run()
+        left = deadline - time.monotonic()
+        assert 0 < left
+  - |
+    async def test_an_async_test():
+        started = time.monotonic()
+        await refresh()
+        elapsed = time.monotonic() - started
+        assert elapsed < 1.0
+  - |
+    def test_a_function_imported_from_time():
+        start = monotonic()
+        assert monotonic() - start < 1

@@ -1,6 +1,8 @@
 id: net-hostport
 language: python
 severity: error
+files:
+  - "src/**"
 message: Host, port or userinfo split by hand. Use urllib.parse.urlsplit(value) (.hostname, .port, .username), urlsplit("//" + authority) for a bare authority, or httpx2.URL(value).
 rule:
   any:

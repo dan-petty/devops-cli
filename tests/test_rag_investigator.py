@@ -174,7 +174,11 @@ def test_format_rag_investigation_for_prompt() -> None:
 
 
 def test_concurrent_lookups_wait_for_probe_outcome() -> None:
-    """20 concurrent lookups against a hanging stub finish in < 1s with at most 2 requests, skipping when probe fails."""
+    """20 concurrent lookups against a hanging stub send at most 2 requests and skip when the probe fails.
+
+    A lookup that did not wait for the probe would send its own request, so the count shows the
+    wait without a clock (#1902).
+    """
     from concurrent.futures import ThreadPoolExecutor
 
     clear_investigation_cache()
@@ -206,20 +210,14 @@ def test_concurrent_lookups_wait_for_probe_outcome() -> None:
         mock_emb.embed_query.side_effect = hanging_embed_query
         mock_emb_cls.return_value = mock_emb
 
-        start_t = time.perf_counter()
         with ThreadPoolExecutor(max_workers=20) as executor:
             futures = [
                 executor.submit(investigate_rag_context, f"query {i}", settings=st)
                 for i in range(20)
             ]
             results = [f.result() for f in futures]
-        elapsed = time.perf_counter() - start_t
 
-        assert (elapsed < 1.0, request_count <= 2, all(r is None for r in results)) == (
-            True,
-            True,
-            True,
-        )
+        assert (request_count <= 2, all(r is None for r in results)) == (True, True)
 
 
 def test_concurrent_lookups_healthy_stub_all_get_context() -> None:

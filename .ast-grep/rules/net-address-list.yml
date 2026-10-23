@@ -1,6 +1,8 @@
 id: net-address-list
 language: python
 severity: error
+files:
+  - "src/**"
 message: Literal list of addresses, loopback names or schemes. Classify with ipaddress (is_loopback, is_link_local, is_private, is_global) and read schemes with urllib.parse.urlsplit; data no library knows is a constant of ipaddress objects with its source cited.
 utils:
   ipv4:

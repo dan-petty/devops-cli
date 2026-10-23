@@ -127,29 +127,42 @@ def test_runner_executes_with_pydantic_exceptions() -> None:
 
 
 def test_runner_tool_timeout_enforced_without_blocking() -> None:
-    """Verify _execute_single_tool enforces timeout and does not block on hung worker threads."""
-    import time
+    """Verify _execute_single_tool enforces timeout and does not block on hung worker threads.
+
+    The tool is held until the test releases it after the call returns. A call that waited for
+    the worker would return only after the hold, with the tool done, so the test reads no clock
+    (#1902).
+    """
+    import threading
 
     from devops_cli.ai.agents.context import RunContext
     from devops_cli.ai.agents.runner import _execute_single_tool
     from devops_cli.ai.agents.tools import Tool
+    from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
-    def slow_tool() -> str:
-        time.sleep(1.0)
+    release = threading.Event()
+    finished = threading.Event()
+
+    def held_tool() -> str:
+        release.wait(THREAD_HANDOFF_BOUND_SECONDS)
+        finished.set()
         return "slow_done"
 
-    tool = Tool(name="slow_tool", description="slow tool", function=slow_tool, timeout=0.05)
+    tool = Tool(name="slow_tool", description="slow tool", function=held_tool, timeout=0.05)
     dummy_ctx: Any = RunContext(deps=None)
 
-    start_time = time.perf_counter()
     status, _, res = _execute_single_tool(
         tool, "slow_tool", {}, [], ctx=dummy_ctx, default_timeout=None
     )
-    elapsed = time.perf_counter() - start_time
+    held_when_returned = not finished.is_set()
+    release.set()
 
-    assert status == "retry_requested"
-    assert "Timed out after 0.05 seconds" in str(res)
-    assert elapsed < 0.5
+    assert (
+        status,
+        "Timed out after 0.05 seconds" in str(res),
+        held_when_returned,
+        finished.wait(THREAD_HANDOFF_BOUND_SECONDS),
+    ) == ("retry_requested", True, True, True)
 
 
 def test_generate_error_catalog_includes_all_ai_exceptions() -> None:

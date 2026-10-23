@@ -1,6 +1,8 @@
 id: net-normalise
 language: python
 severity: error
+files:
+  - "src/**"
 message: Host canonicalised by hand. httpx2.URL(value).host or urllib.parse.urlsplit(value).hostname drops brackets and lower-cases; ipaddress.ip_address and dns.name.from_text give the canonical form.
 rule:
   kind: call

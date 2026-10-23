@@ -45,6 +45,7 @@ from tests.support.fakes.github import (
     quota_headers,
 )
 from tests.support.paths import REPO_ROOT
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 from tests.web_fakes import rebinding, scripted_resolver
 
 _SRC = REPO_ROOT / "src" / "devops_cli"
@@ -407,12 +408,16 @@ async def _sleep_on_the_loop(_api: object, seconds: float) -> None:
 def test_closing_a_session_cancels_a_request_waiting_out_a_retry(
     github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Closing does not wait out a retry's wait: the request is cancelled and fails as unread."""
+    """Closing does not wait out a retry's wait: the request is cancelled and fails as unread.
+
+    The retry waits an hour, far past the handoff bound. A close that waited it out would leave
+    the caller running when the join gives up, so the test reads no clock (#1902).
+    """
     monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", _sleep_on_the_loop)
     github_api.route(
         "GET",
         "/user",
-        github_json({"message": "slow down"}, status=429, headers={"retry-after": "30"}),
+        github_json({"message": "slow down"}, status=429, headers={"retry-after": "3600"}),
     )
     session = get_github_session()
     failures: list[BaseException] = []
@@ -425,17 +430,14 @@ def test_closing_a_session_cancels_a_request_waiting_out_a_retry(
 
     caller = threading.Thread(target=call)
     caller.start()
-    deadline = time.monotonic() + 5.0
-    while not github_api.sent and time.monotonic() < deadline:
-        time.sleep(0.01)
-    started = time.monotonic()
+    sent = wait_until(lambda: bool(github_api.sent))
     session.close()
-    caller.join(timeout=5.0)
-    assert (
-        time.monotonic() - started < 5.0,
-        caller.is_alive(),
-        [type(failure) for failure in failures],
-    ) == (True, False, [GitHubUnreadError])
+    caller.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    assert (sent, caller.is_alive(), [type(failure) for failure in failures]) == (
+        True,
+        False,
+        [GitHubUnreadError],
+    )
 
 
 def test_closing_a_session_mid_flight_fails_each_request_with_a_typed_error(

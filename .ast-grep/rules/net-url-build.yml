@@ -1,6 +1,8 @@
 id: net-url-build
 language: python
 severity: error
+files:
+  - "src/**"
 message: URL authority built with an f-string. Build it with httpx2.URL(scheme=..., host=..., port=...), which brackets IPv6 hosts, or httpx2.URL.copy_with / join.
 rule:
   kind: string

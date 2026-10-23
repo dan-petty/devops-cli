@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import json
-import time
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -274,26 +273,25 @@ def test_prune_tree_linear_statement_scaling() -> None:
     ast.parse(packed.content)
 
 
-def test_prune_tree_binary_search_under_10ms() -> None:
-    """Verify that binary search truncation on 1,000-line AST trees runs under 10ms."""
+def test_prune_tree_binary_search_fits_a_1000_line_tree_to_its_budget() -> None:
+    """Binary search truncation fits a 1,000-line AST tree to its token budget.
+
+    The test checks the result and reads no clock. A search that does not end fails at the
+    pytest-timeout hang bound (#1902).
+    """
     code_lines = [
         f"def worker_fn_{i}(arg: int) -> int:\n    y = arg + {i}\n    return y\n"
         for i in range(334)
     ]
     large_code = "\n".join(code_lines)
     tree = ast.parse(large_code)
-    # Warm up tokenizer encoding
-    count_tokens("def _warmup() -> None:\n    pass")
 
     pruned: list[str] = []
-    start_time = time.perf_counter()
     unparsed, truncated = _prune_tree_to_budget(tree, 200, pruned)
-    duration = time.perf_counter() - start_time
 
     assert count_tokens(unparsed) <= 200
     assert len(pruned) > 300
     assert truncated is True
-    assert duration < 2.0, f"Runaway bound exceeded: {duration:.2f}s >= 2.0s"
     # Output must be syntactically valid Python without syntax errors
     parsed = ast.parse(unparsed)
     assert parsed is not None

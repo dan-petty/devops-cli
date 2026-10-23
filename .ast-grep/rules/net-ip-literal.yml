@@ -1,6 +1,8 @@
 id: net-ip-literal
 language: python
 severity: error
+files:
+  - "src/**"
 message: Comparison with an IP address literal. Parse with ipaddress.ip_address(host) and test is_loopback, is_link_local, is_private, or membership in an ipaddress.ip_network.
 rule:
   kind: comparison_operator

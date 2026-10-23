@@ -87,24 +87,40 @@ def test_a_sync_tenacity_retry_with_fixed_waits_waits_those_amounts_in_order(
 
 @pytest.mark.parametrize(("mode", "period"), [("fake", 60.0), ("real", 0.03)])
 def test_a_ratelimit_window_built_with_the_seam_makes_the_third_call_wait_out_the_period(
-    request: pytest.FixtureRequest, mode: str, period: float
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, mode: str, period: float
 ) -> None:
     """`ratelimit.limits(calls=2, period=period, clock=clock_seam.monotonic)` lets the first two
-    calls through and holds the third until `period` ends."""
+    calls through and holds the third until `period` ends.
+
+    `sleep_and_retry` waits through `time.sleep`, which the test records in order with the calls.
+    No wait comes before the third call, so no case bounds a real time from above (#1902).
+    """
     fake = _install_mode(request, mode)
     stamps: list[float] = []
+    events: list[str] = []
+    sleep = time.sleep
+
+    def recorded_sleep(seconds: float) -> None:
+        events.append("wait")
+        sleep(seconds)
+
+    def stamp() -> None:
+        events.append("call")
+        stamps.append(time.time())
+
+    monkeypatch.setattr(time, "sleep", recorded_sleep)
     window = limits(calls=2, period=period, clock=clock_seam.monotonic)
-    call = sleep_and_retry(window(lambda: stamps.append(time.time())))
+    call = sleep_and_retry(window(stamp))
 
     for _ in range(3):
         call()
 
     assert (
-        len(stamps),
-        stamps[1] - stamps[0] < period / 2,
+        events[:3],
+        events.count("call"),
         stamps[2] - stamps[0] >= period - _TOLERANCE,
         fake.waits if fake is not None else [period],
-    ) == (3, True, True, [period])
+    ) == (["call", "call", "wait"], 3, True, [period])
 
 
 def test_the_github_rate_limiter_builds_its_burst_limit_with_the_seam_when_constructed(

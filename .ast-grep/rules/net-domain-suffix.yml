@@ -1,6 +1,8 @@
 id: net-domain-suffix
 language: python
 severity: error
+files:
+  - "src/**"
 message: Domain matched by string suffix. Use dns.name.from_text(host).is_subdomain(dns.name.from_text(domain)); public-suffix questions go to tldextract.
 rule:
   kind: call

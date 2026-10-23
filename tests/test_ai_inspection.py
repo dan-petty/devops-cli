@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -332,27 +331,6 @@ def test_level_2_deep_focal_window_symbol(tmp_path: Path) -> None:
         True,
     )
     assert "OrderProcessor" in fw.scope_breadcrumbs
-
-
-def test_outline_sub_10ms_latency(tmp_path: Path) -> None:
-    """Verify AST semantic outline generation achieves sub-10ms latency."""
-    py_file = tmp_path / "benchmark.py"
-    py_file.write_text(SAMPLE_HOTSPOT_PYTHON, encoding="utf-8")
-
-    # Warmup pass
-    generate_semantic_outline(py_file, level=FocalLevel.TOPOLOGY, repo_root=tmp_path)
-
-    timings: list[float] = []
-    for _ in range(5):
-        t0 = time.perf_counter()
-        outline = generate_semantic_outline(py_file, level=FocalLevel.TOPOLOGY, repo_root=tmp_path)
-        timings.append((time.perf_counter() - t0) * 1000.0)
-
-    avg_latency = sum(timings) / len(timings)
-    assert avg_latency < 2000.0, f"Runaway bound exceeded: {avg_latency:.2f}ms >= 2000.0ms"
-    assert outline.generation_time_ms < 5000.0, (
-        f"Runaway bound exceeded: {outline.generation_time_ms:.2f}ms >= 5000.0ms"
-    )
 
 
 def test_polyglot_structural_outlines(tmp_path: Path) -> None:
