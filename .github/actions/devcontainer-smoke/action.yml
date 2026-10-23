@@ -28,6 +28,9 @@ runs:
       shell: bash
       run: uv run devops install-tools --tool devcontainers-cli --only-missing
 
+    # The classic image store holds one image for each repository@digest, so a second platform of
+    # the index digest fails with "cannot overwrite digest". Each platform runs by the digest of
+    # its own manifest in the index.
     - name: Start the image as its remote user
       shell: bash
       env:
@@ -40,8 +43,10 @@ runs:
         jq -n --arg image "$REF" '{image: $image, updateRemoteUserUID: false}' > "$CHILD/.devcontainer/devcontainer.json"
         devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null
         test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode
+        INDEX="$(docker buildx imagetools inspect --raw "$REF")"
         for PLATFORM in linux/amd64 linux/arm64; do
-          docker run --rm --platform "$PLATFORM" --user vscode "$REF" sh -ec '
+          DIGEST="$(jq -er --arg os "${PLATFORM%/*}" --arg arch "${PLATFORM#*/}" 'first(.manifests[] | select(.platform.os == $os and .platform.architecture == $arch) | .digest)' <<< "$INDEX")"
+          docker run --rm --platform "$PLATFORM" --user vscode "${REF%@*}@$DIGEST" sh -ec '
             test "$(id -u):$(id -g)" = 1000:1000
             for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do
               command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }
