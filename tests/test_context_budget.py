@@ -17,6 +17,7 @@ from devops_cli.ai.context_budget import (
     TokenBudgetReport,
     count_file_tokens,
     count_tokens,
+    reset_tiktoken_encoding_cache,
     truncate_to_token_limit,
     validate_and_budget_prompt,
 )
@@ -124,7 +125,9 @@ def _prepare_o200k_cache_dir(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -
             "special_tokens": {},
         },
     )
-    monkeypatch.delitem(tiktoken.registry.ENCODINGS, "o200k_base", raising=False)
+    # tiktoken stores the encoding it builds in its registry. A registry of the test's own goes
+    # with the test, so the synthetic encoding never reaches a later test (#2002).
+    monkeypatch.setattr(tiktoken.registry, "ENCODINGS", {})
 
 
 def test_count_tokens_loads_encoding_from_prepared_cache_dir_without_network(
@@ -148,6 +151,25 @@ def test_count_tokens_loads_encoding_from_prepared_cache_dir_without_network(
     # Under the loaded BPE encoding, "hello world" is 2 tokens ([256, 257]), whereas the
     # 4-characters-per-token fallback heuristic would return ceil(11 / 4) == 3.
     assert (tokens, connect_attempts) == (2, [])
+
+
+def test_the_synthetic_encoding_leaves_tiktokens_registry_with_its_test(tmp_path: Path) -> None:
+    """Verify the prepared-cache encoding does not outlive its test in tiktoken's registry (#2002).
+
+    On a fresh worker the registry has no o200k_base. A synthetic encoding left there makes
+    every later count on that worker about one token per byte.
+    """
+    with pytest.MonkeyPatch.context() as worker:
+        worker.delitem(tiktoken.registry.ENCODINGS, "o200k_base", raising=False)
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            cache_dir = tmp_path / "tiktoken-cache"
+            _prepare_o200k_cache_dir(cache_dir, monkeypatch)
+            monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(cache_dir))
+            count_tokens("hello world", model="gpt-4o-prepared-cache")
+        reset_tiktoken_encoding_cache()
+        left_behind = tiktoken.registry.ENCODINGS.get("o200k_base")
+
+    assert left_behind is None
 
 
 def test_failed_encoding_load_logs_one_warning_naming_cache_dir(
