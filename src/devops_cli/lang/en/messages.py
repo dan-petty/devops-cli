@@ -1471,6 +1471,10 @@ class RoadmapMessages:
     intake_possible_duplicate_line: str = (
         "- {subject}: possible duplicate of #{original}, left for a person: {reason}"
     )
+    intake_duplicate_reason: str = "both ask for {change}. {reason}"
+    intake_related_line: str = "  - related: #{number}, which asks for a different change. {reason}"
+    intake_related_field: str = "Related"
+    intake_related_value: str = "#{number}, which asks for a different change"
     intake_duplicate_closes: str = "It is closed as a duplicate."
     intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
     intake_skip_line: str = "- {subject}: skipped, nothing written: {reason}"
@@ -1517,6 +1521,15 @@ class RoadmapMessages:
     intake_note_duplicate_rejected: str = (
         "the model named #{number} as the original, which is not one of the nearest items, so "
         "it was rejected."
+    )
+    intake_note_no_shared_change: str = (
+        "the model named #{number} as the original but named no change that both items "
+        "ask for, so the candidate is not a duplicate: intake places it and names #{number} as "
+        "related."
+    )
+    intake_note_related_rejected: str = (
+        "the model named #{number} as related, which is not one of the nearest items, so it "
+        "was rejected."
     )
     intake_note_priority_capped: str = (
         "the model proposed {priority}, and it can propose only P1 to P3, so {capped} stands."

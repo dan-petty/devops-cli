@@ -1,0 +1,137 @@
+{
+  "about": "The evaluation set for intake's duplicate judgement (#1755). Each case is a candidate, the item it was compared with, the model's answer for that pair, and whether a person judged the candidate a duplicate of the item. In an answer, the item's number stands for the item: a test seeds the item and puts the seeded number in its place. The answers of the cases that are not duplicates are the answers of the intake runs of 2026-10-20 that #1755 records, in the reply schema of that day: each names the item as the original and names no shared change. The answers of the duplicates are written for this set, in the current reply schema, from the comment of the person who closed the candidate. The bodies are short excerpts of the issues; a candidate that has no issue has a short body written from its title.",
+  "cases": [
+    {
+      "name": "the-ci-time-budget-is-not-the-recorded-scanner-results",
+      "duplicate": false,
+      "source": "#1725 folded into #1666 on 2026-10-20; the model's reason was not recorded",
+      "candidate": {
+        "title": "perf(ci): the gate finishes in 2 minutes and pull-request CI in 3, with no test over 5 seconds and none touching the network, real tools or localhost services",
+        "body": "The gate and pull-request CI are slower than the owner's budget. The targets: `uv run devops ci` takes at most 2 minutes on a quiet host, pull-request CI at most 3 minutes, no test takes over 5 seconds without a recorded reason, and no test touches the network, real tools or localhost services."
+      },
+      "item": {
+        "number": 1666,
+        "title": "test(ci): the suite's slowest tests run on recorded scanner and installer results, not real semgrep, gitleaks, bandit, uv audit, uv pip sync or sudo",
+        "body": "The slowest tests in every full run start real external tools. Several of them reach the network from a child process, which the in-process network guard does not see. These tests run on the recorded results of each tool."
+      },
+      "answer": {"duplicate_of": 1666, "duplicate_reason": ""}
+    },
+    {
+      "name": "bandit-once-in-static-analysis-is-not-the-gate-workers",
+      "duplicate": false,
+      "source": "folded into #1734 on 2026-10-20, filed again by hand as #1746",
+      "candidate": {
+        "title": "perf(ci): the Static Analysis job runs Bandit once",
+        "body": "The Static Analysis CI job runs Bandit twice on every push: once in `devops ci --skip test,outdated` and again in `devops scan report`. Run Bandit once in the job and give its result to both consumers. Bandit's targets and threshold are unchanged."
+      },
+      "item": {
+        "number": 1734,
+        "title": "perf(ci): the gate's test workers finish together and bandit stops competing with the test row",
+        "body": "Split from #1725 (CI time budget). The gate's test row is its critical path. The slowest xdist worker finishes 47s after the median, and bandit takes 21s alone but 61s beside pytest. Balance the workers with `--dist worksteal`, and run bandit where it does not compete with the test row."
+      },
+      "answer": {"duplicate_of": 1734, "duplicate_reason": "Both items address CI performance issues…"}
+    },
+    {
+      "name": "one-parse-of-the-source-tree-is-not-the-ci-time-budget",
+      "duplicate": false,
+      "source": "folded into #1725 on 2026-10-20, filed again by hand as #1749",
+      "candidate": {
+        "title": "perf(tests): the invariant tests share one parse of the source tree",
+        "body": "Split from #1725 (CI time budget). The architectural and invariant tests each parse the whole source tree again, and several take over 5 seconds, against the limit of #1725. The invariant tests share one parse of the source tree."
+      },
+      "item": {
+        "number": 1725,
+        "title": "perf(ci): the gate finishes in 2 minutes and pull-request CI in 3, with no test over 5 seconds and none touching the network, real tools or localhost services",
+        "body": "The gate and pull-request CI are slower than the owner's budget. The targets: `uv run devops ci` takes at most 2 minutes on a quiet host, pull-request CI at most 3 minutes, no test takes over 5 seconds without a recorded reason, and no test touches the network, real tools or localhost services."
+      },
+      "answer": {"duplicate_of": 1725, "duplicate_reason": "addresses the same performance issue as #1725, … reducing test run times"}
+    },
+    {
+      "name": "a-review-dry-run-that-starts-no-process-is-not-the-request-preview",
+      "duplicate": false,
+      "source": "folded into #1430 on 2026-10-20, added again by hand as a comment on #1430; it has no issue, so its body is written from its title",
+      "candidate": {
+        "title": "fix(review): a review dry run starts no gh, and no child of a test reaches the real session bus",
+        "body": "A review dry run makes no request. Today it starts gh, and a child process of a test can reach the real session bus. The dry run starts no gh, and the test floor keeps every child off the session bus."
+      },
+      "item": {
+        "number": 1430,
+        "title": "fix(review): the review dry run shows the request the model client would send, built by that client",
+        "body": "`--dry-run` must send nothing and return the requests a real run would send (#412). The review's preview is a separate hand-written copy of each provider's request, and it no longer matches what the client sends."
+      },
+      "answer": {"duplicate_of": 1430, "duplicate_reason": "Both items address the issue of dry-run functionality…"}
+    },
+    {
+      "name": "the-openspec-evaluation-is-not-the-one-pull-request-per-issue-decision",
+      "duplicate": false,
+      "source": "folded into #1750 on 2026-10-20, filed again by hand as #1753",
+      "candidate": {
+        "title": "docs(adr): evaluate OpenSpec as the spec and change-proposal layer",
+        "body": "How a change is specified, planned and recorded is spread across issue bodies, per-task files under `docs/agent/tasks/`, AGENTS.md rules and refine comments. Evaluate OpenSpec as the spec and change-proposal layer: its health, its fit, and the cost to adopt it."
+      },
+      "item": {
+        "number": 1750,
+        "title": "docs(adr): decide one pull request per issue and which change records live in the repository",
+        "body": "One issue takes days to deliver. The change workflow adds process steps and shared files that conflict and wait. Decide one pull request per issue, and which change records live in the repository."
+      },
+      "answer": {"duplicate_of": 1750, "duplicate_reason": "Both items address workflow friction…"}
+    },
+    {
+      "name": "a-test-that-fails-first-in-its-process-is-the-tracer-uname-fix",
+      "duplicate": true,
+      "source": "#1411, closed by a person as a duplicate of #1418",
+      "candidate": {
+        "title": "fix(tests): test_each_identity_keeps_its_own_quota_and_response_cache passes alone and in a serial run, not only under xdist",
+        "body": "`test_each_identity_keeps_its_own_quota_and_response_cache` fails when it runs alone or in a serial run with `KeyError: 'env'`, and passes under xdist. A `subprocess.run` call that an earlier test warms up reaches the test's assertion without an `env` keyword."
+      },
+      "item": {
+        "number": 1418,
+        "title": "fix(telemetry): building the tracer starts uname -p through platform.platform(), so tests fail when they run first in their process",
+        "body": "`Tracer.__init__` sets `os.description` from `platform.platform()`, which runs `uname -p` through `subprocess` the first time a process asks. A fake that replaces `subprocess.run` receives that argv, so `test_each_identity_keeps_its_own_quota_and_response_cache` fails when it runs first in its process."
+      },
+      "answer": {
+        "shared_change": "the tracer starts no uname child, so test_each_identity_keeps_its_own_quota_and_response_cache passes when it runs first in its process",
+        "duplicate_of": 1418,
+        "duplicate_reason": "#1418 found the cause of this failure, and its fix makes the test pass alone, serially and under xdist."
+      }
+    },
+    {
+      "name": "a-cache-that-ignores-cache-enabled-false-is-the-response-cache-fix",
+      "duplicate": true,
+      "source": "#1375, closed by a person as a duplicate of #1014",
+      "candidate": {
+        "title": "fix(ai): response cache singleton ignores cache_enabled=False from later clients",
+        "body": "`get_llm_response_cache` creates the process-wide cache once and returns it unchanged, whatever `enabled` a later caller passes. So `LLMClient(..., cache_enabled=False)` still reads and writes an enabled cache."
+      },
+      "item": {
+        "number": 1014,
+        "title": "fix(security): the response cache writes only inside its own directory and is never read from the tree under review",
+        "body": "The response cache trusts the files in its directory. Acceptance criterion: `status` and `clear` see the clients' cache, which is built once from settings, and a `cache_enabled=False` client neither reads nor writes it."
+      },
+      "answer": {
+        "shared_change": "a client built with cache_enabled=False neither reads nor writes the response cache",
+        "duplicate_of": 1014,
+        "duplicate_reason": "#1014 has the criterion that a cache_enabled=False client neither reads nor writes the cache, for the same callers."
+      }
+    },
+    {
+      "name": "a-secret-lost-with-no-keyring-is-the-in-container-keyring",
+      "duplicate": true,
+      "source": "#454, closed by a person as a duplicate of #452",
+      "candidate": {
+        "title": "fix(config): secrets report 'stored in keyring' when no keyring backend is available",
+        "body": "`devops config set ai.api_key <value>` says that the secret is stored in the keyring and exits 0 even when no usable keyring backend exists. The secret is lost when the command exits."
+      },
+      "item": {
+        "number": 452,
+        "title": "feat(security): in-container keyring scoped to the home-volume identity",
+        "body": "The devcontainer runs no Secret Service, so Python `keyring` resolves to `keyring.backends.fail.Keyring` and `devops` cannot persist secrets. The container gets its own keyring, scoped to the home-volume identity."
+      },
+      "answer": {
+        "shared_change": "a usable keyring in the container, so a secret that devops config set stores persists",
+        "duplicate_of": 452,
+        "duplicate_reason": "#452 tracks the missing in-container keyring, and the false success is its symptom."
+      }
+    }
+  ]
+}

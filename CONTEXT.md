@@ -86,6 +86,14 @@ _Avoid_: proposal, suggestion
 The single entry point that turns a candidate into an item: it rejects duplicates, sets priority and puts the item in the backlog.
 _Avoid_: ingestion, triage
 
+**Duplicate**:
+A candidate that asks for the same change as an item: the same result and the same acceptance criteria, so that the delivery of one delivers the other. A shared theme, goal, umbrella or file does not make a duplicate.
+_Avoid_: fold, overlap
+
+**Related item**:
+An item that shares a theme, a goal, an umbrella or a file with a candidate, but asks for a different change. Intake files the candidate and links the related item from its reason comment.
+_Avoid_: near duplicate, similar item
+
 **Discovery**:
 Searching outside sources for candidates and handing them to intake.
 _Avoid_: research
