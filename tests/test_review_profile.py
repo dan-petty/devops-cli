@@ -537,6 +537,66 @@ def test_a_profile_records_the_digest_of_the_prompts_it_ran_with() -> None:
     assert profile.prompt_digest == review_prompt_digest()
 
 
+def test_a_profile_records_the_prompt_digest_it_started_with(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The prompt digest is a review input, read when the review starts (#1050)."""
+    packaged = ReviewProfiler().build(session_id="s", target="t").prompt_digest
+    monkeypatch.setattr(profile_module, "review_prompt_digest", lambda: "at-start")
+    profiler = ReviewProfiler()
+    monkeypatch.setattr(profile_module, "review_prompt_digest", lambda: "at-end")
+
+    assert (packaged, profiler.build(session_id="s", target="t").prompt_digest) == (
+        review_prompt_digest(),
+        "at-start",
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["edited", "added"],
+    ids=["edited-prompt", "added-untracked-prompt"],
+)
+def test_a_review_warns_when_prompts_change_during_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    """An edit to a prompt file or an added prompt .md between start and end sets
+    code_changed_during_run and prints a warning (#1050)."""
+    monkeypatch.setattr(profile_module, "own_source_state", lambda: ("commit-a", "diff-a"))
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "review.md").write_text("initial prompt\n", encoding="utf-8")
+    personas_dir = tmp_path / "personas"
+    personas_dir.mkdir()
+    (personas_dir / "role.md").write_text("initial role\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        profile_module,
+        "review_prompt_digest",
+        lambda: personas.review_prompt_digest(tasks_dir=tasks, personas_dir=personas_dir),
+    )
+    warnings: list[str] = []
+    monkeypatch.setattr(runner, "print_warning", lambda message, **kwargs: warnings.append(message))
+    session = ReviewSession(tmp_path / "session")
+    orchestrator = MagicMock(session_id="s1", session=session)
+
+    start_digest = personas.review_prompt_digest(tasks_dir=tasks, personas_dir=personas_dir)
+    with profiling() as profiler:
+        if mutation == "edited":
+            (tasks / "review.md").write_text("modified prompt\n", encoding="utf-8")
+        elif mutation == "added":
+            (tasks / "untracked.md").write_text("untracked prompt\n", encoding="utf-8")
+        profile = _write_review_profile(profiler, orchestrator, "playbooks", 1)
+
+    saved = ReviewProfile.load(session.publish())
+    assert (
+        profile.prompt_digest,
+        profile.code_changed_during_run,
+        saved.code_changed_during_run if saved else None,
+        warnings,
+    ) == (start_digest, True, True, [MESSAGES.review.code_changed_during_run])
+
+
 def test_a_profile_records_the_tools_lock_it_started_with(monkeypatch: pytest.MonkeyPatch) -> None:
     """The tools lock digest is a review input, read when the review starts (#1142)."""
     packaged = ReviewProfiler().build(session_id="s", target="t").tools_lock_digest

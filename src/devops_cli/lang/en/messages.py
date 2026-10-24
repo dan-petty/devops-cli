@@ -58,9 +58,9 @@ class ReviewMessages:
         "the findings a session is listed by."
     )
     code_changed_during_run: str = (
-        "devops-cli's own source changed while this review ran, by a commit or an edit to its "
-        "checkout, so its later stages may have run different code than its earlier ones. "
-        "Run reviews from a checkout that stays put."
+        "devops-cli's own source or prompts changed while this review ran, by a commit or an "
+        "edit to its checkout. Later stages may have run different code or prompts than "
+        "earlier stages. Run reviews from a checkout that stays put."
     )
     outside_boundary: str = "Error: Target path '{target}' is outside allowed boundaries."
     exceeds_max_size: str = "Error: Target file '{target}' exceeds maximum size ({max_mb}MB)."

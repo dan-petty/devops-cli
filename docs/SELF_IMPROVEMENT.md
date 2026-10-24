@@ -575,8 +575,10 @@ the tools lock the review started with, so two runs used the same tool versions 
 match. `semgrep_registry_digest` is the digest of the cached registry ruleset that Semgrep read. It
 is empty when Semgrep ran on the rule pack of devops-cli alone. The Static Analyzers table then
 shows a coverage gap that names `devops review rules fetch`. `devops review score` lists the digests
-of the sessions it scores. `code_changed_during_run` is true, with a warning printed, when the
-checkout of devops-cli got a commit or an edit while the review ran.
+of the sessions it scores. `prompt_digest` is the digest computed when the review started.
+`code_changed_during_run` is true, with a warning printed, when devops-cli's checkout got a commit
+or an edit, or its prompts changed, while the review ran. Benchmark arms refuse runs whose code or
+prompts changed.
 
 Semgrep names the files that it scanned in `paths.scanned`. A file of the review that is not in this
 list is a file that Semgrep did not scan. Review.md shows such a file as `not scanned(...)` in its
@@ -765,10 +767,11 @@ The score gives:
   `[min, max]` across the runs as `spread`. One run measures no spread, so its `spread` is null.
 
 Each review's `profile.json` records `prompt_digest`, a digest of every `.md` file under the
-package's `ai/tasks/` and `ai/personas/`. Prompts load only from the package, so each arm runs from
+package's `ai/tasks/` and `ai/personas/` when the review started. Prompts load only from the package, so each arm runs from
 its own checkout, and the digest says which prompts a session ran. It does not cover the target's
-conventions, which `conventions_digest` records beside it. Sessions with different digests
-are refused rather than scored as one arm. The run record's setup names the prompt digest, k, the
+conventions, which `conventions_digest` records beside it. Sessions with different digests, or
+whose profile records `code_changed_during_run: true`, are refused rather than scored as one arm.
+The run record's setup names the prompt digest, k, the
 personas that replied, each task's model, temperature and `top_p`, and the gateway pool of each
 group the review used. When a group
 serves more than one model, the report says `not model-pinned`: pin one model with a single-model

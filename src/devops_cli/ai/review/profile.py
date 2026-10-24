@@ -119,7 +119,7 @@ class ReviewProfile(BaseModel):
 
     session_id: str
     target: str
-    # The review prompts the session ran with, so runs of one prompt set can be told apart.
+    # The review prompts the session started with, so runs of one prompt set can be told apart.
     prompt_digest: str = ""
     # The target's conventions (`AGENTS.md` and `.devops/review.md`) its prompts carried, which
     # the prompt digest does not cover; empty when they carried none.
@@ -132,8 +132,8 @@ class ReviewProfile(BaseModel):
     # The SHA-256 digest of the cached Semgrep registry ruleset the review scanned with; empty
     # when it scanned with the rule pack alone (#1144).
     semgrep_registry_digest: str = ""
-    # Whether devops-cli's own checkout got a commit or an edit while the review ran, so that
-    # its later stages may have run other code than its earlier ones.
+    # Whether devops-cli's own checkout got a commit or an edit, or its prompts changed, while the
+    # review ran, so that its later stages may have run other code or prompts than its earlier ones.
     code_changed_during_run: bool = False
     files: int = 0
     total_wall_seconds: float = 0.0
@@ -194,6 +194,7 @@ class ReviewProfiler:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._started = time.monotonic()
+        self._prompt_digest = review_prompt_digest()
         self._tools_lock_digest = tools_lock_digest()
         self._own_source_state = own_source_state()
         self._stages: dict[str, StageProfile] = {}
@@ -322,8 +323,10 @@ class ReviewProfiler:
             self._partial_context = partial_context
 
     def _own_source_changed(self) -> bool:
-        """Whether devops-cli's own checkout differs from when the review started."""
-        return self._own_source_state is not None and own_source_state() != self._own_source_state
+        """Whether devops-cli's own checkout or prompts differ from when the review started."""
+        if self._own_source_state is not None and own_source_state() != self._own_source_state:
+            return True
+        return review_prompt_digest() != self._prompt_digest
 
     def build(self, *, session_id: str, target: str, files: int = 0) -> ReviewProfile:
         """Assemble the profile of everything recorded so far."""
@@ -348,7 +351,7 @@ class ReviewProfiler:
         return ReviewProfile(
             session_id=session_id,
             target=target,
-            prompt_digest=review_prompt_digest(),
+            prompt_digest=self._prompt_digest,
             conventions_digest=digest(self._conventions) if self._conventions else "",
             tools_lock_digest=self._tools_lock_digest,
             osv_snapshot_digest=osv_digest,
