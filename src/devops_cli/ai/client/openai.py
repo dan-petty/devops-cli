@@ -96,7 +96,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         """Apply standard model parameters (tokens, temperature, top_p) to payload."""
         if limit is not None:
             payload["max_tokens"] = limit
-        if stream:
+        if getattr(self._config, "use_model_sampling", False):
             return
         temp = getattr(self._config, "temperature", None)
         if temp is not None:

@@ -402,7 +402,13 @@ def test_a_cached_reply_that_fails_the_schema_is_never_served(
         "demo-model",
         _sent_system(),
         [ChatMessage(role="user", content=_PROMPT)],
-        {"enable_thinking": False},
+        {
+            "enable_thinking": False,
+            "max_tokens": None,
+            "reasoning_effort": None,
+            "temperature": 0.1,
+            "top_p": 0.95,
+        },
     )
     client.cache.set(
         key=key,

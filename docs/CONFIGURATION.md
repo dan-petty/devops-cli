@@ -173,12 +173,14 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 |---|---|---|---|---|
 | `provider` | `str` | `ollama` | `DEVOPS_CLI_AI_PROVIDER` | - |
 | `model` | `str` | `gemma4:26b` | `DEVOPS_CLI_AI_MODEL` | - |
+| `api_key` | `Union` | - | `DEVOPS_CLI_AI_API_KEY` | - |
 | `reference_model` | `str` | `gpt-4o-mini` | - | - |
 | `reference_embedding_model` | `str` | `text-embedding-3-small` | - | - |
 | `reference_provider` | `str` | `openai` | - | - |
 | `hardware_cost_usd` | `float` | `0.0` | - | - |
 | `reasoning_effort` | `Union` | - | `DEVOPS_CLI_AI_REASONING_EFFORT` | - |
 | `supports_reasoning` | `bool` | `False` | - | - |
+| `use_model_sampling` | `bool` | `False` | - | Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p. |
 | `temperature` | `float` | `0.1` | - | - |
 | `top_p` | `float` | `0.95` | - | - |
 | `context_window` | `int` | `32768` | - | - |
@@ -196,7 +198,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `allow_private_network` | `bool` | `False` | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | - |
 | `max_retries` | `int` | `4` | `DEVOPS_CLI_AI_MAX_RETRIES` | - |
 | `timeout` | `Union` | - | - | Seconds each LLM request waits for its reply; `ai.tasks.<task>.timeout` sets one task's. Unset, a request waits 3600 s, and a review's analysis requests 1200 s |
-| `tasks` | `AITasksConfig` | `chat=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) metadata=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) analysis=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) embedding=AITaskOverride(provider=None, model='qwen3-embedding:0.6b', reasoning_effort=None, supports_reasoning=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None)` | - | - |
+| `tasks` | `AITasksConfig` | `chat=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, use_model_sampling=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) metadata=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, use_model_sampling=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) analysis=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, use_model_sampling=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) verification=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, use_model_sampling=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) compose=AITaskOverride(provider=None, model=None, reasoning_effort=None, supports_reasoning=None, use_model_sampling=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) embedding=AITaskOverride(provider=None, model='qwen3-embedding:0.6b', reasoning_effort=None, supports_reasoning=None, use_model_sampling=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None)` | - | - |
 | `rag` | `AIRAGConfig` | `enabled=True top_k=5 score_threshold=0.35 chunk_size=2400 chunk_overlap=240` | - | - |
 | `cache` | `AICacheConfig` | `enabled=True dir=PosixPath('.data/cache/llm') ttl_seconds=604800 max_entries=1000 append_cache=False` | - | - |
 | `task_name` | `Union` | - | - | - |

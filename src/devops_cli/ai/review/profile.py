@@ -164,6 +164,8 @@ class ReviewProfile(BaseModel):
     partial_context: bool = False
     rejections: dict[str, int] = Field(default_factory=dict)
     stages: list[StageProfile] = Field(default_factory=list)
+    models: dict[str, str] = Field(default_factory=dict)
+    sampling: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @property
     def truncated_replies(self) -> int:
@@ -330,8 +332,9 @@ class ReviewProfiler:
 
     def build(self, *, session_id: str, target: str, files: int = 0) -> ReviewProfile:
         """Assemble the profile of everything recorded so far."""
-        from devops_cli.ai.run_store import digest
+        from devops_cli.ai.run_store import digest, review_setup
 
+        setup = review_setup()
         with self._lock:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
             intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
@@ -380,6 +383,8 @@ class ReviewProfiler:
             partial_context=partial_ctx,
             rejections=rejections,
             stages=stages,
+            models=setup.get("models", {}),
+            sampling=setup.get("sampling", {}),
         )
 
 

@@ -274,13 +274,12 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         if schema is not None:
             payload["format"] = schema.json_schema
 
-    def _ollama_request(  # noqa: C901
-        self, base: str, system: str, messages: list[ChatMessage], think: bool
-    ) -> LLMResponse:
-        start_time = time.monotonic()
+    def _build_ollama_payload(
+        self, system: str, messages: list[ChatMessage], *, stream: bool, think: bool
+    ) -> tuple[dict[str, Any], dict[str, str]]:
         payload: dict[str, Any] = {
             "model": self._config.model,
-            "stream": False,
+            "stream": stream,
             "messages": [
                 {"role": "system", "content": system},
                 *[m.to_dict() for m in messages],
@@ -291,12 +290,13 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             if self._config.reasoning_effort:
                 payload["reasoning_effort"] = self._config.reasoning_effort
         ollama_opts: dict[str, Any] = {}
-        temp = getattr(self._config, "temperature", None)
-        if temp is not None:
-            ollama_opts["temperature"] = float(temp)
-        top_p = getattr(self._config, "top_p", None)
-        if top_p is not None:
-            ollama_opts["top_p"] = float(top_p)
+        if not getattr(self._config, "use_model_sampling", False):
+            temp = getattr(self._config, "temperature", None)
+            if temp is not None:
+                ollama_opts["temperature"] = float(temp)
+            top_p = getattr(self._config, "top_p", None)
+            if top_p is not None:
+                ollama_opts["top_p"] = float(top_p)
         ctx_win = getattr(self._config, "num_ctx", None) or getattr(
             self._config, "context_window", None
         )
@@ -309,6 +309,13 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             payload["options"] = ollama_opts
         self._apply_reply_format(payload)
         headers = inject_trace_context({"Content-Type": "application/json"})
+        return payload, headers
+
+    def _ollama_request(
+        self, base: str, system: str, messages: list[ChatMessage], think: bool
+    ) -> LLMResponse:
+        start_time = time.monotonic()
+        payload, headers = self._build_ollama_payload(system, messages, stream=False, think=think)
         raw_res, _headers = request_limited_json(
             self._shared_client(),
             "POST",
@@ -451,21 +458,14 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
     def _ollama_stream_request(
         self, base: str, system: str, messages: list[ChatMessage], think: bool
     ) -> Generator[str]:
-        payload: dict[str, Any] = {
-            "model": self._config.model,
-            "stream": True,
-            "messages": [
-                {"role": "system", "content": system},
-                *[m.to_dict() for m in messages],
-            ],
-        }
-        if think and getattr(self._config, "supports_reasoning", False):
-            payload["think"] = True
-            if self._config.reasoning_effort:
-                payload["reasoning_effort"] = self._config.reasoning_effort
+        payload, headers = self._build_ollama_payload(system, messages, stream=True, think=think)
         http_client = self._shared_client()
         with http_client.stream(
-            "POST", f"{base}/api/chat", json=payload, timeout=self._request_timeout()
+            "POST",
+            f"{base}/api/chat",
+            json=payload,
+            headers=headers,
+            timeout=self._request_timeout(),
         ) as response:
             if response.status_code >= 400:
                 response.read()

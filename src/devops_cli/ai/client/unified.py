@@ -31,6 +31,7 @@ from devops_cli.ai.client.style_request import with_style_request
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_AI_BACKEND_HOST_UNKNOWN,
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_FINISH_REASON_ERROR,
     CONST_OTEL_SPAN_KIND_CLIENT,
     CONST_RESPONSE_CACHE_SERVER,
@@ -46,6 +47,7 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.ai import LLMInferenceError
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
@@ -238,7 +240,8 @@ class LLMClient(
                 api_key = get_ai_api_key(settings)
 
         self._config = config
-        self._api_key = api_key or ""
+        self._validate_resolved_config(self._config)
+        self._api_key = api_key or getattr(config, "api_key", None) or ""
         self._custom_endpoint = custom_endpoint
         self._request_timeout_seconds = request_timeout_seconds
 
@@ -248,6 +251,24 @@ class LLMClient(
                 getattr(config, "cache", None), "append_cache", False
             )
         self._append_cache = bool(append_cache)
+
+    @staticmethod
+    def _validate_resolved_config(cfg: AIConfig) -> None:
+        """Ensure resolved configuration does not contain disallowed options for the provider."""
+        if cfg.num_ctx is not None and cfg.provider in (
+            CONST_AI_GATEWAY_PROVIDER,
+            "gateway",
+            "openai",
+            "copilot",
+        ):
+            task_label = f"task '{cfg.task_name}'" if cfg.task_name else "task"
+            key = f"ai.tasks.{cfg.task_name}.num_ctx" if cfg.task_name else "ai.num_ctx"
+            raise ConfigurationError(
+                f"The {task_label} cannot set num_ctx on provider '{cfg.provider}'. "
+                f"The server's context comes from the tier's OLLAMA_CONTEXT_LENGTH, and "
+                f"context_window sizes pages.",
+                key=key,
+            )
 
     @property
     def cache(self) -> Any:
@@ -315,6 +336,7 @@ class LLMClient(
     def get_context_window(self, task: str | None = None) -> int:
         """Return the effective token context window for the configured model/task."""
         cfg = self._config.for_task(task) if task else self._config
+        self._validate_resolved_config(cfg)
         win = (
             getattr(cfg, "num_ctx", None)
             or getattr(cfg, "context_window", None)
@@ -774,13 +796,39 @@ class LLMClient(
             else (priority or network.current_request_priority.get())
         )
 
+        cache_opts = {
+            "enable_thinking": enable_thinking,
+            "temperature": (
+                None
+                if (
+                    getattr(self._config, "use_model_sampling", False)
+                    or getattr(self._config, "supports_reasoning", False)
+                )
+                else getattr(self._config, "temperature", None)
+            ),
+            "top_p": (
+                None
+                if (
+                    getattr(self._config, "use_model_sampling", False)
+                    or getattr(self._config, "supports_reasoning", False)
+                )
+                else getattr(self._config, "top_p", None)
+            ),
+            "reasoning_effort": (
+                getattr(self._config, "reasoning_effort", None)
+                if getattr(self._config, "supports_reasoning", False)
+                else None
+            ),
+            "max_tokens": self._completion_limit(),
+        }
+
         if eff_append and eff_start is None and use_cache:
             unaugmented_key = self._cache.generate_key(
                 provider=str(getattr(self._config, "provider", "ollama")),
                 model=str(getattr(self._config, "model", "default")),
                 system=system,
                 messages_or_prompt=eff_messages,
-                options={"enable_thinking": enable_thinking},
+                options=cache_opts,
             )
             cached_candidate = self._cache.get(unaugmented_key)
             if cached_candidate is not None:
@@ -792,7 +840,7 @@ class LLMClient(
             model=str(getattr(self._config, "model", "default")),
             system=system,
             messages_or_prompt=out_messages,
-            options={"enable_thinking": enable_thinking},
+            options=cache_opts,
         )
 
         with trace_span(

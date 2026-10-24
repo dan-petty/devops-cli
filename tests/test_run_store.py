@@ -547,9 +547,35 @@ def test_a_review_setup_names_the_analysis_model_and_sampling(
     setup = run_store.review_setup()
 
     assert (setup["models"], setup["pools"], setup["sampling"]) == (
-        {"analysis": "gateway/devops-coder"},
-        {"devops-coder": pool},
-        {"analysis": {"temperature": 0.3, "top_p": 0.8}},
+        {
+            "analysis": "gateway/devops-coder",
+            "verification": "gateway/devops-chat",
+            "compose": "gateway/devops-chat",
+        },
+        {"devops-chat": pool, "devops-coder": pool},
+        {
+            "analysis": {
+                "temperature": 0.3,
+                "top_p": 0.8,
+                "max_tokens": None,
+                "reasoning_effort": None,
+                "use_model_sampling": False,
+            },
+            "verification": {
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "max_tokens": None,
+                "reasoning_effort": None,
+                "use_model_sampling": False,
+            },
+            "compose": {
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "max_tokens": None,
+                "reasoning_effort": None,
+                "use_model_sampling": False,
+            },
+        },
     )
 
 

@@ -152,12 +152,21 @@ def review_setup(**extra: Any) -> dict[str, Any]:
     """What a review's results depend on: models, sampling, and the gateway's pool."""
     from devops_cli.config.settings import load_settings
 
-    analysis = load_settings().ai.for_task("analysis")
-    tasks = {"analysis": analysis}
+    ai = load_settings().ai
+    tasks = {name: ai.for_task(name) for name in ("analysis", "verification", "compose")}
     setup: dict[str, Any] = {
         "models": {name: f"{t.provider}/{t.model}" for name, t in tasks.items()},
         "sampling": {
-            name: {"temperature": t.temperature, "top_p": t.top_p} for name, t in tasks.items()
+            name: {
+                "temperature": None
+                if (t.use_model_sampling or t.supports_reasoning)
+                else t.temperature,
+                "top_p": None if (t.use_model_sampling or t.supports_reasoning) else t.top_p,
+                "max_tokens": t.max_tokens,
+                "reasoning_effort": t.reasoning_effort if t.supports_reasoning else None,
+                "use_model_sampling": bool(t.use_model_sampling),
+            }
+            for name, t in tasks.items()
         },
     }
     gateway_tasks = {t.model: t for t in tasks.values() if t.provider == CONST_AI_GATEWAY_PROVIDER}
