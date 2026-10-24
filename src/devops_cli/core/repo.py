@@ -6,6 +6,7 @@ import functools
 import hashlib
 import logging
 import os
+import stat
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -512,6 +513,32 @@ def is_ignored_by_git(repo_root: Path, target_path: Path, is_dir: bool | None = 
         return False
 
 
+def _is_file_inside(path: Path, root: Path, inside: dict[Path, bool]) -> bool:
+    """Whether `path` is a file whose real path is in `root`, the resolved repository root.
+
+    `inside` holds the answer for each directory already resolved, so a directory is resolved
+    once and a file costs one `lstat`, unless it is a link. A full resolve of each of this
+    repository's 2,300 files took 2.5 s on a loaded host, against 0.2 s for `git ls-files`
+    (#2034). Git never lists a path below a link, but the working tree can replace a tracked
+    directory with one, so each directory is still resolved.
+    """
+    parent = path.parent
+    if parent not in inside:
+        try:
+            inside[parent] = parent.resolve().is_relative_to(root)
+        except OSError, RuntimeError:
+            inside[parent] = False
+    if not inside[parent]:
+        return False
+    try:
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode):
+            return path.resolve().is_relative_to(root) and path.is_file()
+        return stat.S_ISREG(mode)
+    except OSError, RuntimeError:
+        return False
+
+
 def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path] | None:
     """List files using git ls-files if inside a git repository."""
     if not (repo_root / ".git").exists():
@@ -540,18 +567,15 @@ def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path
         )
         files: list[Path] = []
         repo_root_resolved = repo_root.resolve()
+        inside: dict[Path, bool] = {}
         for line in proc.stdout.splitlines():
             line_str = line.strip()
             if not line_str:
                 continue
             p = repo_root / line_str
-            try:
-                p_res = p.resolve()
-                if not p_res.is_relative_to(repo_root_resolved):
-                    continue
-            except OSError, RuntimeError:
-                continue
-            if p.is_file() and p.suffix.lower() not in CONST_BINARY_EXTENSIONS:
+            if p.suffix.lower() not in CONST_BINARY_EXTENSIONS and _is_file_inside(
+                p, repo_root_resolved, inside
+            ):
                 files.append(p)
         return sorted(files)
     except Exception as err:

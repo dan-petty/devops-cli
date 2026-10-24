@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import re
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_MYPY
+from devops_cli.config.constants import CONST_MYPY_CACHE_DIR_NAME
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import main_worktree_root
+from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.normalization import normalize_severity
 
@@ -176,6 +177,25 @@ def _check_mypy_preconditions(
     return resolved_ver, None
 
 
+def _mypy_cache_dir(tree: Path, python_version: str, environment_lock: str) -> Path:
+    """The mypy cache of the reviews of `tree`, which stays in the data cache directory.
+
+    With a warm cache, mypy checks again only what changed: 2 s, not 71 s, for one file of
+    this repository (#2034). The key holds the reviewed tree, the Python version and the digest
+    of the lock of the environment that runs mypy, so no other tree or environment shares the
+    entries. A review does not trust a cache in a tree it does not own (#972): while a review
+    runs from a repository other than devops-cli's own, `resolve_data_path` puts a relative
+    data path under the user data root.
+    """
+    from devops_cli.config.settings import load_settings
+
+    key = hashlib.sha256(
+        "\0".join((str(tree.resolve()), python_version, environment_lock)).encode()
+    ).hexdigest()[:16]
+    cache_root = resolve_data_path(load_settings().data.cache_dir)
+    return cache_root / CONST_MYPY_CACHE_DIR_NAME / key
+
+
 def run_mypy_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     *,
@@ -212,20 +232,27 @@ def run_mypy_scan(
     if not config_file.is_file():
         config_file = effective_checkout / "pyproject.toml"
 
-    with tempfile.TemporaryDirectory(prefix="devops-mypy-cache-") as tmp_cache:
-        cmd = [
-            python_bin,
-            "-I",
-            "-m",
-            "mypy",
-            f"--python-version={resolved_ver}",
-            *(["--config-file", str(config_file.resolve())] if config_file.is_file() else []),
-            "--cache-dir",
-            tmp_cache,
-            "--no-error-summary",
-            *[str(f.resolve()) for f in files],
-        ]
+    cache_dir = _mypy_cache_dir(
+        effective_tree, resolved_ver or "", hash_file(effective_checkout / "uv.lock") or ""
+    )
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        python_bin,
+        "-I",
+        "-m",
+        "mypy",
+        f"--python-version={resolved_ver}",
+        *(["--config-file", str(config_file.resolve())] if config_file.is_file() else []),
+        "--cache-dir",
+        str(cache_dir),
+        "--no-error-summary",
+        *[str(f.resolve()) for f in files],
+    ]
+    with cache_dir.with_suffix(".lock").open("a", encoding="utf-8") as lock:
+        # mypy keeps its cache in SQLite, which lets one process write at a time, so runs over
+        # one tree take turns. Closing the lock file releases the lock.
+        fcntl.flock(lock, fcntl.LOCK_EX)
         proc = run_subprocess(cmd, cwd=effective_tree, check=False, timeout=timeout)
-        raw_out = (proc.stdout or "") + (proc.stderr or "")
-        findings = parse_mypy_output(raw_out, default_path=str(effective_tree))
-        return ScanOutcome(status="ran", findings=findings)
+    raw_out = (proc.stdout or "") + (proc.stderr or "")
+    findings = parse_mypy_output(raw_out, default_path=str(effective_tree))
+    return ScanOutcome(status="ran", findings=findings)

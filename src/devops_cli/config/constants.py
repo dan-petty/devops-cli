@@ -952,6 +952,9 @@ CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
 CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})
 CONST_LLM_CACHE_DIR_NAME = "llm"
+# The incremental mypy caches of reviews, below the data cache directory, one for each reviewed
+# tree, Python version and environment lock (#2034).
+CONST_MYPY_CACHE_DIR_NAME: Final[str] = "mypy"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).

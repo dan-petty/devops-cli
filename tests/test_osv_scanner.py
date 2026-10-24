@@ -8,6 +8,7 @@ EnvironmentFacts, missing-lock coverage gaps, and opt-in threat intelligence.
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -204,6 +205,59 @@ def test_osv_scanner_scan_reports_coverage_gap_when_manifest_unlocked(tmp_path: 
     assert outcome.status == "coverage_gap"
     assert "missing lockfile for package.json" in outcome.reason
     assert outcome.findings == []
+
+
+def _checkout(root: Path, files: dict[str, str]) -> Path:
+    """A git checkout at `root` that holds `files`, none of them committed."""
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for name, content in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    return root
+
+
+def test_lockfile_coverage_reads_only_the_files_git_lists(tmp_path: Path) -> None:
+    """A tree git ignores neither adds a coverage gap nor hides one (#2034).
+
+    A checkout holds ignored trees, such as virtual environments and the data directory with its
+    worktrees, and a walk of every file read them all: 158 s of a one-file review.
+    """
+    tree = _checkout(
+        tmp_path / "checkout",
+        {
+            ".gitignore": ".data/\n.venv/\n",
+            "pyproject.toml": "[project]\nname = 'app'\n",
+            "web/package.json": '{"name": "web"}',
+            ".data/worktrees/w-1/Cargo.toml": "[package]\nname = 'w'\n",
+            ".venv/lib/site/poetry.lock": "# lock",
+        },
+    )
+
+    assert detect_manifest_coverage_gaps(tree) == [
+        "missing lockfile for pyproject.toml",
+        "missing lockfile for package.json",
+    ]
+
+
+def test_osv_scanner_takes_no_lockfile_from_an_ignored_tree(tmp_path: Path) -> None:
+    """A scan given no lockfiles finds them among the files git lists, never in an ignored tree (#2034)."""
+    tree = _checkout(
+        tmp_path / "checkout",
+        {
+            ".gitignore": ".venv/\n",
+            "pyproject.toml": "[project]\nname = 'app'\n",
+            ".venv/lib/site/poetry.lock": "# lock",
+        },
+    )
+
+    outcome = OsvScanner(snapshot_digest="sha256:mock").scan(tree, tree=tree)
+
+    assert (outcome.status, outcome.findings, outcome.reason) == (
+        "coverage_gap",
+        [],
+        "missing lockfile for pyproject.toml",
+    )
 
 
 def test_osv_scanner_registered_in_registry() -> None:

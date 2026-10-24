@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding, ReviewSessionPayload
@@ -368,6 +372,49 @@ def test_mypy_lock_matching_and_coverage_gap(tmp_path: Path) -> None:
     (co_dir / "uv.lock").write_text("identical-lock-content", encoding="utf-8")
 
     assert verify_uv_lock_match(wt_dir, co_dir) is True
+
+
+def test_mypy_runs_over_one_tree_share_a_cache_in_the_data_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolate_data_dir: Path
+) -> None:
+    """Two mypy runs over one tree use one cache in the data directory, so the second is warm (#2034).
+
+    A new empty cache made mypy check the whole import graph on every review: 71 s for one file
+    of this repository, against 2 s with a warm cache. Another tree gets a cache of its own, and
+    no cache is in a reviewed tree.
+    """
+    trees: dict[str, Path] = {}
+    for name in ("tree-a", "tree-b"):
+        tree = tmp_path / name
+        tree.mkdir()
+        (tree / "pyproject.toml").write_text(
+            '[tool.mypy]\npython_version = "3.14"\n', encoding="utf-8"
+        )
+        (tree / "uv.lock").write_text("lock", encoding="utf-8")
+        (tree / "app.py").write_text("x: int = 1\n", encoding="utf-8")
+        trees[name] = tree
+
+    cache_dirs: list[Path] = []
+    real_run = subprocess.run
+
+    def run(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
+        if cmd[1:4] == ["-I", "-m", "mypy"]:
+            cache_dirs.append(Path(cmd[cmd.index("--cache-dir") + 1]))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    statuses = [
+        run_mypy_scan([trees[name] / "app.py"], tree=trees[name], checkout_root=trees[name]).status
+        for name in ("tree-a", "tree-a", "tree-b")
+    ]
+
+    first, second, other = cache_dirs
+    assert (statuses, first == second, first == other) == (["ran", "ran", "ran"], True, False)
+    assert [
+        (path.is_relative_to(isolate_data_dir / "cache"), path.is_relative_to(tmp_path / "tree-a"))
+        for path in (first, other)
+    ] == [(True, False), (True, False)]
 
 
 def test_mypy_output_parsing() -> None:
