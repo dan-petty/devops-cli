@@ -929,24 +929,22 @@ def test_try_reuse_cached_analysis_meta_invalidation(tmp_path: Path) -> None:
     )
 
     # 1. Matching mtime & content hash -> Reused successfully
-    file_mtime = datetime.fromtimestamp(test_file.stat().st_mtime, UTC)
-    reused = _try_reuse_cached_analysis_meta(cached_meta, test_file, file_mtime)
+    reused = _try_reuse_cached_analysis_meta(cached_meta, test_file)
     assert reused is not None
     assert reused.content_hash == content_hash
     assert reused.pseudocode == ["1. Run service loop"]
 
     # 2. File modified after cached last_analyzed -> Invalidated
     stale_meta = cached_meta.model_copy(update={"last_analyzed": past_dt.isoformat()})
-    assert _try_reuse_cached_analysis_meta(stale_meta, test_file, file_mtime) is None
+    assert _try_reuse_cached_analysis_meta(stale_meta, test_file) is None
 
     # 3. File content changed (hash mismatch) -> Invalidated
     test_file.write_text("def run(): return 42\n", encoding="utf-8")
-    new_mtime = datetime.fromtimestamp(test_file.stat().st_mtime, UTC)
-    assert _try_reuse_cached_analysis_meta(cached_meta, test_file, new_mtime) is None
+    assert _try_reuse_cached_analysis_meta(cached_meta, test_file) is None
 
     # 4. File size mismatch -> Invalidated
     size_mismatched = cached_meta.model_copy(update={"size_bytes": 9999})
-    assert _try_reuse_cached_analysis_meta(size_mismatched, test_file, new_mtime) is None
+    assert _try_reuse_cached_analysis_meta(size_mismatched, test_file) is None
 
 
 def test_render_single_finding_panel_escapes_malformed_markup(tmp_path: Path) -> None:

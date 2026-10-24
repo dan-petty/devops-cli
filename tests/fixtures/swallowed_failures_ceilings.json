@@ -40,7 +40,7 @@
   "src/devops_cli/ai/response_cache.py": 4,
   "src/devops_cli/ai/response_repair.py": 5,
   "src/devops_cli/ai/review/path_classes.py": 2,
-  "src/devops_cli/ai/review/pipeline.py": 19,
+  "src/devops_cli/ai/review/pipeline.py": 9,
   "src/devops_cli/ai/review/template_sweep.py": 5,
   "src/devops_cli/ai/review_schema.py": 8,
   "src/devops_cli/ai/spend/ledger.py": 5,

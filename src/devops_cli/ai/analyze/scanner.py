@@ -312,10 +312,14 @@ def _extract_ast_imports(tree: ast.AST, std_modules: frozenset[str]) -> list[str
 
 
 def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]:
-    """Extract docstring, symbols, and imports using Python stdlib `ast`."""
+    """Extract docstring, symbols, and imports using Python stdlib `ast`.
+
+    Source that `ast` cannot parse gives nothing, and the caller reads the text instead: a syntax
+    error, or an expression so deep that the parse overflows the stack (`RecursionError`).
+    """
     try:
         tree = ast.parse(content)
-    except SyntaxError:
+    except SyntaxError, RecursionError:
         return None, [], []
 
     docstring = ast.get_docstring(tree)

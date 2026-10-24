@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
-from devops_cli.ai.analyze import load_cached_analysis
+from devops_cli.ai.analyze import load_cached_analysis, save_analysis_metadata
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.config.defaults import DEFAULT_REVIEW_RATE_CAPACITY
 
@@ -31,12 +32,17 @@ def _project(root: Path, modules: int) -> Path:
     return root
 
 
-def _pre_analysis(root: Path, files: list[str]) -> list[str]:
-    """Run pre-analysis of `files` as a pull request review does; the paths it returns."""
+def _pre_analysis(
+    root: Path, files: list[str], target_type: Literal["pr", "path"] = "pr"
+) -> list[str]:
+    """Run pre-analysis of `files` as a pull request review does, or as a review of a path does;
+    the paths it returns."""
     orchestrator = ReviewPipelineOrchestrator(
         session_id="pre-analysis", target_dir=root, session_dir=root.parent / "session"
     )
-    metadata = orchestrator.run_pre_analysis_refresh(files=files, target_type="pr", target_ref="7")
+    metadata = orchestrator.run_pre_analysis_refresh(
+        files=files, target_type=target_type, target_ref="7"
+    )
     return sorted(metadata)
 
 
@@ -98,3 +104,37 @@ def test_pre_analysis_does_not_wait_for_the_model_call_rate_limit(
     returned = _pre_analysis(root, reviewed)
 
     assert (len(returned), waits) == (files, [])
+
+
+@pytest.mark.parametrize(
+    "last_analyzed",
+    [
+        pytest.param("2026-01-01T00:00:00", id="no-time-zone"),
+        pytest.param("not a time", id="not-a-time"),
+    ],
+)
+def test_cached_metadata_whose_time_cannot_be_compared_is_analyzed_again(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], last_analyzed: str
+) -> None:
+    """Verify a review of a path analyzes a file again when its cached metadata has a time with
+    no time zone, or a time that does not parse: the cache cannot show that the file did not
+    change after the time."""
+    root = _project(tmp_path / "app", modules=2)
+    _pre_analysis(root, _REVIEWED, target_type="path")
+    cached = load_cached_analysis(root)
+    assert cached is not None
+    save_analysis_metadata(
+        "path",
+        "7",
+        "app pre-analysis: 7",
+        [meta.model_copy(update={"last_analyzed": last_analyzed}) for meta in cached.files],
+        root,
+    )
+    capsys.readouterr()
+
+    returned = _pre_analysis(root, _REVIEWED, target_type="path")
+
+    assert (returned, _summary(capsys.readouterr().out)) == (
+        _REVIEWED,
+        ["✓ Pre-analysis metadata for 2 file(s): 2 analyzed, 0 reused from the cache"],
+    )

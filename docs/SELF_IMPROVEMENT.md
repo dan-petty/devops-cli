@@ -59,6 +59,10 @@ through four stages:
    - `candidates.json`, every finding the review raised with its verdict;
    - `review.md` and `profile.json`.
 
+   The table of skipped and errored files in `review.md` gives each coverage gap of the review:
+   a file that pre-analysis, the admission of a finding or the threat-intelligence lookup could
+   not read, or whose payload could not be built. Each row gives the stage and the reason.
+
 No model gives a finding its verdict: a tool finding is reported UNVERIFIED
 until a person judges it, and `--no-group-analysis` makes zero model calls.
 

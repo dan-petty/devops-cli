@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
-from datetime import UTC, datetime
 from pathlib import Path
 
 from devops_cli.ai.analyze.cache import FileAnalysisMeta
@@ -125,8 +124,7 @@ def test_pre_analysis_cache_reuse_bypassing_mtime(tmp_path: Path) -> None:
         last_analyzed="2026-01-01T00:00:00+00:00",
     )
 
-    newer_mtime = datetime(2026, 10, 7, 0, 0, 0, tzinfo=UTC)
-    reused = _try_reuse_cached_analysis_meta(cached, sample_file, newer_mtime, bypass_mtime=True)
+    reused = _try_reuse_cached_analysis_meta(cached, sample_file, bypass_mtime=True)
     assert reused is not None
     assert (reused.content_hash, reused.key_symbols) == (content_hash, ["add"])
 

@@ -207,8 +207,9 @@ def synthesize_report_executive_summary(
     """
     if errored_files:
         summary_stmt = (
-            f"The automated review encountered errors on **{len(errored_files)} file(s)** "
-            f"(e.g. AI provider offline or communication failure). "
+            f"The automated review encountered errors on **{len(errored_files)} file(s)**: "
+            f"a stage could not read or build them, and the table of skipped and errored files "
+            f"gives each stage and reason. "
             f"Review could not be completed for those files. "
             f"Across successfully analyzed files it reported {_reported(reportable_findings)}"
         )
