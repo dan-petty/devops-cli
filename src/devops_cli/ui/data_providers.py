@@ -568,13 +568,9 @@ def fetch_valkey_status() -> ValkeySummary:
     endpoint = "unknown"
     try:
         settings = load_settings()
-        cfg = settings.valkey
-        endpoint = cfg.endpoint
         client = ValkeyClient(
-            host=endpoint,
-            port=cfg.port,
+            settings.valkey.endpoint,
             password=get_valkey_password(settings),
-            db=cfg.db,
             timeout=DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
         )
         endpoint = f"{client.host}:{client.port}"

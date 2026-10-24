@@ -692,7 +692,7 @@ def _recording_valkey_client(answers_ping: bool) -> tuple[type, list[Any]]:
     built: list[Any] = []
 
     class _RecordingValkeyClient:
-        def __init__(self, **kwargs: Any) -> None:
+        def __init__(self, endpoint: Any, **kwargs: Any) -> None:
             self.timeout = kwargs["timeout"]
             self.closed = False
             built.append(self)
@@ -757,8 +757,7 @@ def test_init_valkey_runs_without_l2_when_valkey_refuses(
         _socket.socket.listen(service)
         service.setblocking(False)
         port = service.getsockname()[1]
-        monkeypatch.setenv("DEVOPS_CLI_VALKEY_HOST", "127.0.0.1")
-        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PORT", str(port))
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_URL", f"valkey://127.0.0.1:{port}")
         reset_settings_cache()
         ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
         try:

@@ -23,13 +23,14 @@ from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel, Field, computed_field
 
+from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_CACHE_NAMESPACE_ROOT,
     CONST_RUNS_DIR_NAME,
 )
 from devops_cli.config.defaults import DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS
-from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
 from devops_cli.exceptions.valkey import ValkeyError
 
 if TYPE_CHECKING:
@@ -249,16 +250,27 @@ class RunIndex:
 
     @classmethod
     def connect(cls, url: str, password: str | None) -> RunIndex:
-        """The index in the Valkey at `url`, such as `valkey://host:port`."""
-        from devops_cli.valkey.client import ValkeyClient
+        """The index in the Valkey at `url`, such as `valkey://host:port/0`.
 
+        A URL that is not valid raises `ConfigurationError` naming `runs.index_url`.
+        """
+        from devops_cli.valkey.client import ValkeyClient
+        from devops_cli.valkey.endpoint import parse_valkey_url
+
+        endpoint = parse_valkey_url(
+            url, setting=opt.RUNS_INDEX_URL, written_by="`devops ai runs connect`"
+        )
         return cls(
-            ValkeyClient(host=url, password=password, timeout=DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS)
+            ValkeyClient(endpoint, password=password, timeout=DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS)
         )
 
     @classmethod
     def from_settings(cls) -> RunIndex:
-        """The index at `runs.index_url`."""
+        """The index at `runs.index_url`.
+
+        No URL, or a URL that is not valid, raises `RunIndexNotConfiguredError`, so the caller keeps
+        runs on this workstation only and reports why.
+        """
         from devops_cli.config.settings import get_runs_index_password, load_settings
 
         settings = load_settings()
@@ -266,7 +278,10 @@ class RunIndex:
             raise RunIndexNotConfiguredError(
                 "no run index is configured; `devops ai runs connect` sets one up"
             )
-        return cls.connect(settings.runs.index_url, get_runs_index_password(settings))
+        try:
+            return cls.connect(settings.runs.index_url, get_runs_index_password(settings))
+        except ConfigurationError as exc:
+            raise RunIndexNotConfiguredError(exc.message) from exc
 
     @property
     def location(self) -> str:

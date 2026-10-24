@@ -25,7 +25,7 @@ from devops_cli.commands.k8s.networking import (
     configure_urls,
 )
 from devops_cli.config.defaults import DEFAULT_OLLAMA_CLUSTER_SERVICE
-from devops_cli.config.settings import Settings, ValkeyConfig
+from devops_cli.config.settings import Settings
 
 runner = CliRunner()
 
@@ -269,10 +269,10 @@ def test_resolve_accessible_url_unreachable_nodeport_fallback(mock_probe: MagicM
     "devops_cli.commands.k8s.networking._verify_url_reachability",
     side_effect=lambda url: "localhost:30379" in url,
 )
-def test_resolve_accessible_url_preserves_tcp_scheme(mock_probe: MagicMock) -> None:
-    """Preserve tcp:// scheme for Valkey cache endpoints."""
-    res = _resolve_accessible_url("tcp://192.0.2.2:30379")
-    assert res == "tcp://localhost:30379"
+def test_resolve_accessible_url_preserves_the_valkey_scheme(mock_probe: MagicMock) -> None:
+    """Preserve the valkey:// scheme for Valkey cache endpoints."""
+    res = _resolve_accessible_url("valkey://192.0.2.2:30379")
+    assert res == "valkey://localhost:30379"
 
 
 # =============================================================================
@@ -297,7 +297,7 @@ def test_configure_urls_persists_all_llm_endpoints(
     mock_load.return_value = settings
     mock_detect.side_effect = lambda svc, ns, context=None: f"http://192.0.2.2:{svc}"
     mock_resolve.side_effect = lambda detected, preferred_localhost_ports=None, **kwargs: (
-        "tcp://localhost:6379"
+        "http://localhost:6379"
         if "valkey" in str(detected)
         else f"http://localhost:{str(detected).split(':')[-1]}"
     )
@@ -310,13 +310,11 @@ def test_configure_urls_persists_all_llm_endpoints(
         settings.open_webui.url,
         settings.qdrant.url,
         settings.valkey.url,
-        settings.valkey.port,
     ) == (
         [f"http://localhost:{DEFAULT_OLLAMA_CLUSTER_SERVICE}"],
         "http://localhost:open-webui",
         "http://localhost:qdrant",
-        "tcp://localhost:6379",
-        6379,
+        "valkey://localhost:6379",
     )
 
 
@@ -360,25 +358,9 @@ def test_configure_urls_persists_all_infra_endpoints(
     "devops_cli.commands.k8s.networking._verify_url_reachability",
     side_effect=lambda url: "localhost:6379" in url,
 )
-def test_resolve_accessible_url_none_detected_with_tcp_scheme(mock_probe: MagicMock) -> None:
-    """When detected_url is None, default_scheme=tcp probes and returns tcp:// fallback."""
-    res = _resolve_accessible_url(None, preferred_localhost_ports=[6379], default_scheme="tcp")
-    assert res == "tcp://localhost:6379"
-
-
-def test_valkey_config_url_normalization_with_userinfo() -> None:
-    """Extract password securely from url without leaking credentials into host."""
-    cfg = ValkeyConfig.model_validate({"url": "tcp://:super-secret@localhost:6379"})
-    assert (cfg.host, cfg.port, cfg.password) == ("localhost:6379", 6379, "super-secret")
-
-
-def test_valkey_config_url_normalization_ipv6() -> None:
-    """Format IPv6 addresses with brackets correctly."""
-    cfg = ValkeyConfig.model_validate({"url": "tcp://[::1]:6380"})
-    assert (cfg.host, cfg.port) == ("[::1]:6380", 6380)
-
-
-def test_valkey_config_url_normalization_with_path() -> None:
-    """Strip url paths when deriving host and port."""
-    cfg = ValkeyConfig.model_validate({"url": "valkey://example.com:6381/0"})
-    assert (cfg.host, cfg.port) == ("example.com:6381", 6381)
+def test_resolve_accessible_url_none_detected_with_the_valkey_scheme(
+    mock_probe: MagicMock,
+) -> None:
+    """When detected_url is None, default_scheme=valkey probes and returns a valkey:// fallback."""
+    res = _resolve_accessible_url(None, preferred_localhost_ports=[6379], default_scheme="valkey")
+    assert res == "valkey://localhost:6379"

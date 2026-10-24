@@ -10,8 +10,9 @@ local tool stands in for one (ADR 0007 lists contract suites for most edges unde
 fakeredis holds its server to Valkey's behaviour in its own test suite. It answers no INFO, and
 holds a silent or slow server only as a connection that fails; a test of a timeout binds a
 loopback listener that never answers, as the floor's `refusing_port` does for a refused port.
-The pool is the fake's own, so a test of what the client's own `password`, `db` and decoding
-arguments send and read binds a loopback listener that records the commands it receives. That
+The pool is the fake's own, so a test of what the client's own password, the database of its
+endpoint and its decoding send and read binds a loopback listener that records the commands it
+receives. That
 listener is `serving_valkey`. A test of INFO uses it too. It replies with the text of a server,
 and the client's own parser turns that text into the mapping the test reads. A test of a
 `valkeys://` endpoint gives `serving_valkey` a TLS context from `tests/support/certificates.py`.
@@ -24,24 +25,40 @@ import ssl
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 import pytest
 from fakeredis import FakeServer, FakeValkey
 
+from devops_cli.config import options as opt
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+
+if TYPE_CHECKING:
+    from devops_cli.valkey.endpoint import ValkeyEndpoint
+
+
+def valkey_endpoint(url: str) -> ValkeyEndpoint:
+    """The endpoint that a Valkey URL names, validated as `valkey.url` is.
+
+    The import is local, so the fail-to-pass replay can load this plugin on a base without the
+    module.
+    """
+    from devops_cli.valkey.endpoint import parse_valkey_url
+
+    return parse_valkey_url(url, setting=opt.VALKEY_URL)
 
 
 def valkey_client_on(server: FakeServer, *, password: str | None = None) -> ValkeyClient:
     """A `ValkeyClient` connected to an in-memory server.
 
-    The pool is the fake's own, so the client's `password`, `db` and decoding arguments play no
-    part.
+    The pool is the fake's own, so the client's password, the database of its endpoint and its
+    decoding play no part.
     """
     pool = FakeValkey(
         server=server, password=password, decode_responses=True, encoding_errors="replace"
     ).connection_pool
-    return ValkeyClient(host="127.0.0.1", connection_pool=pool)
+    return ValkeyClient(valkey_endpoint("valkey://127.0.0.1"), connection_pool=pool)
 
 
 @pytest.fixture

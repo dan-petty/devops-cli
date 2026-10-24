@@ -1040,7 +1040,7 @@ def isolate_devops_cli_config(
         f"telemetry:\n  enabled: false\n  endpoint: http://{side_channel}\n"
         "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n"
         "qdrant:\n  url: http://localhost:6333\n"
-        f"valkey:\n  host: {side_channel}\n",
+        f"valkey:\n  url: valkey://{side_channel}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))

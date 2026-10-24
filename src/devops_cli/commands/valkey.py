@@ -10,6 +10,7 @@ import typer
 from devops_cli.config.settings import Settings, get_valkey_password, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.decorator import dry_run_command
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.valkey import ValkeyError
 from devops_cli.lang import HELP
 from devops_cli.output import (
@@ -23,8 +24,22 @@ from devops_cli.output import (
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 from devops_cli.valkey.client import ValkeyClient
+from devops_cli.valkey.endpoint import parse_valkey_url
 
-app = new_typer(help="Valkey workstation caching and in-memory data store commands")
+# A Valkey URL that is not valid, in `valkey.url` or in `--url`, ends the command with its message.
+app = new_typer(
+    help="Valkey workstation caching and in-memory data store commands",
+    exit_on=ConfigurationError,
+)
+
+_URL_OPTION = "--url"
+_UrlOption = Annotated[
+    str | None,
+    typer.Option(
+        _URL_OPTION,
+        help="Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0`",
+    ),
+]
 
 
 def _print_valkey_error(action: str, exc: ValkeyError) -> None:
@@ -33,35 +48,22 @@ def _print_valkey_error(action: str, exc: ValkeyError) -> None:
     print_error(f"{action}: {safe_msg}")
 
 
-def _resolve_client(
-    host: str | None = None,
-    port: int | None = None,
-    settings: Settings | None = None,
-) -> ValkeyClient:
-    """Resolve and construct a configured ValkeyClient instance."""
+def _resolve_client(url: str | None = None, settings: Settings | None = None) -> ValkeyClient:
+    """The client for the Valkey at `url`, or at `valkey.url` when `url` is None."""
     cfg_settings = settings or load_settings()
     cfg = cfg_settings.valkey
-    target_host = host or cfg.endpoint
-    target_port = port or cfg.port
-    password = get_valkey_password(cfg_settings)
-    return ValkeyClient(
-        host=target_host,
-        port=target_port,
-        password=password,
-        db=cfg.db,
-        timeout=cfg.timeout,
-    )
+    endpoint = cfg.endpoint if url is None else parse_valkey_url(url, setting=_URL_OPTION)
+    return ValkeyClient(endpoint, password=get_valkey_password(cfg_settings), timeout=cfg.timeout)
 
 
 @app.command("ping")
 @trace_span("valkey.ping")
 def valkey_ping(
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Test connection and measure round-trip latency to the Valkey server."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         start = time.perf_counter()
         res = client.ping()
         elapsed = time.perf_counter() - start
@@ -83,12 +85,11 @@ def valkey_info(
             "--section", "-s", help="Specific INFO section (server, memory, clients, stats)"
         ),
     ] = None,
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Inspect server configuration, memory allocation, and operational metrics."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         info_data = client.info(section)
         columns = [("Property", "bold cyan"), "Value"]
         rows = [[k, str(v)] for k, v in sorted(info_data.items())]
@@ -102,12 +103,11 @@ def valkey_info(
 @app.command("stats")
 @trace_span("valkey.stats")
 def valkey_stats(
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Display quick diagnostic summary of server health, memory, and keys."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         info = client.info()
         dbsize = client.dbsize()
         uptime_sec = float(info.get("uptime_in_seconds", 0))
@@ -137,12 +137,11 @@ def valkey_stats(
 @trace_span("valkey.keys")
 def valkey_keys(
     pattern: Annotated[str, typer.Argument(help="Glob pattern to search for keys")] = "*",
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """List keys matching a glob pattern."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         matched_keys = client.keys(pattern)
         if not matched_keys:
             print_info(f"No keys matching '{pattern}' in database {client.db}.")
@@ -159,12 +158,11 @@ def valkey_keys(
 @trace_span("valkey.get")
 def valkey_get(
     key: Annotated[str, typer.Argument(help="Key to retrieve")],
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Retrieve string value stored at key."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         val = client.get(key)
         if val is None:
             print_warning(f"Key '{key}' not found (nil).")
@@ -188,12 +186,11 @@ def valkey_set(
     value: Annotated[str, typer.Argument(help="Value to associate with key")],
     ex: Annotated[int | None, typer.Option("--ex", help="Expiration timeout in seconds")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Set string value of key with optional expiration TTL."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         client.set(key, value, ex=ex)
         ttl_msg = f" (TTL: {ex}s)" if ex else ""
         print_success(f"Set '{key}' successfully{ttl_msg}.")
@@ -215,12 +212,11 @@ def valkey_flush(
         typer.Option("--all", "-a", help="Flush all databases instead of just active one"),
     ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Flush and purge keys from current or all databases."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         if all_databases:
             client.flushall()
             print_success("Flushed all Valkey databases.")
@@ -240,12 +236,11 @@ def valkey_flush(
 @trace_span("valkey.backup")
 def valkey_backup(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Trigger background RDB persistence snapshot (BGSAVE)."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         res = client.bgsave()
         print_success(f"Backup initiated: {res}")
     except ValkeyError as exc:
@@ -262,12 +257,11 @@ def valkey_cli(
             help="Optional command and arguments to execute directly (e.g. PING or DBSIZE)"
         ),
     ] = None,
-    host: Annotated[str | None, typer.Option("--host", "-h", help="Valkey server host")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p", help="Valkey server port")] = None,
+    url: _UrlOption = None,
 ) -> None:
     """Execute raw Valkey commands directly against the server."""
     try:
-        client = _resolve_client(host=host, port=port)
+        client = _resolve_client(url)
         if not command_args:
             print_info(
                 f"Connected to Valkey at {client.host}:{client.port}. Specify command arguments to run."
