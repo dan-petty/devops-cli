@@ -14,6 +14,20 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+def _names_jaeger_outside_datasource_deletions(path: Path) -> bool:
+    """Whether a file under k8s/ names Jaeger anywhere but in Grafana's `deleteDatasources`.
+
+    Grafana deletes each datasource that list names when it starts, so a name there removes Jaeger
+    and deploys nothing (#2036). Every other mention, a comment included, still counts.
+    """
+    text = path.read_text(encoding="utf-8").lower()
+    if path != Path("k8s/monitoring/grafana-values.yaml"):
+        return "jaeger" in text
+    provisioning = yaml.safe_load(text)["datasources"]["datasources.yaml"]
+    deleted = sum(entry["name"] == "jaeger" for entry in provisioning.get("deletedatasources", []))
+    return text.count("jaeger") > deleted
+
+
 def test_tempo_stack_contract_and_datasource_links() -> None:
     """Verify Tempo Helm release, values, collector exporter, Grafana links, and zero Jaeger in k8s/."""
     from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
@@ -41,7 +55,7 @@ def test_tempo_stack_contract_and_datasource_links() -> None:
             path != Path("k8s/otel/values.yaml")
             or collector_values.get("config", {}).get("receivers", {}).get("jaeger") is not None
         )
-        and "jaeger" in path.read_text(encoding="utf-8").lower()
+        and _names_jaeger_outside_datasource_deletions(path)
     ]
 
     assert (
