@@ -2095,6 +2095,21 @@ CONST_ARGO_WORKFLOW_TERMINAL_PHASES: Final[frozenset[str]] = (
     CONST_ARGO_WORKFLOW_FAILURE_PHASES | frozenset({CONST_ARGO_WORKFLOW_PHASE_SUCCEEDED})
 )
 
+# Argo Workflows pod naming conventions and defaults.
+CONST_ARGO_ANNOTATION_POD_NAME_FORMAT: Final[str] = "workflows.argoproj.io/pod-name-format"
+CONST_ARGO_POD_NAME_V1: Final[str] = "v1"
+CONST_ARGO_POD_NAME_V2: Final[str] = "v2"
+CONST_ARGO_SKIPPED_PHASES: Final[frozenset[str]] = frozenset({"Skipped", "Omitted"})
+CONST_ARGO_DEFAULT_LOG_CONTAINER: Final[str] = "main"
+
+CONST_FNV_OFFSET_BASIS_32: Final[int] = 2166136261
+CONST_FNV_PRIME_32: Final[int] = 16777619
+CONST_MAX_K8S_RESOURCE_NAME_LENGTH: Final[int] = 253
+CONST_K8S_NAMING_HASH_LENGTH: Final[int] = 10
+CONST_MAX_POD_NAME_PREFIX_LENGTH: Final[int] = (
+    CONST_MAX_K8S_RESOURCE_NAME_LENGTH - CONST_K8S_NAMING_HASH_LENGTH
+)
+
 # ── Docker Engine Socket API & BuildKit Cache Introspection ──────────────────
 # Container CPU utilisation severity thresholds for live stats rendering.
 CONST_DOCKER_CPU_WARNING_PERCENT: Final[float] = 50.0

@@ -352,7 +352,10 @@ def test_get_workflow_projects_execution_state(crd_api: Any) -> None:
 def test_workflow_pod_names_selects_only_pod_nodes(crd_api: Any) -> None:
     """Only Pod-type DAG nodes back log streaming, returned in stable order."""
     crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "build"},
+        "metadata": {
+            "name": "build",
+            "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
+        },
         "status": {
             "nodes": {
                 "build-2": {"type": "Pod"},
@@ -362,6 +365,75 @@ def test_workflow_pod_names_selects_only_pod_nodes(crd_api: Any) -> None:
         },
     }
     assert _service(crd_api).workflow_pod_names("build", "argo") == ["build-1", "build-2"]
+
+
+def test_workflow_pod_names_v2_derived_with_hash(crd_api: Any) -> None:
+    """Under v2 naming, pod names follow <workflow>-<templateName>-<hash>."""
+    crd_api.get_namespaced_custom_object.return_value = {
+        "metadata": {
+            "name": "build",
+            "annotations": {"workflows.argoproj.io/pod-name-format": "v2"},
+        },
+        "status": {
+            "nodes": {
+                "build-1": {
+                    "id": "build-1",
+                    "name": "build[0].step-compile",
+                    "templateName": "compile",
+                    "type": "Pod",
+                    "phase": "Succeeded",
+                },
+                "build-2": {
+                    "id": "build-2",
+                    "name": "build[0].step-test",
+                    "templateName": "test",
+                    "type": "Pod",
+                    "phase": "Running",
+                },
+            }
+        },
+    }
+    assert _service(crd_api).workflow_pod_names("build", "argo") == [
+        "build-compile-172156865",
+        "build-test-3950655536",
+    ]
+
+
+def test_workflow_pod_names_v2_single_container_matches_workflow(crd_api: Any) -> None:
+    """When a single container node name matches workflow name, pod name equals workflow name."""
+    crd_api.get_namespaced_custom_object.return_value = {
+        "metadata": {"name": "hello-wf"},
+        "status": {
+            "nodes": {
+                "hello-wf": {
+                    "id": "hello-wf",
+                    "name": "hello-wf",
+                    "type": "Pod",
+                    "phase": "Succeeded",
+                }
+            }
+        },
+    }
+    assert _service(crd_api).workflow_pod_names("hello-wf", "argo") == ["hello-wf"]
+
+
+def test_workflow_pod_names_excludes_skipped_and_omitted_nodes(crd_api: Any) -> None:
+    """Nodes with phase Skipped or Omitted are excluded from pod names."""
+    crd_api.get_namespaced_custom_object.return_value = {
+        "metadata": {
+            "name": "wf",
+            "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
+        },
+        "status": {
+            "nodes": {
+                "wf-ran": {"id": "wf-ran", "type": "Pod", "phase": "Succeeded"},
+                "wf-skipped": {"id": "wf-skipped", "type": "Pod", "phase": "Skipped"},
+                "wf-omitted": {"id": "wf-omitted", "type": "Pod", "phase": "Omitted"},
+                "wf-dag": {"id": "wf-dag", "type": "DAG", "phase": "Running"},
+            }
+        },
+    }
+    assert _service(crd_api).workflow_pod_names("wf", "argo") == ["wf-ran"]
 
 
 def test_workflow_pod_names_handles_absent_nodes(crd_api: Any) -> None:

@@ -15,8 +15,10 @@ from typing import Annotated, Any
 import httpx2
 import typer
 
-from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service
+from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service, is_not_found_error
 from devops_cli.config.constants import (
+    CONST_ARGO_DEFAULT_LOG_CONTAINER,
+    CONST_ARGO_POD_NAME_V1,
     CONST_ARGO_WORKFLOW_FAILURE_PHASES,
     CONST_ARGO_WORKFLOW_TERMINAL_PHASES,
     CONST_OUTPUT_FORMAT_TABLE,
@@ -447,21 +449,49 @@ def workflows_logs(
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
     ] = None,
+    container: Annotated[
+        str, typer.Option("--container", "-c", help=HELP.argo.container)
+    ] = CONST_ARGO_DEFAULT_LOG_CONTAINER,
     follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.argo.follow)] = False,
 ) -> None:
     """Stream logs for an Argo Workflow."""
     from devops_cli.k8s.service import KubernetesService
 
     target_ns = _namespace(namespace)
-    pods = get_argo_crd_service().workflow_pod_names(name, namespace=target_ns)
+    crd_svc = get_argo_crd_service()
+    pods = crd_svc.workflow_pod_names(name, namespace=target_ns)
     if not pods:
         print_info(MESSAGES.argo.workflow_no_pods.format(name=name), prefix=False)
         return
 
     service = KubernetesService.get_instance()
-    for pod in pods:
+    try:
+        stream = service.read_pod_logs(
+            pods[0], namespace=target_ns, container=container, follow=follow
+        )
+    except Exception as exc:
+        if is_not_found_error(exc):
+            v1_pods = crd_svc.workflow_pod_names(
+                name, namespace=target_ns, version=CONST_ARGO_POD_NAME_V1
+            )
+            if v1_pods and v1_pods != pods:
+                pods = v1_pods
+                stream = service.read_pod_logs(
+                    pods[0], namespace=target_ns, container=container, follow=follow
+                )
+            else:
+                raise
+        else:
+            raise
+
+    for i, pod in enumerate(pods):
         print_info(f"── {pod} ──", prefix=False)
-        for line in service.read_pod_logs(pod, namespace=target_ns, follow=follow):
+        pod_stream = (
+            stream
+            if i == 0
+            else service.read_pod_logs(pod, namespace=target_ns, container=container, follow=follow)
+        )
+        for line in pod_stream:
             write_stdout(line if line.endswith("\n") else f"{line}\n")
 
 
