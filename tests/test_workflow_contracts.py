@@ -417,6 +417,24 @@ def test_every_devops_command_the_workflows_actions_and_hooks_run_resolves() -> 
     assert (bool(workflow_commands), bool(hook_commands), unresolved) == (True, True, [])
 
 
+def test_no_pre_commit_hook_runs_the_test_suite() -> None:
+    """A commit runs only the fast hooks. The pre-push gate and CI run the tests (#2086)."""
+    config = yaml.safe_load(PRE_COMMIT_PATH.read_text(encoding="utf-8"))
+    default_stages = config.get("default_stages", ["pre-commit"])
+    commit_entries = [
+        str(hook.get("entry", ""))
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if "pre-commit" in hook.get("stages", default_stages)
+    ]
+    runs_tests = [
+        entry
+        for entry in commit_entries
+        if "pytest" in entry.split() or re.search(r"\bdevops ci( test\b|$)", entry)
+    ]
+    assert (bool(commit_entries), runs_tests) == (True, [])
+
+
 def test_a_misspelled_command_in_a_workflow_is_reported() -> None:
     """The negative control: extraction and resolution together report a command that does not
     exist, inside a command substitution and a compound line."""

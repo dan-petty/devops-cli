@@ -65,17 +65,6 @@ repos:
         types: [python]
         require_serial: true
 
-      # Runs only the tests covering the staged sources, so committing stays fast while
-      # still verifying the change. Falls back to the full suite when a staged source has
-      # no covering test, rather than passing without running anything.
-      - id: devops-ci-test-changed
-        name: devops ci test (covering tests for staged files)
-        entry: uv run devops ci test
-        language: system
-        stages: [pre-commit]
-        types: [python]
-        require_serial: true
-
       - id: ast-grep-scan
         name: ast-grep scan (network constructs in src, elapsed-time bounds in tests)
         entry: uv run ast-grep scan --error=unused-suppression --error=no-suppress-all src tests
@@ -104,6 +93,9 @@ repos:
         pass_filenames: false
         require_serial: true
 
+      # A commit runs no tests: the tests that cover a change of a shared module such as
+      # config/constants.py are a large part of the suite, and this hook runs the full suite
+      # before each push (#2086).
       - id: devops-ci-pre-push
         name: devops ci (pre-push quality gate)
         entry: uv run devops ci
