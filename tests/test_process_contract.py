@@ -173,14 +173,16 @@ def test_timeout_expired_contract(
     """When a command exceeds timeout, TimeoutExpired is raised."""
     runner, is_fake = runner_instance
     if is_fake:
-        assert isinstance(runner, ProcessFake)
-        fake_runner = runner
-        fake_runner.answer(["git", "slow_test"], ProcessAnswer(delay=1.0))
-        with pytest.raises(subprocess.TimeoutExpired):
-            fake_runner.run(["git", "slow_test"], cwd=tmp_path, timeout=0.01)
+        if not isinstance(runner, ProcessFake):
+            pytest.fail("expected ProcessFake")
+        runner.answer(["git", "slow_test"], ProcessAnswer(delay=1.0))
+        with pytest.raises(subprocess.TimeoutExpired) as exc_info:
+            runner.run(["git", "slow_test"], cwd=tmp_path, timeout=0.01)
+        assert exc_info.value.timeout == 0.01
     else:
-        with pytest.raises(subprocess.TimeoutExpired):
+        with pytest.raises(subprocess.TimeoutExpired) as exc_info:
             runner.run(["git", "status"], cwd=tmp_path, timeout=1e-9)
+        assert exc_info.value.timeout == 1e-9
 
 
 def test_process_fake_call_recording(tmp_path: Path) -> None:
