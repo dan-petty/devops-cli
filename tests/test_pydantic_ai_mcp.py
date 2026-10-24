@@ -118,6 +118,7 @@ async def test_create_mcp_toolset_variations() -> None:
     # 2. With prefixing
     ts_prefixed = create_mcp_toolset(devops_server, tool_prefix="devops")
     assert isinstance(ts_prefixed, PrefixedToolset)
+    assert ts_prefixed.prefix == "devops"
 
     # 3. From URL target
     ts_url = create_mcp_toolset("http://localhost:8000/sse")
@@ -178,6 +179,7 @@ def test_agent_mcp_toolset_to_native() -> None:
     toolset_prefixed = AgentMCPToolset(server=devops_server, tool_prefix="cli")
     native_prefixed = toolset_prefixed.to_native_toolset()
     assert isinstance(native_prefixed, PrefixedToolset)
+    assert native_prefixed.prefix == "cli"
 
 
 def test_mcp_bridge_dynamic_discovery() -> None:

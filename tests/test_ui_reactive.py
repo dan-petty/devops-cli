@@ -1294,7 +1294,8 @@ def _stream_ended(pane: LogPane) -> Callable[[], bool]:
         for worker in pane.app.workers
         if worker.node is pane and worker.group == "log-stream"
     ]
-    assert reader is not None and len(consumers) == 1
+    assert reader is not None
+    assert len(consumers) == 1
     return lambda: not reader.is_alive() and consumers[0].is_finished
 
 
@@ -2498,8 +2499,8 @@ async def test_another_tab_takes_focus_so_the_pod_keys_stay_on_the_kubernetes_ta
         assert (
             app.query_one(TabbedContent).active,
             app.focused.id if app.focused else None,
-            isinstance(app.screen, PodInspector),
-        ) == ("tab-telemetry", "telemetry-table", False)
+        ) == ("tab-telemetry", "telemetry-table")
+        assert not isinstance(app.screen, PodInspector)
 
 
 # =============================================================================
@@ -2567,11 +2568,9 @@ async def test_a_pod_without_a_name_opens_no_stream_and_no_inspector(
         await _loaded(pilot, app)
         await pilot.press("enter", "e")
         await pilot.pause()
-        assert (
-            requested,
-            app.query_one(TabbedContent).active,
-            isinstance(app.screen, PodInspector),
-        ) == ([], "tab-k8s", False)
+        assert requested == []
+        assert app.query_one(TabbedContent).active == "tab-k8s"
+        assert not isinstance(app.screen, PodInspector)
 
 
 def test_log_titles_name_the_container_and_its_place_among_them() -> None:
@@ -2840,11 +2839,9 @@ async def test_a_failed_events_call_is_shown_in_the_inspector(
         status = str(screen.query_one("#inspector-events-status", Static).render())
         await pilot.press("escape")
         await pilot.pause()
-        assert (
-            "403 Forbidden" in status,
-            app.is_running,
-            isinstance(app.screen, PodInspector),
-        ) == (True, True, False)
+        assert "403 Forbidden" in status
+        assert app.is_running
+        assert not isinstance(app.screen, PodInspector)
 
 
 def test_container_rows_show_state_and_last_termination() -> None:

@@ -246,7 +246,8 @@ def test_a_support_module_that_defines_its_fixture_with_the_decorator_registers(
     package = _write_package(support_under_test, {"__init__.py": "", "defs.py": _FIXTURE_DEFS})
     pluginmanager = pytest.PytestPluginManager()
     register_support_plugins(pluginmanager, package)
-    assert pluginmanager.get_plugin(f"{_SUPPORT_UNDER_TEST}.defs") is not None
+    plugin = pluginmanager.get_plugin(f"{_SUPPORT_UNDER_TEST}.defs")
+    assert getattr(plugin, "__name__", "") == f"{_SUPPORT_UNDER_TEST}.defs"
 
 
 def test_devops_cli_binds_its_config_directory_under_the_home_bootstrap_isolated() -> None:
@@ -416,10 +417,7 @@ def test_session_hooks_lifecycle(tmp_path: Path) -> None:
 
     # Session start snapshots pytest's root directory
     pytest_sessionstart(session)
-    assert (
-        hasattr(session.config, "_tripwire_snapshot"),
-        session.config._tripwire_snapshot["repo_root"],
-    ) == (True, tmp_path)
+    assert session.config._tripwire_snapshot["repo_root"] == tmp_path
 
     # Worker skips finish
     worker_session = MagicMock()

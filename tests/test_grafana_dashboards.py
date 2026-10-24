@@ -201,7 +201,7 @@ def test_repository_dashboards_lint_clean(dashboard_file: Path) -> None:
     the linter rather than a defect in the dashboard.
     """
     report = lint_dashboard_file(dashboard_file)
-    assert report.passed, f"{dashboard_file.name}: {[i.message for i in report.errors]}"
+    assert report.errors == [], f"{dashboard_file.name}: {[i.message for i in report.errors]}"
 
 
 def test_generated_dashboards_lint_clean() -> None:

@@ -24,7 +24,8 @@ def test_resolve_pydantic_ai_model_limits_a_model_concurrency_only_when_asked() 
     unwrapped = resolve_pydantic_ai_model(test_model, model_concurrency=None)
     wrapped = resolve_pydantic_ai_model(test_model, model_concurrency=2)
 
-    assert (unwrapped is test_model, isinstance(wrapped, ConcurrencyLimitedModel)) == (True, True)
+    assert unwrapped is test_model
+    assert isinstance(wrapped, ConcurrencyLimitedModel)
     assert Agent(wrapped).run_sync("hello").output == "success (no tool calls)"
 
 

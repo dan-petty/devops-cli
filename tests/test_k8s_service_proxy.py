@@ -216,6 +216,7 @@ def test_client_certificates_are_loaded_into_the_ssl_context(tmp_path: Any) -> N
     with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=_configuration()):
         target = resolve_proxy_target(parse_service_url(PROM))
     assert isinstance(target.ssl_context, ssl.SSLContext)
+    assert target.ssl_context.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_an_insecure_kubeconfig_disables_verification() -> None:

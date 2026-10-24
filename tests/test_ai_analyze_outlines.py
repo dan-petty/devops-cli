@@ -156,20 +156,24 @@ def test_outline_validation_and_enhancement_retries(tmp_path: Path) -> None:
 
     # 1. _validate_enhanced_metadata error cases
     out, err = _validate_enhanced_metadata("not a dict", True, [])
-    assert out is None and "JSON object" in str(err)
+    assert out is None
+    assert "JSON object" in str(err)
 
     out, err = _validate_enhanced_metadata({"primary_purpose": "hi"}, True, [])
-    assert out is None and "too short" in str(err)
+    assert out is None
+    assert "too short" in str(err)
 
     out, err = _validate_enhanced_metadata(
         {"primary_purpose": "Valid Purpose", "confidence_score": 1.5}, True, []
     )
-    assert out is None and "confidence_score" in str(err)
+    assert out is None
+    assert "confidence_score" in str(err)
 
     out, err = _validate_enhanced_metadata(
         {"primary_purpose": "Valid Purpose", "quality_score": -0.5}, True, []
     )
-    assert out is None and "quality_score" in str(err)
+    assert out is None
+    assert "quality_score" in str(err)
 
     # 2. Complexity tiers
     low_comp = _calculate_complexity_score("x = 1\n", 1, [])
@@ -350,7 +354,8 @@ def test_outlines_extended_validation_and_shell(tmp_path: Path) -> None:
 
     # 1. _validate_enhanced_metadata
     res_none, err1 = _validate_enhanced_metadata("not a dict", has_content=True, static_symbols=[])
-    assert res_none is None and "must be a JSON object" in err1
+    assert res_none is None
+    assert "must be a JSON object" in err1
 
     res_none, _err2 = _validate_enhanced_metadata(
         {"confidence_score": 1.5}, has_content=True, static_symbols=[]
@@ -360,7 +365,8 @@ def test_outlines_extended_validation_and_shell(tmp_path: Path) -> None:
     res_none, err3 = _validate_enhanced_metadata(
         {"primary_purpose": "tiny"}, has_content=True, static_symbols=[]
     )
-    assert res_none is None and "too short" in err3
+    assert res_none is None
+    assert "too short" in err3
 
     valid_payload = {
         "primary_purpose": "Valid comprehensive purpose description",

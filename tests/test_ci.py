@@ -469,16 +469,14 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
         patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
     ):
         result = runner.invoke(app, ["--no-cache"])
-        assert (
-            result.exit_code == 0
-            and "audit" in result.output
-            and "coverage" in result.output
-            and "security" in result.output
-            and "actionlint" in result.output
-            and ("uv-check" in result.output.lower() or "uv_check" in result.output.lower())
-            and "lockfile" in result.output.lower()
-            and "outdated" in result.output.lower()
-        )
+        assert result.exit_code == 0
+        assert "audit" in result.output
+        assert "coverage" in result.output
+        assert "security" in result.output
+        assert "actionlint" in result.output
+        assert "uv-check" in result.output.lower() or "uv_check" in result.output.lower()
+        assert "lockfile" in result.output.lower()
+        assert "outdated" in result.output.lower()
         assert (
             any("audit" in c for c in called),
             any("bandit" in c for c in called),
@@ -1596,14 +1594,14 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         patch("devops_cli.ci.cache.save_ci_cache") as mock_save,
     ):
         _try_save_ci_cache(tmp_path, results, {"fix": True})
-        assert mock_save.called
+        assert mock_save.call_count == 1
 
     with (
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_try_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
         _handle_ci_results(results, root=tmp_path, ci_options={})
-        assert mock_try_save.called
+        assert mock_try_save.call_count == 1
 
     fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
     with (
@@ -1611,7 +1609,7 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         pytest.raises(typer.Exit),
     ):
         _handle_ci_results(fail_results, root=tmp_path, ci_options={})
-        assert mock_clear.called
+        assert mock_clear.call_count == 1
 
 
 def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
@@ -1629,7 +1627,7 @@ def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
         _handle_ci_results(results, root=tmp_path, ci_options={})
-    assert mock_save.called
+    assert mock_save.call_count == 1
 
 
 def test_a_no_cache_run_does_not_read_an_existing_entry(tmp_path: Path) -> None:
@@ -1857,11 +1855,9 @@ def test_gate_checks_nested_worktree_not_main_checkout(
     # 2. Error present ONLY in the worktree fails the gate
     (nested_wt / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
     res_wt_fail = runner.invoke(app, ["--no-cache"])
-    assert (
-        res_wt_fail.exit_code != 0
-        and str(nested_wt.resolve()) in res_wt_fail.output
-        and all(c == nested_wt.resolve() for c in called_cwds)
-    )
+    assert res_wt_fail.exit_code != 0
+    assert str(nested_wt.resolve()) in res_wt_fail.output
+    assert all(c == nested_wt.resolve() for c in called_cwds)
 
     # 3. Error present ONLY in the main checkout passes the gate when run from the worktree
     (nested_wt / "src" / "error.py").unlink()

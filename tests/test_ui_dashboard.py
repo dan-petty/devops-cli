@@ -272,13 +272,13 @@ def test_fetch_docker_status_success(docker_engine: Any) -> None:
     with docker_engine(mock_client):
         summary = fetch_docker_status()
 
+    assert isinstance(summary, DockerSummary)
     assert (
-        isinstance(summary, DockerSummary),
         summary.connected,
         len(summary.containers),
         summary.containers[0]["name"],
         summary.containers[0]["status"],
-    ) == (True, True, 1, "valkey-cache", "running")
+    ) == (True, 1, "valkey-cache", "running")
 
 
 def test_fetch_docker_status_failure() -> None:
@@ -289,8 +289,8 @@ def test_fetch_docker_status_failure() -> None:
     ):
         summary = fetch_docker_status()
 
-    assert (isinstance(summary, DockerSummary), summary.connected, summary.containers) == (
-        True,
+    assert isinstance(summary, DockerSummary)
+    assert (summary.connected, summary.containers) == (
         False,
         [],
     )
@@ -304,13 +304,13 @@ def test_fetch_docker_status_refused_endpoint(
     with patch("docker.DockerClient") as mock_docker_client:
         summary = fetch_docker_status()
 
+    assert isinstance(summary, DockerSummary)
     assert (
-        isinstance(summary, DockerSummary),
         summary.connected,
         summary.containers,
         mock_docker_client.called,
         "DOCKER_HOST" in (summary.error_message or ""),
-    ) == (True, False, [], False, True)
+    ) == (False, [], False, True)
 
 
 def test_fetch_telemetry_status() -> None:

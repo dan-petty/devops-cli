@@ -73,9 +73,10 @@ def test_issue_templates_named_in_agents_md_exist() -> None:
     assert not missing, f"Missing issue templates referenced in AGENTS.md: {missing}"
 
     # Also assert that deprecated/unsupported templates are not referenced
-    assert "security_advisory.yml" not in templates and "task.yml" not in templates, (
+    assert "security_advisory.yml" not in templates, (
         "Deprecated templates must not be referenced in AGENTS.md"
     )
+    assert "task.yml" not in templates, "Deprecated templates must not be referenced in AGENTS.md"
 
 
 def test_personas_in_self_improvement_are_valid() -> None:

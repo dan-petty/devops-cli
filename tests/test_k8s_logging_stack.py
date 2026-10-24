@@ -90,7 +90,10 @@ def test_monitoring_network_policy_alloy_egress_rules() -> None:
         ),
         None,
     )
-    assert (api_rule is not None, loki_rule is not None) == (True, True)
+    assert isinstance(api_rule, dict)
+    assert isinstance(loki_rule, dict)
+    assert {"port": 6443, "protocol": "TCP"} in api_rule.get("ports", [])
+    assert {"port": 3100, "protocol": "TCP"} in loki_rule.get("ports", [])
 
 
 def test_deploy_logging_stack_dry_run() -> None:
@@ -351,10 +354,8 @@ def test_k8s_logs_mid_body_error_raises_without_fallback() -> None:
     ):
         svc._core_v1 = mock_core
         res = runner.invoke(app, ["logs", "pod-1", "-n", "default"])
-        assert (
-            res.exit_code != 0,
-            isinstance(res.exception, RuntimeError),
-            "head-line\n" in res.stdout,
-            mock_cmd.called,
-            mock_subproc.called,
-        ) == (True, True, True, False, False)
+        assert res.exit_code != 0
+        assert isinstance(res.exception, RuntimeError)
+        assert "head-line\n" in res.stdout
+        assert not mock_cmd.called
+        assert not mock_subproc.called

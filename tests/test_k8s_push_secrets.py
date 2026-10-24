@@ -220,7 +220,9 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
 
 def test_generators_make_the_documented_shapes() -> None:
     gateway, qdrant, runs = (CLUSTER_SECRETS[i].entries[0].generator for i in range(3))
-    assert gateway is not None and qdrant is not None and runs is not None
+    assert gateway is not None
+    assert qdrant is not None
+    assert runs is not None
     master, api_key, password = gateway.generate(), qdrant.generate(), runs.generate()
     assert (master[:3], len(master), len(api_key) >= 43, len(password), int(password, 16) >= 0) == (
         "sk-",

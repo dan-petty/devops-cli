@@ -70,6 +70,7 @@ def test_finding_is_frozen() -> None:
     )
     assert finding is not None
     assert isinstance(finding, Finding)
+    assert finding.rule_id == "B101"
 
     with pytest.raises(ValidationError):
         finding.severity = "LOW"  # type: ignore[misc]
@@ -480,7 +481,8 @@ def test_two_runs_fixture_tree_byte_identical(tmp_path: Path) -> None:
         commit_files=commit_files,
         file_content_getter=lambda p: content,
     )
-    assert f1 is not None and f2 is not None
+    assert f1 is not None
+    assert f2 is not None
 
     sarif1_path = tmp_path / "run1" / "findings.sarif"
     sarif2_path = tmp_path / "run2" / "findings.sarif"
@@ -620,7 +622,9 @@ def test_review_markdown_sections() -> None:
         file_content_getter=lambda p: marker_content,
         added_diff_lines={("src/app.py", 1)},
     )
-    assert f_intro is not None and f_pre is not None and f_supp is not None
+    assert f_intro is not None
+    assert f_pre is not None
+    assert f_supp is not None
 
     fake_pipeline = SimpleNamespace(admitted_scanner_findings=[f_intro, f_pre, f_supp])
     intro_lines = ReviewPipelineOrchestrator._build_introduced_findings_section(
@@ -740,10 +744,10 @@ def test_audit_file_dependencies_admits_with_advisory_anchor(tmp_path: Path) -> 
     findings = orchestrator._audit_file_dependencies("src/requirements.txt", [dep], dep_cache)
     admitted = orchestrator.admitted_scanner_findings
 
+    assert len(findings) == 1
+    assert len(admitted) == 1
+    assert isinstance(admitted[0].anchor, AdvisoryAnchor)
     assert (
-        len(findings),
-        len(admitted),
-        isinstance(admitted[0].anchor, AdvisoryAnchor),
         admitted[0].anchor.kind,
         admitted[0].anchor.db,
         admitted[0].anchor.advisory_id,
@@ -752,9 +756,6 @@ def test_audit_file_dependencies_admits_with_advisory_anchor(tmp_path: Path) -> 
         admitted[0].baseline_state,
         admitted[0].introduced,
     ) == (
-        1,
-        1,
-        True,
         "advisory",
         "OSV",
         "GHSA-xxxx-yyyy",

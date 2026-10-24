@@ -56,13 +56,12 @@ def test_parse_tag_datetime_valid_and_invalid() -> None:
         parsed_utc.year,
         parsed_utc.month,
         parsed_utc.day,
-        isinstance(fallback, datetime.datetime),
     ) == (
         2026,
         9,
         28,
-        True,
     )
+    assert isinstance(fallback, datetime.datetime)
 
 
 def test_get_git_tag_entries_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

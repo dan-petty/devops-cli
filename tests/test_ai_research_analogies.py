@@ -176,12 +176,10 @@ def test_analogies_cli_format_json(
     assert result.exit_code == 0
 
     data = json.loads(result.stdout)
-    assert (
-        isinstance(data, list),
-        len(data) >= 2,
-        all({"source", "target", "pattern", "score"}.issubset(item.keys()) for item in data),
-        all(isinstance(item["score"], (int, float)) for item in data),
-    ) == (True, True, True, True)
+    assert isinstance(data, list)
+    assert len(data) >= 2
+    assert all({"source", "target", "pattern", "score"}.issubset(item.keys()) for item in data)
+    assert all(isinstance(item["score"], (int, float)) for item in data)
 
 
 def test_analogies_cli_format_yaml_and_markdown(
@@ -198,13 +196,11 @@ def test_analogies_cli_format_yaml_and_markdown(
     md_res = runner.invoke(app, ["ai", "research", "analogies", "--format", "markdown"])
 
     yaml_data = yaml.safe_load(yaml_res.stdout)
-    assert (
-        yaml_res.exit_code,
-        md_res.exit_code,
-        isinstance(yaml_data, list),
-        "# Cross-Domain Analogical Pattern Report" in md_res.stdout,
-        "Exponential Backoff & Retry Loop" in md_res.stdout,
-    ) == (0, 0, True, True, True)
+    assert yaml_res.exit_code == 0
+    assert md_res.exit_code == 0
+    assert isinstance(yaml_data, list)
+    assert "# Cross-Domain Analogical Pattern Report" in md_res.stdout
+    assert "Exponential Backoff & Retry Loop" in md_res.stdout
 
 
 def test_analogies_cli_dry_run() -> None:
@@ -288,10 +284,9 @@ def test_retriever_empty_or_offline_fallback() -> None:
     retriever = AnalogicalPatternRetriever(qdrant=mock_qdrant)
     analogies = retriever.retrieve_analogies(min_score=0.5, limit=5)
 
-    assert (
-        isinstance(analogies, list),
-        all(isinstance(a, CrossDomainAnalogy) for a in analogies),
-    ) == (True, True)
+    assert isinstance(analogies, list)
+    assert len(analogies) > 0
+    assert all(isinstance(a, CrossDomainAnalogy) for a in analogies)
 
 
 # =============================================================================

@@ -234,9 +234,9 @@ def test_a_registration_failure_is_a_github_operation_error_of_the_domain_taxono
     github_api.route("POST", _AUTH_KEYS, github_json({"message": "Server Error"}, status=500))
     with pytest.raises(GitHubOperationError) as raised:
         register_key_on_github(_KEY, "Title")
+    assert type(raised.value) is SSHRegistrationError
+    assert isinstance(raised.value, DevOpsCLIError)
     assert (
-        type(raised.value),
-        isinstance(raised.value, DevOpsCLIError),
         raised.value.error_code,
         raised.value.exit_code,
-    ) == (SSHRegistrationError, True, "GITHUB_OPERATION_FAILED", CONST_EXIT_FAILURE)
+    ) == ("GITHUB_OPERATION_FAILED", CONST_EXIT_FAILURE)

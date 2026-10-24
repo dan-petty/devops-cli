@@ -97,13 +97,11 @@ def test_worktrees_status_json_schema(git_repo: Path, tmp_path: Path) -> None:
 
     # Check types on each entry
     for obj in payload:
-        assert (
-            isinstance(obj["ahead"], int),
-            isinstance(obj["dirty"], int),
-            isinstance(obj["contained"], bool),
-            isinstance(obj["locked"], bool),
-            isinstance(obj["prunable"], bool),
-        ) == (True, True, True, True, True)
+        assert isinstance(obj["ahead"], int)
+        assert isinstance(obj["dirty"], int)
+        assert isinstance(obj["contained"], bool)
+        assert isinstance(obj["locked"], bool)
+        assert isinstance(obj["prunable"], bool)
 
 
 def test_worktrees_prune_unmerged_refused_without_delete(git_repo: Path, tmp_path: Path) -> None:

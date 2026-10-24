@@ -216,13 +216,10 @@ def test_fix_llm_response_populates_schema_reflection() -> None:
     raw_bad = '```json\n{"cluster_name": "prod"}\n```'
     fixed = fix_llm_response(raw_bad, schema=SampleDetail)
 
-    assert (
-        fixed.parsed_model is None,
-        fixed.schema_reflection is not None,
-        isinstance(fixed.schema_reflection, SchemaReflectionReport),
-        fixed.validation_error is not None,
-        len(fixed.repair_notes) > 0,
-    ) == (True, True, True, True, True)
+    assert fixed.parsed_model is None
+    assert isinstance(fixed.schema_reflection, SchemaReflectionReport)
+    assert fixed.validation_error is not None
+    assert len(fixed.repair_notes) > 0
 
 
 def test_chat_structured_single_turn_self_correction_with_reflection() -> None:

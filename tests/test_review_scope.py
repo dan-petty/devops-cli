@@ -332,12 +332,10 @@ def test_a_pr_review_ends_with_the_github_error_when_the_pull_request_cannot_be_
 
     result = cli("review", "pr", "7", "--repo", "base/app", "--pre-analysis-only")
 
-    assert (
-        result.exit_code,
-        isinstance(result.exception, SystemExit),
-        "HTTP 500" in result.output,
-        "Traceback" in result.output,
-    ) == (1, True, True, False)
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "HTTP 500" in result.output
+    assert "Traceback" not in result.output
 
 
 @pytest.mark.parametrize("unreadable", ["mod.py", ".devops/review.toml"])
@@ -356,12 +354,10 @@ def test_a_pr_review_ends_with_the_github_error_when_a_file_of_the_base_cannot_b
 
     result = cli("review", "pr", "7", "--repo", "base/app", "--pre-analysis-only")
 
-    assert (
-        result.exit_code,
-        isinstance(result.exception, SystemExit),
-        f"contents/{unreadable}?ref={_MERGE_BASE} (HTTP 500)" in result.output,
-        "Traceback" in result.output,
-    ) == (1, True, True, False)
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert f"contents/{unreadable}?ref={_MERGE_BASE} (HTTP 500)" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_each_file_is_reviewed_with_its_own_pages_only() -> None:

@@ -120,7 +120,8 @@ def test_litellm_gateway_disables_telemetry() -> None:
     """Verify LiteLLM Gateway config and deployment disable telemetry."""
     config_path = K8S_DIR / "llm" / "gateway" / "config.yaml"
     deployment_path = K8S_DIR / "llm" / "gateway" / "deployment.yaml"
-    assert config_path.is_file() and deployment_path.is_file()
+    assert config_path.is_file()
+    assert deployment_path.is_file()
 
     config_yaml = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     litellm_settings = config_yaml.get("litellm_settings", {})

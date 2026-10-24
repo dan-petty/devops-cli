@@ -16,30 +16,49 @@ pytestmark = pytest.mark.usefixtures("public_dns")
 
 def test_native_ollama_reexports() -> None:
     """Verify devops_cli.ai.models.ollama exports all native classes, helpers, and profiles."""
+    from pydantic_ai.models.ollama import OllamaModel
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.profiles import ModelProfileSpec
+    from pydantic_ai.profiles.cohere import cohere_model_profile
+    from pydantic_ai.profiles.deepseek import deepseek_model_profile
+    from pydantic_ai.profiles.google import google_model_profile
+    from pydantic_ai.profiles.harmony import harmony_model_profile
+    from pydantic_ai.profiles.meta import meta_model_profile
+    from pydantic_ai.profiles.mistral import mistral_model_profile
+    from pydantic_ai.profiles.openai import OpenAIJsonSchemaTransformer, OpenAIModelProfile
+    from pydantic_ai.profiles.qwen import qwen_model_profile
+    from pydantic_ai.providers.ollama import OllamaProvider
+    from pydantic_ai.settings import ModelSettings
+
     import devops_cli.ai.models.ollama as devops_ollama
+    from devops_cli.ai.models.ollama import (
+        create_ollama_model,
+        create_ollama_provider,
+        normalize_ollama_base_url,
+    )
 
     # Core classes
-    assert hasattr(devops_ollama, "OllamaModel")
-    assert hasattr(devops_ollama, "OllamaProvider")
-    assert hasattr(devops_ollama, "OpenAIChatModel")
-    assert hasattr(devops_ollama, "OpenAIJsonSchemaTransformer")
-    assert hasattr(devops_ollama, "OpenAIModelProfile")
-    assert hasattr(devops_ollama, "ModelSettings")
-    assert hasattr(devops_ollama, "ModelProfileSpec")
+    assert devops_ollama.OllamaModel is OllamaModel
+    assert devops_ollama.OllamaProvider is OllamaProvider
+    assert devops_ollama.OpenAIChatModel is OpenAIChatModel
+    assert devops_ollama.OpenAIJsonSchemaTransformer is OpenAIJsonSchemaTransformer
+    assert devops_ollama.OpenAIModelProfile is OpenAIModelProfile
+    assert devops_ollama.ModelSettings is ModelSettings
+    assert devops_ollama.ModelProfileSpec is ModelProfileSpec
 
     # Built-in profile builders
-    assert callable(devops_ollama.qwen_model_profile)
-    assert callable(devops_ollama.deepseek_model_profile)
-    assert callable(devops_ollama.meta_model_profile)
-    assert callable(devops_ollama.mistral_model_profile)
-    assert callable(devops_ollama.google_model_profile)
-    assert callable(devops_ollama.cohere_model_profile)
-    assert callable(devops_ollama.harmony_model_profile)
+    assert devops_ollama.qwen_model_profile is qwen_model_profile
+    assert devops_ollama.deepseek_model_profile is deepseek_model_profile
+    assert devops_ollama.meta_model_profile is meta_model_profile
+    assert devops_ollama.mistral_model_profile is mistral_model_profile
+    assert devops_ollama.google_model_profile is google_model_profile
+    assert devops_ollama.cohere_model_profile is cohere_model_profile
+    assert devops_ollama.harmony_model_profile is harmony_model_profile
 
     # Domain helpers
-    assert callable(devops_ollama.normalize_ollama_base_url)
-    assert callable(devops_ollama.create_ollama_provider)
-    assert callable(devops_ollama.create_ollama_model)
+    assert devops_ollama.normalize_ollama_base_url is normalize_ollama_base_url
+    assert devops_ollama.create_ollama_provider is create_ollama_provider
+    assert devops_ollama.create_ollama_model is create_ollama_model
 
 
 def test_normalize_ollama_base_url() -> None:
@@ -217,9 +236,8 @@ def test_public_package_reexports() -> None:
     import devops_cli.ai.models as models
     import devops_cli.ai.models.ollama as ollama
 
-    for pkg in (ollama, models):
-        assert hasattr(pkg, "OllamaModel")
-        assert hasattr(pkg, "OllamaProvider")
-        assert hasattr(pkg, "create_ollama_model")
-        assert hasattr(pkg, "create_ollama_provider")
-        assert hasattr(pkg, "normalize_ollama_base_url")
+    assert models.OllamaModel is ollama.OllamaModel
+    assert models.OllamaProvider is ollama.OllamaProvider
+    assert models.create_ollama_model is ollama.create_ollama_model
+    assert models.create_ollama_provider is ollama.create_ollama_provider
+    assert models.normalize_ollama_base_url is ollama.normalize_ollama_base_url

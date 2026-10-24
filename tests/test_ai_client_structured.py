@@ -80,6 +80,7 @@ def test_llm_client_inherits_structured_mixin() -> None:
     """Verify LLMClient class is an instance of StructuredOutputMixin."""
     client = _create_mock_client()
     assert isinstance(client, StructuredOutputMixin)
+    assert StructuredOutputMixin in LLMClient.__mro__
 
 
 def test_extract_candidate_json_handles_fences_and_thinking() -> None:

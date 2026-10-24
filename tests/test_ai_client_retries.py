@@ -191,11 +191,9 @@ def test_provider_uses_shared_client_and_retry_transport() -> None:
     )
     shared = client._shared_client()
 
-    assert (
-        shared is client._shared_client(),
-        isinstance(shared._transport, HTTPX2TenacityTransport),
-        egress_level_of(shared._transport),
-    ) == (True, True, EgressLevel.LOOPBACK)
+    assert shared is client._shared_client()
+    assert isinstance(shared._transport, HTTPX2TenacityTransport)
+    assert egress_level_of(shared._transport) == EgressLevel.LOOPBACK
 
 
 def test_provider_http_error_sanitizes_html_error_response() -> None:

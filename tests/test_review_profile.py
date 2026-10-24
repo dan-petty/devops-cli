@@ -332,7 +332,8 @@ def test_profiler_is_isolated_per_block() -> None:
     with profiling() as second:
         pass
 
-    assert (isinstance(first, ReviewProfiler), first is second) == (True, False)
+    assert isinstance(first, ReviewProfiler)
+    assert first is not second
 
 
 def test_written_profiles_reach_the_collecting_benchmark(tmp_path: Path) -> None:

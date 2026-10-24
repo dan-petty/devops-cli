@@ -352,11 +352,9 @@ def test_failed_second_batch_ends_with_exit_1_and_preserves_first_batch(tmp_path
     with pytest.raises(EmbeddingsError) as exc_info:
         indexer.index_workspace(tmp_path, include_kb=False)
 
-    assert (
-        exc_info.value.exit_code == CONST_EXIT_FAILURE
-        and "Failed to embed batch from" in exc_info.value.message
-        and "Gateway 504 Gateway Timeout" in exc_info.value.message
-    )
+    assert exc_info.value.exit_code == CONST_EXIT_FAILURE
+    assert "Failed to embed batch from" in exc_info.value.message
+    assert "Gateway 504 Gateway Timeout" in exc_info.value.message
 
     cached = indexer._load_cache()
     assert len(cached) == 1

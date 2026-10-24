@@ -250,9 +250,11 @@ class TestPydanticAIToolsetsSubsystem:
 
         app_ts = ts.approval_required()
         assert isinstance(app_ts, ApprovalRequiredToolset)
+        assert app_ts.wrapped is ts
 
         def_ts = ts.defer_loading()
         assert isinstance(def_ts, DeferredLoadingToolset)
+        assert def_ts.wrapped is ts
 
     def test_domain_helper_factories(self) -> None:
         """Verify create_function_toolset and extract_tools_from_toolset."""

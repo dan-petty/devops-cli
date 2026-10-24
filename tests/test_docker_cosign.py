@@ -562,14 +562,16 @@ def test_cosign_runner_verify_timeout_wrapped(monkeypatch: pytest.MonkeyPatch) -
 def test_cosign_exceptions_and_models_reexported() -> None:
     """Validate Cosign exceptions and models are exposed through package roots."""
     import devops_cli.exceptions as exceptions_mod
+    import devops_cli.exceptions.docker as docker_exceptions
     import devops_cli.models as models_mod
+    import devops_cli.models.docker as docker_models
 
-    assert hasattr(exceptions_mod, "CosignError")
-    assert hasattr(exceptions_mod, "CosignVerificationError")
-    assert hasattr(models_mod, "DockerSignRequest")
-    assert hasattr(models_mod, "DockerSignResult")
-    assert hasattr(models_mod, "DockerVerifyRequest")
-    assert hasattr(models_mod, "DockerVerifyResult")
+    assert exceptions_mod.CosignError is docker_exceptions.CosignError
+    assert exceptions_mod.CosignVerificationError is docker_exceptions.CosignVerificationError
+    assert models_mod.DockerSignRequest is docker_models.DockerSignRequest
+    assert models_mod.DockerSignResult is docker_models.DockerSignResult
+    assert models_mod.DockerVerifyRequest is docker_models.DockerVerifyRequest
+    assert models_mod.DockerVerifyResult is docker_models.DockerVerifyResult
 
 
 def test_fastmcp_docker_sign_env_handoff() -> None:

@@ -130,9 +130,7 @@ def test_jira_prints_gits_reason_when_git_refuses_the_branch(
 
     result = runner.invoke(branches_app, ["jira", "PROJ-123", "--repo", str(tmp_path)])
 
-    assert (
-        result.exit_code,
-        isinstance(result.exception, SystemExit),
-        "Traceback" in result.output,
-        "'refs/heads/feature' exists" in result.output,
-    ) == (1, True, False, True)
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "Traceback" not in result.output
+    assert "'refs/heads/feature' exists" in result.output

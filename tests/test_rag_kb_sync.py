@@ -338,11 +338,9 @@ def test_rag_status_table_displays_collection_metadata(
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
     output = result.output
-    assert (
-        "devops_docs" in output
-        and "100" in output
-        and "bge-small-en-v1.5" in output
-        and "384" in output
-        and "abcdef0123456789" in output
-        and "2026-10-11 12:00:00" in output
-    )
+    assert "devops_docs" in output
+    assert "100" in output
+    assert "bge-small-en-v1.5" in output
+    assert "384" in output
+    assert "abcdef0123456789" in output
+    assert "2026-10-11 12:00:00" in output

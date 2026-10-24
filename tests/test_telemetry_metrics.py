@@ -44,13 +44,13 @@ def test_metrics_registry_histograms() -> None:
     }
     hist = families["devops_cli_llm_turn_duration_ms"]
     samples = {(s.name, s.labels.get("le")): s.value for s in hist.samples}
+    assert "get_histogram_samples" not in dir(registry)
     assert (
-        hasattr(registry, "get_histogram_samples"),
         hist.type,
         samples[("devops_cli_llm_turn_duration_ms_count", None)],
         samples[("devops_cli_llm_turn_duration_ms_sum", None)],
         samples[("devops_cli_llm_turn_duration_ms_bucket", "+Inf")],
-    ) == (False, "histogram", 2.0, 300.0, 2.0)
+    ) == ("histogram", 2.0, 300.0, 2.0)
 
 
 def test_metrics_export_prometheus_text() -> None:

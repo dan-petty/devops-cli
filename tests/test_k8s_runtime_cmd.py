@@ -43,9 +43,12 @@ def test_k8s_clients_import_error() -> None:
 
 
 def test_k8s_clients_success() -> None:
+    from kubernetes import client as k8s_client
+    from kubernetes import config as k8s_config
+
     cfg, cli = _k8s_clients()
-    assert cfg is not None
-    assert cli is not None
+    assert cfg is k8s_config
+    assert cli is k8s_client
 
 
 def test_run_cmd() -> None:

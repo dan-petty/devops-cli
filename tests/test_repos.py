@@ -211,12 +211,10 @@ def test_repos_clone_org_names_the_missing_organization(
 
     result = cli("repos", "clone-org", "no-such-org", "--base-dir", str(destination))
 
-    assert (
-        result.exit_code,
-        isinstance(result.exception, SystemExit),
-        "HTTP 404" in result.output,
-        destination.exists(),
-    ) == (1, True, True, False)
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "HTTP 404" in result.output
+    assert not destination.exists()
 
 
 def test_repos_clone_rejects_path_traversal_destination(tmp_path: Path) -> None:

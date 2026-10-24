@@ -363,11 +363,9 @@ def test_the_qdrant_secret_helpers_are_gone() -> None:
     import devops_cli.commands.k8s.stack_lifecycle as stack_lifecycle
     import devops_cli.k8s.credentials as credentials
 
-    assert (
-        hasattr(stack_lifecycle, "_ensure_qdrant_api_key_secret"),
-        hasattr(k8s_commands, "_ensure_qdrant_api_key_secret"),
-        hasattr(credentials, "fetch_qdrant_api_key"),
-    ) == (False, False, False)
+    assert "_ensure_qdrant_api_key_secret" not in dir(stack_lifecycle)
+    assert "_ensure_qdrant_api_key_secret" not in dir(k8s_commands)
+    assert "fetch_qdrant_api_key" not in dir(credentials)
 
 
 def test_sync_k8s_credentials_reads_no_llm_secret() -> None:

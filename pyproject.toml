@@ -117,11 +117,10 @@ exclude = ["repos"]
 [tool.ruff.lint]
 # BLE family left out: #423 owns BLE001 and requires triage before enforcement.
 # SIM family left out: readability preference; SIM115 (unclosed file) kept.
-# PT018 left out: #851 decides composite assertion rewrites together with the tuple-assert mandate.
 # C901 is the complexity cap of 10 (standard McCabe, #586).
 select = [
     "E", "F", "I", "N", "W", "UP", "B", "RUF", "ASYNC",
-    "C901", "PGH004", "PGH003", "RUF100", "SIM115", "PT011", "PT015", "PT017",
+    "C901", "PGH004", "PGH003", "RUF100", "SIM115", "PT011", "PT015", "PT017", "PT018",
     "TID251",
     "PLE2502", "PLE2510", "PLE2512", "PLE2513", "PLE2514", "PLE2515",
 ]
