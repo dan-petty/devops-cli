@@ -9,16 +9,18 @@ from typing import Any
 
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.golangci_lint import GolangciLintScanner
 
 logger = logging.getLogger(__name__)
 
 
 def _create_default_scanners() -> list[BaseSecurityScanner]:
-    """Instantiate the 13 built-in security scanners."""
+    """Instantiate the 14 built-in security scanners."""
     from devops_cli.security.bandit import BanditScanner
     from devops_cli.security.checkov import CheckovScanner
     from devops_cli.security.dive import DiveScanner
     from devops_cli.security.gitleaks import GitleaksScanner
+    from devops_cli.security.golangci_lint import GolangciLintScanner
     from devops_cli.security.kubeconform import KubeconformScanner
     from devops_cli.security.kubelinter import KubelinterScanner
     from devops_cli.security.osv_scanner import OsvScanner
@@ -34,6 +36,7 @@ def _create_default_scanners() -> list[BaseSecurityScanner]:
         CheckovScanner(),
         DiveScanner(),
         GitleaksScanner(),
+        GolangciLintScanner(),
         KubeconformScanner(),
         KubelinterScanner(),
         OsvScanner(),
@@ -100,3 +103,9 @@ class ScannerRegistry:
 
 
 global_scanner_registry = ScannerRegistry(auto_load_defaults=True)
+
+__all__ = [
+    "GolangciLintScanner",
+    "ScannerRegistry",
+    "global_scanner_registry",
+]

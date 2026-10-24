@@ -451,6 +451,33 @@ sha256 = "60c5296637e977b28eeda5c7f13573e447659a632922737f94d11fa7e30ad6ca"
 url = "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_darwin_arm64"
 sha256 = "98c460dcd37de25819babd757d04542045b6243113e209edcd4d89fedb0256b4"
 
+[binary.golangci-lint]
+version = "1.64.6"
+description = "Fast Go linters runner"
+source = "https://github.com/golangci/golangci-lint"
+bin = "golangci-lint"
+format = "tar.gz"
+
+[binary.golangci-lint.platforms.linux-amd64]
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-linux-amd64.tar.gz"
+sha256 = "71e290acbacb7b3ba4f68f0540fb74dc180c4336ac8a6f3bdcd7fcc48b15148d"
+member = "golangci-lint-1.64.6-linux-amd64/golangci-lint"
+
+[binary.golangci-lint.platforms.linux-arm64]
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-linux-arm64.tar.gz"
+sha256 = "99a7ff13dec7a8781a68408b6ecb8a1c5e82786cba3189eaa91d5cdcc24362ce"
+member = "golangci-lint-1.64.6-linux-arm64/golangci-lint"
+
+[binary.golangci-lint.platforms.darwin-amd64]
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-darwin-amd64.tar.gz"
+sha256 = "08f9459e7125fed2612abd71596e04d172695921aff82120d1c1e5e9b6fff2a3"
+member = "golangci-lint-1.64.6-darwin-amd64/golangci-lint"
+
+[binary.golangci-lint.platforms.darwin-arm64]
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-darwin-arm64.tar.gz"
+sha256 = "8c10d0c7c3935b8c2269d628b6a06a8f48d8fb4cc31af02fe4ce0cd18b0704c1"
+member = "golangci-lint-1.64.6-darwin-arm64/golangci-lint"
+
 [python.semgrep]
 version = "1.179.0"
 description = "Semgrep static analysis"

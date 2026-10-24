@@ -48,6 +48,7 @@ _REQUIRED_TOOLS = {
     "devcontainers-cli",
     "gh-dash",
     "tuicr",
+    "golangci-lint",
 }
 
 
@@ -255,3 +256,11 @@ def test_renovate_leaves_every_node_tool_to_a_deliberate_bump() -> None:
     renovate = json.loads((REPO_ROOT / ".github" / "renovate.json").read_text(encoding="utf-8"))
 
     assert {"matchManagers": ["npm"], "enabled": False} in renovate["packageRules"]
+
+
+def test_golangci_lint_binary_constant_is_exported() -> None:
+    """BIN_GOLANGCI_LINT is exported by devops_cli.config and commands."""
+    from devops_cli.config import BIN_GOLANGCI_LINT as EXPORTED_BIN
+    from devops_cli.config.commands import BIN_GOLANGCI_LINT
+
+    assert (EXPORTED_BIN, BIN_GOLANGCI_LINT) == ("golangci-lint", "golangci-lint")
