@@ -846,7 +846,7 @@ def validate_k8s_context_name(value: str, label: str = "context name") -> str:
     while rejecting empty strings, control characters, and shell injection tokens.
     """
     clean_val = value.strip()
-    if not clean_val or not re.match(r"^[\w\.\:\-\/@]+$", clean_val):
+    if not clean_val or not re.fullmatch(r"^[\w\.\:\-\/@]+$", clean_val):
         _fail_cli(
             f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters."
         )
@@ -856,7 +856,7 @@ def validate_k8s_context_name(value: str, label: str = "context name") -> str:
 def validate_session_id(session_id: str) -> str:
     """Validate that a review session ID conforms to safe alphanumeric identifier format."""
     clean_id = session_id.strip()
-    if not clean_id or not re.match(r"^[A-Za-z0-9_-]+$", clean_id) or ".." in clean_id:
+    if not clean_id or not re.fullmatch(r"^[A-Za-z0-9_-]+$", clean_id) or ".." in clean_id:
         raise ValidationError(
             f"Invalid review session identifier: {session_id!r}", field="session_id"
         )

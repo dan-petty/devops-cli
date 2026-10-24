@@ -144,7 +144,7 @@ def dashboards_export(
     output: Annotated[Path | None, typer.Option("--output", "-o", help=HELP.options.output)] = None,
 ) -> None:
     """Export a dashboard to JSON."""
-    if not re.match(r"^[a-zA-Z0-9_-]+$", uid):
+    if not re.fullmatch(r"^[a-zA-Z0-9_-]+$", uid):
         print_error(
             ERRORS.grafana.invalid_uid,
             prefix=False,

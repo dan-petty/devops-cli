@@ -292,7 +292,9 @@ def get_latest_git_tag(repo_dir: Path) -> str | None:
 
 def _is_safe_revision(revision: str) -> bool:
     """Whether a revision can be passed to git as one: no option prefix, ref characters only."""
-    return not revision.startswith("-") and CONST_SAFE_GIT_REF_PATTERN.match(revision) is not None
+    return (
+        not revision.startswith("-") and CONST_SAFE_GIT_REF_PATTERN.fullmatch(revision) is not None
+    )
 
 
 def _is_safe_relpath(rel_path: str) -> bool:

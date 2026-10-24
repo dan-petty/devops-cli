@@ -34,7 +34,7 @@ def normalize_domain(domain: str) -> str:
             f"Invalid domain name for template substitution: {domain!r}. "
             "Must be a valid RFC 1123 domain name."
         ) from exc
-    if not norm or not CONST_K8S_SUBDOMAIN_RE.match(norm):
+    if not norm or not CONST_K8S_SUBDOMAIN_RE.fullmatch(norm):
         raise KubernetesContextError(
             f"Invalid domain name for template substitution: {domain!r}. "
             "Must be a valid RFC 1123 domain name."
