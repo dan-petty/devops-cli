@@ -330,7 +330,6 @@ _AGENT_INSTRUCTION_GLOBS = (
     "docs/SDLC.md",
     "docs/TESTING.md",
     "docs/agent/README.md",
-    "docs/agent/tasks/README.md",
     "k8s/README.md",
     "openspec/config.yaml",
     "src/devops_cli/ai/knowledge_base/**/*.md",

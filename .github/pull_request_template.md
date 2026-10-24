@@ -4,7 +4,7 @@
 ---
 
 ## Item
-<!-- Name the one issue this pull request delivers and the task file it adds or changes. `devops pr check-readiness` blocks a pull request whose body closes no issue or several, or that does not change that issue's task file. -->
+<!-- Name the one issue this pull request delivers and its OpenSpec change. Archive the change in the last commit with `uv run devops openspec archive <issue>-<slug>`. `devops pr check-readiness` blocks a pull request whose body closes no issue or several, or that does not add `openspec/changes/archive/<date>-<issue>-<slug>/` for that issue. -->
 Closes #<issue>
 
-Task file: `docs/agent/tasks/task-<issue>-<slug>.md`
+Change: `openspec/changes/<issue>-<slug>/`

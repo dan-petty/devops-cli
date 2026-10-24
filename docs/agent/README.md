@@ -1,10 +1,9 @@
-# Agent Operational Documentation & Task Tracking
+# Agent Operational Documentation
 
-This directory holds the implementation records of delivered items and older history.
+This directory holds the compacted records of the early development phases.
 
 ## Structure
 
-- [`tasks/`](tasks/README.md): The implementation record of each delivered item (`task-<issue>-<slug>.md`), one file for each item, so concurrent branches do not conflict.
-- [`archive/`](archive/): Compacted historical records and development phases from before the per-task files.
+- [`archive/`](archive/): Compacted historical records and development phases.
 
-[`tasks/README.md`](tasks/README.md) holds the rules for a task file.
+An OpenSpec change folder is the record of each item: `openspec/changes/<issue>-<slug>/` while the pull request that delivers the item is open, and `openspec/changes/archive/<date>-<issue>-<slug>/` after it merges ([`openspec/config.yaml`](../../openspec/config.yaml), [ADR 0010](../adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).

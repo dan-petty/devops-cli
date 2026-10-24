@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
 
 _ROUTED = (
-    "docs/agent/tasks/task-1-x.md",
+    "openspec/changes/1-x/tasks.md",
     "docs/commands/ai.md",
     "docs/CLI_REFERENCE.md",
 )
@@ -99,7 +99,7 @@ def _branch(root: Path, git: Callable[..., None], changed: tuple[str, ...]) -> N
 
 
 def test_the_branch_page_builder_keeps_only_reviewable_files() -> None:
-    """Verify a diff touching code, a task file and generated command references gives persona
+    """Verify a diff touching code, a change folder and generated command references gives persona
     pages for the code alone."""
     assert _page_files(diff_blocks(_diff(("src/app.py", *_ROUTED)))) == ["src/app.py"]
 
@@ -175,17 +175,17 @@ def test_a_path_review_hands_its_routed_files_to_the_secret_scan(
 @pytest.fixture
 def secret_scan(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[list[Path]]]:
     """Fake Gitleaks and Semgrep, recording the paths each reads; Gitleaks finds a secret in
-    the task file."""
+    the change folder."""
     seen: dict[str, list[list[Path]]] = {"Gitleaks": [], "Semgrep": []}
 
     def gitleaks(paths: list[Path], **_: Any) -> ScanOutcome:
         seen["Gitleaks"].append(list(paths))
-        hits = [p for p in paths if p.name == "task-1-x.md"]
+        hits = [p for p in paths if p.parent.name == "1-x"]
         return ScanOutcome(
             "ran",
             [
                 Finding(
-                    title="[GITLEAKS:generic-api-key] Secret in a task file",
+                    title="[GITLEAKS:generic-api-key] Secret in a change folder",
                     location=f"{hit}:3",
                     severity="HIGH",
                 )
@@ -208,17 +208,17 @@ def secret_scan(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[list[Path]]]:
 def test_a_routed_file_still_reaches_the_secret_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, secret_scan: dict[str, list[list[Path]]]
 ) -> None:
-    """Verify Gitleaks reads a changed task file the personas never see, Semgrep does not, and
+    """Verify Gitleaks reads a changed plan the personas never see, Semgrep does not, and
     the secret it finds lands in a payload of its own that persona review skips."""
     monkeypatch.chdir(tmp_path)
-    _write(tmp_path, ("src/app.py", "docs/agent/tasks/task-1-x.md"))
+    _write(tmp_path, ("src/app.py", "openspec/changes/1-x/tasks.md"))
     client = MagicMock()
     client._config = None
     orchestrator = ReviewPipelineOrchestrator(
         session_id="s948-routed",
         target_dir=tmp_path,
         llm_client=client,
-        secret_scan_files=["docs/agent/tasks/task-1-x.md"],
+        secret_scan_files=["openspec/changes/1-x/tasks.md"],
     )
 
     payloads = orchestrator.init_per_file_payloads(["src/app.py"], {})
@@ -228,11 +228,13 @@ def test_a_routed_file_still_reaches_the_secret_scan(
         secret_scan["Semgrep"],
         {p.file_path: [f.title for f in p.findings] for p in payloads},
     ) == (
-        [[tmp_path / "src/app.py", tmp_path / "docs/agent/tasks/task-1-x.md"]],
+        [[tmp_path / "src/app.py", tmp_path / "openspec/changes/1-x/tasks.md"]],
         [[tmp_path / "src/app.py"]],
         {
             "src/app.py": [],
-            "docs/agent/tasks/task-1-x.md": ["[GITLEAKS:generic-api-key] Secret in a task file"],
+            "openspec/changes/1-x/tasks.md": [
+                "[GITLEAKS:generic-api-key] Secret in a change folder"
+            ],
         },
     )
 
@@ -243,12 +245,12 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
     monkeypatch: pytest.MonkeyPatch,
     secret_scan: dict[str, list[list[Path]]],
 ) -> None:
-    """Verify a branch that touches only a task file calls no model and never reaches the
-    persona loop, still scans the task file for secrets, and says nothing was left for the
+    """Verify a branch that touches only a change folder calls no model and never reaches the
+    persona loop, still scans the change folder for secrets, and says nothing was left for the
     personas. The page builder yielded one empty page, the orchestrator found no files, and the
     legacy engine sent that page to the model."""
     root = tmp_path / "project"
-    _branch(root, git, ("docs/agent/tasks/task-1-x.md",))
+    _branch(root, git, ("openspec/changes/1-x/tasks.md",))
     pages, title, target, base_revision = _prepare_branch_content("feature", "main", root)
     model = MagicMock(spec=ReviewLLMClient)
     printed: list[str] = []
@@ -272,7 +274,7 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
         model.method_calls,
         secret_scan["Gitleaks"],
         any("Nothing is left for the personas" in line for line in printed),
-    ) == ([], [[root / "docs/agent/tasks/task-1-x.md"]], True)
+    ) == ([], [[root / "openspec/changes/1-x/tasks.md"]], True)
 
 
 def _review_routed_branch(
@@ -281,9 +283,9 @@ def _review_routed_branch(
     monkeypatch: pytest.MonkeyPatch,
     stage_flags: ReviewStageFlags | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
-    """Review a branch touching only a task file; what was printed, and findings.json."""
+    """Review a branch touching only a change folder; what was printed, and findings.json."""
     root = tmp_path / "project"
-    _branch(root, git, ("docs/agent/tasks/task-1-x.md",))
+    _branch(root, git, ("openspec/changes/1-x/tasks.md",))
     pages, title, target, base_revision = _prepare_branch_content("feature", "main", root)
     printed: list[str] = []
     monkeypatch.setattr(
@@ -308,7 +310,7 @@ def _review_routed_branch(
 def test_a_secret_in_a_routed_file_keeps_its_severity(
     tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify a secret Gitleaks finds in a task file is reported at the severity
+    """Verify a secret Gitleaks finds in a change folder is reported at the severity
     Gitleaks gave it. A document cap once made it LOW, hidden from the terminal, while the same
     secret in `src/` stayed HIGH."""
 

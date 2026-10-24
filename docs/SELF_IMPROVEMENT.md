@@ -159,7 +159,7 @@ follow those steps, and the calibration records under step 3 are what each sessi
 
 - Judge against universal standards (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target's own conventions (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.devops/review.md`); one project's rules are never imposed on another (`ai/tasks/review.md:7`).
 - Lockfiles record exact versions. Dependency advisories come from the scanners; a reviewer never cites a CVE or GHSA identifier from memory (`ai/tasks/review.md:8`).
-- Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`). A finding about a test itself is a test that cannot fail, while a real credential or a genuine vulnerability in a test file is still a finding. Roadmaps, changelogs, task files and decision records get no findings.
+- Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`). A finding about a test itself is a test that cannot fail, while a real credential or a genuine vulnerability in a test file is still a finding. Changelogs, change folders, specs and decision records get no findings.
 - The threat model is the project's when its conventions state one. Otherwise `review.md` gives every persona a default (`ai/tasks/review.md:36`), and the DevSecOps persona states its own (`ai/personas/devsecops/prompt.md:1-5`): network and fetched content, model output, PR and issue text, repositories under review, Kubernetes and cloud API data, server requests and MCP or tool-call arguments are untrusted; the operator, their config, environment and arguments, and values the code builds are trusted. A vulnerability is a path the reviewer can quote: the untrusted source, the sink and the missing check between them. When it cannot quote them, it returns no finding.
 
 ### 2. Inspect
@@ -247,7 +247,7 @@ This session evaluated `release/v0.2.23` across 669 files, producing 174 finding
 | Use of untrusted dependency `httpx2` in `tests/test_ai_served_by.py:10` (CRITICAL) | `httpx2` is an approved modern HTTP/2 client library declared in `pyproject.toml` and verified by lockfile integrity. Prohibited by `AGENTS.md`. `verify_ground_truth_hallucination` had a gap that skipped `DEPENDENCY_ECOSYSTEM` verification. |
 | Hardcoded password `<masked-password>` in `src/devops_cli/ai/run_store.py:227` (CRITICAL) | The review prompt sanitizer masked `password=password` with `<masked-password>`, which the reviewer flagged as a hardcoded credential. Line 227 contains parameter `password: str \| None`, with zero string literals. |
 | Hardcoded API key `sk-gateway` in `tests/test_ai_gateway.py:477` (HIGH) | Synthetic test mock fixture token in unit tests. `CONST_FIXTURE_CREDENTIAL_KEYWORDS` lacked API key variants. |
-| Incorrect assertion logic in `tests/test_agent_task_files.py:29` (HIGH) | A tuple equality (`assert (a, b, c) == (...)`) compares every element, so the assertion was correct. `AGENTS.md` then mandated such tuples to cap complexity; [`docs/TESTING.md`](TESTING.md) has since replaced that rule, because Ruff's C901 does not count asserts. |
+| Incorrect assertion logic in `tests/test_agent_task_files.py:29` (deleted in #1847) (HIGH) | A tuple equality (`assert (a, b, c) == (...)`) compares every element, so the assertion was correct. `AGENTS.md` then mandated such tuples to cap complexity; [`docs/TESTING.md`](TESTING.md) has since replaced that rule, because Ruff's C901 does not count asserts. |
 | Insecure default URL for LightLLM (`DEFAULT_LIGHTLLM_URL`) (HIGH) | `AGENTS.md` explicitly mandates committed templates and defaults use localhost/loopback (`http://localhost:8000/v1`) to prevent private LAN or homelab leaks. |
 | Process signal check race condition in `src/devops_cli/commands/ci.py:189` (HIGH) | Standard POSIX `os.kill(pid, 0)` is the canonical Python idiom to check process liveness without delivering a signal. |
 | Inconsistent CLI flag naming in `src/devops_cli/ai/mcp/server.py:2845` (MEDIUM) | `devops-cli` is active alpha software prior to release 1.0.0 with an explicit zero backwards compatibility guarantee. |
@@ -271,7 +271,7 @@ This session evaluated `release/v0.2.24` across 1,029 files, producing 293 findi
 
 | Claim | Why it was false / Remediated |
 | --- | --- |
-| Hardcoded OpenAI API key in `docs/agent/tasks/task-*.md` (13 findings, CRITICAL/HIGH) | The fallback secret regex `sk-[A-Za-z0-9-_]{32,128}` was unanchored and allowed hyphens in key body, causing task filenames like `task-677-prepare-release-v0.2.23.md` (where "task" ends in "sk-") to trigger false positives. Remediated in `gitleaks.py` with `\b` word boundaries, strict pattern `\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b`, and `_is_placeholder_secret` filtering. |
+| Hardcoded OpenAI API key in the task files (`task-*.md`, deleted in #1847) (13 findings, CRITICAL/HIGH) | The fallback secret regex `sk-[A-Za-z0-9-_]{32,128}` was unanchored and allowed hyphens in key body, causing task filenames like `task-677-prepare-release-v0.2.23.md` (where "task" ends in "sk-") to trigger false positives. Remediated in `gitleaks.py` with `\b` word boundaries, strict pattern `\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b`, and `_is_placeholder_secret` filtering. |
 | Insecure HTTP communication for internal LLM services (`http://ollama:*`, `http://vllm:*`) (HIGH) | Internal container-to-container and pod-to-pod networking within private Kubernetes cluster perimeters operates over plaintext HTTP by design. Broadened `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP` in `common_hallucinations.json` and verification prompts. |
 | Potential SSRF in offline cost calculation (`src/devops_cli/ai/spend/pricing.py:71`) (HIGH) | Lexical URL parsing via `urllib.parse.urlsplit` in offline token pricing ledgers classifies local vs. cloud models in memory without performing network requests. Disarmed via `HALLUCINATION-OFFLINE-PRICING-URLSPLIT`. |
 | Missing mitigation controls in security audit ledger (`src/devops_cli/commands/audit.py`) (HIGH) | Audit and telemetry ledgers initialize dynamically with `mitigations = []`. Disarmed via `HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY`. |
@@ -376,7 +376,7 @@ This session evaluated repository review telemetry `/workspaces/devops-cli/.data
 | Overly Broad Retry Logic in Sync/Async Transport in `src/devops_cli/ai/retries/__init__.py:92, 123` (HIGH) | **False Positive**: `default_validate` raises `HTTPStatusError`, which Tenacity filters using `is_retryable_status_code`; client errors are not retried. Misaligned rule category `syntax_grammar` caused catalog matcher to discard rule. |
 | Unencrypted Internal Service Endpoint in `.devcontainer/devcontainer.json` (HIGH) | **False Positive**: Internal cluster overlay URLs communicating across local devcontainer port bridges operate over plaintext HTTP by design. |
 | Missing LightLLM Backend URL Resolution in `src/devops_cli/ai/gateway.py:574` (MEDIUM) | **False Positive**: LightLLM was deliberately decommissioned from `CONST_AI_BACKENDS` under pre-1.0 zero backwards compatibility standards. |
-| Task Document Formatting Artifacts & Duplication in `docs/agent/tasks/` (MEDIUM/LOW) | **Remediated**: Cleaned up duplicated description sections and stray asterisks in `task-686`, `task-696`, `task-697`, `task-698`, `task-702`, `task-703`, `task-707`, `task-709`, `task-710`, `task-711`. |
+| Task Document Formatting Artifacts & Duplication in the task files (deleted in #1847) (MEDIUM/LOW) | **Remediated**: Cleaned up duplicated description sections and stray asterisks in `task-686`, `task-696`, `task-697`, `task-698`, `task-702`, `task-703`, `task-707`, `task-709`, `task-710`, `task-711`. |
 
 Systemic hardening updates resulting from this session:
 1. **Hardened Tautological Criteria Gate (`review_environment.py` & `constants.py`)**: Defined canonical `CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS` in `config/constants.py` and updated `_is_tautological_verification_command` to intercept static prints (`print('...successfully')`, `print('Method exists...')`, `print('...validates input')`), symbol existence checks, and reflection introspection, preventing tautological exit 0 commands from promoting false findings.
@@ -501,8 +501,8 @@ only counts LOW and INFO ones (`ai/review/pipeline.py:3706-3729`); `review.md` h
 ### Step 2: Ground the Work in an Issue
 
 Every remediation has a GitHub issue: find it, or file one with `devops gh issues create`. The
-task file, `docs/agent/tasks/task-<issue>-<slug>.md`, is written in the pull request that delivers
-the work.
+pull request that delivers the work plans it as the OpenSpec change
+`openspec/changes/<issue>-<slug>/` and archives that change in its last commit.
 
 ### Step 3: Author Regression Tests First (Living Contract)
 
@@ -843,9 +843,7 @@ models; the gate never runs it.
                        any(r.upper().startswith(("CVE-", "GHSA-")) for r in x["references"]) for x in f
                    ),
                    tests=sum(p(x).startswith("tests/") for x in f),
-                   planning=sum(
-                       bool(re.search(r"ROADMAP|CHANGELOG|docs/agent/tasks", p(x))) for x in f
-                   ),
+                   planning=sum(bool(re.search(r"CHANGELOG|openspec/", p(x))) for x in f),
                    masked=sum("<masked-" in x["title"] + x["description"] for x in f),
                    syntax=sum("syntax" in (x["title"] + x["description"]).lower() for x in f),
                    no_code_fix=sum("`" not in (x["fix"] or "") for x in f),
@@ -878,7 +876,7 @@ models; the gate never runs it.
 
 9. **Planning documents** never enter a corpus, since they have no injection site. Measure them
    with a known-negative run from each checkout, where every finding is a false positive:
-   `devops review benchmark CHANGELOG.md docs/agent/tasks -n 3`.
+   `devops review benchmark CHANGELOG.md openspec -n 3`.
 
 The prompt digest covers `ai/tasks/` and `ai/personas/`, not `.devops/review.md`, so the
 conventions swap in steps 3 and 4 is part of measuring B, not an option. To isolate the prompt
@@ -968,11 +966,12 @@ evidence. The gate calls no model, so it cannot score recall; a person runs this
    keeps the scanners, as that session did. Bandit failed in that session (#1009) and runs on
    these 15 files, so count its findings apart. A path review reads whole files where that branch
    review read diffs, so when B misses the bar, the same review from A gives a like-for-like
-   baseline.
+   baseline. The command passes ADR 0001, another planning document, in place of the task file
+   that the session reviewed, because #1847 deleted the task files.
 
    ```sh
    cd $R/t
-   DEVOPS_CLI_DATA_DIR=$R/data-precision uv run --project $R/b devops review path .github/project-template.json docs/agent/tasks/task-593-reviews-compute-their-own-symbol-delta.md k8s/cloudflared/deployment.yaml k8s/monitoring/service-aliases.yaml src/devops_cli/ai/mcp/server.py src/devops_cli/ai/rag/indexer.py src/devops_cli/ai/rag/qdrant.py src/devops_cli/ai/spend/pricing.py src/devops_cli/config/settings.py src/devops_cli/docs/generator.py src/devops_cli/github/metrics.py tests/test_ai_request_priority.py tests/test_batch_2_review_defects.py tests/test_review_prompt_consistency.py tests/test_telemetry_profile.py --no-cache
+   DEVOPS_CLI_DATA_DIR=$R/data-precision uv run --project $R/b devops review path .github/project-template.json docs/adr/0001-github-is-the-roadmap-source.md k8s/cloudflared/deployment.yaml k8s/monitoring/service-aliases.yaml src/devops_cli/ai/mcp/server.py src/devops_cli/ai/rag/indexer.py src/devops_cli/ai/rag/qdrant.py src/devops_cli/ai/spend/pricing.py src/devops_cli/config/settings.py src/devops_cli/docs/generator.py src/devops_cli/github/metrics.py tests/test_ai_request_priority.py tests/test_batch_2_review_defects.py tests/test_review_prompt_consistency.py tests/test_telemetry_profile.py --no-cache
    ```
 
 6. **Where the restored classes reach.** The files of step 5 hold no NetworkPolicy, Ingress,

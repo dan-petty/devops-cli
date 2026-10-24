@@ -67,14 +67,15 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 
 #### Operational Requirements
 1. **Planning Artifacts**:
-   - Plan a multi-step or architectural change as an OpenSpec change ([`openspec/config.yaml`](../openspec/config.yaml), [ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
+   - Plan every item as an OpenSpec change, `openspec/changes/<issue>-<slug>/` ([`openspec/config.yaml`](../openspec/config.yaml), [ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)). The change folder is the only in-repo record of the item. The proposal records the feasibility check and the existing tool considered.
+   - The pull request that closes the issue archives the change in its last commit with `uv run devops openspec archive <change>`, after every task is ticked. `devops pr check-readiness` blocks a pull request that does not add `openspec/changes/archive/<date>-<issue>-<slug>/` for its issue. It also blocks a pull request that writes `openspec/specs/` or another issue's archived folder.
 2. **Roadmap & Backlog Synchronization**:
    - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake checks it for a duplicate, gives it its type, Priority, Value and Effort, and puts it in the backlog. Never set a milestone or priority on a new issue: a person plans the milestones on the board.
    - The Value and Effort intake sets place each item in the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
 3. **Milestones Are Planning Buckets**:
    - A person groups items into milestones on the GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`). A milestone never names a version, and no release reads one.
 4. **Status Lives on GitHub**:
-   - The project board holds the Status of each item (ADR 0001), and GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and the Issues views (`https://github.com/dan-petty/devops-cli/issues/views`) show it. A task file holds no status ([`docs/agent/tasks/README.md`](agent/tasks/README.md)).
+   - The project board holds the Status of each item (ADR 0001), and GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and the Issues views (`https://github.com/dan-petty/devops-cli/issues/views`) show it. A change folder holds no status, milestone, priority or pull request number (`tests/test_change_folders.py`).
 5. **Topic Branch Creation**:
    - Fetch the remote (`git fetch origin`).
    - Create an isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/main`.
@@ -227,7 +228,7 @@ flowchart LR
 - **Group Model Analysis**: Bounded model analysis for admitted finding groups, grounded in installed-version rule documentation and secret-masked code excerpts.
 - **Knowledge Base Fact Grounding**: Findings and remediations cross-reference the DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`) to eliminate false alarms (such as flagging verified dependencies like `httpx2` as suspicious).
 - **Verdicts & Feedback Loop**: No model verifies a finding. A person records a verdict with `devops review verify`, a label on that session's files that ranks review history and nothing else, and `devops review export-feedback` appends every verdict to the feedback dataset (`.data/feedback_dataset.jsonl`). A false positive that recurs becomes a reviewed `[[suppressions]]` entry in `.devops/review.toml`, with a reason and an expiry.
-- **Path Routing**: Path, branch and pull request reviews keep lockfiles, planning documents (`CHANGELOG.md`, `docs/agent/tasks/`, `docs/adr/`, `openspec/`) and generated references (`docs/commands/*.md`, `docs/CLI_REFERENCE.md`) off persona pages. The secret scan still reads them, and a secret it finds there keeps its severity: `[severity_caps]` in `.devops/review.toml` caps a scanner finding by its path class, never a secret; a change made only of such files calls no model.
+- **Path Routing**: Path, branch and pull request reviews keep lockfiles, planning documents (`CHANGELOG.md`, `docs/adr/`, `openspec/`) and generated references (`docs/commands/*.md`, `docs/CLI_REFERENCE.md`) off persona pages. The secret scan still reads them, and a secret it finds there keeps its severity: `[severity_caps]` in `.devops/review.toml` caps a scanner finding by its path class, never a secret; a change made only of such files calls no model.
 - **Executive Summary & Pattern Synthesis**: Review reports (`review.md`) lead with an Executive Summary statement detailing:
   - The reported findings counted by status, each with its severities: verified and unverified, then, listed apart, the mitigated ones. Findings rank verified first, then by severity, location and title; a model's confidence plays no part.
   - The defect classes that recur among verified findings, most severe first. A finding's category is the CWE it cites or a class from a closed taxonomy. A persona's finding is reported unverified until a person judges it, and a scanner finding's severity is its tool's, capped at admission by its path class's `[severity_caps]` entry unless it is a secret.

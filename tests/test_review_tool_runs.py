@@ -174,8 +174,8 @@ _REVIEW_SCANS: list[tuple[str, ScanOver]] = [
 ]
 
 # The file names that each review scan names for its tool, config files first and ruleset files
-# second. The survey in `docs/agent/tasks/task-772-the-review-records-each-tool-run.md` gives the
-# reason for each: it ran the real tools under strace and read the files they opened.
+# second. The survey of #772 gives the reason for each: it ran the real tools under strace and
+# read the files they opened.
 _READS: dict[str, tuple[list[str], list[str]]] = {
     "bandit": ([".bandit"], []),
     "gitleaks": (["gitleaks.toml", ".gitleaksignore"], []),
@@ -226,7 +226,7 @@ def test_ruff_names_every_config_file_it_may_read_from_the_nearest_directory_up_
 ) -> None:
     """Ruff finds its config by looking in the directory of each file and in each directory above
     it. The request names them, nearest first, and stops at the tree. Ruff also applies a file above
-    the tree, and the direct executor does not record it (see the task file)."""
+    the tree, and the direct executor does not record it (the survey of #772)."""
     (tree / "pkg").mkdir()
     (tree / "pkg" / "mod.py").write_text("x = 1\n", encoding="utf-8")
     (tree / "pkg" / "ruff.toml").write_text("line-length = 99\n", encoding="utf-8")

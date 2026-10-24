@@ -38,9 +38,9 @@ def _readiness_gh(
     pr_payload: str = "{}", routes: dict[str, MagicMock] | None = None
 ) -> Callable[..., MagicMock]:
     """Answer `run_gh` by the longest route its arguments name, so the roadmap config's
-    `/contents/.github/roadmap.toml` is not the task directory's `/contents/`.
+    `/contents/.github/roadmap.toml` is not the change directory's `/contents/`.
 
-    Unless `routes` says otherwise the repository keeps no task files and the PR changes no
+    Unless `routes` says otherwise the repository keeps no change folders and the PR changes no
     files; anything unrouted gets the PR payload.
     """
     replies = {"/contents/": _NOT_FOUND, "/files?": _gh_reply([]), **(routes or {})}
@@ -2019,7 +2019,7 @@ def _file(filename: str, status: str = "modified") -> dict[str, str]:
 
 _OWN_REPO = "dan-petty/devops-cli"
 _REPO = {"full_name": _OWN_REPO, "default_branch": "main"}
-_TASK_704 = _file("docs/agent/tasks/task-704-x.md")
+_ARCHIVE_704 = _file("openspec/changes/archive/2026-10-23-704-x/proposal.md", "added")
 _BOARD = 2
 
 
@@ -2048,10 +2048,10 @@ def _closing(*issues: dict[str, object], total: int | None = None) -> MagicMock:
 
 
 _CLOSING_ROUTE = "closingIssuesReferences"
-# The base keeps task files, the PR changes #704's, and #704 is open and on the board.
+# The base keeps change folders, the PR archives #704's, and #704 is open and on the board.
 _GROUNDED = {
     "/contents/": _gh_reply(),
-    "/files?": _gh_reply([_TASK_704]),
+    "/files?": _gh_reply([_ARCHIVE_704]),
     _CLOSING_ROUTE: _closing(_closing_issue()),
 }
 
@@ -2144,18 +2144,20 @@ def test_a_clean_pull_request_reports_ready() -> None:
 
 
 # =============================================================================
-# Grounding: one open issue on the board, closed into the default branch, and its task file
+# Grounding: one open issue on the board, closed into the default branch, and its archived change
 # =============================================================================
+
+_ARCHIVE = "openspec/changes/archive"
 
 
 def _grounding_gh(
-    files: object, *, task_dir: MagicMock | None = None, closing: MagicMock | None = None
+    files: object, *, changes_dir: MagicMock | None = None, closing: MagicMock | None = None
 ) -> MagicMock:
-    """A recording `run_gh` stub for a base with task files, this list of changed files, and the
-    issues the PR closes, open #704 on the board unless `closing` says otherwise."""
+    """A recording `run_gh` stub for a base with change folders, this list of changed files, and
+    the issues the PR closes, open #704 on the board unless `closing` says otherwise."""
     files_reply = files if isinstance(files, MagicMock) else _gh_reply(files)
     routes = {
-        "/contents/": task_dir or _gh_reply(),
+        "/contents/": changes_dir or _gh_reply(),
         "/files?": files_reply,
         _CLOSING_ROUTE: closing or _closing(_closing_issue()),
     }
@@ -2165,83 +2167,157 @@ def _grounding_gh(
 @pytest.mark.parametrize(
     ("issue", "files"),
     [
-        (704, [_TASK_704]),
-        (704, [_file("docs/agent/tasks/task-704-x.md", "added")]),
-        (704, [_file("docs/agent/tasks/task-704-x.md", "renamed")]),
-        (89, [_file("src/x.py"), _file("docs/agent/tasks/task-089-x.md")]),
+        (704, [_ARCHIVE_704]),
+        (704, [_file(f"{_ARCHIVE}/2026-10-23-704-x/tasks.md", "renamed")]),
+        (704, [_file(f"{_ARCHIVE}/2026-10-23-704-x/design.md", "copied")]),
+        (89, [_file("src/x.py"), _file(f"{_ARCHIVE}/2026-10-23-089-x/proposal.md", "added")]),
+        (
+            704,
+            [
+                _file("openspec/changes/704-x/proposal.md", "removed"),
+                _file(f"{_ARCHIVE}/2026-10-23-704-x/proposal.md", "added"),
+                _file("openspec/specs/widget/spec.md", "added"),
+                _file("openspec/specs/export/spec.md", "modified"),
+            ],
+        ),
     ],
-    ids=["modified", "added", "renamed", "zero-padded-089"],
+    ids=["added", "renamed", "copied", "zero-padded-089", "with-the-living-specs-it-writes"],
 )
-def test_grounding_passes_a_pr_closing_one_open_board_issue_with_its_task_file(
+def test_grounding_passes_a_pr_that_archives_the_change_of_its_issue(
     issue: int, files: list[dict[str, str]]
 ) -> None:
-    """A PR into the default branch that closes one open issue on the board and writes that
-    issue's task file is grounded."""
+    """A PR into the default branch that closes one open issue on the board and adds that
+    issue's archived change folder is grounded, with the living specs its archive wrote."""
     gh = _grounding_gh(files, closing=_closing(_closing_issue(issue)))
     assert _blockers(_ready_pr(), gh=gh) == []
+
+
+def _not_archived(change: str = "704-<slug>") -> str:
+    """The blocker of a PR that closes #704 and adds no archived folder for it."""
+    return (
+        f"PR #335 is not grounded: it adds no {_ARCHIVE}/<date>-{change}/ for #704. Archive "
+        f"the change in the last commit of the PR with uv run devops openspec archive {change}."
+    )
+
+
+def _writes_a_record(paths: str, change: str = "704-<slug>") -> str:
+    """The blocker of a PR that closes #704 and changes `paths`, which only its own archive may."""
+    return (
+        f"PR #335 is not grounded: it changes {paths}. Only the archive of the change of #704 "
+        f"writes openspec/specs/ and {_ARCHIVE}/, and only in {_ARCHIVE}/<date>-{change}/."
+    )
+
+
+@pytest.mark.parametrize(
+    ("files", "blockers"),
+    [
+        ([_file("src/x.py")], [_not_archived()]),
+        ([_file("openspec/changes/704-x/proposal.md", "added")], [_not_archived("704-x")]),
+        (
+            [_file(f"{_ARCHIVE}/2026-10-23-704-x/proposal.md", "modified")],
+            [_not_archived()],
+        ),
+        ([_file(f"{_ARCHIVE}/2026-10-23-704-x/proposal.md", "removed")], [_not_archived()]),
+        (
+            [_file(f"{_ARCHIVE}/2026-10-23-705-x/proposal.md", "added")],
+            [_not_archived(), _writes_a_record(f"{_ARCHIVE}/2026-10-23-705-x/proposal.md")],
+        ),
+        (
+            [_file("openspec/specs/widget/spec.md", "modified")],
+            [_not_archived(), _writes_a_record("openspec/specs/widget/spec.md")],
+        ),
+        (
+            [_ARCHIVE_704, _file(f"{_ARCHIVE}/2026-10-01-705-y/tasks.md", "modified")],
+            [_writes_a_record(f"{_ARCHIVE}/2026-10-01-705-y/tasks.md", "704-x")],
+        ),
+        (
+            [_ARCHIVE_704, _file(f"{_ARCHIVE}/.gitkeep", "removed")],
+            [_writes_a_record(f"{_ARCHIVE}/.gitkeep", "704-x")],
+        ),
+        (
+            [
+                _file("openspec/changes/704-x/proposal.md", "added"),
+                _file("openspec/changes/704-x/tasks.md", "added"),
+            ],
+            [_not_archived("704-x")],
+        ),
+    ],
+    ids=[
+        "no-change-folder",
+        "an-active-change",
+        "an-archived-folder-the-base-holds",
+        "its-archived-folder-removed",
+        "the-archived-folder-of-another-issue",
+        "a-spec-without-the-archive",
+        "another-issues-archive-changed",
+        "a-file-of-the-archive-directory",
+        "one-blocker-for-the-files-of-one-change",
+    ],
+)
+def test_grounding_blocks_a_pr_that_does_not_archive_its_change_naming_the_folder(
+    files: list[dict[str, str]], blockers: list[str]
+) -> None:
+    """A PR that closes #704 adds #704's archived change folder, and only that archive writes the
+    living specs and the archive. Each blocker names the folder readiness expects, with the
+    PR's own change when it has one, or each file only the archive may write."""
+    assert _blockers(_ready_pr(), gh=_grounding_gh(files)) == blockers
 
 
 @pytest.mark.parametrize(
     ("closing", "files", "cause"),
     [
-        (_closing(), [_TASK_704], "it closes no issue. Put Closes #<issue> in its body"),
+        (_closing(), [_ARCHIVE_704], "it closes no issue. Put Closes #<issue> in its body"),
         (
             _closing(_closing_issue(1), _closing_issue(2)),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "it closes 2 issues (#1, #2), and a PR delivers exactly one.",
         ),
         (
             _closing(_closing_issue(1), _closing_issue(2), total=12),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "it closes 12 issues (#1, #2)",
         ),
         (
             _closing(_closing_issue(repo="other/project")),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "it closes other/project#704, which is not an issue of dan-petty/devops-cli.",
         ),
         (
             _closing(_closing_issue(state="CLOSED")),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "it closes #704, which is not open.",
         ),
         (
             _closing(_closing_issue(boards=(("dan-petty", 9),))),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "#704 is not on the roadmap board, project 2.",
         ),
         (
             _closing(_closing_issue(boards=(("someone-else", _BOARD),))),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "#704 is not on the roadmap board, project 2.",
-        ),
-        (
-            _closing(_closing_issue()),
-            [_file("docs/agent/tasks/task-705-x.md")],
-            "renames no docs/agent/tasks/task-704-*.md for #704",
-        ),
-        (
-            _closing(_closing_issue()),
-            [_file("docs/agent/tasks/task-704-x.md", "removed")],
-            "renames no docs/agent/tasks/task-704-*.md for #704",
         ),
         (
             _closing(_closing_issue()),
             _SERVER_ERROR,
             "could not be read (gh: Server Error (HTTP 500))",
         ),
-        (_SERVER_ERROR, [_TASK_704], "the issues it closes could not be read (gh: Server Error"),
+        (_SERVER_ERROR, [_ARCHIVE_704], "the issues it closes could not be read (gh: Server Error"),
         (
             _gh_reply({"errors": [{"message": "Something went wrong"}]}),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "the issues it closes could not be read (Something went wrong).",
         ),
         (
             _gh_reply({"data": {"repository": None}}),
-            [_TASK_704],
+            [_ARCHIVE_704],
             "the issues it closes could not be read (malformed reply:",
         ),
-        (_gh_reply("not json"), [_TASK_704], "the issues it closes could not be read (malformed"),
+        (
+            _gh_reply("not json"),
+            [_ARCHIVE_704],
+            "the issues it closes could not be read (malformed",
+        ),
     ],
     ids=[
         "no-closing-reference",
@@ -2251,8 +2327,6 @@ def test_grounding_passes_a_pr_closing_one_open_board_issue_with_its_task_file(
         "closed-issue",
         "issue-on-another-board",
         "issue-on-another-owners-board",
-        "another-issues-task-file",
-        "task-file-removed",
         "files-unreadable",
         "closing-issues-unreadable",
         "closing-issues-graphql-error",
@@ -2270,7 +2344,7 @@ def test_grounding_blocks_once_and_names_the_cause(
 
 def test_an_invalid_roadmap_config_is_one_blocker(roadmap_board: InMemoryRoadmapStore) -> None:
     roadmap_board.seed_file(CONST_ROADMAP_CONFIG_PATH, "board = 0\n")
-    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704]))
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704]))
     assert blockers == [
         "PR #335 is not grounded: the roadmap board in .github/roadmap.toml could not be read "
         "(.github/roadmap.toml: board: Input should be greater than or equal to 1)."
@@ -2279,7 +2353,7 @@ def test_an_invalid_roadmap_config_is_one_blocker(roadmap_board: InMemoryRoadmap
 
 @pytest.mark.usefixtures("unreadable_github_roadmap")
 def test_a_roadmap_config_github_cannot_read_is_one_blocker() -> None:
-    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704]))
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704]))
     assert [
         "the roadmap board in .github/roadmap.toml could not be read (" in blocker
         for blocker in blockers
@@ -2289,7 +2363,7 @@ def test_a_roadmap_config_github_cannot_read_is_one_blocker() -> None:
 def test_a_pr_into_another_branch_is_one_blocker_naming_the_default_branch() -> None:
     """GitHub closes an issue only when its PR merges into the default branch, so a PR into any
     other branch is held there, and its issues are not read."""
-    gh = _grounding_gh([_TASK_704])
+    gh = _grounding_gh([_ARCHIVE_704])
     base = {"ref": "feat/stacked", "sha": "b" * 40, "repo": _REPO}
     blockers = _blockers(_ready_pr(base=base), gh=gh)
     sent = [" ".join(call.args[0]) for call in gh.call_args_list]
@@ -2304,19 +2378,19 @@ def test_a_pr_into_another_branch_is_one_blocker_naming_the_default_branch() -> 
 
 def test_a_pr_whose_repository_names_no_default_branch_is_one_blocker() -> None:
     base = {"ref": "main", "sha": "b" * 40, "repo": {"full_name": _OWN_REPO}}
-    blockers = _blockers(_ready_pr(base=base), gh=_grounding_gh([_TASK_704]))
+    blockers = _blockers(_ready_pr(base=base), gh=_grounding_gh([_ARCHIVE_704]))
     assert blockers == [
         "PR #335 is not grounded: GitHub names no default branch for dan-petty/devops-cli."
     ]
 
 
-def test_grounding_skips_a_base_without_task_files() -> None:
-    """A 404 for `docs/agent/tasks` means the repository keeps none, so nothing is required.
+def test_grounding_skips_a_base_without_change_folders() -> None:
+    """A 404 for `openspec/changes` means the repository keeps none, so nothing is required.
 
     None of the other repositories devops-cli manages has the directory, and a file list that
     can't be read there is a warning, not a blocker.
     """
-    gh = _grounding_gh(_SERVER_ERROR, task_dir=_NOT_FOUND)
+    gh = _grounding_gh(_SERVER_ERROR, changes_dir=_NOT_FOUND)
     with patch("devops_cli.commands.pr.print_warning") as warn:
         blockers = _blockers(_ready_pr(body="", base={"ref": "feat/x", "repo": _REPO}), gh=gh)
     assert (blockers, warn.call_count, "Could not read the files" in str(warn.call_args)) == (
@@ -2326,11 +2400,11 @@ def test_grounding_skips_a_base_without_task_files() -> None:
     )
 
 
-def test_grounding_blocks_when_the_task_directory_lookup_fails() -> None:
+def test_grounding_blocks_when_the_change_directory_lookup_fails() -> None:
     """Only a 404 rules grounding out; any other failure is a blocker that names it."""
-    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704], task_dir=_SERVER_ERROR))
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704], changes_dir=_SERVER_ERROR))
     assert blockers == [
-        "PR #335 is not grounded: docs/agent/tasks/ could not be read at its base "
+        "PR #335 is not grounded: openspec/changes/ could not be read at its base "
         "(gh: Server Error (HTTP 500))."
     ]
 
@@ -2339,12 +2413,12 @@ def test_grounding_reads_the_files_the_base_the_closing_issues_and_the_board_onc
     routed_session: _RoutedSession, roadmap_store_repos: list[str]
 ) -> None:
     """The files are one session listing at `per_page=100` (GitHub's default page is 30), then
-    gh reads the base's task directory and the issues the PR closes in one GraphQL request, and
+    gh reads the base's change directory and the issues the PR closes in one GraphQL request, and
     the roadmap store reads the board. A files read sent through `gh api` instead shows here as
     a gh call."""
     from devops_cli.commands.pr import closing_issues_args
 
-    gh = _grounding_gh([_TASK_704])
+    gh = _grounding_gh([_ARCHIVE_704])
     _blockers(_ready_pr(), gh=gh)
     assert (
         routed_session.reads,
@@ -2358,7 +2432,7 @@ def test_grounding_reads_the_files_the_base_the_closing_issues_and_the_board_onc
                 "gh",
                 "api",
                 "--silent",
-                f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+                f"repos/dan-petty/devops-cli/contents/openspec/changes?ref={'b' * 40}",
             ],
             closing_issues_args("dan-petty", "devops-cli", 335),
         ],
@@ -2395,7 +2469,7 @@ def test_the_closing_issues_read_asks_for_the_pr_and_both_page_sizes() -> None:
 def test_the_board_is_read_only_for_a_pr_that_closes_one_issue(
     closing: MagicMock, roadmap_store_repos: list[str]
 ) -> None:
-    _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704], closing=closing))
+    _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704], closing=closing))
     assert roadmap_store_repos == []
 
 
@@ -2412,11 +2486,11 @@ def test_the_changed_files_are_read_from_every_linked_page(github_api: GitHubApi
 
     first = [_file(f"src/m{n}.py") for n in range(100)]
     github_api.route("GET", f"/{_FILES_READ}", github_json(first, headers=next_page(_FILES_PAGE_2)))
-    github_api.route("GET", _FILES_PAGE_2, github_json([_TASK_704]))
+    github_api.route("GET", _FILES_PAGE_2, github_json([_ARCHIVE_704]))
     files = pr_module._fetch_pr_files(335, "dan-petty", "devops-cli")
     assert (len(files), files[-1], len(github_api.sent)) == (
         101,
-        ChangedFile("docs/agent/tasks/task-704-x.md", "modified"),
+        ChangedFile("openspec/changes/archive/2026-10-23-704-x/proposal.md", "added"),
         2,
     )
 
@@ -2426,7 +2500,7 @@ def test_a_changed_files_page_that_is_no_list_is_a_read_failure(github_api: GitH
     from devops_cli.commands import pr as pr_module
 
     github_api.route(
-        "GET", f"/{_FILES_READ}", github_json([_TASK_704], headers=next_page(_FILES_PAGE_2))
+        "GET", f"/{_FILES_READ}", github_json([_ARCHIVE_704], headers=next_page(_FILES_PAGE_2))
     )
     github_api.route(
         "GET",
@@ -2459,18 +2533,18 @@ _PR_TEMPLATE = Path(".github/pull_request_template.md")
 _CHECKBOX_LINE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]")
 
 
-def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decides() -> None:
+def test_pr_template_asks_for_the_issue_and_its_change_and_nothing_a_check_decides() -> None:
     """The template's quality-gate boxes asked authors to tick what they could not verify.
 
     All 5 of the last 40 merged PRs that used it ticked "complexity <= 10", which nothing
-    enforced. The template asks for the one issue the PR closes and its task file, and for
+    enforced. The template asks for the one issue the PR closes and its change folder, and for
     nothing that a check decides.
     """
     text = _PR_TEMPLATE.read_text(encoding="utf-8")
     assert (
         [line for line in text.splitlines() if _CHECKBOX_LINE.match(line)],
         "Closes #<issue>" in text,
-        "docs/agent/tasks/task-" in text,
+        "Change: `openspec/changes/<issue>-<slug>/`" in text,
         re.search(r"Part of #|changelog\.d|release/v", text),
         re.search(r"complexity|coverage|quality gate|10/10", text, re.IGNORECASE),
     ) == ([], True, True, None, None)

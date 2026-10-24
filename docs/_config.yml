@@ -1,13 +1,11 @@
 # GitHub Pages builds this directory with Jekyll, which parses `{% ... %}` and
-# `{{ ... }}` as Liquid before rendering Markdown. Agent task files document this
-# project's Jinja2 templating and CI expressions, so they contain those delimiters as
-# prose. Liquid tries to execute them: `{% if minikube %}` in task 325 is read as an
-# unclosed tag and aborts the whole build, which has been failing every Pages deployment
-# on main since that task merged.
+# `{{ ... }}` as Liquid before rendering Markdown. The agent records in `agent/`
+# document this project's Jinja2 templating and CI expressions, so they contain those
+# delimiters as prose. Liquid tries to execute them: an unclosed `{% if minikube %}` in
+# one record aborted the whole build and failed every Pages deployment on main.
 #
-# These files are internal tracking artifacts rather than published documentation, so
-# they are excluded from the site rather than escaped one by one -- there are 60 of them
-# and each new task adds another.
+# These files are internal records rather than published documentation, so they are
+# excluded from the site rather than escaped one by one.
 #
 # The `docs-site` job of `.github/workflows/ci.yml` builds this directory with the GitHub Pages
 # builder on each pull request that changes it, so a Liquid error fails before the merge.

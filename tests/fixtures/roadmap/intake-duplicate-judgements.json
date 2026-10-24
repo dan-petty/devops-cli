@@ -67,7 +67,7 @@
       "source": "folded into #1750 on 2026-10-20, filed again by hand as #1753",
       "candidate": {
         "title": "docs(adr): evaluate OpenSpec as the spec and change-proposal layer",
-        "body": "How a change is specified, planned and recorded is spread across issue bodies, per-task files under `docs/agent/tasks/`, AGENTS.md rules and refine comments. Evaluate OpenSpec as the spec and change-proposal layer: its health, its fit, and the cost to adopt it."
+        "body": "How a change is specified, planned and recorded is spread across issue bodies, per-task files, AGENTS.md rules and refine comments. Evaluate OpenSpec as the spec and change-proposal layer: its health, its fit, and the cost to adopt it."
       },
       "item": {
         "number": 1750,

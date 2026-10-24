@@ -189,8 +189,7 @@ def test_the_recorded_slices_reproduce_the_published_precision() -> None:
 def test_the_loop_slices_pin_their_stability_and_pooled_precision() -> None:
     """Jaccard of the three loop slices' row clusters, and Fleiss κ over the 19 they all report.
 
-    Both were computed from clusters.json when the labels were transcribed, as the task file
-    records; every identity the three report carries one status in all three, so κ is 1. This is
+    Both were computed from clusters.json when the labels were transcribed; every identity the three report carries one status in all three, so κ is 1. This is
     the one test that computes κ, so it alone pays statsmodels' import.
     """
     report: ScoreReport = score_sessions([S11, S12, S13, S18], LABELS)

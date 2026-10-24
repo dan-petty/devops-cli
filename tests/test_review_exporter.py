@@ -256,8 +256,8 @@ def test_the_documentation_names_one_dataset_path() -> None:
 
     from devops_cli.config.defaults import DEFAULT_FEEDBACK_DATASET_PATH
 
-    # Task files and the archive record what was, not what is.
-    records = (REPO_ROOT / "docs" / "agent" / "tasks", REPO_ROOT / "docs" / "agent" / "archive")
+    # The archive records what was, not what is.
+    records = (REPO_ROOT / "docs" / "agent" / "archive",)
     documents = [
         REPO_ROOT / "AGENTS.md",
         REPO_ROOT / "README.md",

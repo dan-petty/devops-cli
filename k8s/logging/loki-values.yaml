@@ -68,8 +68,11 @@ singleBinary:
   # about 4.5 GB, and about 9.4 GB at a pessimistic 5:1 with every day as busy as the busiest.
   # 20Gi holds that twice over and leaves room for more nodes.
   # local-path does not expand a claim in place, so a change to this size needs the
-  # StatefulSet recreated and the volume rebound, as
-  # docs/agent/tasks/task-550-metrics-and-logs-are-kept-for-two-hours.md describes.
+  # StatefulSet recreated and the volume rebound (#550): set the volume's reclaim policy to
+  # Retain and its capacity to the new size, delete the StatefulSet with --cascade=orphan,
+  # delete pod loki-0 and claim storage-loki-0, remove claimRef.uid and
+  # claimRef.resourceVersion from the volume, deploy Loki again, and then set the reclaim
+  # policy back to Delete.
   persistence:
     enabled: true
     size: 20Gi

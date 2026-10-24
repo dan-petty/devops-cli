@@ -170,7 +170,7 @@ CONST_AGENTS_MD_ROUTES: Final[tuple[tuple[str, str], ...]] = (
     ("SECURITY.md", "handle secrets, network egress or a vulnerability report"),
     ("CONTEXT.md", "use a project term"),
     ("docs/adr/", "need the reason for a decision"),
-    ("openspec/config.yaml", "plan a change with OpenSpec"),
+    ("openspec/config.yaml", "plan and record each item as an OpenSpec change"),
     (".github/ISSUE_TEMPLATE/", "file an issue"),
     (".github/pull_request_template.md", "write a pull request body"),
     (".devops/review.md", "run a review: what it must not flag"),
@@ -774,6 +774,8 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     CONST_DOCS_CLASS_RECORD: (
         "docs/adr/*.md",
         "docs/agent/archive/**/*.md",
+        # Task files that pull requests opened before #1847 still merge; #2041 deletes them and
+        # this entry.
         "docs/agent/tasks/task-*.md",
         "openspec/changes/**/*.md",
     ),
@@ -804,7 +806,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "docs/TESTING.md",
         "docs/VISION.md",
         "docs/agent/README.md",
-        "docs/agent/tasks/README.md",
         "k8s/**/README.md",
         "src/devops_cli/ai/knowledge_base/**/*.md",
         "tf/README.md",
@@ -3639,18 +3640,14 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness holds a pull request to the one item it delivers: it targets the default branch,
-# closes exactly one open issue of its repository that is on the roadmap board, and changes that
-# issue's task file. GitHub closes the issue when the pull request merges.
-CONST_AGENT_TASKS_DIR: Final[str] = "docs/agent/tasks"
-# `task-<issue>-<slug>.md` directly under the tasks directory. The number is read as an
-# integer, so `task-089-x.md` belongs to #89.
-CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
-    rf"{re.escape(CONST_AGENT_TASKS_DIR)}/task-(?P<issue>\d+)-[^/]*\.md"
-)
-# The `pulls/{n}/files` statuses under which the file is in the pull request's head and was
-# written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
-# only) and unchanged. `modified` is an edit in place under the same name.
-CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset({"added", "modified", "renamed"})
+# closes exactly one open issue of its repository that is on the roadmap board, and archives that
+# issue's OpenSpec change (`CONST_OPENSPEC_ARCHIVED_FOLDER_RE`). GitHub closes the issue when the
+# pull request merges.
+# The `pulls/{n}/files` statuses under which the path is new in the pull request's head. GitHub's
+# full set is added, removed, modified, renamed, copied, changed (mode only) and unchanged.
+CONST_PR_FILE_ADDED_STATUSES: Final[frozenset[str]] = frozenset({"added", "renamed", "copied"})
+# The `pulls/{n}/files` status of a file that the pull request deletes from its head.
+CONST_PR_FILE_REMOVED_STATUS: Final[str] = "removed"
 # GitHub's `closingIssuesReferences` page sizes for one readiness read: the issues a pull request
 # closes, where more than one is already a blocker, and the board cards of each, where an issue
 # on more boards than GraphQL's page maximum of 100 does not occur.
@@ -4062,7 +4059,6 @@ CONST_VERIFIED_BY_DETERMINISTIC_PREFIX: Final[str] = "deterministic:"
 # scan. Patterns follow `PurePath.full_match`.
 CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     CONST_CHANGELOG_FILENAME,
-    f"{CONST_AGENT_TASKS_DIR}/**",
     "docs/adr/**",
     "docs/commands/*.md",
     "docs/CLI_REFERENCE.md",
@@ -4823,11 +4819,23 @@ CONST_KB_SHA_DIGEST_LENGTH: Final[int] = 16
 CONST_OPENSPEC_DIR: Final[str] = "openspec"
 CONST_OPENSPEC_CONFIG_FILENAME: Final[str] = "config.yaml"
 CONST_OPENSPEC_CHANGES_DIR: Final[str] = "openspec/changes"
+# Where `openspec archive` moves a change, and where it writes the living specs. Only the pull
+# request that closes a change writes either, and only for that change (ADR 0010).
+CONST_OPENSPEC_ARCHIVE_DIR: Final[str] = f"{CONST_OPENSPEC_CHANGES_DIR}/archive"
+CONST_OPENSPEC_SPECS_DIR: Final[str] = f"{CONST_OPENSPEC_DIR}/specs"
 # The closed grammar of an active change: the folder is named `<issue>-<slug>`, and a path under it
 # is `openspec/changes/<issue>-<slug>/<file>`. The issue is the only link from a folder to GitHub.
+# The number is read as an integer, so `089-x` belongs to #89.
 CONST_OPENSPEC_CHANGE_NAME_RE: Final[str] = r"(?P<issue>\d+)-[^/]+"
 CONST_OPENSPEC_CHANGE_FOLDER_RE: Final[str] = (
-    rf"{CONST_OPENSPEC_CHANGES_DIR}/{CONST_OPENSPEC_CHANGE_NAME_RE}/.+"
+    rf"{CONST_OPENSPEC_CHANGES_DIR}/(?P<change>{CONST_OPENSPEC_CHANGE_NAME_RE})/.+"
+)
+# The closed grammar of an archived change: `openspec archive` puts the date of the archive before
+# the name, `openspec/changes/archive/<YYYY-MM-DD>-<issue>-<slug>/<file>`. It is a grammar of its
+# own, because the active grammar would read the year of the date as the issue.
+CONST_OPENSPEC_ARCHIVED_FOLDER_RE: Final[str] = (
+    rf"{CONST_OPENSPEC_ARCHIVE_DIR}/(?P<date>\d{{4}}-\d{{2}}-\d{{2}})-"
+    rf"(?P<change>{CONST_OPENSPEC_CHANGE_NAME_RE})/.+"
 )
 # What stops OpenSpec's telemetry and its check for a newer version, and its prompts. The sanitized
 # environment `run_subprocess` builds keeps none of them, so the tool's runner sets each.
