@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from devops_cli.config.constants import CONST_LIBRARIES_DIR_NAME
 from devops_cli.config.defaults import (
@@ -22,6 +22,9 @@ from devops_cli.models.library import (
     LibrarySearchResult,
     ModuleContract,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.valkey.cache import ValkeyCacheTier
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +190,15 @@ def _collect_class_item(
     return meta, text, cache
 
 
+def _symbol_cache_tier(valkey_client: Any) -> ValkeyCacheTier | None:
+    """The Valkey tier of the symbol cache over `valkey_client`; None with no client."""
+    if valkey_client is None:
+        return None
+    from devops_cli.valkey.cache import ValkeyCacheTier
+
+    return ValkeyCacheTier(valkey_client)
+
+
 class LibraryVectorStore:
     """Segregated vector index and in-memory symbol cache for library contracts."""
 
@@ -199,7 +211,7 @@ class LibraryVectorStore:
         local_contracts_dir: Path | None = None,
     ) -> None:
         self.qdrant_client = qdrant_client
-        self.valkey_client = valkey_client
+        self.symbol_cache = _symbol_cache_tier(valkey_client)
         self.embedder = embedder
         self.collection_name = collection_name
         self.local_contracts_dir = local_contracts_dir or library_contracts_dir()
@@ -267,12 +279,8 @@ class LibraryVectorStore:
 
     def _cache_symbol_in_valkey(self, key: str, payload_json: str) -> None:
         """Write serialized symbol JSON to Valkey with standard TTL."""
-        if self.valkey_client is None:
-            return
-        try:
-            self.valkey_client.set(key, payload_json, ex=DEFAULT_VALKEY_SYMBOL_TTL_SECONDS)
-        except Exception as exc:
-            logger.debug("Failed to cache symbol '%s' in Valkey: %s", key, exc)
+        if self.symbol_cache is not None:
+            self.symbol_cache.set(key, payload_json, ex=DEFAULT_VALKEY_SYMBOL_TTL_SECONDS)
 
     def _collect_contract_items(
         self, contract: LibraryContract
@@ -392,21 +400,17 @@ class LibraryVectorStore:
         self, symbol: str, package: str | None = None
     ) -> FunctionSignature | ClassSignature | None:
         """Retrieve symbol signature from Valkey L1 cache, falling back to local contracts."""
-        if self.valkey_client is not None:
-            try:
-                raw = None
-                if package:
-                    raw = self.valkey_client.get(f"symbol:{package}:{symbol}")
-                if raw is None:
-                    raw = self.valkey_client.get(f"symbol:{symbol}")
-                if raw is None:
-                    raw = self.valkey_client.get(symbol)
-                if raw:
-                    parsed = _parse_cached_symbol(raw)
-                    if parsed is not None:
-                        return parsed
-            except Exception as exc:
-                logger.debug("Valkey lookup failed for '%s': %s", symbol, exc)
+        if self.symbol_cache is not None:
+            raw = None
+            if package:
+                raw = self.symbol_cache.get(f"symbol:{package}:{symbol}")
+            if raw is None:
+                raw = self.symbol_cache.get(f"symbol:{symbol}")
+            if raw is None:
+                raw = self.symbol_cache.get(symbol)
+            parsed = _parse_cached_symbol(raw) if raw else None
+            if parsed is not None:
+                return parsed
 
         return self._lookup_local_fallback(symbol, package=package)
 

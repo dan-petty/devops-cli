@@ -72,6 +72,7 @@ dependencies = [
     "gidgethub==6.0.0",
     "cachetools==7.1.8",
     "valkey==6.2.0",
+    "pybreaker==1.4.1",
 ]
 
 [project.scripts]

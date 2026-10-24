@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from fakeredis import FakeServer
 from typer.testing import CliRunner
 
 from devops_cli.ai.rag.library_store import LibraryVectorStore
@@ -26,6 +27,7 @@ from devops_cli.models.library import (
     ParameterSignature,
 )
 from devops_cli.valkey.client import ValkeyClient
+from tests.support.fakes.clock import ClockFake
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -219,6 +221,46 @@ def test_lookup_symbol_fallback_to_local_file(tmp_path: Path) -> None:
     assert res.name == "get_data"
 
 
+def _valkey_cache_cooldown() -> float:
+    """The cooldown of the breaker of the Valkey cache tier, in seconds.
+
+    The import is local, so the module loads on a base without the default.
+    """
+    from devops_cli.config.defaults import DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS
+
+    return DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS
+
+
+def test_a_valkey_outage_turns_the_symbol_cache_off_for_a_cooldown(
+    tmp_path: Path, valkey_server: FakeServer, valkey_client: ValkeyClient, clock: ClockFake
+) -> None:
+    """A failed read sends lookups to the local contracts for the cooldown; then Valkey serves.
+
+    Valkey holds a signature of `get_data` that returns `cached`, and the local contract holds one
+    that returns `dict[str, Any]`, so the return annotation shows which tier answered a lookup.
+    """
+    (tmp_path / "demo-pkg.json").write_text(
+        _create_sample_contract().model_dump_json(), encoding="utf-8"
+    )
+    cached = FunctionSignature(
+        name="get_data", qualname="demo_pkg.api.get_data", parameters=[], return_annotation="cached"
+    )
+    valkey_client.set("symbol:demo_pkg.api.get_data", cached.model_dump_json())
+    store = LibraryVectorStore(valkey_client=valkey_client, local_contracts_dir=tmp_path)
+
+    valkey_server.connected = False
+    in_the_outage = store.lookup_symbol("demo_pkg.api.get_data")
+    valkey_server.connected = True
+    in_the_cooldown = store.lookup_symbol("demo_pkg.api.get_data")
+    clock.shift(_valkey_cache_cooldown())
+    after_the_cooldown = store.lookup_symbol("demo_pkg.api.get_data")
+
+    assert [
+        None if found is None else found.return_annotation
+        for found in (in_the_outage, in_the_cooldown, after_the_cooldown)
+    ] == ["dict[str, Any]", "dict[str, Any]", "cached"]
+
+
 def test_search_library_semantic() -> None:
     mock_qdrant = MagicMock()
     mock_point = MagicMock()
@@ -386,7 +428,7 @@ def test_build_runtime_vector_store_dry_run(tmp_path: Path) -> None:
 
     store = _build_runtime_vector_store(tmp_path, dry_run=True)
     assert store.qdrant_client is None
-    assert store.valkey_client is None
+    assert store.symbol_cache is None
     assert store.embedder is None
 
 
@@ -407,7 +449,8 @@ def test_build_runtime_vector_store_with_mocked_clients(
     )
 
     store = ai_ingest._build_runtime_vector_store(tmp_path, semantic_needed=True, dry_run=False)
-    assert store.valkey_client is mock_valkey
+    assert store.symbol_cache is not None
+    assert store.symbol_cache.client is mock_valkey
     assert store.qdrant_client is mock_qdrant
     assert store.embedder is mock_embedder
 

@@ -74,6 +74,7 @@ from devops_cli.telemetry import (
     record_metric,
     trace_span,
 )
+from devops_cli.valkey.cache import ValkeyCacheTier, configured_cache_tier
 
 logger = logging.getLogger(__name__)
 
@@ -414,7 +415,7 @@ class EmbeddingsEngine:
         self.model = task_model or DEFAULT_RAG_EMBEDDING_MODEL
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
-        self._valkey = self._init_valkey(valkey_client)
+        self._l2 = self._init_cache_tier(valkey_client)
         self._configured_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
         self._current_batch_size = self._configured_batch_size
         self._consecutive_successes: int = 0
@@ -459,24 +460,20 @@ class EmbeddingsEngine:
             or getattr(self.ai_config, "gateway_enabled", False)
         )
 
-    def _init_valkey(self, valkey_client: Any) -> Any:
-        """Initialize or assign Valkey client with fast connectivity probe."""
-        if valkey_client is not _DEFAULT_VALKEY:
-            return valkey_client
-        try:
-            from devops_cli.config.settings import get_valkey_password, load_settings
-            from devops_cli.valkey.client import ValkeyClient
+    def _init_cache_tier(self, valkey_client: Any) -> ValkeyCacheTier | None:
+        """The Valkey tier of the cache: over `valkey_client`, or else over the configured Valkey.
 
-            settings = load_settings()
-            cfg = settings.valkey
-            connect = partial(ValkeyClient, cfg.endpoint, password=get_valkey_password(settings))
-            probe = connect(timeout=min(float(cfg.timeout), 0.1))
-            try:
-                if not probe.ping():
-                    return None
-            finally:
-                probe.close()
-            return connect(timeout=float(cfg.timeout))
+        The tier opens no connection here. When Valkey does not answer, the first read or write
+        opens the circuit breaker of the tier, and the tier tries again after the cooldown.
+        """
+        if valkey_client is None:
+            return None
+        if valkey_client is not _DEFAULT_VALKEY:
+            return ValkeyCacheTier(valkey_client)
+        try:
+            from devops_cli.config.settings import load_settings
+
+            return configured_cache_tier(load_settings())
         except Exception:
             return None
 
@@ -569,41 +566,34 @@ class EmbeddingsEngine:
     def _get_valkey_embedding(
         self, text: str, model: str, *, is_query: bool = False
     ) -> list[float] | None:
-        """Fetch cached embedding vector from Valkey L2 cache."""
-        if self._valkey is None:
+        """The cached embedding vector from the Valkey L2 cache; None for a miss or a bad entry."""
+        if self._l2 is None:
+            return None
+        raw = self._l2.get(self._valkey_key(text, model, is_query=is_query))
+        if not raw:
             return None
         try:
-            key = self._valkey_key(text, model, is_query=is_query)
-            raw = self._valkey.get(key)
-            if raw and isinstance(raw, (str, bytes)):
-                data = json.loads(raw)
-                if isinstance(data, list) and data:
-                    return [float(x) for x in data]
-        except Exception as exc:
-            logger.debug("Valkey embedding read failed: %s", exc)
-            self._valkey = None
-        return None
+            data = json.loads(raw)
+            vector = [float(x) for x in data] if isinstance(data, list) else []
+        except (ValueError, TypeError) as exc:
+            logger.debug("A cached embedding in Valkey is not a vector: %s", exc)
+            return None
+        return vector or None
 
     def _set_valkey_embedding(
         self, text: str, model: str, vector: list[float], *, is_query: bool = False
     ) -> None:
         """Store embedding vector into Valkey L2 cache with configured TTL."""
-        if self._valkey is None:
-            return
-        try:
+        if self._l2 is not None:
             key = self._valkey_key(text, model, is_query=is_query)
-            payload = json.dumps(vector)
-            self._valkey.set(key, payload, ex=DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS)
-        except Exception as exc:
-            logger.debug("Valkey embedding write failed: %s", exc)
-            self._valkey = None
+            self._l2.set(key, json.dumps(vector), ex=DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS)
 
     def _partition_with_valkey_l2(
         self, texts: list[str], *, is_query: bool = False
     ) -> tuple[dict[int, list[float]], list[int], list[str]]:
         """Partition texts through L1 in-memory cache and L2 Valkey chunk cache."""
         cached, l1_miss_indices, l1_miss_texts = self._partition_cache(texts, is_query=is_query)
-        if not l1_miss_texts or self._valkey is None:
+        if not l1_miss_texts or self._l2 is None:
             return cached, l1_miss_indices, l1_miss_texts
 
         final_miss_indices: list[int] = []
