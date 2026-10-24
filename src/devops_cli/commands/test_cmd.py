@@ -63,13 +63,15 @@ def _changed_paths(repo_root: Path) -> list[str]:
     diff_proc = run_subprocess(
         ["git", "diff", "--name-only", "--no-renames", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
         cwd=repo_root,
-        check=False,
     )
     if diff_proc.returncode == 0 and diff_proc.stdout:
         changed.update(diff_proc.stdout.strip().splitlines())
 
     status = ["git", "status", "--porcelain", "--no-renames", "--untracked-files=all"]
-    wt_proc = run_subprocess(status, cwd=repo_root, check=False)
+    wt_proc = run_subprocess(
+        status,
+        cwd=repo_root,
+    )
     if wt_proc.returncode == 0 and wt_proc.stdout:
         changed.update(_porcelain_path(line) for line in wt_proc.stdout.strip().splitlines())
     return sorted(path for path in changed if path)
@@ -159,7 +161,10 @@ def run_test_cmd(
         return
 
     with trace_span("test.pytest", attributes={"targets": ",".join(target_paths)}):
-        res = run_subprocess(["uv", "run", *test_args], cwd=repo_root, check=False)
+        res = run_subprocess(
+            ["uv", "run", *test_args],
+            cwd=repo_root,
+        )
         if res.returncode == 0:
             print_success("✓ Test suite passed cleanly.")
         else:
@@ -235,7 +240,9 @@ def load_test_cmd(
             duration=duration,
             summary_export=summary_export.resolve() if summary_export else None,
         )
-        res = run_subprocess(cmd, check=False)
+        res = run_subprocess(
+            cmd,
+        )
         if res.returncode == 0:
             print_success(MESSAGES.test.load_test_success.format(duration=duration, vus=vus))
         else:

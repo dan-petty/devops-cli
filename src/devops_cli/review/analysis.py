@@ -825,7 +825,6 @@ def _default_ruff_block_checker(code: str, language_floor: str) -> list[str]:
             "-",
         ],
         input=code,
-        check=False,
         capture_output=True,
         timeout=10,
     )

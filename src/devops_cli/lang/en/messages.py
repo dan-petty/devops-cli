@@ -963,6 +963,7 @@ class CIMessages:
         "{command} ran past its {timeout} timeout and was stopped with every process it started."
     )
     pytest_coverage: str = "pytest & coverage"
+    diff_quality: str = "diff-quality (ruff.check)"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"
     mypy_check: str = "mypy (py314 strict)"

@@ -88,7 +88,6 @@ def test_cluster_reachable_kubectl_success() -> None:
         assert _cluster_reachable("custom-context") is True
         mock_cmd.assert_called_once_with(
             ["kubectl", "cluster-info", "--request-timeout=5s", "--context", "custom-context"],
-            check=False,
             capture=True,
         )
 

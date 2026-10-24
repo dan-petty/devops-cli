@@ -53,7 +53,6 @@ def _run_tool_cmd(
                 cmd,
                 capture_output=True,
                 text=True,
-                check=False,
                 cwd=cwd,
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )

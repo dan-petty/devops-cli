@@ -334,7 +334,7 @@ def _fetch_commit_statuses_from_rest(
         "api",
         f"repos/{owner}/{repo_name}/commits/{head_sha}/status",
     ]
-    res = runner(status_cmd, check=False, quiet=True)
+    res = runner(status_cmd, quiet=True)
 
     if res.returncode != 0:
         err_msg = res.stderr.strip() or f"exit code {res.returncode}"
@@ -409,7 +409,7 @@ def _resolve_head_sha(number: int, repo: str | None, runner: Any = run_gh) -> st
     cmd = [CONST_GH_CLI, "pr", "view", str(number), "--json", "headRefOid"]
     if repo:
         cmd.extend(["--repo", repo])
-    res = runner(cmd, check=False, quiet=True)
+    res = runner(cmd, quiet=True)
     if res.returncode != 0 or not res.stdout.strip():
         return ""
     try:
@@ -442,7 +442,7 @@ def fetch_pr_check_verdicts(
     gh_runner = runner if runner is not None else run_gh
     cmd = pr_checks_args(number, repo)
 
-    res = gh_runner(cmd, check=False, quiet=True)
+    res = gh_runner(cmd, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
         parsed = _parse_gh_checks_json(res.stdout)
         if parsed is not None:

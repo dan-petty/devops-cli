@@ -1,0 +1,15 @@
+id: check-false
+language: python
+severity: error
+files:
+  - "src/**"
+message: Process call passing check=False is banned. Pass check=True and handle CalledProcessError, or omit check when unused.
+rule:
+  kind: keyword_argument
+  all:
+    - has:
+        field: name
+        regex: '^check$'
+    - has:
+        field: value
+        kind: "false"

@@ -39,7 +39,7 @@ def _run_cmd(
     cmd: list[str],
     *,
     input: str | None = None,
-    check: bool = True,
+    check: bool = False,
     capture: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     env: dict[str, str] | None = None,
@@ -76,9 +76,7 @@ def _run_cmd(
 
 def _minikube_running() -> bool:
     try:
-        result = _run_cmd(
-            ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
-        )
+        result = _run_cmd(["minikube", "status", "--format", "{{.Host}}"], capture=True)
         return result.returncode == 0 and "Running" in result.stdout
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return False
@@ -94,14 +92,20 @@ def _start_minikube(dry_run: bool = False) -> tuple[bool, str]:
         return True, f"Started Minikube cluster{gpu_suffix}"
 
     if has_gpu:
-        start_res = _run_cmd(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
+        start_res = _run_cmd(["minikube", "start", "--driver=docker", "--gpus=all"])
         if start_res.returncode == 0 and _minikube_running():
-            _run_cmd(["minikube", "update-context"], check=False)
+            try:
+                _run_cmd(["minikube", "update-context"], check=True)
+            except subprocess.CalledProcessError:
+                pass
             return True, f"Started Minikube cluster{gpu_suffix}"
 
-    fallback_res = _run_cmd(["minikube", "start", "--driver=docker"], check=False)
+    fallback_res = _run_cmd(["minikube", "start", "--driver=docker"])
     if fallback_res.returncode == 0 and _minikube_running():
-        _run_cmd(["minikube", "update-context"], check=False)
+        try:
+            _run_cmd(["minikube", "update-context"], check=True)
+        except subprocess.CalledProcessError:
+            pass
         return True, "Started Minikube cluster (--driver=docker)"
 
     return False, "Failed to start Minikube cluster"
@@ -160,7 +164,7 @@ def _cluster_reachable(context: str | None = None) -> bool:
     if effective_context:
         cmd.extend(["--context", effective_context])
     try:
-        res = _run_cmd(cmd, check=False, capture=True)
+        res = _run_cmd(cmd, capture=True)
         if res.returncode == 0:
             return True
     except FileNotFoundError, OSError, subprocess.SubprocessError:
@@ -178,7 +182,6 @@ def _read_nodes(context: str | None = None) -> list[dict[str, Any]] | None:
     try:
         res = _run_cmd(
             ["kubectl", "get", "nodes", "-o", "json"] + k_ctx,
-            check=False,
             capture=True,
             timeout=5,
         )

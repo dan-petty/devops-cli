@@ -148,7 +148,7 @@ def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
     cmd += ["--limit", str(DEFAULT_GH_LABEL_LIST_LIMIT)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
+    res = run_gh(cmd, quiet=True, use_cache=True, cache_ttl=30.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
@@ -171,7 +171,7 @@ def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, An
     ]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=15.0)
+    res = run_gh(cmd, quiet=True, use_cache=True, cache_ttl=15.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
@@ -1149,7 +1149,10 @@ def edit_issue_cmd(  # noqa: C901
         "--input",
         "-",
     ]
-    res = run_gh(cmd, input=json.dumps(payload), check=False)
+    res = run_gh(
+        cmd,
+        input=json.dumps(payload),
+    )
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1253,7 +1256,7 @@ def _format_reset_time(epoch_seconds: int | float) -> str:
 
 def _extract_rest_rate_limit_headers() -> dict[str, int]:
     """Fetch live HTTP response headers from GitHub REST API to get accurate core rate limits."""
-    res = run_gh(["api", "user", "-i"], check=False, quiet=True, use_cache=False)
+    res = run_gh(["api", "user", "-i"], quiet=True, use_cache=False)
     if res.returncode != 0 or not res.stdout:
         return {}
     headers: dict[str, int] = {}
@@ -1280,7 +1283,6 @@ def _extract_graphql_rate_limit() -> dict[str, Any]:
     query = "query { rateLimit { limit remaining used resetAt } }"
     res = run_gh(
         ["api", "graphql", "-f", f"query={query}"],
-        check=False,
         quiet=True,
         use_cache=False,
     )
@@ -1399,7 +1401,7 @@ def rate_limit_cmd(
         print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
         raise typer.Exit(1)
 
-    res = run_gh(["api", "rate_limit"], check=False, quiet=True, use_cache=False)
+    res = run_gh(["api", "rate_limit"], quiet=True, use_cache=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1539,7 +1541,7 @@ def runs_list_cmd(
     if repo:
         cmd.extend(["--repo", target_repo])
 
-    res = run_gh(cmd, check=False, use_cache=True, cache_ttl=10.0)
+    res = run_gh(cmd, use_cache=True, cache_ttl=10.0)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 

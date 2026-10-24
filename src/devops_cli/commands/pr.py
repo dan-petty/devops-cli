@@ -86,7 +86,9 @@ def _run_gh_pr_command(subcommand: str, number: int, repo: str | None = None) ->
     cmd = [CONST_GH_CLI, "pr", subcommand, str(number)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0:
         raise typer.Exit(res.returncode)
 
@@ -160,7 +162,6 @@ def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) ->
             "api",
             f"repos/{owner}/{repo_name}/pulls?state={api_state}&per_page={fetch_limit}",
         ],
-        check=False,
     )
     if res.returncode != 0 or not res.stdout.strip():
         return False
@@ -205,7 +206,9 @@ def list_prs(
     if repo:
         cmd.extend(["--repo", repo])
 
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0:
         if _render_pr_list_fallback(state, limit, repo):
             return
@@ -235,7 +238,6 @@ def _fetch_pr_details(number: int, repo: str | None = None) -> dict[str, Any]:
     owner, repo_name = target.split("/", 1)
     res = run_gh(
         [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{number}"],
-        check=False,
         quiet=True,
     )
     if res.returncode == 0 and res.stdout.strip():
@@ -363,7 +365,9 @@ def view_pr(
     cmd = [CONST_GH_CLI, "pr", "view", str(number)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.stdout:
         typer.echo(mask_secrets(res.stdout.rstrip()))
     if res.returncode != 0:
@@ -714,7 +718,9 @@ def _fallback_patch_pr(
         patch_cmd.extend(["-f", f"base={base}"])
     pull_ok = True
     if len(patch_cmd) > 5:
-        res = run_gh(patch_cmd, check=False)
+        res = run_gh(
+            patch_cmd,
+        )
         pull_ok = res.returncode == 0
 
     if milestone is not None:
@@ -727,7 +733,9 @@ def _fallback_patch_pr(
             "-F",
             f"milestone={milestone}",
         ]
-        res_ms = run_gh(ms_cmd, check=False)
+        res_ms = run_gh(
+            ms_cmd,
+        )
         return pull_ok and res_ms.returncode == 0
     return pull_ok
 
@@ -774,7 +782,9 @@ def edit_pr(
     if milestone:
         cmd.extend(["--milestone", milestone])
 
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0:
         if _fallback_patch_pr(number, base, title, body, repo, milestone=milestone):
             print_success(f"Successfully updated PR #{number}")
@@ -789,7 +799,7 @@ def edit_pr(
 
 
 def _detect_current_branch() -> str | None:
-    res = run_subprocess(["git", "branch", "--show-current"], check=False, quiet=True)
+    res = run_subprocess(["git", "branch", "--show-current"], quiet=True)
     return res.stdout.strip() if res.returncode == 0 and res.stdout.strip() else None
 
 
@@ -797,7 +807,6 @@ def _find_existing_pr(owner: str, repo_name: str, head: str, base: str) -> dict[
     """Check if an open pull request already exists for the given head and base branches."""
     res = run_gh(
         [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls?head={owner}:{head}&state=open"],
-        check=False,
         quiet=True,
     )
     if res.returncode != 0 or not res.stdout.strip():
@@ -849,7 +858,7 @@ def _report_create_failure(res: Any, target_base: str | None) -> None:
 
 def _repository_default_branch(owner: str, repo_name: str) -> str:
     """The repository's default branch from `repos/{owner}/{repo}`; empty when it can't be read."""
-    res = run_gh([CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}"], check=False, quiet=True)
+    res = run_gh([CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}"], quiet=True)
     if res.returncode != 0:
         return ""
     try:
@@ -902,7 +911,9 @@ def _fallback_create_pr(
         "-F",
         "draft=true",
     ]
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode == 0:
         _print_created_pr_message(res.stdout, target_base)
         return True
@@ -934,7 +945,9 @@ def create_pr(
     if repo:
         cmd.extend(["--repo", repo])
 
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0:
         if _fallback_create_pr(title, body, base, repo):
             return
@@ -1087,7 +1100,9 @@ def ready_pr(
     cmd = [CONST_GH_CLI, "pr", "ready", str(number)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0:
         _handle_pr_ready_failure(res.stderr, number)
         raise typer.Exit(1)
@@ -1120,7 +1135,9 @@ def diff_pr(
     cmd = [CONST_GH_CLI, "pr", "diff", str(number), "--color", color]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1164,7 +1181,9 @@ def close_pr(
         cmd.append("--delete-branch")
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1430,7 +1449,6 @@ def _base_has_change_folders(pr_data: dict[str, Any], owner: str, repo_name: str
             "--silent",
             f"repos/{owner}/{repo_name}/contents/{CONST_OPENSPEC_CHANGES_DIR}?{query}",
         ],
-        check=False,
         quiet=True,
     )
     if res.returncode == 0:
@@ -1571,7 +1589,7 @@ def _graphql_error(reply: Any) -> str:
 
 def _read_closing_issues(owner: str, repo_name: str, pr_num: int) -> _ClosingRead:
     """Read the issues the PR closes when it merges, in one GraphQL request."""
-    res = run_gh(closing_issues_args(owner, repo_name, pr_num), check=False, quiet=True)
+    res = run_gh(closing_issues_args(owner, repo_name, pr_num), quiet=True)
     if res.returncode != 0:
         return _ClosingRead(error=_gh_failure(res))
     try:
@@ -2066,7 +2084,7 @@ def _parse_update_error(raw_text: str) -> str:
 
 def _execute_update_branch(cmd: list[str]) -> tuple[bool, str]:
     """Execute update-branch gh api command and return (success, message)."""
-    res = run_gh(cmd, check=False, quiet=True)
+    res = run_gh(cmd, quiet=True)
     if res.returncode == 0:
         return True, "Branch update requested successfully."
     error_msg = _parse_update_error(res.stderr or res.stdout)
@@ -2128,7 +2146,7 @@ def _dispatch_ci_for_head(
 
     head_ref = str(latest_pr.get("head", {}).get("ref") or pr.get("head", {}).get("ref", ""))
     dispatch_cmd = _build_dispatch_ci_cmd(target_repo, head_ref)
-    res = run_gh(dispatch_cmd, check=False, quiet=True)
+    res = run_gh(dispatch_cmd, quiet=True)
     if res.returncode == 0:
         print_success(
             MESSAGES.pr.update_dispatch_ci_success.format(
@@ -2316,7 +2334,7 @@ def _update_single_pr(
 def _fetch_open_prs(repo: str | None, base: str | None) -> list[dict[str, Any]]:
     """Fetch the open pull requests the current account wrote, into `base` when one is given,
     oldest first."""
-    res = run_gh(_open_prs_argv(repo, base), check=False, quiet=True)
+    res = run_gh(_open_prs_argv(repo, base), quiet=True)
     if res.returncode != 0 or not res.stdout.strip():
         return []
     try:
@@ -2482,7 +2500,9 @@ def _fetch_pr_view_payload(number: int, repo: str | None = None) -> dict[str, An
     if repo:
         cmd.extend(["--repo", repo])
     cmd.extend(["--json", "number,title,labels,files,state,mergedAt"])
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0 or not res.stdout.strip():
         return None
     try:
@@ -2507,7 +2527,9 @@ def _fetch_merged_prs_payload(limit: int, repo: str | None = None) -> list[dict[
     ]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False)
+    res = run_gh(
+        cmd,
+    )
     if res.returncode != 0 or not res.stdout.strip():
         return []
     try:

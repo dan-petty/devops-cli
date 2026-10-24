@@ -111,7 +111,6 @@ def _build_kustomize_dir(target_dir: Path) -> str:
     cmd = ["kubectl", "kustomize", str(target_dir)]
     proc = run_subprocess(
         cmd,
-        check=False,
         capture_output=True,
         text=True,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,

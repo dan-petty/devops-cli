@@ -646,6 +646,31 @@ def _npm_audit_cmds() -> list[list[str]]:
     ]
 
 
+def _resolve_diff_quality_compare_branch() -> str:
+    """Resolve the branch or reference diff-quality compares against."""
+    base_ref = os.environ.get("BASE_REF") or os.environ.get("GITHUB_BASE_REF")
+    if base_ref:
+        return f"origin/{base_ref}" if not base_ref.startswith("origin/") else base_ref
+    return "origin/main"
+
+
+def _resolve_diff_quality_cmd(compare_branch: str | None = None) -> list[str]:
+    """Return the diff-quality command line inspecting changed lines for code quality."""
+    branch = compare_branch or _resolve_diff_quality_compare_branch()
+    rules = "C901,BLE001,S110,S112,E402,F401,SIM115,UP036,N803"
+    return [
+        "uv",
+        "run",
+        "diff-quality",
+        "--violations",
+        "ruff.check",
+        f"--options=--select {rules} --ignore-noqa",
+        "--fail-under",
+        "100",
+        f"--compare-branch={branch}",
+    ]
+
+
 def get_check_specs() -> list[CheckSpec]:
     """Return the single ordered table of CI quality gate check specifications."""
     return [
@@ -680,6 +705,13 @@ def get_check_specs() -> list[CheckSpec]:
             span_name="ci.step.format",
             metric_step="format",
             fix_cmd=["uv", "run", "ruff", "format", "."],
+        ),
+        CheckSpec(
+            name="diff-quality",
+            display_title=MESSAGES.ci.diff_quality,
+            cmd=_resolve_diff_quality_cmd(),
+            span_name="ci.step.diff_quality",
+            metric_step="diff_quality",
         ),
         CheckSpec(
             name="typecheck",
@@ -1889,6 +1921,23 @@ def fmt(
     spec = get_check_spec("format")
     cmd = spec.cmd if (check or not fix) else (spec.fix_cmd or spec.cmd)
     if not _run(cmd):
+        raise typer.Exit(1)
+
+
+@app.command(name="diff-quality", help=HELP.ci.diff_quality)
+def diff_quality(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Find changed lines with code quality violations."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    spec = get_check_spec("diff-quality")
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 

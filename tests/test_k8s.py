@@ -1675,7 +1675,6 @@ def test_is_cluster_argo_managed() -> None:
         assert _is_cluster_argo_managed() is True
         mock_cmd.assert_called_once_with(
             ["kubectl", "-n", "argocd", "get", "application", "cluster"],
-            check=False,
             capture=True,
         )
 

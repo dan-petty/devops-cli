@@ -66,6 +66,7 @@ _VIOLATIONS = [
     ),
     pytest.param("net-ip-literal", "src", 'local = host == "127.0.0.1"\n', id="net-ip-literal"),
     pytest.param("net-cidr-build", "src", 'network = f"{ip}/32"\n', id="net-cidr-build"),
+    pytest.param("check-false", "src", "run(check=False)\n", id="check-false"),
     pytest.param(
         "test-elapsed-upper-bound", "tests", _ELAPSED_UPPER_BOUND, id="test-elapsed-upper-bound"
     ),

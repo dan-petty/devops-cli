@@ -108,7 +108,10 @@ def _run_cmd_checker(cmd: list[str], input_bytes: bytes, checker_name: str) -> C
     full_cmd = [binary, *cmd[1:]]
     try:
         proc = subprocess.run(
-            full_cmd, input=input_bytes, capture_output=True, timeout=10, check=False
+            full_cmd,
+            input=input_bytes,
+            capture_output=True,
+            timeout=10,
         )
         if proc.returncode == 0:
             return CheckResult(checker=checker_name, status=STATUS_PASS)

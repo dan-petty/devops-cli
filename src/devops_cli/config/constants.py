@@ -518,6 +518,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("ci", "coverage"),
         ("ci", "deps"),
         ("ci", "devcontainer"),
+        ("ci", "diff-quality"),
         ("ci", "docs"),
         ("ci", "fail-to-pass"),
         ("ci", "format"),
@@ -3942,7 +3943,6 @@ CONST_RUFF_IGNORE_FILE_NAMES: Final[frozenset[str]] = frozenset(
 )
 # Suppression comment and configuration kinds tracked against ceilings (#849).
 CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"
-CONST_SUPPRESSION_KIND_NOQA_PREFIX: Final[str] = "noqa"
 CONST_SUPPRESSION_KIND_NOSEC: Final[str] = "nosec"
 CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER: Final[str] = "pragma: no cover"
 CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE: Final[str] = "pragma: no mutate"
@@ -3953,7 +3953,6 @@ CONST_SUPPRESSION_KIND_MYPY_OVERRIDES: Final[str] = "[[tool.mypy.overrides]]"
 CONST_SUPPRESSION_KIND_COVERAGE_OMIT: Final[str] = "coverage omit"
 CONST_COMMENT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
     CONST_SUPPRESSION_KIND_TYPE_IGNORE,
-    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
     CONST_SUPPRESSION_KIND_NOSEC,
     CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
     CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
@@ -4022,12 +4021,14 @@ CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
 )
 # The rule that holds the tests: no assert bounds elapsed wall-clock time from above (#1902).
 CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("test-elapsed-upper-bound",)
+CONST_PROCESS_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("check-false",)
 # The trees that the `constructs` scan reads, and the `files` globs of each rule: the network
 # construct rules hold src/, and the test rules hold tests/.
 CONST_AST_GREP_SCAN_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
 CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
     **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
     **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
+    **dict.fromkeys(CONST_PROCESS_CONSTRUCT_RULES, ("src/**",)),
 }
 CONST_AST_GREP_SCAN_ARGS: Final[tuple[str, ...]] = (
     "scan",

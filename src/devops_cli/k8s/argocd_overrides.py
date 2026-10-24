@@ -64,7 +64,6 @@ def _stdout(run: Run, cmd: list[str]) -> str:
     try:
         result = run(
             cmd,
-            check=False,
             capture=True,
             timeout=CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS,
             env=dict(CONST_GIT_NONINTERACTIVE_ENV),

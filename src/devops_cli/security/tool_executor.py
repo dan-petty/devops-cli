@@ -395,9 +395,7 @@ def _start(
     is the request stream of the client (#1079).
     """
     try:
-        ended = run_subprocess(
-            command, cwd=cwd, env=env, timeout=wall_seconds, check=False, input=""
-        )
+        ended = run_subprocess(command, cwd=cwd, env=env, timeout=wall_seconds, input="")
     except subprocess.TimeoutExpired as expired:
         return ToolResult(
             run=run,

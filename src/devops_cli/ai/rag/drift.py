@@ -63,7 +63,6 @@ def _resolve_git_head_commit(root_dir: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
-            check=False,
         )
         if proc.returncode == 0 and proc.stdout.strip():
             return proc.stdout.strip()

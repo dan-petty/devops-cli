@@ -108,6 +108,22 @@ devops ci format [OPTIONS]
 
 ---
 
+## `devops ci diff-quality`
+
+**Find changed lines with code quality violations.**
+
+```bash
+devops ci diff-quality [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ci typecheck`
 
 **Run mypy static type-checker strictly targeting Python 3.14 over src/.**

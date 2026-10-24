@@ -104,7 +104,6 @@ def _run_dive_export(dive_bin: str, image_name: str, timeout: float) -> DiveAnal
             proc = run_subprocess(
                 [dive_bin, image_name, "--json", str(export_path)],
                 timeout=timeout,
-                check=False,
                 env=sub_env or None,
             )
             if proc.returncode != 0:

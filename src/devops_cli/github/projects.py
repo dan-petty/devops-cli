@@ -166,7 +166,6 @@ def verify_project_auth_scopes() -> None:
     other failure is left to the command that follows."""
     proc = run_gh(
         [CONST_GH_CLI, "project", "list", "--owner", "@me", "--format", "json"],
-        check=False,
     )
     if proc.returncode == 0:
         return
@@ -234,7 +233,7 @@ def _repository_boards_args(owner: str, repo: str) -> list[str]:
 def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | None:
     """Attempt to locate a remote project via GitHub REST API."""
     for endpoint in _OWNER_BOARD_ENDPOINTS:
-        proc = run_gh([CONST_GH_CLI, *_owner_boards_args(endpoint, owner)], check=False, quiet=True)
+        proc = run_gh([CONST_GH_CLI, *_owner_boards_args(endpoint, owner)], quiet=True)
         if proc.returncode != 0 or not proc.stdout.strip():
             continue
         data = extract_json_payload(proc.stdout)
@@ -261,7 +260,7 @@ def _get_authenticated_user() -> str | None:
     global _CURRENT_USER_CACHE
     if _CURRENT_USER_CACHE is not None:
         return _CURRENT_USER_CACHE
-    proc = run_gh([CONST_GH_CLI, *_USER_LOGIN_ARGS], check=False, quiet=True)
+    proc = run_gh([CONST_GH_CLI, *_USER_LOGIN_ARGS], quiet=True)
     if proc.returncode == 0 and proc.stdout.strip():
         _CURRENT_USER_CACHE = proc.stdout.strip().lower()
         return _CURRENT_USER_CACHE
@@ -322,7 +321,7 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
 
 def _find_project_via_repo(owner: str, repo: str, name_or_short: str) -> dict[str, Any] | None:
     """Locate an existing remote project linked to the target repository."""
-    proc = run_gh([CONST_GH_CLI, *_repository_boards_args(owner, repo)], check=False, quiet=True)
+    proc = run_gh([CONST_GH_CLI, *_repository_boards_args(owner, repo)], quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         return None
     data = extract_json_payload(proc.stdout)
@@ -414,7 +413,6 @@ def link_project_to_repository(project_number: int, owner: str, repo: str) -> bo
             "--repo",
             full_repo,
         ],
-        check=False,
         quiet=True,
     )
     return proc.returncode == 0
@@ -439,7 +437,6 @@ def _fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
             "-F",
             f"id={proj_id}",
         ],
-        check=False,
         quiet=True,
     )
     if proc.returncode != 0 or not proc.stdout.strip():
@@ -606,7 +603,7 @@ def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: 
 
 def _gh_command(args: list[str]) -> subprocess.CompletedProcess[str]:
     """One gh command of a board read, through `run_gh`, never from its response cache."""
-    return run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
+    return run_gh([CONST_GH_CLI, *args], quiet=True, use_cache=False)
 
 
 def _gh_read[Payload: BaseModel](
@@ -980,9 +977,7 @@ def _item_edit_args(login: str, project_number: int | str, change: FieldChange) 
 
 def _write_change(login: str, project_number: int, change: FieldChange) -> str | None:
     """Make one planned change; None when it was made, else why it failed."""
-    proc = run_gh(
-        [CONST_GH_CLI, *_item_edit_args(login, project_number, change)], check=False, quiet=True
-    )
+    proc = run_gh([CONST_GH_CLI, *_item_edit_args(login, project_number, change)], quiet=True)
     if proc.returncode == 0:
         return None
     error = f"{proc.stderr or ''} {proc.stdout or ''}".strip() or f"exit {proc.returncode}"
@@ -1260,7 +1255,7 @@ def get_remote_project_views(
         f"projectsV2(first: 5) {{ nodes {{ id number title views(first: 20) {{ nodes {{ id name layout }} }} }} }} }} }}"
     )
     cmd = [CONST_GH_CLI, "api", "graphql", "-f", f"query={query}"]
-    proc = run_gh(cmd, check=False, quiet=True)
+    proc = run_gh(cmd, quiet=True)
     if proc.returncode != 0 or not proc.stdout:
         return None, None, []
     data = extract_json_payload(proc.stdout)
@@ -1283,7 +1278,6 @@ def _create_project_view(project_id: str, name: str, layout: str) -> bool:
     )
     proc = run_gh(
         [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
-        check=False,
         quiet=True,
     )
     return proc.returncode == 0
@@ -1298,7 +1292,6 @@ def _rename_default_view(view_id: str, name: str, layout: str) -> bool:
     )
     proc = run_gh(
         [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
-        check=False,
         quiet=True,
     )
     return proc.returncode == 0
@@ -1347,7 +1340,7 @@ def _list_projects_via_rest(owner: str) -> list[dict[str, Any]]:
     """List projects using GitHub REST API."""
     for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
         cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
-        proc = run_gh(cmd, check=False, quiet=True)
+        proc = run_gh(cmd, quiet=True)
         if proc.returncode != 0 or not proc.stdout.strip():
             continue
         data = extract_json_payload(proc.stdout)

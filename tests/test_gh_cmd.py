@@ -800,7 +800,7 @@ def test_a_run_log_is_masked_before_the_run_view_helper_returns_it() -> None:
     assert asked == [
         (
             ["run", "view", "123", "--job", "456"],
-            {"check": False, "timeout": DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS},
+            {"timeout": DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS},
         )
     ]
 

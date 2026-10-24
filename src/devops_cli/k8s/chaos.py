@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from typing import Any
 
@@ -72,7 +73,9 @@ def execute_chaos_experiment(
         get_pods_cmd = build_kubectl_cmd(
             ["get", "pods", "-n", namespace, "-l", f"app={target_deployment}", "-o", "name"]
         )
-        res = run_subprocess(get_pods_cmd, check=False)
+        res = run_subprocess(
+            get_pods_cmd,
+        )
         pod_names = [p.strip() for p in res.stdout.strip().splitlines() if p.strip()]
 
         if not pod_names:
@@ -95,7 +98,10 @@ def execute_chaos_experiment(
 
         # 2. Delete target pod to simulate sudden failure
         del_cmd = build_kubectl_cmd(["delete", target_pod, "-n", namespace, "--now"])
-        run_subprocess(del_cmd, check=False)
+        try:
+            run_subprocess(del_cmd, check=True)
+        except subprocess.CalledProcessError:
+            pass
 
         # 3. Wait and monitor recovery
         print_info(
@@ -114,7 +120,9 @@ def execute_chaos_experiment(
                 "--timeout=30s",
             ]
         )
-        rollout_res = run_subprocess(rollout_cmd, check=False)
+        rollout_res = run_subprocess(
+            rollout_cmd,
+        )
         recovered = rollout_res.returncode == 0
 
         if recovered:

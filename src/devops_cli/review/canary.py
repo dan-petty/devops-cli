@@ -525,7 +525,10 @@ def build_canary_command(
 
 def _run_live_canary_command(tool: str, cmd: list[str], workdir: Path) -> str:
     """Execute a canary command in `workdir` and return its raw output string."""
-    proc = run_subprocess(cmd, cwd=workdir, check=False)
+    proc = run_subprocess(
+        cmd,
+        cwd=workdir,
+    )
     if tool.lower() == "mypy":
         return (proc.stdout or "") + (proc.stderr or "")
     return proc.stdout or ""

@@ -197,7 +197,7 @@ def _try_resolve_pr_via_rest(repo_full: str | None, target_branch: str) -> int |
     """Attempt to resolve PR number using the REST API."""
     if not repo_full or "/" not in repo_full:
         return None
-    res = run_gh(branch_pr_rest_argv(repo_full, target_branch), check=False, quiet=True)
+    res = run_gh(branch_pr_rest_argv(repo_full, target_branch), quiet=True)
     if res.returncode == 0 and res.stdout.strip() and res.stdout.strip() != "null":
         try:
             return int(res.stdout.strip())
@@ -208,7 +208,7 @@ def _try_resolve_pr_via_rest(repo_full: str | None, target_branch: str) -> int |
 
 def _resolve_pr_via_gh_view(target_repo: str | None, target_branch: str) -> int:
     """Resolve PR number via gh pr view fallback."""
-    proc = run_gh(branch_pr_view_argv(target_repo, target_branch), check=False, quiet=True)
+    proc = run_gh(branch_pr_view_argv(target_repo, target_branch), quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         raise GitHubOperationError(f"No open pull request found for branch '{target_branch}'.")
     try:
@@ -510,7 +510,7 @@ class RawReviewsList(list[dict[str, Any]]):
 
 def fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
     """Query GitHub REST API for pull request core attributes."""
-    pr_proc = run_gh(pr_details_argv(owner, repo_name, pr_number), check=False, quiet=True)
+    pr_proc = run_gh(pr_details_argv(owner, repo_name, pr_number), quiet=True)
     if pr_proc.returncode != 0 or not pr_proc.stdout.strip():
         err = _extract_proc_error(pr_proc)
         raise GitHubOperationError(f"Failed to query PR #{pr_number}: {err}")

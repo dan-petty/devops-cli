@@ -33,8 +33,6 @@ from devops_cli.config.constants import (
     CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
-    CONST_NOQA_COMMENT_RE,
-    CONST_NOQA_RULE_CODE_RE,
     CONST_NOSEC_COMMENT_RE,
     CONST_PRAGMA_NO_COVER_COMMENT_RE,
     CONST_PRAGMA_NO_MUTATE_COMMENT_RE,
@@ -47,7 +45,6 @@ from devops_cli.config.constants import (
     CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
     CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
     CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
-    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
     CONST_SUPPRESSION_KIND_NOSEC,
     CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
     CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
@@ -62,7 +59,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AST_GREP_SUPPRESSION_CEILING,
-    DEFAULT_C901_SUPPRESSION_CEILING,
     DEFAULT_MAX_NESTING_DEPTH,
     DEFAULT_SUPPRESSION_CEILINGS,
 )
@@ -1452,7 +1448,6 @@ def _construct_gate_escapes(pyproject: Mapping[str, Any], project: Path) -> list
 # Ruff suppression comment naming C901. Ruff honours each spelling below (checked on 0.16.8).
 _RUFF_FILE_NOQA = "# " + "ruff" + ": noqa"
 _FLAKE8_FILE_NOQA = "# " + "flake8" + ": noqa"
-_C901_MARKER = "# " + "noqa: " + "C901"
 _RUFF_COMMENT = "# " + "ruff" + ": "
 _FORM_FEED, _NO_BREAK_SPACE, _EM_SPACE = "\x0c", "\xa0", "\u2003"
 
@@ -2035,19 +2030,6 @@ _SIMPLE_COMMENT_SUPPRESSION_PATTERNS = (
 )
 
 
-def _noqa_kinds_from_comment(tree_name: str, comment: str) -> list[str]:
-    """Extract per-rule-code noqa suppression kinds from one comment token."""
-    kinds: list[str] = []
-    for match in CONST_NOQA_COMMENT_RE.finditer(comment):
-        raw_codes = match.group("codes")
-        if not raw_codes:
-            kinds.append(f"{tree_name} {CONST_SUPPRESSION_KIND_NOQA_PREFIX}")
-            continue
-        for code in CONST_NOQA_RULE_CODE_RE.findall(raw_codes.upper()):
-            kinds.append(f"{tree_name} {CONST_SUPPRESSION_KIND_NOQA_PREFIX}: {code}")
-    return kinds
-
-
 def _ast_grep_kinds_from_comment(tree_name: str, comment: str) -> list[str]:
     """Extract one ast-grep-ignore kind per rule id that a comment token lists (#1902)."""
     return [
@@ -2067,7 +2049,6 @@ def _comment_token_suppressions(tree_name: str, comment: str) -> list[str]:
     ]
     return [
         *simple,
-        *_noqa_kinds_from_comment(tree_name, comment),
         *_ast_grep_kinds_from_comment(tree_name, comment),
     ]
 
@@ -2196,12 +2177,10 @@ def test_suppressions_stay_under_their_ceilings() -> None:
     """Suppression comments in src/ and tests/ and waivers in pyproject.toml may not exceed ceilings (#849)."""
     assert (
         len(CONST_SUPPRESSION_KINDS),
-        DEFAULT_SUPPRESSION_CEILINGS["src noqa: C901"],
         DEFAULT_SUPPRESSION_CEILINGS["src ast-grep-ignore"],
         DEFAULT_SUPPRESSION_CEILINGS["tests ast-grep-ignore"],
     ) == (
-        10,
-        DEFAULT_C901_SUPPRESSION_CEILING,
+        9,
         DEFAULT_AST_GREP_SUPPRESSION_CEILING,
         DEFAULT_AST_GREP_SUPPRESSION_CEILING,
     )
@@ -2309,8 +2288,6 @@ def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path)
     collected = _collect_suppressions(tmp_path, pyproject=pyproject)
     assert collected == {
         "src file-level directive": {"src/mod.py": 1},
-        "src noqa: F401": {"src/mod.py": 1},
-        "src noqa: E402": {"src/mod.py": 1},
         "src nosec": {"src/mod.py": 1},
         "src pragma: no cover": {"src/mod.py": 1},
         "src pragma: no mutate": {"src/mod.py": 1},
@@ -2322,12 +2299,6 @@ def test_every_comment_and_pyproject_suppression_kind_is_counted(tmp_path: Path)
     }
 
 
-_C901_MARKER_SPELLINGS = {
-    "marker-after-a-form-feed": f"#{_FORM_FEED}{_C901_MARKER[2:]}",
-    "marker-after-a-no-break-space": f"#{_NO_BREAK_SPACE}{_C901_MARKER[2:]}",
-    "marker-after-an-em-space": _C901_MARKER.replace(": ", f":{_EM_SPACE}"),
-    "marker-after-a-spaced-colon": _C901_MARKER.replace(": ", " : E501 "),
-}
 _RUFF_DIRECTIVE_SPELLINGS = {
     "ruff-file-noqa": _RUFF_FILE_NOQA,
     "ruff-file-noqa-naming-c901": f"{_RUFF_FILE_NOQA}: C901",
@@ -2345,10 +2316,6 @@ _RUFF_DIRECTIVE_SPELLINGS = {
 @pytest.mark.parametrize(
     ("source", "kind"),
     [
-        pytest.param(f"def f(x):  {marker}\n    return x\n", "src noqa: C901", id=name)
-        for name, marker in _C901_MARKER_SPELLINGS.items()
-    ]
-    + [
         pytest.param(f"{line}\ndef f(x):\n    return x\n", "src file-level directive", id=name)
         for name, line in _RUFF_DIRECTIVE_SPELLINGS.items()
     ],
@@ -2356,9 +2323,8 @@ _RUFF_DIRECTIVE_SPELLINGS = {
 def test_every_ruff_suppression_spelling_is_counted(tmp_path: Path, source: str, kind: str) -> None:
     """Ruff reads any whitespace but a newline inside its suppression comments, so each spelling counts.
 
-    The C901 marker counts under its own kind. The comments that hide C901 from a whole file or a
-    block, in Ruff's or flake8's spelling, count under the file-level directive kind, whose
-    ceiling is 0, so none enters the tree.
+    The comments that hide C901 from a whole file or a block, in Ruff's or flake8's spelling,
+    count under the file-level directive kind, whose ceiling is 0, so none enters the tree.
     """
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "mod.py").write_text(source, encoding="utf-8")

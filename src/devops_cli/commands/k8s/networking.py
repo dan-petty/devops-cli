@@ -112,7 +112,6 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
             ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
             capture_output=True,
             text=True,
-            check=False,
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -143,7 +142,6 @@ def _detect_minikube_service_url(
             ["minikube", "service", service, "-n", namespace, "--url"],
             capture_output=True,
             text=True,
-            check=False,
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -188,7 +186,6 @@ def _detect_kubectl_service_url(
             ["kubectl", "get", "svc", service, "-n", namespace, "-o", "json"] + ctx_args,
             capture_output=True,
             text=True,
-            check=False,
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -674,7 +671,6 @@ def _discover_ingress_hosts(effective_ctx: str | None = None) -> dict[str, list[
             ["kubectl", "get", "ingress", "-A", "-o", "json"] + ctx_args,
             capture_output=True,
             text=True,
-            check=False,
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )

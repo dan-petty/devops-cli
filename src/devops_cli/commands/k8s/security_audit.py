@@ -44,7 +44,7 @@ def _read_rbac[ListT: BaseModel](
     scope = ["-n", namespace] if namespace else ["--all-namespaces"]
     cmd = [BIN_KUBECTL, "get", resources, "-o", "json", *scope]
     try:
-        proc = runtime._run_cmd(cmd, check=False, capture=True)
+        proc = runtime._run_cmd(cmd, capture=True)
         if proc.returncode == 0:
             return as_list.model_validate_json(proc.stdout)
         error = (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()

@@ -70,7 +70,7 @@ def get_structural_diff(
             ):
                 return "Error: Invalid git reference; illegal characters or leading hyphens are forbidden."
             git_cmd = build_git_diff_cmd(branch=branch, base=base)
-            git_res = run_subprocess(git_cmd, check=False, cwd=root)
+            git_res = run_subprocess(git_cmd, cwd=root)
             raw_out = (
                 git_res.stdout
                 if git_res.returncode == 0
@@ -92,7 +92,7 @@ def get_structural_diff(
             has_difft = shutil.which(BIN_DIFFT) is not None
             if has_difft:
                 cmd = build_difft_cmd(path_a=p_a, path_b=p_b)
-                res = run_subprocess(cmd, check=False, cwd=root)
+                res = run_subprocess(cmd, cwd=root)
                 if res.returncode == 0 and res.stdout.strip():
                     return sanitize_diff_output(res.stdout)
 

@@ -430,7 +430,6 @@ def _kubectl(
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                check=False,
             )
         except (subprocess.SubprocessError, OSError) as exc:
             raise GatewayTuneError(f"kubectl {args[0]} failed: {exc}") from exc

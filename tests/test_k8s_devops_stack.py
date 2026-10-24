@@ -184,5 +184,5 @@ def test_apply_single_manifest_renders_domain_template(tmp_path: Path) -> None:
     ) == (
         ["kubectl", "apply", "-f", "-", "--context", "test-ctx"],
         "host: hooks.example.com\npath: /test\n",
-        False,
+        True,
     )

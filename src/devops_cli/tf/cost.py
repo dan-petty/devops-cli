@@ -165,7 +165,6 @@ def run_infracost_breakdown(
         cwd=target_dir,
         capture_output=True,
         text=True,
-        check=False,
     )
     if proc.returncode != 0:
         raise SubprocessError(
@@ -219,7 +218,6 @@ def run_infracost_diff(
         cwd=target_dir,
         capture_output=True,
         text=True,
-        check=False,
     )
     if proc.returncode != 0:
         raise SubprocessError(

@@ -244,7 +244,6 @@ def _lookup_github_token() -> tuple[str, str]:
     try:
         proc = run_subprocess(
             [CONST_GH_CLI, CONST_GH_AUTH_SUBCOMMAND, "token"],
-            check=False,
             quiet=True,
             timeout=timeout,
             extra_allowed_env=CONST_GH_LOGIN_ENV_VARS,
@@ -834,7 +833,6 @@ def run_json_subprocess(
         env=env,
         quiet=quiet,
         timeout=timeout,
-        check=False,
         isolate_env=isolate_env,
         extra_allowed_env=extra_allowed_env,
     )

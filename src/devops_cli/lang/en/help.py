@@ -654,6 +654,7 @@ class CICommandHelp:
     lockfile: str = "Verify lockfile consistency and freshness via uv lock --check."
     outdated: str = "Display outdated dependencies and packages via uv tree --outdated."
     deps: str = "Validate dependency hygiene and imports via deptry."
+    diff_quality: str = "Find changed lines with code quality violations."
     cache: str = (
         "Reuse a cached verdict when the codebase is unchanged. Results are recorded either way."
     )

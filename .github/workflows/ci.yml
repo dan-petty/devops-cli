@@ -63,7 +63,16 @@ jobs:
           uv run devops install-tools --tool openspec --only-missing
 
       - name: Static Analysis Quality Gate
-        run: uv run devops ci --check --no-cache --skip test,outdated
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+              git fetch --unshallow || true
+            fi
+          fi
+          uv run devops ci --check --no-cache --skip test,outdated
 
       - name: Security Scan
         if: always()

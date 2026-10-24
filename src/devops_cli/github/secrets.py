@@ -66,7 +66,7 @@ def get_repository_public_key(repo: str) -> GitHubPublicKey:
     """Fetch the repository public key for Actions secrets encryption."""
     with trace_span("github.secrets.get_public_key", attributes={"repo": repo}):
         cmd = [CONST_GH_CLI, "api", f"repos/{repo}/actions/secrets/public-key"]
-        res = run_gh(cmd, check=False, quiet=True)
+        res = run_gh(cmd, quiet=True)
         if res.returncode != 0 or not res.stdout.strip():
             err_msg = mask_secrets(res.stderr.strip()[:256]) or "Failed to retrieve public key"
             raise GitHubOperationError(
@@ -93,7 +93,7 @@ def list_repository_secrets(repo: str) -> list[str]:
     """List secret names configured in the repository (values are never exposed by GitHub)."""
     with trace_span("github.secrets.list", attributes={"repo": repo}):
         cmd = [CONST_GH_CLI, "api", f"repos/{repo}/actions/secrets"]
-        res = run_gh(cmd, check=False, quiet=True)
+        res = run_gh(cmd, quiet=True)
         if res.returncode != 0 or not res.stdout.strip():
             logger.debug("Failed to list secrets for repository %s", repo)
             return []
@@ -157,7 +157,7 @@ def _upload_encrypted_secret(
         "-",
     ]
     payload = json.dumps({"encrypted_value": encrypted_value, "key_id": key_id})
-    res = run_gh(cmd, input=payload, check=False, quiet=True)
+    res = run_gh(cmd, input=payload, quiet=True)
     if res.returncode != 0:
         logger.error("Failed to upload secret to repository %s", repo)
         return False

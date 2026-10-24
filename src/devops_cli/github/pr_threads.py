@@ -86,7 +86,9 @@ def graphql_args(query: str, variables: dict[str, Any]) -> list[str]:
 
 def _run_graphql(args: list[str]) -> dict[str, Any]:
     """Run a `gh api graphql` call with rate limiting and backoff, and parse its answer."""
-    proc = run_gh(args, check=False)
+    proc = run_gh(
+        args,
+    )
     if proc.returncode != 0 or not proc.stdout:
         err = proc.stderr.strip() if proc.stderr else f"Exit code {proc.returncode}"
         raise GitHubOperationError(f"GitHub GraphQL query failed: {err}")

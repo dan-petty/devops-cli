@@ -59,7 +59,6 @@ def _apply_tls_secret(
         + [f"--cert={cert_path}", f"--key={key_path}", "-n", namespace]
         + ["--dry-run=client", "-o", "yaml"]
         + kubectl_ctx,
-        check=False,
         capture=True,
     )
     if rendered.returncode != 0:
@@ -67,7 +66,6 @@ def _apply_tls_secret(
     applied = runtime._run_cmd(
         ["kubectl", "apply", "-f", "-", "-n", namespace] + kubectl_ctx,
         input=rendered.stdout,
-        check=False,
         capture=True,
     )
     return None if applied.returncode == 0 else _kubectl_error(applied)
@@ -96,7 +94,9 @@ def _deploy_tls_secret(
         "-n",
         namespace,
     ] + kubectl_ctx
-    created = runtime._run_cmd(create_cmd, check=False)
+    created = runtime._run_cmd(
+        create_cmd,
+    )
     return None if created.returncode == 0 else "Failed to create secret via kubectl"
 
 
@@ -158,7 +158,7 @@ def create_tls_secret(
 
     # Ensure namespace exists
     ns_check = runtime._run_cmd(
-        ["kubectl", "get", "namespace", namespace] + kubectl_ctx, check=False
+        ["kubectl", "get", "namespace", namespace] + kubectl_ctx,
     )
     if ns_check.returncode != 0:
         runtime._run_cmd(["kubectl", "create", "namespace", namespace] + kubectl_ctx, check=True)
@@ -243,7 +243,9 @@ def enable_tls_stack(
 
     for ns in namespaces_to_target:
         # Check if namespace exists before attempting secret creation
-        ns_check = runtime._run_cmd(["kubectl", "get", "namespace", ns] + kubectl_ctx, check=False)
+        ns_check = runtime._run_cmd(
+            ["kubectl", "get", "namespace", ns] + kubectl_ctx,
+        )
         if ns_check.returncode != 0:
             results.append(
                 KubernetesTLSSecretResult(

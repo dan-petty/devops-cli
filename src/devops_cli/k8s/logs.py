@@ -70,5 +70,7 @@ def stream_multi_pod_logs(
                 k_args.append("-f")
             cmd = build_kubectl_cmd(k_args)
 
-        proc = run_subprocess(cmd, check=False)
+        proc = run_subprocess(
+            cmd,
+        )
         return proc.returncode

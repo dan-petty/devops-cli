@@ -1,0 +1,8 @@
+id: check-false
+valid:
+  - 'run_subprocess(cmd, check=True)'
+  - 'run_subprocess(cmd)'
+  - 'def f(check: bool = False): pass'
+invalid:
+  - 'run_subprocess(cmd, check=False)'
+  - 'subprocess.run(cmd, check=False)'

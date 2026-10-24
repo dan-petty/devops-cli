@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import subprocess
 import tempfile
 from collections.abc import Sequence
 from dataclasses import replace
@@ -261,7 +262,7 @@ def _recover_stuck_helm_release_if_pending(
 
     helm_ctx = ["--kube-context", context] if context else []
     status_cmd = ["helm", "status", release_name, "-n", namespace, "-o", "json"] + helm_ctx
-    res = runtime._run_cmd(status_cmd, check=False, capture=True)
+    res = runtime._run_cmd(status_cmd, capture=True)
     if res.returncode != 0 or not res.stdout:
         return False
 
@@ -286,7 +287,10 @@ def _recover_stuck_helm_release_if_pending(
                 namespace,
                 "--ignore-not-found",
             ] + k_ctx
-            runtime._run_cmd(del_cmd, check=False)
+            try:
+                runtime._run_cmd(del_cmd, check=True)
+            except subprocess.CalledProcessError:
+                pass
             return True
     except json.JSONDecodeError, KeyError, TypeError:
         pass
@@ -326,33 +330,39 @@ def _adopt_helm_resource_if_conflict(
         ns_args = ["-n", ns] if ns else []
         adopt_msg = f"Adopting pre-existing {kind}/{name} for release '{release_name}'..."
         print_warning(adopt_msg)
-        runtime._run_cmd(
-            [
-                "kubectl",
-                "annotate",
-                kind,
-                name,
-                *ns_args,
-                f"meta.helm.sh/release-name={release_name}",
-                f"meta.helm.sh/release-namespace={namespace}",
-                "--overwrite",
-            ]
-            + ctx_args,
-            check=False,
-        )
-        runtime._run_cmd(
-            [
-                "kubectl",
-                "label",
-                kind,
-                name,
-                *ns_args,
-                "app.kubernetes.io/managed-by=Helm",
-                "--overwrite",
-            ]
-            + ctx_args,
-            check=False,
-        )
+        try:
+            runtime._run_cmd(
+                [
+                    "kubectl",
+                    "annotate",
+                    kind,
+                    name,
+                    *ns_args,
+                    f"meta.helm.sh/release-name={release_name}",
+                    f"meta.helm.sh/release-namespace={namespace}",
+                    "--overwrite",
+                ]
+                + ctx_args,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
+        try:
+            runtime._run_cmd(
+                [
+                    "kubectl",
+                    "label",
+                    kind,
+                    name,
+                    *ns_args,
+                    "app.kubernetes.io/managed-by=Helm",
+                    "--overwrite",
+                ]
+                + ctx_args,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
         adopted_any = True
     return adopted_any
 
@@ -423,7 +433,7 @@ def _bootstrap_openwebui_account(
     ]
     if context:
         pod_cmd.extend(["--context", context])
-    res_pod = runtime._run_cmd(pod_cmd, check=False, capture=True)
+    res_pod = runtime._run_cmd(pod_cmd, capture=True)
     pod_name = (res_pod.stdout or "").strip()
     if not pod_name:
         return (False, False)
@@ -432,7 +442,7 @@ def _bootstrap_openwebui_account(
     if context:
         exec_cmd.extend(["--context", context])
     exec_cmd.extend(["--", "python", "-"])
-    res = runtime._run_cmd(exec_cmd, input=py_script, check=False, capture=True)
+    res = runtime._run_cmd(exec_cmd, input=py_script, capture=True)
     created = "CREATED" in (res.stdout or "")
     return (res.returncode == 0, created)
 
@@ -546,9 +556,7 @@ def bootstrap_openwebui(
 
 def _is_helm_v4_or_newer() -> bool:
     """Detect whether the active Helm CLI is version 4 or newer."""
-    proc = runtime._run_cmd(
-        ["helm", "version", "--template", "{{.Version}}"], check=False, capture=True
-    )
+    proc = runtime._run_cmd(["helm", "version", "--template", "{{.Version}}"], capture=True)
     if proc.returncode != 0 or not proc.stdout:
         return False
     ver_clean = proc.stdout.strip().lstrip("v")
@@ -596,7 +604,7 @@ def _is_cluster_argo_managed(effective_context: str | None = None) -> bool:
     cmd = ["kubectl", "-n", "argocd", "get", "application", "cluster"]
     if effective_context:
         cmd.extend(["--context", effective_context])
-    proc = runtime._run_cmd(cmd, check=False, capture=True)
+    proc = runtime._run_cmd(cmd, capture=True)
     if proc.returncode != 0:
         return False
     out = (proc.stdout or "").strip()
@@ -612,8 +620,11 @@ def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
         return
     print_info(MESSAGES.k8s.adding_helm_repos, prefix=False)
     for repo_name, repo_url in repos_to_add.items():
-        runtime._run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
-    runtime._run_cmd(["helm", "repo", "update"])
+        try:
+            runtime._run_cmd(["helm", "repo", "add", repo_name, repo_url], check=True)
+        except subprocess.CalledProcessError:
+            pass
+    runtime._run_cmd(["helm", "repo", "update"], check=True)
 
 
 def _apply_single_manifest(
@@ -635,13 +646,19 @@ def _apply_single_manifest(
         raw_text = p.read_text(encoding="utf-8")
         rendered = render_manifest_template(raw_text, domain=domain)
         if rendered != raw_text:
-            runtime._run_cmd(
-                ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
-                input=rendered,
-                check=False,
-            )
+            try:
+                runtime._run_cmd(
+                    ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
+                    input=rendered,
+                    check=True,
+                )
+            except subprocess.CalledProcessError:
+                pass
             return
-    runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
+    try:
+        runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=True)
+    except subprocess.CalledProcessError:
+        pass
 
 
 def _apply_manifest_files(
@@ -673,7 +690,7 @@ def _run_helm_with_adoption_retries(
     Helm names one conflicting resource per failed attempt, so each retry adopts the next one. A
     retry that fails exactly like the attempt before it made no progress and ends the retries.
     """
-    result = runtime._run_cmd(helm_cmd, check=False, capture=True)
+    result = runtime._run_cmd(helm_cmd, capture=True)
     previous_error: str | None = None
     for _ in range(DEFAULT_HELM_RECOVERY_MAX_RETRIES):
         err_msg = (result.stderr or "") + " " + (result.stdout or "")
@@ -694,7 +711,7 @@ def _run_helm_with_adoption_retries(
         )
         if not (pending_recovered or conflicts_adopted):
             break
-        result = runtime._run_cmd(helm_cmd, check=False, capture=True)
+        result = runtime._run_cmd(helm_cmd, capture=True)
     return result
 
 
@@ -783,10 +800,13 @@ def _post_deploy_credentials(
         print_info("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]", prefix=False)
     if "devops" in selected_stacks:
         k_ctx = ["--context", effective_context] if effective_context else []
-        runtime._run_cmd(
-            ["kubectl", "rollout", "restart", "deploy/roadmap-service", "-n", "devops"] + k_ctx,
-            check=False,
-        )
+        try:
+            runtime._run_cmd(
+                ["kubectl", "rollout", "restart", "deploy/roadmap-service", "-n", "devops"] + k_ctx,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
         print_info(
             "[dim]Roadmap Service: http://localhost:8000 (namespace: devops)[/dim]",
             prefix=False,
@@ -857,7 +877,7 @@ def _render_devops_configmap(k8s_dir: Path) -> str:
 def _apply_rendered(manifest: str, what: str, kubectl_ctx: list[str]) -> None:
     """Apply a manifest rendered in memory, or exit with kubectl's reason."""
     res = runtime._run_cmd(
-        ["kubectl", "apply", "-f", "-"] + kubectl_ctx, input=manifest, check=False, capture=True
+        ["kubectl", "apply", "-f", "-"] + kubectl_ctx, input=manifest, capture=True
     )
     if res.returncode != 0:
         print_error(f"Failed to apply {what}: {(res.stderr or res.stdout).strip()}", prefix=False)
@@ -900,7 +920,7 @@ def _homelab_host_overrides(
         with tempfile.TemporaryDirectory(prefix="devops-argocd-") as workdir:
             for application in applications:
                 read = ["kubectl", "get", "application", application, "-n", "argocd", "-o", "json"]
-                got = runtime._run_cmd(read + kubectl_ctx, check=False, capture=True)
+                got = runtime._run_cmd(read + kubectl_ctx, capture=True)
                 if got.returncode != 0:
                     raise KubernetesContextError(
                         f"Argo CD Application '{application}' could not be read: "
@@ -933,7 +953,6 @@ def _set_homelab_hosts(
             ["kubectl", "patch", "application", application, "-n", "argocd"]
             + ["--type", "merge", "-p", json.dumps(patch)]
             + kubectl_ctx,
-            check=False,
             capture=True,
         )
         if res.returncode != 0:
@@ -949,7 +968,7 @@ def _set_homelab_hosts(
 def _apply_kustomizations(kustomizations: Sequence[Path], kubectl_ctx: list[str]) -> None:
     """Apply each kustomization directory with `kubectl apply -k`, in order."""
     for kustomization in kustomizations:
-        runtime._run_cmd(["kubectl", "apply", "-k", str(kustomization)] + kubectl_ctx)
+        runtime._run_cmd(["kubectl", "apply", "-k", str(kustomization)] + kubectl_ctx, check=True)
 
 
 def _warn_about_gpu_placement(k8s_dir: Path, context: str | None) -> None:
@@ -985,7 +1004,9 @@ def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> No
     for path in paths:
         flag = "-k" if (path.is_dir() or not path.suffix) else "-f"
         print_info(f"[bold]Deleting {path.name}...[/bold]", prefix=False)
-        runtime._run_cmd(["kubectl", "delete", flag, str(path), "--ignore-not-found"] + kubectl_ctx)
+        runtime._run_cmd(
+            ["kubectl", "delete", flag, str(path), "--ignore-not-found"] + kubectl_ctx, check=True
+        )
 
 
 def _collect_deploy_targets(
@@ -1274,10 +1295,13 @@ def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> N
     normalized_stack = stack.lower()
     if normalized_stack == "all":
         print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
+        try:
+            runtime._run_cmd(
+                ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
         return
 
     ns_map: dict[str, tuple[str, ...]] = {
@@ -1289,10 +1313,58 @@ def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> N
     if targets:
         print_info(f"Removing {normalized_stack} namespace(s)...", prefix=False)
         for ns in targets:
+            try:
+                runtime._run_cmd(
+                    ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
+                    check=True,
+                )
+            except subprocess.CalledProcessError:
+                pass
+
+
+def _teardown_stack_resources(
+    all_post_helm_deletes: Sequence[Path],
+    all_manifest_deletes: Sequence[str],
+    selected_stacks: Sequence[str],
+    all_uninstalls: Sequence[dict[str, str]],
+    kubectl_ctx: list[str],
+    helm_ctx: list[str],
+) -> None:
+    """Delete post-Helm resources, manifests, ConfigMaps, and Helm releases."""
+    _delete_post_helm_paths(all_post_helm_deletes, kubectl_ctx)
+    for manifest_path in all_manifest_deletes:
+        flag = "-k" if Path(manifest_path).is_dir() else "-f"
+        print_info(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]", prefix=False)
+        try:
             runtime._run_cmd(
-                ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
-                check=False,
+                ["kubectl", "delete", flag, manifest_path, "--ignore-not-found"] + kubectl_ctx,
+                check=True,
             )
+        except subprocess.CalledProcessError:
+            pass
+
+    if "devops" in selected_stacks:
+        print_info(f"[bold]Deleting ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}...[/bold]", prefix=False)
+        try:
+            runtime._run_cmd(
+                ["kubectl", "delete", "configmap", CONST_K8S_DEVOPS_CONFIGMAP, "-n", "devops"]
+                + ["--ignore-not-found"]
+                + kubectl_ctx,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
+
+    for release in all_uninstalls:
+        print_info(f"[bold]Uninstalling {release['name']}...[/bold]", prefix=False)
+        try:
+            runtime._run_cmd(
+                ["helm", "uninstall", release["name"], "--namespace", release["namespace"]]
+                + helm_ctx,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
 
 
 def teardown_stack(
@@ -1348,34 +1420,14 @@ def teardown_stack(
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
-    # 1. Delete post-Helm custom resources and kustomizations while their operators still run,
-    # then native manifests
-    _delete_post_helm_paths(all_post_helm_deletes, kubectl_ctx)
-    for manifest_path in all_manifest_deletes:
-        flag = "-k" if Path(manifest_path).is_dir() else "-f"
-        print_info(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]", prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", flag, manifest_path, "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
-
-    # 2. Delete the ConfigMap deploy-stack rendered from config, which no manifest file holds
-    if "devops" in selected_stacks:
-        print_info(f"[bold]Deleting ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}...[/bold]", prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "configmap", CONST_K8S_DEVOPS_CONFIGMAP, "-n", "devops"]
-            + ["--ignore-not-found"]
-            + kubectl_ctx,
-            check=False,
-        )
-
-    # 3. Uninstall Helm releases in reverse order
-    for release in all_uninstalls:
-        print_info(f"[bold]Uninstalling {release['name']}...[/bold]", prefix=False)
-        runtime._run_cmd(
-            ["helm", "uninstall", release["name"], "--namespace", release["namespace"]] + helm_ctx,
-            check=False,
-        )
+    _teardown_stack_resources(
+        all_post_helm_deletes,
+        all_manifest_deletes,
+        selected_stacks,
+        all_uninstalls,
+        kubectl_ctx,
+        helm_ctx,
+    )
 
     # 4. Clean up namespaces
     _teardown_namespaces(stack, k8s_dir, kubectl_ctx)

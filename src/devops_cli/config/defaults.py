@@ -648,30 +648,19 @@ DEFAULT_PROJECT_NAME: str = "devops-cli"
 DEFAULT_DEPENDENCY_MIN_SEVERITY: str = "HIGH"
 DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
-# The C901 markers src/ may carry, and tests/ none: the functions over the cap when Ruff began
-# enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 25
 # The rule ids listed in `# ast-grep-ignore:` comments in each tree that the ast-grep scan
 # reads (#849, #1107, #1902).
 DEFAULT_AST_GREP_SUPPRESSION_CEILING: int = 0
 # Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
-# pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
-# ceiling of 0.
+# pyproject.toml (#849). Each check is count <= ceiling.
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src type: ignore": 51,
-    "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
-    "src noqa: E402": 2,
-    "src noqa: F401": 15,
-    "src noqa: SIM115": 1,
-    "src noqa: UP036": 1,
     "src nosec": 13,
     "src pragma: no cover": 1,
     "src pragma: no mutate": 0,
     "src file-level directive": 0,
     "src ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
     "tests type: ignore": 79,
-    "tests noqa: F401": 3,
-    "tests noqa: N803": 1,
     "tests nosec": 17,
     "tests pragma: no cover": 0,
     "tests pragma: no mutate": 0,

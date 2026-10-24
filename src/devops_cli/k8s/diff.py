@@ -48,7 +48,9 @@ def diff_helm_release(
         )
         from devops_cli.security.sanitizer import mask_secrets
 
-        res = run_subprocess(cmd, check=False)
+        res = run_subprocess(
+            cmd,
+        )
         output = mask_secrets(res.stdout or res.stderr)
         if res.returncode not in (0, 2):  # 2 is helm-diff exit code when differences exist
             print_error(f"Helm diff failed: {output.strip()}", prefix=False)

@@ -75,7 +75,6 @@ def create_remediation_branch(target_dir: Path, package: str, cve_id: str | None
         ["git", "checkout", "-b", branch_name],
         cwd=target_dir,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        check=False,
     )
     if res.returncode == 0:
         return branch_name
@@ -153,7 +152,6 @@ class DependencyRemediator:
                 action.upgrade_command,
                 cwd=self.target_dir,
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-                check=False,
             )
             if res.returncode == 0:
                 action.status = "APPLIED"

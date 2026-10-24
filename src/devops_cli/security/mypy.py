@@ -252,7 +252,7 @@ def run_mypy_scan(
         # mypy keeps its cache in SQLite, which lets one process write at a time, so runs over
         # one tree take turns. Closing the lock file releases the lock.
         fcntl.flock(lock, fcntl.LOCK_EX)
-        proc = run_subprocess(cmd, cwd=effective_tree, check=False, timeout=timeout)
+        proc = run_subprocess(cmd, cwd=effective_tree, timeout=timeout)
     raw_out = (proc.stdout or "") + (proc.stderr or "")
     findings = parse_mypy_output(raw_out, default_path=str(effective_tree))
     return ScanOutcome(status="ran", findings=findings)

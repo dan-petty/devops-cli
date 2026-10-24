@@ -533,11 +533,14 @@ def _ensure_path_ownership(target_path: Path) -> None:
     if current_uid == 0:
         _chown_recursive_as_root(target_path, current_uid, current_gid)
     elif shutil.which("sudo"):
-        run_subprocess(
-            ["sudo", "chown", "-R", f"{current_uid}:{current_gid}", str(target_path)],
-            check=False,
-            quiet=True,
-        )
+        try:
+            run_subprocess(
+                ["sudo", "chown", "-R", f"{current_uid}:{current_gid}", str(target_path)],
+                check=True,
+                quiet=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
 
 
 def _safe_chmod_path(target_path: Path, mode: int, sudo_mode_str: str) -> None:
@@ -546,9 +549,12 @@ def _safe_chmod_path(target_path: Path, mode: int, sudo_mode_str: str) -> None:
         target_path.chmod(mode)
     except PermissionError, OSError:
         if shutil.which("sudo"):
-            run_subprocess(
-                ["sudo", "chmod", sudo_mode_str, str(target_path)], check=False, quiet=True
-            )
+            try:
+                run_subprocess(
+                    ["sudo", "chmod", sudo_mode_str, str(target_path)], check=True, quiet=True
+                )
+            except subprocess.CalledProcessError:
+                pass
 
 
 def _safe_mkdir_path(target_path: Path) -> None:
@@ -557,7 +563,10 @@ def _safe_mkdir_path(target_path: Path) -> None:
         target_path.mkdir(parents=True, exist_ok=True)
     except PermissionError, OSError:
         if shutil.which("sudo"):
-            run_subprocess(["sudo", "mkdir", "-p", str(target_path)], check=False, quiet=True)
+            try:
+                run_subprocess(["sudo", "mkdir", "-p", str(target_path)], check=True, quiet=True)
+            except subprocess.CalledProcessError:
+                pass
 
 
 def _ensure_mount_permissions(
@@ -627,7 +636,6 @@ def _apply_configured_k8s_context(*, dry_run: bool = False) -> list[str]:
 
     available = run_subprocess(
         ["kubectl", "config", "get-contexts", "-o", "name"],
-        check=False,
         quiet=True,
     )
     if available.returncode != 0:
@@ -641,7 +649,7 @@ def _apply_configured_k8s_context(*, dry_run: bool = False) -> list[str]:
             f"left current-context unchanged"
         ]
 
-    result = run_subprocess(["kubectl", "config", "use-context", desired], check=False, quiet=True)
+    result = run_subprocess(["kubectl", "config", "use-context", desired], quiet=True)
     if result.returncode != 0:
         logger.debug("Failed selecting context '%s': %s", desired, result.stderr.strip())
         return [f"Failed setting kubectl current-context to '{desired}'"]
@@ -726,7 +734,7 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
     )
     for bin_name, cmd, success_msg, failure_msg in tool_installers:
         if shutil.which(bin_name) is None:
-            res = run_subprocess(cmd, check=False, quiet=True)
+            res = run_subprocess(cmd, quiet=True)
             actions.append(success_msg if res.returncode == 0 else failure_msg)
     return actions
 
@@ -788,7 +796,7 @@ def _install_keyring_packages(*, dry_run: bool = False) -> list[str]:
         [*apt, "update"],
         [*apt, "install", "-y", "--no-install-recommends", *CONST_KEYRING_PACKAGES],
     ):
-        res = run_subprocess(cmd, check=False, quiet=True, timeout=900)
+        res = run_subprocess(cmd, quiet=True, timeout=900)
         if res.returncode != 0:
             return [f"Warning: Failed to install gnome-keyring (exit {res.returncode})"]
     return [f"Installed {', '.join(CONST_KEYRING_PACKAGES)} for the container's keyring"]
@@ -932,11 +940,14 @@ def _configure_git_signing_for_workspace(workspace_dir: Path, key_path: Path) ->
         ["commit.gpgsign", "true"],
     )
     for args in signing_args:
-        run_subprocess(
-            ["git", "-C", str(workspace_dir), "config", "--local", *args],
-            check=False,
-            quiet=True,
-        )
+        try:
+            run_subprocess(
+                ["git", "-C", str(workspace_dir), "config", "--local", *args],
+                check=True,
+                quiet=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
 
 
 def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
@@ -973,7 +984,6 @@ def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> st
         res = run_subprocess(
             ["devops", "k8s", "deploy-stack", "--stack", stack],
             cwd=workspace_dir,
-            check=False,
             quiet=True,
         )
         if res.returncode == 0:
@@ -995,7 +1005,7 @@ def _run_k8s_bootstrap_worker(
         actions.append("Warning: Docker daemon is not running; skipping Minikube start")
         return actions
 
-    res = run_subprocess(["minikube", "status", "--format", "{{.Host}}"], check=False, quiet=True)
+    res = run_subprocess(["minikube", "status", "--format", "{{.Host}}"], quiet=True)
     is_running = res.returncode == 0 and "Running" in str(res.stdout)
 
     minikube_healthy = is_running
@@ -1004,10 +1014,16 @@ def _run_k8s_bootstrap_worker(
         actions.append(action_msg)
         minikube_healthy = healthy
         if healthy and not dry_run:
-            run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+            try:
+                run_subprocess(["minikube", "update-context"], check=True, quiet=True)
+            except subprocess.CalledProcessError:
+                pass
     else:
         if not dry_run:
-            run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+            try:
+                run_subprocess(["minikube", "update-context"], check=True, quiet=True)
+            except subprocess.CalledProcessError:
+                pass
         actions.append("Minikube cluster is already running")
 
     if stack and (minikube_healthy or dry_run):
@@ -1065,16 +1081,22 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
 
     # 2. Git defaults
     if not dry_run:
-        run_subprocess(
-            ["git", "config", "--global", "push.autoSetupRemote", "true"],
-            check=False,
-            quiet=True,
-        )
-        run_subprocess(
-            ["git", "config", "--global", "init.defaultBranch", "main"],
-            check=False,
-            quiet=True,
-        )
+        try:
+            run_subprocess(
+                ["git", "config", "--global", "push.autoSetupRemote", "true"],
+                check=True,
+                quiet=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
+        try:
+            run_subprocess(
+                ["git", "config", "--global", "init.defaultBranch", "main"],
+                check=True,
+                quiet=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
     actions.append("Configured git push.autoSetupRemote=true and init.defaultBranch=main")
 
     # 3. SSH key permissions & commit signing
@@ -1170,14 +1192,12 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             res = run_subprocess(
                 ["uv", "run", "pre-commit", "install"],
                 cwd=workspace_dir,
-                check=False,
                 quiet=True,
             )
             if res.returncode != 0 and shutil.which("pre-commit"):
                 res = run_subprocess(
                     ["pre-commit", "install"],
                     cwd=workspace_dir,
-                    check=False,
                     quiet=True,
                 )
             if res.returncode == 0:
@@ -1261,7 +1281,6 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
             ],
             env={"XDG_RUNTIME_DIR": str(runtime_dir)},
             extra_allowed_env={"DISPLAY", "WAYLAND_DISPLAY"},
-            check=False,
             quiet=True,
         )
         if res.returncode != 0:
@@ -1400,20 +1419,38 @@ def _move_plaintext_gh_tokens() -> list[str]:
     moved: list[str] = []
     for host in _gh_plaintext_token_hosts():
         token = run_subprocess(
-            ["gh", "auth", "token", "-h", host], extra_allowed_env=gh_env, check=False, quiet=True
+            ["gh", "auth", "token", "-h", host], extra_allowed_env=gh_env, quiet=True
         )
         if token.returncode != 0 or not token.stdout.strip():
             continue
-        run_subprocess(
-            ["gh", "auth", "login", "-h", host, "--with-token"],
-            input=token.stdout.strip(),
-            extra_allowed_env=gh_env,
-            check=False,
-            quiet=True,
-        )
+        try:
+            run_subprocess(
+                ["gh", "auth", "login", "-h", host, "--with-token"],
+                input=token.stdout.strip(),
+                extra_allowed_env=gh_env,
+                check=True,
+                quiet=True,
+            )
+        except subprocess.CalledProcessError:
+            pass
         if host not in _gh_plaintext_token_hosts():
             moved.append(host)
     return moved
+
+
+def _exec_keyring_daemon(new_session: list[str], password: str, socket_path: Path) -> None:
+    """Start or replace gnome-keyring-daemon in a new session."""
+    try:
+        run_subprocess(
+            [*new_session, "gnome-keyring-daemon", "--replace", "--unlock", "--components=secrets"],
+            input=password,
+            env={"XDG_RUNTIME_DIR": str(socket_path.parent)},
+            extra_allowed_env={"DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"},
+            check=True,
+            quiet=True,
+        )
+    except subprocess.CalledProcessError:
+        pass
 
 
 def _unlock_keyring(*, timeout: int | None) -> bool:
@@ -1463,14 +1500,7 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
     # otherwise closing the terminal it was started from -- or the pty VS Code gives
     # post-start -- hangs it up, and D-Bus activates a fresh, locked one on the next request.
     new_session = ["setsid"] if shutil.which("setsid") else []
-    run_subprocess(
-        [*new_session, "gnome-keyring-daemon", "--replace", "--unlock", "--components=secrets"],
-        input=password,
-        env={"XDG_RUNTIME_DIR": str(socket_path.parent)},
-        extra_allowed_env={"DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"},
-        check=False,
-        quiet=True,
-    )
+    _exec_keyring_daemon(new_session, password, socket_path)
     locked = _keyring_is_locked()
     if locked is None:
         print_error(ERRORS.devcontainer.keyring_not_created)

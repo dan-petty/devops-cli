@@ -61,7 +61,7 @@ def test_start_minikube_with_gpu(
         True,
         "Started Minikube cluster (--driver=docker --gpus=all)",
     )
-    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
+    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker", "--gpus=all"])
 
 
 @patch("shutil.which", return_value="/usr/bin/nvidia-smi")
@@ -81,7 +81,7 @@ def test_start_minikube_gpu_fallback_to_cpu(
     success, msg = _start_minikube(dry_run=False)
 
     assert (success, msg) == (True, "Started Minikube cluster (--driver=docker)")
-    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker"], check=False)
+    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker"])
 
 
 @patch("shutil.which", return_value=None)
@@ -95,7 +95,7 @@ def test_start_minikube_cpu_only(
     success, msg = _start_minikube(dry_run=False)
 
     assert (success, msg) == (True, "Started Minikube cluster (--driver=docker)")
-    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker"], check=False)
+    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker"])
 
 
 @patch("shutil.which", return_value="/usr/bin/nvidia-smi")

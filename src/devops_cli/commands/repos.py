@@ -89,7 +89,7 @@ def _reload_workspace(workspace_file: Path) -> None:
     try:
         run_subprocess(
             [CONST_VSCODE_CLI, "--reuse-window", "--", str(workspace_file)],
-            check=False,
+            check=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except OSError, subprocess.SubprocessError:

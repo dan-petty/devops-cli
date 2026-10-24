@@ -44,7 +44,6 @@ def _get_repo_origin(root: Path) -> str:
         ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
         capture_output=True,
         text=True,
-        check=False,
     )
     if proc.returncode == 0 and proc.stdout and proc.stdout.strip():
         return _normalize_git_url(proc.stdout.strip())
@@ -293,7 +292,6 @@ def check_argocd_gate(
         ["git", "-C", str(root), "archive", ref],
         capture_output=True,
         text=False,
-        check=False,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if proc.returncode != 0:

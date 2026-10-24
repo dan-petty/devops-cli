@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -61,7 +62,10 @@ def bootstrap(
             )
             raise typer.Exit(1)
     else:
-        runtime._run_cmd(["minikube", "update-context"], check=False)
+        try:
+            runtime._run_cmd(["minikube", "update-context"], check=True)
+        except subprocess.CalledProcessError:
+            pass
 
     stack_life.deploy_stack(k8s_dir=k8s_dir, stack=stack)
     net.configure_urls(stack=stack, context="minikube")

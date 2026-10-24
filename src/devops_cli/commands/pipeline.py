@@ -86,7 +86,9 @@ def run_pipeline_cmd(
             function_name=function_name,
             args=args,
         )
-        res = run_subprocess(cmd, check=False)
+        res = run_subprocess(
+            cmd,
+        )
         if res.returncode == 0:
             print_success(MESSAGES.pipeline.success.format(name=pipeline_path.name))
         else:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from collections import Counter
 from collections.abc import Collection, Iterable
 from typing import Any
@@ -175,7 +176,7 @@ def get_repository_issues(
     for lbl in all_labels:
         cmd.extend(["--label", lbl])
 
-    res = run_gh(cmd, check=False, quiet=True)
+    res = run_gh(cmd, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
         try:
             raw_list = json.loads(res.stdout)
@@ -256,7 +257,7 @@ def create_repository_issue(
 ) -> GitHubIssue:
     """Create a new GitHub issue with taxonomy labels and milestone linkage."""
     cmd = _build_create_issue_cmd(repo, title, body, milestone, labels)
-    res = run_gh(cmd, check=False, quiet=True)
+    res = run_gh(cmd, quiet=True)
     assigned_milestone = milestone
     if (
         res.returncode != 0
@@ -264,7 +265,7 @@ def create_repository_issue(
         and "could not add to milestone" in (res.stderr or res.stdout)
     ):
         fallback_cmd = _build_create_issue_cmd(repo, title, body, None, labels)
-        res = run_gh(fallback_cmd, check=False, quiet=True)
+        res = run_gh(fallback_cmd, quiet=True)
         if res.returncode == 0:
             m_num = _resolve_milestone_number(repo, milestone)
             created_num = _extract_issue_number(res.stdout)
@@ -278,7 +279,10 @@ def create_repository_issue(
                     "-F",
                     f"milestone={m_num}",
                 ]
-                run_gh(patch_cmd, check=False, quiet=True)
+                try:
+                    run_gh(patch_cmd, check=True, quiet=True)
+                except subprocess.CalledProcessError:
+                    pass
             else:
                 assigned_milestone = None
     if res.returncode != 0:
@@ -413,7 +417,7 @@ def _resolve_updated_labels(
         return None
 
     cmd = [CONST_GH_CLI, "api", f"repos/{repo}/issues/{number}"]
-    res = run_gh(cmd, check=False, quiet=True)
+    res = run_gh(cmd, quiet=True)
     curr_labels: set[str] = set()
     if res.returncode == 0 and res.stdout:
         try:

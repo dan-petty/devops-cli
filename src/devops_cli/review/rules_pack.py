@@ -211,7 +211,7 @@ def _resolve_semgrep_binary() -> str:
 
 def _detect_semgrep_version(binary: str, env: dict[str, str]) -> str:
     """Run `semgrep --version` and return the version string."""
-    res = run_subprocess([binary, "--version"], check=False, capture_output=True, env=env)
+    res = run_subprocess([binary, "--version"], capture_output=True, env=env)
     version = (
         res.stdout.strip().splitlines()[0].strip()
         if res.returncode == 0 and res.stdout.strip()
@@ -238,7 +238,6 @@ def run_rule_pack_tests(
     version = _detect_semgrep_version(binary, env)
     res = run_subprocess(
         [binary, "--test", "--metrics", "off", str(rules_dir)],
-        check=False,
         capture_output=True,
         env=env,
     )

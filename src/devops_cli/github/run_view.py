@@ -56,7 +56,7 @@ def fetch_workflow_run_view(
 ) -> RunViewResult:
     """Execute `gh run view` with rate limiting, timeouts, and masked output."""
     cmd = run_view_args(run_id, log_failed=log_failed, full_log=full_log, job=job, repo=repo)
-    res = runner(cmd, check=False, timeout=timeout)
+    res = runner(cmd, timeout=timeout)
     stdout_masked = mask_secrets(res.stdout or "")
     stderr_masked = mask_secrets(res.stderr or "")
     return RunViewResult(

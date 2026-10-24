@@ -172,7 +172,6 @@ def count_dirty_paths(worktree_dir: Path) -> int:
         return 0
     proc = run_subprocess(
         ["git", "-C", str(worktree_dir), "status", "--porcelain", "-z"],
-        check=False,
         quiet=True,
     )
     if proc.returncode != 0 or not proc.stdout:
@@ -207,7 +206,6 @@ def _resolve_base_ref(repo_root: Path, preferred: str) -> str | None:
     for candidate in candidates:
         proc = run_subprocess(
             ["git", "-C", str(repo_root), "rev-parse", "--verify", "--quiet", candidate],
-            check=False,
             quiet=True,
         )
         if proc.returncode == 0:
@@ -231,7 +229,6 @@ def count_commits_ahead_of_main(
     rev_range = f"{base_ref}..{head_or_ref}"
     proc = run_subprocess(
         ["git", "-C", str(repo_root), "rev-list", "--count", rev_range],
-        check=False,
         quiet=True,
     )
     if proc.returncode != 0:
@@ -268,7 +265,6 @@ def is_tip_contained_in_other_ref(
             "refs/heads",
             "refs/remotes",
         ],
-        check=False,
         quiet=True,
     )
     if proc.returncode != 0 or not proc.stdout:
@@ -291,7 +287,6 @@ def list_worktree_infos(repo_root: Path) -> list[WorktreeInfo]:
     """Execute git worktree list --porcelain -z and parse records."""
     proc = run_subprocess(
         ["git", "-C", str(repo_root), "worktree", "list", "--porcelain", "-z"],
-        check=False,
         quiet=True,
     )
     if proc.returncode != 0 or not proc.stdout:
@@ -400,7 +395,7 @@ def prune_worktrees(
         if force:
             cmd.append("--force")
         cmd.append(str(dest_dir))
-        proc = run_subprocess(cmd, check=False, quiet=True)
+        proc = run_subprocess(cmd, quiet=True)
         if proc.returncode == 0:
             removed_count += 1
             items.append(WorktreePruneItem(path=entry.path, status="removed", reason=None))
@@ -413,7 +408,6 @@ def prune_worktrees(
     if not dry_run:
         prune_proc = run_subprocess(
             ["git", "-C", str(repo_root), "worktree", "prune"],
-            check=False,
             quiet=True,
         )
         if prune_proc.returncode != 0:

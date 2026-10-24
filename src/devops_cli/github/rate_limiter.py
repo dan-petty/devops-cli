@@ -946,7 +946,6 @@ class GitHubRateLimiter:
         try:
             proc = run_subprocess(
                 [CONST_GH_CLI, "api", "rate_limit"],
-                check=False,
                 quiet=True,
                 timeout=timeout,
             )
@@ -1654,7 +1653,6 @@ def _execute_gh_single_attempt(
                 full_cmd,
                 input=input,
                 cwd=cwd,
-                check=False,
                 quiet=quiet,
                 timeout=timeout,
                 capture_output=capture_output,

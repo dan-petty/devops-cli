@@ -90,9 +90,7 @@ def _prune_candidates(directory: Path) -> Iterator[Path]:
 def _listed_worktrees(main_root: Path) -> list[Path]:
     """Every worktree of the repository whose main worktree is `main_root`, as git lists them;
     none when `main_root` is not in a repository."""
-    listing = run_subprocess(
-        ["git", "worktree", "list", "--porcelain"], cwd=main_root, check=False, quiet=True
-    )
+    listing = run_subprocess(["git", "worktree", "list", "--porcelain"], cwd=main_root, quiet=True)
     if listing.returncode != 0:
         return []
     return [
@@ -158,9 +156,7 @@ def _holds_tracked_files(data_dir: Path) -> bool:
     if checkout is None or not data_dir.is_dir():
         return False
     pathspec = f":(literal){data_dir.relative_to(checkout)}"
-    listing = run_subprocess(
-        ["git", "ls-files", "-z", "--", pathspec], cwd=checkout, check=False, quiet=True
-    )
+    listing = run_subprocess(["git", "ls-files", "-z", "--", pathspec], cwd=checkout, quiet=True)
     return listing.returncode != 0 or bool(listing.stdout)
 
 

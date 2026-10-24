@@ -265,7 +265,7 @@ def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftE
         return []
     try:
         cmd = ["git", "status", "--porcelain", "--", *resolved_paths]
-        res = run_subprocess(cmd, check=False, capture_output=True, timeout=5.0)
+        res = run_subprocess(cmd, capture_output=True, timeout=5.0)
         if res.returncode != 0:
             return []
         now = time.time()

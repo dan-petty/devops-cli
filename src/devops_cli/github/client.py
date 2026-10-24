@@ -218,7 +218,7 @@ class GhCliClient:
 
     def _run_label_command(self, cmd: list[str], *, quiet: bool = False) -> str:
         """Run a `gh label` subcommand and return its output, raising when gh fails."""
-        res = run_gh(cmd, check=False, quiet=quiet)
+        res = run_gh(cmd, quiet=quiet)
         if res.returncode != 0:
             stderr = res.stderr.strip()[:CONST_MAX_ERROR_DETAIL_LENGTH]
             raise GitHubOperationError(
@@ -286,7 +286,7 @@ class GhCliClient:
 
     def api(self, endpoint: str) -> str:
         """Execute a GitHub API request via rate-managed run_gh."""
-        res = run_gh([CONST_GH_CLI, "api", endpoint], check=False, quiet=True)
+        res = run_gh([CONST_GH_CLI, "api", endpoint], quiet=True)
         if res.returncode != 0:
             raise GitHubOperationError(
                 f"gh api call failed with exit code {res.returncode}: {res.stderr.strip()}",

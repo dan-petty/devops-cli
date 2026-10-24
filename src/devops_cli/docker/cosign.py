@@ -143,7 +143,6 @@ class CosignRunner:
                     cmd,
                     capture_output=True,
                     text=True,
-                    check=False,
                     env=env,
                     timeout=self.timeout,
                     extra_allowed_env={"XDG_RUNTIME_DIR"},
@@ -208,7 +207,6 @@ class CosignRunner:
                     cmd,
                     capture_output=True,
                     text=True,
-                    check=False,
                     timeout=self.timeout,
                     extra_allowed_env={"XDG_RUNTIME_DIR"},
                 )

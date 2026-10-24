@@ -1486,7 +1486,7 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _run(self, args: list[str], input: str | None = None) -> subprocess.CompletedProcess[str]:
         self._sent_graphql = self._sent_graphql or gh_request_resource(args) == "graphql"
-        return self._runner(args, input=input, check=False, quiet=True, use_cache=False)
+        return self._runner(args, input=input, quiet=True, use_cache=False)
 
     def _failure(
         self, proc: subprocess.CompletedProcess[str], action: str, operation: str

@@ -319,7 +319,6 @@ def _list_git_tracked_candidates(
             ],
             capture_output=True,
             text=True,
-            check=False,
         )
         if result.returncode == 0 and result.stdout:
             candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
@@ -492,7 +491,6 @@ def _detect_remote_default_branch(repo_path: Path) -> str:
         capture_output=True,
         text=True,
         cwd=repo_path,
-        check=False,
     )
     return res_sym.stdout.strip() if res_sym.returncode == 0 and res_sym.stdout else ""
 
@@ -511,7 +509,6 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
         capture_output=True,
         text=True,
         cwd=repo_path,
-        check=False,
     )
     if res.returncode == 0:
         return preferred_base
@@ -521,7 +518,6 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
         capture_output=True,
         text=True,
         cwd=repo_path,
-        check=False,
     )
     branches = (
         {b.strip() for b in branches_proc.stdout.splitlines() if b.strip()}
@@ -609,7 +605,6 @@ def _get_current_git_branch(repo_path: Path) -> str:
         capture_output=True,
         text=True,
         cwd=repo_path,
-        check=False,
     )
     if proc.returncode == 0 and (name := proc.stdout.strip()) and name != "HEAD":
         return name
@@ -623,7 +618,6 @@ def _has_uncommitted_working_tree_changes(repo_path: Path) -> bool:
         capture_output=True,
         text=True,
         cwd=repo_path,
-        check=False,
     )
     return proc.returncode == 0 and bool(proc.stdout.strip())
 
@@ -639,7 +633,6 @@ def _resolve_main_branch_fallback_base(repo_path: Path, branch_name: str) -> str
             capture_output=True,
             text=True,
             cwd=repo_path,
-            check=False,
         )
         if tag_diff.returncode == 0 and tag_diff.stdout.strip():
             return tag
@@ -649,7 +642,6 @@ def _resolve_main_branch_fallback_base(repo_path: Path, branch_name: str) -> str
         capture_output=True,
         text=True,
         cwd=repo_path,
-        check=False,
     )
     if parent_proc.returncode == 0:
         return f"{branch_name}~1"

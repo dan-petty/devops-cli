@@ -260,7 +260,9 @@ def _get_matching_pods(namespace: str, selectors: dict[str, str]) -> list[str]:
     label_filters = [f"{k}={v}" for k, v in selectors.items() if k not in ("namespace", "pod")]
     if label_filters:
         cmd.extend(["-l", ",".join(label_filters)])
-    proc = run_subprocess(cmd, check=False)
+    proc = run_subprocess(
+        cmd,
+    )
     if proc.returncode == 0 and proc.stdout.strip():
         return proc.stdout.strip().split()
     return []
@@ -321,7 +323,9 @@ def execute_kubectl_logql(  # noqa: C901
         cmd = ["kubectl", "logs", pod, "-n", ns, f"--tail={limit}"]
         if since:
             cmd.append(f"--since={since}")
-        proc = run_subprocess(cmd, check=False)
+        proc = run_subprocess(
+            cmd,
+        )
         if proc.returncode != 0:
             continue
         raw_lines = proc.stdout.splitlines()

@@ -613,7 +613,7 @@ class BaseSecurityScanner(ABC):
         A run that ran out of time raises `subprocess.TimeoutExpired`, as the process would.
         """
         if (patched := _patched_run_subprocess(self.__class__.__module__)) is not None:
-            return patched(cmd, cwd=cwd_dir, timeout=timeout, check=False, input="")
+            return patched(cmd, cwd=cwd_dir, timeout=timeout, input="")
         # Imported here: the executor pulls in the sandbox and the canary, which a scanner that
         # never runs does not need.
         from devops_cli.security.tool_executor import ToolLimits, ToolRequest

@@ -137,7 +137,7 @@ def get_remote_branch_protection(repo: str, branch: str) -> dict[str, Any] | Non
     """Fetch branch protection configuration from GitHub REST API via gh cli."""
     with trace_span("github.branch_protection.get", attributes={"repo": repo, "branch": branch}):
         cmd = [CONST_GH_CLI, "api", f"repos/{repo}/branches/{branch}/protection"]
-        res = run_gh(cmd, check=False, quiet=True)
+        res = run_gh(cmd, quiet=True)
         if res.returncode != 0:
             err_msg = (res.stderr or "").strip()
             if _is_branch_unprotected_error(err_msg):
@@ -386,7 +386,7 @@ def _apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) ->
         "-",
     ]
     payload_str = json.dumps(payload)
-    res = run_gh(cmd, input=payload_str, check=False, quiet=True)
+    res = run_gh(cmd, input=payload_str, quiet=True)
     if res.returncode != 0:
         err_msg = (res.stderr or "").strip()
         logger.error(

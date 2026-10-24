@@ -125,7 +125,6 @@ def _get_git_output(args: list[str], root: Path, strip: bool = True) -> str | No
             cwd=root,
             capture_output=True,
             text=True,
-            check=False,
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -200,7 +199,6 @@ def _git_blob_hashes(root: Path, paths: list[str]) -> dict[str, str]:
             input="\n".join(paths) + "\n",
             capture_output=True,
             text=True,
-            check=False,
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )

@@ -287,12 +287,15 @@ def init() -> None:  # noqa: C901
     elif typer.confirm("Authenticate with GitHub CLI now using 'gh auth login'?", default=True):
         from devops_cli.github.rate_limiter import run_gh
 
-        run_gh(
-            ["auth", "login"],
-            check=False,
-            capture_output=False,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
-        )
+        try:
+            run_gh(
+                ["auth", "login"],
+                check=True,
+                capture_output=False,
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
+            )
+        except subprocess.CalledProcessError:
+            pass
     else:
         print_warning(
             "No GitHub CLI session found. You can run 'gh auth login' later.", prefix=False

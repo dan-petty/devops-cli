@@ -145,7 +145,9 @@ def validate_k8s_policy(
         else:
             cmd = build_kyverno_validate_cmd(manifest_path=manifest_path, policy_path=policy_path)
 
-        res = run_subprocess(cmd, check=False)
+        res = run_subprocess(
+            cmd,
+        )
         rule_results = (
             _parse_opa_output(res.stdout)
             if norm_engine == "opa"
