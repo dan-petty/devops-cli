@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from devops_cli.ai.ast.engine import _header_language
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
@@ -64,8 +65,13 @@ _EXT_LANG_FALLBACK: dict[str, str] = {
     ".rs": "rust",
     ".c": "c",
     ".h": "c",
+    ".cc": "cpp",
     ".cpp": "cpp",
+    ".cxx": "cpp",
+    ".c++": "cpp",
+    ".hh": "cpp",
     ".hpp": "cpp",
+    ".hxx": "cpp",
     ".java": "java",
     ".kt": "kotlin",
     ".swift": "swift",
@@ -124,6 +130,74 @@ _VALID_MIME_SUBTYPES = {
 }
 
 
+_CPP_EXTENSIONS = frozenset({".cc", ".cpp", ".cxx", ".c++", ".hh", ".hpp", ".hxx"})
+
+
+def _has_chart_manifest(directory: Path) -> bool:
+    try:
+        return (directory / "Chart.yaml").is_file() or (directory / "chart.yaml").is_file()
+    except OSError:
+        return False
+
+
+def _is_helm_template(path_obj: Path) -> bool:
+    """True when path_obj is a .tpl file inside a Helm chart (beside Chart.yaml)."""
+    if path_obj.suffix.lower() != ".tpl":
+        return False
+    try:
+        current = path_obj.resolve().parent
+        for _ in range(5):
+            if _has_chart_manifest(current):
+                return True
+            if current.parent == current:
+                break
+            current = current.parent
+    except OSError:
+        return False
+    return False
+
+
+def _detect_header_language(path_obj: Path, content: str | None) -> str:
+    """Detect whether a .h header is C or C++."""
+    if content is not None:
+        return _header_language(content)
+    if path_obj.is_file():
+        try:
+            return _header_language(path_obj.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
+    return "c"
+
+
+def _detect_shebang_language(content: str) -> str | None:
+    """Detect script language from shebang line."""
+    first_line = content.splitlines()[:1]
+    if not first_line or not first_line[0].startswith("#!"):
+        return None
+    sb = first_line[0].lower()
+    if "python" in sb:
+        return "python"
+    if any(sh in sb for sh in ("bash", "zsh", "sh")):
+        return "shell"
+    if any(js in sb for js in ("node", "deno", "bun")):
+        return "javascript"
+    return None
+
+
+def _detect_mime_language(filepath: str) -> str | None:
+    """Detect file language from standard library mimetypes."""
+    mime_type, _ = mimetypes.guess_type(filepath)
+    if not mime_type or "/" not in mime_type:
+        return None
+    _, sub = mime_type.split("/", 1)
+    if "c++" in sub:
+        return "cpp"
+    sub_clean = sub.removeprefix("x-").removeprefix("vnd.").split(".")[0].split("+")[0]
+    if sub_clean in _VALID_MIME_SUBTYPES:
+        return sub_clean
+    return None
+
+
 def detect_language(filepath: Path | str, content: str | None = None) -> str:
     """Detect file language using standard library mimetypes, shebangs, and manifest maps."""
     path_obj = Path(filepath)
@@ -136,23 +210,23 @@ def detect_language(filepath: Path | str, content: str | None = None) -> str:
     if filename.startswith("dockerfile."):
         return "dockerfile"
 
-    if content:
-        lines = content.splitlines()
-        if lines and lines[0].startswith("#!"):
-            sb = lines[0].lower()
-            if "python" in sb:
-                return "python"
-            if any(sh in sb for sh in ("bash", "zsh", "sh")):
-                return "shell"
-            if any(js in sb for js in ("node", "deno", "bun")):
-                return "javascript"
+    if ext in _CPP_EXTENSIONS:
+        return "cpp"
 
-    mime_type, _ = mimetypes.guess_type(str(filepath))
-    if mime_type and "/" in mime_type:
-        _, sub = mime_type.split("/", 1)
-        sub_clean = sub.removeprefix("x-").removeprefix("vnd.").split(".")[0].split("+")[0]
-        if sub_clean in _VALID_MIME_SUBTYPES:
-            return sub_clean
+    if ext == ".h":
+        return _detect_header_language(path_obj, content)
+
+    if ext == ".tpl" and _is_helm_template(path_obj):
+        return "helm"
+
+    if content:
+        shebang_lang = _detect_shebang_language(content)
+        if shebang_lang:
+            return shebang_lang
+
+    mime_lang = _detect_mime_language(str(filepath))
+    if mime_lang:
+        return mime_lang
 
     return _EXT_LANG_FALLBACK.get(ext, "plaintext")
 

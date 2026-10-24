@@ -72,6 +72,67 @@ def test_detect_language() -> None:
     assert detect_language("unknown.xyz") == "plaintext"
 
 
+@pytest.mark.parametrize(
+    ("filename", "content", "expected"),
+    [
+        ("format.cc", None, "cpp"),
+        ("format.cpp", None, "cpp"),
+        ("format.cxx", None, "cpp"),
+        ("format.c++", None, "cpp"),
+        ("format.hh", None, "cpp"),
+        ("format.hpp", None, "cpp"),
+        ("format.hxx", None, "cpp"),
+        ("format.c", None, "c"),
+        ("header.h", "int add(int a, int b);", "c"),
+        ("header.h", "namespace my_ns { template <typename T> class Value {}; }", "cpp"),
+        ("Dockerfile", None, "dockerfile"),
+        ("Dockerfile.prod", None, "dockerfile"),
+        ("containerfile", None, "dockerfile"),
+        ("config.yaml", None, "yaml"),
+        ("config.yml", None, "yaml"),
+    ],
+)
+def test_detect_language_table_with_empty_mimetypes_database(
+    filename: str,
+    content: str | None,
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify detect_language classifies C++, .h, Dockerfiles, and YAML with an empty mimetypes database."""
+    monkeypatch.setattr("mimetypes.guess_type", lambda _: (None, None))
+    assert detect_language(filename, content=content) == expected
+
+
+def test_detect_language_helm_template_beside_chart_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify detect_language identifies .tpl inside a Helm chart and plaintext outside."""
+    chart_dir = tmp_path / "chart"
+    templates_dir = chart_dir / "templates"
+    templates_dir.mkdir(parents=True)
+    (chart_dir / "Chart.yaml").write_text("name: test\n", encoding="utf-8")
+    tpl_file = templates_dir / "_helpers.tpl"
+    tpl_file.write_text("{{/* Helper */}}", encoding="utf-8")
+
+    outside_dir = tmp_path / "other"
+    outside_dir.mkdir(parents=True)
+    outside_tpl = outside_dir / "standalone.tpl"
+    outside_tpl.write_text("template content", encoding="utf-8")
+
+    assert detect_language(tpl_file) == "helm"
+    assert detect_language(outside_tpl) == "plaintext"
+
+    monkeypatch.setattr("mimetypes.guess_type", lambda _: (None, None))
+    assert detect_language(tpl_file) == "helm"
+    assert detect_language(outside_tpl) == "plaintext"
+
+
+def test_detect_language_cpp_not_mislabeled_as_c_on_host_with_mimetypes() -> None:
+    """Verify mimetypes text/x-c++src does not turn C++ extensions into C."""
+    for ext in (".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"):
+        assert detect_language(f"test{ext}") == "cpp"
+
+
 def test_analyze_single_file() -> None:
     """analyze_single_file extracts lines, characters, symbols, and dependencies with submodules."""
     content = (

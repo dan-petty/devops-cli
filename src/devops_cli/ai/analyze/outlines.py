@@ -400,7 +400,8 @@ def analyze_single_file(  # noqa: C901
     """Analyze a single file and construct a FileAnalysisMeta object."""
     line_count = len(content.splitlines()) if content else 0
     char_count = len(content)
-    lang = detect_language(rel_path, content)
+    target_path = (repo_root / rel_path) if repo_root else Path(rel_path)
+    lang = detect_language(target_path, content)
     symbols = _extract_file_symbols(content, lang)
     purpose = _extract_file_purpose(rel_path, content, lang, symbols)
     deps = _extract_file_dependencies(content, lang)
