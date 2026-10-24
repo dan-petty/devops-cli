@@ -153,7 +153,8 @@ flowchart TD
         H5[check-yaml / toml / json]
         H6[ruff check & format]
         H7[structural-invariants]
-        H8[devops-ci-test-changed]
+        H8[ast-grep scan & test]
+        H9[openspec gate]
     end
 
     subgraph CIQualityGate["Primary Quality Gate (devops ci / uv run devops ci)"]
@@ -183,7 +184,9 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `check-yaml`, `check-toml`, `check-json`: Validates configuration syntax across all structured files.
 - `ruff`: Enforces lint rules and code formatting.
 - `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
-- `devops-ci-test-changed`: Runs targeted test suite covering staged files.
+- `ast-grep-scan` and `ast-grep-test`: Run the ast-grep rules over `src` and `tests`, and the tests of the rules.
+- `openspec-gate`: Runs `devops ci --only openspec` when a commit changes `openspec/` or the committed skills.
+- A commit runs no tests. The pre-push gate and CI run the full suite (#2086).
 - Pre-push `devops ci` gate: Runs every check of `devops ci` (including `actionlint` and `zizmor`) before a push, as the next section describes.
 
 #### The Primary CI Verification Gate (`devops ci`)
