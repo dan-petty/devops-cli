@@ -1111,6 +1111,16 @@ class DocGenerator:
             "all credentials. For this reason, the resource also has no `process.command_line` "
             "and no `process.command_args`. The OpenTelemetry semantic conventions make these two "
             "attributes Opt-In.",
+            "- **Subprocess Spans**: Each program that devops-cli runs gets a `subprocess.<program>` "
+            "span with the name of the program (`process.executable.name`) and the number of its "
+            "arguments (`process.args_count`). By default the span does not record the arguments, "
+            "because a command such as `devops uv run` or `devops gh api` passes the arguments of "
+            "a person on to the program. To record them for a debugging session, set "
+            "`telemetry.capture_command_args` to `true` "
+            "(`devops config set telemetry.capture_command_args true`). Then the span holds the "
+            "arguments in `process.command_args`, each argument through the secret mask. The "
+            "mask does not find all credentials, so set the option back to `false` after the "
+            "session. A subprocess span never holds `process.command_line`.",
             "- **W3C `traceparent` Injection**: Subprocesses, sandbox containers (`devops sandbox "
             "deploy`, `devops docker sandbox`, `devops test sandbox`) and commands run with "
             "`devops sandbox exec` receive the active span as `TRACEPARENT` in their environment "

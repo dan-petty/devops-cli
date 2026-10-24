@@ -8,6 +8,7 @@ import pytest
 
 from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.client.unified import _set_response_span_attributes
+from devops_cli.config.settings import TelemetryConfig
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
@@ -562,7 +563,7 @@ def test_resolve_telemetry_settings_fallback(monkeypatch: pytest.MonkeyPatch) ->
     )
     monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENABLED", raising=False)
     monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", raising=False)
-    assert _resolve_telemetry_settings() == (None, False)
+    assert _resolve_telemetry_settings() == TelemetryConfig(enabled=False)
 
 
 def test_span_caller_location_and_runtime_attributes(collector: str) -> None:

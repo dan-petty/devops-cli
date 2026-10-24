@@ -3,19 +3,27 @@ across all DevOps CLI commands."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 import sys
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 import typer
+from opentelemetry.semconv._incubating.attributes.process_attributes import (
+    PROCESS_ARGS_COUNT,
+    PROCESS_COMMAND_ARGS,
+    PROCESS_COMMAND_LINE,
+    PROCESS_EXECUTABLE_NAME,
+)
 from typer.testing import CliRunner
 
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import run_subprocess, run_subprocess_async
 from devops_cli.main import _COMMAND_SPECS, _delegate
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
@@ -23,6 +31,7 @@ from devops_cli.telemetry.tracer import (
     get_tracer,
     reset_tracer,
 )
+from tests.support.session_spawns import record_spawns
 
 
 @pytest.fixture(autouse=True)
@@ -195,6 +204,92 @@ def test_the_command_spans_keep_the_command_path_and_the_argument_count(
         "cli.args" in spans["cli.dummy"],
         spans["cli.set"].get("cli.command_path"),
     ) == ("dummy", "3", False, "devops dummy set")
+
+
+# `devops uv run` passes the arguments of a person on to uv: here a credential that no secret
+# pattern finds (#2025).
+_PASSED_ON = ["uv", "run", "devops", "config", "set", "cloudflare.tunnel_token", _TYPED_CREDENTIAL]
+# Built at run time, so that no secret scanner reads the test as a leaked token.
+_GITHUB_SHAPED_TOKEN = "ghp_" + "1234567890abcdef" * 2 + "1234"
+_ARGUMENT_KEYS = (PROCESS_COMMAND_ARGS, PROCESS_COMMAND_LINE, "subprocess.cmd")
+
+
+def _attribute_value(value: dict[str, Any]) -> Any:
+    """The Python value of an OTLP AnyValue: a list for an array, else the text of the scalar."""
+    if "arrayValue" in value:
+        return [_attribute_value(item) for item in value["arrayValue"].get("values", [])]
+    return str(next(iter(value.values())))
+
+
+@pytest.fixture(params=["run_subprocess", "run_subprocess_async"])
+def subprocess_export(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, config: Any
+) -> Callable[..., tuple[dict[str, Any], str]]:
+    """Run a command through `run_subprocess` or `run_subprocess_async` with the given telemetry
+    settings and the export captured. Return the attributes of its span and the text of every
+    payload that the tracer exported."""
+
+    def run(cmd: list[str], **telemetry: Any) -> tuple[dict[str, Any], str]:
+        config(telemetry={"enabled": True, **telemetry})
+        exported: list[dict[str, Any]] = []
+        monkeypatch.setattr(get_tracer(), "_send_payload", lambda _path, p: exported.append(p))
+        if request.param == "run_subprocess_async":
+            record_spawns(monkeypatch)
+            asyncio.run(run_subprocess_async(list(cmd)))
+        else:
+            monkeypatch.setattr(
+                subprocess, "run", lambda argv, **_: subprocess.CompletedProcess(argv, 0, "", "")
+            )
+            run_subprocess(list(cmd))
+        get_tracer().flush()
+        [span] = [
+            span
+            for payload in exported
+            if "resourceSpans" in payload
+            for span in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+            if span["name"] == f"subprocess.{cmd[0]}"
+        ]
+        attrs = {a["key"]: _attribute_value(a["value"]) for a in span["attributes"]}
+        return attrs, json.dumps(exported, default=str)
+
+    return run
+
+
+def test_a_subprocess_span_holds_the_executable_and_the_argument_count_and_no_argument(
+    subprocess_export: Callable[..., tuple[dict[str, Any], str]],
+) -> None:
+    """By default a subprocess span names the program and counts its arguments, and no exported
+    payload holds an argument value (#2025)."""
+    attrs, exported = subprocess_export(_PASSED_ON)
+    assert (
+        attrs.get(PROCESS_EXECUTABLE_NAME),
+        attrs.get(PROCESS_ARGS_COUNT),
+        [key for key in _ARGUMENT_KEYS if key in attrs],
+        _TYPED_CREDENTIAL in exported,
+    ) == ("uv", "7", [], False)
+
+
+def test_a_person_who_turns_on_capture_gets_each_argument_through_the_secret_mask(
+    subprocess_export: Callable[..., tuple[dict[str, Any], str]],
+) -> None:
+    """`telemetry.capture_command_args` puts the arguments in `process.command_args`, each one
+    through the secret mask, and the span still holds no `process.command_line`."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    attrs, exported = subprocess_export(
+        [*_PASSED_ON, "--token", _GITHUB_SHAPED_TOKEN], capture_command_args=True
+    )
+    assert (
+        attrs.get(PROCESS_COMMAND_ARGS),
+        attrs.get(PROCESS_ARGS_COUNT),
+        [key for key in _ARGUMENT_KEYS if key in attrs],
+        _GITHUB_SHAPED_TOKEN in exported,
+    ) == (
+        [*_PASSED_ON, "--token", mask_secrets(_GITHUB_SHAPED_TOKEN)],
+        "9",
+        [PROCESS_COMMAND_ARGS],
+        False,
+    )
 
 
 def test_subprocess_span_and_metrics(

@@ -148,45 +148,6 @@ async def test_run_subprocess_async_cwd_security() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_subprocess_async_telemetry_sanitizes_secrets() -> None:
-    """Verify run_subprocess_async redacts secrets in telemetry command attributes."""
-    from unittest.mock import MagicMock, patch
-
-    captured_attrs: dict[str, Any] = {}
-
-    def fake_trace_span(name: str, attributes: dict[str, Any] | None = None):
-        if attributes:
-            captured_attrs.update(attributes)
-        mock_ctx = MagicMock()
-        mock_ctx.__enter__.return_value = MagicMock()
-        mock_ctx.__exit__.return_value = None
-        return mock_ctx
-
-    token = "ghp_1234567890abcdef1234567890abcdef1234"
-    cmd = [
-        "python3",
-        "-c",
-        "pass",
-        "--token",
-        token,
-        "--body",
-        "super_secret_body",
-        "title=super_secret_title",
-    ]
-    with patch("devops_cli.core.process.trace_span", side_effect=fake_trace_span):
-        await run_subprocess_async(cmd)
-
-    cmd_summary = captured_attrs.get("subprocess.cmd", "")
-    proc_cmd = captured_attrs.get("process.command_line", "")
-    assert (
-        token in cmd_summary,
-        "super_secret_body" in cmd_summary,
-        "super_secret_title" in cmd_summary,
-        cmd_summary == proc_cmd,
-    ) == (False, False, False, True)
-
-
-@pytest.mark.anyio
 async def test_run_subprocess_async_timeout_kills_process_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -307,6 +307,14 @@ class TelemetryConfig(BaseModel):
         description="OpenTelemetry collector that traces and metrics go to; unset, "
         f"`{ENV_OTEL_EXPORTER_OTLP_ENDPOINT}` names it, else `{DEFAULT_OTEL_ENDPOINT}`",
     )
+    # Opt-In in the OpenTelemetry semantic conventions: `devops uv run` and `devops gh api` pass
+    # the arguments of a person on, and the secret mask does not find every credential (#2025).
+    capture_command_args: bool = Field(
+        default=False,
+        description="Record the arguments of each program that devops-cli runs in "
+        "`process.command_args` on its subprocess span, each argument through the secret mask. "
+        "Off by default: an argument can be a credential that the mask does not find",
+    )
     logfire: bool = False
     logfire_token: str | None = None
     logfire_send_to_logfire: bool | str = "if-token-present"

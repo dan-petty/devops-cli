@@ -20,7 +20,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx2
 from pydantic import BaseModel, Field
@@ -49,6 +49,9 @@ from devops_cli.telemetry.propagation import (
     inject_headers,
     new_trace_context,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.config.settings import TelemetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -750,7 +753,6 @@ _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
     "file_path": "code.filepath",
     "file.path": "code.filepath",
     "subprocess.bin": "process.executable.name",
-    "subprocess.cmd": "process.command_line",
     "subprocess.cwd": "process.working_directory",
     "subprocess.exit_code": "process.exit.code",
     "http.method": "http.request.method",
@@ -813,6 +815,7 @@ class OTelTelemetryClient:
         service_name: str = CONST_OTEL_SERVICE_NAME,
         service_version: str | None = None,
         enabled: bool = True,
+        capture_command_args: bool = False,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         env_protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
@@ -833,6 +836,9 @@ class OTelTelemetryClient:
         self.host_name = platform.node() or "localhost"
         self.os_type = platform.system().lower() or "linux"
         self.enabled = enabled
+        # Whether a subprocess span records the arguments of its program (`process.command_args`,
+        # Opt-In in the semantic conventions): `telemetry.capture_command_args` (#2025).
+        self.capture_command_args = capture_command_args
         self._http_client: httpx2.Client | None = None
         self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
@@ -1439,8 +1445,8 @@ _GLOBAL_TRACER: OTelTelemetryClient | None = None
 _GLOBAL_TRACER_LOCK = threading.Lock()
 
 
-def _resolve_telemetry_settings() -> tuple[str | None, bool]:
-    """The configured collector and export switch, `DEVOPS_CLI_TELEMETRY_*` already applied.
+def _resolve_telemetry_settings() -> TelemetryConfig:
+    """The telemetry section of the settings, `DEVOPS_CLI_TELEMETRY_*` already applied.
 
     Settings that cannot load do not fail the command: the registered variables alone then
     decide, and export stays off unless one turns it on (`telemetry_from_environment`, #956).
@@ -1448,10 +1454,9 @@ def _resolve_telemetry_settings() -> tuple[str | None, bool]:
     from devops_cli.config.settings import load_settings, telemetry_from_environment
 
     try:
-        telemetry = load_settings().telemetry
+        return load_settings().telemetry
     except Exception:
-        telemetry = telemetry_from_environment()
-    return telemetry.endpoint, telemetry.enabled
+        return telemetry_from_environment()
 
 
 def get_tracer() -> OTelTelemetryClient:
@@ -1464,16 +1469,17 @@ def get_tracer() -> OTelTelemetryClient:
         if _GLOBAL_TRACER is None:
             from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT
 
-            endpoint, enabled = _resolve_telemetry_settings()
+            telemetry = _resolve_telemetry_settings()
             service_name = os.getenv("OTEL_SERVICE_NAME", CONST_OTEL_SERVICE_NAME)
             protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
             _GLOBAL_TRACER = OTelTelemetryClient(
-                endpoint=endpoint
+                endpoint=telemetry.endpoint
                 or os.getenv(ENV_OTEL_EXPORTER_OTLP_ENDPOINT)
                 or DEFAULT_OTEL_ENDPOINT,
                 service_name=service_name,
                 protocol=protocol,
-                enabled=enabled,
+                enabled=telemetry.enabled,
+                capture_command_args=telemetry.capture_command_args,
             )
         return _GLOBAL_TRACER
 

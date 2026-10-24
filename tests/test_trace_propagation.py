@@ -18,6 +18,7 @@ from devops_cli.config.constants import (
     CONST_TRACEPARENT_HEADER,
     CONST_TRACESTATE_ENV_VAR,
 )
+from devops_cli.config.settings import TelemetryConfig
 from devops_cli.telemetry.context import (
     TraceValidationError,
     extract_traceparent,
@@ -353,7 +354,8 @@ def test_a_subprocess_spawned_outside_a_span_still_carries_a_valid_context(
 def test_a_disabled_tracer_injects_no_context_into_a_child() -> None:
     """Telemetry that is switched off must not write trace variables into the environment."""
     with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings", return_value=(None, False)
+        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
+        return_value=TelemetryConfig(enabled=False),
     ):
         reset_tracer()
         client = get_tracer()
