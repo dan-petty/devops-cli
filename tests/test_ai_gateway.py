@@ -15,6 +15,8 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.client import AICredentialsError
 from devops_cli.ai.gateway import (
+    DEFAULT_GATEWAY_ROUTES,
+    GatewayRoute,
     GatewayRouter,
 )
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
@@ -46,6 +48,23 @@ def _write_routes_with_a_small_coder(state_file: Path) -> None:
     state_file.write_text(
         json.dumps({"routes": [route.model_dump() for route in routes]}), encoding="utf-8"
     )
+
+
+def _default_route_file() -> dict[str, Any]:
+    """The route file that holds the default route of every virtual model and no tripped breaker."""
+    return {
+        "circuit_breaker_active": False,
+        "routes": [GatewayRoute(**route).model_dump() for route in DEFAULT_GATEWAY_ROUTES],
+    }
+
+
+def _answer_every_get(monkeypatch: pytest.MonkeyPatch, status: int) -> None:
+    """Make every GET of the gateway health probe receive `status`."""
+
+    def fake_get(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        return httpx2.Response(status, request=httpx2.Request("GET", url))
+
+    monkeypatch.setattr(httpx2.Client, "get", fake_get)
 
 
 class TestGatewayRouter:
@@ -198,6 +217,61 @@ class TestGatewayRouter:
             "simulated",
         )
 
+    def test_a_healthy_probe_keeps_a_failover_route_and_the_status_reports_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify a healthy probe keeps the failover route and the tripped breaker, and the status
+        names the virtual model in failover (#1986).
+
+        A healthy probe cleared the breaker and kept the route, so the status showed a healthy
+        gateway while devops-chat still pointed at its failover backend.
+        """
+        state_file = tmp_path / "gateway_state.json"
+        GatewayRouter(state_file=state_file).trigger_failover("devops-chat", simulate=False)
+        _answer_every_get(monkeypatch, 200)
+
+        status = GatewayRouter(
+            AIConfig(gateway_url="http://example.com/v1"), state_file=state_file
+        ).probe_gateway()
+        saved = GatewayRouter(state_file=state_file).list_routes()
+
+        assert (
+            status.healthy,
+            status.circuit_breaker_tripped,
+            status.failover_routes,
+            [(r.virtual_model, r.target_model, r.backend_type) for r in saved],
+        ) == (
+            True,
+            True,
+            ["devops-chat"],
+            [
+                ("devops-chat", "qwen3.8:27b", "failover:ollama"),
+                ("devops-coder", "qwen3-coder:30b", "ollama"),
+                ("devops-reasoning", "qwen3-coder:30b", "ollama"),
+                ("devops-embedding", "qwen3-embedding:0.6b", "ollama"),
+            ],
+        )
+
+    def test_failover_reset_restores_the_default_routes(self, tmp_path: Path) -> None:
+        """Verify a reset writes the default route of every virtual model to the route file and
+        clears the breaker (#1986). The file starts with a route that is not a default route."""
+        state_file = tmp_path / "gateway_state.json"
+        _write_routes_with_a_small_coder(state_file)
+        GatewayRouter(state_file=state_file).trigger_failover(
+            "devops-reasoning", simulate=False, force=True
+        )
+
+        outcome = GatewayRouter(state_file=state_file).reset_failover()
+
+        assert (outcome, json.loads(state_file.read_text(encoding="utf-8"))) == (
+            {
+                "status": "reset",
+                "restored_routes": ["devops-reasoning"],
+                "circuit_breaker_tripped": False,
+            },
+            _default_route_file(),
+        )
+
     def test_trigger_failover_invalid_model_raises_value_error(self) -> None:
         """Verify unknown virtual model alias raises ValidationError (subclass of ValueError)."""
         router = GatewayRouter()
@@ -324,6 +398,63 @@ class TestAIGatewayCLI:
             1,
         )
 
+    def test_status_reports_the_routes_in_failover(
+        self, isolate_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify `status` names the routes in failover after a healthy probe, and names the reset
+        (#1986)."""
+        res_failover = runner.invoke(gateway_cli_app, ["failover", "devops-chat", "--no-simulate"])
+        _answer_every_get(monkeypatch, 200)
+
+        res_table = runner.invoke(gateway_cli_app, ["status"])
+        res_json = runner.invoke(gateway_cli_app, ["status", "--format", "json"])
+
+        parsed = json.loads(res_json.output)
+        assert (
+            res_failover.exit_code,
+            res_table.exit_code,
+            "Failover routes: devops-chat" in res_table.output,
+            "--reset" in res_table.output,
+            res_json.exit_code,
+            parsed["healthy"],
+            parsed["circuit_breaker_tripped"],
+            parsed["failover_routes"],
+        ) == (0, 0, True, True, 0, True, True, ["devops-chat"])
+
+    def test_failover_reset_command(self, isolate_data_dir: Path) -> None:
+        """Verify `failover --reset` restores the default routes and takes no virtual model
+        (#1986)."""
+        state_file = isolate_data_dir / "agent" / "gateway_state.json"
+        runner.invoke(gateway_cli_app, ["failover", "devops-chat", "--no-simulate"])
+        res_table = runner.invoke(gateway_cli_app, ["failover", "--reset"])
+        runner.invoke(gateway_cli_app, ["failover", "devops-coder", "--no-simulate"])
+        res_json = runner.invoke(gateway_cli_app, ["failover", "--reset", "--format", "json"])
+        route_file = json.loads(state_file.read_text(encoding="utf-8"))
+        res_both = runner.invoke(gateway_cli_app, ["failover", "devops-chat", "--reset"])
+        res_none = runner.invoke(gateway_cli_app, ["failover"])
+
+        assert (
+            res_table.exit_code,
+            "devops-chat" in res_table.output,
+            res_json.exit_code,
+            json.loads(res_json.output),
+            route_file,
+            res_both.exit_code,
+            res_none.exit_code,
+        ) == (
+            0,
+            True,
+            0,
+            {
+                "status": "reset",
+                "restored_routes": ["devops-coder"],
+                "circuit_breaker_tripped": False,
+            },
+            _default_route_file(),
+            2,
+            2,
+        )
+
     def test_probe_backend_command(self) -> None:
         """Verify 'devops ai gateway probe-backend' prints backend health status."""
         mock_ollama = MagicMock(
@@ -385,6 +516,29 @@ class TestFastMCPGatewayTools:
             get_ai_gateway_resource()
 
         assert mock_run.call_count == 5
+
+    def test_fastmcp_gateway_failover_resets_the_routes(self, isolate_data_dir: Path) -> None:
+        """Verify the tool `ai_gateway_failover` with `reset` restores the default routes, although
+        the tool sends its `simulate` default as `--simulate` (#1986)."""
+        from devops_cli.ai.mcp.server import ai_gateway_failover
+
+        GatewayRouter().trigger_failover("devops-chat", simulate=False)
+
+        outcome = json.loads(ai_gateway_failover(reset=True))
+
+        assert (
+            outcome,
+            json.loads(
+                (isolate_data_dir / "agent" / "gateway_state.json").read_text(encoding="utf-8")
+            ),
+        ) == (
+            {
+                "status": "reset",
+                "restored_routes": ["devops-chat"],
+                "circuit_breaker_tripped": False,
+            },
+            _default_route_file(),
+        )
 
 
 class TestRouterAndClientGatewayIntegration:
