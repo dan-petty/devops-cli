@@ -859,7 +859,7 @@ def _generate_agents_content(repo: Path, template: bool) -> str:
 
     settings = load_settings()
     try:
-        client = get_llm_client(settings=settings)
+        client = get_llm_client("metadata", settings=settings)
         context = _collect_project_context(repo)
     except Exception as exc:
         print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)

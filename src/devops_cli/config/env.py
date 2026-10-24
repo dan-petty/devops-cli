@@ -385,19 +385,19 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             ENV_AI_TASK_METADATA_PROVIDER,
             opt.AI_TASK_METADATA_PROVIDER,
             False,
-            "AI provider override for metadata task",
+            "AI provider override for metadata task, for `analyze --enhanced` and `ai agents`",
         ),
         EnvVarSpec(
             ENV_AI_TASK_METADATA_MODEL,
             opt.AI_TASK_METADATA_MODEL,
             False,
-            "AI model override for metadata task",
+            "AI model override for metadata task, for `analyze --enhanced` and `ai agents`",
         ),
         EnvVarSpec(
             ENV_AI_TASK_METADATA_OLLAMA_URLS,
             opt.AI_TASK_METADATA_OLLAMA_URLS,
             False,
-            "Ollama URLs override for metadata task",
+            "Ollama URLs override for metadata task, for `analyze --enhanced` and `ai agents`",
         ),
         EnvVarSpec(
             ENV_AI_TASK_ANALYSIS_PROVIDER,
