@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
+import re
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -871,14 +873,54 @@ def test_a_price_override_of_the_deployment_model_prices_a_gateway_call(tmp_path
     )
 
 
+def _names_the_reference_model(source: str, model: str) -> list[int]:
+    """The lines of `source` where a string names `model` as a reference model: the string, or
+    the call, keyword, assignment or parameter list that holds it, mentions a reference. A longer
+    name such as `<model>-mini`, or a LiteLLM reference such as `openai/<model>`, is another
+    model, and another use of the same model, such as a tokenizer default, is no reference."""
+    whole_name = re.compile(rf"(?<![\w./:-]){re.escape(model)}(?![\w./:-])")
+    tree = ast.parse(source)
+    holders = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and whole_name.search(node.value)
+        and "reference" in ast.unparse(holders[node]).lower()
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "lines"),
+    [
+        ('help="Reference model for counterfactual pricing (default: gpt-4o)."', [1]),
+        ('reference_model: str = "gpt-4o"', [1]),
+        ('typer.Option("gpt-4o", help="The reference model.")', [1]),
+        ('primary_model: str = "gpt-4o"', []),
+        ('help="A model reference such as openai/gpt-4o, or gpt-4o-mini."', []),
+    ],
+)
+def test_the_reference_model_check_finds_the_model_only_as_a_reference(
+    source: str, lines: list[int]
+) -> None:
+    """Verify the check below finds a literal reference model, such as the help text that named
+    the default before #1672, and not another use of the same model name (#2194)."""
+    assert _names_the_reference_model(source, "gpt-4o") == lines
+
+
 def test_only_the_defaults_name_the_default_reference_model() -> None:
     """The default reference model is named in `config/defaults.py` alone, and other code reads
-    `DEFAULT_AI_REFERENCE_MODEL`, so a changed default changes every use (#1672)."""
+    `DEFAULT_AI_REFERENCE_MODEL`, so a changed default changes every use (#1672). gpt-4o, the
+    default since #2194, is also the model of other settings, which are no reference."""
     source = REPO_ROOT / "src" / "devops_cli"
     defaults = source / "config" / "defaults.py"
 
     assert [
-        str(path.relative_to(source))
+        f"{path.relative_to(source)}:{line}"
         for path in sorted(source.rglob("*.py"))
-        if path != defaults and DEFAULT_AI_REFERENCE_MODEL in path.read_text(encoding="utf-8")
+        if path != defaults
+        for text in [path.read_text(encoding="utf-8")]
+        if DEFAULT_AI_REFERENCE_MODEL in text
+        for line in _names_the_reference_model(text, DEFAULT_AI_REFERENCE_MODEL)
     ] == []

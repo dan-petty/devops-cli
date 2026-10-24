@@ -68,9 +68,8 @@ AI_TOKENS_TOTAL = Instrument(
     "1",
     "LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), "
     "provider, model, server, backend and local: true when a local model ran them. The AI spend "
-    "dashboard prices local tokens as savings at the reference price that the Prometheus "
-    "recording rule devops_cli:ai_reference_price_usd_per_token holds for their operation and "
-    "type",
+    "dashboard prices local tokens as savings at the reference price that its constant "
+    "reference_price_usd_per_token holds for their operation and type",
 )
 AI_SPEND_USD_TOTAL = Instrument(
     "devops_cli_ai_spend_usd_total",
