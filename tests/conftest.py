@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
     from tests.support.fakes.model import ModelFake
+    from tests.support.fakes.process import ProcessFake
     from tests.web_fakes import StubWeb
 
 pytest.register_assert_rewrite("tests.support")
@@ -106,7 +107,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.core.command_resolver": ("reset_command_resolver_cache",),
     "devops_cli.core.dns_names": ("reset_dns_names_cache",),
     "devops_cli.core.gitignore": ("reset_indexes",),
-    "devops_cli.core.process": ("reset_github_token",),
+    "devops_cli.core.process": ("reset_github_token", "reset_process_runner"),
     "devops_cli.core.repo": ("reset_repo_caches",),
     "devops_cli.core.templating": ("reset_template_environment_cache",),
     "devops_cli.core.untrusted_trees": ("reset_untrusted_trees",),
@@ -894,6 +895,38 @@ def model_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModelFake]:
     fake = ModelFake()
     monkeypatch.setattr(factory, "_client_override", fake)
     yield fake
+
+
+@pytest.fixture
+def process_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ProcessFake]:
+    """The process runner edge, faked for every command that starts child processes (ADR 0007, #775).
+
+    Installs an in-memory `ProcessFake` into the process runner seam. Any subprocess call
+    via `run_subprocess`, `run_subprocess_async`, or `get_process_runner()` routes to this fake.
+    Also fakes `shutil.which` for any tool not on the passthrough list (`git`, `bwrap`),
+    returning a hermetic fake path `/usr/local/bin/<tool>`.
+    """
+    import shutil
+
+    from devops_cli.core.process import reset_process_runner, set_process_runner
+    from tests.support.fakes.process import ProcessFake
+
+    fake = ProcessFake()
+    set_process_runner(fake)
+
+    real_which = shutil.which
+
+    def fake_which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
+        cmd_name = Path(cmd).name
+        if cmd_name in {"git", "bwrap"}:
+            return real_which(cmd, *args, **kwargs)
+        return f"/usr/local/bin/{cmd_name}"
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    try:
+        yield fake
+    finally:
+        reset_process_runner()
 
 
 @functools.lru_cache(maxsize=1)

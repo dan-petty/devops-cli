@@ -45,9 +45,6 @@ def test_uv_commands(tmp_path: Path) -> None:
 
 def test_uv_python_install_and_run_edge_cases(tmp_path: Path) -> None:
     """Verify uv python-install from .python-version, invalid version, and uv run errors."""
-    import pytest
-
-    import devops_cli.commands.uv as uv_mod
 
     # 1. uv run missing args
     res_no_args = runner.invoke(uv_app, ["run"])
@@ -77,13 +74,6 @@ def test_uv_python_install_and_run_edge_cases(tmp_path: Path) -> None:
     with patch("devops_cli.commands.uv.run_subprocess", return_value=_mock_proc(2)):
         res_fail = runner.invoke(uv_app, ["sync"])
         assert res_fail.exit_code == 2
-
-    # 6. Lazy getattr and _get
-    assert uv_mod.__getattr__("run_subprocess") is not None
-    with pytest.raises(AttributeError):
-        uv_mod.__getattr__("non_existent_attribute_12345")
-    assert uv_mod._get("run_subprocess") is not None
-    assert uv_mod._get("app") is not None
 
 
 def test_uv_operates_on_a_nested_worktree(

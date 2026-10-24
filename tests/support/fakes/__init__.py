@@ -11,6 +11,9 @@ __all__ = [
     "ModelAnswer",
     "ModelCall",
     "ModelFake",
+    "ProcessAnswer",
+    "ProcessCall",
+    "ProcessFake",
     "deterministic_embedding",
 ]
 
@@ -18,6 +21,9 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "ModelAnswer": ("tests.support.fakes.model", "ModelAnswer"),
     "ModelCall": ("tests.support.fakes.model", "ModelCall"),
     "ModelFake": ("tests.support.fakes.model", "ModelFake"),
+    "ProcessAnswer": ("tests.support.fakes.process", "ProcessAnswer"),
+    "ProcessCall": ("tests.support.fakes.process", "ProcessCall"),
+    "ProcessFake": ("tests.support.fakes.process", "ProcessFake"),
     "deterministic_embedding": ("tests.support.fakes.model", "deterministic_embedding"),
 }
 

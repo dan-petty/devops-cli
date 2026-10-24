@@ -63,22 +63,10 @@ class _SandboxOutcome(NamedTuple):
 
 
 def _terminate_process_group(pid: int, sig: signal.Signals = signal.SIGTERM) -> None:
-    """Safely terminate an isolated POSIX process group hierarchy.
+    """Safely terminate an isolated POSIX process group hierarchy."""
+    from devops_cli.core.process import terminate_process_group
 
-    Guards against PID 0, PID 1, non-integers, self PID, and the caller's own PGID to
-    prevent accidental termination of container init or ambient devcontainer processes.
-    """
-    if not isinstance(pid, int) or pid <= 1:
-        return
-    try:
-        if pid == os.getpid():
-            return
-        pgid = os.getpgid(pid)
-        if pgid <= 1 or pgid == os.getpgrp():
-            return
-        os.killpg(pgid, sig)
-    except OSError, TypeError:
-        pass
+    terminate_process_group(pid, sig)
 
 
 def _tmpfs_mount_args(path: str, options: str) -> list[str]:

@@ -358,12 +358,8 @@ def test_a_tree_edited_during_the_run_is_not_recorded(
     saved_calls: list[str] = []
 
     monkeypatch.setattr(
-        "devops_cli.commands.ci._get",
-        lambda name: (
-            (lambda msg, **kw: warnings_emitted.append(str(msg)))
-            if name == "print_warning"
-            else (lambda *a, **kw: None)
-        ),
+        "devops_cli.commands.ci.print_warning",
+        lambda msg, **kw: warnings_emitted.append(str(msg)),
     )
     monkeypatch.setattr(
         "devops_cli.ci.cache.save_ci_cache",

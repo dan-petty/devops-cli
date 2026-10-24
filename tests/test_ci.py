@@ -205,14 +205,12 @@ async def test_a_check_with_two_commands_runs_both_and_fails_when_either_fails()
             cmd, 1 if cmd[0] == "npm" else 0, f"{cmd[0]} out\n", f"{cmd[0]} err\n"
         )
 
-    def mock_get(key: str) -> Any:
-        if key == "trace_span":
-            return dummy_span
-        if key == "run_subprocess_async":
-            return run
-        return lambda *a, **kw: None
-
-    with patch("devops_cli.commands.ci._get", side_effect=mock_get):
+    with (
+        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
+        patch("devops_cli.core.process.run_subprocess_async", side_effect=run),
+        patch("devops_cli.commands.ci.record_metric"),
+        patch("devops_cli.commands.ci.print_muted"),
+    ):
         result = await ci_module._execute_check_async(
             CheckSpec(
                 name="pair",
@@ -1552,26 +1550,27 @@ async def test_execute_check_async_success_and_failure() -> None:
     def dummy_span(*a: Any, **kw: Any) -> Any:
         yield
 
-    def mock_get_ok(key: str) -> Any:
-        if key == "trace_span":
-            return dummy_span
-        if key == "run_subprocess_async":
-            return AsyncMock(return_value=mock_proc_ok)
-        return lambda *a, **kw: None
-
-    with patch("devops_cli.commands.ci._get", side_effect=mock_get_ok):
+    with (
+        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
+        patch(
+            "devops_cli.core.process.run_subprocess_async", new=AsyncMock(return_value=mock_proc_ok)
+        ),
+        patch("devops_cli.commands.ci.record_metric"),
+        patch("devops_cli.commands.ci.print_muted"),
+    ):
         res_ok = await _execute_check_async(
             "test_step", "Test Step", ["echo", "hello"], "span.test", "metric.test"
         )
 
-    def mock_get_fail(key: str) -> Any:
-        if key == "trace_span":
-            return dummy_span
-        if key == "run_subprocess_async":
-            return AsyncMock(return_value=mock_proc_fail)
-        return lambda *a, **kw: None
-
-    with patch("devops_cli.commands.ci._get", side_effect=mock_get_fail):
+    with (
+        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
+        patch(
+            "devops_cli.core.process.run_subprocess_async",
+            new=AsyncMock(return_value=mock_proc_fail),
+        ),
+        patch("devops_cli.commands.ci.record_metric"),
+        patch("devops_cli.commands.ci.print_muted"),
+    ):
         res_fail = await _execute_check_async(
             "test_step", "Test Step", ["uv", "run", "fake"], "span.test", "metric.test"
         )
@@ -2424,14 +2423,12 @@ async def test_execute_check_async_timeout_expired() -> None:
     async def mock_subprocess_async(*a: Any, **kw: Any) -> Any:
         raise subprocess.TimeoutExpired(cmd=["test_cmd"], timeout=12.5)
 
-    def mock_get(key: str) -> Any:
-        if key == "trace_span":
-            return dummy_span
-        if key == "run_subprocess_async":
-            return mock_subprocess_async
-        return lambda *a, **kw: None
-
-    with patch("devops_cli.commands.ci._get", side_effect=mock_get):
+    with (
+        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
+        patch("devops_cli.core.process.run_subprocess_async", side_effect=mock_subprocess_async),
+        patch("devops_cli.commands.ci.record_metric"),
+        patch("devops_cli.commands.ci.print_muted"),
+    ):
         spec = CheckSpec(
             name="slow_gate",
             display_title="Slow Gate",

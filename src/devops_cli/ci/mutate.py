@@ -153,7 +153,7 @@ def _changed_since(root: Path, base: str) -> dict[str, str]:
     if (merge_base := resolve_merge_base(root, base)) is None:
         raise GitOperationError(MESSAGES.ci.mutate_base_refused.format(base=base))
     verify = ["git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"]
-    if run_subprocess(verify, cwd=root, quiet=True).returncode != 0:
+    if run_subprocess(verify, cwd=root, quiet=True, local_read=True).returncode != 0:
         raise GitOperationError(MESSAGES.ci.mutate_base_missing.format(base=base))
     changed = {
         change.path: read_file_at_revision(root, merge_base, change.base_path) or ""
@@ -161,7 +161,9 @@ def _changed_since(root: Path, base: str) -> dict[str, str]:
         if change.change_type != _DELETED
     }
     untracked = ["git", "ls-files", "--others", "--exclude-standard", "-z", "--"]
-    listed = run_subprocess([*untracked, CONST_SOURCE_ROOT_DIR], cwd=root, quiet=True).stdout
+    listed = run_subprocess(
+        [*untracked, CONST_SOURCE_ROOT_DIR], cwd=root, quiet=True, local_read=True
+    ).stdout
     return changed | dict.fromkeys(filter(None, listed.split("\0")), "")
 
 
