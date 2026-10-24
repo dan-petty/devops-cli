@@ -123,6 +123,7 @@ class LLMResponse(str):
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
+    reasoning_tokens: int | None
     cached: bool
     eval_duration_ms: float | None
     prompt_eval_duration_ms: float | None
@@ -146,6 +147,7 @@ class LLMResponse(str):
         served_by: str | None = None,
         model: str | None = None,
         finish_reason: FinishReason | None = None,
+        reasoning_tokens: int | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
@@ -155,6 +157,7 @@ class LLMResponse(str):
         obj.prompt_tokens = prompt_tokens
         obj.completion_tokens = completion_tokens
         obj.total_tokens = total_tokens
+        obj.reasoning_tokens = reasoning_tokens
         obj.eval_duration_ms = eval_duration_ms
         obj.prompt_eval_duration_ms = prompt_eval_duration_ms
         obj.cached = cached
@@ -185,9 +188,15 @@ class LLMResponse(str):
             parts.append(ThinkingPart(content=self.thinking.strip()))
         if str(self):
             parts.append(TextPart(content=str(self)))
+        details = (
+            {"reasoning_tokens": self.reasoning_tokens}
+            if self.reasoning_tokens is not None
+            else None
+        )
         usage = RequestUsage(
             input_tokens=self.prompt_tokens or 0,
             output_tokens=self.completion_tokens or 0,
+            details=details,
         )
         return ModelResponse(
             parts=parts,

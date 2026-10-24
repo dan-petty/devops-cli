@@ -25,6 +25,7 @@ from devops_cli.ai.client.network import (
     reply_schema,
     request_limited_json,
     request_priority_scope,
+    stream_server,
 )
 from devops_cli.ai.client.streaming import _ollama_stream_frame, _read_ndjson_stream
 from devops_cli.config.constants import CONST_OLLAMA_DONE_REASONS
@@ -420,6 +421,9 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                     remaining_candidates, max_parallel=max_par, priority=priority
                 ) as leased_url:
                     base = self._validate_base_url(leased_url, purpose="Ollama")
+                    if leased_url:
+                        host_str = urlparse(leased_url).netloc or leased_url
+                        stream_server.set(host_str)
                     yield from self._try_single_ollama_stream(
                         base, leased_url, system, messages, enable_thinking
                     )

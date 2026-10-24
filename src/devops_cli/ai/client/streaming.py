@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING, Any, Final
 import httpx2
 
 from devops_cli.ai.client.models import MAX_STREAM_BYTES, AIClientError, provider_finish_reason
-from devops_cli.ai.client.network import size_limit_text, stream_finish_reason
+from devops_cli.ai.client.network import (
+    StreamUsage,
+    size_limit_text,
+    stream_finish_reason,
+    stream_usage,
+)
 from devops_cli.ai.thinking_stream import ThinkingFSM
 from devops_cli.config.constants import (
     CONST_ANTHROPIC_STOP_REASONS,
@@ -250,6 +255,23 @@ def _ollama_stream_frame(line: str) -> StreamFrame:
     if payload.get("error") is not None:
         return StreamFrame(error=_error_text(payload["error"]))
     done = payload.get("done") is True
+    if done:
+        prompt_eval = payload.get("prompt_eval_count")
+        eval_count = payload.get("eval_count")
+        if prompt_eval is not None or eval_count is not None:
+            total = (
+                (prompt_eval or 0) + (eval_count or 0)
+                if (prompt_eval is not None and eval_count is not None)
+                else None
+            )
+            stream_usage.set(
+                StreamUsage(
+                    prompt_tokens=prompt_eval,
+                    completion_tokens=eval_count,
+                    total_tokens=total,
+                    reasoning_tokens=None,
+                )
+            )
     return StreamFrame(
         chunk=_ollama_message_text(payload.get("message")),
         complete=done,
@@ -270,18 +292,45 @@ def _claude_delta_text(delta: object) -> str | None:
     return None
 
 
+def _claude_message_start(payload: dict[str, Any]) -> StreamFrame:
+    """`message_start` carries initial input token usage in its message object."""
+    message = payload.get("message")
+    if isinstance(message, dict):
+        usage = message.get("usage")
+        if isinstance(usage, dict):
+            in_tok = usage.get("input_tokens")
+            if in_tok is not None:
+                stream_usage.set(StreamUsage(prompt_tokens=in_tok))
+    return StreamFrame()
+
+
 def _claude_message_delta(payload: dict[str, Any]) -> StreamFrame:
     """`message_delta` carries the reply's stop reason, ahead of the final `message_stop`."""
     delta = payload.get("delta")
     stop_reason = delta.get("stop_reason") if isinstance(delta, dict) else None
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        out_tok = usage.get("output_tokens")
+        if out_tok is not None:
+            curr = stream_usage.get()
+            in_tok = curr.prompt_tokens if curr else None
+            tot = (in_tok + out_tok) if in_tok is not None else None
+            stream_usage.set(
+                StreamUsage(
+                    prompt_tokens=in_tok,
+                    completion_tokens=out_tok,
+                    total_tokens=tot,
+                )
+            )
     return StreamFrame(
         finish_reason=provider_finish_reason(CONST_ANTHROPIC_STOP_REASONS, stop_reason)
     )
 
 
 # The Anthropic Messages stream events that carry text, the reason, the end or an error. Every
-# other event (message_start, content_block_start, content_block_stop, ping) carries none.
+# other event (content_block_start, content_block_stop, ping) carries none.
 _CLAUDE_EVENT_FRAMES: Final[dict[str, Callable[[dict[str, Any]], StreamFrame]]] = {
+    "message_start": _claude_message_start,
     "content_block_delta": lambda payload: StreamFrame(
         chunk=_claude_delta_text(payload.get("delta"))
     ),
@@ -330,6 +379,22 @@ def _openai_stream_frame(event: httpx2.ServerSentEvent) -> StreamFrame:
     payload = _json_object(event.data)
     if payload.get("error") is not None:
         return StreamFrame(error=_error_text(payload["error"]))
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        details = usage.get("completion_tokens_details") or {}
+        r_tok = details.get("reasoning_tokens")
+        p_tok = usage.get("prompt_tokens")
+        c_tok = usage.get("completion_tokens")
+        t_tok = usage.get("total_tokens")
+        if p_tok is not None or c_tok is not None:
+            stream_usage.set(
+                StreamUsage(
+                    prompt_tokens=p_tok,
+                    completion_tokens=c_tok,
+                    total_tokens=t_tok,
+                    reasoning_tokens=r_tok,
+                )
+            )
     choice = _first_choice(payload)
     reason = choice.get("finish_reason")
     return StreamFrame(

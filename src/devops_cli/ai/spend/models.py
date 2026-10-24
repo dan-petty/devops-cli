@@ -50,6 +50,7 @@ class SpendRecord(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    reasoning_tokens: int = 0
     cost_usd: float = 0.0
     cached: bool = False
     request_type: str = "chat"
@@ -73,6 +74,7 @@ class ServerSpendSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    reasoning_tokens: int = 0
     # The input tokens of embedding requests, counted in `prompt_tokens` too (#1623).
     embedding_tokens: int = 0
     approx_spend_usd: float = 0.0
@@ -98,6 +100,7 @@ class ModelSpendSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    reasoning_tokens: int = 0
     # The input tokens of embedding requests, counted in `prompt_tokens` too (#1623).
     embedding_tokens: int = 0
     approx_spend_usd: float = 0.0
@@ -128,6 +131,7 @@ class BackendSpendSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    reasoning_tokens: int = 0
     completion_tokens_per_request: float = 0.0
     mean_duration_seconds: float = 0.0
 
@@ -142,6 +146,7 @@ class StageSpendSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    reasoning_tokens: int = 0
     # The input tokens of embedding requests, counted in `prompt_tokens` too (#1623).
     embedding_tokens: int = 0
     approx_spend_usd: float = 0.0
@@ -159,6 +164,7 @@ class LifetimeSpendReport(BaseModel):
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     total_tokens: int = 0
+    total_reasoning_tokens: int = 0
     # The input tokens of embedding requests, counted in `total_prompt_tokens` too (#1623).
     total_embedding_tokens: int = 0
     cached_requests: int = 0

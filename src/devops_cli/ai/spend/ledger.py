@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     duration_seconds REAL NOT NULL DEFAULT 0.0,
     stage TEXT,
     finish_reason TEXT,
-    pricing_source TEXT
+    pricing_source TEXT,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0
 );
 """
 _QUERY_IDX_TIMESTAMP = (
@@ -76,14 +77,19 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("stage", "ALTER TABLE ai_spend_records ADD COLUMN stage TEXT;"),
     ("finish_reason", "ALTER TABLE ai_spend_records ADD COLUMN finish_reason TEXT;"),
     ("pricing_source", "ALTER TABLE ai_spend_records ADD COLUMN pricing_source TEXT;"),
+    (
+        "reasoning_tokens",
+        "ALTER TABLE ai_spend_records ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;",
+    ),
 )
 
 _QUERY_INSERT_RECORD = """
 INSERT INTO ai_spend_records (
     timestamp, provider, server, backend_info, served_by, model,
     prompt_tokens, completion_tokens, total_tokens,
-    cost_usd, cached, request_type, duration_seconds, stage, finish_reason, pricing_source
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    cost_usd, cached, request_type, duration_seconds, stage, finish_reason, pricing_source,
+    reasoning_tokens
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 _QUERY_STAGE_BREAKDOWN = """
@@ -94,6 +100,7 @@ SELECT
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens,
+    COALESCE(SUM(reasoning_tokens), 0) as r_tokens,
     COALESCE(SUM(cost_usd), 0.0) as s_cost
 FROM ai_spend_records
 WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
@@ -108,6 +115,7 @@ SELECT
     COALESCE(SUM(completion_tokens), 0) as total_comp,
     COALESCE(SUM(total_tokens), 0) as total_tok,
     COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as total_emb,
+    COALESCE(SUM(reasoning_tokens), 0) as total_reasoning,
     COALESCE(SUM(cost_usd), 0.0) as total_spend,
     COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as total_cached,
     COUNT(DISTINCT CASE WHEN cached=0 THEN server END) as srv_count,
@@ -127,6 +135,7 @@ SELECT
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens,
+    COALESCE(SUM(reasoning_tokens), 0) as r_tokens,
     COALESCE(SUM(cost_usd), 0.0) as s_cost,
     GROUP_CONCAT(DISTINCT model) as model_list,
     MIN(timestamp) as f_seen,
@@ -162,6 +171,7 @@ SELECT
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens,
+    COALESCE(SUM(reasoning_tokens), 0) as r_tokens,
     COALESCE(SUM(cost_usd), 0.0) as m_cost,
     COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as cached_count
 FROM ai_spend_records
@@ -191,6 +201,7 @@ SELECT
     COALESCE(SUM(prompt_tokens), 0) as p_tokens,
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(reasoning_tokens), 0) as r_tokens,
     COALESCE(AVG(duration_seconds), 0.0) as mean_duration
 FROM ai_spend_records
 WHERE served_by IS NOT NULL AND (:cutoff IS NULL OR timestamp >= :cutoff)
@@ -438,6 +449,7 @@ class SpendLedger:
         stage: str | None = None,
         finish_reason: FinishReason | None = None,
         pricing_source: str | None = None,
+        reasoning_tokens: int = 0,
     ) -> SpendRecord | None:
         """Record an inference request in the persistent SQLite ledger."""
         ts = timestamp or datetime.now(UTC).isoformat()
@@ -465,6 +477,7 @@ class SpendLedger:
                         stage,
                         finish_reason,
                         pricing_source,
+                        reasoning_tokens,
                     ),
                 )
                 rec_id = cursor.lastrowid
@@ -486,6 +499,7 @@ class SpendLedger:
                     stage=stage,
                     finish_reason=finish_reason,
                     pricing_source=pricing_source,
+                    reasoning_tokens=reasoning_tokens,
                 )
         except Exception:
             # Defensive logging: database failure must never crash user workflows
@@ -603,6 +617,7 @@ class SpendLedger:
             total_completion_tokens=int(row["total_comp"] or 0),
             total_tokens=int(row["total_tok"] or 0),
             total_embedding_tokens=int(row["total_emb"] or 0),
+            total_reasoning_tokens=int(row["total_reasoning"] or 0),
             cached_requests=int(row["total_cached"] or 0),
             active_servers_count=int(row["srv_count"] or 0),
             active_models_count=int(row["mdl_count"] or 0),
@@ -626,6 +641,7 @@ class SpendLedger:
                     completion_tokens=int(r["c_tokens"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
                     embedding_tokens=int(r["e_tokens"] or 0),
+                    reasoning_tokens=int(r["r_tokens"] or 0),
                     approx_spend_usd=round(float(r["s_cost"] or 0.0), 6),
                     models=m_list,
                     first_seen=r["f_seen"],
@@ -668,6 +684,7 @@ class SpendLedger:
                     completion_tokens=int(r["c_tokens"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
                     embedding_tokens=int(r["e_tokens"] or 0),
+                    reasoning_tokens=int(r["r_tokens"] or 0),
                     approx_spend_usd=round(float(r["m_cost"] or 0.0), 6),
                     cached_requests=int(r["cached_count"] or 0),
                 )
@@ -707,6 +724,7 @@ class SpendLedger:
                     prompt_tokens=int(r["p_tokens"] or 0),
                     completion_tokens=completion,
                     total_tokens=int(r["t_tokens"] or 0),
+                    reasoning_tokens=int(r["r_tokens"] or 0),
                     completion_tokens_per_request=round(completion / requests, 2)
                     if requests
                     else 0.0,
@@ -729,9 +747,11 @@ class SpendLedger:
                     completion_tokens=int(r["c_tokens"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
                     embedding_tokens=int(r["e_tokens"] or 0),
+                    reasoning_tokens=int(r["r_tokens"] or 0),
                     approx_spend_usd=round(float(r["s_cost"] or 0.0), 6),
                 )
             )
+        return results
         return results
 
     def reset_ledger(self) -> int:
@@ -800,6 +820,7 @@ def track_request_spend(
     served_by: str | None = None,
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
+    reasoning_tokens: int = 0,
     cached: bool = False,
     request_type: str = "chat",
     duration_seconds: float = 0.0,
@@ -866,6 +887,7 @@ def track_request_spend(
             stage=effective_stage,
             finish_reason=finish_reason,
             pricing_source=pricing_source,
+            reasoning_tokens=reasoning_tokens,
         )
     except Exception:
         rec = None
@@ -877,6 +899,7 @@ def track_request_spend(
             "stage": effective_stage,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "reasoning_tokens": reasoning_tokens,
             "cost_usd": cost,
             "cached": cached,
             "request_type": request_type,
@@ -900,6 +923,8 @@ def track_request_spend(
     tokens = source | {"local": str(pricing_source == CONST_PRICING_SOURCE_LOCAL).lower()}
     emit(AI_TOKENS_TOTAL, prompt_tokens, tokens | {"type": "prompt"})
     emit(AI_TOKENS_TOTAL, completion_tokens, tokens | {"type": "completion"})
+    if reasoning_tokens > 0:
+        emit(AI_TOKENS_TOTAL, reasoning_tokens, tokens | {"type": "reasoning"})
     if cached:
         return rec
     # Every request a model answered adds to the spend counter, a local one 0, so the series

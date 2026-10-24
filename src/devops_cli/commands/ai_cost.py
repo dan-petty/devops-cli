@@ -43,6 +43,7 @@ def _render_report_summary_table(report: LifetimeSpendReport) -> None:
         ["Total Requests Processed", f"{report.total_requests:,}"],
         ["Total Prompt (Input) Tokens", f"{report.total_prompt_tokens:,}"],
         ["Total Completion (Output) Tokens", f"{report.total_completion_tokens:,}"],
+        ["Total Reasoning Tokens", f"{report.total_reasoning_tokens:,}"],
         ["Total Tokens", f"{report.total_tokens:,}"],
         ["Cached Requests (Saved Spend)", f"{report.cached_requests:,}"],
         ["Active Backend Servers", str(report.active_servers_count)],
@@ -125,6 +126,7 @@ def _render_servers_table(report: LifetimeSpendReport) -> None:
         ("Requests", "blue"),
         ("In Tokens", "magenta"),
         ("Out Tokens", "magenta"),
+        ("Reasoning Share", "magenta"),
         ("Total Tokens", "magenta"),
         ("Approx Spend (USD)", "bold green"),
         ("Hosted Equiv (USD)", "green"),
@@ -136,6 +138,9 @@ def _render_servers_table(report: LifetimeSpendReport) -> None:
             f"{s.request_count:,}",
             f"{s.prompt_tokens:,}",
             f"{s.completion_tokens:,}",
+            f"{(s.reasoning_tokens / s.completion_tokens) * 100:.1f}%"
+            if s.completion_tokens > 0
+            else "0.0%",
             f"{s.total_tokens:,}",
             f"${s.approx_spend_usd:,.4f}",
             _usd(s.cost_equivalent_usd),
@@ -156,6 +161,7 @@ def _render_models_table(report: LifetimeSpendReport) -> None:
         ("Provider", "yellow"),
         ("Requests", "blue"),
         ("Total Tokens", "magenta"),
+        ("Reasoning Share", "magenta"),
         ("Approx Spend (USD)", "bold green"),
         ("Hosted Equiv (USD)", "green"),
     ]
@@ -165,6 +171,9 @@ def _render_models_table(report: LifetimeSpendReport) -> None:
             m.provider,
             f"{m.request_count:,}",
             f"{m.total_tokens:,}",
+            f"{(m.reasoning_tokens / m.completion_tokens) * 100:.1f}%"
+            if m.completion_tokens > 0
+            else "0.0%",
             f"${m.approx_spend_usd:,.4f}",
             _usd(m.cost_equivalent_usd),
         ]
@@ -212,6 +221,7 @@ def _render_backends_table(report: LifetimeSpendReport) -> None:
         ("In Tokens", "magenta"),
         ("Out Tokens", "magenta"),
         ("Out Tokens / Request", "magenta"),
+        ("Reasoning Share", "magenta"),
         ("Mean Seconds", "bold green"),
     ]
     rows: list[list[str]] = [
@@ -222,6 +232,9 @@ def _render_backends_table(report: LifetimeSpendReport) -> None:
             f"{b.prompt_tokens:,}",
             f"{b.completion_tokens:,}",
             f"{b.completion_tokens_per_request:,.1f}",
+            f"{(b.reasoning_tokens / b.completion_tokens) * 100:.1f}%"
+            if b.completion_tokens > 0
+            else "0.0%",
             f"{b.mean_duration_seconds:,.2f}",
         ]
         for b in report.backends

@@ -121,6 +121,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         }
         if stream:
             payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}
 
         limit = self._completion_limit()
         if self._supports_reasoning():
@@ -177,6 +178,8 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
 
         content, thinking_str = self._extract_inline_thinking(raw_content, thinking_str)
         usage = raw_json.get("usage", {})
+        completion_details = usage.get("completion_tokens_details") or {}
+        reasoning_tokens = completion_details.get("reasoning_tokens")
         b_info = f"{self.backend_type} ({self.backend_host})"
         return LLMResponse(
             content,
@@ -192,6 +195,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             finish_reason=provider_finish_reason(
                 CONST_OPENAI_FINISH_REASONS, first_choice.get("finish_reason")
             ),
+            reasoning_tokens=reasoning_tokens,
         )
 
     def _gateway_slot(self) -> AbstractContextManager[float]:
