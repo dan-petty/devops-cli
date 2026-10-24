@@ -1643,7 +1643,7 @@ Review a git branch diff.
 | `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
 | `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
-| `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
+| `no_static_scan` | `boolean` | No | `False` | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
@@ -1718,7 +1718,7 @@ Review source files directly (no git required).
 | `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
 | `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
-| `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
+| `no_static_scan` | `boolean` | No | `False` | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |
@@ -1751,7 +1751,7 @@ Review a GitHub pull request.
 | `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
 | `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
-| `no_static_scan` | `boolean` | No | `False` | Disable static security scanning. |
+| `no_static_scan` | `boolean` | No | `False` | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `static_scan_only` | `boolean` | No | `False` | Run static scanning only and skip subsequent stages. |
 | `no_group_analysis` | `boolean` | No | `False` | Disable model-driven group analysis. |
 | `no_reporting` | `boolean` | No | `False` | Disable consolidated report generation; the review keeps no session. |

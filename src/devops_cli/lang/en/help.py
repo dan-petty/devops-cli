@@ -1231,7 +1231,7 @@ class ReviewCommandHelp:
     explain_review: str = "Explain code review personas, severity levels, and terminology."
     no_pre_analysis: str = "Disable pre-analysis and metadata refresh."
     pre_analysis_only: str = "Run pre-analysis only and skip subsequent stages."
-    no_static_scan: str = "Disable static security scanning."
+    no_static_scan: str = "Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence."
     static_scan_only: str = "Run static scanning only and skip subsequent stages."
     no_group_analysis: str = "Disable model-driven group analysis."
     no_reporting: str = "Disable consolidated report generation; the review keeps no session."
