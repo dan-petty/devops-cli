@@ -296,7 +296,9 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
         sampling=SamplingRecord(temperature=0.1, top_p=0.95, seed=42),
         reference_coverage=RatioRecord(numerator=2, denominator=2),
         rejections={},
-        model_calls=0,
+        dispatched=0,
+        replayed=0,
+        failed=0,
         drift_manuals=drift,
         injected_manuals=["kb:it_domains/tools/bandit.md@1234"],
     )

@@ -3127,6 +3127,7 @@ class ReviewPipelineOrchestrator:
 
     def _run_group_analysis_stage(self, stage_flags: ReviewStageFlags | None) -> Any:
         """Execute bounded per-group model analysis on admitted scanner findings (#1147)."""
+        from devops_cli.ai.review.profile import review_stage
         from devops_cli.dry_run.state import is_dry_run
         from devops_cli.review.analysis import default_environment_facts, run_group_analysis
 
@@ -3135,27 +3136,30 @@ class ReviewPipelineOrchestrator:
         admitted = getattr(self, "admitted_scanner_findings", None)
         if not admitted or is_dry_run():
             return None
-        file_contents: dict[str, str] = {}
-        for af in admitted:
-            fpath = getattr(af, "path", "")
-            if fpath and fpath not in file_contents:
-                resolved = self._resolve_file_path(fpath)
-                if resolved.is_file():
-                    file_contents[fpath] = resolved.read_text(encoding="utf-8", errors="replace")
-        env = default_environment_facts(
-            admitted,
-            kubernetes_version=self.kubernetes_version,
-        )
-        report = run_group_analysis(
-            admitted,
-            llm_client=self.llm_client,
-            file_contents=file_contents,
-            environment=env,
-            concurrency=self.concurrency,
-        )
-        self.session.write_analysis(report)
-        self.analysis_report = report
-        return report
+        with review_stage("group_analysis"):
+            file_contents: dict[str, str] = {}
+            for af in admitted:
+                fpath = getattr(af, "path", "")
+                if fpath and fpath not in file_contents:
+                    resolved = self._resolve_file_path(fpath)
+                    if resolved.is_file():
+                        file_contents[fpath] = resolved.read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+            env = default_environment_facts(
+                admitted,
+                kubernetes_version=self.kubernetes_version,
+            )
+            report = run_group_analysis(
+                admitted,
+                llm_client=self.llm_client,
+                file_contents=file_contents,
+                environment=env,
+                concurrency=self.concurrency,
+            )
+            self.session.write_analysis(report)
+            self.analysis_report = report
+            return report
 
     def _static_analyzer_notes(self) -> dict[str, str]:
         """Each analyzer's reason as the report says it, with the files it left out counted."""

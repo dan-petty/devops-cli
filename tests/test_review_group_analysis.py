@@ -64,6 +64,7 @@ def _make_region_finding(
     state: FindingState = FindingState.OPEN,
     tool: str = "ruff",
     tool_version: str = "0.15.10",
+    description: str | None = None,
 ) -> Finding:
     return Finding(
         anchor=ToolAnchor(run_id="r1", result_index=0, rule_id=rule_id),
@@ -75,7 +76,7 @@ def _make_region_finding(
         end_line=line,
         symbol=symbol,
         message=f"{rule_id} issue at line {line}",
-        description=f"Rule {rule_id} description",
+        description=description if description is not None else f"Rule {rule_id} description",
         severity="MEDIUM",
         severity_derivation="rule",
         state=state,
@@ -322,7 +323,9 @@ def test_reference_budget_overflow_records_dropped_keys_coverage_and_names_dropp
             denominator=len(job.needed_keys),
         ),
         rejections={},
-        model_calls=1,
+        dispatched=1,
+        replayed=0,
+        failed=0,
     )
     markdown = "\n".join(render_model_analysis_markdown(report))
 
@@ -550,24 +553,34 @@ def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sa
     assert (
         DEFAULT_GATEWAY_REVIEW_CONCURRENCY == sum(DEFAULT_GATEWAY_REVIEW_SLOTS.values()),
         report.max_concurrency,
-        report.model_calls,
+        report.dispatched,
+        report.replayed,
+        report.failed,
         len(client.calls),
         len(report.groups),
         report.sampling.seed,
         all("Finding Group Explanation" in c["system"] for c in client.calls),
         all(c["kwargs"].get("seed") == DEFAULT_ANALYSIS_SAMPLING_SEED for c in client.calls),
-        persisted["model_calls"],
+        persisted["dispatched"],
+        persisted["replayed"],
+        persisted["failed"],
+        "model_calls" in persisted,
         [g["status"] for g in persisted["groups"]],
     ) == (
         True,
         DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
         2,
+        0,
+        0,
         2,
         2,
         DEFAULT_ANALYSIS_SAMPLING_SEED,
         True,
         True,
         2,
+        0,
+        0,
+        False,
         ["verified", "verified"],
     )
 
@@ -644,6 +657,8 @@ def test_findings_json_and_findings_sarif_are_byte_identical_with_group_analysis
     review_md_on = (dir_on / "review.md").read_text(encoding="utf-8")
     review_md_off = (dir_off / "review.md").read_text(encoding="utf-8")
 
+    analysis_on = json.loads((dir_on / CONST_REVIEW_ANALYSIS_FILENAME).read_text(encoding="utf-8"))
+
     assert (
         json.dumps(findings_on, sort_keys=True) == json.dumps(findings_off, sort_keys=True),
         sarif_on == sarif_off,
@@ -655,7 +670,29 @@ def test_findings_json_and_findings_sarif_are_byte_identical_with_group_analysis
         "## Model Analysis (Model-Written)" in review_md_on,
         "marker_xyz_987" in review_md_on,
         "## Model Analysis (Model-Written)" not in review_md_off,
-    ) == (True, True, True, True, True, True, True, True, True)
+        "Model Calls" not in review_md_on,
+        "- **Jobs**: 1 dispatched, 0 replayed, 0 failed (groups: 1)" in review_md_on,
+        analysis_on.get("dispatched"),
+        analysis_on.get("replayed"),
+        analysis_on.get("failed"),
+        "model_calls" in analysis_on,
+    ) == (
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        1,
+        0,
+        0,
+        False,
+    )
 
 
 def test_score_sessions_and_ai_runs_check_enforce_reference_coverage_tolerance(
@@ -689,7 +726,9 @@ def test_score_sessions_and_ai_runs_check_enforce_reference_coverage_tolerance(
                     "sampling": {"temperature": 0.1, "top_p": 0.95, "seed": 42},
                     "reference_coverage": {"numerator": numerator, "denominator": denominator},
                     "rejections": {},
-                    "model_calls": 1,
+                    "dispatched": 1,
+                    "replayed": 0,
+                    "failed": 0,
                 }
             ),
             encoding="utf-8",
@@ -1697,3 +1736,213 @@ def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_cal
         report.groups[0].status,
         [entry["content"] for entry in _cache_entries(tmp_path)],
     ) == (["not json"], 1, "verified", [_group_payload()])
+
+
+def test_group_analysis_failure_counts_failed_and_dispatched_apart(tmp_path: Path) -> None:
+    """When a job raises an error other than ReplyRejectedError, it is counted as failed while others are dispatched (#482)."""
+    from devops_cli.review.analysis import (
+        EnvironmentFacts,
+        render_model_analysis_markdown,
+        run_group_analysis,
+    )
+
+    source = "def a():\n    return 1\n\ndef b():\n    return 2\n"
+    f1 = _make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")
+    f2 = _make_region_finding(rule_id="F401", path="src/app.py", line=5, fingerprint="fp-b")
+
+    class _FailingOneGroupClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def chat(self, system: str, user: str, **kwargs: Any) -> LLMResponse:
+            self.calls.append(user)
+            if "region:src/app.py:b" in user:
+                raise RuntimeError("simulated model call error")
+            payload = {
+                "explanation": "Function a issue.",
+                "root_cause": "Root cause a.",
+                "related_items": [],
+                "plan_steps": [{"description": "Fix a.", "finding_ids": ["fp-a"]}],
+                "doc_quotes": [{"key": "rule:ruff:F401@0.15.10", "text": "unused"}],
+                "code_quotes": ["    return 1"],
+            }
+            return LLMResponse(content=json.dumps(payload))
+
+    client = _FailingOneGroupClient()
+    report = run_group_analysis(
+        [f1, f2],
+        llm_client=client,
+        file_contents={"src/app.py": source},
+        rule_docs={"rule:ruff:F401@0.15.10": "Module imported but unused."},
+        environment=EnvironmentFacts(language_floor="py314", python_pin="3.14"),
+        concurrency=1,
+    )
+    persisted = _persisted_analysis(tmp_path, report)
+    md = "\n".join(render_model_analysis_markdown(report))
+
+    assert (
+        report.dispatched,
+        report.replayed,
+        report.failed,
+        report.dispatched + report.replayed + report.failed,
+        persisted["dispatched"],
+        persisted["replayed"],
+        persisted["failed"],
+        "model_calls" in persisted,
+        "- **Jobs**: 1 dispatched, 0 replayed, 1 failed (groups: 2)" in md,
+    ) == (1, 0, 1, 2, 1, 0, 1, False, True)
+
+
+def test_group_analysis_two_run_cache_and_no_cache(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """The review's report step runs twice: second run uses cache with no new requests; with --no-cache replayed is 0 (#482)."""
+    from devops_cli.ai.review.profile import profiling, review_stage
+
+    source_dir = tmp_path / "src"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "app.py").write_text(_GROUP_SOURCE, encoding="utf-8")
+
+    admitted = _make_region_finding(
+        rule_id="F401",
+        path="src/app.py",
+        line=2,
+        fingerprint="fp-a",
+        description="Module imported but unused.",
+    )
+    saved = SavedFinding(
+        severity="MEDIUM",
+        location="src/app.py:2",
+        title="[ruff] F401: unused import",
+        description="unused import",
+        fix="Remove unused import",
+        status="VERIFIED",
+        verified=True,
+        verified_by="static:ruff",
+        reportable=True,
+        fingerprint="fp-a",
+        producer="ruff",
+    )
+
+    from tests.llm_stream_fakes import route_llm_clients
+
+    replies = [_group_reply(_group_payload())]
+
+    def answer(_request: httpx2.Request) -> httpx2.Response:
+        return replies.pop(0) if len(replies) > 1 else replies[0]
+
+    sent = route_llm_clients(monkeypatch, answer)
+    config = AIConfig(
+        provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
+    )
+    client = LLMClient(config, api_key="sk")
+
+    # Run 1: initial run, dispatches to transport
+    session_1 = tmp_path / "s1"
+    orch_1 = ReviewPipelineOrchestrator(
+        session_id="s1",
+        session_dir=session_1,
+        llm_client=client,
+        target_dir=tmp_path,
+    )
+    orch_1.admitted_scanner_findings = [admitted]
+    payload_1 = FileReviewPayload(
+        file_path="src/app.py", findings=[saved.model_copy(deep=True)], reportable=True
+    )
+
+    with profiling() as profiler_1:
+        with review_stage("report"):
+            orch_1.generate_consolidated_report(
+                [payload_1], stage_flags=ReviewStageFlags(group_analysis=True)
+            )
+    profile_1 = profiler_1.build(session_id="s1", target="test")
+
+    analysis_1 = json.loads(
+        (orch_1.session.publish() / CONST_REVIEW_ANALYSIS_FILENAME).read_text("utf-8")
+    )
+    st_group_1 = next(s for s in profile_1.stages if s.name == "group_analysis")
+    st_report_1 = next(s for s in profile_1.stages if s.name == "report")
+
+    assert (
+        len(sent),
+        st_group_1.llm_calls,
+        st_group_1.cached_calls,
+        st_report_1.llm_calls,
+        st_report_1.cached_calls,
+        analysis_1["dispatched"],
+        analysis_1["replayed"],
+        analysis_1["failed"],
+        "model_calls" in analysis_1,
+    ) == (1, 1, 0, 0, 0, 1, 0, 0, False)
+
+    # Run 2: second run with cache, transport sees no new requests
+    session_2 = tmp_path / "s2"
+    orch_2 = ReviewPipelineOrchestrator(
+        session_id="s2",
+        session_dir=session_2,
+        llm_client=client,
+        target_dir=tmp_path,
+    )
+    orch_2.admitted_scanner_findings = [admitted]
+    payload_2 = FileReviewPayload(
+        file_path="src/app.py", findings=[saved.model_copy(deep=True)], reportable=True
+    )
+
+    with profiling() as profiler_2:
+        with review_stage("report"):
+            orch_2.generate_consolidated_report(
+                [payload_2], stage_flags=ReviewStageFlags(group_analysis=True)
+            )
+    profile_2 = profiler_2.build(session_id="s2", target="test")
+
+    analysis_2 = json.loads(
+        (orch_2.session.publish() / CONST_REVIEW_ANALYSIS_FILENAME).read_text("utf-8")
+    )
+    st_group_2 = next(s for s in profile_2.stages if s.name == "group_analysis")
+    st_report_2 = next(s for s in profile_2.stages if s.name == "report")
+
+    assert (
+        len(sent),
+        st_group_2.llm_calls,
+        st_group_2.cached_calls,
+        st_report_2.llm_calls,
+        st_report_2.cached_calls,
+        analysis_2["dispatched"],
+        analysis_2["replayed"],
+        analysis_2["failed"],
+    ) == (1, 0, 1, 0, 0, 0, 1, 0)
+
+    # Run 3: with cache disabled (--no-cache), replayed is 0
+    client_no_cache = LLMClient(client._config, api_key="sk", cache_enabled=False)
+    session_3 = tmp_path / "s3"
+    orch_3 = ReviewPipelineOrchestrator(
+        session_id="s3",
+        session_dir=session_3,
+        llm_client=client_no_cache,
+        target_dir=tmp_path,
+    )
+    orch_3.admitted_scanner_findings = [admitted]
+    payload_3 = FileReviewPayload(
+        file_path="src/app.py", findings=[saved.model_copy(deep=True)], reportable=True
+    )
+
+    with profiling() as profiler_3:
+        with review_stage("report"):
+            orch_3.generate_consolidated_report(
+                [payload_3], stage_flags=ReviewStageFlags(group_analysis=True)
+            )
+    profile_3 = profiler_3.build(session_id="s3", target="test")
+
+    analysis_3 = json.loads(
+        (orch_3.session.publish() / CONST_REVIEW_ANALYSIS_FILENAME).read_text("utf-8")
+    )
+    st_group_3 = next(s for s in profile_3.stages if s.name == "group_analysis")
+
+    assert (
+        len(sent),
+        st_group_3.llm_calls,
+        st_group_3.cached_calls,
+        analysis_3["dispatched"],
+        analysis_3["replayed"],
+        analysis_3["failed"],
+    ) == (2, 1, 0, 1, 0, 0)

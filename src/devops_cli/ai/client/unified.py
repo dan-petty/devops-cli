@@ -151,6 +151,42 @@ def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) ->
     span_handle.add_event("llm_response_received", _response_event_payload(res, p))
 
 
+def _resolve_llm_cache(config: AIConfig | None, cache_enabled: bool | None) -> Any:
+    cache_cfg = getattr(config, "cache", None)
+    if cache_enabled is None:
+        cache_enabled = getattr(cache_cfg, "enabled", True) if cache_cfg is not None else True
+    if not isinstance(cache_enabled, bool):
+        cache_enabled = True
+    cache_dir_raw = getattr(cache_cfg, "dir", None) if cache_cfg is not None else None
+    cache_dir: Path | None = None
+    if isinstance(cache_dir_raw, Path):
+        cache_dir = cache_dir_raw
+    elif isinstance(cache_dir_raw, str):
+        cache_dir = Path(cache_dir_raw)
+    cache_ttl = getattr(cache_cfg, "ttl_seconds", 86400 * 7) if cache_cfg is not None else 86400 * 7
+    if not isinstance(cache_ttl, (int, float)):
+        cache_ttl = 86400 * 7
+    cache_max = getattr(cache_cfg, "max_entries", 1000) if cache_cfg is not None else 1000
+    if not isinstance(cache_max, int):
+        cache_max = 1000
+
+    from devops_cli.ai.response_cache import LLMResponseCache, get_llm_response_cache
+
+    if not cache_enabled:
+        return LLMResponseCache(
+            cache_dir=cache_dir,
+            enabled=False,
+            ttl_seconds=cache_ttl,
+            max_entries=cache_max,
+        )
+    return get_llm_response_cache(
+        cache_dir=cache_dir,
+        enabled=cache_enabled,
+        ttl_seconds=cache_ttl,
+        max_entries=cache_max,
+    )
+
+
 class LLMClient(
     OllamaProviderMixin,
     ClaudeProviderMixin,
@@ -194,34 +230,7 @@ class LLMClient(
         self._custom_endpoint = custom_endpoint
         self._request_timeout_seconds = request_timeout_seconds
 
-        cache_cfg = getattr(config, "cache", None)
-        if cache_enabled is None:
-            cache_enabled = getattr(cache_cfg, "enabled", True) if cache_cfg is not None else True
-        if not isinstance(cache_enabled, bool):
-            cache_enabled = True
-        cache_dir_raw = getattr(cache_cfg, "dir", None) if cache_cfg is not None else None
-        cache_dir: Path | None = None
-        if isinstance(cache_dir_raw, Path):
-            cache_dir = cache_dir_raw
-        elif isinstance(cache_dir_raw, str):
-            cache_dir = Path(cache_dir_raw)
-        cache_ttl = (
-            getattr(cache_cfg, "ttl_seconds", 86400 * 7) if cache_cfg is not None else 86400 * 7
-        )
-        if not isinstance(cache_ttl, (int, float)):
-            cache_ttl = 86400 * 7
-        cache_max = getattr(cache_cfg, "max_entries", 1000) if cache_cfg is not None else 1000
-        if not isinstance(cache_max, int):
-            cache_max = 1000
-
-        from devops_cli.ai.response_cache import get_llm_response_cache
-
-        self._cache = get_llm_response_cache(
-            cache_dir=cache_dir,
-            enabled=cache_enabled,
-            ttl_seconds=cache_ttl,
-            max_entries=cache_max,
-        )
+        self._cache = _resolve_llm_cache(config, cache_enabled)
         if append_cache is None:
             append_cache = getattr(config, "append_cache", False) or getattr(
                 getattr(config, "cache", None), "append_cache", False

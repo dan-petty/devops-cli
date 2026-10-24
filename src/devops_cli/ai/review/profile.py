@@ -339,7 +339,7 @@ class ReviewProfiler:
             osv_digest = self._osv_snapshot_digest
             semgrep_registry_digest = self._semgrep_registry_digest
         for stage in stages:
-            stage.wall_seconds = round(stage.wall_seconds, 3)
+            stage.wall_seconds = max(0.0, round(stage.wall_seconds, 3))
             stage.activity = {
                 backend: backend_activity(calls)
                 for backend, calls in intervals.get(stage.name, {}).items()
@@ -422,13 +422,17 @@ def review_stage(name: str) -> Iterator[None]:
     if profiler is None:
         yield
         return
+    outer = _STAGE.get()
     token = _STAGE.set(name)
     started = time.monotonic()
     try:
         yield
     finally:
+        elapsed = time.monotonic() - started
         _STAGE.reset(token)
-        profiler.add_stage_time(name, time.monotonic() - started)
+        profiler.add_stage_time(name, elapsed)
+        if outer is not None and outer != name:
+            profiler.add_stage_time(outer, -elapsed)
 
 
 class StageSummary(BaseModel):
