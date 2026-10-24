@@ -1292,6 +1292,30 @@ def docker_engine():
     return _patched_docker_engine
 
 
+def _build_specced_docker_client() -> Any:
+    from unittest.mock import create_autospec
+
+    import docker
+    from docker.models.containers import ContainerCollection
+    from docker.models.images import ImageCollection
+    from docker.models.networks import NetworkCollection
+    from docker.models.volumes import VolumeCollection
+
+    client = create_autospec(docker.DockerClient, instance=True)
+    client.containers = create_autospec(ContainerCollection, instance=True)
+    client.images = create_autospec(ImageCollection, instance=True)
+    client.networks = create_autospec(NetworkCollection, instance=True)
+    client.volumes = create_autospec(VolumeCollection, instance=True)
+    client.api = create_autospec(docker.APIClient, instance=True)
+    return client
+
+
+@pytest.fixture
+def docker_client() -> Any:
+    """Return an autospecced DockerClient instance with specced collections and api."""
+    return _build_specced_docker_client()
+
+
 @pytest.fixture
 def docker_endpoint_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unserved_side_channel_port: int

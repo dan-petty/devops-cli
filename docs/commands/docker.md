@@ -70,7 +70,7 @@ devops docker push [OPTIONS] <image>
 
 ## `devops docker prune`
 
-**Remove unused containers, images, and networks.**
+**Remove stopped containers, unused networks, dangling images and, with --volumes, unused volumes.**
 
 ```bash
 devops docker prune [OPTIONS]
@@ -80,7 +80,7 @@ devops docker prune [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--volumes` | `boolean` | - | Include or prune volumes. |
+| `--volumes` | `boolean` | - | Also remove unused volumes. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

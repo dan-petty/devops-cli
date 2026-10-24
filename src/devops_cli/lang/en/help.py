@@ -738,7 +738,10 @@ class DockerCommandHelp:
     images: str = "List local Docker images."
     build: str = "Build a Docker image."
     push: str = "Push a Docker image to a registry."
-    prune: str = "Remove unused containers, images, and networks."
+    prune: str = (
+        "Remove stopped containers, unused networks, dangling images and, with --volumes, "
+        "unused volumes."
+    )
     stats: str = "Display live container CPU, memory, and network I/O statistics."
     analyze_layers: str = "Analyze container image layer efficiency and wasted space using Dive."
     cache: str = "Introspect BuildKit multi-stage layer cache occupancy and reuse."
@@ -754,7 +757,7 @@ class DockerCommandHelp:
     name_filter: str = "Filter containers or images by name."
     no_cache: str = "Do not use cached image layers when building."
     tag: str = "Image tag name."
-    volumes: str = "Include or prune volumes."
+    volumes: str = "Also remove unused volumes."
     watch: str = "Continuously refresh output in the terminal at a fixed interval."
     interval: str = "Auto-refresh polling interval in seconds."
 

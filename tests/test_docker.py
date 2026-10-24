@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import typer
@@ -29,9 +29,9 @@ def _mock_proc(
     )
 
 
-def test_docker_commands(tmp_path: Path, docker_engine: Any) -> None:
+def test_docker_commands(tmp_path: Path, docker_engine: Any, docker_client: Any) -> None:
     """Verify docker images, build, push, prune, and analyze-layers subcommands."""
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_img = MagicMock()
     mock_img.tags = ["alpine:latest"]
     mock_img.short_id = "sha256:1234"
@@ -39,7 +39,9 @@ def test_docker_commands(tmp_path: Path, docker_engine: Any) -> None:
     mock_client.images.list.return_value = [mock_img]
     mock_client.images.build.return_value = (mock_img, [{"stream": "Step 1/1 : FROM alpine\n"}])
     mock_client.images.push.return_value = [{"status": "Pushing layer 1"}]
-    mock_client.system.prune.return_value = {"SpaceReclaimed": 10485760}
+    mock_client.containers.prune.return_value = {"SpaceReclaimed": 10485760}
+    mock_client.networks.prune.return_value = {}
+    mock_client.images.prune.return_value = {}
 
     with docker_engine(mock_client):
         res_images = runner.invoke(docker_app, ["images"])
@@ -58,6 +60,14 @@ def test_docker_commands(tmp_path: Path, docker_engine: Any) -> None:
         assert res_prune.exit_code == 0
 
 
+def test_docker_client_fixture_is_autospecced(docker_client: Any) -> None:
+    """The docker_client fixture pins DockerClient attributes and signatures."""
+    with pytest.raises(AttributeError):
+        _ = docker_client.system
+    with pytest.raises(TypeError):
+        docker_client.containers.prune(volumes=True)
+
+
 def test_docker_stats_dry_run() -> None:
     """Verify docker stats --dry-run outputs the plan without touching Docker."""
     from devops_cli.dry_run import set_dry_run
@@ -71,11 +81,11 @@ def test_docker_stats_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_docker_stats_sdk_table(docker_engine: Any) -> None:
+def test_docker_stats_sdk_table(docker_engine: Any, docker_client: Any) -> None:
     """Verify docker stats table is built from typed Engine API container samples."""
     from devops_cli.commands.docker import _build_docker_stats_table, _format_bytes
 
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_container = MagicMock()
     mock_container.name = "web"
     mock_container.attrs = {
@@ -168,7 +178,9 @@ def test_docker_analyze_layers_shows_layer_commands_as_text() -> None:
     assert (res.exit_code, [command in res.output for command in commands]) == (0, [True, True])
 
 
-def test_docker_client_and_error_branches(tmp_path: Path, docker_engine: Any) -> None:
+def test_docker_client_and_error_branches(
+    tmp_path: Path, docker_engine: Any, docker_client: Any
+) -> None:
     """Verify docker _client connection, push errors, and dry-run branches."""
     from devops_cli.commands.docker import _engine
     from devops_cli.dry_run import set_dry_run
@@ -208,11 +220,10 @@ def test_docker_client_and_error_branches(tmp_path: Path, docker_engine: Any) ->
     from docker.errors import APIError
 
     mock_bad_req = MagicMock(status_code=HTTPStatus.BAD_REQUEST)
-    mock_bad_client = MagicMock()
-    mock_bad_client.images.push.side_effect = APIError(
+    docker_client.images.push.side_effect = APIError(
         "invalid name", response=mock_bad_req, explanation="invalid reference format"
     )
-    with docker_engine(mock_bad_client):
+    with docker_engine(docker_client):
         res_bad_img = runner.invoke(docker_app, ["push", "Invalid Name!"])
         assert (
             res_bad_img.exit_code,
@@ -223,25 +234,19 @@ def test_docker_client_and_error_branches(tmp_path: Path, docker_engine: Any) ->
         )
 
     # 5. Push stream error
-    mock_client = MagicMock()
-    mock_client.images.push.return_value = [{"error": "denied: access forbidden"}]
-    with docker_engine(mock_client):
+    docker_client.images.push.side_effect = None
+    docker_client.images.push.return_value = [{"error": "denied: access forbidden"}]
+    with docker_engine(docker_client):
         res_push_err = runner.invoke(docker_app, ["push", "org/repo:tag"])
         assert res_push_err.exit_code == 1
         assert "access forbidden" in res_push_err.output
 
-    # 6. Prune with tuple return value and without force
-    mock_client.system.prune.return_value = (None, {"containers": 5242880, "images": 5242880})
-    with docker_engine(mock_client):
-        with patch("typer.confirm", return_value=True):
-            res_prune_tuple = runner.invoke(docker_app, ["prune"])
-            assert res_prune_tuple.exit_code == 0
-            assert "10 MB" in res_prune_tuple.output
 
-
-def test_docker_images_and_build_formatting(tmp_path: Path, docker_engine: Any) -> None:
+def test_docker_images_and_build_formatting(
+    tmp_path: Path, docker_engine: Any, docker_client: Any
+) -> None:
     """Verify docker images tag formatting and build stream logging."""
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_img_unnamed = MagicMock()
     mock_img_unnamed.tags = []
     mock_img_unnamed.short_id = "sha256:5678"
@@ -260,10 +265,12 @@ def test_docker_images_and_build_formatting(tmp_path: Path, docker_engine: Any) 
         assert "Successfully built image" in res_build.output or "sha256:5678" in res_build.output
 
 
-def test_docker_push_registry_error_prints_as_written_and_exits_1(docker_engine: Any) -> None:
+def test_docker_push_registry_error_prints_as_written_and_exits_1(
+    docker_engine: Any, docker_client: Any
+) -> None:
     """A push error is the registry's text: `[/v2/repo]` in it is text, not a Rich closing tag
     that ends the command in a MarkupError traceback instead of a clean exit 1 (#955)."""
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_client.images.push.return_value = [{"error": "denied: [/v2/repo] access"}]
     with docker_engine(mock_client):
         res = runner.invoke(docker_app, ["push", "registry/app:1"])
@@ -274,14 +281,14 @@ def test_docker_push_registry_error_prints_as_written_and_exits_1(docker_engine:
 
 
 def test_docker_push_status_and_build_output_print_as_written(
-    tmp_path: Path, docker_engine: Any
+    tmp_path: Path, docker_engine: Any, docker_client: Any
 ) -> None:
     """Push status comes from the registry and build lines from the build: their brackets print
     as written, so no word vanishes and no style or link is added. Control characters are still
     stripped (#955)."""
     status = "[link=https://example.com]Pushed[/link] [internal]"
     build_lines = ["Step [/x] done", "[internal] load build definition from Dockerfile"]
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_client.images.build.return_value = (
         MagicMock(short_id="sha256:1234"),
         [{"stream": f"{line}\x07\n"} for line in build_lines],
@@ -304,9 +311,11 @@ def test_docker_push_status_and_build_output_print_as_written(
         "[::1]:5000/app:1",
     ],
 )
-def test_docker_push_accepts_registry_ports(image_name: str, docker_engine: Any) -> None:
+def test_docker_push_accepts_registry_ports(
+    image_name: str, docker_engine: Any, docker_client: Any
+) -> None:
     """Registry endpoints with ports reach client.images.push without regex rejection."""
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_client.images.push.return_value = [{"status": "Pushed"}]
     with docker_engine(mock_client):
         res = runner.invoke(docker_app, ["push", image_name])
@@ -314,9 +323,11 @@ def test_docker_push_accepts_registry_ports(image_name: str, docker_engine: Any)
     assert (res.exit_code, mock_client.images.push.call_args[0][0]) == (0, image_name)
 
 
-def test_docker_push_escapes_progress_text_without_markup_error(docker_engine: Any) -> None:
+def test_docker_push_escapes_progress_text_without_markup_error(
+    docker_engine: Any, docker_client: Any
+) -> None:
     """An image reference with bracket markup prints literally in the progress line (#1108)."""
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_client.images.push.return_value = [{"status": "Pushed"}]
     with docker_engine(mock_client):
         res = runner.invoke(docker_app, ["push", "app:1[/x]"])
@@ -324,14 +335,16 @@ def test_docker_push_escapes_progress_text_without_markup_error(docker_engine: A
     assert (res.exit_code, "app:1[/x]" in res.output) == (0, True)
 
 
-def test_docker_push_server_error_prints_daemon_explanation(docker_engine: Any) -> None:
+def test_docker_push_server_error_prints_daemon_explanation(
+    docker_engine: Any, docker_client: Any
+) -> None:
     """A 500 APIError prints the daemon explanation as plain text and exits 1 (#1108)."""
     from http import HTTPStatus
 
     from docker.errors import APIError
 
     mock_resp = MagicMock(status_code=HTTPStatus.INTERNAL_SERVER_ERROR)
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_client.images.push.side_effect = APIError(
         "internal error", response=mock_resp, explanation="server crashed"
     )
@@ -341,11 +354,13 @@ def test_docker_push_server_error_prints_daemon_explanation(docker_engine: Any) 
     assert (res.exit_code, "server crashed" in res.output) == (1, True)
 
 
-def test_docker_push_invalid_repository_prints_error_and_exits_1(docker_engine: Any) -> None:
+def test_docker_push_invalid_repository_prints_error_and_exits_1(
+    docker_engine: Any, docker_client: Any
+) -> None:
     """InvalidRepository error from docker-py prints invalid-name error and exits 1 (#1108)."""
     from docker.errors import InvalidRepository
 
-    mock_client = MagicMock()
+    mock_client = docker_client
     mock_client.images.push.side_effect = InvalidRepository("invalid repo name")
     with docker_engine(mock_client):
         res = runner.invoke(docker_app, ["push", "--", "-reg.example.com/app:1"])
@@ -355,3 +370,114 @@ def test_docker_push_invalid_repository_prints_error_and_exits_1(docker_engine: 
         "Invalid Docker image name format" in res.output,
         "invalid repo name" in res.output,
     ) == (1, True, True)
+
+
+def test_docker_prune_calls_order_and_filters(docker_engine: Any, docker_client: Any) -> None:
+    """devops docker prune --force calls containers, networks, and images in order."""
+    with docker_engine(docker_client):
+        res = runner.invoke(docker_app, ["prune", "--force"])
+
+    assert res.exit_code == 0
+    assert docker_client.mock_calls == [
+        call.containers.prune(),
+        call.networks.prune(),
+        call.images.prune(),
+    ]
+
+
+def test_docker_prune_with_volumes(docker_engine: Any, docker_client: Any) -> None:
+    """devops docker prune --force --volumes calls containers, networks, images, and volumes."""
+    with docker_engine(docker_client):
+        res = runner.invoke(docker_app, ["prune", "--force", "--volumes"])
+
+    assert res.exit_code == 0
+    assert docker_client.mock_calls == [
+        call.containers.prune(),
+        call.networks.prune(),
+        call.images.prune(),
+        call.volumes.prune(),
+    ]
+
+
+def test_docker_prune_confirmation_abort_sends_no_requests(
+    docker_engine: Any, docker_client: Any
+) -> None:
+    """Without --force, aborting the confirmation prompt sends no prune request."""
+    with docker_engine(docker_client):
+        with patch("typer.confirm", side_effect=typer.Abort):
+            res = runner.invoke(docker_app, ["prune"])
+
+    assert res.exit_code != 0
+    assert docker_client.mock_calls == []
+
+
+def test_docker_prune_confirmation_accepted_runs_prune(
+    docker_engine: Any, docker_client: Any
+) -> None:
+    """Without --force, accepting the confirmation runs the prune sequence."""
+    with docker_engine(docker_client):
+        with patch("typer.confirm", return_value=True):
+            res = runner.invoke(docker_app, ["prune"])
+
+    assert res.exit_code == 0
+    assert docker_client.mock_calls == [
+        call.containers.prune(),
+        call.networks.prune(),
+        call.images.prune(),
+    ]
+
+
+def test_docker_prune_dry_run_sends_no_requests(docker_engine: Any, docker_client: Any) -> None:
+    """devops docker prune --dry-run sends no prune request."""
+    with docker_engine(docker_client):
+        res = runner.invoke(docker_app, ["prune", "--dry-run"])
+
+    assert res.exit_code == 0
+    assert "prune_docker_resources" in res.output
+    assert docker_client.mock_calls == []
+
+
+def test_docker_prune_reclaimed_space(docker_engine: Any, docker_client: Any) -> None:
+    """Pruning sums SpaceReclaimed across collection replies and formats as MB."""
+    docker_client.containers.prune.return_value = {"SpaceReclaimed": 5242880}
+    docker_client.networks.prune.return_value = {"NetworksDeleted": ["bridge1"]}
+    docker_client.images.prune.return_value = {"SpaceReclaimed": 5242880}
+    docker_client.volumes.prune.return_value = {"SpaceReclaimed": 1048576}
+
+    with docker_engine(docker_client):
+        res_no_vol = runner.invoke(docker_app, ["prune", "--force"])
+        assert res_no_vol.exit_code == 0
+        assert "10 MB" in res_no_vol.output
+
+        res_vol = runner.invoke(docker_app, ["prune", "--force", "--volumes"])
+        assert res_vol.exit_code == 0
+        assert "11 MB" in res_vol.output
+
+
+def test_docker_prune_reclaimed_space_null_value_counts_as_zero(
+    docker_engine: Any, docker_client: Any
+) -> None:
+    """A missing or null SpaceReclaimed value counts as 0 bytes."""
+    docker_client.containers.prune.return_value = {"SpaceReclaimed": None}
+    docker_client.networks.prune.return_value = {}
+    docker_client.images.prune.return_value = None
+
+    with docker_engine(docker_client):
+        res = runner.invoke(docker_app, ["prune", "--force"])
+
+    assert res.exit_code == 0
+    assert "0 MB" in res.output
+
+
+def test_docker_prune_daemon_api_error_exits_1(docker_engine: Any, docker_client: Any) -> None:
+    """A daemon error from any prune call exits 1 with one error line and no traceback."""
+    from docker.errors import APIError
+
+    docker_client.containers.prune.side_effect = APIError("daemon communication broken")
+
+    with docker_engine(docker_client):
+        res = runner.invoke(docker_app, ["prune", "--force"])
+
+    assert res.exit_code == 1
+    assert "daemon communication broken" in res.output
+    assert "Traceback" not in res.output
