@@ -190,13 +190,14 @@ class InMemoryRoadmapStore(RoadmapStore):
         pull_request: bool = False,
         on_board: bool = False,
         author_association: str | None = None,
+        sub_issues: int = 0,
     ) -> int:
         """Open an issue (or a pull request) as GitHub would, returning its number.
 
         `milestone` is the title of a seeded milestone. Seeding records no change. `on_board`
         puts it on the board with no fields set, which `add_item` refuses for a pull request but
-        GitHub's board allows. The issue is created now by the store's clock, and closed now
-        when seeded closed.
+        GitHub's board allows. `sub_issues` is how many sub-issues GitHub records for it. The
+        issue is created now by the store's clock, and closed now when seeded closed.
         """
         if milestone is not None:
             require_milestone(self._roadmap.milestones.values(), milestone, "roadmap.issue.seed")
@@ -217,6 +218,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             created_at=now,
             updated_at=now,
             closed_at=now if state is GitHubState.CLOSED else None,
+            sub_issues=sub_issues,
         )
         if on_board:
             self._roadmap.cards[number] = _entry(number)

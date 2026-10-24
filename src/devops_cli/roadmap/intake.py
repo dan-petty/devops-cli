@@ -9,7 +9,10 @@ gateway that does not answer (`ModelGatewayUnreachableError`) leaves GitHub as i
 **Duplicates.** A candidate is compared with every item on the board, open or closed, and every
 issue closed as not planned, plus the candidates this run placed before it; a new candidate is
 also compared with the open agent issues off the board, which a run that stopped after filing
-leaves. Each text is embedded once, and the model judges the candidate against its nearest
+leaves. An issue that has sub-issues is compared with no candidate. Its sub-issues deliver it,
+one pull request each (ADR 0012), so no candidate asks for its change. A new candidate is not
+compared with the issue its source links, such as the issue it splits (#1985). Each text is
+embedded once, and the model judges the candidate against its nearest
 `DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate asks for the same
 change as its original: the same result and acceptance criteria, so that the delivery of one
 delivers the other. A shared theme, goal, umbrella or file does not make a duplicate (#1755). The
@@ -97,6 +100,7 @@ from datetime import datetime
 from enum import StrEnum
 from functools import cached_property
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -218,6 +222,7 @@ class Subject:
     updated_at: datetime | None = None
     item: Item | None = None
     new: NewCandidate | None = None
+    sub_issues: int = 0
 
     @property
     def name(self) -> str:
@@ -505,6 +510,7 @@ def _subject(issue: IssueRecord, item: Item | None = None) -> Subject:
         author_association=issue.author_association,
         updated_at=issue.updated_at,
         item=item,
+        sub_issues=issue.sub_issues,
     )
 
 
@@ -586,7 +592,10 @@ def _is_done(issue: IssueRecord, run: _Run) -> bool:
 
 def _compared(issue: IssueRecord, run: _Run, *, off_board: bool) -> bool:
     """Whether a candidate is compared with `issue`: an item, an issue closed as not planned,
-    and with `off_board` an open agent issue that is not on the board."""
+    and with `off_board` an open agent issue that is not on the board. An issue that has
+    sub-issues is none of them: its sub-issues deliver it (#1985)."""
+    if issue.sub_issues:
+        return False
     if issue.number in run.board:
         return True
     if issue.state is GitHubState.CLOSED:
@@ -602,6 +611,17 @@ def _comparison(run: _Run, *, off_board: bool) -> list[_Entry]:
         for issue in run.issues
         if _compared(issue, run, off_board=off_board)
     ]
+
+
+def _source_issue(run: _Run, subject: Subject) -> int | None:
+    """The issue of the repository that a new candidate's source links, such as the issue it
+    splits: the issue whose GitHub link is the source with no query or fragment, so a link to
+    one of its comments names it too (#1985)."""
+    source = subject.new.source if subject.new is not None else None
+    if not source:
+        return None
+    link = urlsplit(source.strip())._replace(query="", fragment="").geturl()
+    return next((issue.number for issue in run.issues if issue.url == link), None)
 
 
 def _with_regression_reference(subject: Subject, entry: _Entry) -> Subject:
@@ -937,7 +957,8 @@ class _Planner:
 
     def decide_all(self, subjects: Sequence[Subject]) -> Iterator[IntakeDecision]:
         """Each candidate's decision, in turn. A run with a candidate reads `.github/labels.yml`
-        first, so a file it can't use stops it before any timeline read or model call (#1358)."""
+        first, so a file it can't use stops it before any timeline read or model call (#1358).
+        A placed candidate that has sub-issues does not join the comparison set (#1985)."""
         if not subjects:
             return
         _ = self.run.types
@@ -945,7 +966,8 @@ class _Planner:
         own = self._embed(subjects, checked)
         for subject, vector in zip(subjects, own, strict=True):
             decision = self._decide(subject, vector)
-            if decision.outcome is Outcome.PLACE and vector is not None:
+            joins = decision.outcome is Outcome.PLACE and not subject.sub_issues
+            if joins and vector is not None:
                 self.entries.append(_Entry(subject.number, subject.title, subject.body, "open"))
                 self.vectors.append(vector)
             yield decision
@@ -964,15 +986,15 @@ class _Planner:
         own = iter(vectors[len(self.entries) :])
         return [next(own) if check else None for check in checked]
 
-    def _shortlist(self, vector: list[float] | None, number: int | None) -> list[_Entry]:
-        """The comparison entries other than the candidate, nearest first, at most
+    def _shortlist(self, vector: list[float] | None, apart: Collection[int]) -> list[_Entry]:
+        """The comparison entries other than those `apart` names, nearest first, at most
         `DEFAULT_ROADMAP_INTAKE_SHORTLIST` of them."""
         if vector is None:
             return []
         indexes = [
             index
             for index, entry in enumerate(self.entries)
-            if entry.number is not None and entry.number != number
+            if entry.number is not None and entry.number not in apart
         ]
         nearest = sorted(
             indexes,
@@ -982,7 +1004,11 @@ class _Planner:
         return [self.entries[index] for index in nearest[:DEFAULT_ROADMAP_INTAKE_SHORTLIST]]
 
     def _decide(self, subject: Subject, vector: list[float] | None) -> IntakeDecision:
-        shortlist = self._shortlist(vector, subject.number)
+        """The candidate's decision, compared with neither itself nor the issue its source
+        links (#1985)."""
+        own = (subject.number, _source_issue(self.run, subject))
+        apart = {number for number in own if number is not None}
+        shortlist = self._shortlist(vector, apart)
         request = ProposalRequest(
             title=subject.title,
             body=subject.body[:DEFAULT_ROADMAP_INTAKE_TEXT_CHARS],

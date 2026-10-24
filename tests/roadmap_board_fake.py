@@ -316,8 +316,10 @@ class GitHubFake:
         labels: Iterable[str] = (),
         milestone: str | None = None,
         card: dict[str, str] | None = None,
+        sub_issues: int = 0,
     ) -> None:
-        """Issue `number`, and its card holding `card`'s fields when it is on the board."""
+        """Issue `number`, and its card holding `card`'s fields when it is on the board. It has
+        `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`."""
         self.issues[number] = {
             "number": number,
             "title": title or f"Issue {number}",
@@ -329,6 +331,7 @@ class GitHubFake:
             "node_id": f"I_{number}",
             "author_association": "COLLABORATOR",
             "created_at": "2026-10-01T00:00:00Z",
+            "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},
         }
         if card is not None:
             self._put_card(number, card)

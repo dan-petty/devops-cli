@@ -177,7 +177,10 @@ class Roadmap:
         state: GitHubState = GitHubState.OPEN,
         state_reason: str | None = None,
         on_board: bool = False,
+        **seeded: Any,
     ) -> int:
+        """Seed an issue; `seeded` holds the other options of `seed_issue`, such as
+        `sub_issues`."""
         return self.store.seed_issue(
             title,
             body=body,
@@ -187,6 +190,7 @@ class Roadmap:
             state=state,
             state_reason=state_reason,
             on_board=on_board,
+            **seeded,
         )
 
     def finished(self, title: str, **options: Any) -> int:
@@ -598,6 +602,117 @@ def test_the_intake_prompt_defines_a_duplicate_as_the_same_change(
     snapshot: SnapshotAssertion,
 ) -> None:
     assert intake_system_prompt() == snapshot
+
+
+# ── A part and the issue it is split from (#1985) ─────────────────────────────
+
+# Step B of #1113, which intake judged a duplicate of #1113 on 2026-10-23, and #1113 with
+# step C, one of its four sub-issues.
+PARENT_TITLE = (
+    "fix(valkey): one validated URL names every Valkey endpoint, valkey-py dials an address "
+    "that one check vetted, and the unused cache layer goes"
+)
+PARENT_BODY = (
+    "This issue tracks the steps of the plan. One pull request closes each child issue. Step B: "
+    "one validated valkey:// or valkeys:// URL names every Valkey endpoint."
+)
+STEP_C = (
+    "fix(valkey): the Valkey client resolves a name once, vets every answer and dials the "
+    "vetted address"
+)
+STEP_B = NewCandidate(
+    title="fix(valkey): valkey.url keeps its scheme, so a valkeys url dials tls with host name checks",
+    body="Step B of the plan: one validated valkey:// or valkeys:// URL names every Valkey endpoint.",
+)
+# The worst answer for a part: the model names its parent with a change both ask for.
+FOLD_INTO_PARENT = {
+    "shared_change": "one validated URL names every Valkey endpoint",
+    "duplicate_reason": "This candidate is part of the larger issue, which tracks the steps.",
+}
+
+
+def _link(number: int) -> str:
+    """The link GitHub gives issue `number` of the repository."""
+    return f"https://github.com/{REPO}/issues/{number}"
+
+
+def _split(
+    roadmap: Roadmap, model_fake: ModelFake, answer: dict[str, Any], *, source: str | None
+) -> tuple[Outcome, int | None, int | None, list[list[int]]]:
+    """File step B with `source` over the shared model fake, which gives `answer`. Return the
+    outcome, the original, the issue intake filed and the numbers of each shortlist it sent."""
+    model_fake.answer(json.dumps(DEFAULT_PROPOSAL | answer))
+    model = GatewayIntakeModel(AIConfig(), embedder=_Embedder())
+    part = replace(STEP_B, source=source)
+    outcome = intake_candidate(roadmap.store, part, repo=REPO, model=model, confirm=True)
+    sent = [[n["number"] for n in json.loads(call.user)["shortlist"]] for call in model_fake.calls]
+    return outcome.decision.outcome, outcome.decision.original, outcome.number, sent
+
+
+@pytest.mark.parametrize("anchor", ["", "#issuecomment-1"], ids=["issue", "comment-on-issue"])
+def test_a_part_is_never_a_duplicate_of_the_issue_its_source_names(
+    roadmap: Roadmap, model_fake: ModelFake, anchor: str
+) -> None:
+    """The issue the part's source links, or links a comment of, stays off the shortlist, so
+    even a model that names it with a shared change folds nothing: the part is filed, and its
+    body ends with the link."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY)
+    source = _link(parent) + anchor
+    answer = FOLD_INTO_PARENT | {"duplicate_of": parent}
+    outcome, _, filed, sent = _split(roadmap, model_fake, answer, source=source)
+    bodies = [issue.body for issue in roadmap.store.issues() if issue.number == filed]
+    assert (outcome, sent, [body.endswith(f"Source: {source}") for body in bodies]) == (
+        Outcome.PLACE,
+        [[]],
+        [True],
+    )
+
+
+def test_a_part_that_repeats_an_item_other_than_its_source_is_still_a_duplicate(
+    roadmap: Roadmap, model_fake: ModelFake
+) -> None:
+    """Only the source leaves the shortlist: the part filed before is still its original."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY)
+    filed_before = roadmap.finished(STEP_B.title, body=STEP_B.body)
+    answer = {
+        "shared_change": "valkey.url keeps its scheme",
+        "duplicate_of": filed_before,
+        "duplicate_reason": "the earlier issue asks for the same step.",
+    }
+    assert _split(roadmap, model_fake, answer, source=_link(parent)) == (
+        Outcome.DUPLICATE,
+        filed_before,
+        None,
+        [[filed_before]],
+    )
+
+
+def test_an_issue_with_sub_issues_is_never_the_original_of_a_candidate(
+    roadmap: Roadmap, model_fake: ModelFake
+) -> None:
+    """Its sub-issues deliver an issue that has them, one pull request each, so no candidate
+    asks for its change: it is compared with none, whatever the candidate's source."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY, sub_issues=4)
+    step_c = roadmap.finished(STEP_C)
+    answer = FOLD_INTO_PARENT | {"duplicate_of": parent}
+    outcome, _, filed, sent = _split(roadmap, model_fake, answer, source=None)
+    assert (outcome, filed is not None, sent) == (Outcome.PLACE, True, [[step_c]])
+
+
+def test_a_sub_issue_decided_after_its_parent_in_one_run_is_not_closed_as_its_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """A parent the run places does not join the items the later candidates are compared
+    with, so its newer sub-issue is placed, not closed."""
+    parent = roadmap.issue(PARENT_TITLE, body=PARENT_BODY, sub_issues=1)
+    step = roadmap.issue(STEP_B.title, body=STEP_B.body)
+    model = FakeModel(duplicates={STEP_B.title: PARENT_TITLE})
+    roadmap.run(model)
+    assert (
+        [request.shortlist for request in model.requests],
+        roadmap.store.closures(step),
+        [roadmap.fields(number)[0] for number in (parent, step)],
+    ) == ([(), ()], [], ["New", "New"])
 
 
 # ── Priority and evidence ─────────────────────────────────────────────────────
@@ -2288,6 +2403,21 @@ def test_an_intake_of_three_placements_reads_the_board_once() -> None:
         _sent(github, 0, BOARD_ITEMS_OPERATION),
         [(github.card(n) or {}).get("priority") for n in (251, 252, 253)],
     ) == (3, 1, 3, ["P2-Medium"] * 3)
+
+
+def test_an_item_whose_issue_github_lists_with_sub_issues_is_on_no_shortlist() -> None:
+    """GitHub's issue listing gives each issue the count of its sub-issues
+    (`sub_issues_summary`), and intake reads it there, with no other request (#1985)."""
+    github, store = on_github()
+    finished = {"status": "Ready", "priority": "P3-Low", "value": "Low", "effort": "Low"}
+    github.seed_issue(1, PARENT_TITLE, labels=("type/bug",), card=finished, sub_issues=4)
+    github.seed_issue(2, STEP_C, labels=("type/bug",), card=finished)
+    model = FakeModel(duplicates={STEP_B.title: PARENT_TITLE})
+    plan, _ = _intake_on_github(store, model, new=STEP_B)
+    assert (
+        [[neighbour.number for neighbour in request.shortlist] for request in model.requests],
+        [decision.outcome for decision in plan.decisions],
+    ) == ([[2]], [Outcome.PLACE])
 
 
 def test_candidate_matching_only_done_item_is_filed_with_reference_in_body(

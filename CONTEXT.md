@@ -87,7 +87,7 @@ The single entry point that turns a candidate into an item: it rejects duplicate
 _Avoid_: ingestion, triage
 
 **Duplicate**:
-A candidate that asks for the same change as an item: the same result and the same acceptance criteria, so that the delivery of one delivers the other. A shared theme, goal, umbrella or file does not make a duplicate.
+A candidate that asks for the same change as an item: the same result and the same acceptance criteria, so that the delivery of one delivers the other. A shared theme, goal, umbrella or file does not make a duplicate. A candidate is never a duplicate of the issue that it is split from. It is also never a duplicate of an issue that has sub-issues, because the sub-issues deliver that issue.
 _Avoid_: fold, overlap
 
 **Related item**:
