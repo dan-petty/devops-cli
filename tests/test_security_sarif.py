@@ -57,6 +57,7 @@ from devops_cli.security.suppression import (
     empty_policy,
     load_policy,
 )
+from devops_cli.security.tool_executor import ToolRun
 from tests.support.paths import FIXTURES, GOLDEN
 
 runner = CliRunner()
@@ -1691,3 +1692,88 @@ def test_golden_sarif_report_matches_and_validates_against_schema() -> None:
 
     assert emitted_document == golden_document
     _assert_valid_sarif(golden_document)
+
+
+# =============================================================================
+# Tool Run Records in SARIF (#1983)
+# =============================================================================
+
+
+def _record(tool: str = "gitleaks", version: str = "8.21.2", **changes: Any) -> ToolRun:
+    """The record of one run of `tool`, as a review keeps it."""
+    fields: dict[str, Any] = {
+        "tool": tool,
+        "version": version,
+        "binary_sha256": hashlib.sha256(tool.encode()).hexdigest(),
+        "executor": "direct",
+        "config_digest": "0123456789abcdef",
+        "ruleset_digest": "4f53cda18c2baa0c",
+        "argv_template": (tool, "detect", "--config", "{config}", "{targets}"),
+        "targets_digest": "fedcba9876543210",
+        "commit": "0" * 40,
+        **changes,
+    }
+    return ToolRun(**fields)
+
+
+def test_the_run_of_a_tool_holds_each_record_of_that_tool_in_its_property_bag() -> None:
+    """A consumer of the document reads which binary, config and ruleset gave a result. Each
+    record goes in the run of its tool with the field names of `ToolRun`, in the order of the
+    runs. The record holds nothing that an invocation, an artifact or `versionControlProvenance`
+    requires, so the run holds none of these."""
+    first = _record(targets_digest="1111111111111111")
+    second = _record(targets_digest="2222222222222222", commit=None)
+    document = to_sarif(
+        [make(tool="gitleaks", rule_id="aws-access-key-id")],
+        tool_runs=[first, _record(tool="bandit", version="1.8.6"), second],
+    )
+    [run] = document["runs"]
+    assert (
+        run["tool"]["driver"]["name"],
+        [ToolRun.model_validate(record) for record in run["properties"]["tool_runs"]],
+        sorted(set(run) - {"tool", "results", "properties"}),
+    ) == ("gitleaks", [first, second], [])
+    _assert_valid_sarif(document)
+
+
+@pytest.mark.parametrize(
+    ("result_version", "record_versions", "expected"),
+    [
+        (None, ["8.21.2", "8.21.2"], "8.21.2"),
+        ("8.20.0", ["8.21.2"], "8.20.0"),
+        (None, ["8.21.2", "8.22.0"], None),
+    ],
+)
+def test_the_driver_names_the_version_of_its_records_when_no_result_names_one(
+    result_version: str | None, record_versions: list[str], expected: str | None
+) -> None:
+    """The version that the tool gave with a result comes first. Records that name two versions
+    do not say which one gave the results."""
+    document = to_sarif(
+        [make(tool="gitleaks", tool_version=result_version)],
+        tool_runs=[_record(version=version) for version in record_versions],
+    )
+    assert document["runs"][0]["tool"]["driver"].get("version") == expected
+    _assert_valid_sarif(document)
+
+
+def test_a_tool_with_records_and_no_result_gets_no_run() -> None:
+    """A record does not say that the tool succeeded. A run with no results says that the tool
+    looked and found nothing (SARIF 2.1.0, 3.14.23), and it closes the open alerts of the tool."""
+    document = to_sarif([make(tool="gitleaks")], tool_runs=[_record(tool="bandit")])
+    assert (_drivers(document), "properties" in document["runs"][0]) == (["gitleaks"], False)
+    _assert_valid_sarif(document)
+
+
+def test_the_run_of_a_scanner_that_ran_holds_its_records_beside_its_invocation() -> None:
+    """With the outcomes of the scanners, the outcome says that the scanner succeeded, and the
+    records of the scanner go in its run."""
+    record = _record(tool="bandit", version="1.8.6")
+    document = to_sarif([], {"bandit": _timed("ran")}, tool_runs=[record])
+    [run] = document["runs"]
+    assert (
+        run["tool"]["driver"]["version"],
+        run["properties"]["tool_runs"],
+        run["invocations"][0]["executionSuccessful"],
+    ) == ("1.8.6", [record.model_dump(mode="json")], True)
+    _assert_valid_sarif(document)

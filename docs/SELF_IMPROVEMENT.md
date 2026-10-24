@@ -642,6 +642,12 @@ cover them.
 The record is read before the tool starts. Trivy fetches its checks bundle during a scan when the
 cache is old, so Trivy may use newer rules than the record names.
 
+The SARIF document of the review, `findings.sarif`, holds the records of a tool in the run of that
+tool. The property bag of the run holds each record in full under `tool_runs`. The driver of the run
+names the version of the records when no result names one. Only a tool that gave a result has a run,
+because a record does not say that its tool succeeded. The module docstring of
+`src/devops_cli/security/tool_executor.py` tells why the record fills no other SARIF 2.1.0 name.
+
 ### Project Review Conventions
 
 The target's review conventions (`.devops/review.toml`, `AGENTS.md`) define project-specific
