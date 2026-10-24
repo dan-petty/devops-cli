@@ -595,6 +595,7 @@ class ArgoCommandHelp:
     workflow_file: str = "Workflow YAML file."
     workflow_name: str = "Workflow name."
     rollout_name: str = "Rollout name."
+    container: str = "Container to read logs from."
     follow: str = "Stream workflow execution logs."
     prune: str = "Allow deletion of resources omitted from the source repository."
     wait: str = "Wait for sync operation to finish."

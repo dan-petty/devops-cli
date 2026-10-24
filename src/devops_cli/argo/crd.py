@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_ARGO_ANNOTATION_POD_NAME_FORMAT,
     CONST_ARGO_API_GROUP,
     CONST_ARGO_API_VERSION,
     CONST_ARGO_PLURAL_ANALYSIS_RUNS,
@@ -19,6 +21,12 @@ from devops_cli.config.constants import (
     CONST_ARGO_PLURAL_APPLICATIONS,
     CONST_ARGO_PLURAL_ROLLOUTS,
     CONST_ARGO_PLURAL_WORKFLOWS,
+    CONST_ARGO_POD_NAME_V1,
+    CONST_ARGO_POD_NAME_V2,
+    CONST_ARGO_SKIPPED_PHASES,
+    CONST_FNV_OFFSET_BASIS_32,
+    CONST_FNV_PRIME_32,
+    CONST_MAX_POD_NAME_PREFIX_LENGTH,
     CONST_ROLLOUT_FIELD_ABORT,
     CONST_ROLLOUT_FIELD_CONTROLLER_PAUSE,
     CONST_ROLLOUT_FIELD_PAUSE_CONDITIONS,
@@ -35,9 +43,48 @@ logger = logging.getLogger(__name__)
 _HTTP_NOT_FOUND = 404
 
 
-def _is_not_found(exc: Exception) -> bool:
-    """Detect a Kubernetes API 404 without importing the client at module scope."""
-    return int(getattr(exc, "status", 0) or 0) == _HTTP_NOT_FOUND
+def is_not_found_error(exc: BaseException) -> bool:
+    """Return True if an exception represents an HTTP 404 Not Found response."""
+    if int(getattr(exc, "status", 0) or 0) == _HTTP_NOT_FOUND:
+        return True
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None and int(getattr(cause, "status", 0) or 0) == _HTTP_NOT_FOUND:
+        return True
+    msg = str(exc).lower()
+    return "404" in msg or "not found" in msg
+
+
+_is_not_found = is_not_found_error
+
+
+def fnv32a(text: str) -> int:
+    """Compute 32-bit FNV-1a hash matching the Argo Workflows controller."""
+    h = CONST_FNV_OFFSET_BASIS_32
+    for b in text.encode("utf-8"):
+        h = ((h ^ b) * CONST_FNV_PRIME_32) & 0xFFFFFFFF
+    return h
+
+
+def _derive_v2_pod_name(workflow_name: str, node_id: str, node: dict[str, Any]) -> str:
+    """Derive pod name under Argo Workflows v2 naming convention."""
+    node_type = str(node.get("type", ""))
+    raw_name = str(node.get("name") or node.get("id") or node_id)
+    if node_type == "Container":
+        pod_node_name = re.sub(r"\.[^/.]+$", "", raw_name)
+    else:
+        pod_node_name = raw_name
+
+    if pod_node_name == workflow_name:
+        return workflow_name
+
+    template_name = str(
+        node.get("templateName") or (node.get("templateRef") or {}).get("template") or ""
+    )
+    prefix = f"{workflow_name}-{template_name}" if template_name else workflow_name
+    if len(prefix) > CONST_MAX_POD_NAME_PREFIX_LENGTH - 1:
+        prefix = prefix[: CONST_MAX_POD_NAME_PREFIX_LENGTH - 1]
+    hash_val = fnv32a(pod_node_name)
+    return f"{prefix}-{hash_val}"
 
 
 def _require_k8s_name(value: str, label: str, *, namespace: bool = False) -> None:
@@ -283,17 +330,35 @@ class ArgoCRDService:
             self.apply_resource(CONST_ARGO_PLURAL_WORKFLOWS, manifest, namespace=namespace)
         )
 
-    def workflow_pod_names(self, name: str, namespace: str = DEFAULT_K8S_NAMESPACE) -> list[str]:
+    def workflow_pod_names(
+        self,
+        name: str,
+        namespace: str = DEFAULT_K8S_NAMESPACE,
+        version: str | None = None,
+    ) -> list[str]:
         """Resolve the pod names backing a Workflow's nodes for native log streaming."""
-        nodes = (self.get_resource(CONST_ARGO_PLURAL_WORKFLOWS, name, namespace=namespace)).get(
-            "status", {}
+        manifest = self.get_resource(CONST_ARGO_PLURAL_WORKFLOWS, name, namespace=namespace)
+        meta = manifest.get("metadata") or {}
+        annotations = meta.get("annotations") or {}
+        active_version = version or str(
+            annotations.get(CONST_ARGO_ANNOTATION_POD_NAME_FORMAT) or CONST_ARGO_POD_NAME_V2
         )
-        node_map = (nodes or {}).get("nodes") or {}
-        return sorted(
-            str(node_id)
-            for node_id, node in node_map.items()
-            if str((node or {}).get("type", "")) == "Pod"
-        )
+        nodes = (manifest.get("status") or {}).get("nodes") or {}
+
+        pod_names: list[str] = []
+        for node_id, raw_node in nodes.items():
+            node = raw_node or {}
+            if str(node.get("type", "")) != "Pod":
+                continue
+            if str(node.get("phase", "")) in CONST_ARGO_SKIPPED_PHASES:
+                continue
+
+            if active_version == CONST_ARGO_POD_NAME_V1:
+                pod_names.append(str(node.get("id") or node_id))
+            else:
+                pod_names.append(_derive_v2_pod_name(name, str(node_id), node))
+
+        return sorted(pod_names)
 
 
 def get_argo_crd_service(context: str | None = None) -> ArgoCRDService:
@@ -303,5 +368,7 @@ def get_argo_crd_service(context: str | None = None) -> ArgoCRDService:
 
 __all__ = [
     "ArgoCRDService",
+    "fnv32a",
     "get_argo_crd_service",
+    "is_not_found_error",
 ]

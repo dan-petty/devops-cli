@@ -2212,6 +2212,7 @@ devops argo workflows logs [OPTIONS] <name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--container`, `-c` | `string` | `main` | Container to read logs from. |
 | `--follow`, `-f` | `boolean` | - | Stream workflow execution logs. |
 
 ### `devops argo rollouts`
