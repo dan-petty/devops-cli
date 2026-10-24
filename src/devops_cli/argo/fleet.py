@@ -6,12 +6,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
-from devops_cli.config import load_settings
 from devops_cli.config.defaults import (
     DEFAULT_ARGO_FLEET_CONCURRENCY,
     DEFAULT_ARGO_FLEET_NAME,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import ArgoFleetAppTarget, ArgoFleetSyncResult

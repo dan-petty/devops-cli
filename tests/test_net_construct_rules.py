@@ -12,9 +12,15 @@ import yaml
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
-    CONST_BANNED_HAND_ROLLED_APIS,
 )
 from tests.support.paths import REPO_ROOT
+
+CONST_BANNED_HAND_ROLLED_APIS: tuple[str, ...] = (
+    "socket.inet_aton",
+    "socket.inet_ntoa",
+    "socket.inet_pton",
+    "socket.inet_ntop",
+)
 
 pytestmark = pytest.mark.live("ast-grep", "ruff")
 

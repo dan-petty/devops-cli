@@ -29,12 +29,11 @@ from devops_cli.ai.research.models import (
     MentalModel,
     StateTransition,
 )
-from devops_cli.config.constants import (
-    CONST_CAUSAL_NODE_TYPES,
-    CONST_CAUSAL_RELATIONSHIPS,
-)
 from devops_cli.config.defaults import DEFAULT_AI_RESEARCH_DIR
 from devops_cli.main import app
+
+CONST_CAUSAL_NODE_TYPES: tuple[str, ...] = ("cause", "effect", "mediator", "outcome")
+CONST_CAUSAL_RELATIONSHIPS: tuple[str, ...] = ("causes", "inhibits", "triggers", "mediates")
 
 runner = CliRunner()
 

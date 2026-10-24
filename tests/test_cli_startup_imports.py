@@ -8,21 +8,32 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_CLI_HEAVY_MODULES,
-)
-from devops_cli.config.defaults import (
-    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP,
-    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
-    DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP,
-    DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
-)
 from devops_cli.main import _COMMAND_SPECS
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+
+CONST_CLI_HEAVY_MODULES: tuple[str, ...] = (
+    "pydantic_ai",
+    "kubernetes",
+    "docker",
+    "fastmcp",
+    "qdrant_client",
+    "google.genai",
+    "anthropic",
+    "openai",
+    "agentops",
+    "litellm",
+    "libtmux",
+    "textual",
+)
+DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION: int = 550
+DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION: int = 75
+DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP: int = 1100
+DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP: int = 250
 
 pytestmark = pytest.mark.live("python")
 
@@ -45,41 +56,56 @@ def _clean_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]
     return env
 
 
-def test_entry_toggle_ast_invariants() -> None:
-    """Verify PYDANTIC_DISABLE_PLUGINS is assigned unconditionally at module level before devops_cli imports."""
-    entry_file = REPO_ROOT / "src" / "devops_cli" / "entry.py"
-    tree = ast.parse(entry_file.read_text(encoding="utf-8"), filename=str(entry_file))
+def _is_pydantic_disable_plugins_assign(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Assign):
+        return False
+    for target in node.targets:
+        if (
+            isinstance(target, ast.Subscript)
+            and isinstance(target.value, ast.Attribute)
+            and target.value.attr == "environ"
+            and isinstance(target.slice, ast.Constant)
+            and target.slice.value == "PYDANTIC_DISABLE_PLUGINS"
+        ):
+            return True
+    return False
 
+
+def _is_devops_cli_import(node: ast.AST) -> bool:
+    if isinstance(node, ast.ImportFrom):
+        return (node.module or "").startswith("devops_cli")
+    if isinstance(node, ast.Import):
+        return any(alias.name.startswith("devops_cli") for alias in node.names)
+    return False
+
+
+def _scan_entry_ast(entry_file: Path) -> tuple[int | None, int | None]:
+    tree = ast.parse(entry_file.read_text(encoding="utf-8"), filename=str(entry_file))
     toggle_lineno: int | None = None
     first_devops_import_lineno: int | None = None
-
     for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if (
-                    isinstance(target, ast.Subscript)
-                    and isinstance(target.value, ast.Attribute)
-                    and target.value.attr == "environ"
-                    and isinstance(target.slice, ast.Constant)
-                    and target.slice.value == "PYDANTIC_DISABLE_PLUGINS"
-                ):
-                    toggle_lineno = node.lineno
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            names = (
-                [node.module or ""]
-                if isinstance(node, ast.ImportFrom)
-                else [alias.name for alias in node.names]
-            )
-            if first_devops_import_lineno is None and any(
-                name.startswith("devops_cli") for name in names
-            ):
-                first_devops_import_lineno = node.lineno
+        if _is_pydantic_disable_plugins_assign(node):
+            toggle_lineno = node.lineno
+            continue
+        if first_devops_import_lineno is None and _is_devops_cli_import(node):
+            first_devops_import_lineno = node.lineno
+    return toggle_lineno, first_devops_import_lineno
 
-    assert (
-        toggle_lineno is not None,
-        first_devops_import_lineno is not None,
-        (toggle_lineno or 0) < (first_devops_import_lineno or 0),
-    ) == (True, True, True)
+
+def test_entry_toggle_ast_invariants() -> None:
+    """Verify PYDANTIC_DISABLE_PLUGINS is assigned unconditionally at module level before imports that load pydantic."""
+    for entry_file, require_devops_import in [
+        (REPO_ROOT / "src" / "devops_cli" / "entry.py", True),
+        (REPO_ROOT / "src" / "devops_cli" / "__init__.py", False),
+    ]:
+        toggle_lineno, first_devops_import_lineno = _scan_entry_ast(entry_file)
+
+        assert toggle_lineno is not None
+        if require_devops_import:
+            assert first_devops_import_lineno is not None
+            assert (toggle_lineno or 0) < (first_devops_import_lineno or 0)
+        else:
+            assert first_devops_import_lineno is None
 
 
 def test_entry_toggle_merges_existing_plugin() -> None:

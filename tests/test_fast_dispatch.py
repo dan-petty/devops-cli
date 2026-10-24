@@ -103,15 +103,6 @@ def test_core_dry_run_exports() -> None:
     assert devops_cli.dry_run.CommandDryRunResult is not None
 
 
-def test_core_getattr_exports() -> None:
-    assert callable(getattr(devops_cli.core, "run_subprocess"))
-    assert callable(getattr(devops_cli.core, "find_repo_root"))
-    assert callable(getattr(devops_cli.core, "validate_path"))
-    assert callable(getattr(devops_cli.core, "is_dry_run"))
-    with pytest.raises(AttributeError):
-        _ = getattr(devops_cli.core, "nonexistent_core_attr")
-
-
 def test_main_helpers_and_entrypoint() -> None:
     with patch("devops_cli.entry.main") as mock_main:
         main_entry()

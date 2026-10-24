@@ -9,7 +9,6 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.config.constants import (
-    CONST_K8S_PV_PHASE_BOUND,
     CONST_K8S_PV_PHASE_FAILED,
     CONST_K8S_PV_PHASE_RELEASED,
 )
@@ -22,6 +21,8 @@ from devops_cli.k8s.volume import (
     verify_volume_orphaned,
 )
 from tests.k8s_fakes import FakeCoreV1, client, pod
+
+CONST_K8S_PV_PHASE_BOUND: str = "Bound"
 
 
 class _FakeApiException(Exception):

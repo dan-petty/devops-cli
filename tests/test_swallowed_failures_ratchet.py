@@ -27,14 +27,13 @@ if __spec__ is None:
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_SWALLOWED_FAILURES_CHECK_ATTRS,
-    CONST_SWALLOWED_FAILURES_RUFF_RULES,
-)
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.trees import parse_python_file
 
 pytestmark = pytest.mark.live("ruff", "python")
+
+CONST_SWALLOWED_FAILURES_RUFF_RULES: Final[tuple[str, ...]] = ("BLE001", "S110", "S112")
+CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "stdout", "stderr")
 
 CONST_CEILINGS_FIXTURE: Final[Path] = FIXTURES / "swallowed_failures_ceilings.json"
 # The module's dotted name is the same under pytest and under `python -m`, so the command follows

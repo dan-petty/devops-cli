@@ -375,3 +375,29 @@ def test_pre_commit_runs_hook_in_single_process_across_multiple_files(tmp_path: 
 
     assert res.returncode == 0
     assert res.stdout.count("hook id: structural-invariants") == 1
+
+
+@pytest.mark.live("python")
+def test_code_metrics_module_execution_loads_no_heavy_frameworks(tmp_path: Path) -> None:
+    """Running devops_cli.core.code_metrics as a module loads neither pydantic, typer, nor devops_cli.config."""
+    sample_file = _write(tmp_path, "sample.py", "x = 1\n")
+    probe = (
+        "import runpy, sys\n"
+        f"sys.argv = ['code_metrics', '--max-depth', '5', {str(sample_file)!r}]\n"
+        "try:\n"
+        "    runpy.run_module('devops_cli.core.code_metrics', run_name='__main__', alter_sys=True)\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        "banned = [m for m in sys.modules if any(x in m for x in ('pydantic', 'typer', 'devops_cli.config'))]\n"
+        "if banned:\n"
+        "    sys.stderr.write(f'banned:{banned}\\n')\n"
+        "    sys.exit(1)\n"
+    )
+    res = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, res.stderr

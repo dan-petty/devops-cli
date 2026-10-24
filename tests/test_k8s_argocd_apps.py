@@ -27,6 +27,10 @@ APPS_DIR = ARGOCD_DIR / "apps"
 BOOTSTRAP_DIR = ARGOCD_DIR / "bootstrap"
 FINALIZER = "resources-finalizer.argocd.argoproj.io"
 REPO_URL = "https://github.com/dan-petty/devops-cli"
+_PRE_POST_DELETE_JQ = (
+    '.metadata.finalizers[] | select(startswith("pre-delete-finalizer.argocd.argoproj.io") '
+    'or startswith("post-delete-finalizer.argocd.argoproj.io"))'
+)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -576,9 +580,6 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
     from devops_cli.config.constants import (
         CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
     )
-    from devops_cli.config.constants import (
-        CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ as PRE_POST_DELETE_JQ,
-    )
 
     spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
     assert (
@@ -599,7 +600,7 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
             {
                 "group": "argoproj.io",
                 "kind": "Application",
-                "jqPathExpressions": [PRE_POST_DELETE_JQ],
+                "jqPathExpressions": [_PRE_POST_DELETE_JQ],
             }
         ],
         True,
@@ -613,10 +614,6 @@ def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None
     import shutil
     import subprocess
 
-    from devops_cli.config.constants import (
-        CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ as PRE_POST_DELETE_JQ,
-    )
-
     spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
     diff_entries = [
         d
@@ -627,7 +624,7 @@ def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None
     ]
     assert len(diff_entries) == 1
     (entry,) = diff_entries
-    assert entry.get("jqPathExpressions") == [PRE_POST_DELETE_JQ]
+    assert entry.get("jqPathExpressions") == [_PRE_POST_DELETE_JQ]
 
     jq_bin = shutil.which("jq")
     if jq_bin:
@@ -644,7 +641,7 @@ def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None
             }
         }
         proc = subprocess.run(
-            [jq_bin, "-r", PRE_POST_DELETE_JQ],
+            [jq_bin, "-r", _PRE_POST_DELETE_JQ],
             input=json.dumps(sample_doc),
             text=True,
             capture_output=True,

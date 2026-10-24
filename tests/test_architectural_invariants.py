@@ -13,58 +13,24 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from graphlib import CycleError
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Final
 
 import pathspec
 import pytest
 
 from devops_cli.config.constants import (
-    CONST_AST_GREP_IGNORE_COMMENT_RE,
-    CONST_AST_GREP_RULE_FILES,
-    CONST_AST_GREP_RULE_ID_SEPARATOR,
     CONST_AST_GREP_SCAN_ARGS,
-    CONST_AST_GREP_SCAN_ROOTS,
-    CONST_BANNED_HAND_ROLLED_APIS,
-    CONST_BLIND_EXCEPTION_TYPES,
-    CONST_COMPLEXITY_CAP_ROOTS,
     CONST_CONFTEST_FILENAME,
     CONST_DOCS_CLASS_HAND_WRITTEN,
     CONST_DOCS_INVENTORY,
-    CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
-    CONST_NOQA_COMMENT_RE,
-    CONST_NOQA_RULE_CODE_RE,
-    CONST_NOSEC_COMMENT_RE,
-    CONST_PRAGMA_NO_COVER_COMMENT_RE,
-    CONST_PRAGMA_NO_MUTATE_COMMENT_RE,
     CONST_PYTHON_FILE_SUFFIX,
-    CONST_RUFF_IGNORE_FILE_NAMES,
-    CONST_RUFF_PER_FILE_IGNORE_KEYS,
-    CONST_RUFF_SOURCE_SUFFIXES,
-    CONST_SUPPRESSION_COMMENT_PREFILTER_RE,
-    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
-    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
-    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
-    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
-    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
-    CONST_SUPPRESSION_KIND_NOSEC,
-    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
-    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
-    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
-    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
-    CONST_SUPPRESSION_KINDS,
-    CONST_SUPPRESSION_LINT_RULES,
-    CONST_TEST_ASSERTION_LINT_RULES,
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
-    CONST_TYPE_IGNORE_COMMENT_RE,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AST_GREP_SUPPRESSION_CEILING,
-    DEFAULT_C901_SUPPRESSION_CEILING,
     DEFAULT_MAX_NESTING_DEPTH,
-    DEFAULT_SUPPRESSION_CEILINGS,
 )
 from devops_cli.core.code_metrics import measure_tree
 from devops_cli.core.import_graph import (
@@ -83,6 +49,137 @@ from tests.support.trees import (
     parse_python_file,
     parse_source_trees,
 )
+
+CONST_BLIND_EXCEPTION_TYPES: Final[frozenset[str]] = frozenset({"Exception", "BaseException"})
+CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset(
+    {"B011", "B015", "B017", "B018", "PT011", "PT015", "PT017", "RUF043"}
+)
+CONST_SUPPRESSION_LINT_RULES: Final[frozenset[str]] = frozenset({"PGH003", "RUF100"})
+CONST_RUFF_PER_FILE_IGNORE_KEYS: Final[tuple[str, ...]] = (
+    "per-file-ignores",
+    "extend-per-file-ignores",
+)
+CONST_COMPLEXITY_CAP_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
+CONST_RUFF_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi", ".ipynb"})
+CONST_RUFF_IGNORE_FILE_NAMES: Final[frozenset[str]] = frozenset(
+    {CONST_GITIGNORE_FILENAME, ".ignore"}
+)
+CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"
+CONST_SUPPRESSION_KIND_NOQA_PREFIX: Final[str] = "noqa"
+CONST_SUPPRESSION_KIND_NOSEC: Final[str] = "nosec"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER: Final[str] = "pragma: no cover"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE: Final[str] = "pragma: no mutate"
+CONST_SUPPRESSION_KIND_FILE_DIRECTIVE: Final[str] = "file-level directive"
+CONST_SUPPRESSION_KIND_AST_GREP_IGNORE: Final[str] = "ast-grep-ignore"
+CONST_SUPPRESSION_KIND_PER_FILE_IGNORES: Final[str] = "per-file-ignores"
+CONST_SUPPRESSION_KIND_MYPY_OVERRIDES: Final[str] = "[[tool.mypy.overrides]]"
+CONST_SUPPRESSION_KIND_COVERAGE_OMIT: Final[str] = "coverage omit"
+CONST_COMMENT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
+    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
+    CONST_SUPPRESSION_KIND_NOSEC,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
+    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
+    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
+)
+CONST_PYPROJECT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
+    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
+    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
+)
+CONST_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    *CONST_COMMENT_SUPPRESSION_KINDS,
+    *CONST_PYPROJECT_SUPPRESSION_KINDS,
+)
+CONST_SUPPRESSION_COMMENT_PREFILTER_RE: Final[re.Pattern[str]] = re.compile(
+    r"#[^\n]*(?:type[^\S\n]*:[^\S\n]*ignore\b|noqa\b|nosec\b"
+    r"|pragma[^\S\n]*:[^\S\n]*no[^\S\n]+(?:cover|mutate)\b"
+    r"|(?:ruff|flake8|mypy|pyright|pylint|bandit)[^\S\n]*:|ast-grep-ignore\b)",
+    re.IGNORECASE,
+)
+CONST_TYPE_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*type[^\S\n]*:[^\S\n]*ignore\b", re.IGNORECASE
+)
+CONST_NOQA_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*noqa(?:[^\S\n]*:[^\S\n]*"
+    r"(?P<codes>[A-Z0-9]+(?:(?:[^\S\n]*,[^\S\n]*|[^\S\n]+)[A-Z0-9]+)*)|(?=$|[^\S\n]+#))",
+    re.IGNORECASE,
+)
+CONST_NOQA_RULE_CODE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Z0-9]+")
+CONST_NOSEC_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*nosec\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_COVER_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+cover\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_MUTATE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+mutate\b", re.IGNORECASE
+)
+CONST_FILE_DIRECTIVE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*(?:(?:ruff|flake8)[^\S\n]*:[^\S\n]*noqa\b"
+    r"|ruff[^\S\n]*:[^\S\n]*(?:file-ignore|disable|ignore)\b"
+    r"|(?:mypy|pyright)[^\S\n]*:|(?:pylint|bandit)[^\S\n]*:[^\S\n]*skip-file\b)",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*ast-grep-ignore(?:[^\S\n]*:[^\S\n]*(?P<ids>[^\n#]+))?\b",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_RULE_ID_SEPARATOR: Final[str] = ","
+CONST_AST_GREP_SCAN_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
+CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
+    "net-address-list",
+    "net-bracket-affix",
+    "net-cidr-build",
+    "net-domain-list",
+    "net-domain-suffix",
+    "net-hostport",
+    "net-ip-literal",
+    "net-normalise",
+    "net-port-table",
+    "net-scheme-affix",
+    "net-scheme-in",
+    "net-url-build",
+)
+CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("test-elapsed-upper-bound",)
+CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
+    **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
+    **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
+}
+CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
+    "socket.inet_aton",
+    "socket.inet_ntoa",
+    "socket.inet_pton",
+    "socket.inet_ntop",
+)
+
+DEFAULT_C901_SUPPRESSION_CEILING: int = 25
+DEFAULT_AST_GREP_SUPPRESSION_CEILING: int = 0
+DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
+    "src type: ignore": 51,
+    "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
+    "src noqa: E402": 2,
+    "src noqa: F401": 15,
+    "src noqa: SIM115": 1,
+    "src noqa: UP036": 1,
+    "src nosec": 13,
+    "src pragma: no cover": 1,
+    "src pragma: no mutate": 0,
+    "src file-level directive": 0,
+    "src ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
+    "tests type: ignore": 79,
+    "tests noqa: F401": 3,
+    "tests noqa: N803": 1,
+    "tests nosec": 17,
+    "tests pragma: no cover": 0,
+    "tests pragma: no mutate": 0,
+    "tests file-level directive": 0,
+    "tests ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
+    "per-file-ignores": 0,
+    "[[tool.mypy.overrides]]": 1,
+    "coverage omit": 0,
+}
 
 
 def test_exception_taxonomy_inheritance() -> None:
@@ -2390,11 +2487,13 @@ def _collect_facade_import_violations(
 def test_ai_and_github_package_inits_hold_only_docstrings(
     parsed_source_trees: dict[Path, ast.Module],
 ) -> None:
-    """The four __init__.py files parse to a single docstring expression and nothing else (#1002)."""
+    """The six __init__.py files parse to a single docstring expression and nothing else (#1002, #776)."""
     init_paths = [
         REPO_ROOT / "src" / "devops_cli" / "ai" / "__init__.py",
         REPO_ROOT / "src" / "devops_cli" / "ai" / "agents" / "__init__.py",
         REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "config" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "core" / "__init__.py",
         REPO_ROOT / "src" / "devops_cli" / "github" / "__init__.py",
     ]
     failures = []
@@ -2414,11 +2513,13 @@ def test_ai_and_github_package_inits_hold_only_docstrings(
 def test_no_non_submodule_imports_from_ai_and_github_facades(
     parsed_repo_trees: dict[Path, ast.Module],
 ) -> None:
-    """No import from devops_cli.ai, devops_cli.ai.agents, devops_cli.ai.mcp, or devops_cli.github names anything but a submodule (#1002)."""
+    """No import from facade packages names anything but a submodule (#1002, #776)."""
     facade_packages = {
         "devops_cli.ai": REPO_ROOT / "src" / "devops_cli" / "ai",
         "devops_cli.ai.agents": REPO_ROOT / "src" / "devops_cli" / "ai" / "agents",
         "devops_cli.ai.mcp": REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp",
+        "devops_cli.config": REPO_ROOT / "src" / "devops_cli" / "config",
+        "devops_cli.core": REPO_ROOT / "src" / "devops_cli" / "core",
         "devops_cli.github": REPO_ROOT / "src" / "devops_cli" / "github",
     }
     allowed_submodules = {

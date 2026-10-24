@@ -19,22 +19,28 @@ import subprocess
 import tomllib
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 import yaml
 
 from devops_cli.commands.ci import get_check_spec, get_check_specs
 from devops_cli.config.constants import (
-    CONST_BANNED_HAND_ROLLED_APIS,
-    CONST_COMPLEXITY_LINT_RULES,
     CONST_PYPROJECT_FILENAME,
-    CONST_RUFF_CHECK_GATE_FLAGS,
-    CONST_RUFF_SOURCE_SUFFIXES,
     CONST_YAML_SUFFIXES,
 )
 from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY
 from tests.support.paths import REPO_ROOT
+
+CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
+    "socket.inet_aton",
+    "socket.inet_ntoa",
+    "socket.inet_pton",
+    "socket.inet_ntop",
+)
+CONST_COMPLEXITY_LINT_RULES: Final[frozenset[str]] = frozenset({"C901", "PGH004", "RUF100"})
+CONST_RUFF_CHECK_GATE_FLAGS: Final[frozenset[str]] = frozenset({"--config", "--fix"})
+CONST_RUFF_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi", ".ipynb"})
 
 _RUFF_TIMEOUT_SECONDS = 60
 _BANNED_API_RULE = "TID251"
