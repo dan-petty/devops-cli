@@ -2539,6 +2539,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "rule-pack",
             "Run Semgrep Rule Pack Tests",
         ): "Path-filtered Semgrep --test and rules.lock check when rules change",
+        (
+            "docs-site",
+            "Build the Site with the GitHub Pages Builder",
+        ): "Path-filtered build of docs/ with the GitHub Pages builder image when the site changes",
     }
 
     all_specs = get_check_specs()

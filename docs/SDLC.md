@@ -202,6 +202,9 @@ The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only
 13. `outdated`: Inspects dependency tree for outdated packages via `uv tree --outdated`.
 14. `openspec`: Runs `devops openspec check`, the OpenSpec gate: `openspec validate --all --strict` and `--archived`, a regeneration of the committed skills under the isolated profile compared with the tree, the instructions of a probe change with nothing on standard error, and a check that no requirement is rewritten by two active changes. It needs Node and the pinned `openspec` (`uv run devops install-tools --tool openspec --only-missing`), runs in every `devops ci` and in the `static` job with no path filter and no exemption, and runs alone in a commit hook when a commit touches `openspec/` or the generated skills ([ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
 
+#### The Docs Site Build (`ci.yml`, `docs-site`)
+GitHub Pages publishes `main:/docs` when a pull request merges. The `Docs Site Build` job builds `docs/` first, with the GitHub Pages builder: the image of `actions/jekyll-build-pages` v1.0.13, pinned by digest. A Liquid or Jekyll error thus fails the pull request before it breaks the site. The job builds only when a pull request changes `docs/` or `ci.yml`. On any other pull request, the job skips the build and reports success. The container has no network and mounts `docs/` read-only, so the job needs no token and writes nothing.
+
 ---
 
 ### Phase 5: Automated Code Review & Peer Review Governance
