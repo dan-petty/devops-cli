@@ -214,4 +214,7 @@ def test_review_worker_pool_run_sync_all_return_exceptions() -> None:
         return x * 10
 
     results = pool.run_sync_all(_failing_task, [1, 2, 3], return_exceptions=True)
-    assert (results[0], isinstance(results[1], ValueError), results[2]) == (10, True, 30)
+    assert results[0] == 10
+    assert isinstance(results[1], ValueError)
+    assert str(results[1]) == "Task error"
+    assert results[2] == 30

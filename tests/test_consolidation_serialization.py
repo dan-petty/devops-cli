@@ -68,12 +68,10 @@ _UNCLOSED_FENCE_ONE_ITEM_LIST = (
 def test_extract_json_block_unclosed_fence_one_item_list_returns_list() -> None:
     """An unclosed ```json fence holding a one-item list of objects returns the list, not the inner dict (#875)."""
     parsed = extract_json_block(_UNCLOSED_FENCE_ONE_ITEM_LIST)
-    assert (
-        isinstance(parsed, list),
-        len(parsed) if isinstance(parsed, list) else 0,
-        parsed[0]["status"] if isinstance(parsed, list) and parsed else None,
-        parsed[0]["citation_line"] if isinstance(parsed, list) and parsed else None,
-    ) == (True, 1, "INVALIDATED", 24)
+    assert isinstance(parsed, list)
+    assert len(parsed) == 1
+    assert parsed[0]["status"] == "INVALIDATED"
+    assert parsed[0]["citation_line"] == 24
 
 
 def test_extract_json_block_preserves_whole_answer_with_bracketed_prose() -> None:

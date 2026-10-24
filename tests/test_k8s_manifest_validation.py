@@ -98,6 +98,7 @@ def test_a_multi_document_file_validates_every_manifest(tmp_path: Path) -> None:
     )
     finding = _validate_single_k8s_file_fallback(path, tmp_path)
     assert finding is not None
+    assert finding.title == "Invalid Kubernetes manifest schema"
 
 
 def test_manifests_mixed_with_non_manifests_are_still_validated(tmp_path: Path) -> None:
@@ -107,7 +108,9 @@ def test_manifests_mixed_with_non_manifests_are_still_validated(tmp_path: Path) 
         "mixed.yaml",
         "replicaCount: 1\n---\napiVersion: apps/v1\nmetadata:\n  name: b\n",
     )
-    assert _validate_single_k8s_file_fallback(path, tmp_path) is not None
+    finding = _validate_single_k8s_file_fallback(path, tmp_path)
+    assert finding is not None
+    assert finding.title == "Invalid Kubernetes manifest schema"
 
 
 def test_an_empty_file_produces_no_finding(tmp_path: Path) -> None:

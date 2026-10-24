@@ -131,7 +131,8 @@ def test_options_are_part_of_the_fingerprint(repo: Path) -> None:
     """A run with different options verified something different."""
     first = compute_workspace_fingerprint(root=repo, options={"fast": True})
     second = compute_workspace_fingerprint(root=repo, options={"fast": False})
-    assert first is not None and second is not None
+    assert first is not None
+    assert second is not None
     assert first[0] != second[0]
 
 

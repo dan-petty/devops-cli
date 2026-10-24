@@ -3927,3 +3927,7 @@ CONST_OPENSPEC_PROBE_CHANGE: Final[str] = "gate-probe"
 CONST_OPENSPEC_REWRITING_OPERATIONS: Final[frozenset[str]] = frozenset(
     {"MODIFIED", "REMOVED", "RENAMED"}
 )
+# The function names that count as presence checks in test assertions. A test that asserts
+# only presence or compares a presence call with a boolean literal in a tuple certifies
+# an object exists without verifying its values or behavior (#851).
+CONST_PRESENCE_CHECK_NAMES: Final[frozenset[str]] = frozenset({"callable", "hasattr", "isinstance"})

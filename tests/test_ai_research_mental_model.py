@@ -365,13 +365,15 @@ def test_cli_model_progressive_update(tmp_path: Path, monkeypatch: pytest.Monkey
     res1 = runner.invoke(app, ["ai", "research", "model", "cluster", "-o", "Obs 1"])
     assert res1.exit_code == 0
     model1 = load_mental_model("cluster")
-    assert model1 is not None and model1.revision == 1
+    assert model1 is not None
+    assert model1.revision == 1
 
     # Second run: revision 2
     res2 = runner.invoke(app, ["ai", "research", "model", "cluster", "-o", "Obs 2"])
     assert res2.exit_code == 0
     model2 = load_mental_model("cluster")
-    assert model2 is not None and model2.revision == 2
+    assert model2 is not None
+    assert model2.revision == 2
 
 
 def test_cli_model_synthesis_failure_exits_1(

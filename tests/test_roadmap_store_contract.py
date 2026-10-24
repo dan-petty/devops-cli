@@ -417,6 +417,7 @@ def test_a_field_the_board_does_not_have_raises() -> None:
     store = InMemoryRoadmapStore(board_options={ItemField.STATUS: ("Backlog",)})
     item = store.item(store.seed_issue("sized", on_board=True))
     assert item is not None
+    assert item.title == "sized"
     with pytest.raises(GitHubOperationError, match="no 'Value' field"):
         store.set_field(item, ItemField.VALUE, "High")
 
@@ -424,6 +425,7 @@ def test_a_field_the_board_does_not_have_raises() -> None:
 def test_writing_an_item_that_left_the_board_raises(store: InMemoryRoadmapStore) -> None:
     item = store.item(store.seed_issue("on the board", on_board=True))
     assert item is not None
+    assert item.title == "on the board"
     stale = item.model_copy(update={"number": store.seed_issue("never on the board")})
     with pytest.raises(GitHubOperationError, match="not on the board"):
         store.set_field(stale, ItemField.STATUS, "Ready")

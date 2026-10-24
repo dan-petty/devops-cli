@@ -149,7 +149,8 @@ def test_llm_valkey_manifest_specification() -> None:
     assert service is not None, f"Expected Service document in {valkey_path}"
     assert service.get("metadata", {}).get("name") == "valkey"
     ports = service.get("spec", {}).get("ports", [])
-    assert ports and ports[0].get("port") == 6379
+    assert ports
+    assert ports[0].get("port") == 6379
 
 
 def test_open_webui_values_connects_to_valkey() -> None:

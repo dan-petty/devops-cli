@@ -203,10 +203,11 @@ def test_logfire_terminal_formatters() -> None:
     }
 
     table = render_agent_turn_table(turn_info)
-    assert table is not None
+    assert table.title == "Agent Turn: architect (Turn 2)"
 
     panel = render_agent_turn_panel(turn_info)
-    assert panel is not None
+    assert panel.title == "[bold blue]Logfire Agent Observability[/bold blue]"
+    assert getattr(panel.renderable, "title", None) == table.title
 
 
 def test_logfire_cli_status_command() -> None:

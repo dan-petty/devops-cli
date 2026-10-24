@@ -93,11 +93,9 @@ def test_qdrant_upsert_dimension_mismatch_fails_without_recreating() -> None:
     with pytest.raises(EmbeddingsError) as exc_info:
         client.upsert_points("devops_code", points)
 
-    assert (
-        exc_info.value.is_transient is False
-        and "768" in str(exc_info.value)
-        and "1024" in str(exc_info.value)
-    )
+    assert exc_info.value.is_transient is False
+    assert "768" in str(exc_info.value)
+    assert "1024" in str(exc_info.value)
     mock_native.delete_collection.assert_not_called()
     mock_native.create_collection.assert_not_called()
 
@@ -113,11 +111,9 @@ def test_qdrant_search_dimension_mismatch_raises_permanent_error() -> None:
     with pytest.raises(EmbeddingsError) as exc_info:
         client.search_points("devops_code", query_vector=[0.1] * 1024)
 
-    assert (
-        exc_info.value.is_transient is False
-        and "768" in str(exc_info.value)
-        and "1024" in str(exc_info.value)
-    )
+    assert exc_info.value.is_transient is False
+    assert "768" in str(exc_info.value)
+    assert "1024" in str(exc_info.value)
     mock_native.delete_collection.assert_not_called()
     mock_native.create_collection.assert_not_called()
 

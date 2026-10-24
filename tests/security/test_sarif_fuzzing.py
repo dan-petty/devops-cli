@@ -209,10 +209,8 @@ def test_sarif_roundtrip_invariants_clause_3_13(rule_ids: list[str]) -> None:
     ]
 
     doc = to_sarif(original_findings)
-    assert (doc.get("version"), isinstance(doc.get("runs"), list)) == (
-        CONST_SARIF_VERSION,
-        True,
-    )
+    assert doc.get("version") == CONST_SARIF_VERSION
+    assert isinstance(doc.get("runs"), list)
 
     ingested = from_sarif(doc)
     assert len(ingested) == len(original_findings)

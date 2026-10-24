@@ -211,7 +211,5 @@ def test_negative_control_detects_missing_format_option() -> None:
 
 def test_value_commands_registry_is_non_empty_and_sorted() -> None:
     """Verify CONST_CLI_VALUE_COMMANDS invariant: 144 registered value commands."""
-    assert (len(CONST_CLI_VALUE_COMMANDS), isinstance(CONST_CLI_VALUE_COMMANDS, frozenset)) == (
-        144,
-        True,
-    )
+    assert isinstance(CONST_CLI_VALUE_COMMANDS, frozenset)
+    assert len(CONST_CLI_VALUE_COMMANDS) == 144

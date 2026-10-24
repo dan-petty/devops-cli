@@ -88,14 +88,14 @@ def test_contexts_outside_the_tests_tree_are_ignored(tmp_path: Path) -> None:
 
 def test_an_absent_database_yields_an_empty_index(tmp_path: Path) -> None:
     """A first run has no coverage yet; that is not an error, it is a full run."""
-    assert build_index_from_coverage(tmp_path / "missing.coverage", tmp_path).is_empty
+    assert build_index_from_coverage(tmp_path / "missing.coverage", tmp_path).covering_tests == {}
 
 
 def test_a_corrupt_database_yields_an_empty_index(tmp_path: Path) -> None:
     """An unreadable index must degrade to running everything, never to running nothing."""
     broken = tmp_path / "broken.coverage"
     broken.write_text("not a database", encoding="utf-8")
-    assert build_index_from_coverage(broken, tmp_path).is_empty
+    assert build_index_from_coverage(broken, tmp_path).covering_tests == {}
 
 
 def test_builder_normalizes_once_per_distinct_path(
@@ -167,14 +167,14 @@ def test_an_index_from_an_older_format_is_treated_as_absent(tmp_path: Path) -> N
     path.write_text(
         json.dumps({"version": INDEX_FORMAT_VERSION + 1, "covering_tests": {}}), encoding="utf-8"
     )
-    assert load_index(path).is_empty
+    assert load_index(path).covering_tests == {}
 
 
 def test_unreadable_json_is_treated_as_absent(tmp_path: Path) -> None:
     """A truncated write must mean "run everything", not "run nothing"."""
     path = tmp_path / "index.json"
     path.write_text("{ truncated", encoding="utf-8")
-    assert load_index(path).is_empty
+    assert load_index(path).covering_tests == {}
 
 
 # =============================================================================

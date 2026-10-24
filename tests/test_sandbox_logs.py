@@ -508,7 +508,7 @@ def test_archive_incident_records_archive_error(
         archive=True,
         base_dir=tmp_path / "nested_dir",
     )
-    assert incident.archive_error is not None
+    assert incident.archive_error == "Permission denied: simulated archive write failure"
 
 
 def test_detect_single_line_crash_during_active_panic() -> None:

@@ -163,9 +163,12 @@ def test_the_environment_is_shared_between_renders() -> None:
 def test_the_environment_is_sandboxed() -> None:
     """The templates ship inside the package, so this is defence in depth rather than the
     exposure -- but the day a template becomes user-supplied is not the day to start."""
+    from jinja2 import StrictUndefined
     from jinja2.sandbox import SandboxedEnvironment
 
-    assert isinstance(template_environment(), SandboxedEnvironment)
+    env = template_environment()
+    assert isinstance(env, SandboxedEnvironment)
+    assert env.undefined is StrictUndefined
 
 
 def test_the_sandbox_blocks_attribute_escapes() -> None:

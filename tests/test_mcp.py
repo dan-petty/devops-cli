@@ -207,10 +207,8 @@ def test_ai_architecture_tool_is_removed() -> None:
 
     tool_names = {tool.name for tool in asyncio.run(mcp._list_tools())}
 
-    assert (
-        "ai_architecture" in tool_names,
-        hasattr(server, "ai_architecture"),
-    ) == (False, False)
+    assert "ai_architecture" not in tool_names
+    assert "ai_architecture" not in dir(server)
 
 
 def test_mcp_helpers_and_error_branches() -> None:

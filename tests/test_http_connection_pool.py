@@ -67,6 +67,7 @@ def test_async_clients_are_shared_separately_from_sync_ones() -> None:
     async_client = get_shared_async_client("profile-a", EgressLevel.PUBLIC)
     assert isinstance(sync_client, httpx2.Client)
     assert isinstance(async_client, httpx2.AsyncClient)
+    assert (sync_client is not async_client, sync_client.is_closed) == (True, False)
 
 
 def test_concurrent_callers_receive_one_client() -> None:

@@ -23,60 +23,75 @@ def test_language_catalogs_integrity() -> None:
 
 def test_domain_message_catalogs() -> None:
     """Verify domain-specific message catalog attributes exist and are non-empty."""
-    assert MESSAGES.argo.url_not_configured
-    assert MESSAGES.ci.ci_summary_title
-    assert MESSAGES.devcontainer.already_exists
-    assert MESSAGES.docker.pushed_success
-    assert MESSAGES.grafana.exported_success
-    assert MESSAGES.mcp.starting_stdio
-    assert MESSAGES.serve.starting_service
-    assert MESSAGES.scan.gitleaks_passed
-    assert MESSAGES.rag.reset_cache_success
-    assert MESSAGES.tls.cert_generated
-    assert MESSAGES.ssh.key_generated
-    assert MESSAGES.workspace.workspace_synced
-    assert MESSAGES.pr.gh_cli_required
-    assert MESSAGES.prometheus.query_instant_header
-    assert MESSAGES.tf.plan_success
-    assert MESSAGES.pipeline.executing
-    assert MESSAGES.ai.cache_title
-    assert MESSAGES.install.status_title
+    messages = [
+        MESSAGES.argo.url_not_configured,
+        MESSAGES.ci.ci_summary_title,
+        MESSAGES.devcontainer.already_exists,
+        MESSAGES.docker.pushed_success,
+        MESSAGES.grafana.exported_success,
+        MESSAGES.mcp.starting_stdio,
+        MESSAGES.serve.starting_service,
+        MESSAGES.scan.gitleaks_passed,
+        MESSAGES.rag.reset_cache_success,
+        MESSAGES.tls.cert_generated,
+        MESSAGES.ssh.key_generated,
+        MESSAGES.workspace.workspace_synced,
+        MESSAGES.pr.gh_cli_required,
+        MESSAGES.prometheus.query_instant_header,
+        MESSAGES.tf.plan_success,
+        MESSAGES.pipeline.executing,
+        MESSAGES.ai.cache_title,
+        MESSAGES.install.status_title,
+    ]
+    for msg in messages:
+        assert isinstance(msg, str)
+        assert len(msg) > 0
 
 
 def test_domain_error_catalogs() -> None:
     """Verify domain-specific error catalog attributes exist and are non-empty."""
-    assert ERRORS.argo.url_not_configured
-    assert ERRORS.ci.python_version_fail
-    assert ERRORS.devcontainer.manifest_not_found
-    assert ERRORS.docker.cannot_connect
-    assert ERRORS.grafana.invalid_uid
-    assert ERRORS.mcp.invalid_transport
-    assert ERRORS.tls.ca_not_found
-    assert ERRORS.prometheus.expr_too_long
-    assert ERRORS.rag.path_not_found
-    assert ERRORS.tf.binary_not_found
-    assert ERRORS.pr.invalid_number
+    errors = [
+        ERRORS.argo.url_not_configured,
+        ERRORS.ci.python_version_fail,
+        ERRORS.devcontainer.manifest_not_found,
+        ERRORS.docker.cannot_connect,
+        ERRORS.grafana.invalid_uid,
+        ERRORS.mcp.invalid_transport,
+        ERRORS.tls.ca_not_found,
+        ERRORS.prometheus.expr_too_long,
+        ERRORS.rag.path_not_found,
+        ERRORS.tf.binary_not_found,
+        ERRORS.pr.invalid_number,
+    ]
+    for err in errors:
+        assert isinstance(err, str)
+        assert len(err) > 0
 
 
 def test_domain_help_catalogs() -> None:
     """Verify domain-specific help catalog attributes exist and are non-empty."""
-    assert HELP.argo.app
-    assert HELP.ci.app
-    assert HELP.devcontainer.app
-    assert HELP.docker.app
-    assert HELP.grafana.app
-    assert HELP.mcp.app
-    assert HELP.serve.app
-    assert HELP.docs.app
-    assert HELP.pr.app
-    assert HELP.review.app
-    assert HELP.scan.app
-    assert HELP.telemetry.app
-    assert HELP.tls.app
-    assert HELP.config.app
-    assert HELP.install.app
-    assert HELP.benchmark.app
-    assert HELP.analyze.app
-    assert HELP.prometheus.app
-    assert HELP.rag.app
-    assert HELP.pipeline.app
+    helps = [
+        HELP.argo.app,
+        HELP.ci.app,
+        HELP.devcontainer.app,
+        HELP.docker.app,
+        HELP.grafana.app,
+        HELP.mcp.app,
+        HELP.serve.app,
+        HELP.docs.app,
+        HELP.pr.app,
+        HELP.review.app,
+        HELP.scan.app,
+        HELP.telemetry.app,
+        HELP.tls.app,
+        HELP.config.app,
+        HELP.install.app,
+        HELP.benchmark.app,
+        HELP.analyze.app,
+        HELP.prometheus.app,
+        HELP.rag.app,
+        HELP.pipeline.app,
+    ]
+    for h in helps:
+        assert isinstance(h, str)
+        assert len(h) > 0

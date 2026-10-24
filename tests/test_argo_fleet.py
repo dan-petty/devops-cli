@@ -442,7 +442,8 @@ def test_render_table_formatters() -> None:
         success=False,
     )
     tbl1 = render_fleet_sync_table(fleet_res)
-    assert tbl1 is not None
+    assert tbl1.title.startswith("Argo Fleet Synchronization")
+    assert len(tbl1.rows) == 2
 
     rollout_res = RolloutAnalysisResult(
         rollout_name="worker",
@@ -459,7 +460,8 @@ def test_render_table_formatters() -> None:
         ],
     )
     tbl2 = render_rollout_analysis_table(rollout_res)
-    assert tbl2 is not None
+    assert tbl2.title.startswith("Argo Rollout Analysis")
+    assert len(tbl2.rows) == 1
 
 
 def test_rollout_metric_threshold_invalid_operator() -> None:

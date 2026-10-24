@@ -364,11 +364,13 @@ def test_review_to_markdown() -> None:
 
 def test_make_review_clients() -> None:
     """Verify creation of analysis review client."""
+    from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import Settings
 
     st = Settings()
     clients = _make_review_clients(st)
-    assert clients.analysis is not None
+    assert isinstance(clients.analysis, LLMClient)
+    assert clients.analysis._config.task_name == "analysis"
 
 
 def test_review_clients_wait_a_configured_task_timeout() -> None:

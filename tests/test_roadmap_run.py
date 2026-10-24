@@ -619,11 +619,9 @@ def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
     with patch.object(mcp_server, "_run_mcp_cmd", side_effect=in_process):
         due = roadmap_run(repo=REPO)
 
-    assert (
-        isinstance(due, str),
-        [it.model_dump() for it in seeded_store.items()] == items_before,
-        seeded_store.job_writes() == writes_before,
-    ) == (True, True, True)
+    assert isinstance(due, str)
+    assert [it.model_dump() for it in seeded_store.items()] == items_before
+    assert seeded_store.job_writes() == writes_before
 
 
 # ── The clone ─────────────────────────────────────────────────────────────────

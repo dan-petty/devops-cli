@@ -209,7 +209,8 @@ def test_templates_skip_places_without_the_defect_to_inject(
 
     find = chosen.finder_for(filename)
 
-    assert find is not None and find(text.splitlines(keepends=True)) == []
+    assert find is not None
+    assert find(text.splitlines(keepends=True)) == []
 
 
 def test_unknown_templates_are_rejected_by_name() -> None:

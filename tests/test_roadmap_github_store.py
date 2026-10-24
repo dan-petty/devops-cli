@@ -1685,7 +1685,7 @@ def test_a_missing_file_raises_not_found_and_another_failure_raises_as_a_failed_
         GitHubOperationError, match=r"Could not read \.github/labels\.yml"
     ) as failed:
         broken.repository_file(".github/labels.yml", ref="main")
-    assert isinstance(failed.value, GitHubFileNotFoundError) is False
+    assert type(failed.value) is GitHubOperationError
 
 
 # ── Comments and marks ────────────────────────────────────────────────────────

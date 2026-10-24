@@ -49,11 +49,9 @@ class TestSuffixOverlap:
 
     def test_find_suffix_overlap_matches(self) -> None:
         """Verify suffix overlap identifies partial prefix matches."""
-        assert (
-            _find_suffix_overlap("abc<th", "<think>") == 3
-            and _find_suffix_overlap("content</", "</think>") == 2
-            and _find_suffix_overlap("nothing", "<think>") == 0
-        )
+        assert _find_suffix_overlap("abc<th", "<think>") == 3
+        assert _find_suffix_overlap("content</", "</think>") == 2
+        assert _find_suffix_overlap("nothing", "<think>") == 0
 
 
 class TestStreamingTokenProcessorBasic:
@@ -369,7 +367,8 @@ class TestZeroLeakageDownstream:
         )
         md = _review_to_markdown(raw_review)
 
-        assert "<think>" not in md and "Finding vulnerabilities" not in md
+        assert "<think>" not in md
+        assert "Finding vulnerabilities" not in md
         assert "## Summary\nCode adheres to all standards." in md
 
     def test_thinking_stream_processor_reasoning_scratchpad_property(self) -> None:

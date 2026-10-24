@@ -587,7 +587,8 @@ def test_the_report_shows_a_row_for_each_distinct_record_and_counts_its_runs(
         f"`{bandit.config_digest}` | `{bandit.ruleset_digest}` | `{bandit.commit}` | "
         f"`{' '.join(bandit.argv_template)}` | 1 |",
     ]
-    assert section[2].startswith("| gitleaks | ") and section[2].endswith(" | 2 |")
+    assert section[2].startswith("| gitleaks | ")
+    assert section[2].endswith(" | 2 |")
 
 
 def test_the_sarif_of_a_review_holds_the_records_of_each_tool_that_gave_a_result(

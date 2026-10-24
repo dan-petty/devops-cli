@@ -268,7 +268,8 @@ def test_docker_push_registry_error_prints_as_written_and_exits_1(docker_engine:
     with docker_engine(mock_client):
         res = runner.invoke(docker_app, ["push", "registry/app:1"])
 
-    assert (res.exit_code, isinstance(res.exception, SystemExit)) == (1, True)
+    assert res.exit_code == 1
+    assert isinstance(res.exception, SystemExit)
     assert "denied: [/v2/repo] access" in res.output
 
 

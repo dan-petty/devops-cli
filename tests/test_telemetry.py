@@ -571,18 +571,13 @@ def test_span_caller_location_and_runtime_attributes(collector: str) -> None:
     client = OTelTelemetryClient(endpoint=collector, enabled=True)
     with client.span("test_caller_span") as handle:
         assert (
-            handle._attributes.get("code.function"),
-            handle._attributes.get("code.filepath", "").endswith("test_telemetry.py"),
-            isinstance(handle._attributes.get("code.lineno"), int),
-            isinstance(handle._attributes.get("thread.name"), str),
-            handle._attributes.get("process.pid"),
-        ) == (
-            "test_span_caller_location_and_runtime_attributes",
-            True,
-            True,
-            True,
-            os.getpid(),
+            handle._attributes.get("code.function")
+            == "test_span_caller_location_and_runtime_attributes"
         )
+        assert handle._attributes.get("code.filepath", "").endswith("test_telemetry.py")
+        assert isinstance(handle._attributes.get("code.lineno"), int)
+        assert isinstance(handle._attributes.get("thread.name"), str)
+        assert handle._attributes.get("process.pid") == os.getpid()
 
 
 def test_span_vcs_and_k8s_attributes_detection(
