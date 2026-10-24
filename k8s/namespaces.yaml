@@ -52,18 +52,6 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: registry
-  labels:
-    app.kubernetes.io/part-of: devops-cli-stack
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/warn: baseline
-    pod-security.kubernetes.io/audit: baseline
-  annotations:
-    argocd.argoproj.io/sync-options: Prune=false,Delete=false
----
-apiVersion: v1
-kind: Namespace
-metadata:
   name: logging
   labels:
     app.kubernetes.io/part-of: devops-cli-stack

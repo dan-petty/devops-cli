@@ -11,7 +11,7 @@ Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap
 ```mermaid
 graph TD
     A[devops k8s bootstrap] --> B[Minikube Docker Driver Cluster]
-    B --> N[kubectl apply -k k8s/: namespaces, cloudflared, registry]
+    B --> N[kubectl apply -k k8s/: namespaces, cloudflared]
     N --> S[push-secrets: cluster Secrets from the OS keyring]
     S --> C[deploy-stack --stack infra]
     S --> D[deploy-stack --stack llm]
@@ -86,7 +86,7 @@ devops k8s teardown-stack --stack llm
 
 - **Namespace Segregation**: Keep controllers isolated in dedicated namespaces (`monitoring`, `argocd`, `otel`, `llm`).
 - **Workstation vs. Production Dual-Mode Guidance**:
-  - Local workstation manifests use NodePort (e.g. registry `30500`), hostPort, and `IfNotPresent` pull policies for offline testing.
+  - Local workstation manifests use NodePort, hostPort, and `IfNotPresent` pull policies for offline testing.
   - Production deployments must transition to `ClusterIP`, ingress controllers with TLS certificates, non-root users, read-only root filesystems, and strict NetworkPolicies.
 - **Cluster Secrets from the Keyring**: Never create Secrets with `kubectl create secret --from-literal`, which puts the value in the process list and shell history. `devops k8s push-secrets` server-side applies them from stdin, and `devops config set cloudflare.tunnel_token` stores a typed value at a hidden prompt.
 - **Initial Credentials**: Extract and securely store the ArgoCD initial admin secret, then rotate it immediately:

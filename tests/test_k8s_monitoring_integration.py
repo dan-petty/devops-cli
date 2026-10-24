@@ -733,7 +733,6 @@ def _repo_scrape_sources() -> dict[str, Any]:
         "valkey": next(
             d for d in valkey_docs if isinstance(d, dict) and d.get("kind") == "Deployment"
         ),
-        "registry": _k8s_yaml("registry/deployment.yaml"),
     }
 
 
@@ -769,7 +768,6 @@ def _annotated_components(sources: dict[str, Any]) -> dict[str, _Pods]:
         "cloudflared": _deployment_pods(sources["cloudflared"]),
         "roadmap-service": _deployment_pods(sources["roadmap-service"]),
         "valkey": _deployment_pods(sources["valkey"]),
-        "registry": _deployment_pods(sources["registry"]),
         "argocd": _Pods(
             _argo_namespace("argocd"),
             {"app.kubernetes.io/part-of": "argocd"},
@@ -856,7 +854,6 @@ def test_each_annotated_component_has_one_scrape_owner() -> None:
         "cloudflared": ["annotationAutodiscovery"],
         "roadmap-service": ["annotationAutodiscovery"],
         "valkey": ["annotationAutodiscovery"],
-        "registry": ["annotationAutodiscovery"],
         "argocd": ["chart ServiceMonitor"],
         "argo-workflows": ["chart ServiceMonitor"],
         "alertmanager": ["annotationAutodiscovery"],
@@ -1001,7 +998,6 @@ def test_every_scrape_port_has_one_egress_rule() -> None:
         (("monitoring", 9093), 1),
         (("monitoring", 9400), 1),
         (("otel", 8888), 1),
-        (("registry", 5001), 1),
     ]
 
 

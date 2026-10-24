@@ -203,7 +203,7 @@ Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.ya
 | otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `deltatocumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
 | prometheus-operator-crds | Its own release, installed first | The `argocd`, `argo-workflows`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
 
-cloudflared, Traefik, Alertmanager, roadmap-service, `llm/valkey` (`redis-exporter` sidecar on port 9121) and `registry` (Distribution debug Prometheus endpoint on port 5001) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
+cloudflared, Traefik, Alertmanager, roadmap-service and `llm/valkey` (`redis-exporter` sidecar on port 9121) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
 
 `devops prometheus targets` reads the server's `/api/v1/targets`, so it lists only the server's two jobs; Alloy's targets appear in Prometheus as their `up` series.
 
@@ -579,6 +579,19 @@ kubectl -n argocd get application devops -o jsonpath='{.spec.source.kustomize.im
 kubectl -n argocd logs deploy/argocd-image-updater-controller --tail=50
 ```
 
+### Internal Image Registry
+
+Gitea's container registry is the internal registry of the cluster (#1081). Pull-request images go to it, and the nodes pull them from it (#1082). Release images stay on GHCR. Until #1081 deploys Gitea, the cluster has no internal registry, and every workload pulls its image from a public registry.
+
+The cluster has no `registry:2` Deployment (#1630). That registry accepted pushes and deletes over plain HTTP with no authentication, and no workload pulled from it. Application `base` prunes its Deployment and its Service. Namespace `registry` and PersistentVolumeClaim `registry-data` have `Prune=false,Delete=false`, so Argo CD keeps them. `base` shows them OutOfSync, and `ArgoCdApplicationOutOfSync` fires, until a person deletes them:
+
+```bash
+kubectl -n registry delete pvc registry-data   # reclaim policy Delete: local-path removes the data on the node
+kubectl delete namespace registry
+```
+
+The AppProjects `homelab` and `homelab-system` keep `registry` in their destinations until then. Argo CD ignores a live object in a namespace that its project does not permit, so without that destination it does not prune the Deployment.
+
 ### Bootstrap & Adoption
 
 To bootstrap GitOps on a running cluster:
@@ -741,7 +754,7 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
 
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry
+├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared
 ├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
 ├── agents/                   # Agent sessions: read-only ServiceAccount and view ClusterRoleBinding under restricted Pod Security
 │   ├── kustomization.yaml
