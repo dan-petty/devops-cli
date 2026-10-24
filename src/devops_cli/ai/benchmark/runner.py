@@ -175,7 +175,8 @@ class BenchmarkRunner:
         """Initialize the AI benchmark runner.
 
         Args:
-            models: List of candidate model identifier strings to evaluate.
+            models: Candidate models to evaluate. With none, the runner evaluates the configured
+                `ai.model`, as `devops ai benchmark` does when `--models` names none.
             tasks: Benchmark evaluation tasks to execute across candidate models.
             settings: Runtime CLI configuration settings.
             provider: LLM provider name (e.g. 'ollama', 'openai', 'claude').
@@ -183,9 +184,9 @@ class BenchmarkRunner:
             concurrency: Number of parallel server workers to run simultaneously.
             servers: List of Ollama backend server endpoints for distributed worker execution.
         """
-        self.models = models or ["qwen2.5-coder:7b"]
         self.tasks = tasks
         self.settings = settings or load_settings()
+        self.models = models or [self.settings.ai.model]
         self.provider = provider or self.settings.ai.provider
         self.session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._is_dry_run_override = is_dry_run

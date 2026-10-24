@@ -18,6 +18,7 @@ import pytest
 import yaml
 from docker.utils import parse_repository_tag
 
+from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, GatewayRoute, GatewayRouter
 from devops_cli.ai.harness.slots import ModelSlot, SubAgentSlot
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
@@ -28,12 +29,19 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_MODEL,
+    DEFAULT_BUNDLE_MODELS,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
-from devops_cli.k8s.gpu_matrix import get_gateway_routing_entries
+from devops_cli.config.settings import AIConfig, Settings
+from devops_cli.k8s.gpu_matrix import (
+    get_gateway_routing_entries,
+    get_service_aliases,
+    list_gpu_profiles,
+)
 from tests.k8s_manifests import kustomize
 from tests.support.markdown_examples import (
     YAML_FENCE_LANGUAGES,
@@ -1620,6 +1628,74 @@ def test_the_group_check_names_each_model_that_is_no_served_gateway_group() -> N
             "hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
         }
     ) == {"qwen2.5-coder:7b", "devops-flagship", "hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S"}
+
+
+def _default_models() -> dict[str, set[str]]:
+    """Return each place that names a default model of the CLI, with the models that it names: the
+    default of `ai.model`, the models that `devops ai bundle-models` lists, and the candidate that a
+    task benchmark runs when it gets none."""
+    return {
+        "devops_cli.config.defaults.DEFAULT_AI_MODEL": {DEFAULT_AI_MODEL},
+        "devops_cli.config.defaults.DEFAULT_BUNDLE_MODELS": set(DEFAULT_BUNDLE_MODELS),
+        "devops_cli.ai.benchmark.runner.BenchmarkRunner": set(
+            BenchmarkRunner(models=[], tasks=[], settings=Settings(ai=AIConfig())).models
+        ),
+    }
+
+
+def test_every_default_model_is_a_model_that_the_default_ollama_tier_and_the_gateway_serve() -> (
+    None
+):
+    """Each default model of the CLI is a model that a gateway deployment sends to the serving tier
+    of the default Ollama Service, and a group of the gateway config with a deployment on a serving
+    tier. The default provider calls Ollama, which `devops k8s configure-urls` points at the default
+    Ollama Service, and `provider: gateway` asks the gateway for the model by its name. Before #2125
+    the defaults named gemma4:26b, qwen2.5-coder:7b and llama3.1:8b, which no gateway deployment
+    names."""
+    default_models = _default_models()
+    models = set().union(*default_models.values())
+    unserved = {
+        model for model, _ in _off_the_gateway({(m, DEFAULT_OLLAMA_CLUSTER_URL) for m in models})
+    } | _groups_off_the_gateway(models)
+
+    assert (
+        all(default_models.values()),
+        {
+            place: sorted(named & unserved)
+            for place, named in default_models.items()
+            if named & unserved
+        },
+    ) == (True, {})
+
+
+def _gpu_matrix_virtual_models() -> dict[str, str]:
+    """Return each place of the GPU matrix that names a gateway group, with the group that it
+    names: the virtual model of each hardware profile, and of each Service alias that has one."""
+    return {
+        **{
+            f"profile {p.gpu_count}x{p.vram_per_gpu_gib}GiB": p.virtual_gateway_model
+            for p in list_gpu_profiles()
+        },
+        **{
+            f"service alias {alias}": info["virtual_model"]
+            for alias, info in get_service_aliases().items()
+            if "virtual_model" in info
+        },
+    }
+
+
+def test_every_gpu_matrix_virtual_model_is_a_group_that_the_gateway_serves() -> None:
+    """The Virtual Model column of `devops k8s gpu-matrix` names the gateway group of each hardware
+    profile and of each Service alias. Each is a group of the gateway config with a deployment on a
+    serving tier. Before #2125 the 70B profiles and the aliases of 48 GiB and more named
+    devops-flagship, a group that the gateway config removed with its vLLM backend."""
+    virtual_models = _gpu_matrix_virtual_models()
+    unserved = _groups_off_the_gateway(set(virtual_models.values()))
+
+    assert (
+        bool(virtual_models),
+        {place: group for place, group in virtual_models.items() if group in unserved},
+    ) == (True, {})
 
 
 @pytest.mark.parametrize("directory", [LLM_DIR, GATEWAY_DIR], ids=["argo-cd", "deploy-stack"])

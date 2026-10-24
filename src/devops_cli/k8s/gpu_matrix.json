@@ -71,7 +71,7 @@
       "max_model_len": 32768,
       "tensor_parallel_size": 2,
       "quantization": "Q4_K_M",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Dual 24GB GPUs (48GB total, 2x RTX 3090/4090) serving 70B flagship model.",
       "total_vram_gib": 48
     },
@@ -86,7 +86,7 @@
       "max_model_len": 65536,
       "tensor_parallel_size": 2,
       "quantization": "Q4_K_M",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Dual 32GB GPUs (64GB total) serving 70B flagship with expanded 64K context.",
       "total_vram_gib": 64
     },
@@ -101,7 +101,7 @@
       "max_model_len": 32768,
       "tensor_parallel_size": 3,
       "quantization": "Q4_K_M",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Triple 16GB GPUs (48GB total) offloading 70B model layers evenly across 3 devices.",
       "total_vram_gib": 48
     },
@@ -116,7 +116,7 @@
       "max_model_len": 65536,
       "tensor_parallel_size": 3,
       "quantization": "Q4_K_M",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Triple 24GB GPUs (72GB total) serving 70B flagship with deep 64K context.",
       "total_vram_gib": 72
     },
@@ -131,7 +131,7 @@
       "max_model_len": 131072,
       "tensor_parallel_size": 3,
       "quantization": "Q8_0",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Triple 32GB GPUs (96GB total) serving high-fidelity Q8 70B with full 128K context.",
       "total_vram_gib": 96
     },
@@ -146,7 +146,7 @@
       "max_model_len": 65536,
       "tensor_parallel_size": 4,
       "quantization": "Q4_K_M",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Quad 16GB GPUs (64GB total) balanced across 4 cards serving 70B flagship.",
       "total_vram_gib": 64
     },
@@ -161,7 +161,7 @@
       "max_model_len": 131072,
       "tensor_parallel_size": 4,
       "quantization": "Q8_0",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Quad 24GB GPUs (96GB total) serving uncompromised Q8 70B with full 128K context.",
       "total_vram_gib": 96
     },
@@ -176,7 +176,7 @@
       "max_model_len": 131072,
       "tensor_parallel_size": 4,
       "quantization": "Q8_0",
-      "virtual_gateway_model": "devops-flagship",
+      "virtual_gateway_model": "deepseek-r1:70b",
       "description": "Quad 32GB GPUs (128GB total) providing maximum capacity for 70B model with full context.",
       "total_vram_gib": 128
     }
@@ -223,7 +223,7 @@
         "ollama": 11434
       },
       "default_model": "deepseek-r1:70b",
-      "virtual_model": "devops-flagship",
+      "virtual_model": "deepseek-r1:70b",
       "description": "Ollama 48GiB VRAM service (70B deep reasoning)"
     },
     "ollama-64gib": {
@@ -234,7 +234,7 @@
         "ollama": 11434
       },
       "default_model": "deepseek-r1:70b",
-      "virtual_model": "devops-flagship",
+      "virtual_model": "deepseek-r1:70b",
       "description": "Ollama 64GiB VRAM service (70B extended context)"
     },
     "ollama-72gib": {
@@ -245,7 +245,7 @@
         "ollama": 11434
       },
       "default_model": "deepseek-r1:70b",
-      "virtual_model": "devops-flagship",
+      "virtual_model": "deepseek-r1:70b",
       "description": "Ollama 72GiB VRAM service (70B pipeline parallel)"
     },
     "ollama-96gib": {
@@ -256,7 +256,7 @@
         "ollama": 11434
       },
       "default_model": "deepseek-r1:70b",
-      "virtual_model": "devops-flagship",
+      "virtual_model": "deepseek-r1:70b",
       "description": "Ollama 96GiB VRAM service (70B Q8 high precision)"
     },
     "ollama-128gib": {
@@ -267,7 +267,7 @@
         "ollama": 11434
       },
       "default_model": "deepseek-r1:70b",
-      "virtual_model": "devops-flagship",
+      "virtual_model": "deepseek-r1:70b",
       "description": "Ollama 128GiB VRAM service (70B Q8 128K context)"
     }
   },
