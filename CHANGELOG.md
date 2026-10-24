@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3](https://github.com/dan-petty/devops-cli/compare/v0.4.2...v0.4.3) (2026-10-24)
+
+
+### Bug Fixes
+
+* **k8s:** a manual sync of the app-of-apps drops the homelab host overrides and every public hostname returns 404 ([#2195](https://github.com/dan-petty/devops-cli/issues/2195)) ([7c97467](https://github.com/dan-petty/devops-cli/commit/7c974672a09972b7ce47578fb489f0ce48166805))
+* **review:** the review pipeline reports the eight failures it now swallows, and reads a file in one place ([#2196](https://github.com/dan-petty/devops-cli/issues/2196)) ([da401c6](https://github.com/dan-petty/devops-cli/commit/da401c6d82328eeaed03a8e0add7a405c3b28f1e)), closes [#2160](https://github.com/dan-petty/devops-cli/issues/2160)
+
 ## [0.4.2](https://github.com/dan-petty/devops-cli/compare/v0.4.1...v0.4.2) (2026-10-24)
 
 
