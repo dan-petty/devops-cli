@@ -2,42 +2,17 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.lang import ERRORS, HELP
-
-_LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
-    "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
-    "print_error": ("devops_cli.output", "print_error"),
-}
-
-
-def __getattr__(name: str) -> Any:
-    if name in _LAZY_OBJECT_MAPPING:
-        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
-        module = importlib.import_module(mod_path)
-        return getattr(module, obj_name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def _get(name: str) -> Any:
-    mod_dict = sys.modules[__name__].__dict__
-    if name in mod_dict:
-        return mod_dict[name]
-    if name in _LAZY_OBJECT_MAPPING:
-        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
-        module = importlib.import_module(mod_path)
-        return getattr(module, obj_name)
-    return getattr(sys.modules[__name__], name)
-
+from devops_cli.output import print_error
 
 app = new_typer(help=HELP.uv.app, no_args_is_help=True)
 
@@ -50,11 +25,8 @@ def _get_project_root() -> Path:
 
 
 def _run(cmd: Sequence[str]) -> None:
-    full_cmd = list(cmd)
-    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check"]
-    result = _get("run_subprocess")(
-        full_cmd,
+    result = run_subprocess(
+        cmd,
         cwd=_get_project_root(),
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         capture_output=False,
@@ -109,13 +81,13 @@ def python_install(
         )
 
     if not version:
-        _get("print_error")(ERRORS.uv.no_version_provided, prefix=False)
+        print_error(ERRORS.uv.no_version_provided, prefix=False)
         raise typer.Exit(1)
 
     import re
 
     if not re.fullmatch(r"^\d+(\.\d+)*[a-zA-Z0-9._-]*$", version):
-        _get("print_error")(ERRORS.uv.invalid_version_format.format(version=version), prefix=False)
+        print_error(ERRORS.uv.invalid_version_format.format(version=version), prefix=False)
         raise typer.Exit(1)
 
     _run(["uv", "python", "install", version])
@@ -131,7 +103,7 @@ def run(ctx: typer.Context) -> None:
       devops uv run -- pytest -q
     """
     if not ctx.args:
-        _get("print_error")(ERRORS.uv.missing_command, prefix=False)
+        print_error(ERRORS.uv.missing_command, prefix=False)
         raise typer.Exit(1)
 
     _run(["uv", "run", *ctx.args])

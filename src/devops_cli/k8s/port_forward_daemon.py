@@ -76,33 +76,10 @@ def _running(forwards: list[PortForwardInfo]) -> list[PortForwardInfo]:
 
 
 def _terminate_process_group(pid: int) -> bool:
-    """Signal a forward's whole process group, falling back to the process itself.
+    """Signal a forward's whole process group, falling back to the process itself."""
+    from devops_cli.core.process import terminate_process_group
 
-    A forward is started in its own session, so `kubectl` is a group leader and anything it
-    spawned shares its group. Signalling only the pid left those children running and the
-    local port held, which reads as "stopped" in the daemon listing while the port is still
-    bound. The fallback covers a forward recorded before sessions were used, whose pid is
-    still in this process's own group -- signalling that group would kill the CLI.
-    """
-    try:
-        group = os.getpgid(pid)
-    except OSError, ProcessLookupError:
-        return False
-
-    if group == os.getpgid(0):
-        try:
-            os.kill(pid, signal.SIGTERM)
-            return True
-        except (OSError, ProcessLookupError) as exc:
-            logger.debug("Process %s already stopped: %s", pid, exc)
-            return False
-
-    try:
-        os.killpg(group, signal.SIGTERM)
-        return True
-    except (OSError, ProcessLookupError) as exc:
-        logger.debug("Process group %s already stopped: %s", group, exc)
-        return False
+    return terminate_process_group(pid, signal.SIGTERM, os_module=os)
 
 
 class PortForwardDaemonManager:

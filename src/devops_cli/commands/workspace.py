@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import importlib
 import json
-import sys
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -16,45 +14,22 @@ from devops_cli.config.defaults import (
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.paths import is_forbidden_system_path
+from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run import render_dry_run_result
 from devops_cli.exceptions import SecurityError
+from devops_cli.git.operations import iter_workspace_repos
 from devops_cli.lang import ERRORS, HELP, MESSAGES
-
-_LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
-    "load_settings": ("devops_cli.config.settings", "load_settings"),
-    "iter_workspace_repos": ("devops_cli.git.operations", "iter_workspace_repos"),
-    "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
-    "cleanup_data_directory": ("devops_cli.core.cleanup", "cleanup_data_directory"),
-    "cleanup_data_tier": ("devops_cli.core.cleanup", "cleanup_data_tier"),
-    "render_dry_run_result": ("devops_cli.dry_run", "render_dry_run_result"),
-    "print_error": ("devops_cli.output", "print_error"),
-    "print_info": ("devops_cli.output", "print_info"),
-    "print_muted": ("devops_cli.output", "print_muted"),
-    "print_success": ("devops_cli.output", "print_success"),
-    "print_warning": ("devops_cli.output", "print_warning"),
-    "write_json_file": ("devops_cli.output", "write_json_file"),
-}
-
-
-def __getattr__(name: str) -> Any:
-    if name in _LAZY_OBJECT_MAPPING:
-        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
-        module = importlib.import_module(mod_path)
-        return getattr(module, obj_name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def _get(name: str) -> Any:
-    mod_dict = sys.modules[__name__].__dict__
-    if name in mod_dict:
-        return mod_dict[name]
-    if name in _LAZY_OBJECT_MAPPING:
-        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
-        module = importlib.import_module(mod_path)
-        return getattr(module, obj_name)
-    return getattr(sys.modules[__name__], name)
-
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_muted,
+    print_success,
+    print_warning,
+    write_json_file,
+)
 
 app = new_typer(help=HELP.workspace.app, no_args_is_help=True)
 
@@ -69,7 +44,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 def _resolve_from_project_root(path: Path) -> Path:
     resolved = path.resolve() if path.is_absolute() else (_PROJECT_ROOT / path).resolve()
-    settings = _get("load_settings")()
+    settings = load_settings()
     proj_root = _PROJECT_ROOT.resolve()
     base_dir = (
         settings.repos.base_dir
@@ -93,7 +68,7 @@ def _ensure_root_entry(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _workspace_data_from_repos(root: Path) -> dict[str, Any]:
-    folders = [{"path": str(repo_dir.resolve())} for repo_dir in _get("iter_workspace_repos")(root)]
+    folders = [{"path": str(repo_dir.resolve())} for repo_dir in iter_workspace_repos(root)]
     return {
         "folders": folders,
         "settings": {
@@ -106,7 +81,7 @@ def _workspace_data_from_repos(root: Path) -> dict[str, Any]:
 
 def _refuse_unreadable(message: str, ws_file: Path) -> NoReturn:
     """Report a workspace file that cannot be read and exit 1 before anything saves over it."""
-    _get("print_error")(message.format(ws_file=str(ws_file)))
+    print_error(message.format(ws_file=str(ws_file)))
     raise typer.Exit(1)
 
 
@@ -141,9 +116,9 @@ def _is_safe_workspace_file(ws_file: Path) -> bool:
 
 def _save(ws_file: Path, data: dict[str, Any]) -> None:
     if not _is_safe_workspace_file(ws_file):
-        _get("print_error")(ERRORS.workspace.outside_boundary.format(path=str(ws_file.resolve())))
+        print_error(ERRORS.workspace.outside_boundary.format(path=str(ws_file.resolve())))
         raise typer.Exit(1)
-    _get("write_json_file")(ws_file, _ensure_root_entry(data), indent=2, atomic=True)
+    write_json_file(ws_file, _ensure_root_entry(data), indent=2, atomic=True)
 
 
 def sync_from_repos(
@@ -170,7 +145,7 @@ def add(
     ] = None,
 ) -> None:
     """Add a folder to the VS Code workspace file."""
-    settings = _get("load_settings")()
+    settings = load_settings()
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
     data = _load(ws_file)
 
@@ -183,17 +158,17 @@ def add(
         or repo_resolved.is_relative_to(base_dir)
         or repo_resolved.is_relative_to(proj_root)
     ):
-        _get("print_error")(ERRORS.workspace.outside_roots.format(path=str(repo_resolved)))
+        print_error(ERRORS.workspace.outside_roots.format(path=str(repo_resolved)))
         raise typer.Exit(1)
 
     folder_str = str(repo_resolved)
     if any(folder.get("path") == folder_str for folder in data["folders"]):
-        _get("print_warning")(ERRORS.workspace.already_present.format(path=folder_str))
+        print_warning(ERRORS.workspace.already_present.format(path=folder_str))
         raise typer.Exit(0)
 
     data["folders"].append({"path": folder_str})
     _save(ws_file, data)
-    _get("print_success")(MESSAGES.workspace.added_folder.format(path=folder_str))
+    print_success(MESSAGES.workspace.added_folder.format(path=folder_str))
 
 
 # =============================================================================
@@ -209,7 +184,7 @@ def remove(
     ] = None,
 ) -> None:
     """Remove a folder from the VS Code workspace file."""
-    settings = _get("load_settings")()
+    settings = load_settings()
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
     data = _load(ws_file)
 
@@ -218,11 +193,11 @@ def remove(
     data["folders"] = [folder for folder in data["folders"] if folder.get("path") != folder_str]
 
     if len(data["folders"]) == before:
-        _get("print_warning")(ERRORS.workspace.not_present.format(path=folder_str))
+        print_warning(ERRORS.workspace.not_present.format(path=folder_str))
         raise typer.Exit(0)
 
     _save(ws_file, data)
-    _get("print_success")(MESSAGES.workspace.removed_folder.format(path=folder_str))
+    print_success(MESSAGES.workspace.removed_folder.format(path=folder_str))
 
 
 # =============================================================================
@@ -240,12 +215,12 @@ def generate(
     ] = None,
 ) -> None:
     """Regenerate the workspace file from all repos in the repos directory."""
-    settings = _get("load_settings")()
+    settings = load_settings()
     root = _resolve_from_project_root(base_dir or settings.repos.base_dir)
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
 
     if not root.exists():
-        _get("print_warning")(ERRORS.workspace.repos_not_found.format(path=str(root)))
+        print_warning(ERRORS.workspace.repos_not_found.format(path=str(root)))
         raise typer.Exit(0)
 
     data = _workspace_data_from_repos(root)
@@ -253,7 +228,7 @@ def generate(
     msg = MESSAGES.workspace.generated_with_count.format(
         ws_file=str(ws_file), count=len(data["folders"])
     )
-    _get("print_success")(msg)
+    print_success(msg)
 
 
 # =============================================================================
@@ -268,12 +243,12 @@ def open_workspace(
     ] = None,
 ) -> None:
     """Open the workspace in VS Code."""
-    settings = _get("load_settings")()
+    settings = load_settings()
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
     if not ws_file.exists():
-        _get("print_error")(ERRORS.workspace.file_not_found.format(ws_file=str(ws_file)))
+        print_error(ERRORS.workspace.file_not_found.format(ws_file=str(ws_file)))
         raise typer.Exit(1)
-    _get("run_subprocess")(
+    run_subprocess(
         [CONST_VSCODE_CLI, str(ws_file)],
         check=True,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -300,21 +275,23 @@ def clean_workspace(
 
     Child directories configured on their own, such as `data.reviews_dir`, are left alone.
     """
+    from devops_cli.core.cleanup import cleanup_data_directory, cleanup_data_tier
+
     try:
-        data_dir = _get("cleanup_data_directory")()
+        data_dir = cleanup_data_directory()
     except SecurityError as exc:
-        _get("print_error")(str(exc))
+        print_error(str(exc))
         raise typer.Exit(1) from exc
     if not dry_run:
-        _get("print_muted")(
+        print_muted(
             MESSAGES.workspace.pruning_stale.format(days=older_than_days, data_dir=data_dir)
         )
-    summary = _get("cleanup_data_tier")(
+    summary = cleanup_data_tier(
         older_than_seconds=float(older_than_days * 86400),
         dry_run=dry_run,
     )
     if dry_run:
-        _get("render_dry_run_result")(
+        render_dry_run_result(
             command=f"devops workspace clean --older-than {older_than_days}",
             action="cleanup_data_tier",
             details={
@@ -328,10 +305,10 @@ def clean_workspace(
         return
 
     if not summary.pruned_files and not summary.pruned_dirs:
-        _get("print_info")(MESSAGES.workspace.data_tier_clean)
+        print_info(MESSAGES.workspace.data_tier_clean)
         return
 
-    _get("print_success")(
+    print_success(
         MESSAGES.workspace.cleaned_artifacts.format(
             files=len(summary.pruned_files),
             dirs=len(summary.pruned_dirs),

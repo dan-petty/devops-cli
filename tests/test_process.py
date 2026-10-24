@@ -181,6 +181,41 @@ def test_process_group_guard_helpers() -> None:
     ) == (True, True, True, True, True, False)
 
 
+def test_terminate_process_group_guards_and_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify terminate_process_group guards against PID <= 1, self, and signals group or process."""
+    import os
+    import signal
+    from unittest.mock import MagicMock
+
+    from devops_cli.core.process import terminate_process_group
+
+    assert terminate_process_group(0) is False
+    assert terminate_process_group(1) is False
+    assert terminate_process_group(-10) is False
+    mock_pid: Any = MagicMock()
+    assert terminate_process_group(mock_pid) is False
+    assert terminate_process_group(os.getpid()) is False
+
+    real_own_pgid = os.getpgid(0) if hasattr(os, "getpgid") else 1234
+    mock_kill = MagicMock()
+    mock_killpg = MagicMock()
+    monkeypatch.setattr(os, "kill", mock_kill)
+    monkeypatch.setattr(os, "killpg", mock_killpg)
+    monkeypatch.setattr(os, "getpgid", lambda pid: real_own_pgid)
+
+    assert terminate_process_group(42424, signal.SIGTERM) is True
+    assert mock_kill.call_count == 1
+    assert mock_killpg.call_count == 0
+
+    mock_kill.reset_mock()
+    mock_killpg.reset_mock()
+    monkeypatch.setattr(os, "getpgid", lambda pid: 99999 if pid != 0 else real_own_pgid)
+
+    assert terminate_process_group(42424, signal.SIGTERM) is True
+    assert mock_kill.call_count == 0
+    assert mock_killpg.call_count == 1
+
+
 def _records(log: Path) -> list[str]:
     """The records in a log the hung child writes, none before it writes one."""
     return log.read_text(encoding="utf-8").split() if log.is_file() else []
@@ -430,3 +465,122 @@ async def test_a_timed_out_check_is_stopped_with_sigterm_first_and_reports_as_be
             await _until(watch.stopped),
             signals.read_text(encoding="utf-8"),
         ) == ((hung, STARTED_RUN_TIMEOUT_SECONDS), True, "term\n")
+
+
+def test_process_runner_seam() -> None:
+    """Verify get_process_runner returns the active runner, set replaces it, and reset restores it."""
+    from collections.abc import Sequence
+
+    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    from devops_cli.core.process import (
+        DefaultProcessRunner,
+        get_process_runner,
+        reset_process_runner,
+        set_process_runner,
+    )
+
+    runner = get_process_runner()
+    assert isinstance(runner, DefaultProcessRunner)
+
+    class CustomRunner:
+        def prepare_cmd(self, cmd: Sequence[str] | list[str]) -> list[str]:
+            return list(cmd)
+
+        def run(
+            self,
+            cmd: Sequence[str] | list[str],
+            *,
+            input: str | None = None,
+            cwd: Path | None = None,
+            env: dict[str, str] | None = None,
+            capture_output: bool = True,
+            text: bool = True,
+            check: bool = False,
+            quiet: bool = False,
+            timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+            isolate_env: bool = True,
+            extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+            local_read: bool = False,
+            intent: str | None = None,
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                args=["custom"], returncode=0, stdout="custom output"
+            )
+
+        async def run_async(
+            self,
+            cmd: Sequence[str] | list[str],
+            *,
+            cwd: Path | None = None,
+            env: dict[str, str] | None = None,
+            capture_output: bool = True,
+            text: bool = True,
+            check: bool = False,
+            quiet: bool = False,
+            timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+            isolate_env: bool = True,
+            extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+            local_read: bool = False,
+            intent: str | None = None,
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                args=["custom_async"], returncode=0, stdout="custom async"
+            )
+
+    custom = CustomRunner()
+    set_process_runner(custom)
+    try:
+        assert get_process_runner() is custom
+        proc = run_subprocess(["echo", "ignored"])
+        assert proc.stdout == "custom output"
+    finally:
+        reset_process_runner()
+
+    assert isinstance(get_process_runner(), DefaultProcessRunner)
+
+
+def test_uv_preview_flags_injection() -> None:
+    """Verify uv commands automatically receive preview features if not present."""
+    from devops_cli.core.process import _prepare_cmd
+
+    assert _prepare_cmd(["uv", "run", "pytest"]) == [
+        "uv",
+        "--preview-features",
+        "malware-check,check-command",
+        "run",
+        "pytest",
+    ]
+    assert _prepare_cmd(["uv", "--preview-features", "malware-check", "run"]) == [
+        "uv",
+        "--preview-features",
+        "malware-check",
+        "run",
+    ]
+    assert _prepare_cmd(["git", "status"]) == ["git", "status"]
+
+
+def test_dry_run_intent_handling() -> None:
+    """Under dry run, mutating commands return PlannedProcessResult and do not execute; declared local reads execute."""
+    from devops_cli.dry_run import set_dry_run
+    from devops_cli.dry_run.requests import PlannedRequest
+
+    set_dry_run(True)
+    try:
+        res_mutating = run_subprocess(["git", "commit", "-m", "fix"])
+        assert isinstance(res_mutating, PlannedRequest)
+        assert isinstance(res_mutating, subprocess.CompletedProcess)
+        assert res_mutating.method == "git"
+        assert res_mutating.argv == ("git", "commit", "-m", "fix")
+        assert res_mutating.returncode == 0
+        assert res_mutating.stdout == ""
+
+        res_gh = run_subprocess(["gh", "pr", "view", "100"])
+        assert isinstance(res_gh, PlannedRequest)
+        assert res_gh.method == "gh"
+
+        res_read = run_subprocess(["git", "rev-parse", "--is-inside-work-tree"], local_read=True)
+        assert not isinstance(res_read, PlannedRequest)
+        assert res_read.returncode == 0
+        assert res_read.stdout.strip() == "true"
+    finally:
+        set_dry_run(False)

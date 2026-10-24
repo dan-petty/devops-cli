@@ -11,8 +11,9 @@ import signal
 import subprocess
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from devops_cli.config.constants import (
     CONST_EXIT_COMMAND_NOT_FOUND,
@@ -32,13 +33,23 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.exceptions.tools import SubprocessError
 from devops_cli.telemetry.tracer import get_tracer, record_metric, trace_span
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
-    {"rev-parse", "symbolic-ref", "for-each-ref", "diff", "cat-file", "tag", "remote", "status"}
+    {
+        "rev-parse",
+        "symbolic-ref",
+        "for-each-ref",
+        "diff",
+        "cat-file",
+        "tag",
+        "remote",
+        "status",
+    }
 )
 
 DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
@@ -217,7 +228,10 @@ def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
     """Validate that subprocess working directory does not violate traversal or system path security."""
     if cwd is None:
         return
-    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+    from devops_cli.core.paths import (
+        is_forbidden_system_path,
+        validate_no_path_traversal,
+    )
     from devops_cli.exceptions.security import SecurityError
 
     validate_no_path_traversal(str(cwd), label="subprocess cwd")
@@ -348,8 +362,414 @@ def _pin_github_token(
         sub_env[CONST_GH_TOKEN_ENV] = token
 
 
+class PlannedProcessResult(subprocess.CompletedProcess[str], PlannedRequest):
+    """A dry-run process result that is both a PlannedRequest and a CompletedProcess."""
+
+    def __init__(
+        self,
+        method: str = "run",
+        target: str = "",
+        argv: tuple[str, ...] = (),
+        stdin: str | None = None,
+        env: tuple[tuple[str, str], ...] = (),
+        condition: str = "",
+        repeat: str = "",
+        **kwargs: Any,
+    ) -> None:
+        args = kwargs.get("args", list(argv))
+        returncode = kwargs.get("returncode", 0)
+        stdout = kwargs.get("stdout", "")
+        stderr = kwargs.get("stderr", "")
+        super().__init__(args=list(args), returncode=returncode, stdout=stdout, stderr=stderr)
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "target", target)
+        object.__setattr__(self, "argv", tuple(argv) if argv else tuple(args))
+        object.__setattr__(self, "stdin", stdin)
+        object.__setattr__(self, "env", env)
+        object.__setattr__(self, "condition", condition)
+        object.__setattr__(self, "repeat", repeat)
+
+
+def prepare_tool_cmd(cmd: Sequence[str] | list[str]) -> list[str]:
+    """Prepare command arguments list, injecting uv preview features when starting uv."""
+    full_cmd = list(cmd)
+    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    return full_cmd
+
+
+_prepare_cmd = prepare_tool_cmd
+
+
+class ProcessRunner(Protocol):
+    """Protocol for process runners executing system subprocesses."""
+
+    def prepare_cmd(self, cmd: Sequence[str] | list[str]) -> list[str]: ...
+
+    def run(
+        self,
+        cmd: Sequence[str] | list[str],
+        *,
+        input: str | None = None,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+        capture_output: bool = True,
+        text: bool = True,
+        check: bool = False,
+        quiet: bool = False,
+        timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        isolate_env: bool = True,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+        local_read: bool = False,
+        intent: str | None = None,
+    ) -> subprocess.CompletedProcess[str]: ...
+
+    async def run_async(
+        self,
+        cmd: Sequence[str] | list[str],
+        *,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+        capture_output: bool = True,
+        text: bool = True,
+        check: bool = False,
+        quiet: bool = False,
+        timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        isolate_env: bool = True,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+        local_read: bool = False,
+        intent: str | None = None,
+    ) -> subprocess.CompletedProcess[str]: ...
+
+
+class DefaultProcessRunner:
+    """The default production process runner executing real system processes."""
+
+    def prepare_cmd(self, cmd: Sequence[str] | list[str]) -> list[str]:
+        """Prepare command arguments list, injecting standardized uv preview features when starting uv."""
+        return prepare_tool_cmd(cmd)
+
+    def run(
+        self,
+        cmd: Sequence[str] | list[str],
+        *,
+        input: str | None = None,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+        capture_output: bool = True,
+        text: bool = True,
+        check: bool = False,
+        quiet: bool = False,
+        timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        isolate_env: bool = True,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+        local_read: bool = False,
+        intent: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        full_cmd = list(cmd)
+        _validate_subprocess_cwd(cwd)
+        if is_dry_run() and not (local_read or intent in ("read", "local_read")):
+            if not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(full_cmd):
+                from devops_cli.output import print_dry_run_command
+
+                print_dry_run_command(full_cmd, cwd=str(cwd) if cwd else None)
+            method = full_cmd[0] if full_cmd else "process"
+            target = " ".join(full_cmd[1:]) if len(full_cmd) > 1 else "workspace"
+            return PlannedProcessResult(
+                method=method,
+                target=target,
+                argv=tuple(full_cmd),
+                stdin=input,
+            )
+
+        bin_name = Path(full_cmd[0]).name if full_cmd else "unknown"
+        start_time = time.perf_counter()
+
+        sub_env = build_subprocess_env(
+            env=env,
+            isolate_env=isolate_env,
+            extra_allowed_keys=extra_allowed_env,
+        )
+        _pin_github_token(full_cmd, sub_env, env)
+
+        with trace_span(
+            f"subprocess.{bin_name}",
+            attributes=_subprocess_span_attributes(full_cmd, bin_name, cwd, timeout),
+        ) as span_h:
+            get_tracer().inject_trace_env(sub_env)
+            try:
+                proc = subprocess.run(
+                    full_cmd,
+                    input=input,
+                    cwd=cwd,
+                    env=sub_env,
+                    capture_output=capture_output,
+                    text=text,
+                    check=check,
+                    timeout=timeout,
+                )
+            except FileNotFoundError:
+                dur = time.perf_counter() - start_time
+                span_h.set_attribute("subprocess.executable_found", False)
+                span_h.set_attribute("subprocess.exit_code", CONST_EXIT_COMMAND_NOT_FOUND)
+                span_h.set_attribute("process.exit.code", CONST_EXIT_COMMAND_NOT_FOUND)
+                span_h.set_attribute("subprocess.duration_seconds", dur)
+                span_h.set_attribute("subprocess.status", "not_found")
+                span_h.add_event("subprocess_not_found", {"bin": bin_name})
+                if check:
+                    raise
+                return subprocess.CompletedProcess(
+                    full_cmd,
+                    returncode=CONST_EXIT_COMMAND_NOT_FOUND,
+                    stdout="",
+                    stderr=f"Executable '{bin_name}' not found in PATH",
+                )
+
+            ret_code = getattr(proc, "returncode", 0)
+            stdout_val = getattr(proc, "stdout", None)
+            stderr_val = getattr(proc, "stderr", None)
+
+            dur = time.perf_counter() - start_time
+            span_h.set_attribute("subprocess.exit_code", ret_code)
+            span_h.set_attribute("process.exit.code", ret_code)
+            span_h.set_attribute("subprocess.duration_seconds", dur)
+            span_h.set_attribute("subprocess.status", "ok" if ret_code == 0 else "non_zero")
+
+            if stdout_val is not None:
+                stdout_len = (
+                    len(stdout_val.encode("utf-8"))
+                    if isinstance(stdout_val, str)
+                    else len(stdout_val)
+                )
+                span_h.set_attribute("subprocess.stdout_bytes", stdout_len)
+            if stderr_val is not None:
+                stderr_len = (
+                    len(stderr_val.encode("utf-8"))
+                    if isinstance(stderr_val, str)
+                    else len(stderr_val)
+                )
+                span_h.set_attribute("subprocess.stderr_bytes", stderr_len)
+
+            if ret_code != 0 and check:
+                span_h.set_attribute("error", True)
+                raw_sample = (
+                    (stderr_val or stdout_val or "")[:400]
+                    if isinstance(stderr_val or stdout_val, str)
+                    else ""
+                )
+                from devops_cli.security.sanitizer import mask_secrets
+
+                err_sample = mask_secrets(raw_sample) if raw_sample else ""
+                if err_sample:
+                    span_h.set_attribute("subprocess.error_sample", err_sample)
+                span_h.add_event(
+                    "subprocess_failed",
+                    {"exit_code": ret_code, "error_sample": err_sample},
+                )
+            else:
+                span_h.add_event(
+                    "subprocess_completed",
+                    {"exit_code": ret_code, "duration_seconds": dur},
+                )
+
+            record_metric(
+                "devops_cli_subprocess_seconds",
+                dur,
+                unit="s",
+                attributes={
+                    "bin": bin_name,
+                    "status": "ok" if ret_code == 0 else "error",
+                },
+            )
+            return proc
+
+    async def run_async(
+        self,
+        cmd: Sequence[str] | list[str],
+        *,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+        capture_output: bool = True,
+        text: bool = True,
+        check: bool = False,
+        quiet: bool = False,
+        timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        isolate_env: bool = True,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+        local_read: bool = False,
+        intent: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        full_cmd = list(cmd)
+        _validate_subprocess_cwd(cwd)
+        if getattr(subprocess.run, "__module__", "") != "subprocess":
+            return await asyncio.to_thread(
+                self.run,
+                full_cmd,
+                input=None,
+                cwd=cwd,
+                env=env,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                quiet=quiet,
+                timeout=timeout,
+                isolate_env=isolate_env,
+                extra_allowed_env=extra_allowed_env,
+                local_read=local_read,
+                intent=intent,
+            )
+
+        if is_dry_run() and not (local_read or intent in ("read", "local_read")):
+            if not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(full_cmd):
+                from devops_cli.output import print_dry_run_command
+
+                print_dry_run_command(full_cmd, cwd=str(cwd) if cwd else None)
+            method = full_cmd[0] if full_cmd else "process"
+            target = " ".join(full_cmd[1:]) if len(full_cmd) > 1 else "workspace"
+            return PlannedProcessResult(
+                method=method,
+                target=target,
+                argv=tuple(full_cmd),
+                stdin=None,
+            )
+
+        bin_name = Path(full_cmd[0]).name if full_cmd else "unknown"
+        start_time = time.perf_counter()
+
+        sub_env = build_subprocess_env(
+            env=env,
+            isolate_env=isolate_env,
+            extra_allowed_keys=extra_allowed_env,
+        )
+        await asyncio.to_thread(_pin_github_token, full_cmd, sub_env, env)
+
+        with trace_span(
+            f"subprocess.{bin_name}",
+            attributes=_subprocess_span_attributes(full_cmd, bin_name, cwd, timeout),
+        ) as span_h:
+            get_tracer().inject_trace_env(sub_env)
+            stdout_pipe = asyncio.subprocess.PIPE if capture_output else None
+            stderr_pipe = asyncio.subprocess.PIPE if capture_output else None
+
+            try:
+                proc = await _spawn_under_stop(
+                    full_cmd,
+                    cwd=cwd,
+                    env=sub_env,
+                    stdout=stdout_pipe,
+                    stderr=stderr_pipe,
+                    start_new_session=(os.name == "posix"),
+                )
+                stdout_bytes, stderr_bytes = await _communicate_or_stop_group(
+                    proc, full_cmd, timeout
+                )
+            except FileNotFoundError:
+                dur = time.perf_counter() - start_time
+                span_h.set_attribute("subprocess.executable_found", False)
+                span_h.set_attribute("subprocess.exit_code", CONST_EXIT_COMMAND_NOT_FOUND)
+                span_h.set_attribute("process.exit.code", CONST_EXIT_COMMAND_NOT_FOUND)
+                span_h.set_attribute("subprocess.duration_seconds", dur)
+                span_h.set_attribute("subprocess.status", "not_found")
+                span_h.add_event("subprocess_not_found", {"bin": bin_name})
+                if check:
+                    raise
+                return subprocess.CompletedProcess(
+                    full_cmd,
+                    returncode=CONST_EXIT_COMMAND_NOT_FOUND,
+                    stdout="",
+                    stderr=f"Executable '{bin_name}' not found in PATH",
+                )
+
+            ret_code = proc.returncode if proc.returncode is not None else 0
+            stdout_str = (
+                stdout_bytes.decode("utf-8", errors="replace")
+                if (text and stdout_bytes is not None)
+                else (stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else "")
+            )
+            stderr_str = (
+                stderr_bytes.decode("utf-8", errors="replace")
+                if (text and stderr_bytes is not None)
+                else (stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else "")
+            )
+
+            dur = time.perf_counter() - start_time
+            span_h.set_attribute("subprocess.exit_code", ret_code)
+            span_h.set_attribute("process.exit.code", ret_code)
+            span_h.set_attribute("subprocess.duration_seconds", dur)
+            span_h.set_attribute("subprocess.status", "ok" if ret_code == 0 else "non_zero")
+
+            if stdout_bytes:
+                span_h.set_attribute("subprocess.stdout_bytes", len(stdout_bytes))
+            if stderr_bytes:
+                span_h.set_attribute("subprocess.stderr_bytes", len(stderr_bytes))
+
+            if ret_code != 0 and check:
+                span_h.set_attribute("error", True)
+                raw_sample = (stderr_str or stdout_str or "")[:400]
+                from devops_cli.security.sanitizer import mask_secrets
+
+                err_sample = mask_secrets(raw_sample) if raw_sample else ""
+                if err_sample:
+                    span_h.set_attribute("subprocess.error_sample", err_sample)
+                span_h.add_event(
+                    "subprocess_failed",
+                    {"exit_code": ret_code, "error_sample": err_sample},
+                )
+                raise subprocess.CalledProcessError(
+                    ret_code, full_cmd, output=stdout_str, stderr=stderr_str
+                )
+
+            span_h.add_event(
+                "subprocess_completed",
+                {"exit_code": ret_code, "duration_seconds": dur},
+            )
+
+            record_metric(
+                "devops_cli_subprocess_seconds",
+                dur,
+                unit="s",
+                attributes={
+                    "bin": bin_name,
+                    "status": "ok" if ret_code == 0 else "error",
+                },
+            )
+            return subprocess.CompletedProcess(
+                full_cmd,
+                returncode=ret_code,
+                stdout=stdout_str,
+                stderr=stderr_str,
+            )
+
+
+_PROCESS_RUNNER: ProcessRunner | None = None
+_PROCESS_RUNNER_LOCK = threading.Lock()
+
+
+def get_process_runner() -> ProcessRunner:
+    """The active process runner seam: custom runner if set, otherwise DefaultProcessRunner."""
+    global _PROCESS_RUNNER
+    with _PROCESS_RUNNER_LOCK:
+        if _PROCESS_RUNNER is None:
+            return DefaultProcessRunner()
+        return _PROCESS_RUNNER
+
+
+def set_process_runner(runner: ProcessRunner | None) -> None:
+    """Set custom process runner for testing."""
+    global _PROCESS_RUNNER
+    with _PROCESS_RUNNER_LOCK:
+        _PROCESS_RUNNER = runner
+
+
+def reset_process_runner() -> None:
+    """Reset active process runner back to default."""
+    global _PROCESS_RUNNER
+    with _PROCESS_RUNNER_LOCK:
+        _PROCESS_RUNNER = None
+
+
 def run_subprocess(
-    cmd: list[str],
+    cmd: Sequence[str] | list[str],
     *,
     input: str | None = None,
     cwd: Path | None = None,
@@ -361,109 +781,26 @@ def run_subprocess(
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     isolate_env: bool = True,
     extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+    local_read: bool = False,
+    intent: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command with unified timeout bounds, dry-run reporting,
     W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
-    _validate_subprocess_cwd(cwd)
-    if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
-        from devops_cli.output import print_dry_run_command
-
-        print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
-
-    bin_name = Path(cmd[0]).name if cmd else "unknown"
-    start_time = time.perf_counter()
-
-    sub_env = build_subprocess_env(
+    return get_process_runner().run(
+        cmd,
+        input=input,
+        cwd=cwd,
         env=env,
+        capture_output=capture_output,
+        text=text,
+        check=check,
+        quiet=quiet,
+        timeout=timeout,
         isolate_env=isolate_env,
-        extra_allowed_keys=extra_allowed_env,
+        extra_allowed_env=extra_allowed_env,
+        local_read=local_read,
+        intent=intent,
     )
-    _pin_github_token(cmd, sub_env, env)
-
-    with trace_span(
-        f"subprocess.{bin_name}",
-        attributes=_subprocess_span_attributes(cmd, bin_name, cwd, timeout),
-    ) as span_h:
-        # Inject active subprocess span as parent trace context for child process
-        get_tracer().inject_trace_env(sub_env)
-        try:
-            proc = subprocess.run(
-                cmd,
-                input=input,
-                cwd=cwd,
-                env=sub_env,
-                capture_output=capture_output,
-                text=text,
-                check=check,
-                timeout=timeout,
-            )
-        except FileNotFoundError:
-            dur = time.perf_counter() - start_time
-            span_h.set_attribute("subprocess.executable_found", False)
-            span_h.set_attribute("subprocess.exit_code", CONST_EXIT_COMMAND_NOT_FOUND)
-            span_h.set_attribute("process.exit.code", CONST_EXIT_COMMAND_NOT_FOUND)
-            span_h.set_attribute("subprocess.duration_seconds", dur)
-            span_h.set_attribute("subprocess.status", "not_found")
-            span_h.add_event("subprocess_not_found", {"bin": bin_name})
-            if check:
-                raise
-            return subprocess.CompletedProcess(
-                cmd,
-                returncode=CONST_EXIT_COMMAND_NOT_FOUND,
-                stdout="",
-                stderr=f"Executable '{bin_name}' not found in PATH",
-            )
-
-        ret_code = getattr(proc, "returncode", 0)
-        stdout_val = getattr(proc, "stdout", None)
-        stderr_val = getattr(proc, "stderr", None)
-
-        dur = time.perf_counter() - start_time
-        span_h.set_attribute("subprocess.exit_code", ret_code)
-        span_h.set_attribute("process.exit.code", ret_code)
-        span_h.set_attribute("subprocess.duration_seconds", dur)
-        span_h.set_attribute("subprocess.status", "ok" if ret_code == 0 else "non_zero")
-
-        if stdout_val is not None:
-            stdout_len = (
-                len(stdout_val.encode("utf-8")) if isinstance(stdout_val, str) else len(stdout_val)
-            )
-            span_h.set_attribute("subprocess.stdout_bytes", stdout_len)
-        if stderr_val is not None:
-            stderr_len = (
-                len(stderr_val.encode("utf-8")) if isinstance(stderr_val, str) else len(stderr_val)
-            )
-            span_h.set_attribute("subprocess.stderr_bytes", stderr_len)
-
-        if ret_code != 0 and check:
-            span_h.set_attribute("error", True)
-            raw_sample = (
-                (stderr_val or stdout_val or "")[:400]
-                if isinstance(stderr_val or stdout_val, str)
-                else ""
-            )
-            from devops_cli.security.sanitizer import mask_secrets
-
-            err_sample = mask_secrets(raw_sample) if raw_sample else ""
-            if err_sample:
-                span_h.set_attribute("subprocess.error_sample", err_sample)
-            span_h.add_event(
-                "subprocess_failed",
-                {"exit_code": ret_code, "error_sample": err_sample},
-            )
-        else:
-            span_h.add_event(
-                "subprocess_completed",
-                {"exit_code": ret_code, "duration_seconds": dur},
-            )
-
-        record_metric(
-            "devops_cli_subprocess_seconds",
-            dur,
-            unit="s",
-            attributes={"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
-        )
-        return proc
 
 
 def _signal_process_group(pgid: int, sig: int) -> bool:
@@ -482,6 +819,52 @@ def _is_invalid_pgid(pgid: int | None) -> bool:
     if not isinstance(pgid, int) or pgid <= 1:
         return True
     return bool(hasattr(os, "getpgrp") and pgid == os.getpgrp())
+
+
+def terminate_process_group(
+    pid: int,
+    sig: int = signal.SIGTERM,
+    os_module: Any = os,
+) -> bool:
+    """Safely terminate an isolated process group hierarchy, falling back to direct process kill.
+
+    Guards against PID 0, PID 1, non-integers, self PID, and the caller's own PGID to prevent
+    accidental termination of container init or ambient caller processes. If the process shares
+    the caller's process group, signals only the direct process to avoid killing the caller.
+    """
+    if not isinstance(pid, int) or pid <= 1:
+        return False
+    try:
+        if pid == os_module.getpid():
+            return False
+        group = os_module.getpgid(pid)
+    except OSError, ProcessLookupError, TypeError:
+        return False
+
+    if group <= 1:
+        return False
+
+    self_pgrp = os_module.getpgrp() if hasattr(os_module, "getpgrp") else -1
+    own_pgrp_0 = os_module.getpgid(0) if hasattr(os_module, "getpgid") else -1
+    if group == self_pgrp or group == own_pgrp_0:
+        try:
+            os_module.kill(pid, sig)
+            return True
+        except OSError, ProcessLookupError, PermissionError:
+            return False
+
+    if not hasattr(os_module, "killpg"):
+        try:
+            os_module.kill(pid, sig)
+            return True
+        except OSError, ProcessLookupError, PermissionError:
+            return False
+
+    try:
+        os_module.killpg(group, sig)
+        return True
+    except OSError, ProcessLookupError, PermissionError:
+        return False
 
 
 async def _wait_for_group_exit_async(
@@ -509,7 +892,10 @@ async def _kill_leader_async(proc: asyncio.subprocess.Process) -> None:
 
 
 async def _escalate_async(
-    proc: asyncio.subprocess.Process, pgid: int, later_signals: tuple[int, ...], grace: float
+    proc: asyncio.subprocess.Process,
+    pgid: int,
+    later_signals: tuple[int, ...],
+    grace: float,
 ) -> bool:
     """Give the group `grace` seconds after the signal already sent, then send each later signal
     with the same grace; whether the group exited."""

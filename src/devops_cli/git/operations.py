@@ -273,7 +273,9 @@ def delete_merged_branches(repo_dir: Path, dry_run: bool = False) -> list[str]:
 def is_git_clean(repo_dir: Path) -> bool:
     """Check whether git working directory has uncommitted changes."""
     try:
-        proc = run_subprocess(["git", "status", "--porcelain"], cwd=repo_dir, quiet=True)
+        proc = run_subprocess(
+            ["git", "status", "--porcelain"], cwd=repo_dir, quiet=True, local_read=True
+        )
         return proc.returncode == 0 and not bool(proc.stdout.strip())
     except Exception:
         return False
@@ -282,7 +284,12 @@ def is_git_clean(repo_dir: Path) -> bool:
 def get_latest_git_tag(repo_dir: Path) -> str | None:
     """Retrieve latest git tag for the repository if available."""
     try:
-        proc = run_subprocess(["git", "describe", "--tags", "--abbrev=0"], cwd=repo_dir, quiet=True)
+        proc = run_subprocess(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=repo_dir,
+            quiet=True,
+            local_read=True,
+        )
         if proc.returncode == 0 and proc.stdout:
             return str(proc.stdout).strip()
     except Exception:
@@ -323,6 +330,7 @@ def _regular_file_object(repo_dir: Path, revision: str, rel_path: str) -> str | 
         ["git", "--literal-pathspecs", "ls-tree", "-z", "--full-tree", revision, "--", rel_path],
         cwd=repo_dir,
         quiet=True,
+        local_read=True,
     )
     if proc.returncode != 0:
         return None
@@ -348,7 +356,9 @@ def read_file_at_revision(repo_dir: Path, revision: str, rel_path: str) -> str |
     try:
         if (object_id := _regular_file_object(repo_dir, revision, rel_path)) is None:
             return None
-        proc = run_subprocess(["git", "cat-file", "blob", object_id], cwd=repo_dir, quiet=True)
+        proc = run_subprocess(
+            ["git", "cat-file", "blob", object_id], cwd=repo_dir, quiet=True, local_read=True
+        )
     except Exception as exc:
         logger.debug("Could not read %s at %s: %s", rel_path, revision, exc)
         return None
@@ -360,7 +370,9 @@ def resolve_merge_base(repo_dir: Path, base: str, head: str = "HEAD") -> str | N
     if not (_is_safe_revision(base) and _is_safe_revision(head)):
         return None
     try:
-        proc = run_subprocess(["git", "merge-base", "--", base, head], cwd=repo_dir, quiet=True)
+        proc = run_subprocess(
+            ["git", "merge-base", "--", base, head], cwd=repo_dir, quiet=True, local_read=True
+        )
     except Exception as exc:
         logger.debug("Could not resolve the merge base of %s and %s: %s", base, head, exc)
         return base
@@ -381,7 +393,7 @@ def list_changed_files(repo_dir: Path, base: str, head: str | None = None) -> li
     ref_arg = [f"{base}...{head}"] if head is not None else [base]
     cmd = ["git", "diff", "--name-status", "-z", "--find-renames", *ref_arg, "--"]
     try:
-        proc = run_subprocess(cmd, cwd=repo_dir, quiet=True)
+        proc = run_subprocess(cmd, cwd=repo_dir, quiet=True, local_read=True)
         if proc.returncode != 0 and head is not None:
             fallback_cmd = [
                 "git",
@@ -393,7 +405,7 @@ def list_changed_files(repo_dir: Path, base: str, head: str | None = None) -> li
                 head,
                 "--",
             ]
-            proc = run_subprocess(fallback_cmd, cwd=repo_dir, quiet=True)
+            proc = run_subprocess(fallback_cmd, cwd=repo_dir, quiet=True, local_read=True)
     except Exception as exc:
         logger.debug("Could not list the files changed since %s: %s", base, exc)
         return []
@@ -420,7 +432,9 @@ def git_show_toplevel(path: Path) -> Path | None:
     target = path if path.is_dir() else path.parent
     try:
         proc = run_subprocess(
-            ["git", "-C", str(target), "rev-parse", "--show-toplevel"], quiet=True
+            ["git", "-C", str(target), "rev-parse", "--show-toplevel"],
+            quiet=True,
+            local_read=True,
         )
         if proc.returncode == 0 and proc.stdout.strip():
             return Path(proc.stdout.strip()).resolve()

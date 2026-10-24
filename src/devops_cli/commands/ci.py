@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
-import importlib
 import os
 import re
 import shlex
@@ -48,14 +47,35 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
+from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_success
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_muted,
+    print_section,
+    print_success,
+    print_table,
+    print_warning,
+    write_stderr,
+    write_stdout,
+)
+from devops_cli.telemetry import record_metric, trace_span
 
 if TYPE_CHECKING:
     from devops_cli.ci.mutate import MutationTarget
     from devops_cli.core.test_selection import SuiteImports
+
+_ORIG_RUN_SUBPROCESS = run_subprocess
+
+
+def _current_run_subprocess() -> Any:
+    from devops_cli.core.process import run_subprocess as core_run
+
+    runner = getattr(sys.modules.get(__name__), "run_subprocess", core_run)
+    return core_run if runner is _ORIG_RUN_SUBPROCESS else runner
 
 
 def _asks_for_help(ctx: Any, args: list[str]) -> bool:
@@ -76,42 +96,6 @@ class FileOrSubcommandGroup(TyperGroup):
         return super().invoke(ctx)
 
 
-_LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
-    "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
-    "run_subprocess_async": ("devops_cli.core.process", "run_subprocess_async"),
-    "record_metric": ("devops_cli.telemetry", "record_metric"),
-    "trace_span": ("devops_cli.telemetry", "trace_span"),
-    "print_error": ("devops_cli.output", "print_error"),
-    "print_muted": ("devops_cli.output", "print_muted"),
-    "print_warning": ("devops_cli.output", "print_warning"),
-    "print_section": ("devops_cli.output", "print_section"),
-    "print_table": ("devops_cli.output", "print_table"),
-    "write_stderr": ("devops_cli.output", "write_stderr"),
-    "write_stdout": ("devops_cli.output", "write_stdout"),
-    "is_dry_run": ("devops_cli.dry_run", "is_dry_run"),
-    "render_dry_run_result": ("devops_cli.dry_run", "render_dry_run_result"),
-}
-
-
-def __getattr__(name: str) -> Any:
-    if name in _LAZY_OBJECT_MAPPING:
-        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
-        module = importlib.import_module(mod_path)
-        return getattr(module, obj_name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def _get(name: str) -> Any:
-    mod_dict = sys.modules[__name__].__dict__
-    if name in mod_dict:
-        return mod_dict[name]
-    if name in _LAZY_OBJECT_MAPPING:
-        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
-        module = importlib.import_module(mod_path)
-        return getattr(module, obj_name)
-    return getattr(sys.modules[__name__], name)
-
-
 app = new_typer(cls=FileOrSubcommandGroup, help=HELP.ci.app)
 
 
@@ -130,15 +114,15 @@ def _announce_gate_root(root: Path) -> None:
     """Name the tree the gate checks, warning when it is a worktree git no longer knows."""
     from devops_cli.core.repo import is_stale_linked_worktree
 
-    _get("print_info")(MESSAGES.ci.gate_root.format(root=root), safe=True)
+    print_info(MESSAGES.ci.gate_root.format(root=root), safe=True)
     if is_stale_linked_worktree(root):
         stale = MESSAGES.ci.gate_root_stale.format(root=root, root_arg=shlex.quote(str(root)))
-        _get("print_warning")(stale, safe=True)
+        print_warning(stale, safe=True)
     from devops_cli.ci import diagnostics
 
     if fstype := diagnostics.slow_mount_fstype(root):
         slow = MESSAGES.ci.gate_root_slow_mount.format(root=root, fstype=fstype)
-        _get("print_warning")(slow, safe=True)
+        print_warning(slow, safe=True)
 
 
 class CheckResult(BaseModel):
@@ -193,7 +177,7 @@ def _verify_python_314_environment() -> bool:
 
     if sys.version_info < (3, 14):  # noqa: UP036
         ver_str = sys.version.split()[0]
-        _get("print_error")(
+        print_error(
             MESSAGES.ci.python_version_fail.format(
                 required=DEFAULT_PYTHON_VERSION, current=ver_str
             ),
@@ -205,10 +189,7 @@ def _verify_python_314_environment() -> bool:
 
 def _with_uv_preview(cmd: Sequence[str]) -> list[str]:
     """`cmd`, with uv's malware-check and check-command preview features on when it starts uv."""
-    full_cmd = list(cmd)
-    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
-    return full_cmd
+    return prepare_tool_cmd(cmd)
 
 
 def _planned_request_for_cmd(
@@ -270,8 +251,10 @@ async def _run_in_own_session(
         if task is not None:
             loop.call_soon_threadsafe(task.cancel)
 
+    from devops_cli.core.process import run_subprocess_async
+
     with _cancelled_by_stop_signals(cancel):
-        result: subprocess.CompletedProcess[str] = await _get("run_subprocess_async")(
+        result: subprocess.CompletedProcess[str] = await run_subprocess_async(
             cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
         )
     return result
@@ -291,7 +274,7 @@ def _session_returncode(
         timed_out = MESSAGES.ci.run_timed_out.format(
             command=shlex.join(cmd), timeout=f"{timeout:g}s"
         )
-        _get("print_error")(timed_out, prefix=False, safe=True)
+        print_error(timed_out, prefix=False, safe=True)
         return CONST_EXIT_FAILURE
     except asyncio.CancelledError:
         raise typer.Exit(CONST_EXIT_CANCELLED) from None
@@ -317,7 +300,7 @@ def _returncode(
     full_cmd = _with_uv_preview(cmd)
     if own_session:
         return _session_returncode(full_cmd, root, timeout, capture_output, env)
-    result = _get("run_subprocess")(
+    result = _current_run_subprocess()(
         full_cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
     )
     return int(result.returncode)
@@ -355,7 +338,7 @@ def _audit_failure_line(cmd: Sequence[str], run: subprocess.CompletedProcess[str
 def _report_audit(cmd: list[str]) -> bool:
     """Run one audit command with its output captured, which its verdict reads. When it was not
     clean, show the output and say why; whether it was clean."""
-    run: subprocess.CompletedProcess[str] = _get("run_subprocess")(
+    run: subprocess.CompletedProcess[str] = _current_run_subprocess()(
         _with_uv_preview(cmd),
         cwd=_get_project_root(),
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -381,7 +364,7 @@ def _run_audits() -> bool:
 
 
 def _section(title: str) -> None:
-    _get("print_section")(f" {title} ", style="cyan")
+    print_section(f" {title} ", style="cyan")
 
 
 def _is_active_coverage_worker(path: Path) -> bool:
@@ -451,9 +434,9 @@ def _format_process_output(raw: str | bytes | None) -> str:
 def _write_process_output(stdout: str | bytes | None, stderr: str | bytes | None) -> None:
     """Write what a process printed, each stream to its own, when it printed anything."""
     if out := _format_process_output(stdout):
-        _get("write_stdout")(out.rstrip() + "\n")
+        write_stdout(out.rstrip() + "\n")
     if err := _format_process_output(stderr):
-        _get("write_stderr")(err.rstrip() + "\n")
+        write_stderr(err.rstrip() + "\n")
 
 
 def _format_check_badge(passed: bool) -> str:
@@ -496,8 +479,10 @@ async def _run_check_commands(
     """Run each command of the check in turn, even after one fails, and answer as a single run.
     A dependency audit is run with its output captured, which its verdict reads, and a failed one
     says what went wrong, as `devops ci audit` does."""
+    from devops_cli.core.process import run_subprocess_async
+
     runs = [
-        await _get("run_subprocess_async")(
+        await run_subprocess_async(
             _with_uv_preview(cmd),
             cwd=root,
             timeout=timeout,
@@ -550,18 +535,18 @@ async def _execute_check_async(
     start_time = time.perf_counter()
     root = _get_project_root()
 
-    with _get("trace_span")(check_spec.span_name):
+    with trace_span(check_spec.span_name):
         try:
             proc = await _run_check_commands(check_spec, root, timeout, capture_output)
             passed = proc.returncode == 0
             dur = time.perf_counter() - start_time
-            _get("record_metric")(
+            record_metric(
                 "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": check_spec.metric_step}
             )
             from devops_cli.output import format_duration
 
             badge = _format_check_badge(passed)
-            _get("print_muted")(
+            print_muted(
                 f"  {badge} [{check_spec.name}] {check_spec.display_title} ({format_duration(dur)})"
             )
             sys.stdout.flush()
@@ -575,11 +560,11 @@ async def _execute_check_async(
             )
         except subprocess.TimeoutExpired as exc:
             dur = time.perf_counter() - start_time
-            _get("record_metric")("ci.step_pass", 0.0, attributes={"step": check_spec.metric_step})
+            record_metric("ci.step_pass", 0.0, attributes={"step": check_spec.metric_step})
             badge = _format_check_badge(False)
             timeout_val = exc.timeout or timeout
             timeout_str = f"{timeout_val:g}s"
-            _get("print_muted")(
+            print_muted(
                 f"  {badge} [{check_spec.name}] {check_spec.display_title} (timed out after {timeout_str})"
             )
             sys.stdout.flush()
@@ -827,9 +812,7 @@ def resolve_selected_specs(
 
     if only_names and skip_names:
         valid_list = ", ".join(valid_names)
-        _get("write_stderr")(
-            f"Cannot combine --only and --skip options. Valid check names: {valid_list}\n"
-        )
+        write_stderr(f"Cannot combine --only and --skip options. Valid check names: {valid_list}\n")
         raise typer.Exit(2)
 
     if only_names:
@@ -837,7 +820,7 @@ def resolve_selected_specs(
         if invalid:
             valid_list = ", ".join(valid_names)
             invalid_list = ", ".join(repr(n) for n in invalid)
-            _get("write_stderr")(
+            write_stderr(
                 f"Invalid check name(s): {invalid_list}. Valid check names: {valid_list}\n"
             )
             raise typer.Exit(2)
@@ -848,7 +831,7 @@ def resolve_selected_specs(
         if invalid:
             valid_list = ", ".join(valid_names)
             invalid_list = ", ".join(repr(n) for n in invalid)
-            _get("write_stderr")(
+            write_stderr(
                 f"Invalid check name(s): {invalid_list}. Valid check names: {valid_list}\n"
             )
             raise typer.Exit(2)
@@ -912,9 +895,7 @@ def _run_python_version_step() -> tuple[bool, CheckResult]:
     py_t0 = time.perf_counter()
     py_ok = _verify_python_314_environment()
     py_dur = time.perf_counter() - py_t0
-    _get("record_metric")(
-        "ci.step_pass", 1.0 if py_ok else 0.0, attributes={"step": "python_version"}
-    )
+    record_metric("ci.step_pass", 1.0 if py_ok else 0.0, attributes={"step": "python_version"})
     py_result = CheckResult(
         name="python_version",
         display_title=MESSAGES.ci.python_version_check,
@@ -924,7 +905,7 @@ def _run_python_version_step() -> tuple[bool, CheckResult]:
     from devops_cli.output import format_duration
 
     py_badge = "[green]✓ pass[/green]" if py_ok else "[bold red]✗ fail[/bold red]"
-    _get("print_muted")(
+    print_muted(
         f"  {py_badge} [python_version] {py_result.display_title} ({format_duration(py_dur)})"
     )
     sys.stdout.flush()
@@ -1100,12 +1081,12 @@ async def _run_all_checks_async(
 
     has_test = any(s.name == "test" for s in selected_specs)
     if has_test:
-        _get("print_muted")(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
+        print_muted(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
         sys.stdout.flush()
 
     capture_output = len(selected_specs) != 1
 
-    with _get("trace_span")(
+    with trace_span(
         "ci.run_pipeline",
         attributes={"lint_fix": lint_fix, "format_fix": format_fix, "docs_fix": docs_fix},
     ):
@@ -1170,13 +1151,13 @@ def _print_summary(
         )
         rows.append([res.name, status_text, dur_text])
 
-    _get("print_table")(
+    print_table(
         title=MESSAGES.ci.ci_summary_title,
         columns=[(MESSAGES.ci.col_check, "cyan"), MESSAGES.ci.col_result, ("Duration", "dim")],
         rows=rows,
     )
     mode_text = "cached execution" if cached else "concurrent async execution"
-    _get("print_muted")(f"Total Elapsed: {format_duration(total_elapsed)} ({mode_text})\n")
+    print_muted(f"Total Elapsed: {format_duration(total_elapsed)} ({mode_text})\n")
 
 
 def _compute_before_fingerprint(
@@ -1243,7 +1224,7 @@ def _try_save_ci_cache(
         return
     fingerprint, head_sha = fp_info
     if before_fingerprint is not None and fingerprint != before_fingerprint:
-        _get("print_warning")(MESSAGES.ci.cache_tree_changed, safe=True)
+        print_warning(MESSAGES.ci.cache_tree_changed, safe=True)
         return
     cached_checks = [
         CICachedCheck(
@@ -1280,7 +1261,7 @@ def _try_fast_cached_ci(
     cached_results = _try_get_ci_cache(root, ci_options, fingerprint=fingerprint)
     if cached_results is None:
         return False
-    _get("print_info")(MESSAGES.ci.cache_hit)
+    print_info(MESSAGES.ci.cache_hit)
     _print_summary(cached_results, total_elapsed=0.005, cached=True)
     return True
 
@@ -1295,7 +1276,7 @@ def _warn_when_over_budget(results: list[CheckResult]) -> None:
     from devops_cli.ci.diagnostics import slowest_tests
     from devops_cli.output import format_duration
 
-    _get("print_warning")(
+    print_warning(
         MESSAGES.ci.test_budget_exceeded.format(
             duration=format_duration(test_result.duration_seconds),
             budget=format_duration(CONST_CI_TEST_BUDGET_SECONDS),
@@ -1304,7 +1285,7 @@ def _warn_when_over_budget(results: list[CheckResult]) -> None:
     )
     if test_result.stdout:
         for entry in slowest_tests(test_result.stdout):
-            _get("print_muted")(f"  {entry}")
+            print_muted(f"  {entry}")
 
 
 def _handle_ci_results(
@@ -1395,7 +1376,7 @@ def all_checks(
 
     start_time = time.perf_counter()
     if not is_dry_run():
-        _get("print_info")("Executing CI quality gates concurrently...")
+        print_info("Executing CI quality gates concurrently...")
         sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
@@ -1441,12 +1422,12 @@ def _check_trigger_files(all_paths: set[str], fallback: bool, imports: SuiteImpo
     if first_trigger is None:
         return True
     if not fallback:
-        _get("print_error")(
+        print_error(
             MESSAGES.ci.selection_trigger_refusal.format(file=first_trigger),
             prefix=False,
         )
         raise typer.Exit(1)
-    _get("print_warning")(MESSAGES.ci.selection_trigger_full_run.format(file=first_trigger))
+    print_warning(MESSAGES.ci.selection_trigger_full_run.format(file=first_trigger))
     return False
 
 
@@ -1567,9 +1548,9 @@ def _report_selection(
         tests = mapped_sources[source]
         selector = source_selectors.get(source, "coverage index")
         selector_suffix = "" if selector == "direct" else f" ({selector})"
-        _get("print_muted")(f"  {source} → {', '.join(tests)}{selector_suffix}")
+        print_muted(f"  {source} → {', '.join(tests)}{selector_suffix}")
     if unmapped_sources:
-        _get("print_warning")(
+        print_warning(
             MESSAGES.ci.no_covering_tests.format(files=", ".join(sorted(unmapped_sources)))
         )
 
@@ -1588,17 +1569,15 @@ def _index_drift(index: Any, root: Path, imports: SuiteImports) -> tuple[list[st
     drift_files = compute_index_drift(index, compute_worktree_blob_hashes(root))
     age_seconds = max(0.0, time.time() - index.built_at) if index.built_at > 0 else 0.0
     age_str = format_duration(age_seconds) if age_seconds > 0 else "0s"
-    _get("print_muted")(
-        MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files))
-    )
+    print_muted(MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files)))
     removed = {path for path in drift_files if imports.is_removed_helper(Path(path))}
     if removed:
-        _get("print_warning")(MESSAGES.ci.coverage_index_helper_removed.format(file=min(removed)))
+        print_warning(MESSAGES.ci.coverage_index_helper_removed.format(file=min(removed)))
         return drift_files, False, removed
     stale = next((path for path in drift_files if forces_full_run(path, imports)), None)
     if stale is None:
         return drift_files, True, set()
-    _get("print_warning")(MESSAGES.ci.coverage_index_stale.format(file=stale))
+    print_warning(MESSAGES.ci.coverage_index_stale.format(file=stale))
     return drift_files, False, set()
 
 
@@ -1609,7 +1588,7 @@ def _drift_selection(
     none when the index is absent or stale; whether the index maps sources; and the helper
     modules under tests/ among those files that are gone, deleted or renamed away (#1312)."""
     if index.is_empty:
-        _get("print_muted")(MESSAGES.ci.coverage_index_missing)
+        print_muted(MESSAGES.ci.coverage_index_missing)
         return set(), False, set()
     drift_files, usable, removed = _index_drift(index, root, imports)
     return (set(drift_files) if usable else set()), usable, removed
@@ -1644,14 +1623,14 @@ def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None
         return targets
 
     if not unmapped_sources and not mapped_sources:
-        _get("print_muted")(MESSAGES.ci.no_testable_files)
+        print_muted(MESSAGES.ci.no_testable_files)
         return []
 
     if fallback:
-        _get("print_warning")(MESSAGES.ci.selection_fallback)
+        print_warning(MESSAGES.ci.selection_fallback)
         return None
 
-    _get("print_error")(MESSAGES.ci.selection_empty, prefix=False)
+    print_error(MESSAGES.ci.selection_empty, prefix=False)
     raise typer.Exit(1)
 
 
@@ -1691,9 +1670,9 @@ def _narrowed_workers(targets: list[str] | None) -> str | None:
 
 def _head_seed(root: Path) -> int:
     """A shuffle seed derived from HEAD: its commit hash's leading eight hex digits."""
-    result = _get("run_subprocess")(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
+    result = _current_run_subprocess()(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
     if result.returncode != 0:
-        _get("print_error")(MESSAGES.ci.repeat_seed_unavailable, prefix=False)
+        print_error(MESSAGES.ci.repeat_seed_unavailable, prefix=False)
         raise typer.Exit(1)
     return int(result.stdout[:8], 16)
 
@@ -1705,7 +1684,7 @@ def _run_shuffled_repeats(
     seeds `seed` to `seed + runs - 1`, stopping at the first failure with its seed and command.
     """
     if targets is None:
-        _get("print_error")(MESSAGES.ci.repeat_needs_targets, prefix=False)
+        print_error(MESSAGES.ci.repeat_needs_targets, prefix=False)
         raise typer.Exit(1)
     first = _head_seed(_get_project_root()) if seed is None else seed
     for run, run_seed in enumerate(range(first, first + runs), start=1):
@@ -1714,7 +1693,7 @@ def _run_shuffled_repeats(
             failed = MESSAGES.ci.repeat_failed.format(
                 run=run, runs=runs, seed=run_seed, command=shlex.join(cmd)
             )
-            _get("print_error")(failed, prefix=False, safe=True)
+            print_error(failed, prefix=False, safe=True)
             raise typer.Exit(1)
 
 
@@ -1756,7 +1735,7 @@ def test(
             return
 
     if k and k.startswith("-"):
-        _get("print_error")("Invalid keyword filter expression.", prefix=False)
+        print_error("Invalid keyword filter expression.", prefix=False)
         raise typer.Exit(1)
 
     if repeat:
@@ -1795,7 +1774,7 @@ def _handle_coverage_index_build(cmd: list[str]) -> None:
     if hashes_before != hashes_after:
         all_keys = set(hashes_before.keys()) | set(hashes_after.keys())
         changed = sorted(k for k in all_keys if hashes_before.get(k) != hashes_after.get(k))
-        _get("print_error")(
+        print_error(
             MESSAGES.ci.coverage_index_tree_changed.format(files=", ".join(changed)),
             prefix=False,
         )
@@ -1812,7 +1791,7 @@ def _handle_coverage_index_build(cmd: list[str]) -> None:
     destination = resolve_coverage_index_path(root)
     save_index(index, destination)
     elapsed = time.perf_counter() - t0
-    _get("print_info")(
+    print_info(
         MESSAGES.ci.coverage_index_saved.format(duration=f"{elapsed:.2f}s"),
         safe=True,
     )
@@ -2167,7 +2146,7 @@ _MUTMUT_RESULTS = [*_MUTMUT, "results", "--all", "true"]
 def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a command in the checked tree as `_run` would, returning its captured output."""
     argv = list(_planned_request_for_cmd(cmd).argv)
-    completed: subprocess.CompletedProcess[str] = _get("run_subprocess")(
+    completed: subprocess.CompletedProcess[str] = _current_run_subprocess()(
         argv, cwd=_get_project_root(), capture_output=True
     )
     return completed
@@ -2192,10 +2171,10 @@ def _report_mutation(results_text: str, targets: Sequence[MutationTarget]) -> No
         location = MESSAGES.ci.mutate_survivor.format(
             path=target.path, line=target.line, qualname=target.qualname
         )
-        _get("print_warning")(location, prefix=False, safe=True)
-        _get("write_stdout")(_capture([*_MUTMUT, "show", mutant]).stdout)
+        print_warning(location, prefix=False, safe=True)
+        write_stdout(_capture([*_MUTMUT, "show", mutant]).stdout)
     counts = ", ".join(f"{status} {count}" for status, count in report.counts.items())
-    _get("print_info")(MESSAGES.ci.mutate_counts.format(counts=counts), prefix=False, safe=True)
+    print_info(MESSAGES.ci.mutate_counts.format(counts=counts), prefix=False, safe=True)
 
 
 @app.command(help=HELP.ci.mutate)
@@ -2209,7 +2188,7 @@ def mutate(
 ) -> None:
     """Mutation-test the selected functions with mutmut and show what survives (#853)."""
     if not (paths or changed):
-        _get("print_error")(MESSAGES.ci.mutate_needs_target, prefix=False)
+        print_error(MESSAGES.ci.mutate_needs_target, prefix=False)
         raise typer.Exit(2)
     if dry_run:
         set_dry_run(True)
@@ -2221,7 +2200,7 @@ def mutate(
     with exit_on_error(GitOperationError):
         targets = select_targets(_get_project_root(), paths or [], changed=changed, base=base)
     if not targets:
-        _get("print_muted")(MESSAGES.ci.mutate_nothing)
+        print_muted(MESSAGES.ci.mutate_nothing)
         return
     run_cmd = [*_MUTMUT, "run", *(glob for target in targets for glob in target.run_globs)]
     if is_dry_run():
@@ -2231,7 +2210,7 @@ def mutate(
         raise typer.Exit(1)
     results = _capture(_MUTMUT_RESULTS)
     if results.returncode != 0:
-        _get("write_stderr")(results.stderr)
+        write_stderr(results.stderr)
         raise typer.Exit(1)
     _report_mutation(results.stdout, targets)
 
@@ -2291,6 +2270,6 @@ def fail_to_pass(
     _append_step_summary(output)
     if not report.satisfied:
         # Written raw: pytest's output in the report is neither markup nor emoji codes (#1669).
-        _get("write_stderr")(f"{output}\n")
+        write_stderr(f"{output}\n")
         raise typer.Exit(1)
-    _get("print_info")(output, prefix=False, safe=True)
+    print_info(output, prefix=False, safe=True)
