@@ -134,6 +134,7 @@ def test_review_toml_severity_caps_apply_at_admission_and_spare_secret_findings(
         file_paths=sorted(_FILES),
         secret_scan_files=[],
         resolve_file_path=lambda p: root / p,
+        coverage_gaps={},
         path_classes=orchestrator.path_classes,
         severity_caps=orchestrator.severity_caps,
     )

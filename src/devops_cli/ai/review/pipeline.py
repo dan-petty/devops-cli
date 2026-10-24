@@ -250,15 +250,18 @@ def _review_worker_count(
 def _try_reuse_cached_analysis_meta(
     old_meta: FileAnalysisMeta,
     file_path: Path,
-    file_mtime: datetime,
     bypass_mtime: bool = False,
 ) -> FileAnalysisMeta | None:
-    """Attempt to reuse cached analysis metadata if file content matches commit blob or mtime."""
-    if not (old_meta.last_analyzed and old_meta.pseudocode):
+    """The cached metadata of a file whose content still matches it; None for a cache miss.
+
+    With `bypass_mtime`, the content hash alone decides. Otherwise the file must also be no
+    newer than the time of the cached analysis. A file that cannot be read, or a cached time that
+    does not parse or has no time zone, is a cache miss: the file is analyzed again, and that
+    analysis reports a file it cannot read.
+    """
+    if not (old_meta.last_analyzed and old_meta.pseudocode) or not file_path.is_file():
         return None
     try:
-        if not file_path.is_file():
-            return None
         st = file_path.stat()
         if old_meta.size_bytes and st.st_size != old_meta.size_bytes:
             return None
@@ -266,14 +269,14 @@ def _try_reuse_cached_analysis_meta(
         if bypass_mtime and old_meta.content_hash and cur_hash == old_meta.content_hash:
             return old_meta
         analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
-        if file_mtime > analyzed_dt:
-            return None
-        if old_meta.content_hash and cur_hash != old_meta.content_hash:
-            return None
-        return old_meta.model_copy(update={"content_hash": cur_hash})
-    except Exception as exc:
-        logger.debug("Failed validating cached metadata for %s: %s", file_path, exc)
-    return None
+    except (OSError, ValueError) as exc:
+        logger.debug("Cached metadata of %s is not reused: %s", file_path, exc)
+        return None
+    if analyzed_dt.tzinfo is None or st.st_mtime > analyzed_dt.timestamp():
+        return None
+    if old_meta.content_hash and cur_hash != old_meta.content_hash:
+        return None
+    return old_meta.model_copy(update={"content_hash": cur_hash})
 
 
 def _wrap_static_findings(findings: list[Finding], tool: str = "") -> list[SavedFinding]:
@@ -394,15 +397,11 @@ def _collect_scanner_commit_files(
     """Collect commit file relative paths for admission location validation."""
     from devops_cli.core.repo import list_repo_files
 
-    commit_files: set[str] = set()
-    try:
-        commit_files.update(
-            p.relative_to(worktree_root).as_posix()
-            for p in list_repo_files(worktree_root)
-            if p.is_relative_to(worktree_root)
-        )
-    except Exception:
-        pass
+    commit_files: set[str] = {
+        p.relative_to(worktree_root).as_posix()
+        for p in list_repo_files(worktree_root)
+        if p.is_relative_to(worktree_root)
+    }
 
     for fp in (*file_paths, *secret_scan_files):
         resolved = resolve_file_path(fp)
@@ -527,6 +526,31 @@ def _admit_single_candidate(
     return admitted, sf
 
 
+def _read_cited_file(
+    path_str: str,
+    *,
+    worktree_root: Path,
+    resolve_file_path: Callable[[str], Path],
+    coverage_gaps: dict[str, str],
+) -> str | None:
+    """The text of the file that a finding cites: in `worktree_root`, else where the review
+    resolves the path. None when no such file is there.
+
+    A file that is there and cannot be read is a coverage gap: admission cannot check the
+    finding against the file's lines and rejects it, so the reason goes into `coverage_gaps`.
+    """
+    path = worktree_root / path_str
+    if not path.is_file():
+        path = resolve_file_path(path_str)
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        _record_coverage_gap(coverage_gaps, path_str, _read_failure("Admission", exc))
+        return None
+
+
 def _admit_scanner_findings(
     findings: list[SavedFinding],
     *,
@@ -535,6 +559,7 @@ def _admit_scanner_findings(
     file_paths: Sequence[str],
     secret_scan_files: Sequence[str],
     resolve_file_path: Callable[[str], Path],
+    coverage_gaps: dict[str, str],
     path_classes: Mapping[str, Sequence[str]] | None = None,
     severity_caps: Mapping[str, str] | None = None,
     suppressions: Sequence[Any] | None = None,
@@ -543,21 +568,19 @@ def _admit_scanner_findings(
     canary_results: Mapping[str, bool] | None = None,
     rejection_counts: dict[str, int] | None = None,
 ) -> tuple[list[Any], list[SavedFinding]]:
-    """Admit static scanner candidates into frozen review findings (#871)."""
+    """Admit static scanner candidates into frozen review findings (#871).
+
+    A cited file that cannot be read goes into `coverage_gaps` with the reason.
+    """
     commit_files = _collect_scanner_commit_files(
         worktree_root, file_paths, secret_scan_files, resolve_file_path
     )
-
-    def _file_content(path_str: str) -> str | None:
-        p = worktree_root / path_str
-        if not p.is_file():
-            p = resolve_file_path(path_str)
-        try:
-            if p.is_file():
-                return p.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            return None
-        return None
+    read_cited_file = partial(
+        _read_cited_file,
+        worktree_root=worktree_root,
+        resolve_file_path=resolve_file_path,
+        coverage_gaps=coverage_gaps,
+    )
 
     admitted_frozen: list[Any] = []
     admitted_saved: list[SavedFinding] = []
@@ -575,7 +598,7 @@ def _admit_scanner_findings(
             session_id=session_id,
             worktree_root=worktree_root,
             commit_files=commit_files,
-            file_content_getter=_file_content,
+            file_content_getter=read_cited_file,
             path_classes=path_classes,
             severity_caps=severity_caps,
             suppressions=suppressions,
@@ -866,30 +889,33 @@ def _fetch_ip_threat_intel(
 
 def _execute_pre_analysis_batch(
     paths_to_analyze: list[tuple[Path, str]], repo: Path, workers: int
-) -> list[FileAnalysisMeta]:
-    """Analyze each file on a thread, up to `workers` at once.
+) -> tuple[list[FileAnalysisMeta], dict[str, str]]:
+    """Analyze each file on a thread, up to `workers` at once: the metadata of each file read,
+    and the reason for each file that could not be read, by its path relative to `repo`.
 
     The analysis is local and calls no model, so the rate limit for model calls does not pace it.
     """
 
-    def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
+    def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | str:
         path_obj, rel_path = item
         try:
             content = path_obj.read_text(encoding="utf-8", errors="replace")
-            return analyze_single_file(
-                rel_path,
-                content,
-                path_obj.stat().st_size,
-                enhanced=True,
-                repo_root=repo,
-                ai_client=None,
-            )
-        except Exception:
-            return None
+            size_bytes = path_obj.stat().st_size
+        except OSError as exc:
+            return _read_failure("Pre-analysis", exc)
+        return analyze_single_file(
+            rel_path, content, size_bytes, enhanced=True, repo_root=repo, ai_client=None
+        )
 
     max_workers = min(len(paths_to_analyze), max(1, workers), DEFAULT_REVIEW_MAX_CONCURRENCY)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        return [meta for meta in pool.map(_analyze_path, paths_to_analyze) if meta is not None]
+        results = list(pool.map(_analyze_path, paths_to_analyze))
+    unread = {
+        rel_path: result
+        for (_, rel_path), result in zip(paths_to_analyze, results, strict=True)
+        if isinstance(result, str)
+    }
+    return [result for result in results if not isinstance(result, str)], unread
 
 
 def _collect_paths_to_analyze(
@@ -904,23 +930,13 @@ def _collect_paths_to_analyze(
     for p, rel_str in candidates:
         if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
             continue
-        try:
-            file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
-            old_meta = existing_file_metas.get(rel_str)
-            if (
-                not force_refresh
-                and old_meta
-                and (
-                    reused := _try_reuse_cached_analysis_meta(
-                        old_meta, p, file_mtime, bypass_mtime=bypass_mtime
-                    )
-                )
-            ):
-                file_metas.append(reused)
-            else:
-                paths_to_analyze.append((p, rel_str))
-        except Exception as exc:
-            logger.debug("Failed preparing path %s for analysis: %s", p, exc)
+        old_meta = None if force_refresh else existing_file_metas.get(rel_str)
+        if old_meta and (
+            reused := _try_reuse_cached_analysis_meta(old_meta, p, bypass_mtime=bypass_mtime)
+        ):
+            file_metas.append(reused)
+        else:
+            paths_to_analyze.append((p, rel_str))
     return paths_to_analyze
 
 
@@ -1537,6 +1553,20 @@ def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
     return msg
 
 
+def _read_failure(stage: str, exc: OSError) -> str:
+    """Why `stage` could not read a file, without the absolute path that the error names."""
+    return f"{stage}: {exc.strerror}" if exc.strerror else _format_error_detail(stage, exc)
+
+
+def _record_coverage_gap(coverage_gaps: dict[str, str], path: str, reason: str) -> None:
+    """Keep `reason` as a coverage gap of `path`, after a different reason it has already."""
+    known = coverage_gaps.get(path)
+    if known is None:
+        coverage_gaps[path] = reason
+    elif reason not in known:
+        coverage_gaps[path] = f"{known}; {reason}"
+
+
 def _status_rows(reportable_findings: list[SavedFinding]) -> list[list[str]]:
     """The terminal summary's row counting the findings by status, as the report does (#948)."""
     from devops_cli.ai.review.stages.reporting import status_counts
@@ -1878,11 +1908,15 @@ def _collect_base_revision_fingerprints(
     *,
     file_paths: Sequence[str],
     secret_scan_files: Sequence[str],
+    coverage_gaps: dict[str, str],
     path_classes: Mapping[str, Sequence[str]] | None = None,
     severity_caps: Mapping[str, str] | None = None,
     tool_executor: ToolExecutor | None = None,
 ) -> set[str]:
-    """Scan base revision files to collect pre-existing finding fingerprints (#871)."""
+    """Scan base revision files to collect pre-existing finding fingerprints (#871).
+
+    A base file that admission cannot read goes into `coverage_gaps` with the reason.
+    """
     if base_revision is None or not getattr(base_revision, "read", None):
         return set()
 
@@ -1911,6 +1945,7 @@ def _collect_base_revision_fingerprints(
             file_paths=written,
             secret_scan_files=[],
             resolve_file_path=lambda p: tmp_root / p,
+            coverage_gaps=coverage_gaps,
             path_classes=path_classes,
             severity_caps=severity_caps,
         )
@@ -2074,13 +2109,9 @@ class ReviewPipelineOrchestrator:
         self.cyclonedx_inventory: dict[str, Any] = {}
         self.osv_snapshot_digest: str = ""
         self.coverage: dict[str, dict[str, str]] = {}
-        repo_root = None
-        try:
-            from devops_cli.core.repo import find_repo_root
+        from devops_cli.core.repo import find_repo_root
 
-            repo_root = find_repo_root(target_dir)
-        except Exception:
-            pass
+        repo_root = find_repo_root(target_dir)
         self.path_classes = load_path_classes(base_revision, repo_root=repo_root)
         # Files kept off review pages that the secret scan still reads: planning documents,
         # generated references and lockfiles (#948). Neither review nor its payloads
@@ -2106,6 +2137,8 @@ class ReviewPipelineOrchestrator:
             self.session.create()
         self.llm_client: ReviewLLMClient | None = llm_client
         self.verification_client: ReviewLLMClient | None = verification_client
+        # The coverage gaps of the review: each file that a stage could not read or build, with
+        # the stage and the reason, for the report's table of skipped and errored files.
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self.static_analyzer_reasons: dict[str, str] = {}
@@ -2284,7 +2317,10 @@ class ReviewPipelineOrchestrator:
             reused = len(file_metas)
             workers = DEFAULT_PRE_ANALYSIS_WORKERS if self.concurrency is None else self.concurrency
             if paths_to_analyze:
-                file_metas.extend(_execute_pre_analysis_batch(paths_to_analyze, repo, workers))
+                analyzed, unread = _execute_pre_analysis_batch(paths_to_analyze, repo, workers)
+                file_metas.extend(analyzed)
+                for rel_path, reason in unread.items():
+                    _record_coverage_gap(self.errored_files, rel_path, reason)
 
             file_metas = _record_symbol_deltas(file_metas, repo, base_revision)
             metadata_by_path = {meta.path: meta for meta in file_metas}
@@ -2366,6 +2402,7 @@ class ReviewPipelineOrchestrator:
                         self.base_revision,
                         file_paths=file_paths,
                         secret_scan_files=self.secret_scan_files,
+                        coverage_gaps=self.errored_files,
                         path_classes=self.path_classes,
                         severity_caps=self.severity_caps,
                         tool_executor=self.tool_executor,
@@ -2383,6 +2420,7 @@ class ReviewPipelineOrchestrator:
                     file_paths=file_paths,
                     secret_scan_files=self.secret_scan_files,
                     resolve_file_path=self._resolve_file_path,
+                    coverage_gaps=self.errored_files,
                     path_classes=self.path_classes,
                     severity_caps=self.severity_caps,
                     suppressions=getattr(self, "suppressions", None),
@@ -2508,6 +2546,7 @@ class ReviewPipelineOrchestrator:
                 file_paths=file_paths,
                 secret_scan_files=self.secret_scan_files,
                 resolve_file_path=self._resolve_file_path,
+                coverage_gaps=self.errored_files,
                 path_classes=self.path_classes,
                 suppressions=getattr(self, "suppressions", None),
                 added_diff_lines=eff_added,
@@ -2556,12 +2595,14 @@ class ReviewPipelineOrchestrator:
         for fpath in file_paths:
             p_target = self._resolve_file_path(fpath)
             file_nets: list[NetworkReference] = []
-            if p_target.exists() and p_target.is_file():
+            if p_target.is_file():
                 try:
                     f_content = p_target.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    reason = _read_failure("Threat intelligence", exc)
+                    _record_coverage_gap(self.errored_files, fpath, reason)
+                else:
                     file_nets = extract_network_references(f_content, fpath)
-                except Exception as exc:
-                    logger.debug("Failed extracting network references from %s: %s", fpath, exc)
             raw_file_data[fpath] = ([], file_nets)
             unique_nets.update((n.target, n.reference_type) for n in file_nets)
 
@@ -2629,18 +2670,6 @@ class ReviewPipelineOrchestrator:
         wt_root: Path,
     ) -> tuple[Any | None, SavedFinding | None]:
         """Attempt to admit an advisory finding candidate against the active worktree."""
-
-        def _read_content(path_str: str) -> str | None:
-            p = wt_root / path_str
-            if not p.is_file():
-                p = self._resolve_file_path(path_str)
-            try:
-                if p.is_file():
-                    return p.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                return None
-            return None
-
         idx = len(getattr(self, "admitted_scanner_findings", []))
         return _admit_single_candidate(
             raw_finding,
@@ -2648,7 +2677,12 @@ class ReviewPipelineOrchestrator:
             session_id=getattr(self, "session_id", "advisory"),
             worktree_root=wt_root,
             commit_files={fpath, Path(fpath).as_posix().lstrip("/")},
-            file_content_getter=_read_content,
+            file_content_getter=partial(
+                _read_cited_file,
+                worktree_root=wt_root,
+                resolve_file_path=self._resolve_file_path,
+                coverage_gaps=self.errored_files,
+            ),
             path_classes=getattr(self, "path_classes", None),
             suppressions=getattr(self, "suppressions", None),
             added_diff_lines=getattr(self, "added_diff_lines", None),
@@ -2780,7 +2814,7 @@ class ReviewPipelineOrchestrator:
         except Exception as exc:
             logger.error("Error creating review payload for %s: %s", fpath, exc)
             err_desc = _format_error_detail("Initialization", exc)
-            self.errored_files[fpath] = err_desc
+            _record_coverage_gap(self.errored_files, fpath, err_desc)
             warn_msg = f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] [bold]{fpath}[/bold] [dim]({err_desc})[/dim][/yellow]"
             print_info(warn_msg, prefix=False)
             return None
