@@ -178,6 +178,7 @@ All external binaries run through `run_subprocess` / `run_subprocess_async` (`de
 - Explicit bounded timeouts (default 1800 s) with standardized `TimeoutExpired` domain error translation.
 - An audit-record writer (`devops_cli.core.audit.record_audit_event`, `.data/logs/audit.jsonl`) records each write of a config file (`save_settings`). It is not yet called from command or subprocess execution.
 - Deterministic mock isolation protocols for fast offline unit testing, dry-run reporting, environment isolation, and OpenTelemetry spans.
+- **Subprocess spans**: A subprocess span holds the program and the number of its arguments. It holds the arguments only when `telemetry.capture_command_args` turns them on ([docs/TELEMETRY.md](docs/TELEMETRY.md)).
 - **Process groups**: Start a child with `start_new_session=True`, and stop it by its process group (`os.killpg`), as `_terminate_process_group` in `src/devops_cli/sandbox/host.py` does. Do not signal a pid below 2, the own process group (`os.getpgrp()`) or a process group below 2.
 - **Shared container**: Never set `RLIMIT_NPROC`: Linux counts it for the real user across the container, so it starves VS Code Server and the shells. Never set `O_NONBLOCK` on descriptors 0, 1 or 2: it corrupts the terminal.
 

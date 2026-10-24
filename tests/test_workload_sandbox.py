@@ -16,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_TRACESTATE_ENV_VAR,
 )
 from devops_cli.config.defaults import DEFAULT_SANDBOX_PIDS_LIMIT
+from devops_cli.config.settings import TelemetryConfig
 from devops_cli.docker.sandbox import (
     WorkloadSandboxConfig,
     WorkloadSandboxRunner,
@@ -304,7 +305,8 @@ def test_a_workload_run_with_tracing_off_gets_exactly_its_configured_env(
     """With tracing disabled the container's environment is the config's env and nothing else."""
     cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["env"], env={"APP_MODE": "test"})
     with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings", return_value=(None, False)
+        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
+        return_value=TelemetryConfig(enabled=False),
     ):
         reset_tracer()
         environment = _run_with_mock_engine(cfg, docker_engine)

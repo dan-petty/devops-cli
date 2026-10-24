@@ -185,30 +185,32 @@ def build_subprocess_env(
     return base_env
 
 
-def _sanitize_command_for_telemetry(cmd: list[str]) -> str:
-    """Produce a sanitized, bounded command summary for telemetry and spans."""
-    from devops_cli.security.sanitizer import mask_secrets
+def _subprocess_span_attributes(
+    cmd: list[str], bin_name: str, cwd: Path | None, timeout: float
+) -> dict[str, Any]:
+    """The attributes a subprocess span starts with: the program and the number of its arguments.
 
-    if not cmd:
-        return ""
-    sanitized_parts: list[str] = []
-    redact_next = False
-    for arg in cmd[:8]:
-        if redact_next:
-            sanitized_parts.append("[REDACTED]")
-            redact_next = False
-            continue
-        if arg in ("--comment", "-c", "--body", "-b"):
-            sanitized_parts.append(arg)
-            redact_next = True
-        elif any(arg.startswith(prefix) for prefix in ("title=", "body=", "comment=")):
-            key = arg.split("=", 1)[0]
-            sanitized_parts.append(f"{key}=[REDACTED]")
-        else:
-            masked = mask_secrets(arg)
-            sanitized_parts.append(masked[:57] + "..." if len(masked) > 60 else masked)
-    summary = " ".join(sanitized_parts) + ("..." if len(cmd) > 8 else "")
-    return mask_secrets(summary)[:256]
+    The arguments go in `process.command_args` only when `telemetry.capture_command_args` turns
+    them on, each one through the secret mask. The OpenTelemetry semantic conventions make
+    `process.command_args` and `process.command_line` Opt-In: a command such as `devops uv run`
+    or `devops gh api` passes the arguments of a person on, and an argument can be a credential
+    that the mask does not find (#2025). No attribute holds `process.command_line`, which the
+    conventions say not to assemble from the arguments.
+    """
+    attrs: dict[str, Any] = {
+        "subprocess.bin": bin_name,
+        "subprocess.args_count": len(cmd),
+        "subprocess.cwd": str(cwd or ""),
+        "subprocess.timeout_seconds": timeout,
+        "process.executable.name": bin_name,
+        "process.args_count": len(cmd),
+        "process.working_directory": str(cwd or ""),
+    }
+    if get_tracer().capture_command_args:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        attrs["process.command_args"] = [mask_secrets(arg) for arg in cmd]
+    return attrs
 
 
 def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
@@ -369,7 +371,6 @@ def run_subprocess(
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
-    cmd_summary = _sanitize_command_for_telemetry(cmd)
     start_time = time.perf_counter()
 
     sub_env = build_subprocess_env(
@@ -381,16 +382,7 @@ def run_subprocess(
 
     with trace_span(
         f"subprocess.{bin_name}",
-        attributes={
-            "subprocess.bin": bin_name,
-            "subprocess.cmd": cmd_summary,
-            "subprocess.args_count": len(cmd),
-            "subprocess.cwd": str(cwd or ""),
-            "subprocess.timeout_seconds": timeout,
-            "process.executable.name": bin_name,
-            "process.command_line": cmd_summary,
-            "process.working_directory": str(cwd or ""),
-        },
+        attributes=_subprocess_span_attributes(cmd, bin_name, cwd, timeout),
     ) as span_h:
         # Inject active subprocess span as parent trace context for child process
         get_tracer().inject_trace_env(sub_env)
@@ -654,7 +646,6 @@ async def run_subprocess_async(
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
-    cmd_summary = _sanitize_command_for_telemetry(cmd)
     start_time = time.perf_counter()
 
     sub_env = build_subprocess_env(
@@ -667,16 +658,7 @@ async def run_subprocess_async(
 
     with trace_span(
         f"subprocess.{bin_name}",
-        attributes={
-            "subprocess.bin": bin_name,
-            "subprocess.cmd": cmd_summary,
-            "subprocess.args_count": len(cmd),
-            "subprocess.cwd": str(cwd or ""),
-            "subprocess.timeout_seconds": timeout,
-            "process.executable.name": bin_name,
-            "process.command_line": cmd_summary,
-            "process.working_directory": str(cwd or ""),
-        },
+        attributes=_subprocess_span_attributes(cmd, bin_name, cwd, timeout),
     ) as span_h:
         get_tracer().inject_trace_env(sub_env)
         stdout_pipe = asyncio.subprocess.PIPE if capture_output else None

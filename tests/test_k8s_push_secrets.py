@@ -26,6 +26,7 @@ from devops_cli.commands.k8s.cluster_secret_push import push_secrets
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
 from devops_cli.config import options as opt
 from devops_cli.config.env import ENV_VAR_TO_OPTION, OPTION_TO_ENV_VAR, get_all_env_var_specs
+from devops_cli.config.settings import TelemetryConfig
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     LLM_GATEWAY_MASTER_KEY,
@@ -70,7 +71,9 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeCluster]:
     # No exporter to start for each child's span, nor to flush at teardown.
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
     # Each child's span would otherwise load the settings twice per test to learn the above.
-    monkeypatch.setattr(tracer, "_resolve_telemetry_settings", lambda: (None, False))
+    monkeypatch.setattr(
+        tracer, "_resolve_telemetry_settings", lambda: TelemetryConfig(enabled=False)
+    )
     monkeypatch.setenv("K8S_CONTEXT", "test-ctx")
     monkeypatch.setenv("K8S_NAMESPACE", "test")
     fake = FakeCluster()

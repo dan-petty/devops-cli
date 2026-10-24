@@ -20,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_TRACESTATE_ENV_VAR,
     CONST_X11_SOCKET_DIR,
 )
+from devops_cli.config.settings import TelemetryConfig
 from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 from devops_cli.exceptions.docker import DockerEngineError, DockerSandboxError
 from devops_cli.exceptions.sandbox import (
@@ -1662,7 +1663,8 @@ def test_a_sandbox_deployed_with_tracing_off_gets_exactly_its_configured_env(
 ) -> None:
     """With tracing disabled the container's environment is the config's env and nothing else."""
     with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings", return_value=(None, False)
+        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
+        return_value=TelemetryConfig(enabled=False),
     ):
         reset_tracer()
         _engine, _cfg, _instance, client = _deploy_with_mock_engine(
@@ -1695,7 +1697,8 @@ def test_each_exec_is_parented_to_its_own_exec_span(
 def test_an_exec_with_tracing_off_sends_no_environment(tmp_path: Path, docker_engine: Any) -> None:
     """With tracing disabled an exec passes no environment, as before."""
     with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings", return_value=(None, False)
+        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
+        return_value=TelemetryConfig(enabled=False),
     ):
         reset_tracer()
         engine, _cfg, instance, client = _deploy_with_mock_engine(tmp_path, docker_engine)

@@ -33,6 +33,7 @@ from devops_cli.config import options as opt
 from devops_cli.config.settings import (
     QdrantConfig,
     Settings,
+    TelemetryConfig,
     dotted_set,
     get_qdrant_api_key,
 )
@@ -240,7 +241,9 @@ def test_dotted_set_routes_qdrant_api_key_to_keyring() -> None:
 def cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeCluster]:
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
     # Each child's span would otherwise load the settings twice per test to learn the above.
-    monkeypatch.setattr(tracer, "_resolve_telemetry_settings", lambda: (None, False))
+    monkeypatch.setattr(
+        tracer, "_resolve_telemetry_settings", lambda: TelemetryConfig(enabled=False)
+    )
     monkeypatch.setenv("K8S_CONTEXT", "test-ctx")
     monkeypatch.setenv("K8S_NAMESPACE", "test")
     fake = FakeCluster(namespaces={"llm", "cloudflared"})

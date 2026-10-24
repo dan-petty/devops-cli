@@ -434,24 +434,3 @@ async def test_the_async_runner_pins_gh_too(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     proc = await run_subprocess_async([CONST_GH_CLI, "issue", "list"])
     assert (proc.returncode, spawned) == (127, [([CONST_GH_CLI, "issue", "list"], "A")])
-
-
-def test_sanitize_command_for_telemetry() -> None:
-    """Verify _sanitize_command_for_telemetry redacts sensitive args and user comments."""
-    from devops_cli.core.process import _sanitize_command_for_telemetry
-
-    cmd = [
-        CONST_GH_CLI,
-        "pr",
-        "close",
-        "187",
-        "--comment",
-        "Secret comment ghp_secrettoken1234567890abcdefghijklmn",
-    ]
-    summary = _sanitize_command_for_telemetry(cmd)
-    assert "[REDACTED]" in summary
-    assert "ghp_secrettoken" not in summary
-
-    cmd2 = [CONST_GH_CLI, "api", "issues/1", "-f", "title=Secret issue title"]
-    summary2 = _sanitize_command_for_telemetry(cmd2)
-    assert "title=[REDACTED]" in summary2
