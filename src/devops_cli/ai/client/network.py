@@ -297,7 +297,14 @@ def acquire_ollama_slot(
     timeout: float | None = None,
     priority: RequestPriority | str | None = None,
 ) -> Generator[str]:
-    """Dynamically lease an available Ollama slot across candidate nodes with priority scheduling."""
+    """Dynamically lease an available Ollama slot across candidate nodes with priority scheduling.
+
+    The lease counts the calls of this process only. `active_ollama_requests` and
+    `ollama_slot_condition` are module state, so two processes can each hold `max_parallel`
+    leases on one URL. This is by design. A lease across processes would add a hidden queue in
+    front of the queue of Ollama itself (`OLLAMA_NUM_PARALLEL` 1), as the gateway caps did
+    before #467. Ollama queues the excess calls itself.
+    """
     if not candidates:
         raise AIClientError("No candidate Ollama servers provided for slot leasing.")
 
