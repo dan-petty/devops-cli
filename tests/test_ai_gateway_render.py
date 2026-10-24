@@ -94,49 +94,41 @@ spec:
     llm.devops.io/speed-tier: standard
 """
 
-SAMPLE_CONFIGMAP_YAML = """# Header comment
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: llm-gateway-config
-  namespace: llm
-data:
-  config.yaml: |
-    model_list:
-      # Comment on chat
-      - model_name: devops-chat
-        litellm_params:
-          model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-          model_info:
-            max_input_tokens: 96000
-          weight: 10
-      - model_name: devops-chat
-        litellm_params:
-          model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
-          model_info:
-            max_input_tokens: 128000
-          weight: 5
-      - model_name: devops-chat
-        litellm_params:
-          model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
-          model_info:
-            max_input_tokens: 128000
-          weight: 3
+SAMPLE_CONFIG_YAML = """# Header comment
+model_list:
+  # Comment on chat
+  - model_name: devops-chat
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
+      model_info:
+        max_input_tokens: 96000
+      weight: 10
+  - model_name: devops-chat
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
+      model_info:
+        max_input_tokens: 128000
+      weight: 5
+  - model_name: devops-chat
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
+      model_info:
+        max_input_tokens: 128000
+      weight: 3
 
-      # Background tier has no max_input_tokens
-      - model_name: devops-background
-        litellm_params:
-          model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-          timeout: 1100
-          num_retries: 0
+  # Background tier has no max_input_tokens
+  - model_name: devops-background
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
+      timeout: 1100
+      num_retries: 0
 
-    router_settings:
-      routing_strategy: least-busy
+router_settings:
+  routing_strategy: least-busy
 """
 
 
@@ -192,12 +184,10 @@ def test_render_gateway_config_eliminates_weights_and_aligns_max_input_tokens() 
         "ollama-64gib-standard": 160000,
         "ollama-48gib-slow": 128000,
     }
-    rendered = render_gateway_config(SAMPLE_CONFIGMAP_YAML, svc_lengths)
+    rendered = render_gateway_config(SAMPLE_CONFIG_YAML, svc_lengths)
 
-    # Parse inner config to verify values structurally
-    docs = list(yaml.safe_load_all(rendered))
-    cfg = yaml.safe_load(docs[0]["data"]["config.yaml"])
-    models = cfg["model_list"]
+    # Parse the config to verify values structurally
+    models = yaml.safe_load(rendered)["model_list"]
 
     chat_16 = next(
         m
@@ -250,8 +240,8 @@ def test_diff_gateway_config_empty_when_identical() -> None:
 
 def test_cli_gateway_render_dry_run_displays_diff_without_writing(tmp_path: Path) -> None:
     """Verify render command without --apply shows diff and does not mutate files."""
-    cm = tmp_path / "configmap.yaml"
-    cm.write_text(SAMPLE_CONFIGMAP_YAML, encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML, encoding="utf-8")
     profiles = tmp_path / "profiles.yaml"
     profiles.write_text(SAMPLE_PROFILES_YAML, encoding="utf-8")
     services = tmp_path / "services.yaml"
@@ -261,8 +251,8 @@ def test_cli_gateway_render_dry_run_displays_diff_without_writing(tmp_path: Path
         ai_gateway_app,
         [
             "render",
-            "--configmap",
-            str(cm),
+            "--config",
+            str(config),
             "--profiles",
             str(profiles),
             "--services",
@@ -272,17 +262,17 @@ def test_cli_gateway_render_dry_run_displays_diff_without_writing(tmp_path: Path
 
     assert (
         result.exit_code,
-        "-            max_input_tokens: 96000" in result.output,
-        "+            max_input_tokens: 48000" in result.output,
-        "-          weight: 10" in result.output,
-        cm.read_text(encoding="utf-8") == SAMPLE_CONFIGMAP_YAML,
+        "-        max_input_tokens: 96000" in result.output,
+        "+        max_input_tokens: 48000" in result.output,
+        "-      weight: 10" in result.output,
+        config.read_text(encoding="utf-8") == SAMPLE_CONFIG_YAML,
     ) == (0, True, True, True, True)
 
 
 def test_cli_gateway_render_apply_writes_file_and_makes_no_cluster_calls(tmp_path: Path) -> None:
-    """Verify render command with --apply updates configmap without making any Kubernetes API calls."""
-    cm = tmp_path / "configmap.yaml"
-    cm.write_text(SAMPLE_CONFIGMAP_YAML, encoding="utf-8")
+    """Verify render command with --apply updates the config file without making any Kubernetes API calls."""
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML, encoding="utf-8")
     profiles = tmp_path / "profiles.yaml"
     profiles.write_text(SAMPLE_PROFILES_YAML, encoding="utf-8")
     services = tmp_path / "services.yaml"
@@ -293,8 +283,8 @@ def test_cli_gateway_render_apply_writes_file_and_makes_no_cluster_calls(tmp_pat
         [
             "render",
             "--apply",
-            "--configmap",
-            str(cm),
+            "--config",
+            str(config),
             "--profiles",
             str(profiles),
             "--services",
@@ -302,7 +292,7 @@ def test_cli_gateway_render_apply_writes_file_and_makes_no_cluster_calls(tmp_pat
         ],
     )
 
-    updated_text = cm.read_text(encoding="utf-8")
+    updated_text = config.read_text(encoding="utf-8")
     assert (
         result.exit_code,
         "weight:" not in updated_text,
@@ -313,8 +303,8 @@ def test_cli_gateway_render_apply_writes_file_and_makes_no_cluster_calls(tmp_pat
 
 def test_cli_gateway_render_apply_idempotent(tmp_path: Path) -> None:
     """Verify second render --apply on already up-to-date file is a no-op with clean exit code."""
-    cm = tmp_path / "configmap.yaml"
-    cm.write_text(SAMPLE_CONFIGMAP_YAML, encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML, encoding="utf-8")
     profiles = tmp_path / "profiles.yaml"
     profiles.write_text(SAMPLE_PROFILES_YAML, encoding="utf-8")
     services = tmp_path / "services.yaml"
@@ -326,8 +316,8 @@ def test_cli_gateway_render_apply_idempotent(tmp_path: Path) -> None:
         [
             "render",
             "--apply",
-            "--configmap",
-            str(cm),
+            "--config",
+            str(config),
             "--profiles",
             str(profiles),
             "--services",
@@ -341,8 +331,8 @@ def test_cli_gateway_render_apply_idempotent(tmp_path: Path) -> None:
         [
             "render",
             "--apply",
-            "--configmap",
-            str(cm),
+            "--config",
+            str(config),
             "--profiles",
             str(profiles),
             "--services",

@@ -1696,7 +1696,7 @@ devops ai gateway render [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--apply` | `boolean` | - | Write rendered gateway configuration to file. |
-| `--configmap` | `path` | - | Path to gateway configmap YAML. |
+| `--config` | `path` | - | Path to the gateway's LiteLLM config file. |
 | `--profiles` | `path` | - | Path to Ollama profiles YAML. |
 | `--services` | `path` | - | Path to LLM services YAML. |
 

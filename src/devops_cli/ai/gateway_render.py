@@ -13,8 +13,10 @@ import yaml
 _WEIGHT_LINE_RE: Final[re.Pattern[str]] = re.compile(r"^\s*weight:\s*\d+\s*$")
 _MAX_TOKENS_LINE_RE: Final[re.Pattern[str]] = re.compile(r"^(\s*max_input_tokens:\s*)(\d+)(\s*)$")
 _API_BASE_RE: Final[re.Pattern[str]] = re.compile(r"api_base:\s*https?://([^.]+)\.")
-_SECTION_HEADER_RE: Final[re.Pattern[str]] = re.compile(r"^\s{4}[a-zA-Z0-9_-]+:")
-_ENTRY_START_RE: Final[re.Pattern[str]] = re.compile(r"^\s{6}-\s+")
+# The LiteLLM config file k8s/llm/gateway/config.yaml: its sections are top-level keys, and each
+# model_list entry starts at an indent of two.
+_SECTION_HEADER_RE: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_-]+:")
+_ENTRY_START_RE: Final[re.Pattern[str]] = re.compile(r"^\s{2}-\s+")
 
 
 def _extract_container_context_length(container: dict[str, Any]) -> int | None:
@@ -106,9 +108,9 @@ def _process_deployment_block(block_lines: list[str], service_lengths: dict[str,
     return result
 
 
-def render_gateway_config(configmap_content: str, service_lengths: dict[str, int]) -> str:
-    """Render gateway ConfigMap YAML text: remove weights and align max_input_tokens."""
-    lines = configmap_content.splitlines(keepends=True)
+def render_gateway_config(config_content: str, service_lengths: dict[str, int]) -> str:
+    """Render the gateway's LiteLLM config text: remove weights and align max_input_tokens."""
+    lines = config_content.splitlines(keepends=True)
     output_lines: list[str] = []
     in_model_list = False
     current_block: list[str] = []
@@ -140,7 +142,7 @@ def render_gateway_config(configmap_content: str, service_lengths: dict[str, int
 
 
 def diff_gateway_config(
-    current_content: str, rendered_content: str, filename: str = "configmap.yaml"
+    current_content: str, rendered_content: str, filename: str = "config.yaml"
 ) -> str:
     """Generate a unified diff between current and rendered gateway configuration."""
     if current_content == rendered_content:

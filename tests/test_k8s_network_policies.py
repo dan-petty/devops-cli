@@ -12,7 +12,7 @@ import yaml
 from devops_cli.commands.k8s import stack_lifecycle
 from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA, _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import _KUSTOMIZATIONS_BY_STACK, _MANIFESTS_BY_STACK
-from tests.k8s_manifests import kustomized_objects, manifest_objects
+from tests.k8s_manifests import applied_objects, kustomized_objects, manifest_objects
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -57,8 +57,8 @@ def test_kustomization_includes_networkpolicy(namespace: str) -> None:
 def _deploy_stack_network_policies() -> set[tuple[str, str]]:
     """(namespace, name) of every NetworkPolicy `deploy-stack --stack all` applies without Argo CD.
 
-    It applies the root kustomization, then each stack's kustomizations, then its manifest files,
-    then its post-Helm paths.
+    It applies the root kustomization, then each stack's kustomizations, then its manifest paths,
+    then its post-Helm paths. A manifest path is a file or a kustomization directory.
     """
     stacks = _resolve_stacks("all")
     post_helm_by_stack: dict[str, tuple[Path, ...]] = getattr(
@@ -78,7 +78,7 @@ def _deploy_stack_network_policies() -> set[tuple[str, str]]:
         policy
         for kustomization in kustomizations
         for policy in kustomized_objects(kustomization, "NetworkPolicy")
-    } | {policy for manifest in manifests for policy in manifest_objects(manifest, "NetworkPolicy")}
+    } | {policy for manifest in manifests for policy in applied_objects(manifest, "NetworkPolicy")}
 
 
 def _policies_from_source(src: dict[str, Any]) -> set[tuple[str, str]]:

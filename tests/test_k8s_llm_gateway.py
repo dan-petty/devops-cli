@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shutil
 import sys
 from collections.abc import Callable, Iterator
 from functools import reduce
@@ -28,6 +29,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.k8s.gpu_matrix import get_gateway_routing_entries
+from tests.k8s_manifests import kustomize
 from tests.support.markdown_examples import (
     YAML_FENCE_LANGUAGES,
     code_snippets,
@@ -37,6 +39,9 @@ from tests.support.markdown_examples import (
 )
 
 GATEWAY_DIR = Path("k8s/llm/gateway")
+# The LiteLLM config; the gateway kustomization generates ConfigMap llm-gateway-config from it.
+GATEWAY_CONFIG = GATEWAY_DIR / "config.yaml"
+LLM_DIR = Path("k8s/llm")
 PROFILES_DIR = Path("k8s/llm/profiles")
 OLLAMA_PROFILES_MANIFEST = PROFILES_DIR / "ollama-profiles.yaml"
 SERVICES_MANIFEST = PROFILES_DIR / "services.yaml"
@@ -84,8 +89,21 @@ def _load_service(path: Path, name: str) -> dict[str, Any]:
 
 def _gateway_config() -> dict[str, Any]:
     """Return the LiteLLM configuration the gateway ConfigMap carries."""
-    cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
-    return dict(yaml.safe_load(cm["data"]["config.yaml"]))
+    return dict(yaml.safe_load(GATEWAY_CONFIG.read_text(encoding="utf-8")))
+
+
+def _rendered_gateway(directory: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the gateway Deployment and the ConfigMap its config volume names, as
+    `kubectl apply -k <directory>` applies them; the ConfigMap is empty when none has that name."""
+    documents = [doc for doc in yaml.safe_load_all(kustomize(directory).stdout) if doc]
+    deployment = next(
+        doc
+        for doc in documents
+        if doc["kind"] == "Deployment" and doc["metadata"]["name"] == "llm-gateway"
+    )
+    volumes = {v["name"]: v for v in deployment["spec"]["template"]["spec"]["volumes"]}
+    configmaps = {doc["metadata"]["name"]: doc for doc in documents if doc["kind"] == "ConfigMap"}
+    return deployment, configmaps.get(volumes["config-volume"]["configMap"]["name"], {})
 
 
 def _deployments(group: str) -> list[dict[str, Any]]:
@@ -264,12 +282,22 @@ def _routes(deployments: list[dict[str, Any]]) -> list[tuple[str, str, int | Non
 
 
 def _kustomized_files(directory: Path) -> set[Path]:
-    """Return the files `kubectl apply -k` applies from a kustomization, following directories."""
+    """Return the files `kubectl apply -k` applies from a kustomization, following directories.
+
+    A file a ConfigMap generator reads counts: the ConfigMap holds it.
+    """
     kustomization = yaml.safe_load((directory / "kustomization.yaml").read_text(encoding="utf-8"))
     entries = [directory / entry for entry in kustomization.get("resources", [])]
-    return {entry for entry in entries if not entry.is_dir()} | {
-        path for entry in entries if entry.is_dir() for path in _kustomized_files(entry)
+    generated = {
+        directory / file
+        for generator in kustomization.get("configMapGenerator", [])
+        for file in generator.get("files", [])
     }
+    return (
+        {entry for entry in entries if not entry.is_dir()}
+        | generated
+        | {path for entry in entries if entry.is_dir() for path in _kustomized_files(entry)}
+    )
 
 
 def _mounts(container: dict[str, Any]) -> dict[str, str]:
@@ -338,21 +366,14 @@ class TestK8sLLMGatewayManifests:
 
     def test_gateway_configmap_virtual_models(self) -> None:
         """Verify Gateway ConfigMap defines all virtual model aliases and routing rules."""
-        cm_path = GATEWAY_DIR / "configmap.yaml"
-        docs = list(yaml.safe_load_all(cm_path.read_text(encoding="utf-8")))
-        cm = next(d for d in docs if d and d.get("kind") == "ConfigMap")
-
-        raw_cfg = cm["data"]["config.yaml"]
-        cfg = yaml.safe_load(raw_cfg)
+        cfg = _gateway_config()
         models = list(dict.fromkeys(m["model_name"] for m in cfg["model_list"]))
 
         assert (
-            cm["metadata"]["name"],
             models,
             cfg["router_settings"]["routing_strategy"],
             cfg["router_settings"]["fallbacks"],
         ) == (
-            "llm-gateway-config",
             [
                 "devops-chat",
                 "devops-coder",
@@ -376,8 +397,7 @@ class TestK8sLLMGatewayManifests:
 
     def test_gateway_configmap_routes_coder_and_reasoning(self) -> None:
         """Verify reasoning and coder aliases reach target Ollama profiles."""
-        cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
-        cfg = yaml.safe_load(cm["data"]["config.yaml"])
+        cfg = _gateway_config()
         params = {m["model_name"]: m["litellm_params"] for m in cfg["model_list"]}
 
         assert (
@@ -394,8 +414,7 @@ class TestK8sLLMGatewayManifests:
 
     def test_gateway_escalates_to_larger_models(self) -> None:
         """Verify long prompts escalate by context window and fallback chain is configured."""
-        cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
-        cfg = yaml.safe_load(cm["data"]["config.yaml"])
+        cfg = _gateway_config()
         router = cfg["router_settings"]
 
         assert (
@@ -725,8 +744,7 @@ class TestK8sLLMGatewayManifests:
 
     def test_gateway_configmap_enforces_master_key_and_long_generations(self) -> None:
         """Verify the gateway requires its master key and allows long code-review generations."""
-        cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
-        cfg = yaml.safe_load(cm["data"]["config.yaml"])
+        cfg = _gateway_config()
 
         assert (
             cfg["general_settings"]["master_key"],
@@ -1352,7 +1370,7 @@ def _ollama_consumers() -> set[tuple[str, str]]:
         str(OPEN_WEBUI_VALUES): _named_ollama_services(
             yaml.safe_load(OPEN_WEBUI_VALUES.read_text(encoding="utf-8"))
         ),
-        str(GATEWAY_DIR / "configmap.yaml"): _named_ollama_services(_gateway_config()),
+        str(GATEWAY_CONFIG): _named_ollama_services(_gateway_config()),
         str(DEVCONTAINER): _named_ollama_services(
             json.loads(DEVCONTAINER.read_text(encoding="utf-8"))
         ),
@@ -1406,7 +1424,54 @@ def test_a_tier_that_stops_serving_names_each_consumer_that_reaches_it_alone() -
     """Negative control: with ollama-16gib marked as not serving, as when its host went
     offline, the check names exactly the consumers whose Service selects that tier alone."""
     assert _consumers_off_serving_tiers(_serving_tiers() - {"ollama-16gib"}) == {
-        (str(GATEWAY_DIR / "configmap.yaml"), "ollama-16gib-fast"),
+        (str(GATEWAY_CONFIG), "ollama-16gib-fast"),
         ("devops_cli.config.defaults.DEFAULT_GATEWAY_REVIEW_SLOTS", "ollama-16gib-fast"),
         (str(DEVCONTAINER), "ollama-16gib"),
     }
+
+
+@pytest.mark.parametrize("directory", [LLM_DIR, GATEWAY_DIR], ids=["argo-cd", "deploy-stack"])
+def test_the_gateway_mounts_a_config_map_named_by_a_hash_of_its_config(directory: Path) -> None:
+    """Argo CD's `llm` Application renders `k8s/llm` with Kustomize, and deploy-stack applies
+    `k8s/llm/gateway` with `kubectl apply -k`. Both give the gateway ConfigMap
+    `llm-gateway-config-<hash>`, which holds `config.yaml` as git has it, and write that name into
+    the Deployment's config volume. Before #1929 the name had no hash, so a changed config left
+    the pod template as it was, and the gateway served the old config until a person restarted it.
+    """
+    _, configmap = _rendered_gateway(directory)
+    name = configmap.get("metadata", {}).get("name", "")
+
+    assert (
+        re.fullmatch(r"llm-gateway-config-[a-z0-9]{10}", name) is not None,
+        configmap.get("data"),
+    ) == (True, {"config.yaml": GATEWAY_CONFIG.read_text(encoding="utf-8")})
+
+
+def test_a_changed_gateway_config_changes_only_the_config_map_name_in_the_pod_template(
+    tmp_path: Path,
+) -> None:
+    """A change to `config.yaml` alone changes the gateway's pod template, so Kubernetes rolls the
+    Deployment onto the new config and no `kubectl rollout restart` is necessary (#1929). The
+    template changes in the name of its config volume's ConfigMap and in nothing else."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    shutil.copytree(GATEWAY_DIR, before)
+    shutil.copytree(GATEWAY_DIR, after)
+    config = after / "config.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("cooldown_time: 30", "cooldown_time: 60"),
+        encoding="utf-8",
+    )
+    (old, old_configmap), (new, new_configmap) = _rendered_gateway(before), _rendered_gateway(after)
+
+    def unnamed(deployment: dict[str, Any]) -> dict[str, Any]:
+        template = copy.deepcopy(deployment["spec"]["template"])
+        for volume in template["spec"]["volumes"]:
+            volume.get("configMap", {}).pop("name", None)
+        return template
+
+    assert (
+        old["spec"]["template"] == new["spec"]["template"],
+        unnamed(old) == unnamed(new),
+        old_configmap["metadata"]["name"] == new_configmap["metadata"]["name"],
+        yaml.safe_load(new_configmap["data"]["config.yaml"])["router_settings"]["cooldown_time"],
+    ) == (False, True, False, 60)

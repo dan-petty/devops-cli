@@ -17,7 +17,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_REPOS,
     _MANIFESTS_BY_STACK,
 )
-from tests.k8s_manifests import kustomized_objects, manifest_objects
+from tests.k8s_manifests import applied_objects, kustomized_objects, manifest_objects
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -542,7 +542,7 @@ def test_no_plain_service_sits_in_a_helm_namespace_without_owned_exemption() -> 
         svc
         for manifests in _MANIFESTS_BY_STACK.values()
         for m in manifests
-        for svc in manifest_objects(REPO_ROOT / m, "Service")
+        for svc in applied_objects(REPO_ROOT / m, "Service")
     }
     colliding = {svc for svc in (base_services | manifest_services) if svc[0] in helm_namespaces}
     exempted = set(EXEMPT_PLAIN_SERVICES)

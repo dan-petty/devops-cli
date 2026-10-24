@@ -22,7 +22,7 @@ A tier that the gateway sends embeddings to keeps two models loaded (`OLLAMA_MAX
 - [x] An offline test requires one embedding deployment per serving tier with the order above, and `num_ctx` equal to `CONST_RAG_MAX_CHUNK_TOKENS`.
 - [x] An offline test requires two loaded models on every tier that the gateway sends embeddings to, one on every other tier, and `OLLAMA_NUM_PARALLEL=1` on all tiers.
 - [x] `qwen3-embedding:0.6b` is in the model directory of `ollama-16gib`, `ollama-48gib`, `ollama-64gib` and `ollama-48gib-slow`.
-- Pending a person: after Argo CD syncs the merge, run `kubectl -n llm rollout restart deployment/llm-gateway`, because a changed ConfigMap does not roll the gateway (#1929). Then `uv run devops ai rag index . --force --include-kb` completes, and `kubectl -n llm exec ds/ollama-48gib -c ollama -- ollama ps` shows `qwen3-embedding:0.6b` with a context of 8192.
+- Pending a person: after Argo CD syncs the merge and the gateway rolls onto the new config (#1929 rolls it on each config change), `uv run devops ai rag index . --force --include-kb` completes, and `kubectl -n llm exec ds/ollama-48gib -c ollama -- ollama ps` shows `qwen3-embedding:0.6b` with a context of 8192.
 
 ## Trade-offs
 - The pull is a manual step on each node, as for every other model. A node that is re-created without the model fails its embedding deployment, and the router moves on to the next one.

@@ -117,13 +117,12 @@ def test_open_webui_values_disables_telemetry_and_version_check() -> None:
 
 
 def test_litellm_gateway_disables_telemetry() -> None:
-    """Verify LiteLLM Gateway configmap and deployment disable telemetry."""
-    configmap_path = K8S_DIR / "llm" / "gateway" / "configmap.yaml"
+    """Verify LiteLLM Gateway config and deployment disable telemetry."""
+    config_path = K8S_DIR / "llm" / "gateway" / "config.yaml"
     deployment_path = K8S_DIR / "llm" / "gateway" / "deployment.yaml"
-    assert configmap_path.is_file() and deployment_path.is_file()
+    assert config_path.is_file() and deployment_path.is_file()
 
-    cm_data = yaml.safe_load(configmap_path.read_text(encoding="utf-8"))
-    config_yaml = yaml.safe_load(cm_data.get("data", {}).get("config.yaml", ""))
+    config_yaml = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     litellm_settings = config_yaml.get("litellm_settings", {})
     assert litellm_settings.get("telemetry") is False
 

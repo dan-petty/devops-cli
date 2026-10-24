@@ -583,9 +583,9 @@ def render_cmd(
         bool,
         typer.Option("--apply", help="Write rendered gateway configuration to file."),
     ] = False,
-    configmap_path: Annotated[
+    config_path: Annotated[
         Path | None,
-        typer.Option("--configmap", help="Path to gateway configmap YAML."),
+        typer.Option("--config", help="Path to the gateway's LiteLLM config file."),
     ] = None,
     profiles_path: Annotated[
         Path | None,
@@ -606,17 +606,17 @@ def render_cmd(
         render_gateway_config,
     )
     from devops_cli.config.defaults import (
-        DEFAULT_LLM_GATEWAY_CONFIGMAP_PATH,
+        DEFAULT_LLM_GATEWAY_CONFIG_PATH,
         DEFAULT_LLM_PROFILES_PATH,
         DEFAULT_LLM_SERVICES_PATH,
     )
 
-    target_cm = configmap_path or DEFAULT_LLM_GATEWAY_CONFIGMAP_PATH
+    target_config = config_path or DEFAULT_LLM_GATEWAY_CONFIG_PATH
     target_prof = profiles_path or DEFAULT_LLM_PROFILES_PATH
     target_svc = services_path or DEFAULT_LLM_SERVICES_PATH
 
-    if not target_cm.is_file():
-        print_error(f"ConfigMap file not found: {target_cm}", prefix=False)
+    if not target_config.is_file():
+        print_error(f"Gateway config file not found: {target_config}", prefix=False)
         raise typer.Exit(1)
     if not target_prof.is_file():
         print_error(f"Profiles file not found: {target_prof}", prefix=False)
@@ -627,15 +627,15 @@ def render_cmd(
 
     tier_lengths = load_tier_context_lengths(target_prof)
     svc_lengths = load_service_context_lengths(target_svc, tier_lengths)
-    current_content = target_cm.read_text(encoding="utf-8")
+    current_content = target_config.read_text(encoding="utf-8")
     rendered_content = render_gateway_config(current_content, svc_lengths)
-    diff = diff_gateway_config(current_content, rendered_content, filename=target_cm.name)
+    diff = diff_gateway_config(current_content, rendered_content, filename=target_config.name)
 
     if not diff:
-        print_info(f"Gateway configuration at {target_cm} is already up to date.", prefix=False)
+        print_info(f"Gateway configuration at {target_config} is already up to date.", prefix=False)
         return
 
     sys.stdout.write(diff)
     if apply:
-        target_cm.write_text(rendered_content, encoding="utf-8")
-        print_info(f"Wrote rendered gateway configuration to {target_cm}.", prefix=False)
+        target_config.write_text(rendered_content, encoding="utf-8")
+        print_info(f"Wrote rendered gateway configuration to {target_config}.", prefix=False)
