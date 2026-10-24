@@ -1623,12 +1623,25 @@ class CloudflareCommandHelp:
     tunnel_sync: str = "Synchronize tunnel ingress rules to route subdomains to cluster ingress."
 
 
+class SurveyCommandHelp:
+    app: str = "Outward-facing capability and upstream maturity survey."
+    format: str = "Output format (table, json, yaml)."
+    json: str = "Emit survey results in structured JSON."
+    config: str = "Path to survey configuration TOML."
+    emit_candidates: str = "Emit discovered capability gaps as roadmap candidates."
+    confirm: str = "Confirm and apply candidate filing to roadmap."
+    repo: str = "Target GitHub repository in owner/repo format."
+    dependencies_only: str = "Run upstream dependency maturity survey only."
+    capabilities_only: str = "Run comparable tools capability survey only."
+
+
 @dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
     ai: AICommandHelp = field(default_factory=AICommandHelp)
     cloudflare: CloudflareCommandHelp = field(default_factory=CloudflareCommandHelp)
+    survey: SurveyCommandHelp = field(default_factory=SurveyCommandHelp)
 
     ai_cache: AICacheCommandHelp = field(default_factory=AICacheCommandHelp)
     ai_harness: AIHarnessCommandHelp = field(default_factory=AIHarnessCommandHelp)

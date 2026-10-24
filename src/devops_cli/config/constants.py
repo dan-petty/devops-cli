@@ -680,6 +680,7 @@ CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
         ("ssh", "register"),
         ("ssh", "rotate"),
         ("status",),
+        ("survey",),
         ("telemetry", "connect"),
         ("telemetry", "open-ui"),
         ("telemetry", "semconv", "refresh"),

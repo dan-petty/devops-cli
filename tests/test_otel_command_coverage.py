@@ -323,6 +323,7 @@ def test_all_command_specs_registered() -> None:
         "format",
         "lint",
         "status",
+        "survey",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
 

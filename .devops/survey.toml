@@ -1,0 +1,66 @@
+# Comparable tools and outward-facing capabilities configuration (#425)
+
+[[tools]]
+name = "gh"
+description = "GitHub CLI"
+url = "https://cli.github.com"
+
+[[tools]]
+name = "k9s"
+description = "Kubernetes CLI dashboard"
+url = "https://k9scli.io"
+
+[[tools]]
+name = "glab"
+description = "GitLab CLI"
+url = "https://gitlab.com/gitlab-org/cli"
+
+[[capabilities]]
+name = "pr-review"
+description = "Interactive code review and pull request commentary"
+devops_cli = "present"
+citation = "devops review pr"
+
+[[capabilities.comparable]]
+tool = "gh"
+status = "present"
+citation = "https://cli.github.com/manual/gh_pr_review"
+
+[[capabilities]]
+name = "k8s-pod-management"
+description = "Kubernetes pod inspection and execution"
+devops_cli = "present"
+citation = "devops k8s"
+
+[[capabilities.comparable]]
+tool = "k9s"
+status = "present"
+citation = "https://k9scli.io/topics/commands/"
+
+[[capabilities]]
+name = "issue-pinning"
+description = "Pin and unpin issues in repository"
+devops_cli = "absent"
+citation = "N/A"
+
+[[capabilities.comparable]]
+tool = "gh"
+status = "present"
+citation = "https://cli.github.com/manual/gh_issue_pin"
+
+[[capabilities]]
+name = "mr-security-scanning"
+description = "Security scanner integrations for merge requests"
+devops_cli = "present"
+citation = "devops scan"
+
+[[capabilities.comparable]]
+tool = "glab"
+status = "present"
+citation = "https://docs.gitlab.com/ee/editor_extensions/gitlab_cli/"
+
+[[capabilities]]
+name = "unassessed-k8s-helm-diff"
+description = "Kubernetes helm release diff comparison"
+devops_cli = "absent"
+citation = "N/A"

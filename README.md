@@ -451,6 +451,7 @@ and excessive permissions fail it, and every other finding is shown. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **status** | `devops status [OPTIONS]` | Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare) |
+| **survey** | `devops survey [OPTIONS]` | Outward-facing capability and upstream maturity survey. |
 | **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 | **lint** | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 
