@@ -162,7 +162,9 @@ def new_http_client(
     )
     if retries is not None:
         from devops_cli.ai.retries import create_retry_transport
+        from devops_cli.ai.spend.transport import AttemptRecordingTransport
 
+        transport = AttemptRecordingTransport(transport)
         transport = create_retry_transport(max_attempts=retries, wrapped=transport)
     return httpx2.Client(
         timeout=_resolve_client_timeout(timeout, read_timeout), transport=transport, **options

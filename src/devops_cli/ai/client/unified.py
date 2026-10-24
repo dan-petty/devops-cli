@@ -403,9 +403,19 @@ class LLMClient(
         if getattr(self._config, "top_p", None) is not None:
             dispatch_attrs["gen_ai.request.top_p"] = self._config.top_p
 
-        with trace_span(
-            "ai.llm.dispatch", dispatch_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
-        ) as span_handle:
+        with (
+            trace_span(
+                "ai.llm.dispatch", dispatch_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
+            ) as span_handle,
+            network.bind_dispatch_context(
+                provider=p,
+                model=self._config.model,
+                request_type="chat_dispatch",
+                task_name=getattr(self._config, "task_name", None),
+                server=self.backend_host,
+                backend_info=self.backend_info,
+            ),
+        ):
             res = self._invoke_provider_messages(
                 p, system, messages, enable_thinking, resolved_priority
             )
@@ -474,13 +484,20 @@ class LLMClient(
             if res.reasoning_tokens is not None
             else (count_tokens(res.thinking) if res.thinking else 0)
         )
+        resolved_served_model = getattr(res, "served_model", None)
+        if (
+            not resolved_served_model
+            and getattr(res, "model", None)
+            and res.model != self._config.model
+        ):
+            resolved_served_model = res.model
         rec = track_request_spend(
             provider=p,
             model=self._config.model,
             server=srv,
             backend_info=res.backend_info or self.backend_info,
             served_by=getattr(res, "served_by", None),
-            served_model=getattr(res, "served_model", None),
+            served_model=resolved_served_model,
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             cached=res.cached,
@@ -903,11 +920,22 @@ class LLMClient(
             "llm.stream.sanitize": sanitize,
         }
         stream_attrs.update(_server_span_attributes(self.backend_host))
-        with trace_span(
-            "ai.llm.stream", attributes=stream_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
-        ) as span_h:
+        with (
+            trace_span(
+                "ai.llm.stream", attributes=stream_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
+            ) as span_h,
+            network.bind_dispatch_context(
+                provider=p,
+                model=self._config.model,
+                request_type="stream",
+                task_name=getattr(self._config, "task_name", None),
+                server=self.backend_host,
+                backend_info=self.backend_info,
+            ),
+        ):
             network.stream_served_by.set(None)
             network.stream_served_model.set(None)
+            network.stream_model.set(None)
             network.stream_finish_reason.set(None)
             network.stream_slot_wait.set(0.0)
             network.stream_server.set(None)
@@ -1004,13 +1032,19 @@ class LLMClient(
             if inner_thinks:
                 r_tokens = min(count_tokens("\n".join(inner_thinks)), c_tokens)
 
+        served_model = network.stream_served_model.get()
+        if not served_model:
+            s_model = network.stream_model.get()
+            if s_model and s_model != self._config.model:
+                served_model = s_model
+
         rec = track_request_spend(
             provider=p,
             model=self._config.model,
             server=srv,
             backend_info=self.backend_info,
             served_by=network.stream_served_by.get(),
-            served_model=network.stream_served_model.get(),
+            served_model=served_model,
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             cached=False,
