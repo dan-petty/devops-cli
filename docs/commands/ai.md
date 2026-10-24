@@ -427,7 +427,7 @@ devops ai chaos-model [OPTIONS]
 | `--primary-provider` | `string` | `openai` | AI or cloud provider. |
 | `--primary-model` | `string` | `gpt-4o` | AI model identifier. |
 | `--fallback-provider` | `string` | `ollama` | Fallback AI provider to route execution to upon fault. |
-| `--fallback-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `--fallback-model` | `string` | `qwen3-coder:30b` | Fallback AI model to route execution to upon fault. |
 | `--prompt` | `string` | `def test_health(): return True` | Prompt text or workload payload to evaluate. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -465,7 +465,7 @@ devops ai failover [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--target-provider` | `string` | `ollama` | Fallback AI provider to route execution to upon fault. |
-| `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `--target-model` | `string` | `qwen3-coder:30b` | Fallback AI model to route execution to upon fault. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

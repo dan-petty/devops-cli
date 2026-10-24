@@ -21,6 +21,7 @@ from devops_cli.ai.chaos import (
     ModelChaosReport,
 )
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.config.defaults import DEFAULT_AI_FALLBACK_MODEL, DEFAULT_AI_FALLBACK_PROVIDER
 from devops_cli.exceptions import ValidationError
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
@@ -61,8 +62,8 @@ def test_chaos_enums_and_config() -> None:
     assert cfg.error_rate == 1.0
     assert cfg.primary_provider == "openai"
     assert cfg.primary_model == "gpt-4o"
-    assert cfg.fallback_provider == "ollama"
-    assert cfg.fallback_model == "qwen2.5-coder:7b"
+    assert cfg.fallback_provider == DEFAULT_AI_FALLBACK_PROVIDER
+    assert cfg.fallback_model == DEFAULT_AI_FALLBACK_MODEL
     assert cfg.dry_run is False
 
 

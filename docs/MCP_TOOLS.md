@@ -226,7 +226,7 @@ Model dependency chaos engineering suite simulating provider faults and validati
 | `primary_provider` | `string` | No | `openai` | AI or cloud provider. |
 | `primary_model` | `string` | No | `gpt-4o` | AI model identifier. |
 | `fallback_provider` | `string` | No | `ollama` | Fallback AI provider to route execution to upon fault. |
-| `fallback_model` | `string` | No | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `fallback_model` | `string` | No | `qwen3-coder:30b` | Fallback AI model to route execution to upon fault. |
 | `prompt` | `string` | No | `def test_health(): return True` | Prompt text or workload payload to evaluate. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
@@ -283,7 +283,7 @@ Record a fallback route in the constellation flag; `devops ai gateway failover` 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target_provider` | `string` | No | `ollama` | Fallback AI provider to route execution to upon fault. |
-| `target_model` | `string` | No | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `target_model` | `string` | No | `qwen3-coder:30b` | Fallback AI model to route execution to upon fault. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 

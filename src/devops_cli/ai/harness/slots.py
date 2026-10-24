@@ -97,8 +97,8 @@ class ModelSlot(BaseSlot):
     """Slot managing frontier and local LLM runtime bindings."""
 
     slot_type: SlotType = SlotType.MODEL
-    provider: str = "ollama"
-    model_name: str = "qwen2.5-coder:7b"
+    provider: str = DEFAULT_AI_FALLBACK_PROVIDER
+    model_name: str = DEFAULT_AI_FALLBACK_MODEL
     tier: TaskComplexity = TaskComplexity.LOW
     is_local: bool = True
     temperature: float = 0.0
@@ -368,8 +368,6 @@ class SubAgentSlot(BaseSlot):
         default_factory=lambda: ModelSlot(
             name="subagent_model",
             slot_type=SlotType.MODEL,
-            provider="ollama",
-            model_name="qwen2.5-coder:7b",
             is_local=True,
             state=SlotState.ATTACHED,
         )

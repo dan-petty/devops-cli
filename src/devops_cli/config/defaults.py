@@ -60,7 +60,9 @@ DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
 DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
-DEFAULT_AI_FALLBACK_MODEL = "qwen2.5-coder:7b"
+# A model that the gateway config sends to the tier of the default Ollama Service, the model of
+# the devops-coder route. tests/test_k8s_llm_gateway.py binds it to k8s/llm/gateway/config.yaml.
+DEFAULT_AI_FALLBACK_MODEL = "qwen3-coder:30b"
 DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o-mini"
 # The hosted model that local embedding tokens are priced against, and the genai-prices provider
 # that prices both reference models: genai-prices finds no provider for an embedding model by its
