@@ -976,6 +976,28 @@ def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
     assert (ssh_origin, https_origin) == ("dan-petty/devops-cli", "dan-petty/devops-cli")
 
 
+def test_repo_files_stay_inside_the_checkout_through_links(tmp_path: Path) -> None:
+    """The files git lists are listed only where their real path is in the checkout.
+
+    A tracked directory that the working tree replaced with a link to outside the checkout
+    would bring files from outside into a review; a link to a file inside stays listed.
+    """
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "pkg").mkdir()
+    (repo / "pkg" / "a.py").write_text("a = 1\n", encoding="utf-8")
+    (repo / "top.py").write_text("top = 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    outside.mkdir()
+    (outside / "a.py").write_text("secret = 1\n", encoding="utf-8")
+    shutil.rmtree(repo / "pkg")
+    (repo / "pkg").symlink_to(outside, target_is_directory=True)
+    (repo / "link.py").symlink_to(repo / "top.py")
+
+    assert list_repo_files(repo) == [repo / "link.py", repo / "top.py"]
+
+
 def test_repo_edge_cases(tmp_path: Path) -> None:
     """Verify find_top_level_repo_root from file, gitignore read error, and symlink edge cases."""
     from devops_cli.core.repo import (

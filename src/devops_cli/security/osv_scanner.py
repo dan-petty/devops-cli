@@ -26,6 +26,7 @@ from devops_cli.config.constants import (
     CONST_SEVERITY_ALIASES,
 )
 from devops_cli.config.defaults import DEFAULT_CACHE_DATA_DIR
+from devops_cli.core.repo import list_repo_files
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
@@ -200,48 +201,38 @@ def parse_osv_scanner_output(
     return findings, cyclonedx_inventory, locked_packages
 
 
-def _collect_lockfile_names(
-    tree: Path,
-    known_lockfiles: Sequence[Path] = (),
-) -> set[str]:
-    """Collect unique lockfile names from known list and workspace tree."""
-    names = {p.name for p in known_lockfiles}
-    try:
-        if tree.exists() and tree.is_dir():
-            for p in tree.rglob("*"):
-                if p.is_file() and (
-                    p.name in CONST_LOCKFILE_NAMES or p.suffix in (".lock", ".lockb")
-                ):
-                    names.add(p.name)
-    except OSError:
-        pass
-    return names
+def _is_lockfile(path: Path) -> bool:
+    """Whether `path` has the name of a lockfile that osv-scanner reads."""
+    return path.name in CONST_LOCKFILE_NAMES or path.suffix in (".lock", ".lockb")
 
 
-def _find_unlocked_manifest_gaps(tree: Path, lockfile_names: set[str]) -> list[str]:
-    """Identify project manifests lacking matching lockfiles."""
-    gaps: list[str] = []
-    try:
-        if not (tree.exists() and tree.is_dir()):
-            return gaps
-        for manifest_name, req_locks in CONST_MANIFEST_TO_LOCKFILES.items():
-            if any(lock in lockfile_names for lock in req_locks):
-                continue
-            for manifest_path in tree.rglob(manifest_name):
-                if manifest_path.is_file():
-                    gaps.append(f"missing lockfile for {manifest_path.name}")
-    except OSError:
-        pass
-    return gaps
+def _tree_files(tree: Path) -> list[Path]:
+    """The files of `tree` that git lists, tracked or not, and none that git ignores.
+
+    A checkout holds large ignored trees: virtual environments, and a data directory with review
+    sessions and agent worktrees that each have an environment of their own. A walk of every
+    file read them all: 158 s of a one-file review (#2034).
+    """
+    return list_repo_files(tree) if tree.is_dir() else []
 
 
 def detect_manifest_coverage_gaps(
     tree: Path,
     known_lockfiles: Sequence[Path] = (),
 ) -> list[str]:
-    """Identify package manifests missing corresponding lockfiles (#1146)."""
-    lockfile_names = _collect_lockfile_names(tree, known_lockfiles)
-    return _find_unlocked_manifest_gaps(tree, lockfile_names)
+    """Identify package manifests missing corresponding lockfiles (#1146).
+
+    Only the files git lists count, so an ignored tree neither adds a gap nor hides one (#2034).
+    """
+    files = _tree_files(tree)
+    locked = {p.name for p in known_lockfiles} | {p.name for p in files if _is_lockfile(p)}
+    return [
+        f"missing lockfile for {manifest}"
+        for manifest, lockfiles in CONST_MANIFEST_TO_LOCKFILES.items()
+        if locked.isdisjoint(lockfiles)
+        for path in files
+        if path.name == manifest
+    ]
 
 
 class OsvScanner(BaseSecurityScanner):
@@ -302,18 +293,10 @@ class OsvScanner(BaseSecurityScanner):
         scan_tree = tree or (scan_target if scan_target.is_dir() else scan_target.parent)
         effective_lockfiles = list(lockfiles or ())
         if not effective_lockfiles:
-            if scan_target.is_file() and (
-                scan_target.name in CONST_LOCKFILE_NAMES
-                or scan_target.suffix in (".lock", ".lockb")
-            ):
+            if scan_target.is_file() and _is_lockfile(scan_target):
                 effective_lockfiles = [scan_target]
-            elif scan_tree.is_dir():
-                effective_lockfiles = [
-                    p
-                    for p in scan_tree.rglob("*")
-                    if p.is_file()
-                    and (p.name in CONST_LOCKFILE_NAMES or p.suffix in (".lock", ".lockb"))
-                ]
+            else:
+                effective_lockfiles = [p for p in _tree_files(scan_tree) if _is_lockfile(p)]
 
         gaps = detect_manifest_coverage_gaps(scan_tree, known_lockfiles=effective_lockfiles)
         if not effective_lockfiles:
