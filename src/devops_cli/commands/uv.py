@@ -86,7 +86,7 @@ def python_install(
 
     import re
 
-    if not re.match(r"^\d+(\.\d+)*[a-zA-Z0-9._-]*$", version):
+    if not re.fullmatch(r"^\d+(\.\d+)*[a-zA-Z0-9._-]*$", version):
         print_error(ERRORS.uv.invalid_version_format.format(version=version), prefix=False)
         raise typer.Exit(1)
 

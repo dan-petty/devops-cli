@@ -275,6 +275,17 @@ def test_validation_edge_cases() -> None:
     with pytest.raises(ValidationError):
         validate_session_id("session/../traversal")
 
+    from devops_cli.core.validation import validate_k8s_context_name
+
+    assert (
+        validate_k8s_context_name("arn:aws:eks:us-west-2:123456789012:cluster/my-cluster")
+        == "arn:aws:eks:us-west-2:123456789012:cluster/my-cluster"
+    )
+    with pytest.raises(typer.Exit):
+        validate_k8s_context_name("invalid context with spaces")
+    with pytest.raises(typer.Exit):
+        validate_k8s_context_name("invalid\ncontext")
+
     # 3. _enforce_non_private_ssrf fails closed with unparseable IP or DNS failure
     mock_invalid_ip_addrinfo = [(2, 1, 6, "", ("invalid_ip_format", 80))]
     with patch("socket.getaddrinfo", return_value=mock_invalid_ip_addrinfo):

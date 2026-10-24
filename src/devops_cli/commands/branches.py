@@ -65,7 +65,7 @@ def jira(
     repo: Annotated[Path | None, typer.Option("--repo", "-r", help=HELP.options.repo)] = None,
 ) -> None:
     """Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]."""
-    if not _JIRA_RE.match(ticket_id):
+    if not _JIRA_RE.fullmatch(ticket_id):
         err_msg = MESSAGES.branches.invalid_ticket_id.format(ticket_id=ticket_id)
         print_error(err_msg, prefix=False)
         raise typer.Exit(1)

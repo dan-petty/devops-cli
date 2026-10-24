@@ -521,7 +521,7 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
     Pass the domain name alone, for example `k8s`.
     """
     key = domain.strip().lower().removesuffix("_")
-    if not key or not re.match(r"^[a-z0-9_-]{1,64}$", key):
+    if not key or not re.fullmatch(r"^[a-z0-9_-]{1,64}$", key):
         return {
             "domain": key[:64] if key else "",
             "hydrated": False,

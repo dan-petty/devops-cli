@@ -48,7 +48,7 @@ def run_pipeline_cmd(
     if function_name is not None:
         import re
 
-        if not re.match(r"^[a-zA-Z0-9_\-]+$", function_name):
+        if not re.fullmatch(r"^[a-zA-Z0-9_\-]+$", function_name):
             print_error(
                 f"Invalid function name '{function_name}': contains unsafe characters.",
                 prefix=False,

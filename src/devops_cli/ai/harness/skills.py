@@ -26,7 +26,7 @@ class ParsedSkill(BaseModel):
 def normalize_skill_name(name: str) -> str:
     """Normalize and validate an Agent Skill name using Unicode NFKC."""
     norm = unicodedata.normalize("NFKC", str(name)).strip().lower()
-    if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", norm) or len(norm) > 64:
+    if not re.fullmatch(r"^[a-z0-9]+(-[a-z0-9]+)*$", norm) or len(norm) > 64:
         raise HarnessValidationError(
             f"Invalid skill name '{name}': normalized name must be 1-64 lowercase alphanumeric characters separated by hyphens"
         )

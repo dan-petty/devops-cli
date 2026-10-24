@@ -2,9 +2,9 @@
 
 A scanner builds the command of its tool and hands it to a `ToolExecutor`, which starts it. These
 cases give the scanners `ToolExecutorFake`. It starts nothing and keeps every request, so each case
-reads what a scanner asked of its tool and how it read the answer. Every other scanner case still
-runs over the default executor, which starts the tool as a scanner did before the executor existed.
-`tests/test_scanner_contract.py` holds that executor to the commands recorded from the real tools.
+reads what a scanner asked of its tool and how it read the answer. A case that gives a scanner no
+executor runs it on the default executor, which `scanner_fake` answers with the runs recorded from
+the real tools. `tests/test_scanner_contract.py` holds the adapters to those recorded commands.
 """
 
 from __future__ import annotations
