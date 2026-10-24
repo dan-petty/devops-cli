@@ -2734,11 +2734,13 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
 
-            # Static security tool batch scanning
+            # The static scan: the analyzers, then the Ruff, mypy and complexity evidence. With
+            # the stage off, no tool starts (#2007).
             static_findings_by_file: dict[str, list[SavedFinding]]
             if stage_flags is not None and not stage_flags.static_scan:
                 print_info(
-                    "[dim]  • Static security analyzers skipped (disabled via flag)[/dim]",
+                    "[dim]  • Static analyzers and Ruff, mypy and complexity evidence skipped "
+                    "(disabled via flag)[/dim]",
                     prefix=False,
                 )
                 static_findings_by_file = {f: [] for f in file_paths}
@@ -2746,12 +2748,11 @@ class ReviewPipelineOrchestrator:
                 static_findings_by_file = self._run_static_scanners(
                     file_paths, added_diff_lines=self.added_diff_lines
                 )
-
-            evidence_findings_by_file = self._run_review_evidence(
-                file_paths, added_diff_lines=self.added_diff_lines
-            )
-            for f_path, f_items in evidence_findings_by_file.items():
-                static_findings_by_file.setdefault(f_path, []).extend(f_items)
+                evidence_findings_by_file = self._run_review_evidence(
+                    file_paths, added_diff_lines=self.added_diff_lines
+                )
+                for f_path, f_items in evidence_findings_by_file.items():
+                    static_findings_by_file.setdefault(f_path, []).extend(f_items)
 
             # Concurrently pre-fetch threat intelligence if opt-in (#1146)
             raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}

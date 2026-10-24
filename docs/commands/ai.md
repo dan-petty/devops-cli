@@ -543,7 +543,7 @@ devops ai review path [OPTIONS] <targets>
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
-| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
+| `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
@@ -583,7 +583,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
-| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
+| `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
@@ -621,7 +621,7 @@ devops ai review pr [OPTIONS] <number>
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
-| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
+| `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-group-analysis` | `boolean` | - | Disable model-driven group analysis. |
 | `--no-reporting` | `boolean` | - | Disable consolidated report generation; the review keeps no session. |
@@ -745,7 +745,7 @@ devops ai review benchmark [OPTIONS] <targets>
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
-| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
+| `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 
 ### `devops ai review score`

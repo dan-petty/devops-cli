@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.review import ReviewPipelineOrchestrator
+from devops_cli.ai.review import ReviewPipelineOrchestrator, resolve_stage_flags
 from devops_cli.config.commands import build_gitleaks_cmd
 from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
@@ -361,3 +361,36 @@ def test_the_scan_of_the_base_revision_starts_its_analyzers_through_the_same_exe
         for request in tool_executor_fake.requests
         if not request.workdir.is_relative_to(tree)
     } == {"bandit", "gitleaks", "semgrep"}
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"pre_analysis_only": True}, {"no_static_scan": True}, {"reporting_only": True}],
+    ids=["pre-analysis-only", "no-static-scan", "reporting-only"],
+)
+def test_a_review_with_the_static_scan_off_starts_no_analyzer_and_no_evidence_tool(
+    tree: Path, tmp_path: Path, tool_executor_fake: ToolExecutorFake, options: dict[str, bool]
+) -> None:
+    """`--pre-analysis-only` starts no tool after the pre-analysis (#2007). It turns off the
+    static scan, as `--no-static-scan` and `--reporting-only` do. The static scan holds the
+    analyzers and the Ruff, mypy and complexity evidence. The tree holds what Ruff and mypy need
+    to start. Ruff starts through the executor. Mypy starts outside it, where the floor refuses a
+    real program, so a start of mypy fails the test."""
+    (tree / "pyproject.toml").write_text(
+        '[project]\nrequires-python = ">=3.14"\n\n[tool.mypy]\npython_version = "3.14"\n',
+        encoding="utf-8",
+    )
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s2007",
+        session_dir=tmp_path / "session",
+        target_dir=tree,
+        tool_executor=tool_executor_fake,
+    )
+
+    orchestrator.init_per_file_payloads(
+        ["app.py", "deploy.yaml", "Dockerfile", "uv.lock"],
+        {},
+        stage_flags=resolve_stage_flags(**options),
+    )
+
+    assert (tool_executor_fake.requests, orchestrator.canary_results) == ([], {})
