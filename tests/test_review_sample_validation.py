@@ -22,7 +22,12 @@ from devops_cli.ai.review.sample_validation import (
     review_problems,
     validate_category,
 )
-from devops_cli.ai.review.samples import SampleCatalog, SampleRepository, fetch_sample
+from devops_cli.ai.review.samples import (
+    SampleCatalog,
+    SampleCategory,
+    SampleRepository,
+    fetch_sample,
+)
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.commands import review as review_commands
 from devops_cli.main import app
@@ -87,7 +92,6 @@ def test_a_category_report_names_what_the_tooling_could_not_do(tmp_path: Path) -
     assert report.problems == [
         "typescript: 1 of 1 files yielded no symbols",
         "no AST support for .yaml (1 file)",
-        "file analysis labels C++ .cc as C (1 file)",
     ]
     assert [(m.sample, m.files_mapped) for m in report.repomaps] == [("demo", 4)]
 
@@ -266,3 +270,54 @@ def test_categories_can_be_repeated(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         True,
         False,
     )
+
+
+def test_sample_validation_categories_have_no_mislabelled_files(tmp_path: Path) -> None:
+    """Verify sample validation reports no mislabelled files for C/C++ and Kubernetes/Helm (#540)."""
+    _write(
+        tmp_path / "fmt",
+        {
+            "include/fmt/format.h": "namespace fmt { template <typename T> struct formatter {}; }\n",
+            "src/format.cc": "int answer() { return 42; }\n",
+            "LICENSE": "MIT License\n",
+        },
+    )
+    _write(
+        tmp_path / "demo-chart",
+        {
+            "charts/demo/Chart.yaml": "apiVersion: v2\nname: demo\nversion: 0.1.0\n",
+            "charts/demo/values.yaml": "replicas: 1\n",
+            "charts/demo/templates/_helpers.tpl": '{{- define "demo.name" -}}demo{{- end }}\n',
+            "LICENSE": "Apache-2.0\n",
+        },
+    )
+
+    cpp_repo = SampleRepository(
+        name="fmt",
+        category=SampleCategory.C_CPP,
+        languages=["cpp"],
+        repository=(tmp_path / "fmt").as_uri(),
+        commit="b" * 40,
+        license="MIT",
+        license_files=["LICENSE"],
+        paths=["include/fmt", "src"],
+    )
+    helm_repo = SampleRepository(
+        name="demo-chart",
+        category=SampleCategory.KUBERNETES_HELM,
+        languages=["yaml", "helm"],
+        repository=(tmp_path / "demo-chart").as_uri(),
+        commit="c" * 40,
+        license="Apache-2.0",
+        license_files=["LICENSE"],
+        paths=["charts/demo"],
+    )
+
+    cpp_report = validate_category("c-cpp", [cpp_repo], tmp_path)
+    helm_report = validate_category("kubernetes-helm", [helm_repo], tmp_path)
+
+    for problem in cpp_report.problems:
+        assert "labels C++" not in problem
+        assert "reads .cc as plain text" not in problem
+    for problem in helm_report.problems:
+        assert "reads .tpl as plain text" not in problem

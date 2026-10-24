@@ -103,7 +103,9 @@ def inspect_file(path: Path, checkout: Path, sample: str, engine: TreeSitterEngi
     except OSError:
         return FileResult(path=f"{sample}/{rel}")
     parsed = engine.parse_file(path)
-    meta = analyze_single_file(rel, content, len(content.encode()), enhanced=False)
+    meta = analyze_single_file(
+        rel, content, len(content.encode()), enhanced=False, repo_root=checkout
+    )
     return FileResult(
         path=f"{sample}/{rel}",
         ast_language=parsed.language if parsed else None,
