@@ -225,3 +225,14 @@ def test_process_fake_fixture_and_which_interception(process_fake: ProcessFake) 
     assert fake_tool == "/usr/local/bin/some-arbitrary-cli-tool"
 
     assert get_process_runner() is process_fake
+
+
+def test_process_fake_records_the_input_that_run_subprocess_sends(
+    process_fake: ProcessFake,
+) -> None:
+    """The body that `run_subprocess` sends as `input` is the recorded call's `stdin`."""
+    from devops_cli.core.process import run_subprocess
+
+    run_subprocess(["kubectl", "create", "-f", "-"], input='{"kind": "Pod"}')
+
+    assert [call.stdin for call in process_fake.calls] == ['{"kind": "Pod"}']

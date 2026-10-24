@@ -20,7 +20,11 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any, assert_never
 
-from devops_cli.config.constants import CONST_KEYRING_SERVICE, CONST_KEYRING_UNLOCK_PROBE_KEY
+from devops_cli.config.constants import (
+    CONST_K8S_LAST_APPLIED_ANNOTATION,
+    CONST_KEYRING_SERVICE,
+    CONST_KEYRING_UNLOCK_PROBE_KEY,
+)
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.options import K8S_GITHUB_ACCOUNT
 from devops_cli.config.settings import (
@@ -44,7 +48,6 @@ from devops_cli.k8s.cluster_secrets import (
     SettingSource,
 )
 
-LAST_APPLIED_ANNOTATION = "kubectl.kubernetes.io/last-applied-configuration"
 GITHUB_HOST = "github.com"
 # gh reaches its keyring over the session bus and finds its login state in its config dir.
 _GH_ENV = frozenset(
@@ -117,7 +120,8 @@ class LiveSecret:
         managed = metadata.get("managedFields") or []
         return cls(
             data={key: _decode(raw) for key, raw in (obj.get("data") or {}).items()},
-            has_last_applied=LAST_APPLIED_ANNOTATION in (metadata.get("annotations") or {}),
+            has_last_applied=CONST_K8S_LAST_APPLIED_ANNOTATION
+            in (metadata.get("annotations") or {}),
             owned_keys=_data_keys_of(managed, mine=True),
             foreign_keys=_data_keys_of(managed, mine=False),
         )
@@ -632,7 +636,7 @@ def _annotate_args(secret: ClusterSecret) -> list[str]:
         f"secret/{secret.name}",
         "-n",
         secret.namespace,
-        f"{LAST_APPLIED_ANNOTATION}-",
+        f"{CONST_K8S_LAST_APPLIED_ANNOTATION}-",
     ]
 
 
@@ -855,7 +859,7 @@ def _plan_writes(requests: _RequestPlan, selected: Sequence[ClusterSecret]) -> N
     )
     for secret in selected:
         present = _when_present(secret, options)
-        leaked = f"live {secret.ref} carries {LAST_APPLIED_ANNOTATION}"
+        leaked = f"live {secret.ref} carries {CONST_K8S_LAST_APPLIED_ANNOTATION}"
         requests.kubectl(_annotate_args(secret), secret.ref, (*present, leaked))
         changed = (*present, f"the push changes live {secret.ref}'s data")
         for workload in map(str, secret.restarts):

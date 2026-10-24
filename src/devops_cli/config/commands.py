@@ -18,6 +18,7 @@ from devops_cli.config.defaults import (
 BIN_ACTIONLINT: str = "actionlint"
 BIN_ARGOCD: str = "argocd"
 BIN_BANDIT: str = "bandit"
+BIN_BASH: str = "bash"
 BIN_COSIGN: str = "cosign"
 BIN_DAGGER: str = "dagger"
 BIN_DIFFT: str = "difft"

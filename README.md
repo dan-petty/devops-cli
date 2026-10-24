@@ -223,7 +223,7 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 |  | `devops k8s security-stream [OPTIONS]` | Stream runtime security anomaly events from Kubernetes Falco eBPF probes. |
 |  | `devops k8s gpu-matrix [OPTIONS]` | Query traditional homelab GPU matrix and model service alias mappings. |
 |  | `devops k8s doctor [OPTIONS]` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
-|  | `devops k8s volume COMMAND [ARGS]...` | PersistentVolume inspection, maintenance, and safe orphan reclamation. |
+|  | `devops k8s volume COMMAND [ARGS]...` | Move a local-path claim to a volume on another node, and reclaim orphaned PersistentVolumes. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |

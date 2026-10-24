@@ -2942,6 +2942,74 @@ CONST_K8S_ORPHAN_VOLUME_PHASES: Final[frozenset[str]] = frozenset(
 CONST_K8S_VOLUME_RECLAIM_HEADING: Final[str] = "Planned Kubernetes Volume Reclaim API Requests:"
 CONST_K8S_PV_API_PATH_TEMPLATE: Final[str] = "/api/v1/persistentvolumes/{name}"
 
+# ── Local-Path Volume Move (#2186) ─────────────────────────────────────────
+CONST_K8S_CONTROL_PLANE_LABEL: Final[str] = f"{CONST_K8S_NODE_ROLE_LABEL_PREFIX}control-plane"
+"""The label Kubernetes puts on each control-plane node."""
+CONST_K8S_HOSTNAME_LABEL: Final[str] = "kubernetes.io/hostname"
+"""The well-known node label that local-path volumes and node selectors match on."""
+CONST_K8S_LAST_APPLIED_ANNOTATION: Final[str] = "kubectl.kubernetes.io/last-applied-configuration"
+"""Where a client-side apply, Argo CD's included, keeps the object it applied last."""
+CONST_ARGOCD_TRACKING_ID_ANNOTATION: Final[str] = "argocd.argoproj.io/tracking-id"
+"""Argo CD's annotation tracking: `<application>:<group>/<kind>:<namespace>/<name>`."""
+CONST_K8S_ARGOCD_PAUSE_PARENTS: Final[tuple[str, ...]] = ("bootstrap", "cluster")
+"""The parent Applications paused, top down, before a child (k8s/README.md, Pausing an Application)."""
+CONST_K8S_CLAIM_CONTROLLER_ANNOTATIONS: Final[frozenset[str]] = frozenset(
+    {
+        "pv.kubernetes.io/bind-completed",
+        "pv.kubernetes.io/bound-by-controller",
+        "volume.beta.kubernetes.io/storage-provisioner",
+        "volume.kubernetes.io/selected-node",
+        "volume.kubernetes.io/storage-provisioner",
+    }
+)
+"""The claim annotations the Kubernetes volume controllers write; a claim made again leaves them out."""
+CONST_K8S_RECREATED_CLAIM_METADATA_KEYS: Final[tuple[str, ...]] = (
+    "name",
+    "namespace",
+    "labels",
+    "ownerReferences",
+)
+"""The metadata a claim made again from its saved copy keeps, its kept annotations aside."""
+CONST_K8S_SCALABLE_WORKLOAD_KINDS: Final[dict[str, str]] = {
+    "Deployment": "deployment",
+    "StatefulSet": "statefulset",
+}
+"""The owner kinds a volume move scales, each with its kubectl resource name."""
+CONST_K8S_RECLAIM_RETAIN: Final[str] = "Retain"
+CONST_K8S_RETENTION_DELETE: Final[str] = "Delete"
+CONST_K8S_CLAIM_PHASE_BOUND: Final[str] = "Bound"
+CONST_K8S_POD_PHASE_RUNNING: Final[str] = "Running"
+CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX: Final[str] = "-src"
+CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX: Final[str] = "-dst"
+CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX: Final[str] = "-move"
+CONST_K8S_VOLUME_MOVE_SOURCE_DIR: Final[str] = "/src"
+CONST_K8S_VOLUME_MOVE_DESTINATION_DIR: Final[str] = "/dst"
+CONST_K8S_VOLUME_MOVE_LABELS: Final[dict[str, str]] = {
+    "app.kubernetes.io/managed-by": "devops-cli",
+    "app.kubernetes.io/component": "volume-move",
+}
+"""The labels of the copy pods and the temporary claim of a volume move."""
+CONST_K8S_VOLUME_MOVE_SAVE_DIR: Final[Path] = Path("k8s") / "volume-move"
+"""Where, under the data directory, a volume move saves the claim it deletes."""
+CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT: Final[str] = (
+    "set -euo pipefail\n"
+    'cd "$1"\n'
+    "entries=$(find . -mindepth 1 -printf x | wc -c)\n"
+    "files=$(find . -type f -printf x | wc -c)\n"
+    "bytes=$(find . -type f -printf '%s\\n' | awk '{s += $1} END {printf \"%.0f\", s}')\n"
+    "metadata=$(find . -printf '%y %m %U:%G %P\\n' | LC_ALL=C sort | sha256sum | cut -d' ' -f1)\n"
+    "content=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0r sha256sum | sha256sum"
+    " | cut -d' ' -f1)\n"
+    "printf 'entries %s\\nfiles %s\\nbytes %s\\nmetadata %s\\ncontent %s\\n'"
+    ' "$entries" "$files" "$bytes" "$metadata" "$content"\n'
+)
+"""The bash script each copy pod runs on its side, with the directory as `$1` (debian:trixie-slim).
+
+It counts the entries and the regular files, adds the bytes of the regular files (not `du`,
+which counts directory blocks), and makes a digest of each entry's type, mode, numeric owner and
+path, and a digest of the content of the regular files, both in byte order.
+"""
+
 
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.

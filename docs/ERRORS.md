@@ -129,4 +129,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login or token call fails, with Vault's HTTP status. |
 | `VaultOperationError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when an API request to Vault fails or returns an error response. |
 | `VaultUnreachableError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when no reply came back from Vault: the connection failed or timed out. |
+| `VolumeMoveError` | `K8S_VOLUME_MOVE_FAILED` | `1` | K8s | Raised when a volume move fails before the old claim is deleted; it undid its own steps. |
+| `VolumeMoveRefusedError` | `K8S_VOLUME_MOVE_REFUSED` | `1` | K8s | Raised when a volume move cannot start safely; it changed nothing. |
+| `VolumeMoveStrandedError` | `K8S_VOLUME_MOVE_STRANDED` | `1` | K8s | Raised when a volume move fails after the old claim was deleted; Argo CD stays paused. |
 | `VolumeReclaimError` | `K8S_VOLUME_RECLAIM_ERROR` | `1` | K8s | Raised when volume reclaim fails or is refused due to active claims or mounts. |

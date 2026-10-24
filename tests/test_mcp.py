@@ -535,6 +535,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("k8s", "switch-context"),
             ("k8s", "sync-secrets"),
             ("k8s", "validate-policy"),
+            ("k8s", "volume", "move"),
             ("k8s", "volume", "reclaim"),
             ("kustomize", "apply"),
             ("kustomize", "build"),

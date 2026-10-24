@@ -512,6 +512,184 @@ class K8sMessages:
     volume_reclaimed: str = "PersistentVolume '{name}' {action} successfully."
     volume_reclaim_aborted: str = "PersistentVolume '{name}' reclaim aborted."
     volume_reclaim_dry_run_heading: str = "Planned Kubernetes Volume Reclaim API Requests:"
+    volume_move_bad_ref: str = "Give the claim as NAMESPACE/CLAIM, not '{ref}'."
+    volume_move_claim_missing: str = "Claim {namespace}/{claim} does not exist."
+    volume_move_claim_not_bound: str = (
+        "Claim {namespace}/{claim} is {phase}, not Bound. The move copies only a bound claim."
+    )
+    volume_move_not_local: str = (
+        "Volume {volume} has no node affinity to one node. It is not a local volume, so it does "
+        "not need a move."
+    )
+    volume_move_no_pods: str = (
+        "No pod mounts claim {namespace}/{claim}. Start its workload first: the move stops and "
+        "starts the workload, and makes sure that its pods run on the target node after the move."
+    )
+    volume_move_unsupported_owner: str = (
+        "Pod {pod} belongs to {owner}. The move can stop and start only a Deployment or a "
+        "StatefulSet."
+    )
+    volume_move_retention_delete: str = (
+        "StatefulSet {name} deletes its claims when it scales down "
+        "(persistentVolumeClaimRetentionPolicy.whenScaled: Delete). A scale to zero would delete "
+        "claim {claim}."
+    )
+    volume_move_leftovers: str = (
+        "An earlier move left {names}. Make sure that they hold no data that you need, then "
+        "delete them."
+    )
+    volume_move_not_on_control_plane: str = (
+        "Volume {volume} is on node {node}, which is not a control-plane node. To move it to "
+        "another worker node, name that node with --to-node."
+    )
+    volume_move_unknown_node: str = "Node {node} does not exist."
+    volume_move_target_control_plane: str = (
+        "Node {node} is a control-plane node. The move puts a volume only on a worker node."
+    )
+    volume_move_target_is_source: str = "Volume {volume} is on node {node} already."
+    volume_move_target_unavailable: str = "Node {node} is not Ready, or it is cordoned."
+    volume_move_no_target: str = "No worker node is Ready and schedulable for the volume."
+    volume_move_unknown_application: str = (
+        "Argo CD Application {application}, which the tracking annotation names, does not exist "
+        "in namespace {namespace}."
+    )
+    volume_move_refused: str = (
+        "The move of claim {namespace}/{claim} cannot start. It changed nothing."
+    )
+    volume_move_read_failed: str = (
+        "The plan of the move of claim {namespace}/{claim} failed. It changed nothing: {reason}"
+    )
+    volume_move_request_failed: str = "`{request}` exited {code}: {detail}"
+    volume_move_request_timeout: str = "`{request}` did not end within {seconds:g} s."
+    volume_move_bad_output: str = "`{request}` did not return JSON: {detail}"
+    volume_move_unbound_copy: str = "Claim {claim} has no volume after its pod started."
+    volume_move_digest_unreadable: str = "The digest of pod {pod} is not complete: {output}"
+    volume_move_digest_differs: str = (
+        "The two sides are different ({fields}). The destination is not a full copy."
+    )
+    volume_move_digest_equal: str = (
+        "The two sides are equal: {entries} entries, {files} files, {bytes} bytes of regular "
+        "files, and equal metadata and content digests."
+    )
+    volume_move_copy_retry: str = "The copy stopped ({reason}). Empty /dst and copy one more time."
+    volume_move_save_failed: str = "Cannot save claim {claim} to {path}: {reason}"
+    volume_move_saved: str = "Saved claim {namespace}/{claim} to {path}."
+    volume_move_placement: str = (
+        "After the move, the pods of claim {claim} must run on node {node}, but they are: {pods}."
+    )
+    volume_move_interrupted: str = "the move was interrupted"
+    volume_move_step_pause: str = (
+        "Pause automated sync of the Argo CD Applications {applications}, from the top down."
+    )
+    volume_move_step_no_pause: str = (
+        "Pause nothing: no Argo CD Application tracks the claim or its workloads."
+    )
+    volume_move_step_destination: str = (
+        "Create claim {claim} ({size}, {storage_class}) and pod {pod} on node {node}, and wait "
+        "until the pod is Ready."
+    )
+    volume_move_step_stop: str = (
+        "Scale {workloads} to 0, and wait until these pods are gone: {pods}."
+    )
+    volume_move_step_source: str = (
+        "Start pod {pod} with claim {claim} read-only on node {node}, and wait until it is Ready."
+    )
+    volume_move_step_copy: str = (
+        "Copy /src of pod {source} to /dst of pod {destination} with GNU tar through the API "
+        "server. If the stream stops, empty /dst and copy one more time."
+    )
+    volume_move_step_compare: str = (
+        "Compare the two sides: the entries, the files, the bytes of regular files, a metadata "
+        "digest and a content digest. Stop at a difference."
+    )
+    volume_move_step_retain: str = (
+        "Set the reclaim policy of the new volume of claim {claim} and of volume {volume} to "
+        "Retain."
+    )
+    volume_move_step_delete_pods: str = "Delete the pods {source} and {destination}."
+    volume_move_step_delete_claim: str = (
+        "Save claim {namespace}/{claim} and delete it. This is the point of no return."
+    )
+    volume_move_step_rebind: str = (
+        "Delete claim {move_claim}, and reserve its volume for claim {namespace}/{claim}."
+    )
+    volume_move_step_recreate: str = (
+        "Create claim {namespace}/{claim} again from the saved claim, bound to the new volume, "
+        "put back its last-applied configuration if it has one, and wait until it is Bound."
+    )
+    volume_move_step_start: str = (
+        "Scale {workloads} again, wait until the pods are ready, and make sure that they run on "
+        "node {node}."
+    )
+    volume_move_step_resume: str = (
+        "Resume automated sync of the Argo CD Applications {applications}."
+    )
+    volume_move_step_no_resume: str = "Resume nothing: the move paused no Argo CD Application."
+    volume_move_step_line: str = "Step {number}/{total}: {text}"
+    volume_move_undo_resume: str = "Resume automated sync of Application {application}"
+    volume_move_undo_delete: str = "Delete {kind} {name}"
+    volume_move_undo_scale: str = "Scale {workload} back to {replicas}"
+    volume_move_undo_reclaim: str = "Set the reclaim policy of volume {volume} back to {policy}"
+    volume_move_undo_line: str = "Undo: {text}."
+    volume_move_plan_heading: str = (
+        "Plan of the move of claim {namespace}/{claim}. The plan only reads; it changed nothing."
+    )
+    volume_move_plan_claim: str = (
+        "Claim: Bound to volume {volume} ({size}, {storage_class}) on node {node}, reclaim "
+        "policy {policy}."
+    )
+    volume_move_plan_target: str = "Target node: {node}, {free} free."
+    volume_move_plan_workloads: str = (
+        "Workloads that mount the claim: {workloads}. Their pods: {pods}."
+    )
+    volume_move_plan_argocd: str = (
+        "Argo CD Applications that track the claim or its workloads: {applications}. The move "
+        "pauses: {paused}."
+    )
+    volume_move_plan_no_argocd: str = "Argo CD: no Application tracks the claim or its workloads."
+    volume_move_plan_steps: str = "Steps:"
+    volume_move_plan_point_of_no_return: str = (
+        "Step {number} deletes the old claim. Before that step, a failure undoes the steps that "
+        "ran. From that step on, a failure leaves Argo CD paused and names the saved claim, "
+        "because a self-heal would make an empty claim."
+    )
+    volume_move_start: str = "Start the move of claim {namespace}/{claim} to node {node}."
+    volume_move_done: str = "Moved claim {namespace}/{claim} to node {node}."
+    volume_move_done_new_volume: str = (
+        "New volume: {volume}, reclaim policy Retain, bound to claim {namespace}/{claim}."
+    )
+    volume_move_done_old_volume: str = (
+        "Old volume: {volume} on node {node}, reclaim policy Retain. It keeps the old data until "
+        "a person deletes it with: {command}"
+    )
+    volume_move_done_saved: str = "Saved claim: {path}"
+    volume_move_undone: str = "The move stopped at step {step}: {reason}"
+    volume_move_undone_steps: str = "The move undid these steps: {steps}."
+    volume_move_undone_nothing: str = "The move had changed nothing yet."
+    volume_move_undo_failed: str = "These undo steps failed. Do them by hand: {failures}"
+    volume_move_stranded: str = (
+        "The move stopped at step {step}, after the old claim was deleted: {reason}"
+    )
+    volume_move_stranded_paused: str = (
+        "Argo CD stays paused: {applications}. Do not resume it before claim "
+        "{namespace}/{claim} is Bound again, because a self-heal would make an empty claim."
+    )
+    volume_move_stranded_volumes: str = (
+        "Old volume {old_volume}: reclaim policy Retain, with the old data. New volume "
+        "{new_volume}: with the copy."
+    )
+    volume_move_stranded_remaining: str = (
+        "Do these steps by hand (k8s/README.md, Local-Path Volume Placement, Finish a stopped "
+        "move):"
+    )
+    volume_move_dry_run_heading: str = (
+        "Dry run: no request was made. A move would make these requests, in order:"
+    )
+    volume_move_dry_run_undo: str = (
+        "Before the old claim is deleted, a failed request starts the undo, in reverse order: "
+        "it deletes the copy pods and claim {claim}, scales the workloads back, sets the reclaim "
+        "policies back and resumes Argo CD."
+    )
 
 
 @dataclass(frozen=True)

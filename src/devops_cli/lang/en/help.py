@@ -442,7 +442,10 @@ class K8sCommandHelp:
     security_severity: str = "Minimum severity filter threshold (Notice, Warning, Error, Critical)."
     security_duration: str = "Observation streaming window duration in seconds."
     security_simulate: str = "Generate simulated kernel eBPF security anomalies for testing."
-    volume_app: str = "PersistentVolume inspection, maintenance, and safe orphan reclamation."
+    volume_app: str = (
+        "Move a local-path claim to a volume on another node, and reclaim orphaned "
+        "PersistentVolumes."
+    )
     volume_reclaim: str = (
         "Safely reclaim an orphaned PersistentVolume verified to have no active claims or mounts."
     )
@@ -452,6 +455,29 @@ class K8sCommandHelp:
         "Confirm reclamation without interactive prompt (required in non-interactive sessions)."
     )
     volume_reclaim_patch: str = "Patch volume finalizers instead of issuing a DELETE request."
+    volume_move: str = (
+        "Move the data of a local-path claim to a new volume on another node, and bind the claim "
+        "to it. The move pauses Argo CD from the top down, stops the workloads that mount the "
+        "claim, copies the data with GNU tar through the API server, compares the two sides, "
+        "binds the claim to the new volume, starts the workloads and resumes Argo CD. Before it "
+        "deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD "
+        "paused and names the saved claim. The old volume stays, with reclaim policy Retain, "
+        "until a person deletes it."
+    )
+    volume_move_ref: str = "The claim to move, as NAMESPACE/CLAIM."
+    volume_move_to_node: str = (
+        "The worker node to move the volume to. Default: the worker node with the most free "
+        "disk, for a volume on the control-plane node. A volume on a worker node moves only to "
+        "the node that this option names."
+    )
+    volume_move_plan: str = (
+        "Read the claim, its volume, the nodes, the workloads and the Argo CD Applications, print "
+        "each step with the real names, and change nothing."
+    )
+    volume_move_dry_run: str = (
+        "Make no request, reads included: print the requests a move would make, in order, with "
+        "placeholders for each value that a read gives. Wins over --plan."
+    )
 
 
 @dataclass(frozen=True)
