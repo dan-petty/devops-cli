@@ -49,7 +49,6 @@ from devops_cli.config.settings import reset_settings_cache
 from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap import store as roadmap_store_module
-from devops_cli.roadmap.config import read_roadmap_config
 from devops_cli.roadmap.intake import (
     IntakeDecision,
     IntakePlan,
@@ -1181,7 +1180,7 @@ def test_intakes_refine_hook_still_reports_a_failed_refine(
     ) == (1, 1, True, False)
 
 
-# ── The hourly round: the ready target, and no model call when nothing changed (#1515) ──
+# ── The hourly round: no Ready count stops it, and no model call when nothing changed ──
 
 # A proposal refine leaves New: it does not fit one pull request.
 _SPLIT_PROPOSAL = json.dumps(
@@ -1194,30 +1193,30 @@ _SPLIT_PROPOSAL = json.dumps(
 )
 
 
-@pytest.mark.parametrize(
-    ("ready", "refined"), [(3, ("P1-High",)), (1, ("P1-High", "P2-Medium"))], ids=["3", "1"]
-)
-def test_backlog_p2_and_p3_wait_for_the_configured_ready_target(
-    git_repo: Path,
-    store: InMemoryRoadmapStore,
-    scripted_gateway: Callable[..., list[httpx2.Request]],
-    ready: int,
-    refined: tuple[str, ...],
+def test_a_backlog_full_of_ready_items_stops_refine_from_no_new_item_up_to_the_limit(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    """A New backlog P1 is refined before a P2, and P2 and P3 only while fewer than the
-    `refine_ready_target` of `.github/roadmap.toml` items are Ready across the open milestones
-    and the backlog (#1515)."""
-    store.seed_file(".github/roadmap.toml", "board = 1\nrefine_ready_target = 3\n")
+    """Twelve Ready items in the backlog do not stop a round. It asks the model about the New
+    item of an open milestone first, then about the backlog's New items by priority, and stops
+    at `--limit` alone. The board shows the Ready count to the person who plans (#2004)."""
     store.seed_visibility(is_private=True)
-    for place in (SECOND, None, None)[:ready]:
-        _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", milestone=place, refined=True)
-    numbers = {
-        priority: _seed_item(store, "New", priority)
-        for priority in ("P2-Medium", "P1-High", "P3-Low")
-    }
-    sent = scripted_gateway({})
-    plan_refine(store, repo=REPO, source=git_repo, config=read_roadmap_config(store, ref=None))
-    assert [_issue_number(request) for request in sent] == [numbers[p] for p in refined]
+    for _ in range(12):
+        _seed_item(store, CONST_ROADMAP_STATUS_READY, "P2-Medium", refined=True)
+    planned = _seed_item(store, "New", "P3-Low", milestone=FIRST)
+    backlog = [
+        _seed_item(store, "New", priority)
+        for priority in ("P3-Low", "P2-Medium", "P1-High", "P3-Low")
+    ]
+    model_fake.answer(_SPLIT_PROPOSAL)
+
+    plan_refine(store, repo=REPO, source=git_repo, limit=4)
+
+    assert [json.loads(call.prompt)["number"] for call in model_fake.calls] == [
+        planned,
+        backlog[2],
+        backlog[1],
+        backlog[0],
+    ]
 
 
 def test_a_round_after_refine_left_items_new_leaves_them_waiting_reading_no_body_or_model(

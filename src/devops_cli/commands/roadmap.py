@@ -274,16 +274,10 @@ def refine_cmd(
     opened: list[RoadmapStore] = []
     with _reporting_spend(opened):
         with _exit_on_failure("Could not plan refinement"):
-            _, config, store = _open_roadmap(target_repo, ref, CONST_ROADMAP_REFINE_BOARD_FILTER)
+            _, _config, store = _open_roadmap(target_repo, ref, CONST_ROADMAP_REFINE_BOARD_FILTER)
             opened.append(store)
             plan = plan_refine(
-                store,
-                repo=target_repo,
-                source=source,
-                ref=ref,
-                item_number=item,
-                limit=limit,
-                config=config,
+                store, repo=target_repo, source=source, ref=ref, item_number=item, limit=limit
             )
         write_stdout(render_refine_plan(plan) + "\n")
         if not confirm:
