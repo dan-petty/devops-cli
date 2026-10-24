@@ -1,10 +1,13 @@
 """Tests verifying Valkey is configured as the key-value store across all Kubernetes stacks."""
 
+import shlex
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
+from kubernetes.utils.quantity import parse_quantity
 
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from tests.support.paths import REPO_ROOT
@@ -12,6 +15,8 @@ from tests.support.paths import REPO_ROOT
 K8S_DIR = REPO_ROOT / "k8s"
 LLM_DIR = K8S_DIR / "llm"
 CACHE_SERVICE_HOST = "valkey.llm.svc.cluster.local"
+# valkey.conf: "1mb => 1024*1024 bytes".
+VALKEY_MB_BYTES = 1024 * 1024
 
 
 def _document(path: Path, kind: str, name: str) -> dict[str, Any]:
@@ -54,6 +59,14 @@ def _password_setup(deployment: dict[str, Any]) -> tuple[str, str, dict[str, Any
         v for v in deployment["spec"]["template"]["spec"]["volumes"] if v["name"] == mount["name"]
     )
     return prelude, server, volume["emptyDir"]
+
+
+def _server_flags(deployment: dict[str, Any]) -> dict[str, str]:
+    """Return each `--name value` flag that the valkey container gives valkey-server after its
+    config file."""
+    _, server, _ = _password_setup(deployment)
+    _binary, _config_file, *flags = shlex.split(server)
+    return dict(zip(flags[::2], flags[1::2], strict=True))
 
 
 def _cache_secret() -> tuple[str, str]:
@@ -192,7 +205,34 @@ def test_the_cache_valkey_takes_its_password_from_its_secret_as_the_run_index_do
         "no",
         "--dir",
         "/data",
+        "--maxmemory",
+        "1536mb",
+        "--maxmemory-policy",
+        "noeviction",
     ]
+
+
+@pytest.mark.parametrize(
+    ("manifest", "name", "bound"),
+    [("valkey.yaml", "valkey", "1536mb"), ("valkey-runs.yaml", "valkey-runs", "512mb")],
+)
+def test_each_llm_valkey_refuses_writes_at_a_memory_bound_below_its_container_limit(
+    manifest: str, name: str, bound: str
+) -> None:
+    """Each Valkey of the llm namespace keeps at most three quarters of its container's memory
+    limit as data, and at that bound refuses writes and evicts no key (#711).
+
+    The cache Valkey ran with no bound under a 2048Mi limit, so its growth could end only in an
+    OOM kill. maxmemory counts the bytes Valkey allocates, not its resident memory, so the rest
+    of the limit holds the allocator's fragmentation and Valkey's own overhead. Open WebUI keeps
+    its session pools and token revocations in the cache Valkey, and eviction would drop them.
+    """
+    deployment = _document(LLM_DIR / manifest, "Deployment", name)
+    flags = _server_flags(deployment)
+    limit = parse_quantity(_container(deployment, "valkey")["resources"]["limits"]["memory"])
+
+    assert (flags.get("--maxmemory"), flags.get("--maxmemory-policy")) == (bound, "noeviction")
+    assert int(bound.removesuffix("mb")) * VALKEY_MB_BYTES <= limit * 3 / 4
 
 
 def test_the_cache_valkey_exporter_scrapes_with_the_password() -> None:
