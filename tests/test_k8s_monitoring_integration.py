@@ -12,7 +12,11 @@ from urllib.parse import urlsplit
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import (
+    _HELM_RELEASES_BY_STACK,
+    _HELM_REPOS,
+    _MANIFESTS_BY_STACK,
+)
 from tests.k8s_manifests import kustomized_objects, manifest_objects
 from tests.support.paths import REPO_ROOT
 
@@ -262,6 +266,68 @@ def test_grafana_rate_windows_hold_two_samples_at_the_scrape_interval() -> None:
         prometheus.get("jsonData", {}).get("timeInterval"),
         _k8s_monitoring_values()["global"]["scrapeInterval"],
     ) == ("60s", "60s")
+
+
+def test_grafana_runs_the_grafana_community_chart_that_ships_a_patched_grafana() -> None:
+    """`grafana/grafana` 10.5.15, the last chart in grafana.github.io/helm-charts, runs Grafana
+    12.3.1, which CVE-2026-76154 and CVE-2026-17033 affect. The chart moved to
+    grafana-community/helm-charts, and its 14.0.1 runs Grafana 13.2.4, which fixes both (#1624).
+    The Argo CD Application, its project and deploy-stack name the same repository, chart and
+    version."""
+    application = yaml.safe_load(
+        (K8S_DIR / "argocd" / "apps" / "grafana.yaml").read_text(encoding="utf-8")
+    )
+    projects = {
+        doc["metadata"]["name"]: doc["spec"]
+        for doc in yaml.safe_load_all(
+            (K8S_DIR / "argocd" / "apps" / "projects.yaml").read_text(encoding="utf-8")
+        )
+        if doc
+    }
+    chart_source = next(source for source in application["spec"]["sources"] if "chart" in source)
+    release = next(r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "grafana")
+    alias = release["chart"].split("/")[0]
+
+    assert {
+        "argocd": (chart_source["repoURL"], chart_source["chart"], chart_source["targetRevision"]),
+        "project admits the repository": chart_source["repoURL"]
+        in projects[application["spec"]["project"]]["sourceRepos"],
+        "deploy-stack": (_HELM_REPOS[alias], release["chart"], release["version"]),
+    } == {
+        "argocd": ("https://grafana-community.github.io/helm-charts", "grafana", "14.0.1"),
+        "project admits the repository": True,
+        "deploy-stack": (
+            "https://grafana-community.github.io/helm-charts",
+            "grafana-community/grafana",
+            "14.0.1",
+        ),
+    }
+
+
+def test_grafana_provisioning_deletes_a_datasource_that_leaves_the_file() -> None:
+    """With `prune: true`, Grafana marks each datasource the file provisions as prunable, and at
+    start deletes a prunable datasource that no file lists. Without it, the Jaeger datasource
+    stayed in Grafana after git removed it (#1135, #1624)."""
+    provisioning = _k8s_yaml("monitoring/grafana-values.yaml")["datasources"]["datasources.yaml"]
+
+    assert {key: provisioning.get(key) for key in ("apiVersion", "prune")} == {
+        "apiVersion": 1,
+        "prune": True,
+    }
+
+
+def test_grafana_stops_the_old_pod_before_the_new_pod_opens_its_sqlite_database() -> None:
+    """Grafana keeps its data in SQLite on its `grafana` volume. A rolling update runs the old
+    and the new pod on one database file, and SQLite can then fail with `database is locked`.
+    Grafana 13 migrates dashboards and folders to unified storage at its first start, and the
+    Grafana upgrade guide names this error for SQLite (#1624). `Recreate` stops the old pod first."""
+    grafana = _k8s_yaml("monitoring/grafana-values.yaml")
+
+    assert {
+        "strategy": grafana.get("deploymentStrategy"),
+        "persistent": grafana["persistence"]["enabled"],
+        "external database": "database" in grafana["grafana.ini"],
+    } == {"strategy": {"type": "Recreate"}, "persistent": True, "external database": False}
 
 
 def test_each_alloy_collector_runs_in_one_controller_preset() -> None:

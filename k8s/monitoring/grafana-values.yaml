@@ -1,7 +1,13 @@
 # Grafana Helm values
-# Chart: grafana/grafana
-# Repo:  https://grafana.github.io/helm-charts
-# https://github.com/grafana/helm-charts/tree/main/charts/grafana
+# Chart: grafana-community/grafana
+# Repo:  https://grafana-community.github.io/helm-charts
+# https://github.com/grafana-community/helm-charts/tree/main/charts/grafana
+
+# Grafana keeps its data in SQLite on the `grafana` volume. A rolling update runs two pods on one
+# database file, and SQLite can fail with `database is locked`, also during the unified-storage
+# migration at the first start of Grafana 13. Recreate stops the old pod first (#1624).
+deploymentStrategy:
+  type: Recreate
 
 service:
   type: ClusterIP
@@ -47,6 +53,10 @@ grafana.ini:
 datasources:
   datasources.yaml:
     apiVersion: 1
+    # Grafana marks each datasource below as prunable, and at start deletes a prunable datasource
+    # that this file no longer lists (#1624). A datasource removed before this setting is not
+    # prunable: delete it through the Grafana API or UI.
+    prune: true
     datasources:
       - name: Prometheus
         type: prometheus
