@@ -587,7 +587,7 @@ def test_resolve_all_paces_each_resolve_as_a_write_and_the_listing_as_a_read() -
         return subprocess.CompletedProcess(cmd, 0, json.dumps(reply), "")
 
     with (
-        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
         patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
     ):
         results = resolve_all_pr_review_threads("o", "r", 7)

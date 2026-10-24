@@ -1,4 +1,4 @@
-"""The waiting functions the libraries take, and the monotonic reading `ratelimit` takes (#1320)."""
+"""The waiting functions and the monotonic clock reading the libraries take (#1320)."""
 
 from __future__ import annotations
 

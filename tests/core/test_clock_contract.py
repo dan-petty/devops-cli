@@ -6,19 +6,15 @@ Each contract case runs against both the fake (`clock` fixture) and the real sea
 
 from __future__ import annotations
 
-import subprocess
 import time
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import httpx2
 import pytest
-from ratelimit import limits, sleep_and_retry
 from tenacity import wait_chain, wait_fixed
 
 from devops_cli.ai.retries import create_retry_config, create_retry_transport
 from devops_cli.core import clock as clock_seam
-from devops_cli.github.rate_limiter import reset_github_rate_limiter, run_gh
 from tests.support.fakes.clock import ClockFake
 
 _TOLERANCE = 1e-3
@@ -85,64 +81,19 @@ def test_a_sync_tenacity_retry_with_fixed_waits_waits_those_amounts_in_order(
     ) == (200, 3, True, True, [d1, d2])
 
 
-@pytest.mark.parametrize(("mode", "period"), [("fake", 60.0), ("real", 0.03)])
-def test_a_ratelimit_window_built_with_the_seam_makes_the_third_call_wait_out_the_period(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, mode: str, period: float
+@pytest.mark.parametrize(("mode", "duration"), [("fake", 1.5), ("real", 0.02)])
+def test_a_sync_wait_advances_the_monotonic_clock_by_at_least_its_duration(
+    request: pytest.FixtureRequest, mode: str, duration: float
 ) -> None:
-    """`ratelimit.limits(calls=2, period=period, clock=clock_seam.monotonic)` lets the first two
-    calls through and holds the third until `period` has passed since the window opened.
-
-    `sleep_and_retry` waits through `time.sleep`, which the test records in order with the calls.
-    The window opens when it is built, so the test measures from a seam reading taken just before
-    that, not from the first call: a stall between the two shortened the measured time (#2092).
-    The fake clock moves only when the seam waits, so the fake case holds the third call with one
-    wait of the whole period. The real clock moves on its own: a stall longer than the period
-    before the third call ends the window, and that call then goes through with no wait. So the
-    real case asserts the lower bound the contract needs, and no case bounds a real time from
-    above (#1902).
-    """
+    """After a sync wait of `duration`, `clock_seam.monotonic()` has advanced by at least
+    `duration`, and the fake records the wait."""
     fake = _install_mode(request, mode)
-    stamps: list[float] = []
-    events: list[str] = []
-    sleep = time.sleep
+    before_mono = clock_seam.monotonic()
 
-    def recorded_sleep(seconds: float) -> None:
-        events.append("wait")
-        sleep(seconds)
+    clock_seam.sleep(duration)
 
-    def stamp() -> None:
-        events.append("call")
-        stamps.append(clock_seam.monotonic())
-
-    monkeypatch.setattr(time, "sleep", recorded_sleep)
-    opened = clock_seam.monotonic()
-    window = limits(calls=2, period=period, clock=clock_seam.monotonic)
-    call = sleep_and_retry(window(stamp))
-
-    for _ in range(3):
-        call()
-
+    after_mono = clock_seam.monotonic()
     assert (
-        events[:2],
-        events.count("call"),
-        stamps[2] - opened >= period - _TOLERANCE,
-        fake.waits if fake is not None else None,
-    ) == (["call", "call"], 3, True, [period] if fake is not None else None)
-
-
-def test_the_github_rate_limiter_builds_its_burst_limit_with_the_seam_when_constructed(
-    clock: ClockFake,
-) -> None:
-    """Each `GitHubRateLimiter` builds its 60-calls-per-60s burst limit with `clock_seam.monotonic`
-    when constructed, so the 61st exempt call in one window waits 60 s and a fresh limiter starts
-    its own window."""
-    reset_github_rate_limiter()
-    payload = '{"resources": {"core": {"limit": 5000, "remaining": 5000, "reset": 1999999999}}}'
-    answer = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 0, payload, "")
-    with patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer):
-        for _ in range(61):
-            run_gh(["api", "rate_limit"])
-        reset_github_rate_limiter()
-        run_gh(["api", "rate_limit"])
-
-    assert clock.waits == [60.0]
+        after_mono - before_mono >= duration - _TOLERANCE,
+        fake.waits if fake is not None else [duration],
+    ) == (True, [duration])

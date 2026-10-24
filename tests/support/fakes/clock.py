@@ -44,7 +44,7 @@ class ClockFake:
             self._monotonic += duration
 
     def monotonic(self) -> float:
-        """The monotonic reading `ratelimit.limits(clock=...)` reads."""
+        """The monotonic reading the clock seam reads."""
         return self._monotonic
 
     def move_to(self, destination: time_machine.DestinationType) -> None:

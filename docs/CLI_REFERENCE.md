@@ -6611,7 +6611,7 @@ GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 
 ### `devops gh api`
 
-**Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching.**
+**Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching.**
 
 ```bash
 devops gh api [OPTIONS] <endpoint>

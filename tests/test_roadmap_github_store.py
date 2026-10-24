@@ -1138,7 +1138,7 @@ def test_through_run_gh_a_failed_budget_read_after_an_owner_lookup_is_classified
     store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2)
     with (
         patch(
-            "devops_cli.github.rate_limiter._burst_protected_subprocess",
+            "devops_cli.github.rate_limiter.run_subprocess",
             side_effect=_owner_lookup_through_run_gh(budget),
         ),
         patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0),

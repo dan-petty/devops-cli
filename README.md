@@ -371,7 +371,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
 |  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
-| **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
+| **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 |  | `devops gh status [OPTIONS]` | Display GitHub published operational status, key components, and active incidents. |
 |  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones. |

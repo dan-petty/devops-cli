@@ -810,7 +810,6 @@ dependencies = [
     { name = "python-hcl2" },
     { name = "pyyaml" },
     { name = "qdrant-client" },
-    { name = "ratelimit" },
     { name = "rich" },
     { name = "ruamel-yaml" },
     { name = "secretstorage", marker = "sys_platform == 'linux'" },
@@ -907,7 +906,6 @@ requires-dist = [
     { name = "python-hcl2", specifier = "==8.1.4" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "qdrant-client", specifier = "==1.19.1" },
-    { name = "ratelimit", specifier = "==2.2.1" },
     { name = "rich", specifier = "==15.0.0" },
     { name = "ruamel-yaml", specifier = "==0.19.1" },
     { name = "secretstorage", marker = "sys_platform == 'linux'", specifier = "==3.5.0" },
@@ -3292,12 +3290,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/4e/20/c8fcd645d3f595b08
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/9f/becebdda02beddd422587eba0d7dfac5b1f1e0aa1ada5bcf9b9e6f1c3717/qdrant_client-1.19.1-py3-none-any.whl", hash = "sha256:fca1a96c3f90f5fff853f6ee6877838a5768a04c963df9891a655a63313af8a0", size = 406533, upload-time = "2026-09-16T06:43:12.428Z" },
 ]
-
-[[package]]
-name = "ratelimit"
-version = "2.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ab/38/ff60c8fc9e002d50d48822cc5095deb8ebbc5f91a6b8fdd9731c87a147c9/ratelimit-2.2.1.tar.gz", hash = "sha256:af8a9b64b821529aca09ebaf6d8d279100d766f19e90b5059ac6a718ca6dee42", size = 5251, upload-time = "2018-12-17T18:55:49.675Z" }
 
 [[package]]
 name = "redis"

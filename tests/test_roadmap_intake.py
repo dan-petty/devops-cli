@@ -1004,9 +1004,6 @@ def test_a_quota_refresh_github_refuses_stops_the_round_after_one_refresh(
     with (
         patch.object(roadmap.store, "add_item", side_effect=write_through_gh),
         patch.object(rate_limiter, "run_subprocess", return_value=refusal) as gh,
-        patch.object(
-            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
-        ),
         patch("time.sleep"),
         pytest.raises(GitHubOperationError) as raised,
     ):
@@ -1278,12 +1275,7 @@ def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_trac
     monkeypatch.setattr(board.store, "items", github.items)
     monkeypatch.setattr(board.store, "graphql_spend", github.graphql_spend)
     timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
-    with (
-        patch.object(rate_limiter, "run_subprocess", side_effect=timed_out),
-        patch.object(
-            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
-        ),
-    ):
+    with patch.object(rate_limiter, "run_subprocess", side_effect=timed_out):
         result = runner.invoke(app, ["intake", "--repo", REPO, "--plan"])
     output = " ".join(result.output.split())
     assert (
@@ -1591,7 +1583,7 @@ def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_ca
     limiter.acquire(subcommand="core")
     meter = SpendMeter()
     answered = subprocess.CompletedProcess(["gh"], 0, "[]", "")
-    with patch.object(rate_limiter, "_burst_protected_subprocess", return_value=answered):
+    with patch.object(rate_limiter, "run_subprocess", return_value=answered):
         rate_limiter.run_gh(["api", "repos/example/roadmap/issues/1"])
         rate_limiter.run_gh(["api", "-X", "GET", "search/issues", "-f", "q=x", "-F", "per_page=1"])
         rate_limiter.run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"])

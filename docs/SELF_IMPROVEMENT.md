@@ -1196,7 +1196,7 @@ The DevSecOps and robustness review session `20260913-231617` produced 13 findin
    - Disarmed `HALLUCINATION-NONEXISTENT-FIXER-PAYLOAD` (non-existent `src/devops_cli/ai/fixer.py` and claims of unbounded payload in `repair_json_string`).
    - Disarmed `HALLUCINATION-CI-ALLOW-BLOCKED-STATE` (false claims of insecure bypass for transient in-flight CI mergeable states).
 6. **Native DevOps CLI GitHub Rate Management**:
-   - Replaced bare `gh` invocations with native `devops gh` and centralized `run_gh()` runner featuring token-bucket pacing, quota safety thresholds, exponential backoff with jitter on secondary rate limits, and TTL read caching.
+   - Replaced bare `gh` invocations with native `devops gh` and centralized `run_gh()` runner featuring quota-derived spacing, quota safety thresholds, exponential backoff with jitter on secondary rate limits, and TTL read caching.
 
 ### Session `20260915-124521` (GitHub Rate Limiting, Container Sandbox Isolation & Path Traversal Remediation)
 

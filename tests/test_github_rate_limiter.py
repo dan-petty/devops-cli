@@ -1168,7 +1168,7 @@ def _paced_as_write(args: list[str], *, input: str | None = None, cwd: Path | No
         return subprocess.CompletedProcess(cmd, 0, "{}", "")
 
     with (
-        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
         patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
     ):
         run_gh(args, input=input, cwd=cwd)
@@ -1450,7 +1450,7 @@ def test_a_paginated_write_is_sent_once_as_given_and_paced_as_a_write() -> None:
         return subprocess.CompletedProcess(cmd, 0, "{}", "")
 
     with (
-        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
         patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
     ):
         run_gh(args)
@@ -1644,7 +1644,7 @@ def test_run_gh_charges_graphql_by_the_points_the_response_reports() -> None:
 
     query = ["api", "graphql", "-f", "query=query { viewer { login } }"]
     limiter = get_github_rate_limiter()
-    with patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh):
+    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh):
         charged = []
         for _ in range(3):
             run_gh(query)
@@ -2047,3 +2047,86 @@ def test_a_rate_limit_check_that_prints_the_answer_reads_the_quota_from_it(
         [["api", "rate_limit", *flags]],
         {"core": (4830, _RESET), "graphql": (4321, _RESET)},
     )
+
+
+# ── No burst ceiling stall (#1118) ──────────────────────────────────────────
+
+
+def test_sixty_one_reads_do_not_stall_behind_a_fixed_burst_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify 61 consecutive gh reads do not stall behind a fixed burst ceiling.
+
+    Before removing ratelimit, the 61st call triggers sleep_and_retry, asking for
+    the remainder of the 60s window (~59s) and raising AssertionError.
+    """
+    limiter = get_github_rate_limiter()
+    limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0)
+
+    runner_calls: list[list[str]] = []
+    answer = subprocess.CompletedProcess(["gh", "api", "repos/o/r"], 0, "{}", "")
+
+    def fake_runner(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        runner_calls.append(cmd)
+        return answer
+
+    recorded_sleeps: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        if seconds >= 1.0:
+            raise AssertionError(f"Unexpected sleep >= 1.0s: {seconds}")
+        recorded_sleeps.append(seconds)
+
+    monkeypatch.setattr(time, "sleep", fake_sleep)
+    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=fake_runner):
+        for _ in range(61):
+            run_gh(["api", "repos/o/r"])
+
+    assert len(runner_calls) == 61
+    assert len(recorded_sleeps) == 61
+
+
+def test_parallel_callers_stay_spaced_across_threads() -> None:
+    """Two threads calling run_gh stay spaced by quota spacing across threads."""
+    barrier = threading.Barrier(2)
+    recorded_sleeps: list[float] = []
+    sleep_lock = threading.Lock()
+    answer = subprocess.CompletedProcess(["gh", "pr", "list"], 0, "[]", "")
+
+    def recording_sleep(seconds: float) -> None:
+        with sleep_lock:
+            recorded_sleeps.append(seconds)
+
+    def worker() -> None:
+        barrier.wait()
+        run_gh(["pr", "list"])
+
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer),
+        patch("time.sleep", side_effect=recording_sleep),
+    ):
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+    assert len(recorded_sleeps) == 2
+    larger = max(recorded_sleeps)
+    smaller = min(recorded_sleeps)
+    assert larger - smaller >= 0.5
+
+
+def test_paginate_without_endpoint_calls_acquire() -> None:
+    """Non-exempt gh command without an endpoint still calls acquire before starting gh."""
+    answer = subprocess.CompletedProcess(["gh", "api", "--paginate"], 0, "[]", "")
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as runner,
+        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as mock_acquire,
+    ):
+        proc = run_gh(["api", "--paginate"])
+
+    assert proc.returncode == 0
+    assert mock_acquire.call_count == 1
+    assert runner.call_count == 1

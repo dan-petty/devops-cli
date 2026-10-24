@@ -194,10 +194,14 @@ def test_reconcile_reads_an_unknown_quota_and_plans_the_board(ledger: str) -> No
         assert cmd == ["gh", "api", "rate_limit"]
         return subprocess.CompletedProcess(cmd, 0, _rate_limit_reply(), "")
 
+    def gh_runner(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd == ["gh", "api", "rate_limit"]:
+            return rate_limit(cmd, **kwargs)
+        return fake(cmd, **kwargs)
+
     with (
-        patch.object(rate_limiter, "_burst_protected_subprocess", side_effect=fake),
         patch("devops_cli.github.projects.get_github_session", return_value=fake),
-        patch.object(rate_limiter, "run_subprocess", side_effect=rate_limit),
+        patch.object(rate_limiter, "run_subprocess", side_effect=gh_runner),
         patch("devops_cli.github.rate_limiter.time.sleep"),
     ):
         result = reconcile_project_custom_fields("o", REPO, 2, mode="plan")

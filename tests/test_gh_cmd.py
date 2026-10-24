@@ -451,9 +451,6 @@ def test_reconcile_exits_1_naming_the_quota_read_when_github_cant_report_it() ->
     failed = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, "", "HTTP 502")
     with (
         patch.object(rate_limiter, "run_subprocess", return_value=failed),
-        patch.object(
-            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
-        ),
         patch("devops_cli.github.rate_limiter.time.sleep"),
     ):
         result = runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, "--plan"])
@@ -480,9 +477,6 @@ def test_reconcile_dry_run_makes_no_request(how: str, monkeypatch: pytest.Monkey
     with (
         patch("devops_cli.github.projects.run_gh", side_effect=AssertionError("ran gh")),
         patch.object(rate_limiter, "run_subprocess", side_effect=AssertionError("ran gh")),
-        patch.object(
-            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("ran gh")
-        ),
     ):
         result = runner.invoke(app, args)
     text = _flat(result.output)
@@ -1113,9 +1107,6 @@ def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error() -
     )
     with (
         patch.object(rate_limiter, "run_subprocess", return_value=refused) as gh,
-        patch.object(
-            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
-        ),
         patch("devops_cli.github.rate_limiter.time.sleep"),
     ):
         result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
@@ -1139,9 +1130,6 @@ def test_gh_issues_list_reports_a_refresh_that_timed_out_as_the_unread_error() -
     timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
     with (
         patch.object(rate_limiter, "run_subprocess", side_effect=timed_out),
-        patch.object(
-            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
-        ),
         patch("devops_cli.github.rate_limiter.time.sleep"),
     ):
         result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
