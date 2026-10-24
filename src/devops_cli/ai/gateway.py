@@ -71,6 +71,10 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     },
 )
 
+# The backend type of a route that a failover records starts with this prefix, then names the
+# backend type of the fallback route, e.g. `failover:ollama`.
+_FAILOVER_BACKEND_PREFIX: Final[str] = "failover:"
+
 MODEL_FAILOVER_PAIRS: Final[dict[str, str]] = {
     "devops-reasoning": "devops-coder",
     "devops-coder": "devops-chat",
@@ -101,6 +105,7 @@ class GatewayStatus(BaseModel):
     gateway_url: str
     active_routes: list[GatewayRoute] = Field(default_factory=list)
     circuit_breaker_tripped: bool = False
+    failover_routes: list[str] = Field(default_factory=list)
     backend_counts: dict[str, int] = Field(default_factory=dict)
     details: dict[str, Any] = Field(default_factory=dict)
 
@@ -108,6 +113,11 @@ class GatewayStatus(BaseModel):
 def _build_default_routes() -> list[GatewayRoute]:
     """Construct default virtual model routes."""
     return [GatewayRoute(**route) for route in DEFAULT_GATEWAY_ROUTES]
+
+
+def _failover_virtual_models(routes: list[GatewayRoute]) -> list[str]:
+    """Name the virtual models whose route is a route that a failover recorded."""
+    return [r.virtual_model for r in routes if r.backend_type.startswith(_FAILOVER_BACKEND_PREFIX)]
 
 
 def _count_backends(routes: list[GatewayRoute]) -> dict[str, int]:
@@ -455,7 +465,10 @@ class GatewayRouter:
                 is_ok, status_code, err_msg = _probe_gateway_http(client, probe_base, self.provider)
 
             latency = round((time.perf_counter() - start) * 1000, 2)
-            self._circuit_breaker_active = not is_ok
+            # A healthy probe keeps a failover route: LiteLLM, not this route table, moves the
+            # live traffic, so only a reset restores the default route (#1986).
+            failover = _failover_virtual_models(self._active_routes)
+            self._circuit_breaker_active = not is_ok or bool(failover)
             self._active_routes = [
                 GatewayRoute(
                     virtual_model=r.virtual_model,
@@ -485,6 +498,7 @@ class GatewayRouter:
                 gateway_url=raw_url,
                 active_routes=list(self._active_routes),
                 circuit_breaker_tripped=self._circuit_breaker_active,
+                failover_routes=failover,
                 backend_counts=_count_backends(self._active_routes),
                 details=details,
             )
@@ -521,7 +535,7 @@ class GatewayRouter:
                         target_model=target_m
                         if r.virtual_model == virtual_model
                         else r.target_model,
-                        backend_type=f"failover:{b_type}"
+                        backend_type=f"{_FAILOVER_BACKEND_PREFIX}{b_type}"
                         if r.virtual_model == virtual_model
                         else r.backend_type,
                         backend_url=b_url if r.virtual_model == virtual_model else r.backend_url,
@@ -542,6 +556,19 @@ class GatewayRouter:
                 "simulated": simulate,
                 "status": "failover_active" if not simulate else "simulated",
             }
+
+    def reset_failover(self) -> dict[str, Any]:
+        """Restore the default route of every virtual model and clear the circuit breaker."""
+        restored = _failover_virtual_models(self._active_routes)
+        with trace_span("ai.gateway.failover_reset", {"restored_routes": len(restored)}):
+            self._circuit_breaker_active = False
+            self._active_routes = _build_default_routes()
+            _save_gateway_state(self.state_file, self._circuit_breaker_active, self._active_routes)
+        return {
+            "status": "reset",
+            "restored_routes": restored,
+            "circuit_breaker_tripped": self._circuit_breaker_active,
+        }
 
     def probe_backend(
         self,

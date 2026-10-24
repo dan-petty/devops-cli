@@ -1593,7 +1593,7 @@ devops ai gateway connect [OPTIONS]
 
 ### `devops ai gateway failover`
 
-**Trigger or test circuit-breaker failover of a virtual model to secondary backends.**
+**Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset.**
 
 ```bash
 devops ai gateway failover [OPTIONS] <virtual_model>
@@ -1603,7 +1603,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<virtual_model>` | `string` | Yes | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). |
+| `<virtual_model>` | `string` | No | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). Give none with --reset. |
 
 **Options:**
 
@@ -1611,6 +1611,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 |---|---|---|---|
 | `--simulate` / `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
+| `--reset` | `boolean` | - | Restore the default route of every virtual model and clear the circuit breaker. --simulate and --force apply only to a failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai gateway probe-backend`

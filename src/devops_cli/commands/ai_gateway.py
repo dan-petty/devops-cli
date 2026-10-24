@@ -103,10 +103,17 @@ def status_cmd(
 
     print_section("LLM Gateway Status")
     status_msg = f"Gateway URL: {result.gateway_url}\nHealthy: {result.healthy}\nCircuit Breaker: {result.circuit_breaker_tripped}"
-    if result.healthy:
-        print_success(status_msg)
-    else:
+    if result.failover_routes:
+        status_msg += (
+            f"\nFailover routes: {', '.join(result.failover_routes)}"
+            "\nTo restore the default routes, run `devops ai gateway failover --reset`."
+        )
+    if not result.healthy:
         print_error(status_msg)
+    elif result.failover_routes:
+        print_warning(status_msg)
+    else:
+        print_success(status_msg)
 
     if result.active_routes:
         _render_routes_table(result.active_routes)
@@ -223,11 +230,11 @@ def connect_cmd(
 @app.command("failover")
 def failover_cmd(
     virtual_model: Annotated[
-        str,
+        str | None,
         typer.Argument(
-            help=f"Virtual model alias to trigger failover for ({', '.join(CONST_AI_GATEWAY_VIRTUAL_MODELS)})."
+            help=f"Virtual model alias to trigger failover for ({', '.join(CONST_AI_GATEWAY_VIRTUAL_MODELS)}). Give none with --reset."
         ),
-    ],
+    ] = None,
     simulate: Annotated[
         bool,
         typer.Option(
@@ -242,21 +249,34 @@ def failover_cmd(
             help="Bypass model capability tier minimum checks during failover.",
         ),
     ] = False,
+    reset: Annotated[
+        bool,
+        typer.Option(
+            "--reset",
+            help="Restore the default route of every virtual model and clear the circuit breaker. --simulate and --force apply only to a failover.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
 ) -> None:
-    """Trigger or test circuit-breaker failover of a virtual model to secondary backends."""
+    """Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset."""
+    if reset == bool(virtual_model):
+        raise typer.BadParameter("Give a virtual model or --reset, but not both.")
+
     settings = load_settings()
     router = GatewayRouter(settings.ai)
+    resolved = normalize_format(output_format)
+    if not virtual_model:
+        _report_failover_reset(router.reset_failover(), resolved)
+        return
     try:
         outcome = router.trigger_failover(virtual_model, simulate=simulate, force=force)
     except ValueError as exc:
         print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
-    resolved = normalize_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(outcome, resolved)
         return
@@ -269,6 +289,20 @@ def failover_cmd(
         f"Simulated: {outcome['simulated']}"
     )
     print_success(f"Failover status: {outcome['status']}")
+
+
+def _report_failover_reset(outcome: dict[str, Any], resolved_format: str) -> None:
+    """Show the virtual models whose failover route a reset restored."""
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(outcome, resolved_format)
+        return
+    print_section("Model Failover Reset")
+    restored = outcome["restored_routes"]
+    print_success(
+        f"Restored the default routes. Routes that were in failover: {', '.join(restored)}."
+        if restored
+        else "Restored the default routes. No route was in failover."
+    )
 
 
 @app.command("probe-backend")
