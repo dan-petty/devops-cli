@@ -53,6 +53,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
     DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT,
     DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
+    DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS,
+    DEFAULT_RAG_EMBEDDING_INCREASE_LATENCY_RATIO,
     DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS,
     DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS,
     DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
@@ -61,6 +63,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.core import clock
 from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.lang import ERRORS
@@ -415,6 +418,8 @@ class EmbeddingsEngine:
         self._configured_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
         self._current_batch_size = self._configured_batch_size
         self._consecutive_successes: int = 0
+        # The monotonic time of the last change of the batch size; no change yet, so no cooldown.
+        self._batch_size_changed_at = float("-inf")
         self._batch_lock = threading.Lock()
         self._http_client: httpx2.Client | None = None
         self._http_lock = threading.Lock()
@@ -481,10 +486,18 @@ class EmbeddingsEngine:
         except Exception:
             return None
 
-    def _apply_aimd_decrease(self) -> int:
-        """Dynamically halve the batch size down to minimum threshold on failure or latency degradation (AIMD)."""
+    def _apply_aimd_decrease(self, sent_size: int) -> None:
+        """Halve the batch size after a slow or timed-out batch of `sent_size` texts (AIMD).
+
+        A batch that holds more texts than the size in use was sent before an earlier decrease,
+        and that decrease applies to it too. So only a batch of the size in use or smaller halves
+        the size, and the parallel batches of one size halve it once.
+        """
         with self._batch_lock:
+            if sent_size > self._current_batch_size:
+                return
             self._consecutive_successes = 0
+            self._batch_size_changed_at = clock.monotonic()
             self._current_batch_size = max(
                 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
                 int(self._current_batch_size * CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR),
@@ -500,44 +513,58 @@ class EmbeddingsEngine:
                 self._current_batch_size,
                 self._configured_batch_size,
             )
-            return self._current_batch_size
 
-    def _apply_aimd_increase(self) -> int:
-        """Dynamically increment batch size up to configured maximum after consecutive low-latency batches (AIMD)."""
+    def _apply_aimd_increase(self) -> None:
+        """Count a fast batch, and add to the batch size after enough fast batches in a row (AIMD).
+
+        A fast batch counts only below the configured size and after the cooldown that each change
+        of the size starts.
+        """
         with self._batch_lock:
+            now = clock.monotonic()
+            in_cooldown = (
+                now - self._batch_size_changed_at < DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS
+            )
+            if in_cooldown or self._current_batch_size >= self._configured_batch_size:
+                return
             self._consecutive_successes += 1
-            if (
-                self._consecutive_successes >= CONST_AIMD_SUCCESS_THRESHOLD
-                and self._current_batch_size < self._configured_batch_size
-            ):
-                self._current_batch_size = min(
-                    self._configured_batch_size,
-                    self._current_batch_size + CONST_AIMD_ADDITIVE_INCREASE_STEP,
-                )
-                self._consecutive_successes = 0
-                record_metric("rag.embedding.batch_size", self._current_batch_size)
-                record_metric(
-                    "rag.embedding.aimd_action",
-                    1,
-                    attributes={"action": "additive_increase"},
-                )
-                logger.debug(
-                    "AIMD additive increase applied: batch_size=%d (configured=%d)",
-                    self._current_batch_size,
-                    self._configured_batch_size,
-                )
-            return self._current_batch_size
+            if self._consecutive_successes < CONST_AIMD_SUCCESS_THRESHOLD:
+                return
+            self._consecutive_successes = 0
+            self._batch_size_changed_at = now
+            self._current_batch_size = min(
+                self._configured_batch_size,
+                self._current_batch_size + CONST_AIMD_ADDITIVE_INCREASE_STEP,
+            )
+            record_metric("rag.embedding.batch_size", self._current_batch_size)
+            record_metric(
+                "rag.embedding.aimd_action",
+                1,
+                attributes={"action": "additive_increase"},
+            )
+            logger.debug(
+                "AIMD additive increase applied: batch_size=%d (configured=%d)",
+                self._current_batch_size,
+                self._configured_batch_size,
+            )
 
-    def _halve_batch_size(self) -> int:
-        """Backwards-compatible alias for AIMD multiplicative decrease."""
-        return self._apply_aimd_decrease()
+    def _record_batch_latency(self, elapsed: float, sent_size: int) -> None:
+        """Adapt the batch size to the latency of one batch of `sent_size` texts (AIMD).
 
-    def _record_batch_latency(self, elapsed: float) -> None:
-        """Inspect batch latency and adapt batch size via AIMD."""
+        A batch slower than the threshold halves the size. A batch that takes at most the margin
+        share of the threshold is fast. A batch between the two is not fast, so it stops the run
+        of fast batches.
+        """
         if elapsed > DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS:
-            self._apply_aimd_decrease()
-        else:
+            self._apply_aimd_decrease(sent_size)
+        elif elapsed <= (
+            DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS
+            * DEFAULT_RAG_EMBEDDING_INCREASE_LATENCY_RATIO
+        ):
             self._apply_aimd_increase()
+        else:
+            with self._batch_lock:
+                self._consecutive_successes = 0
 
     def _valkey_key(self, text: str, model: str, *, is_query: bool = False) -> str:
         """Generate namespaced deterministic Valkey cache key; hashes text after prompt is applied."""
@@ -891,16 +918,16 @@ class EmbeddingsEngine:
                 "rag.model": str(self.model),
             },
         ):
-            start_t = time.monotonic()
+            start_t = clock.monotonic()
             client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 2.0))
             with httpx2.Client(timeout=client_timeout) as client:
                 res = client.post(endpoint, json={"model": self.model, "input": batch_texts})
-            seconds = time.monotonic() - start_t
+            seconds = clock.monotonic() - start_t
             embs = _reply_vectors(res, endpoint, len(batch_texts), _ollama_reply_vectors)
             self._record_embedding_request(
                 res, endpoint, self.model, batch_texts, _ollama_reply_input_tokens, seconds
             )
-            self._record_batch_latency(seconds)
+            self._record_batch_latency(seconds, len(batch_texts))
             self._record_dimension(len(embs[0]))
             return embs
 
@@ -911,7 +938,7 @@ class EmbeddingsEngine:
         try:
             return self._query_ollama_node_batch(base_url.rstrip("/"), batch_texts)
         except (httpx2.TimeoutException, TimeoutError) as exc:
-            self._apply_aimd_decrease()
+            self._apply_aimd_decrease(len(batch_texts))
             delay = _calculate_backoff_delay(attempt)
             logger.debug("Ollama timeout on %s, backoff %.2fs: %s", base_url, delay, exc)
             time.sleep(delay)
@@ -1040,7 +1067,7 @@ class EmbeddingsEngine:
                 # The pool closed the connection that failed, and the retry gets a new one. The
                 # client stays open for the batches in parallel with this one.
                 if isinstance(exc, (httpx2.TimeoutException, TimeoutError)):
-                    self._apply_aimd_decrease()
+                    self._apply_aimd_decrease(len(batch))
                 delay = _compute_retry_delay(attempt)
                 logger.warning(
                     "Transient network error in embedding %s (attempt %d/%d): %s. Retrying in %.2fs...",
