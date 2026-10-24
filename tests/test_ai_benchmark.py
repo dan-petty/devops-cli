@@ -13,6 +13,7 @@ from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.benchmark.tasks import BENCHMARK_TASKS, get_benchmark_tasks
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.constants import CONST_URL_OPENAI_API_BASE
+from devops_cli.config.settings import AIConfig, Settings
 from devops_cli.models.benchmark import (
     BenchmarkReport,
     BenchmarkTask,
@@ -121,6 +122,15 @@ def test_benchmark_runner_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert len(report.peer_grades) == len(models) * len(models) * len(tasks)
     assert len(report.leaderboard) == len(models)
     assert report.leaderboard[0].overall_percentage > 0.0
+
+
+def test_a_benchmark_with_no_candidate_runs_the_configured_model() -> None:
+    """A task benchmark that gets no candidate runs the configured `ai.model`, as `devops ai
+    benchmark` does when `--models` names none. Before #2125 it ran qwen2.5-coder:7b, a model that
+    the gateway does not serve."""
+    settings = Settings(ai=AIConfig(model="example-model:1b"))
+
+    assert BenchmarkRunner(models=[], tasks=[], settings=settings).models == ["example-model:1b"]
 
 
 def test_benchmark_runner_mock_evaluation() -> None:

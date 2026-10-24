@@ -58,7 +58,11 @@ DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
 DEFAULT_GRAFANA_DASHBOARDS_DIR = Path("k8s/monitoring/dashboards")
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
-DEFAULT_AI_MODEL = "gemma4:26b"
+# A model that the gateway config sends to the tier of the default Ollama Service, and a gateway
+# group of the same name, so `provider: ollama` and `provider: gateway` both find it. It is the
+# model of the devops-chat route and of config.example.yaml. tests/test_k8s_llm_gateway.py binds
+# it to k8s/llm/gateway/config.yaml.
+DEFAULT_AI_MODEL = "qwen3.8:27b"
 DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 # A model that the gateway config sends to the tier of the default Ollama Service, the model of
 # the devops-coder route. tests/test_k8s_llm_gateway.py binds it to k8s/llm/gateway/config.yaml.
@@ -121,7 +125,6 @@ DEFAULT_LLM_CACHE_ENABLED: bool = True
 DEFAULT_LLM_CACHE_TTL_SECONDS: int = 86400 * 7  # 7 days
 DEFAULT_LLM_CACHE_MAX_ENTRIES: int = 1000
 DEFAULT_PYTHON_VERSION: str = "3.14"
-DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 DEFAULT_PR_STATE = "open"
 DEFAULT_MAX_CONTEXT_TOKENS: int = 32768
 DEFAULT_DIFF_CHUNK_BUDGET: int = 32768
@@ -192,6 +195,9 @@ DEFAULT_RAG_DOCS_COLLECTION = "devops_docs"
 DEFAULT_RAG_LIBRARIES_COLLECTION = "devops_libraries"
 DEFAULT_VALKEY_SYMBOL_TTL_SECONDS = 604800  # 7 days TTL for cached symbol signatures
 DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
+# The models of `devops ai bundle-models`: the models that the default chat and embedding tasks
+# call, so an air-gapped devcontainer holds the models that the defaults name.
+DEFAULT_BUNDLE_MODELS: tuple[str, ...] = (DEFAULT_AI_MODEL, DEFAULT_RAG_EMBEDDING_MODEL)
 DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
 DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Read timeout of one direct Ollama node, then failover
 # Read timeout of one embedding batch sent to the gateway or to an OpenAI-compatible API. On
