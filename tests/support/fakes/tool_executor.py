@@ -8,7 +8,11 @@ request's tool, an empty success when none is scripted, and keeps every request 
 
 Everything inside the process runs for real. The fake builds each `ToolRun` with the same
 `record_tool_run` that the real executor calls. So the fake refuses a target outside the tree, and
-it reads the digests and the commit from real files and a real git tree.
+it reads the digests and the commit from real files and a real git tree. By default the fake
+records as the sandbox executor does: it refuses a checkout that git cannot read and a file that it
+cannot digest. A fake that stands in for `DirectToolExecutor` takes `require_commit=False` and
+`require_files=False`, and records such a run as the direct executor does: with no commit, or with
+the digest `unavailable`. `scanner_fake` is such a fake (`tests/support/fakes/scanners.py`).
 
 A test scripts only what the programs of the host decide. These are the version and the binary
 digest of the tool, its exit code, its output and whether it ran out of time. A tool that is not
@@ -52,9 +56,11 @@ class ToolAnswer:
 class ToolExecutorFake:
     """A `ToolExecutor` that answers the scripted `ToolAnswer` of each request's tool."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, require_commit: bool = True, require_files: bool = True) -> None:
         self.requests: list[ToolRequest] = []
         self._answers: dict[str, ToolAnswer] = {}
+        self._require_commit = require_commit
+        self._require_files = require_files
 
     def script(self, tool: str, answer: ToolAnswer) -> None:
         """Answer every later request for `tool` with `answer`."""
@@ -72,6 +78,8 @@ class ToolExecutorFake:
             version=answer.version,
             binary_sha256=answer.binary_sha256,
             executor=FAKE_EXECUTOR,
+            require_commit=self._require_commit,
+            require_files=self._require_files,
         )
         self.requests.append(request)
         return ToolResult(

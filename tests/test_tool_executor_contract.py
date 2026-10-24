@@ -10,7 +10,9 @@ tests skip it where bubblewrap is missing.
 `DirectToolExecutor` starts the tool itself, as a review did before the sandbox. The floor of the
 suite allows git and no other program, so its cases start git as the tool, in a temporary
 repository. They check what the sandbox cases check of the start: the directory, the standard
-input, the arguments and the environment.
+input, the arguments and the environment. The two cases of a record that the direct executor
+cannot complete also run over the fake with `require_commit=False` and `require_files=False`. That
+fake stands in for the direct executor, as `scanner_fake` does, and must record as it does.
 
 The cases after the shared ones hold the real executor to what it promises. They check the
 confinement that it asks bubblewrap for, and the limits that the tool runs under. They also check
@@ -638,6 +640,14 @@ def test_the_sandbox_names_itself_in_the_record_of_its_run(scenario: Scenario) -
 # The direct executor: git is the one program that the floor of the suite lets a test start.
 
 
+@pytest.fixture(params=["direct", "fake"])
+def direct_executor(request: pytest.FixtureRequest) -> ToolExecutor:
+    """The direct executor, then the fake that stands in for it and records as it does."""
+    if request.param == "direct":
+        return DirectToolExecutor()
+    return ToolExecutorFake(require_commit=False, require_files=False)
+
+
 def _git_request(scenario: Scenario, *arguments: str, **fields: object) -> ToolRequest:
     """A request to run git over the tree of the scenario, as a review tool."""
     return scenario.request().model_copy(update={"tool": "git", "arguments": arguments, **fields})
@@ -722,32 +732,34 @@ def test_the_direct_executor_answers_a_failure_of_the_tool_and_records_the_run(
 
 
 def test_the_direct_executor_records_no_commit_for_a_checkout_that_git_cannot_read(
-    scenario: Scenario, tmp_path: Path
+    direct_executor: ToolExecutor, scenario: Scenario, tmp_path: Path
 ) -> None:
     """A scan must end as it ended before the executor existed. The sandbox executor refuses a
-    checkout that git does not trust. The direct executor starts the tool and records no commit."""
+    checkout that git does not trust. The direct executor starts the tool and records no commit,
+    and so does the fake that stands in for it."""
     broken = tmp_path / "broken"
     (broken / "src").mkdir(parents=True)
     (broken / ".git").mkdir()
     request = _git_request(scenario, "--version", workdir=broken, targets=(broken / "src",))
 
-    result = DirectToolExecutor().run(request)
+    result = direct_executor.run(request)
 
     assert (result.exit_code, result.run.commit) == (0, None)
 
 
 @pytest.mark.parametrize("unreadable", ["config_files", "ruleset_files"])
 def test_the_direct_executor_records_a_file_it_cannot_digest_and_still_starts_the_tool(
-    unreadable: str, scenario: Scenario
+    unreadable: str, direct_executor: ToolExecutor, scenario: Scenario
 ) -> None:
     """A scan must end as it ended before the record existed. A config file or a ruleset file that
     the record cannot read as a regular file is recorded as unavailable, and the tool starts all
-    the same. The sandbox executor refuses such a file: it must bind the file into the sandbox."""
+    the same. The fake that stands in for the direct executor records it in the same way. The
+    sandbox executor refuses such a file: it must bind the file into the sandbox."""
     config = digest([file_digest(scenario.config_file)])
     ruleset = digest([file_digest(scenario.ruleset_file)])
     request = _git_request(scenario, "--version", **{unreadable: (scenario.target,)})
 
-    result = DirectToolExecutor().run(request)
+    result = direct_executor.run(request)
 
     assert (result.exit_code, result.run.config_digest, result.run.ruleset_digest) == (
         0,
