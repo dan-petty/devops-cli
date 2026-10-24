@@ -301,11 +301,10 @@ def _sync_cli(fake: ProjectGitHub, tmp_path: Path, monkeypatch: pytest.MonkeyPat
 def _board_with_five_changes(
     *, fail_edits: tuple[int, ...] = (), remaining: int = 5000
 ) -> ProjectGitHub:
-    """Three cards needing five changes, one open issue and one open pull request off the
+    """Five cards needing five changes, one open issue and one open pull request off the
     board."""
-    labelled = ("priority/p1-high",)
-    issues = [issue(n, labels=labelled) for n in (1, 2, 3)] + [issue(10)]
-    cards = [card(1), card(2), card(3, status="Ready")]
+    cards = [card(n) for n in range(1, 6)]
+    issues = [issue(n, labels=["status/in-progress"]) for n in range(1, 6)] + [issue(10)]
     return ProjectGitHub(cards, issues, [pull(11)], fail_edits=fail_edits, remaining=remaining)
 
 
@@ -325,7 +324,7 @@ def test_sync_adds_no_card_and_exits_0_when_reconcile_completes(
         len(fake.edits),
         "Provisioned fields: all up-to-date." in text,
         "1 open issue is not on the board (awaiting intake: devops roadmap intake)." in text,
-        "Changed 3 of 3 items on project #2 (5 field changes)." in text,
+        "Changed 5 of 5 items on project #2 (5 field changes)." in text,
     ) == (0, [], 1, 5, True, True, True)
 
 
@@ -338,7 +337,7 @@ def test_sync_reports_reconciles_stop_and_exits_1(
     result = _sync_cli(fake, tmp_path, monkeypatch)
     assert (
         result.exit_code,
-        "Stopped early (the write of Priority on #1 failed: GraphQL: the write failed): "
+        "Stopped early (the write of Status on #2 failed: GraphQL: the write failed): "
         "4 planned changes remain." in " ".join(result.output.split()),
         fake.adds,
     ) == (1, True, [])

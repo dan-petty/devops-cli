@@ -240,8 +240,8 @@ def test_build_milestone_metric_and_filter(monkeypatch: pytest.MonkeyPatch) -> N
 def test_get_label_taxonomy_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify label taxonomy extraction and aggregation."""
     issues = [
-        {"labels": [{"name": "priority/p1-high"}, {"name": "scope/cli"}]},
-        {"labels": [{"name": "priority/p1-high"}, {"name": "priority/p2-medium"}]},
+        {"labels": [{"name": "team/core"}, {"name": "scope/cli"}]},
+        {"labels": [{"name": "team/core"}, {"name": "team/infra"}]},
         {"labels": ["scope/cli", "unscoped-label"]},
     ]
     mock_client = MagicMock()
@@ -249,11 +249,11 @@ def test_get_label_taxonomy_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("devops_cli.github.metrics.GhCliClient", lambda: mock_client)
 
     metrics = get_label_taxonomy_metrics("example/repo")
-    p1 = next((m for m in metrics if m.label == "priority/p1-high"), None)
+    team_core = next((m for m in metrics if m.label == "team/core"), None)
     cli_scope = next((m for m in metrics if m.label == "scope/cli"), None)
 
-    assert (p1 is not None, cli_scope is not None) == (True, True)
-    assert (p1.count, cli_scope.count) == (2, 2)
+    assert (team_core is not None, cli_scope is not None) == (True, True)
+    assert (team_core.count, cli_scope.count) == (2, 2)
 
 
 def test_collect_project_metrics_report(
@@ -363,9 +363,7 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
                 completion_rate=70.0,
             )
         ],
-        taxonomy_labels=[
-            LabelTaxonomyMetric(category="priority", label="priority/p1-high", count=2)
-        ],
+        taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=2)],
         traffic=TrafficSummaryMetric(
             views_count=100,
             views_uniques=40,
@@ -436,9 +434,7 @@ def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
                 completion_rate=80.0,
             )
         ],
-        taxonomy_labels=[
-            LabelTaxonomyMetric(category="priority", label="priority/p1-high", count=5)
-        ],
+        taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=5)],
         traffic=TrafficSummaryMetric(
             views_count=100,
             views_uniques=40,
@@ -591,9 +587,7 @@ def test_record_project_metrics_in_registry() -> None:
                 completion_rate=70.0,
             )
         ],
-        taxonomy_labels=[
-            LabelTaxonomyMetric(category="priority", label="priority/p1-high", count=2)
-        ],
+        taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=2)],
         traffic=TrafficSummaryMetric(
             views_count=150,
             views_uniques=45,

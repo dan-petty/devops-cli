@@ -123,10 +123,10 @@ def test_resolve_updated_labels() -> None:
             repo="example/repo",
             number=1,
             labels=None,
-            add_labels=["priority/p0-critical"],
+            add_labels=["type/bug"],
             remove_labels=["type/feature"],
         )
-        assert new_labels == ["priority/p0-critical", "scope/cli"]
+        assert new_labels == ["scope/cli", "type/bug"]
 
 
 def test_cli_gh_milestones_edit_leaves_the_milestone_open(

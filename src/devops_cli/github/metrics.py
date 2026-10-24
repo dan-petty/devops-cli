@@ -4,7 +4,7 @@ Provides analysis and aggregations for:
 - Release frequency and cadence (intervals in days between releases).
 - Commits and merged pull requests per release.
 - CI quality gate checks and workflow run pass rates.
-- Items grouped by milestone and taxonomy labels (priority, type, scope).
+- Items grouped by milestone and taxonomy labels (type, scope).
 - OpenTelemetry instrumentation for Prometheus export and Grafana visualization.
 """
 

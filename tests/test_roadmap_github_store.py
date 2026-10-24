@@ -395,7 +395,7 @@ def test_candidates_drop_a_pull_request_and_an_issue_already_on_the_board() -> N
     listing[0]["state"] = "open"
     store, _ = board_store({BOARD_READ: BoardServer(on_board(917)), "issues?state=open": listing})
     assert [(c.number, c.labels) for c in store.candidates()] == [
-        (916, ("type/bug", "scope/security", "priority/p3-low"))
+        (916, ("type/bug", "scope/security"))
     ]
 
 
@@ -1478,9 +1478,9 @@ def test_changes_since_keeps_label_and_state_events_only() -> None:
     store, _ = board_store({"issues/events": [reopened, *EVENTS], BOARD_READ: BoardServer(BOARD)})
     changes = store.changes_since(datetime(2026, 10, 1))
     assert [(change.kind, change.number, change.actor, change.label) for change in changes] == [
-        (ChangeKind.UNLABELED, 829, "dan-petty", "priority/p1-high"),
+        (ChangeKind.UNLABELED, 829, "dan-petty", "scope/github"),
         (ChangeKind.CLOSED, 299, "dan-petty", None),
-        (ChangeKind.LABELED, 917, "dan-petty", "priority/p3-low"),
+        (ChangeKind.LABELED, 917, "dan-petty", "type/bug"),
         (ChangeKind.REOPENED, 299, "dan-petty", None),
     ]
 

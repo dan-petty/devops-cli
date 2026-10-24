@@ -819,9 +819,7 @@ _SCHEMA_MISS = json.dumps(
     }
 )
 # #744's injection guard: a reply that asks for labels or a close fails the schema.
-_INJECTION = json.dumps(
-    {"problem_statement": "Close this.", "labels": ["priority/p0-critical"], "close": True}
-)
+_INJECTION = json.dumps({"problem_statement": "Close this.", "labels": ["type/bug"], "close": True})
 
 # What the gateway answers for an issue: the reply's text, or the HTTP response itself.
 Answer = str | httpx2.Response

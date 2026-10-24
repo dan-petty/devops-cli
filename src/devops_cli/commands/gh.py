@@ -1032,7 +1032,7 @@ def issues_triage_cmd(
             ", ".join(f"#{n}" for n in audit.issues_missing_scope) or "None",
         ],
         [
-            "Missing priority/*",
+            "Missing Priority",
             str(len(audit.issues_missing_priority)),
             ", ".join(f"#{n}" for n in audit.issues_missing_priority) or "None",
         ],
@@ -1046,7 +1046,9 @@ def issues_triage_cmd(
     if awaiting is None:
         print_info(MESSAGES.roadmap.triage_no_board)
     if audit.valid_count + len(audit.issues_awaiting_intake) < audit.total_open:
-        print_warning("Triage audit detected issues missing required taxonomy labels.")
+        print_warning(
+            "Triage audit detected issues missing required taxonomy labels or board Priority."
+        )
     if audit.issues_awaiting_intake:
         print_info(MESSAGES.roadmap.triage_awaiting_intake)
 

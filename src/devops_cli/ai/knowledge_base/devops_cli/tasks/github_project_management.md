@@ -128,7 +128,7 @@ devops gh milestones list
    - Before requesting builds or pushing documentation releases, run `devops gh pages verify` to check `docs/_config.yml` (its YAML syntax and its `title`, `url`, `baseurl` and `markdown` keys) and to confirm the `docs/` publishing root exists. GitHub Pages builds `main:/docs` with no `--config` option, so Jekyll reads `docs/_config.yml` only: put every site setting in that file.
    - Verify that HTTPS is strictly enforced (`enforce_https: true`) and custom domains have valid SSL certificates via `devops gh pages status`.
 2. **Issue Triage & Zero-Untracked Defect Policy**:
-   - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and an assigned `priority/*` label (`priority/p0-critical` through `priority/p3-low`).
+   - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and an assigned Priority field on the board.
    - New feature or defect issues enter through intake (`devops roadmap intake --title … --body-file … --confirm`), which sets their Priority and puts them in the backlog; nobody sets a milestone or priority on a new issue by hand.
    - Regularly execute `devops gh issues triage` to catch issues missing labels, and `devops roadmap intake` for those awaiting intake.
 3. **Task-to-Issue Grounding**:
@@ -146,7 +146,7 @@ devops gh milestones list
    - Run `devops gh project audit` and `devops gh views audit` to detect missing fields, invalid options, or misconfigured view filters.
 5. **Custom Field Reconciliation (`devops gh project sync`, `devops gh project reconcile`)**:
    - The board owns Status: reconcile sets it only when it is unset (from an exact `status/*` label, otherwise New) or when issue or pull request state forces Done, In Review or In Progress, so manual triage is never reverted.
-   - Priority fills an unset field from its `priority/*` label. The board mirrors the issue's milestone itself, so reconcile never writes it, and Value and Effort are never inferred; they stay as set by hand.
+   - The board owns Priority, and intake sets it. The board mirrors the issue's milestone itself, so reconcile never writes it, and Value and Effort are never inferred; they stay as set by hand.
    - Reconcile and sync add no card: `devops roadmap intake` places issues, and a pull request gets no card, its progress showing on its issue's card.
    - `devops gh project reconcile --plan` lists every change with its old and new value and the source that decided it; `--dry-run` makes no request and lists the requests a run makes. A planned value the board's field has no option for is refused before any write, naming the value and the options. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1; running it again continues from there, after the reset for a quota stop and once the cause is fixed for a failed write.
    - Run `devops gh project sync` (or FastMCP `gh_project_sync`) after creating issues, pushing branches, or opening PRs to keep the cards' fields up to date.

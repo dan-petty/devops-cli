@@ -20,7 +20,7 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 12. **Keep your own files out of git.** Put agent files under `.data/agent/` and scratch scripts under `.data/agent/scratch/`. Back up a file outside the workspace to `<path>.bak-<YYYYMMDD-HHMMSS>` before you edit it. Never change the user's `config.yaml`.
 13. **Run one `devops ai` call at a time,** and only when a file or a deterministic check cannot give the answer.
 
-**Only a person** merges pull requests, records review verdicts, plans milestones, and changes secrets, repository settings and hosts. Intake sets the priority of a new issue, so set no milestone or priority on it. release-please makes every release from `main` and writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([RELEASE_CYCLE.md](RELEASE_CYCLE.md)).
+**Only a person** merges pull requests, records review verdicts, plans milestones, and changes secrets, repository settings and hosts. Intake sets the board's Priority field on a new issue, so set no milestone or priority on it. release-please makes every release from `main` and writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([RELEASE_CYCLE.md](RELEASE_CYCLE.md)).
 
 ## Where to look
 

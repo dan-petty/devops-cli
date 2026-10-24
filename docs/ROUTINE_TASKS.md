@@ -51,7 +51,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos list` | Pulls upstream changes across all managed repos | All repositories up to date |
 | **Workspace & Sync** | GitHub Pages Publishing & Readiness Audit | Pre-PR | `devops gh pages status` / `devops gh pages verify` | Inspects live publishing health, HTTPS enforcement, and validates `docs/_config.yml`, the site settings that the Pages build reads, and `docs/` | Clean verification; HTTPS strictly enforced |
-| **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`) and reports those not on the board as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
+| **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and the board's Priority field, and reports those not on the board as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
 | **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand / Pre-PR | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Provisions and links the board, reconciles card fields, and audits the 4 declarative project views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | No keys past rotation_days |
 
@@ -139,7 +139,7 @@ Executed at the final stage of work after all iterative feature modifications an
    - Verify absence of performance bottlenecks, resource leaks, configuration warnings, or suppressed exceptions.
 4. **Validate GitHub Governance, Pages Readiness & Issues Triage**:
    - Verify the syntax and the required keys of `docs/_config.yml`, the one file of site settings that the Pages build reads, and the `docs/` publishing root, with `devops gh pages verify`.
-   - Audit open issues for mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`) via `devops gh issues triage`, and run `devops roadmap intake` for those it reports as awaiting intake.
+   - Audit open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and the board's Priority field via `devops gh issues triage`, and run `devops roadmap intake` for those it reports as awaiting intake.
    - Inspect issue portfolio distribution via `devops gh issues status`.
    - Validate remote project views template compliance via `devops gh views audit`.
 
@@ -219,7 +219,7 @@ sequenceDiagram
   - **No Standalone Tracking Commits**: A change to the change folder of an item goes into the pull request that delivers the item. A tick goes into the commit that completes its task, and the archive goes into the last commit.
 - **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
   - **Zero Disconnected PRs**: Every PR closes exactly one open issue with a canonical closing keyword (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`), archives that issue's OpenSpec change (`openspec/changes/archive/<date>-<issue>-<slug>/`), and has taxonomy labels (`type/*`, `scope/*`). GitHub closes the issue when the PR merges into `main`. A PR gets no card: its progress shows on its issue's card.
-  - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile `Status` and `Priority` (when unset) on the cards already on the board. The board's built-in `Pull request linked to issue` workflow moves the issue's card to `In Review` when a PR that closes it opens. The board mirrors the milestone that a person sets, and `Value` and `Effort` are set by hand.
+  - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile `Status` on the cards already on the board. The board's built-in `Pull request linked to issue` workflow moves the issue's card to `In Review` when a PR that closes it opens. The board mirrors the milestone that a person sets, and `Value` and `Effort` are set by hand.
   - Verify that the board follows `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`. The board, not a change folder, holds the Status of each item.
   - Ensure the project board is linked to the repository via `devops gh project link <number>` so it appears on `https://github.com/dan-petty/devops-cli/projects` and its views on `https://github.com/dan-petty/devops-cli/issues/views`. Audit views via `devops gh views list`, `devops gh views audit`, and `devops gh views spec`.
   - Enforce taxonomy labels via `devops gh labels audit`, and inspect milestone progress via `devops gh milestones list`. GitHub is the roadmap's source (ADR 0001), and a milestone is a planning bucket that never names a version.
@@ -316,7 +316,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 - **Frequency**: Pre-PR or On-Demand.
 - **Methodology**:
   - Validates GitHub Pages deployment health and verifies local publishing assets (`docs/_config.yml` and `docs/`).
-  - Audits live open issues for missing taxonomy labels (`type/*`, `scope/*`, `priority/*`).
+  - Audits live open issues for missing taxonomy labels (`type/*`, `scope/*`) or the board's Priority field.
   - Audits remote GitHub Projects v2 boards and views against `.github/project-template.json` to prevent configuration drift.
 - **Commands**:
   ```bash
