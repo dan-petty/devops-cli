@@ -610,6 +610,40 @@ def test_llm_stack_dashboard_includes_qdrant_row_over_captured_metrics() -> None
     )
 
 
+def test_llm_stack_dashboard_shows_latency_per_output_token_beside_time_to_first_token() -> None:
+    """Verify `llm-stack.json` charts the p50 and p95 of the gateway's latency per output token for
+    each deployment and model, beside the time-to-first-token panel, and says what it measures (#598)."""
+    panels = _panels(_dashboard("llm-stack.json"))
+    first_token = next(p for p in panels if p.get("title") == "Time to First Token p95 per Model")
+    per_token = [
+        p
+        for p in panels
+        if any(
+            s.metric == "litellm_deployment_latency_per_output_token_bucket"
+            for target in p.get("targets", [])
+            for s in selectors(target["expr"])
+        )
+    ]
+    panel = per_token[0] if per_token else {"targets": [], "gridPos": {}}
+    position = panel["gridPos"]
+
+    assert (
+        [p["title"] for p in per_token],
+        [re.findall(r"histogram_quantile\(([0-9.]+),", t["expr"]) for t in panel["targets"]],
+        [grouping_labels(t["expr"]) for t in panel["targets"]],
+        panel.get("fieldConfig", {}).get("defaults", {}).get("unit"),
+        (position.get("y"), position.get("x")),
+        bool(panel.get("description")),
+    ) == (
+        ["Latency per Output Token (p50 / p95) per Deployment"],
+        [["0.5"], ["0.95"]],
+        [frozenset({"le", "api_base", "litellm_model_name"})] * 2,
+        "s",
+        (first_token["gridPos"]["y"], first_token["gridPos"]["x"] + first_token["gridPos"]["w"]),
+        True,
+    )
+
+
 def test_coredns_dashboard_covers_requests_responses_latency_cache_and_forward() -> None:
     """Verify `coredns.json` charts requests by type/proto, responses by rcode, request duration
     p50/p95/p99, cache hits/misses, and forward request duration over captured `coredns_*` series (#822)."""
