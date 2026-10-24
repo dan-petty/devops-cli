@@ -12,31 +12,12 @@ os.environ["PYDANTIC_DISABLE_PLUGINS"] = (
     else (_existing_plugins or "logfire-plugin")
 )
 
-from devops_cli.config.metadata import (  # noqa: E402
-    get_project_description,
-    get_project_name,
-    get_project_python_version,
-    get_version,
-    load_project_metadata,
-)
-
-__version__ = get_version()
+__version__: str
 
 
 def __getattr__(name: str) -> Any:
-    if name == "ProjectMetadata":
-        from devops_cli.config.metadata import ProjectMetadata
+    if name == "__version__":
+        from devops_cli.config.metadata import get_version
 
-        return ProjectMetadata
+        return get_version()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-__all__ = [
-    "ProjectMetadata",
-    "__version__",
-    "get_project_description",
-    "get_project_name",
-    "get_project_python_version",
-    "get_version",
-    "load_project_metadata",
-]

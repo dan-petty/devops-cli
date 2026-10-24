@@ -203,8 +203,16 @@ def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
     import asyncio
 
     from devops_cli.ai.mcp.server import mcp
-    from devops_cli.config.constants import CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR
     from devops_cli.docs.generator import DocGenerator
+
+    mutating_tools_floor: frozenset[str] = frozenset(
+        {
+            "argo_rollouts_analyze",
+            "docker_sign",
+            "gh_project_reconcile",
+            "ai_rag_drift",
+        }
+    )
 
     registered = asyncio.run(mcp._list_tools())
     missing_hint = [
@@ -215,7 +223,7 @@ def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
     hints_by_name = {
         t.name: t.annotations.read_only_hint for t in registered if t.annotations is not None
     }
-    floor_expected_false = CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR | {
+    floor_expected_false = mutating_tools_floor | {
         "gh_labels_sync",
         "k8s_teardown_stack",
         "pr_close",

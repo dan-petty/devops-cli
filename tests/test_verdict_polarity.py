@@ -18,7 +18,7 @@ from devops_cli.ai.review_schema import (
     compute_verdict_distributions,
     is_field_discriminating,
 )
-from devops_cli.config import DEFAULT_FINDING_STATUS
+from devops_cli.config.defaults import DEFAULT_FINDING_STATUS
 from devops_cli.review.session import ReviewSession
 
 

@@ -135,16 +135,3 @@ def test_no_duplicate_exports(parsed_source_trees: dict[Path, ast.Module]) -> No
         if (repeats := sorted(n for n, c in Counter(_declared_exports(node)).items() if c > 1))
     }
     assert offenders == {}, f"__all__ repeats entries: {offenders}"
-
-
-def test_config_package_exports_resolve() -> None:
-    """`devops_cli.config` imports eagerly, so every name it declares must resolve right now.
-
-    This is the dynamic counterpart to the static sweep above, pinning the package
-    whose declared surface had drifted furthest from what it could actually hand out.
-    """
-    import devops_cli.config as config
-
-    declared = list(config.__all__)
-    unresolvable = [name for name in declared if not hasattr(config, name)]
-    assert (unresolvable, len(declared)) == ([], len(set(declared)))

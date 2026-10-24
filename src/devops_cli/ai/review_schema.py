@@ -20,18 +20,18 @@ from devops_cli.ai.text_utils import (
 from devops_cli.ai.text_utils import (
     unique_lines as unique_lines,
 )
-from devops_cli.config import (
-    DEFAULT_FINDING_STATUS,
-    DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE,
-    DEFAULT_REVIEW_MAX_SUMMARY_PREVIEW_LENGTH,
-    DEFAULT_REVIEW_MAX_TITLE_LENGTH,
-    DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD,
-)
 from devops_cli.config.constants import (
     CONST_REVIEW_CWE_DEFECT_CLASSES,
     CONST_REVIEW_DEFECT_KEYWORDS,
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
     CONST_REVIEW_TITLE_FILLER_WORDS,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_FINDING_STATUS,
+    DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE,
+    DEFAULT_REVIEW_MAX_SUMMARY_PREVIEW_LENGTH,
+    DEFAULT_REVIEW_MAX_TITLE_LENGTH,
+    DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD,
 )
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (

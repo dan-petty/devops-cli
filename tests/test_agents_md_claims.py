@@ -6,6 +6,7 @@ import json
 import re
 from itertools import pairwise
 from pathlib import Path
+from typing import Final
 from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
@@ -21,9 +22,30 @@ from devops_cli.ai.personas import Persona
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_MAX_CHARS,
     CONST_AGENTS_MD_ROUTES,
-    CONST_DELETED_PROCESS_TERMS,
 )
 from tests.support.paths import REPO_ROOT
+
+CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
+    "release branch",
+    "`release/",
+    "release/*",
+    "release/v",
+    "the cut",
+    "cut PR",
+    "changelog fragment",
+    "changelog.d",
+    "towncrier",
+    "Part of #",
+    "roadmap reprioritize",
+    "roadmap close",
+    "roadmap render",
+    "roadmap migrate",
+    "docs/ROADMAP.md",
+    "devops release",
+    "filing quota",
+    "budget/borrowed",
+    "#1153",
+)
 
 
 def _extract_issue_templates(agents_md_content: str) -> set[str]:

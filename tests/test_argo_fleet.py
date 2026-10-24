@@ -365,7 +365,7 @@ def test_fetch_metric_value_branches() -> None:
     # Case 1: no settings url returns None
     mock_settings_empty = MagicMock()
     mock_settings_empty.prometheus.url = ""
-    with patch("devops_cli.config.load_settings", return_value=mock_settings_empty):
+    with patch("devops_cli.config.settings.load_settings", return_value=mock_settings_empty):
         assert _fetch_metric_value("rate(http_requests[1m])") is None
 
     # Case 2: valid response with value
@@ -373,7 +373,7 @@ def test_fetch_metric_value_branches() -> None:
     mock_settings.prometheus.url = "http://example.com:9090"
     mock_settings.ai.allow_private_network = True
     with (
-        patch("devops_cli.config.load_settings", return_value=mock_settings),
+        patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
         patch("devops_cli.http.validation.validate_service_url"),
         patch("httpx2.Client") as mock_client_cls,
     ):
@@ -390,7 +390,7 @@ def test_fetch_metric_value_branches() -> None:
 
     # Case 3: exception during request returns None
     with (
-        patch("devops_cli.config.load_settings", return_value=mock_settings),
+        patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
         patch("devops_cli.http.validation.validate_service_url", side_effect=ValueError("bad url")),
     ):
         assert _fetch_metric_value("rate(http_requests[1m])") is None

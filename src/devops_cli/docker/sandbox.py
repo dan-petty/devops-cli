@@ -151,7 +151,7 @@ class WorkloadSandboxRunner:
             self.exclude_home_dir = exclude_home_dir
         else:
             try:
-                from devops_cli.config import load_settings
+                from devops_cli.config.settings import load_settings
 
                 self.exclude_home_dir = load_settings().sandbox.exclude_home_dir
             except Exception:

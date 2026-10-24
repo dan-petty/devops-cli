@@ -24,7 +24,7 @@ from devops_cli.output import (
 )
 
 if TYPE_CHECKING:
-    from devops_cli.config import Settings
+    from devops_cli.config.settings import Settings
 
 app = new_typer(
     help=HELP.serve.app,
@@ -59,7 +59,7 @@ def _validate_service_mode(
         )
         raise typer.Exit(code=1)
 
-    from devops_cli.config import get_service_webhook_secrets
+    from devops_cli.config.settings import get_service_webhook_secrets
 
     raw_secrets = get_service_webhook_secrets(settings)
     if not raw_secrets:
@@ -138,7 +138,7 @@ def serve(
     import uvicorn
 
     if service:
-        from devops_cli.config import load_settings
+        from devops_cli.config.settings import load_settings
         from devops_cli.roadmap.run import SERVICE_JOBS, service_pause_until
         from devops_cli.server.json_logs import service_log_config
         from devops_cli.server.service import create_service_app

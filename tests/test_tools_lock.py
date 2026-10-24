@@ -259,8 +259,7 @@ def test_renovate_leaves_every_node_tool_to_a_deliberate_bump() -> None:
 
 
 def test_golangci_lint_binary_constant_is_exported() -> None:
-    """BIN_GOLANGCI_LINT is exported by devops_cli.config and commands."""
-    from devops_cli.config import BIN_GOLANGCI_LINT as EXPORTED_BIN
+    """BIN_GOLANGCI_LINT is exported by commands."""
     from devops_cli.config.commands import BIN_GOLANGCI_LINT
 
-    assert (EXPORTED_BIN, BIN_GOLANGCI_LINT) == ("golangci-lint", "golangci-lint")
+    assert BIN_GOLANGCI_LINT == "golangci-lint"

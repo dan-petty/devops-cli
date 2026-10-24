@@ -77,7 +77,7 @@ def _mutate_rollout(
 
 def _fetch_metric_value(query: str) -> float | None:
     """Query Prometheus or return None when metric is unavailable."""
-    from devops_cli.config import load_settings
+    from devops_cli.config.settings import load_settings
     from devops_cli.http.validation import validate_service_url
 
     settings = load_settings()

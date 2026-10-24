@@ -18,7 +18,9 @@ def clean_data_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_default_data_constants_and_settings() -> None:
     """Verify DEFAULT data constants, DataConfig model, and Settings defaults."""
-    from devops_cli.config import (
+    from devops_cli.config import env as env_mod
+    from devops_cli.config import options as opt
+    from devops_cli.config.defaults import (
         DEFAULT_ANALYSIS_DATA_DIR,
         DEFAULT_AUDIT_LOG_PATH,
         DEFAULT_BENCHMARKS_DATA_DIR,
@@ -31,11 +33,8 @@ def test_default_data_constants_and_settings() -> None:
         DEFAULT_RAG_DATA_DIR,
         DEFAULT_REVIEWS_DATA_DIR,
         DEFAULT_TLS_DATA_DIR,
-        DataConfig,
-        Settings,
     )
-    from devops_cli.config import env as env_mod
-    from devops_cli.config import options as opt
+    from devops_cli.config.settings import DataConfig, Settings
 
     assert DEFAULT_DATA_DIR == Path(".data")
     assert DEFAULT_ANALYSIS_DATA_DIR == Path(".data/analysis")
@@ -77,7 +76,7 @@ def test_default_data_constants_and_settings() -> None:
 
 def test_data_config_cascades_custom_base_dir() -> None:
     """Verify that customizing data.dir cascades to child directories unless explicitly overridden."""
-    from devops_cli.config import DataConfig
+    from devops_cli.config.settings import DataConfig
 
     custom_base = Path("/workspace/.data/agent")
     cfg = DataConfig(dir=custom_base)

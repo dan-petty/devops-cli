@@ -7,16 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli import (
+from devops_cli import __version__
+from devops_cli.config.metadata import (
+    _DEFAULT_METADATA,
     ProjectMetadata,
-    __version__,
+    _parse_python_version,
     get_project_description,
     get_project_name,
     get_project_python_version,
     get_version,
     load_project_metadata,
 )
-from devops_cli.config.metadata import _DEFAULT_METADATA, _parse_python_version
 
 
 def test_load_project_metadata_authoritative() -> None:
