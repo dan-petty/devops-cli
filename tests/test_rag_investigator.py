@@ -19,6 +19,7 @@ from devops_cli.ai.rag.investigator import (
 )
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.config.settings import Settings
+from tests.support.fakes.clock import ClockFake
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -270,18 +271,11 @@ def test_concurrent_lookups_healthy_stub_all_get_context() -> None:
         assert (len(results), all(r is not None for r in results)) == (20, True)
 
 
-def test_circuit_breaker_pause_and_resume(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_circuit_breaker_pause_and_resume(clock: ClockFake) -> None:
     """Three timeouts open breaker for 60s; lookups during pause send no request; probe after pause resumes."""
     clear_investigation_cache()
     st = Settings()
     st.ai.rag.enabled = True
-
-    simulated_time = 1000.0
-
-    def fake_monotonic() -> float:
-        return simulated_time
-
-    monkeypatch.setattr("time.monotonic", fake_monotonic)
 
     request_count = 0
     fail = True
@@ -337,14 +331,14 @@ def test_circuit_breaker_pause_and_resume(monkeypatch: pytest.MonkeyPatch) -> No
         assert (r1, r2, r3, request_count) == (None, None, None, 3)
 
         # 2. Lookups during 60s pause send 0 requests
-        simulated_time += 15.0
+        clock.shift(15.0)
         r4 = investigate_rag_context("query 4", settings=st)
-        simulated_time += 15.0
+        clock.shift(15.0)
         r5 = investigate_rag_context("query 5", settings=st)
         assert (r4, r5, request_count) == (None, None, 3)
 
         # 3. Probe after pause succeeds and lookups resume
-        simulated_time += 40.0
+        clock.shift(40.0)
         fail = False
         r6 = investigate_rag_context("query 6", settings=st)
         r7 = investigate_rag_context("query 7", settings=st)
@@ -359,6 +353,68 @@ def test_circuit_breaker_pause_and_resume(monkeypatch: pytest.MonkeyPatch) -> No
         mock_retriever.retrieve_context.side_effect = stub_429
         r8 = investigate_rag_context("query 8", settings=st)
         assert (r8 is None, not _RAG_STOPPED.is_set()) == (True, True)
+
+
+def test_a_failed_probe_pauses_rag_lookups_for_60_seconds_more(
+    clock: ClockFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The probe after a pause times out, so lookups pause again; the probe after that resumes them.
+
+    Each pause warns once, with the error of the failure that started it.
+    """
+    st = Settings()
+    st.ai.rag.enabled = True
+    outcomes = iter([False, False, False, False, True, True])
+    requests: list[str] = []
+
+    def retrieve_context(query: str, **kwargs: Any) -> RAGContext:
+        requests.append(query)
+        if not next(outcomes):
+            raise EmbeddingsError(f"Timeout embedding {query}", is_transient=True)
+        return RAGContext(
+            query=query,
+            results=[SearchResult(chunk=_chunk(), score=0.95)],
+            formatted_text="<rag_context>hello</rag_context>",
+        )
+
+    with (
+        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
+        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
+        patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
+        caplog.at_level(logging.WARNING, logger="devops_cli.ai.rag.investigator"),
+    ):
+        mock_qdrant_cls.return_value.is_alive.return_value = True
+        mock_emb_cls.return_value.model = "test-embed"
+        mock_retriever_cls.return_value.retrieve_context.side_effect = retrieve_context
+
+        failures = [investigate_rag_context(f"query {i}", settings=st) for i in (1, 2, 3)]
+        clock.shift(60.0)
+        failed_probe = investigate_rag_context("probe 1", settings=st)
+        clock.shift(59.0)
+        in_the_second_pause = investigate_rag_context("query 4", settings=st)
+        clock.shift(1.0)
+        probe = investigate_rag_context("probe 2", settings=st)
+        resumed = investigate_rag_context("query 5", settings=st)
+
+    assert (failures, failed_probe, in_the_second_pause) == ([None, None, None], None, None)
+    assert (probe is not None, resumed is not None) == (True, True)
+    assert requests == ["query 1", "query 2", "query 3", "probe 1", "probe 2", "query 5"]
+    assert [record.getMessage() for record in caplog.records] == [
+        "RAG lookups paused for 60s after 3 failures: Timeout embedding query 3.",
+        "RAG lookups paused for 60s after 3 failures: Timeout embedding probe 1.",
+    ]
+
+
+def _chunk() -> CodeChunk:
+    return CodeChunk(
+        id="chk-1",
+        file_path="src/main.py",
+        project_name="devops-cli",
+        language="python",
+        start_line=1,
+        end_line=10,
+        content="def hello(): pass",
+    )
 
 
 def test_settings_score_threshold_reaches_qdrant_search() -> None:

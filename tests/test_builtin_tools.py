@@ -514,7 +514,6 @@ def test_rag_search_names_an_embedding_failure(
         patch("devops_cli.config.settings.load_settings", return_value=settings),
         patch("devops_cli.config.settings.get_ai_api_key", return_value=None),
         patch("devops_cli.config.settings.get_qdrant_api_key", return_value=None),
-        patch("devops_cli.ai.rag.embeddings.EmbeddingsEngine._init_valkey", return_value=None),
         patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
         patch(
             "devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context", side_effect=failure

@@ -4,10 +4,22 @@ from __future__ import annotations
 
 import functools
 import logging
+import sys
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
+
+from pybreaker import (
+    STATE_CLOSED,
+    STATE_OPEN,
+    CircuitBreaker,
+    CircuitBreakerError,
+    CircuitBreakerListener,
+    CircuitBreakerState,
+    CircuitMemoryStorage,
+)
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.models import RAGContext
@@ -36,8 +48,6 @@ logger = logging.getLogger(__name__)
 _INVESTIGATION_CACHE: dict[str, tuple[float, RAGContext | None]] = {}
 _RETRIEVER_CACHE: tuple[float, SemanticRetriever] | None = None
 _CACHE_TTL_SECONDS = 60.0
-_CIRCUIT_BREAKER_FAILURES = CONST_RAG_CIRCUIT_BREAKER_FAILURES
-_CIRCUIT_BREAKER_PAUSE_SECONDS = CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS
 
 # Set by the first permanent error (unserved/unknown model).
 _RAG_STOPPED = threading.Event()
@@ -48,10 +58,46 @@ _RAG_SERVED = threading.Event()
 # Set by the first lookup that fails for any non-embedding reason.
 _FAILURE_REPORTED = threading.Event()
 
-# Circuit breaker state for transient failures
-_circuit_breaker_opened_at: float | None = None
-_consecutive_transient_failures: int = 0
-_STATE_LOCK = threading.Lock()
+
+def _is_permanent_embeddings_error(exc: BaseException) -> bool:
+    """Whether `exc` turns RAG off for the run, so that it does not count toward a pause."""
+    return isinstance(exc, EmbeddingsError) and not exc.is_transient
+
+
+class _PauseWarning(CircuitBreakerListener):
+    """Warns when the breaker opens, with the failure that opened it.
+
+    pybreaker opens the breaker while it handles the failure, so `sys.exception()` is that failure.
+    """
+
+    def state_change(
+        self,
+        cb: CircuitBreaker,
+        old_state: CircuitBreakerState | None,
+        new_state: CircuitBreakerState,
+    ) -> None:
+        if new_state.name != STATE_OPEN:
+            return
+        failure = sys.exception()
+        logger.warning(
+            MESSAGES.rag.paused.format(
+                seconds=int(cb.reset_timeout),
+                failures=cb.fail_max,
+                error=getattr(failure, "message", str(failure)),
+            )
+        )
+
+
+# The pause of RAG lookups: pybreaker's circuit breaker counts the transient failures in a row.
+# The lookups keep the storage, so they can check a pause without a call that changes the state.
+_LOOKUP_STATE = CircuitMemoryStorage(STATE_CLOSED)
+_LOOKUP_BREAKER = CircuitBreaker(
+    fail_max=CONST_RAG_CIRCUIT_BREAKER_FAILURES,
+    reset_timeout=CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS,
+    exclude=[_is_permanent_embeddings_error],
+    listeners=[_PauseWarning()],
+    state_storage=_LOOKUP_STATE,
+)
 
 
 class _ProbeCoordinator:
@@ -87,12 +133,11 @@ class _ProbeCoordinator:
         success = False
         try:
             ctx = search_fn()
-            with _STATE_LOCK:
-                success = (
-                    _RAG_SERVED.is_set()
-                    and _circuit_breaker_opened_at is None
-                    and _consecutive_transient_failures == 0
-                )
+            success = (
+                _RAG_SERVED.is_set()
+                and _LOOKUP_BREAKER.current_state == STATE_CLOSED
+                and _LOOKUP_BREAKER.fail_counter == 0
+            )
             return ctx
         finally:
             with self._lock:
@@ -104,61 +149,35 @@ class _ProbeCoordinator:
 _PROBE_COORDINATOR = _ProbeCoordinator()
 
 
-def _record_success() -> None:
-    """Reset transient failure accounting and mark RAG as served."""
-    global _consecutive_transient_failures, _circuit_breaker_opened_at
-    with _STATE_LOCK:
-        _consecutive_transient_failures = 0
-        _circuit_breaker_opened_at = None
-        _RAG_SERVED.set()
+def _lookups_paused() -> bool:
+    """Whether the breaker is open and its cooldown runs, so that a lookup sends no request.
+
+    pybreaker moves an open breaker to half-open only at the first call after the cooldown, so the
+    check reads the time at which the breaker opened.
+    """
+    opened_at = _LOOKUP_STATE.opened_at
+    return (
+        _LOOKUP_STATE.state == STATE_OPEN
+        and opened_at is not None
+        and datetime.now(UTC) < opened_at + timedelta(seconds=_LOOKUP_BREAKER.reset_timeout)
+    )
 
 
-def _record_transient_failure(exc: Exception) -> None:
-    """Record a transient failure; opens circuit breaker after consecutive threshold."""
-    global _consecutive_transient_failures, _circuit_breaker_opened_at
-    with _STATE_LOCK:
-        _consecutive_transient_failures += 1
-        if _consecutive_transient_failures >= _CIRCUIT_BREAKER_FAILURES:
-            _circuit_breaker_opened_at = time.monotonic()
-            err_msg = getattr(exc, "message", str(exc))
-            logger.warning(
-                MESSAGES.rag.paused.format(
-                    seconds=int(_CIRCUIT_BREAKER_PAUSE_SECONDS),
-                    failures=_CIRCUIT_BREAKER_FAILURES,
-                    error=err_msg,
-                )
-            )
-
-
-def _is_breaker_active(now: float) -> bool:
-    """Check if the circuit breaker is currently open and pausing lookups."""
-    with _STATE_LOCK:
-        if _circuit_breaker_opened_at is None:
-            return False
-        return (now - _circuit_breaker_opened_at) < _CIRCUIT_BREAKER_PAUSE_SECONDS
-
-
-def _is_probe_required(now: float) -> bool:
-    """Check if a single probe lookup is required."""
-    with _STATE_LOCK:
-        if not _RAG_SERVED.is_set():
-            return True
-        if _circuit_breaker_opened_at is not None:
-            return (now - _circuit_breaker_opened_at) >= _CIRCUIT_BREAKER_PAUSE_SECONDS
-        return False
+def _probe_required() -> bool:
+    """Whether one lookup probes while the others wait: before the first lookup that the
+    embedding model answers, and while the breaker is not closed."""
+    return not _RAG_SERVED.is_set() or _LOOKUP_BREAKER.current_state != STATE_CLOSED
 
 
 def clear_investigation_cache() -> None:
     """Clear in-memory RAG investigation and retriever caches, and lift a run-wide RAG stop."""
-    global _RETRIEVER_CACHE, _circuit_breaker_opened_at, _consecutive_transient_failures
+    global _RETRIEVER_CACHE
     _RETRIEVER_CACHE = None
     _INVESTIGATION_CACHE.clear()
     _RAG_STOPPED.clear()
     _RAG_SERVED.clear()
     _FAILURE_REPORTED.clear()
-    with _STATE_LOCK:
-        _circuit_breaker_opened_at = None
-        _consecutive_transient_failures = 0
+    _LOOKUP_BREAKER.close()
     _PROBE_COORDINATOR.clear()
 
 
@@ -266,8 +285,7 @@ def _retrieve(
     max_chars: int,
 ) -> RAGContext | None:
     """Retrieve context for the query; None when the store is unreachable, stopped or paused."""
-    now = time.monotonic()
-    if _RAG_STOPPED.is_set() or _is_breaker_active(now):
+    if _RAG_STOPPED.is_set() or _lookups_paused():
         return None
 
     retriever = _get_or_create_retriever(st, top_k, score_threshold)
@@ -286,7 +304,7 @@ def _retrieve(
         file_filter=file_filter,
         max_chars=max_chars,
     )
-    if not _is_probe_required(now):
+    if not _probe_required():
         return search()
     return _PROBE_COORDINATOR.coordinate(search)
 
@@ -308,37 +326,38 @@ def _search(
     if _RAG_STOPPED.is_set():
         return None
     try:
-        if persona:
-            ctx = retriever.retrieve_context_for_persona(
-                search_query,
-                persona=persona,
-                top_k=top_k,
-                score_threshold=score_threshold,
-                project=project,
-                language=language,
-            )
-        else:
-            ctx = retriever.retrieve_context(
-                search_query,
-                top_k=top_k,
-                score_threshold=score_threshold,
-                project=project,
-                language=language,
-                category=category,
-                file_filter=file_filter,
-                max_chars=max_chars,
-            )
-        _record_success()
-        return ctx
+        # The breaker runs the block outside its lock, so lookups of a closed breaker run at once.
+        with _LOOKUP_BREAKER.calling():
+            if persona:
+                ctx = retriever.retrieve_context_for_persona(
+                    search_query,
+                    persona=persona,
+                    top_k=top_k,
+                    score_threshold=score_threshold,
+                    project=project,
+                    language=language,
+                )
+            else:
+                ctx = retriever.retrieve_context(
+                    search_query,
+                    top_k=top_k,
+                    score_threshold=score_threshold,
+                    project=project,
+                    language=language,
+                    category=category,
+                    file_filter=file_filter,
+                    max_chars=max_chars,
+                )
+    except CircuitBreakerError:
+        return None
     except EmbeddingsError as exc:
         if not exc.is_transient:
             _stop_rag_for_run(retriever.embedder.model, exc)
-        else:
-            _record_transient_failure(exc)
         return None
-    except Exception as exc:
-        _record_transient_failure(exc)
+    except Exception:
         return None
+    _RAG_SERVED.set()
+    return ctx
 
 
 def _investigation_attributes(
@@ -394,16 +413,16 @@ def investigate_rag_context(
     the process and logs one warning naming the model, the error and the fix. Transient errors
     (timeouts, connection resets, rate limits, 5xx) skip that lookup. After three consecutive
     transient failures, a circuit breaker pauses RAG lookups for 60 seconds; afterwards, a single
-    lookup probes to resume lookups once healthy. Lookups that arrive concurrently while no lookup
-    has succeeded wait for the probe's outcome, running concurrently on success and skipping on
-    failure.
+    lookup probes to resume lookups once healthy, and a probe that fails pauses them for 60 seconds
+    more. Lookups that arrive concurrently while no lookup has succeeded wait for the probe's
+    outcome, running concurrently on success and skipping on failure.
 
     Returns:
         RAGContext if the vector store is available and matching chunks are retrieved;
         None if RAG is disabled, stopped, paused, unreachable, or yields zero relevant results.
     """
     clean_query = query.strip()
-    if not clean_query or _RAG_STOPPED.is_set() or _is_breaker_active(time.monotonic()):
+    if not clean_query or _RAG_STOPPED.is_set() or _lookups_paused():
         return None
 
     st = settings or settings_mod.load_settings()

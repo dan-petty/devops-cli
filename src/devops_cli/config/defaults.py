@@ -550,6 +550,13 @@ DEFAULT_EMBEDDING_CURRENCY: str = "USD"
 # ── Valkey Defaults ─────────────────────────────────────────────────────────
 DEFAULT_VALKEY_URL: str = f"valkey://localhost:{DEFAULT_VALKEY_PORT}/0"
 DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
+# The circuit breaker of the Valkey cache tier (`devops_cli.valkey.cache`, #2073). One failed
+# command opens it: a failed command can cost the full `valkey.timeout`, and a miss costs only the
+# work that the cache saves. For the cooldown the tier sends no command, and then one trial
+# command decides. With the default timeout, an outage thus costs at most 2.0 s in each 60 s. The
+# cooldown is pybreaker's own default `reset_timeout` and the pause of the RAG lookups.
+DEFAULT_VALKEY_CACHE_BREAKER_FAILURES: int = 1
+DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS: float = 60.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 
