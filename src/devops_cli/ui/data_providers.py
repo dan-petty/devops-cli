@@ -20,9 +20,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_K8S_POD_EVENT_LIMIT,
     DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS,
-    DEFAULT_VALKEY_HOST,
     DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
-    DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import get_valkey_password, load_settings
 from devops_cli.exceptions import DevOpsCLIError
@@ -571,12 +569,12 @@ def fetch_valkey_status() -> ValkeySummary:
     try:
         settings = load_settings()
         cfg = settings.valkey
-        endpoint = str(getattr(cfg, "host", DEFAULT_VALKEY_HOST))
+        endpoint = cfg.endpoint
         client = ValkeyClient(
             host=endpoint,
-            port=int(getattr(cfg, "port", DEFAULT_VALKEY_PORT)),
+            port=cfg.port,
             password=get_valkey_password(settings),
-            db=int(getattr(cfg, "db", 0)),
+            db=cfg.db,
             timeout=DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
         )
         endpoint = f"{client.host}:{client.port}"

@@ -41,7 +41,7 @@ def _resolve_client(
     """Resolve and construct a configured ValkeyClient instance."""
     cfg_settings = settings or load_settings()
     cfg = cfg_settings.valkey
-    target_host = host or cfg.host
+    target_host = host or cfg.endpoint
     target_port = port or cfg.port
     password = get_valkey_password(cfg_settings)
     return ValkeyClient(

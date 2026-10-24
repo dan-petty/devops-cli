@@ -212,20 +212,36 @@ class OpenWebUIConfig(BaseModel):
     url: str | None = None
 
 
+def _valkey_scheme(value: str | None) -> str | None:
+    """The scheme of a Valkey URL in lower case, or None when `value` names no Valkey scheme."""
+    if not isinstance(value, str):
+        return None
+    scheme = urlsplit(value.strip()).scheme.lower()
+    return scheme if scheme in CONST_VALKEY_SCHEMES else None
+
+
 def _parse_valkey_url(raw_url: str, data: dict[str, Any]) -> None:
-    """Derive host, port, and password from valkey connection URL."""
+    """Derive host, port, and password from valkey connection URL.
+
+    A URL with a Valkey scheme names the address, so its host and port replace `host` and `port`.
+    Every save writes the default `host` and `port`, which would otherwise hide the URL. A value
+    with another scheme, or with no scheme, only fills a missing `host` and `port`.
+    """
     if not isinstance(raw_url, str):
         return
     clean_url = raw_url.strip()
-    scheme = urlsplit(clean_url).scheme.lower()
-    target = clean_url if scheme in CONST_VALKEY_SCHEMES else f"//{clean_url}"
+    scheme = _valkey_scheme(clean_url)
+    target = clean_url if scheme else f"//{clean_url}"
     try:
         parsed = urlsplit(target)
         if parsed.hostname:
             port = parsed.port or 6379
             h = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
-            data.setdefault("host", f"{h}:{port}")
-            data.setdefault("port", port)
+            if scheme:
+                data.update(host=f"{h}:{port}", port=port)
+            else:
+                data.setdefault("host", f"{h}:{port}")
+                data.setdefault("port", port)
         if parsed.password and not data.get("password"):
             data["password"] = parsed.password
     except ValueError, AttributeError:
@@ -237,8 +253,7 @@ def _normalize_valkey_host(raw_host: str, raw_port: Any, data: dict[str, Any]) -
     if not isinstance(raw_host, str):
         return
     clean = raw_host.strip()
-    scheme = urlsplit(clean).scheme.lower()
-    target = clean if scheme in CONST_VALKEY_SCHEMES else f"//{clean}"
+    target = clean if _valkey_scheme(clean) else f"//{clean}"
     try:
         parsed = urlsplit(target)
         if parsed.hostname:
@@ -267,11 +282,30 @@ class ValkeyConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     host: str = "localhost:6379"
     port: int = 6379
-    url: str | None = None
+    url: str | None = Field(
+        default=None,
+        description=(
+            "The Valkey endpoint, such as `valkeys://example.com:6380`. Its host and port replace "
+            "`host` and `port`. The scheme `valkeys` or `rediss` connects over TLS and checks the "
+            "certificate against the host. The scheme `valkey` connects in plaintext"
+        ),
+    )
     password: str | None = None
     db: int = 0
     timeout: float = 2.0
     threat_intel_ttl: int = DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS
+
+    @property
+    def endpoint(self) -> str:
+        """The endpoint that a Valkey client dials: `host`, behind the scheme of `url`.
+
+        The scheme decides TLS. A `host` that names its own scheme, as an environment override
+        can, keeps that scheme.
+        """
+        scheme = _valkey_scheme(self.url)
+        if scheme is None or _valkey_scheme(self.host) is not None:
+            return self.host
+        return f"{scheme}://{self.host}"
 
     @model_validator(mode="before")
     @classmethod

@@ -92,7 +92,7 @@ Valkey caching endpoint, authentication, TLS, and service addressing settings.
 |---|---|---|---|---|
 | `host` | `str` | `localhost:6379` | `DEVOPS_CLI_VALKEY_HOST` | - |
 | `port` | `int` | `6379` | `DEVOPS_CLI_VALKEY_PORT` | - |
-| `url` | `Union` | - | - | - |
+| `url` | `Union` | - | - | The Valkey endpoint, such as `valkeys://example.com:6380`. Its host and port replace `host` and `port`. The scheme `valkeys` or `rediss` connects over TLS and checks the certificate against the host. The scheme `valkey` connects in plaintext |
 | `password` | `Union` | - | `DEVOPS_CLI_VALKEY_PASSWORD` | - |
 | `db` | `int` | `0` | `DEVOPS_CLI_VALKEY_DB` | - |
 | `timeout` | `float` | `2.0` | `DEVOPS_CLI_VALKEY_TIMEOUT` | - |

@@ -32,7 +32,9 @@ from devops_cli.ui.data_providers import (
 )
 from devops_cli.ui.projections import k8s_banner
 from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
+from tests.support.certificates import LocalCa
 from tests.support.fakes.valkey import bulk_reply, serving_valkey
+from tests.web_fakes import scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -440,6 +442,30 @@ def test_fetch_valkey_status_reads_the_flat_info_the_client_returns(
     assert summary == ValkeySummary(
         connected=True,
         endpoint=f"127.0.0.1:{port}",
+        version="8.0.0",
+        uptime_seconds=3600,
+        used_memory="2.40M",
+        hit_ratio=80.0,
+        connected_clients=4,
+        total_commands=5000,
+        key_count=150,
+    )
+
+
+def test_fetch_valkey_status_connects_over_tls_for_a_valkeys_url(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, local_ca: LocalCa
+) -> None:
+    """The panel dials the `valkeys://` URL over TLS and checks the certificate against its host."""
+    scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+    replies = {"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode()), "DBSIZE": b":150\r\n"}
+    tls = local_ca.server_context("example.com")
+    with serving_valkey(replies, tls=tls) as (port, _received):
+        config(valkey={"url": f"valkeys://example.com:{port}"})
+        summary = fetch_valkey_status()
+
+    assert summary == ValkeySummary(
+        connected=True,
+        endpoint=f"example.com:{port}",
         version="8.0.0",
         uptime_seconds=3600,
         used_memory="2.40M",
