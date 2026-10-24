@@ -221,20 +221,6 @@ DEPLOYMENT = """spec:
             ("limits", "resource limits"),
         ),
         (
-            "contradict-documented-default",
-            "README.md",
-            "Failed requests are retried; `retries` defaults to 3.\n",
-            "Failed requests are retried; `retries` defaults to 6.\n",
-            ("default", "6"),
-        ),
-        (
-            "contradict-documented-default",
-            "config.md",
-            "Responses are compressed; the option's default is `true`.\n",
-            "Responses are compressed; the option's default is `false`.\n",
-            ("default",),
-        ),
-        (
             "disable-tls-verify",
             "install.md",
             "Install it:\n\n```bash\ncurl -Lo ./tool https://example.com/tool\n```\n",
@@ -323,13 +309,12 @@ def test_each_template_injects_one_well_formed_defect(
         # LimitRange limits are not a container's resources.
         ("drop-resource-limits", "limitrange.yaml", "spec:\n  limits:\n    - type: Container\n"),
         ("mount-host-path", "pod.yaml", "      emptyDir:\n        medium: Memory\n"),
-        # Prose is not an example command, and "no longer" is not a default.
+        # Prose is not an example command.
         (
             "disable-tls-verify",
             "README.md",
             "Run curl -Lo ./tool https://example.com/tool to install.\n",
         ),
-        ("contradict-documented-default", "README.md", "The default is no longer used.\n"),
     ],
 )
 def test_places_that_would_break_or_have_no_defect_are_skipped(
@@ -346,7 +331,7 @@ def test_a_corpus_of_infrastructure_and_docs_records_each_injection(tmp_path: Pa
         "Dockerfile": RUN_CHAIN,
         "deploy.sh": "set -eu\nrm -rf build\n",
         "deployment.yaml": DEPLOYMENT,
-        "README.md": "Retries default to 3.\n",
+        "README.md": "```bash\nchmod 600 key.pem\n```\n",
     }
     for name, text in sources.items():
         (tmp_path / name).write_text(text, encoding="utf-8")
@@ -362,14 +347,14 @@ def test_a_corpus_of_infrastructure_and_docs_records_each_injection(tmp_path: Pa
                 "unverified-download",
                 "drop-strict-mode",
                 "drop-resource-limits",
-                "contradict-documented-default",
+                "widen-file-mode",
             ]
         ),
     )
 
     assert sorted((i.file, i.template) for i in corpus.injections) == [
         ("Dockerfile", "unverified-download"),
-        ("README.md", "contradict-documented-default"),
+        ("README.md", "widen-file-mode"),
         ("deploy.sh", "drop-strict-mode"),
         ("deployment.yaml", "drop-resource-limits"),
         ("sg.tf", "open-ingress"),

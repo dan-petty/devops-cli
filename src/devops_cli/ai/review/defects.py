@@ -867,28 +867,6 @@ def _in_code_blocks(finder: Finder) -> Finder:
     return find
 
 
-# A documented default: "default: true", "defaults to 30", "(default 4096".
-_DOCUMENTED_DEFAULT = re.compile(
-    r"(\b[Dd]efaults?(?:\s+(?:to|is))?:?\s+`?)(true|false|enabled|disabled|\d+)(?=[`\s.,;:)]|$)"
-)
-_OPPOSITES = {"true": "false", "false": "true", "enabled": "disabled", "disabled": "enabled"}
-
-
-def _contradict_defaults(lines: Lines) -> list[Site]:
-    """Find documented defaults and change them, so the page contradicts the code it describes."""
-    sites: list[Site] = []
-    for index, line in enumerate(lines):
-        match = _DOCUMENTED_DEFAULT.search(line)
-        if not match:
-            continue
-        value = match.group(2)
-        changed = _OPPOSITES.get(value) or str(int(value) * 2 or 1)
-        mutated = f"{line[: match.start(2)]}{changed}{line[match.end(2) :]}"
-        evidence = ("default", changed) if changed.isdigit() else ("default",)
-        sites.append(Site(index, index + 1, (mutated,), (index + 1,) * 2, evidence))
-    return sites
-
-
 _CHMOD = r"(\bchmod\s+(?:-R\s+)?0?)([1-7])00\b"
 # curl or wget fetching an https URL: a command of its own, chained, or in a RUN.
 _TLS_CURL = (
@@ -1221,12 +1199,6 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
         "Removed a container's resource limits.",
         "MEDIUM",
         ((_YAML, _drop_resource_limits),),
-    ),
-    DefectTemplate(
-        "contradict-documented-default",
-        "Changed a documented default so the page contradicts the code.",
-        "MEDIUM",
-        ((MARKDOWN, _contradict_defaults),),
     ),
     DefectTemplate(
         "unbounded-string-copy",
