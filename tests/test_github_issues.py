@@ -23,6 +23,8 @@ from devops_cli.github.issues import (
     get_issues_summary,
     get_repository_issues,
 )
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import ItemField
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 
 
@@ -33,7 +35,7 @@ def test_github_issue_model() -> None:
         title="feat(rag): dedicated library vector tier",
         state="open",
         milestone="2026-11",
-        labels=["type/feature", "scope/ai", "priority/p2-medium"],
+        labels=["type/feature", "scope/ai"],
         assignees=["dan-petty"],
         url="https://github.com/dan-petty/devops-cli/issues/77",
     )
@@ -87,7 +89,7 @@ def test_create_repository_issue_success() -> None:
         "title": "fix(ci): improve timeout",
         "state": "OPEN",
         "milestone": {"title": "2026-11"},
-        "labels": [{"name": "type/bug"}, {"name": "scope/ci"}, {"name": "priority/p1-high"}],
+        "labels": [{"name": "type/bug"}, {"name": "scope/ci"}],
         "assignees": [],
         "url": "https://github.com/dan-petty/devops-cli/issues/84",
     }
@@ -98,95 +100,160 @@ def test_create_repository_issue_success() -> None:
             title="fix(ci): improve timeout",
             body="Description",
             milestone="2026-11",
-            labels=["type/bug", "scope/ci", "priority/p1-high"],
+            labels=["type/bug", "scope/ci"],
         )
         assert issue.number == 84
         assert issue.title == "fix(ci): improve timeout"
 
 
 def test_audit_issues_triage() -> None:
-    """audit_issues_triage categorizes missing taxonomy labels."""
-    issues = [
-        GitHubIssue(
-            number=1,
-            title="Properly labeled issue",
-            state="open",
-            milestone="2026-11",
-            labels=["type/feature", "scope/ai", "priority/p2-medium"],
-        ),
-        GitHubIssue(
-            number=2,
-            title="Missing scope and priority",
-            state="open",
-            milestone="2026-11",
-            labels=["type/bug"],
-        ),
-        GitHubIssue(
-            number=3,
-            title="Missing all taxonomy labels and milestone",
-            state="open",
-            milestone=None,
-            labels=[],
-        ),
-    ]
-    with patch("devops_cli.github.issues.get_repository_issues", return_value=issues):
-        audit = audit_issues_triage("dan-petty/devops-cli")
-        assert audit.total_open == 3
-        assert audit.valid_count == 1
-        assert 3 in audit.issues_missing_type
-        assert 2 in audit.issues_missing_scope
-        assert 3 in audit.issues_missing_scope
-        assert 2 in audit.issues_missing_priority
+    """audit_issues_triage categorizes missing taxonomy labels and board Priority."""
+    store = InMemoryRoadmapStore(
+        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    )
+    store.seed_milestone("2026-11")
+    i1 = store.seed_issue(
+        "Properly labeled and prioritized issue",
+        on_board=True,
+        milestone="2026-11",
+        labels=["type/feature", "scope/ai"],
+    )
+    store.set_field(store.item(i1), ItemField.PRIORITY, "P2-Medium")
+
+    i2 = store.seed_issue(
+        "Missing scope and priority",
+        on_board=True,
+        milestone="2026-11",
+        labels=["type/bug"],
+    )
+    i3 = store.seed_issue(
+        "Missing all taxonomy labels and priority",
+        on_board=True,
+        milestone=None,
+        labels=[],
+    )
+
+    audit = audit_issues_triage("dan-petty/devops-cli", store=store)
+    assert audit.total_open == 3
+    assert audit.valid_count == 1
+    assert i3 in audit.issues_missing_type
+    assert i2 in audit.issues_missing_scope
+    assert i3 in audit.issues_missing_scope
+    assert i2 in audit.issues_missing_priority
+    assert i3 in audit.issues_missing_priority
+    assert i1 not in audit.issues_missing_priority
 
 
 def test_triage_reports_an_issue_off_the_board_once_as_awaiting_intake() -> None:
     """A backlog item has no milestone, and an issue off the board has no Priority until intake
     gives it one, so neither is a triage finding (#742)."""
-    issues = [
-        GitHubIssue(
-            number=1,
-            title="Backlog item",
-            state="open",
-            milestone=None,
-            labels=["type/feature", "scope/cli", "priority/p2-medium"],
-        ),
-        GitHubIssue(number=2, title="Not on the board yet", state="open", labels=[]),
-    ]
-    with patch("devops_cli.github.issues.get_repository_issues", return_value=issues):
-        audit = audit_issues_triage("dan-petty/devops-cli", awaiting_intake={2})
+    store = InMemoryRoadmapStore(
+        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    )
+    i1 = store.seed_issue(
+        "Backlog item",
+        on_board=True,
+        milestone=None,
+        labels=["type/feature", "scope/cli"],
+    )
+    store.set_field(store.item(i1), ItemField.PRIORITY, "P2-Medium")
+    i2 = store.seed_issue("Not on the board yet", on_board=False, labels=[])
+
+    audit = audit_issues_triage("dan-petty/devops-cli", store=store)
     assert (
         audit.valid_count,
         audit.issues_awaiting_intake,
         audit.issues_missing_type,
         audit.issues_missing_scope,
         audit.issues_missing_priority,
-    ) == (1, [2], [], [], [])
+    ) == (1, [i2], [], [], [])
+
+
+def test_triage_flags_open_item_with_priority_label_but_no_board_priority() -> None:
+    """Criterion 2: An issue with a priority/* label but no Priority field value on the board
+    counts as unprioritized in triage."""
+    store = InMemoryRoadmapStore(
+        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    )
+    i1 = store.seed_issue(
+        "Stray label item",
+        on_board=True,
+        milestone=None,
+        labels=["type/feature", "scope/cli", "priority/stray-label"],
+    )
+    audit = audit_issues_triage("dan-petty/devops-cli", store=store)
+    assert audit.total_open == 1
+    assert audit.valid_count == 0
+    assert i1 in audit.issues_missing_priority
+
+
+def test_triage_and_status_count_over_100_open_issues() -> None:
+    """Criterion 3: With more than 100 open issues, every one is counted."""
+    store = InMemoryRoadmapStore(
+        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    )
+    for i in range(120):
+        store.seed_issue(f"Open item {i}", on_board=True, labels=["type/feature", "scope/cli"])
+    for i in range(15):
+        store.seed_issue(f"Candidate {i}", on_board=False, labels=["type/bug", "scope/cli"])
+
+    audit = audit_issues_triage("dan-petty/devops-cli", store=store)
+    summary = get_issues_summary("dan-petty/devops-cli", store=store)
+    assert audit.total_open == 135
+    assert summary["total_open"] == 135
+    assert len(audit.issues_awaiting_intake) == 15
+
+
+def test_triage_backlog_item_without_milestone_is_not_flagged() -> None:
+    """Criterion 4: A backlog item without a milestone is not flagged."""
+    store = InMemoryRoadmapStore(
+        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    )
+    i1 = store.seed_issue(
+        "Backlog feature",
+        on_board=True,
+        milestone=None,
+        labels=["type/feature", "scope/cli"],
+    )
+    store.set_field(store.item(i1), ItemField.PRIORITY, "P3-Low")
+
+    audit = audit_issues_triage("dan-petty/devops-cli", store=store)
+    assert audit.total_open == 1
+    assert audit.valid_count == 1
+    assert audit.issues_missing_type == []
+    assert audit.issues_missing_scope == []
+    assert audit.issues_missing_priority == []
 
 
 def test_get_issues_summary() -> None:
-    """get_issues_summary produces breakdown aggregates."""
-    issues = [
-        GitHubIssue(
-            number=1,
-            title="Bug 1",
-            state="open",
-            milestone="2026-11",
-            labels=["type/bug", "scope/ai", "priority/p0-critical"],
-        ),
-        GitHubIssue(
-            number=2,
-            title="Feature 1",
-            state="open",
-            milestone="2026-11",
-            labels=["type/feature", "scope/k8s", "priority/p2-medium"],
-        ),
-    ]
-    with patch("devops_cli.github.issues.get_repository_issues", return_value=issues):
-        summary = get_issues_summary("dan-petty/devops-cli")
-        assert summary["total_open"] == 2
-        assert summary["by_priority"]["priority/p0-critical"] == 1
-        assert summary["by_type"]["type/bug"] == 1
-        assert summary["by_milestone"]["2026-11"] == 2
+    """get_issues_summary produces breakdown aggregates using board Priority."""
+    store = InMemoryRoadmapStore(
+        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    )
+    store.seed_milestone("2026-11")
+    i1 = store.seed_issue(
+        "Bug 1",
+        on_board=True,
+        milestone="2026-11",
+        labels=["type/bug", "scope/ai"],
+    )
+    store.set_field(store.item(i1), ItemField.PRIORITY, "P0-Critical")
+
+    i2 = store.seed_issue(
+        "Feature 1",
+        on_board=True,
+        milestone="2026-11",
+        labels=["type/feature", "scope/k8s"],
+    )
+    store.set_field(store.item(i2), ItemField.PRIORITY, "P2-Medium")
+
+    summary = get_issues_summary("dan-petty/devops-cli", store=store)
+    assert summary["total_open"] == 2
+    assert summary["by_priority"]["P0-Critical"] == 1
+    assert summary["by_priority"]["P2-Medium"] == 1
+    assert summary["by_type"]["type/bug"] == 1
+    assert summary["by_type"]["type/feature"] == 1
+    assert summary["by_milestone"]["2026-11"] == 2
 
 
 def test_create_repository_issue_failure_bounds_title_in_error_details() -> None:

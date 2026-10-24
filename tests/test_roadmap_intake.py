@@ -451,7 +451,7 @@ def test_a_candidate_with_a_person_priority_is_held_as_possible_duplicate(
     duplicate, leaving it open and writing nothing (#1686)."""
     original = roadmap.issue("Feature A", on_board=True)
     roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
-    candidate = roadmap.issue("Feature A copy", labels=("priority/p1-high",))
+    candidate = roadmap.issue("Feature A copy", labels=("priority/legacy",))
     roadmap.run(FakeModel(duplicates={"Feature A copy": "Feature A"}))
     assert roadmap.store.closures(candidate) == []
     assert roadmap.comments(candidate) == []

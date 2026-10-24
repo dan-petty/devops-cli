@@ -34,10 +34,6 @@
   color: "CFD3D7"
   description: "Dependency upgrades, tooling adjustments, or maintenance"
 
-- name: "type/epic"
-  color: "3E4B9E"
-  description: "High-level tracking epic coordinating deliverables"
-
 # ── Scope Labels ────────────────────────────────────────────────────────────
 - name: "scope/ai"
   color: "6F42C1"
@@ -94,23 +90,6 @@
 - name: "autorelease: tagged"
   color: "EDEDED"
   description: "A release pull request whose release release-please created"
-
-# ── Priority Labels ─────────────────────────────────────────────────────────
-- name: "priority/p0-critical"
-  color: "B60205"
-  description: "Urgent blockages or critical vulnerabilities"
-
-- name: "priority/p1-high"
-  color: "D93F0B"
-  description: "High impact work for the current milestone"
-
-- name: "priority/p2-medium"
-  color: "FBCA04"
-  description: "Standard priority feature work and architectural improvements"
-
-- name: "priority/p3-low"
-  color: "0E8A16"
-  description: "Minor polish, low-severity improvements, and backlogged tasks"
 
 # ── Status Labels ───────────────────────────────────────────────────────────
 - name: "status/triage"

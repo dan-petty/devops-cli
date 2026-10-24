@@ -1,4 +1,4 @@
-"""GitHub Projects v2: the board template, its views, and reconciling Status and Priority on its cards.
+"""GitHub Projects v2: the board template, its views, and reconciling Status on its cards.
 
 Neither `devops gh project sync` nor `devops gh project reconcile` adds a card: intake
 (`devops roadmap intake`) is the one way an issue reaches the board, and a pull request gets no
@@ -785,12 +785,6 @@ _STATUS_LABELS: dict[str, str] = {
     "status/in-review": "In Review",
     "status/blocked": "Blocked",
 }
-_PRIORITY_LABELS: dict[str, str] = {
-    "priority/p0-critical": "P0-Critical",
-    "priority/p1-high": "P1-High",
-    "priority/p2-medium": "P2-Medium",
-    "priority/p3-low": "P3-Low",
-}
 _DEFAULT_STATUS = "New"
 
 
@@ -829,15 +823,6 @@ def initial_status(labels: Sequence[Any], status_options: Collection[str]) -> tu
     return _DEFAULT_STATUS, "default for an unset status"
 
 
-def declared_priority(labels: Sequence[Any]) -> tuple[str, str] | None:
-    """Return the priority a priority label declares, with its source, or None."""
-    for name in _label_names(labels):
-        priority = _PRIORITY_LABELS.get(name)
-        if priority is not None:
-            return priority, f"label {name}"
-    return None
-
-
 def plan_item_changes(
     item: Mapping[str, Any],
     current: Mapping[str, str | None],
@@ -847,28 +832,23 @@ def plan_item_changes(
     """Plan one item's board field changes, each with the source that decided it.
 
     The board owns Status: it is set only when unset, or when the item's state forces Done,
-    In Review or In Progress, so a person's triage is never reverted. Priority only fills an
-    unset field, from a priority label. Value and Effort are never inferred: an inferred value
-    the board shows as decided is worse than an unset one. The board mirrors the milestone on
-    its own, so it is never written.
+    In Review or In Progress, so a person's triage is never reverted. Value and Effort are never
+    inferred: an inferred value the board shows as decided is worse than an unset one. The board
+    mirrors the milestone on its own, so it is never written.
     """
     labels = item.get("labels", [])
     status = _forced_status(item)
     if status is None and not current.get("status"):
         status = initial_status(labels, status_options)
-    priority = None if current.get("priority") else declared_priority(labels)
 
-    targets = (("Status", status), ("Priority", priority))
-    url = str(item.get("html_url") or item.get("url") or "")
-    changes: list[FieldChange] = []
-    for field_name, target in targets:
-        if target is None:
-            continue
-        new, source = target
-        old = current.get(field_name.lower()) or None
-        if old is None or old.strip().lower() != new.strip().lower():
-            changes.append(FieldChange(url=url, field=field_name, old=old, new=new, source=source))
-    return changes
+    if status is None:
+        return []
+    new, source = status
+    old = current.get("status") or None
+    if old is None or old.strip().lower() != new.strip().lower():
+        url = str(item.get("html_url") or item.get("url") or "")
+        return [FieldChange(url=url, field="Status", old=old, new=new, source=source)]
+    return []
 
 
 def _fetch_repository_prs(repo: str, state: str = "open") -> list[dict[str, Any]]:
@@ -1032,7 +1012,7 @@ def reconcile_project_custom_fields(
     state: str = "open",
     budget: MutationBudget | None = None,
 ) -> ReconcileResult:
-    """Reconcile Status and Priority on the cards already on the board, listing every change.
+    """Reconcile Status on the cards already on the board, listing every change.
 
     Reconcile adds no card: an issue off the board waits for intake, and a pull request gets no
     card. It reads the board (refusing to start when GraphQL's budget can't cover the read), the
