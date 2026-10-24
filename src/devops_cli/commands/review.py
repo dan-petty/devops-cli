@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 import typer
 
-from devops_cli.ai.review.flags import resolve_stage_flags
+from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_OUTPUT_FORMAT_TABLE,
@@ -86,11 +86,13 @@ from devops_cli.ai.review.runner import (
     _corpus_digest,
     _execute_review_workflow,
     _find_session_dir,
+    _git_repo_root,
     _make_review_clients,
     _nearest_conventions,
     _prepare_branch_content,
     _prepare_path_content,
     _prepare_pr_content,
+    _prepare_watch_content,
     _review_candidate_files,
 )
 from devops_cli.ai.review.sample_validation import (
@@ -187,6 +189,158 @@ def _init_logfire_if_enabled(logfire: bool | None, settings: Settings) -> None:
 # =============================================================================
 # Command: devops review path
 # =============================================================================
+
+
+def _resolve_single_target_details(
+    target_path: Path,
+    pattern: str,
+    working_directory: Path,
+    override_pages: list[str] | None,
+) -> tuple[list[str], str, list[str], Path, str]:
+    from devops_cli.git.operations import git_show_toplevel
+
+    target = working_directory / target_path
+    target_resolved = target.resolve()
+    if override_pages is None:
+        pages, title, routed_files = _prepare_path_content(
+            target, pattern, working_directory=working_directory
+        )
+    else:
+        pages = override_pages
+        repo_root = _git_repo_root(target_resolved)
+        file_label = (
+            str(target_resolved.relative_to(repo_root))
+            if repo_root and target_resolved.is_relative_to(repo_root)
+            else target_resolved.name
+        )
+        title = str(file_label) if target_resolved.is_file() else str(target_resolved)
+        routed_files = []
+    top = git_show_toplevel(target_resolved)
+    target_dir = (
+        top
+        if top is not None
+        else (target_resolved if target_resolved.is_dir() else target_resolved.parent)
+    )
+    return pages, title, routed_files, target_dir, str(target_resolved)
+
+
+def _resolve_multi_target_details(
+    path_targets: Sequence[Path],
+    pattern: str,
+    working_directory: Path,
+    override_pages: list[str] | None,
+) -> tuple[list[str], str, list[str], Path, str]:
+    all_pages: list[str] = []
+    target_names: list[str] = []
+    routed_files: list[str] = []
+    first_target_dir = working_directory
+    for t in path_targets:
+        t_resolved = (working_directory / t).resolve()
+        if override_pages is None:
+            t_pages, _, t_routed = _prepare_path_content(
+                t_resolved, pattern, working_directory=working_directory
+            )
+            all_pages.extend(t_pages)
+            routed_files.extend(t_routed)
+        target_names.append(str(t_resolved))
+        if first_target_dir == working_directory and t_resolved.exists() and t_resolved.is_dir():
+            first_target_dir = t_resolved
+
+    pages = override_pages if override_pages is not None else all_pages
+    title = f"Multiple targets ({len(path_targets)} paths)"
+    target_ref = ", ".join(target_names[:3]) + (
+        f" (+{len(target_names) - 3} more)" if len(target_names) > 3 else ""
+    )
+    return pages, title, routed_files, first_target_dir, target_ref
+
+
+def _execute_path_review(
+    *,
+    path_targets: Sequence[Path],
+    pattern: str,
+    working_directory: Path,
+    summary: bool,
+    clients: ReviewClients,
+    stage_flags: ReviewStageFlags,
+    concurrency: int | None,
+    parallel: bool,
+    full: bool,
+    override_pages: list[str] | None = None,
+) -> None:
+    print_info("Scanning in place (uncommitted work)...", prefix=False)
+    if len(path_targets) == 1:
+        pages, title, routed_files, target_dir, target_ref = _resolve_single_target_details(
+            path_targets[0], pattern, working_directory, override_pages
+        )
+    else:
+        pages, title, routed_files, target_dir, target_ref = _resolve_multi_target_details(
+            path_targets, pattern, working_directory, override_pages
+        )
+
+    _execute_review_workflow(
+        pages,
+        title,
+        summary,
+        clients,
+        target_type="path",
+        target_ref=target_ref,
+        target_dir=target_dir,
+        stage_flags=stage_flags,
+        concurrency=concurrency,
+        parallel=parallel,
+        full_output=full,
+        routed_files=routed_files,
+    )
+
+
+def _run_path_watcher(
+    *,
+    path_targets: Sequence[Path],
+    pattern: str,
+    working_directory: Path,
+    debounce_ms: int,
+    summary: bool,
+    clients: ReviewClients,
+    stage_flags: ReviewStageFlags,
+    concurrency: int | None,
+    parallel: bool,
+    full: bool,
+) -> None:
+    """Watch target paths and review changed files on modifications."""
+    from devops_cli.watchers.file_watcher import DebouncedFileWatcher
+
+    def _on_change(changed: list[Path]) -> None:
+        pages = _prepare_watch_content(
+            changed,
+            path_targets,
+            pattern,
+            working_directory=working_directory,
+        )
+        if not pages:
+            print_info(MESSAGES.review.no_reviewable_files_changed)
+            return
+
+        print_info(f"Detected changes in {len(pages)} file(s). Running review...")
+        _execute_path_review(
+            path_targets=path_targets,
+            pattern=pattern,
+            working_directory=working_directory,
+            summary=summary,
+            clients=clients,
+            stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
+            full=full,
+            override_pages=pages,
+        )
+
+    print_info(f"Watching {len(path_targets)} target(s)... Press Ctrl+C to stop.")
+    watcher = DebouncedFileWatcher(
+        path_targets,
+        on_change=_on_change,
+        debounce_ms=debounce_ms,
+    )
+    watcher.watch()
 
 
 @app.command()
@@ -307,82 +461,32 @@ def path(
     working_directory = Path.cwd().resolve()
     path_targets = targets or [DEFAULT_CURRENT_PATH]
 
-    def _execute_current_review() -> None:
-        from devops_cli.git.operations import git_show_toplevel
-
-        print_info("Scanning in place (uncommitted work)...", prefix=False)
-        if len(path_targets) == 1:
-            target = working_directory / path_targets[0]
-            pages, title, routed_files = _prepare_path_content(
-                target, pattern, working_directory=working_directory
-            )
-            target_resolved = target.resolve()
-            top = git_show_toplevel(target_resolved)
-            target_dir = (
-                top
-                if top is not None
-                else (target_resolved if target_resolved.is_dir() else target_resolved.parent)
-            )
-            target_ref = str(target_resolved)
-        else:
-            all_pages: list[str] = []
-            target_names: list[str] = []
-            routed_files = []
-            first_target_dir = working_directory
-            for t in path_targets:
-                t_resolved = (working_directory / t).resolve()
-                t_pages, _, t_routed = _prepare_path_content(
-                    t_resolved, pattern, working_directory=working_directory
-                )
-                all_pages.extend(t_pages)
-                routed_files.extend(t_routed)
-                target_names.append(str(t_resolved))
-                if (
-                    first_target_dir == working_directory
-                    and t_resolved.exists()
-                    and t_resolved.is_dir()
-                ):
-                    first_target_dir = t_resolved
-
-            pages = all_pages
-            title = f"Multiple targets ({len(path_targets)} paths)"
-            target_dir = first_target_dir
-            target_ref = ", ".join(target_names[:3]) + (
-                f" (+{len(target_names) - 3} more)" if len(target_names) > 3 else ""
-            )
-
-        _execute_review_workflow(
-            pages,
-            title,
-            summary,
-            clients,
-            target_type="path",
-            target_ref=target_ref,
-            target_dir=target_dir,
+    if watch:
+        _run_path_watcher(
+            path_targets=path_targets,
+            pattern=pattern,
+            working_directory=working_directory,
+            debounce_ms=debounce_ms,
+            summary=summary,
+            clients=clients,
             stage_flags=stage_flags,
             concurrency=concurrency,
             parallel=parallel,
-            full_output=full,
-            routed_files=routed_files,
+            full=full,
         )
-
-    if watch:
-        from devops_cli.watchers.file_watcher import DebouncedFileWatcher
-
-        def _on_change(changed: list[Path]) -> None:
-            print_info(f"Detected changes in {len(changed)} file(s). Running review...")
-            _execute_current_review()
-
-        print_info(f"Watching {len(path_targets)} target(s)... Press Ctrl+C to stop.")
-        watcher = DebouncedFileWatcher(
-            path_targets,
-            on_change=_on_change,
-            debounce_ms=debounce_ms,
-        )
-        watcher.watch()
         return
 
-    _execute_current_review()
+    _execute_path_review(
+        path_targets=path_targets,
+        pattern=pattern,
+        working_directory=working_directory,
+        summary=summary,
+        clients=clients,
+        stage_flags=stage_flags,
+        concurrency=concurrency,
+        parallel=parallel,
+        full=full,
+    )
 
 
 # =============================================================================
