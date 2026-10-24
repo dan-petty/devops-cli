@@ -37,7 +37,8 @@ from devops_cli.ai.tools.builtin_tools import (
 from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.scanners import RecordedScannerRun, ScannerFake
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -650,9 +651,7 @@ def test_an_agent_scan_tool_whose_scanner_fails_with_no_output_says_failed_and_n
 ) -> None:
     """A scanner that exits non-zero and writes nothing on stdout gives no result, and the reply
     says that the scan failed, with what the scanner wrote on stderr (#1435)."""
-    scanner_fake.recorded[program] = RecordedScannerRun(
-        version="", argv=(), returncode=2, stdout="", stderr="fatal: the target cannot be read"
-    )
+    scanner_fake.script(program, ToolAnswer(exit_code=2, stderr="fatal: the target cannot be read"))
     monkeypatch.chdir(tmp_path)
 
     reply = scan_tool(str(tmp_path))
@@ -683,11 +682,9 @@ def test_an_agent_scan_tool_whose_scanner_finds_nothing_says_ok_and_no_findings(
     assert reply == f"{scanner} scan status: ok\nNo findings."
 
 
-def _trivy_run(results: list[dict[str, object]]) -> RecordedScannerRun:
+def _trivy_run(results: list[dict[str, object]]) -> ToolAnswer:
     """A Trivy run that exits 0 and reports `results` as JSON on stdout."""
-    return RecordedScannerRun(
-        version="", argv=(), returncode=0, stdout=json.dumps({"Results": results}), stderr=""
-    )
+    return ToolAnswer(stdout=json.dumps({"Results": results}))
 
 
 def test_an_agent_scan_tool_leads_with_the_status_and_lists_each_finding_masked(
@@ -696,28 +693,31 @@ def test_an_agent_scan_tool_leads_with_the_status_and_lists_each_finding_masked(
     """The reply gives the status first, then each finding of the adapter, with every secret in
     the text masked (#1435)."""
     token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz"
-    scanner_fake.recorded["trivy"] = _trivy_run(
-        [
-            {
-                "Target": "uv.lock",
-                "Vulnerabilities": [
-                    {
-                        "VulnerabilityID": "CVE-2026-0001",
-                        "PkgName": "requests",
-                        "InstalledVersion": "2.0.0",
-                        "FixedVersion": "2.32.0",
-                        "Severity": "HIGH",
-                        "Title": "requests sends the session cookie to any host",
-                    }
-                ],
-            },
-            {
-                "Target": "app.env",
-                "Secrets": [
-                    {"RuleID": "github-pat", "Title": f"token {token}", "Severity": "CRITICAL"}
-                ],
-            },
-        ]
+    scanner_fake.script(
+        "trivy",
+        _trivy_run(
+            [
+                {
+                    "Target": "uv.lock",
+                    "Vulnerabilities": [
+                        {
+                            "VulnerabilityID": "CVE-2026-0001",
+                            "PkgName": "requests",
+                            "InstalledVersion": "2.0.0",
+                            "FixedVersion": "2.32.0",
+                            "Severity": "HIGH",
+                            "Title": "requests sends the session cookie to any host",
+                        }
+                    ],
+                },
+                {
+                    "Target": "app.env",
+                    "Secrets": [
+                        {"RuleID": "github-pat", "Title": f"token {token}", "Severity": "CRITICAL"}
+                    ],
+                },
+            ]
+        ),
     )
     monkeypatch.chdir(tmp_path)
 
@@ -738,23 +738,26 @@ def test_an_agent_scan_tool_cuts_a_long_reply_at_the_tool_output_limit(
 ) -> None:
     """A reply longer than the limit of a tool's output is cut there, and says where (#1435)."""
     packages = [f"pkg{number}" for number in range(200)]
-    scanner_fake.recorded["trivy"] = _trivy_run(
-        [
-            {
-                "Target": "uv.lock",
-                "Vulnerabilities": [
-                    {
-                        "VulnerabilityID": "CVE-2026-0001",
-                        "PkgName": package,
-                        "InstalledVersion": "1.0",
-                        "FixedVersion": "2.0",
-                        "Severity": "LOW",
-                        "Title": "t",
-                    }
-                    for package in packages
-                ],
-            }
-        ]
+    scanner_fake.script(
+        "trivy",
+        _trivy_run(
+            [
+                {
+                    "Target": "uv.lock",
+                    "Vulnerabilities": [
+                        {
+                            "VulnerabilityID": "CVE-2026-0001",
+                            "PkgName": package,
+                            "InstalledVersion": "1.0",
+                            "FixedVersion": "2.0",
+                            "Severity": "LOW",
+                            "Title": "t",
+                        }
+                        for package in packages
+                    ],
+                }
+            ]
+        ),
     )
     monkeypatch.chdir(tmp_path)
     whole = "\n".join(

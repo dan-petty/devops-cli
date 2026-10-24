@@ -1,13 +1,27 @@
-"""The security scanners a review starts, faked at the process edge, and the `scanner_fake`
-fixture that installs the fake (#1666, ADR 0007).
+"""The security scanners a review starts, faked at the tool executor's seam, and the
+`scanner_fake` fixture that installs the fake (#1666, #1982, ADR 0007).
 
-The process edge has no seam yet (#775), so the fake doubles the stdlib objects themselves, the
-fallback `docs/TESTING.md` allows for a stdlib edge: `shutil.which` finds each scanner the fake
-holds a recorded run of, under `bin_dir`, and `subprocess.run`, through which `run_subprocess`
-starts every scanner, answers a command that starts one with that run's exit code, stdout and
-stderr, starting nothing. Every other command is found and run for real, under the suite's
-refusal of a real gh or scanner. `runs` holds each command the fake answered, with the
-directory it was started from.
+A scanner starts its tool through a `ToolExecutor` (`devops_cli.security.tool_executor`). A
+scanner that nobody gives an executor gets a `DirectToolExecutor`. `ScannerFake` is the shared fake
+of that seam, `ToolExecutorFake`, scripted with the recorded run of each scanner. It answers a
+request for a scanner it holds with the exit code, the standard output and the standard error of
+that run, and starts nothing. A test that needs another answer, such as a failed scan, scripts it
+with `script`. For the whole test, the fixture makes every `DirectToolExecutor` answer through the
+fake, also an executor made before the test, such as that of each scanner of the global registry.
+So every scan that gets no executor of its own reaches the fake. A request for any other tool goes
+on to the `run` that the fixture replaced: git runs, and the floor of the suite refuses a real
+scanner. So does the canary run of a tool, in a working directory named with
+`CONST_CANARY_WORKDIR_PREFIX`: the root conftest answers it with the recorded canary output
+(`pin_review_tool_canaries`), and the canary of a scanner that the fake holds still passes. The fake records each run as the direct executor does: a checkout that git cannot read
+has no commit, and a file that it cannot digest has the digest `unavailable`.
+
+A scanner first looks for its program on PATH. The fake puts a stand-in for each scanner that it
+answers in `bin_dir`, and the fixture puts `bin_dir` first on PATH, so `shutil.which` finds the
+scanner there. A test that sets PATH without `bin_dir` has no scanner installed. Nothing starts the
+stand-in: code that starts a scanner outside the executor reaches the floor, which refuses the
+scanner by its name. `runs` holds each request that the fake answered: the command that the direct
+executor starts, the directory that it starts the command in and, when the fake snapshots working
+directories, the bytes of each file in that directory as the run started.
 
 Each recorded run is the real tool's, at the version `tools.lock` pins, started through its
 adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
@@ -26,14 +40,22 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+
+from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolRequest, ToolResult
+
+# The stand-in on PATH for a scanner that the fake answers. Nothing runs it.
+_STAND_IN = (
+    "#!/bin/sh\necho 'scanner_fake answers this scanner through the tool executor' >&2\nexit 127\n"
+)
 
 
 @dataclass(frozen=True)
@@ -49,11 +71,11 @@ class RecordedScannerRun:
 
 @dataclass(frozen=True)
 class ScannerRun:
-    """A command the fake answered, the directory it was started from and, when the fake
-    snapshots working directories, the bytes of each file in that directory as the run started."""
+    """A command the fake answered, the directory it started in and, when the fake snapshots
+    working directories, the bytes of each file in that directory as the run started."""
 
     argv: list[str]
-    cwd: str | None
+    cwd: str
     workdir_files: dict[str, bytes] = field(default_factory=dict)
 
 
@@ -77,57 +99,70 @@ def recorded_scanner_runs() -> dict[str, RecordedScannerRun]:
     }
 
 
-class ScannerFake:
-    """`shutil.which` and `subprocess.run` for a test whose code starts security scanners: each
-    recorded scanner is found under `bin_dir` and answers with its recorded run, and every other
-    program is found and run for real."""
+class ScannerFake(ToolExecutorFake):
+    """The tool executor of a test whose code starts security scanners: each scanner that it
+    answers is on PATH under `bin_dir`, and answers with its recorded run or the scripted one."""
 
     def __init__(self, recorded: dict[str, RecordedScannerRun], bin_dir: Path) -> None:
+        super().__init__(require_commit=False, require_files=False)
         self.recorded = recorded
         self.bin_dir = bin_dir
+        self.programs: set[str] = set()
         self.runs: list[ScannerRun] = []
         self.snapshot_workdirs = False
-        self._real_run = subprocess.run
-        self._real_which = shutil.which
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        for program, run in recorded.items():
+            self.script(
+                program,
+                ToolAnswer(
+                    exit_code=run.returncode,
+                    stdout=run.stdout,
+                    stderr=run.stderr,
+                    version=run.version,
+                ),
+            )
 
-    def which(self, cmd: Any, mode: int = os.F_OK | os.X_OK, path: Any = None) -> str | None:
-        """Where a recorded scanner is, else where the host has the program."""
-        program = Path(os.fsdecode(cmd)).name
-        if program in self.recorded:
-            return str(self.bin_dir / program)
-        return self._real_which(cmd, mode, path)
+    def script(self, tool: str, answer: ToolAnswer) -> None:
+        """Answer every later request for `tool` with `answer`, and put a stand-in for `tool` in
+        `bin_dir`, so that the scanner finds its program."""
+        super().script(tool, answer)
+        stand_in = self.bin_dir / tool
+        stand_in.write_text(_STAND_IN, encoding="utf-8")
+        stand_in.chmod(0o755)
+        self.programs.add(tool)
 
-    def _workdir_files(self, cwd: str | None) -> dict[str, bytes]:
+    def _workdir_files(self, cwd: Path) -> dict[str, bytes]:
         """The name and bytes of each file in `cwd`, when the fake snapshots working directories."""
-        if cwd is None or not self.snapshot_workdirs:
+        if not self.snapshot_workdirs:
             return {}
-        return {path.name: path.read_bytes() for path in Path(cwd).iterdir() if path.is_file()}
+        return {path.name: path.read_bytes() for path in cwd.iterdir() if path.is_file()}
 
-    def run(self, args: Any, *popenargs: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
-        """Answer a recorded scanner's command with its recorded run; run any other for real."""
-        argv = [os.fsdecode(arg) for arg in args] if isinstance(args, (list, tuple)) else []
-        recorded = self.recorded.get(Path(argv[0]).name) if argv else None
-        if recorded is None:
-            return self._real_run(args, *popenargs, **kwargs)
-        cwd = None if kwargs.get("cwd") is None else os.fsdecode(kwargs["cwd"])
-        self.runs.append(ScannerRun(argv, cwd, self._workdir_files(cwd)))
-        as_text = any(kwargs.get(key) for key in ("text", "universal_newlines", "encoding"))
-        stdout, stderr = recorded.stdout, recorded.stderr
-        answered = subprocess.CompletedProcess(
-            argv,
-            recorded.returncode,
-            stdout if as_text else stdout.encode(),
-            stderr if as_text else stderr.encode(),
+    def run(self, request: ToolRequest) -> ToolResult:
+        """Keep the run of `request`, then answer it with the answer of its tool."""
+        cwd = request.cwd or request.workdir
+        program = str(request.program) if request.program else request.tool
+        self.runs.append(
+            ScannerRun([program, *request.arguments], str(cwd), self._workdir_files(cwd))
         )
-        if kwargs.get("check"):
-            answered.check_returncode()
-        return answered
+        return super().run(request)
 
 
 @pytest.fixture
 def scanner_fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ScannerFake:
-    """The recorded security scanners, found and answered for the whole test."""
+    """The recorded security scanners, on PATH and answered for the whole test."""
+    from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
+    from devops_cli.security.tool_executor import DirectToolExecutor
+
     fake = ScannerFake(recorded_scanner_runs(), tmp_path / "scanner-bin")
-    monkeypatch.setattr(shutil, "which", fake.which)
-    monkeypatch.setattr(subprocess, "run", fake.run)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(fake.bin_dir), os.environ.get("PATH", "")]))
+    direct_run = DirectToolExecutor.run
+
+    def run(executor: DirectToolExecutor, request: ToolRequest) -> ToolResult:
+        is_canary = request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX)
+        if request.tool in fake.programs and not is_canary:
+            return fake.run(request)
+        return direct_run(executor, request)
+
+    # On the class, so that the fake also answers an executor made before the test.
+    monkeypatch.setattr(DirectToolExecutor, "run", run)
     return fake

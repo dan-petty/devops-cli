@@ -1,33 +1,38 @@
 """The contract of the scanner fake: it answers each scanner adapter as the real scanner did
-(#1666, ADR 0007).
+(#1666, #1982, ADR 0007).
 
 Each run in `tests/fixtures/scanner_runs/recorded_runs.json` is the real tool's, at the version
 `tools.lock` pins, started through its adapter as a review starts it (Semgrep's on 2026-10-22,
 the others' on 2026-10-20), over one file holding `print("hello")`. Semgrep's recording ran
 offline, with the rule file `_SEMGREP_RULES` in place of the registry's `p/default`, which a
-recording cannot fetch. Each case starts the adapter that way again, over `ScannerFake`, and
-checks that it made the recorded command and read the recorded run as it read the real one: a
-scan that ran and found nothing. Another checks each recording's version against the lock. Where
-a case fails, the recording no longer stands for the real tool: record the run again with the
-real tool at its locked version, as the fake's docstring says.
-"""
+recording cannot fetch. Each case starts the adapter that way again, through the default tool
+executor, which `ScannerFake` answers. It checks that the adapter made the recorded command and
+read the recorded run as it read the real one: a scan that ran and found nothing. Another checks
+each recording's version against the lock. Where a case fails, the recording no longer stands for
+the real tool: record the run again with the real tool at its locked version, as the fake's
+docstring says. The last cases hold the fake to its install: the recorded scanners are on PATH,
+the fake answers them and no other tool, and it leaves the canary runs of a review to the recorded
+canary answers of the suite."""
 
 from __future__ import annotations
 
-import subprocess
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+from devops_cli.review.canary import run_tool_canary
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.gitleaks import run_gitleaks_scan
 from devops_cli.security.osv_scanner import run_osv_scan
 from devops_cli.security.semgrep import run_semgrep_scan
+from devops_cli.security.tool_executor import DirectToolExecutor, ToolRequest
 from devops_cli.tools_lock import load_tools_lock
-from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.scanners import ScannerFake, ScannerRun
+from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer
 
 ReviewScan = Callable[[Path, Path], ScanOutcome]
 
@@ -89,16 +94,43 @@ def test_each_recording_is_of_the_version_the_tools_lock_pins(scanner_fake: Scan
 def test_the_fake_finds_and_answers_only_the_recorded_scanners(
     scanner_fake: ScannerFake, tmp_path: Path
 ) -> None:
-    """`shutil.which` finds each recorded scanner wherever the host has it, and every other
-    program, such as git, is found and run for real."""
-    import shutil
+    """`shutil.which` finds each recorded scanner under `bin_dir`, the default executor hands a
+    request for a recorded scanner to the fake, and it starts any other tool, such as git."""
+    tree = (tmp_path / "tree").resolve()
+    tree.mkdir()
+    gitleaks = ToolRequest(tool="gitleaks", arguments=("version",), workdir=tree, targets=(tree,))
+    git = gitleaks.model_copy(update={"tool": "git", "arguments": ("--version",)})
 
     found = {tool: shutil.which(tool) for tool in scanner_fake.recorded}
-    git = subprocess.run(["git", "--version"], capture_output=True, text=True, check=False)
+    answered = DirectToolExecutor().run(gitleaks)
+    started = DirectToolExecutor().run(git)
 
     assert (
-        found == {tool: str(scanner_fake.bin_dir / tool) for tool in scanner_fake.recorded},
-        shutil.which("git") is not None,
-        git.stdout.startswith("git version"),
+        found,
+        (answered.exit_code, answered.stderr, answered.run.executor),
+        started.stdout.startswith("git version"),
         scanner_fake.runs,
-    ) == (True, True, True, [])
+    ) == (
+        {tool: str(scanner_fake.bin_dir / tool) for tool in scanner_fake.recorded},
+        (0, scanner_fake.recorded["gitleaks"].stderr, FAKE_EXECUTOR),
+        True,
+        [ScannerRun(["gitleaks", "version"], str(tree))],
+    )
+
+
+# The tools that have a canary and that the fake can answer: Semgrep and Bandit, which it holds a
+# recording of, and kube-linter and Pluto, which a test can script. Gitleaks and osv-scanner have no
+# canary.
+@pytest.mark.parametrize("tool", ["semgrep", "bandit", "kube-linter", "pluto"])
+def test_a_canary_run_gets_the_recorded_canary_answer_and_not_the_answer_of_the_fake(
+    tool: str, scanner_fake: ScannerFake
+) -> None:
+    """A review runs the canary of each tool on the default executor before its scans. The fake
+    holds an answer for the tool, an empty run that the canary does not pass on. It passes a run
+    in a canary working directory on, so the canary reads the recorded canary output and passes,
+    and the fake answers no run."""
+    scanner_fake.script(tool, ToolAnswer())
+
+    result = run_tool_canary(tool, use_cache=False)
+
+    assert (result.passed, scanner_fake.runs) == (True, [])
