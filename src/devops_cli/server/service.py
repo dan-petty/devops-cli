@@ -279,9 +279,15 @@ class RepoWorker:
                 GLOBAL_METRICS.increment_counter(
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
-                with self._cond:
-                    self._is_active = False
-                    self._cond.notify_all()
+                try:
+                    # The Service is one long process, and the exit hook sends the OTLP counters
+                    # only when the pod stops. So each batch sends what it recorded, such as its
+                    # AI requests, before its worker is idle (#1629).
+                    tracer.flush()
+                finally:
+                    with self._cond:
+                        self._is_active = False
+                        self._cond.notify_all()
 
     def _run(self) -> None:
         """Main loop of daemon worker thread."""

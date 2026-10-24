@@ -12,6 +12,7 @@ import contextlib
 import json
 import re
 import sqlite3
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ from devops_cli.telemetry.instruments import (
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 from tests.support.paths import REPO_ROOT
 from tests.support.telemetry_capture import Captured
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
@@ -359,6 +361,61 @@ def test_counters_are_monotonic_deltas_from_the_host_not_the_process(captured: C
         resource["service.instance.id"] == resource["host.name"],
         int(point["startTimeUnixNano"]) < int(point["timeUnixNano"]),
     ) == ((1, True), False, True, True)
+
+
+def test_flushes_from_two_threads_send_their_deltas_in_the_order_they_collected_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The collector's `deltatocumulative` drops a delta that is not later than the last delta it
+    added to the series. The Service's lane workers flush at the same time, so a flush collects
+    only when the export of the flush before it is done (#1629)."""
+    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+    sink = Captured()
+    first_in_export, release_first = threading.Event(), threading.Event()
+
+    def send(path: str, payload: dict[str, Any]) -> None:
+        if not first_in_export.is_set():
+            first_in_export.set()
+            release_first.wait(THREAD_HANDOFF_BOUND_SECONDS)
+        sink(path, payload)
+
+    monkeypatch.setattr(client, "_send_payload", send)
+    client.increment_counter("devops_cli_ai_requests_total", 1, attributes={})
+    first = threading.Thread(target=client.flush)
+    first.start()
+    assert first_in_export.wait(THREAD_HANDOFF_BOUND_SECONDS)
+    client.increment_counter("devops_cli_ai_requests_total", 2, attributes={})
+    second_ready = threading.Event()
+
+    def second_flush() -> None:
+        second_ready.set()
+        client.flush()
+
+    second = threading.Thread(target=second_flush)
+    second.start()
+    assert second_ready.wait(THREAD_HANDOFF_BOUND_SECONDS)
+    # This short window checks that the second flush sends nothing while the first export is
+    # held. It opens only once the second thread is at its flush, so it times the flush's lock,
+    # not a thread start-up.
+    sent_during_first = wait_until(lambda: bool(sink.payloads), bound=0.2)
+    release_first.set()
+    first.join(THREAD_HANDOFF_BOUND_SECONDS)
+    second.join(THREAD_HANDOFF_BOUND_SECONDS)
+
+    sent = [
+        float(point["asDouble"])
+        for payload in sink.payloads
+        for resource in payload["resourceMetrics"]
+        for scope in resource["scopeMetrics"]
+        for metric in scope["metrics"]
+        for point in metric["sum"]["dataPoints"]
+    ]
+    assert (sent_during_first, sent, first.is_alive(), second.is_alive()) == (
+        False,
+        [1.0, 2.0],
+        False,
+        False,
+    )
 
 
 def test_a_histogram_observation_lands_in_its_bucket(captured: Captured) -> None:

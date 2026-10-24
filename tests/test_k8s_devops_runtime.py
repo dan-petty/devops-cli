@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from devops_cli.config import options as opt
+from devops_cli.config.constants import CONST_OTEL_SERVICE_NAME
 from devops_cli.config.env import OPTION_TO_ENV_VAR
 from devops_cli.config.settings import Settings
 from tests.support.paths import REPO_ROOT
@@ -91,6 +92,20 @@ def test_cronjob_is_a_suspended_template_that_never_retries() -> None:
         ["--version"],
         {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
     )
+
+
+def test_cluster_jobs_report_under_a_service_name_of_their_own() -> None:
+    """A Job made from the template sends its telemetry under its own `job` in Prometheus, apart
+    from workstation runs, which use the default service name, and from roadmap-service (#1629)."""
+    job_env = {e["name"]: e.get("value") for e in _container()["env"]}
+    service = _doc("roadmap-service/deployment.yaml")["spec"]["template"]["spec"]
+    (service_container,) = service["containers"]
+    service_env = {e["name"]: e.get("value") for e in service_container["env"]}
+    assert (
+        job_env.get("OTEL_SERVICE_NAME"),
+        CONST_OTEL_SERVICE_NAME,
+        service_env["OTEL_SERVICE_NAME"],
+    ) == ("devops-cli-job", "devops-cli", "roadmap-service")
 
 
 def test_security_context_is_restricted() -> None:
