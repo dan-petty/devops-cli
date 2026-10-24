@@ -1497,9 +1497,11 @@ CONST_ZIZMOR_SEVERITIES: Final[dict[str, str]] = {
     "Informational": "INFO",
 }
 CONST_EXIT_CANCELLED: int = 130
-# The signals besides Ctrl-C's SIGINT that cancel a `devops ci test` run, whose pytest runs in a
-# session of its own that no terminal hangup or supervisor's SIGTERM reaches (#1669).
-CONST_CI_RUN_STOP_SIGNAL_NAMES: Final[tuple[str, ...]] = ("SIGTERM", "SIGHUP")
+# The signals that cancel a `devops ci test` run, whose pytest runs in a session of its own that
+# no Ctrl-C, terminal hangup or supervisor's SIGTERM reaches (#1669). The run takes over Ctrl-C's
+# SIGINT too: `asyncio.run`'s own handler raised KeyboardInterrupt at a second Ctrl-C wherever the
+# run was, which could skip the SIGKILL of the stop (#2069).
+CONST_CI_RUN_STOP_SIGNAL_NAMES: Final[tuple[str, ...]] = ("SIGINT", "SIGTERM", "SIGHUP")
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"
 CONST_MSG_BRANCH_INVALID = "Branch name is invalid"

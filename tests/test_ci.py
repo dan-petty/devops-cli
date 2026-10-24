@@ -13,7 +13,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -35,11 +35,13 @@ from devops_cli.config.defaults import (
     DEFAULT_CI_BANDIT_NICENESS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.core import process as process_module
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.lang import MESSAGES
 from tests.support.hung_children import (
     fake_program,
+    hung_with_grandchild,
     interrupted_like_pytest,
     mark_second_signal,
     records_after_second_signal,
@@ -48,7 +50,7 @@ from tests.support.hung_children import (
 )
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
-from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until, wait_while_running
 
 pytestmark = [
     pytest.mark.usefixtures("refuse_nested_test_runs"),
@@ -2669,16 +2671,20 @@ def test_a_test_run_past_its_timeout_fails_naming_its_command_and_timeout(
     ) == (1, True, True)
 
 
-def _stop_handlers() -> tuple[Any, Any]:
-    return signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)
+def _stop_handlers() -> tuple[Any, Any, Any]:
+    return (
+        signal.getsignal(signal.SIGINT),
+        signal.getsignal(signal.SIGTERM),
+        signal.getsignal(signal.SIGHUP),
+    )
 
 
 def _run_recording_handlers(
     monkeypatch: pytest.MonkeyPatch, *, fail: bool = False
-) -> tuple[int, list[tuple[Any, Any]]]:
-    """`devops ci test tests/test_x.py`'s exit code and the SIGTERM and SIGHUP handlers in place
-    while its child ran; with `fail`, the run's child fails to give its output."""
-    during: list[tuple[Any, Any]] = []
+) -> tuple[int, list[tuple[Any, Any, Any]]]:
+    """`devops ci test tests/test_x.py`'s exit code and the SIGINT, SIGTERM and SIGHUP handlers
+    in place while its child ran; with `fail`, the run's child fails to give its output."""
+    during: list[tuple[Any, Any, Any]] = []
 
     async def record_handlers(_spawn: RecordedSpawn) -> None:
         during.append(_stop_handlers())
@@ -2691,11 +2697,11 @@ def _run_recording_handlers(
 
 @pytest.mark.usefixtures("narrowed_project", "default_signal_dispositions")
 @pytest.mark.parametrize("fail", [False, True], ids=["run-ends", "run-raises"])
-def test_a_run_takes_over_sigterm_and_sighup_and_hands_them_back(
+def test_a_run_takes_over_ctrl_c_sigterm_and_sighup_and_hands_them_back(
     monkeypatch: pytest.MonkeyPatch, fail: bool
 ) -> None:
-    """While the run lasts, SIGTERM and SIGHUP are its own, so they cancel it; after it, ended or
-    raising, the handlers in place before are back (#1669)."""
+    """While the run lasts, Ctrl-C's SIGINT, SIGTERM and SIGHUP are its own, so they cancel it;
+    after it, ended or raising, the handlers in place before are back (#1669, #2069)."""
     before = _stop_handlers()
     exit_code, during = _run_recording_handlers(monkeypatch, fail=fail)
 
@@ -2703,7 +2709,7 @@ def test_a_run_takes_over_sigterm_and_sighup_and_hands_them_back(
         exit_code,
         [handler is not previous for handler, previous in zip(during[0], before, strict=True)],
         _stop_handlers(),
-    ) == (1 if fail else 0, [True, True], before)
+    ) == (1 if fail else 0, [True, True, True], before)
 
 
 @pytest.mark.usefixtures("narrowed_project", "default_signal_dispositions")
@@ -2711,7 +2717,7 @@ def test_a_run_off_the_main_thread_sets_no_signal_handler(monkeypatch: pytest.Mo
     """A run from another thread, as the MCP server's thread pool makes one, completes and leaves
     every handler as it was: only the main thread may set one (#1669)."""
     before = _stop_handlers()
-    outcome: list[tuple[int, list[tuple[Any, Any]]]] = []
+    outcome: list[tuple[int, list[tuple[Any, Any, Any]]]] = []
     worker = threading.Thread(target=lambda: outcome.append(_run_recording_handlers(monkeypatch)))
     worker.start()
     worker.join(THREAD_HANDOFF_BOUND_SECONDS)
@@ -2732,16 +2738,16 @@ def hangup_ignored(default_signal_dispositions: None) -> Iterator[None]:
 @pytest.mark.usefixtures("narrowed_project", "hangup_ignored")
 def test_an_ignored_hangup_stays_ignored_through_a_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """Under `nohup`, which ignores SIGHUP, a run leaves the ignore alone, so a hangup does not
-    cancel it, and takes over SIGTERM alone (#1669)."""
+    cancel it, and takes over SIGINT and SIGTERM alone (#1669)."""
     before = _stop_handlers()
     exit_code, during = _run_recording_handlers(monkeypatch)
 
-    assert (exit_code, during[0][1], during[0][0] is not before[0], _stop_handlers()) == (
-        0,
-        signal.SIG_IGN,
-        True,
-        before,
-    )
+    assert (
+        exit_code,
+        during[0][2],
+        [handler is not previous for handler, previous in zip(during[0][:2], before, strict=False)],
+        _stop_handlers(),
+    ) == (0, signal.SIG_IGN, [True, True], before)
 
 
 def _devops_ci_test(project: Path, fake_uv: Path, log: Path) -> subprocess.Popen[bytes]:
@@ -2788,16 +2794,18 @@ def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
     """Ctrl-C, SIGTERM or SIGHUP to `devops ci test` forwards SIGINT to the run's group, which is
     in a session of its own, so a pytest there runs its teardown, then stops the whole group,
     and devops exits as cancelled, 130 (#1669). The run's `uv` is a fake on PATH that handles
-    SIGINT as pytest does: its teardown records itself and stops the grandchild it started."""
+    SIGINT as pytest does: its teardown records itself and stops the grandchild it started. The
+    test waits for the fake's pids, or for devops to exit, with no bound of its own: a loaded host
+    stretched the start of a fresh devops past the handoff bound (#2092)."""
     teardown = tmp_path / "teardown"
     with watching(tmp_path / "pids") as watch:
         script = interrupted_like_pytest(teardown)
         fake_uv = fake_program(tmp_path / "bin" / "uv", watch.pid_file, script)
         driver = _devops_ci_test(narrowed_project, fake_uv, tmp_path / "devops.log")
         try:
-            started = wait_until(watch.started)
+            started = wait_while_running(watch.started, driver)
             driver.send_signal(stop_signal)
-            driver.wait(THREAD_HANDOFF_BOUND_SECONDS)
+            driver.wait()
         finally:
             _stop_driver(driver)
 
@@ -2826,12 +2834,12 @@ def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(
         )
         driver = _devops_ci_test(narrowed_project, fake_uv, tmp_path / "devops.log")
         try:
-            started = wait_until(watch.started)
+            started = wait_while_running(watch.started, driver)
             driver.send_signal(stop_signal)
             interrupted = wait_until(lambda: signals.is_file() and "int" in signals.read_text())
             mark_second_signal(signals)
             driver.send_signal(stop_signal)
-            driver.wait(THREAD_HANDOFF_BOUND_SECONDS)
+            driver.wait()
         finally:
             _stop_driver(driver)
 
@@ -2841,3 +2849,109 @@ def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(
             wait_until(watch.stopped),
             "term" in records_after_second_signal(signals),
         ) == (True, True, True, False)
+
+
+@pytest.mark.live("sh")
+@pytest.mark.usefixtures("default_signal_dispositions")
+def test_a_second_ctrl_c_just_after_the_stop_sends_its_sigint_cannot_skip_the_sigkill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second Ctrl-C whose handler runs as soon as the stop has sent the run's group its
+    SIGINT still ends in the SIGKILL, and the run exits as cancelled (#2069). A loaded host can
+    keep devops off the CPU just after that SIGINT, so the second signal's handler runs there.
+    `asyncio.run`'s own handler raised KeyboardInterrupt at that point, before the stop entered
+    the `try` whose `finally` sends the SIGKILL. The run takes over Ctrl-C, so the signal only
+    cancels the run. The test raises each Ctrl-C itself with `signal.raise_signal`, which runs the
+    handler before it returns: the first as the run starts to wait for its child, once the child
+    has written its pids, and the second just after the child records the stop's SIGINT. The
+    child and its grandchild ignore SIGINT and SIGTERM, so only the SIGKILL stops them, and the
+    child records no SIGTERM after the second Ctrl-C."""
+    signals = tmp_path / "signals"
+    real_spawn = asyncio.create_subprocess_exec
+    real_signal_group = process_module._signal_process_group
+    interrupted: list[bool] = []
+
+    with watching(tmp_path / "pids") as watch:
+
+        async def spawn_then_ctrl_c(*argv: Any, **kwargs: Any) -> asyncio.subprocess.Process:
+            proc = await real_spawn(*argv, **kwargs)
+            real_communicate = proc.communicate
+
+            async def communicate() -> tuple[bytes, bytes]:
+                assert wait_until(watch.started), "the hung child wrote no pids"
+                signal.raise_signal(signal.SIGINT)
+                return await real_communicate()
+
+            monkeypatch.setattr(proc, "communicate", communicate)
+            return proc
+
+        def second_ctrl_c_once_the_child_has_the_sigint(pgid: int, sig: int) -> bool:
+            sent = real_signal_group(pgid, sig)
+            if sig == signal.SIGINT:
+                interrupted.append(
+                    wait_until(lambda: signals.is_file() and "int" in signals.read_text())
+                )
+                mark_second_signal(signals)
+                signal.raise_signal(signal.SIGINT)
+            return sent
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_then_ctrl_c)
+        monkeypatch.setattr(
+            process_module, "_signal_process_group", second_ctrl_c_once_the_child_has_the_sigint
+        )
+        hung = hung_with_grandchild(watch.pid_file, records_stop_signals(signals))
+        # A KeyboardInterrupt that escapes would end the whole session, so the test catches it.
+        try:
+            ci_module._session_returncode(
+                hung, tmp_path, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, False, None
+            )
+            ended: object = "returned"
+        except typer.Exit as stop:
+            ended = stop.exit_code
+        except KeyboardInterrupt:
+            ended = "KeyboardInterrupt"
+
+        assert (
+            interrupted,
+            ended,
+            wait_until(watch.stopped),
+            "term" in records_after_second_signal(signals),
+        ) == ([True], CONST_EXIT_CANCELLED, True, False)
+
+
+@pytest.mark.live("sh")
+@pytest.mark.usefixtures("default_signal_dispositions")
+def test_each_stop_signal_cancels_the_run_through_the_event_loop() -> None:
+    """The run takes Ctrl-C's SIGINT, SIGTERM and SIGHUP through `loop.add_signal_handler`, and
+    puts the previous handlers back after (#2092). That call writes each signal to the loop's own
+    pipe, so a signal wakes the waiting loop wherever it lands. A handler that `signal.signal` set
+    ran only when the main thread ran bytecode again, so a SIGTERM that came just before the loop
+    started to wait was handled only when the child exited, 300 s later."""
+
+    class RecordingLoop:
+        def __init__(self) -> None:
+            self.added: dict[signal.Signals, Callable[[], object]] = {}
+            self.removed: list[signal.Signals] = []
+
+        def add_signal_handler(self, sig: signal.Signals, callback: Callable[[], object]) -> None:
+            self.added[sig] = callback
+
+        def remove_signal_handler(self, sig: signal.Signals) -> bool:
+            self.removed.append(sig)
+            return True
+
+    stop_signals = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
+    before = {sig: signal.getsignal(sig) for sig in stop_signals}
+    loop = RecordingLoop()
+
+    def cancel() -> None:
+        """The run's cancel."""
+
+    with ci_module._cancelled_by_stop_signals(cast(asyncio.AbstractEventLoop, loop), cancel):
+        taken = dict(loop.added)
+
+    assert (taken, loop.removed, {sig: signal.getsignal(sig) for sig in stop_signals}) == (
+        dict.fromkeys(stop_signals, cancel),
+        stop_signals,
+        before,
+    )

@@ -937,8 +937,11 @@ async def _terminate_process_group_async(
     leader has exited, since killpg still reaches the members left (#1669).
 
     Once begun, the stop is not given up. A further cancellation cuts the grace short and is
-    raised again only once the group is killed, and the SIGKILL is sent from a `finally`, so not
-    even a KeyboardInterrupt skips it."""
+    raised again only once the group is killed, and the SIGKILL is sent from a `finally`. A
+    signal handler that raises, as `asyncio.run`'s handler raises KeyboardInterrupt at a second
+    Ctrl-C, can raise before the `try` or in the `finally` and skip the SIGKILL, so a caller that
+    must not lose it turns each stop signal into a cancellation, as `devops ci test` does
+    (#2069)."""
     pgid = proc.pid
     if _is_invalid_pgid(pgid) or not _signal_process_group(pgid, first_signal):
         await _kill_leader_async(proc)
@@ -962,9 +965,10 @@ async def _terminate_process_group_async(
 async def _spawn_under_stop(cmd: list[str], **kwargs: Any) -> asyncio.subprocess.Process:
     """Start `cmd`, shielded: a cancellation while the start is still pending lets it finish and
     then stops the child's whole process group, where asyncio's own clean-up kills only the
-    child (#1669). The start survives one cancellation only: a second Ctrl-C while the child is
-    still starting makes `asyncio.Runner.close` cancel the start itself, and asyncio's clean-up
-    then kills the direct child alone."""
+    child (#1669). The start absorbs every further cancellation until it completes. Under
+    `asyncio.run`'s own Ctrl-C handler, a second Ctrl-C while the child is still starting raises
+    KeyboardInterrupt instead, `asyncio.Runner.close` cancels the start itself, and asyncio's
+    clean-up then kills the direct child alone."""
     spawn = asyncio.ensure_future(asyncio.create_subprocess_exec(*cmd, **kwargs))
     try:
         return await asyncio.shield(spawn)

@@ -224,18 +224,29 @@ def _stop_signals_to_handle() -> list[signal.Signals]:
 
 
 @contextlib.contextmanager
-def _cancelled_by_stop_signals(cancel: Callable[[], object]) -> Iterator[None]:
-    """While it lasts, SIGTERM and SIGHUP call `cancel`, as Ctrl-C cancels `asyncio.run`'s task,
-    and the previous handlers come back after; one set outside Python, which Python cannot put
-    back, comes back as the default."""
-    previous = {
-        sig: signal.signal(sig, lambda _signum, _frame: cancel())
-        for sig in _stop_signals_to_handle()
-    }
+def _cancelled_by_stop_signals(
+    loop: asyncio.AbstractEventLoop, cancel: Callable[[], object]
+) -> Iterator[None]:
+    """While it lasts, Ctrl-C's SIGINT, SIGTERM and SIGHUP call `cancel` on `loop`, and the
+    previous handlers come back after; one set outside Python, which Python cannot put back, comes
+    back as the default.
+
+    `loop.add_signal_handler` writes each signal to the loop's own pipe, so the signal wakes the
+    loop wherever it lands. A handler that `signal.signal` sets runs only when the main thread runs
+    bytecode again: a signal that came just before the loop started to wait, or that the kernel
+    handed to another thread, was handled only when the child exited (#2092). Each signal only
+    cancels the run's task and raises nothing, so the stop takes a second signal at its next wait
+    and still sends its SIGKILL. `asyncio.run`'s own Ctrl-C handler raised KeyboardInterrupt at a
+    second Ctrl-C between any two bytecodes, also before the stop's `try` (#2069)."""
+    previous: dict[signal.Signals, Any] = {}
     try:
+        for sig in _stop_signals_to_handle():
+            previous[sig] = signal.getsignal(sig)
+            loop.add_signal_handler(sig, cancel)
         yield
     finally:
         for sig, handler in previous.items():
+            loop.remove_signal_handler(sig)
             signal.signal(sig, signal.SIG_DFL if handler is None else handler)
 
 
@@ -245,15 +256,14 @@ async def _run_in_own_session(
     """Run `cmd` in a session of its own, which a timeout, Ctrl-C, SIGTERM or SIGHUP stops as a
     whole process group."""
     task = asyncio.current_task()
-    loop = asyncio.get_running_loop()
 
     def cancel() -> None:
         if task is not None:
-            loop.call_soon_threadsafe(task.cancel)
+            task.cancel()
 
     from devops_cli.core.process import run_subprocess_async
 
-    with _cancelled_by_stop_signals(cancel):
+    with _cancelled_by_stop_signals(asyncio.get_running_loop(), cancel):
         result: subprocess.CompletedProcess[str] = await run_subprocess_async(
             cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
         )
@@ -266,8 +276,7 @@ def _session_returncode(
     """The exit code of `cmd` run in a session of its own (#1669). A timeout of `subprocess.run`
     kills only `uv`, which left pytest running; stopping the session's whole group stops pytest
     and its workers with it. A run past `timeout` fails, naming the command and timeout; one
-    stopped by SIGTERM or SIGHUP exits as cancelled, and one stopped by Ctrl-C raises
-    KeyboardInterrupt as before."""
+    stopped by Ctrl-C, SIGTERM or SIGHUP exits as cancelled."""
     try:
         result = asyncio.run(_run_in_own_session(cmd, root, timeout, capture_output, env))
     except subprocess.TimeoutExpired:

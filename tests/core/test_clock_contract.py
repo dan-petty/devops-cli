@@ -90,10 +90,16 @@ def test_a_ratelimit_window_built_with_the_seam_makes_the_third_call_wait_out_th
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, mode: str, period: float
 ) -> None:
     """`ratelimit.limits(calls=2, period=period, clock=clock_seam.monotonic)` lets the first two
-    calls through and holds the third until `period` ends.
+    calls through and holds the third until `period` has passed since the window opened.
 
     `sleep_and_retry` waits through `time.sleep`, which the test records in order with the calls.
-    No wait comes before the third call, so no case bounds a real time from above (#1902).
+    The window opens when it is built, so the test measures from a seam reading taken just before
+    that, not from the first call: a stall between the two shortened the measured time (#2092).
+    The fake clock moves only when the seam waits, so the fake case holds the third call with one
+    wait of the whole period. The real clock moves on its own: a stall longer than the period
+    before the third call ends the window, and that call then goes through with no wait. So the
+    real case asserts the lower bound the contract needs, and no case bounds a real time from
+    above (#1902).
     """
     fake = _install_mode(request, mode)
     stamps: list[float] = []
@@ -106,9 +112,10 @@ def test_a_ratelimit_window_built_with_the_seam_makes_the_third_call_wait_out_th
 
     def stamp() -> None:
         events.append("call")
-        stamps.append(time.time())
+        stamps.append(clock_seam.monotonic())
 
     monkeypatch.setattr(time, "sleep", recorded_sleep)
+    opened = clock_seam.monotonic()
     window = limits(calls=2, period=period, clock=clock_seam.monotonic)
     call = sleep_and_retry(window(stamp))
 
@@ -116,11 +123,11 @@ def test_a_ratelimit_window_built_with_the_seam_makes_the_third_call_wait_out_th
         call()
 
     assert (
-        events[:3],
+        events[:2],
         events.count("call"),
-        stamps[2] - stamps[0] >= period - _TOLERANCE,
-        fake.waits if fake is not None else [period],
-    ) == (["call", "call", "wait"], 3, True, [period])
+        stamps[2] - opened >= period - _TOLERANCE,
+        fake.waits if fake is not None else None,
+    ) == (["call", "call"], 3, True, [period] if fake is not None else None)
 
 
 def test_the_github_rate_limiter_builds_its_burst_limit_with_the_seam_when_constructed(

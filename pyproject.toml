@@ -168,7 +168,10 @@ pythonpath = ["src"]
 # (worksteal) on 16 workers, and at 358 s and 316 s on the CI runner's 4.
 # pytest-randomly is installed for `devops ci test --repeat` and blocked here (-p no:randomly),
 # so every other run keeps file order.
-addopts = "-n logical --dist worksteal -p no:logfire -p no:pytest_logfire -p no:randomly"
+# `--hypothesis-profile=ci` (#2092) loads Hypothesis's built-in `ci` profile, which GitHub Actions
+# loads by itself, in every run: no deadline and no `too_slow` health check, since a loaded host
+# stretches an example's time; derandomized; no example database.
+addopts = "-n logical --dist worksteal -p no:logfire -p no:pytest_logfire -p no:randomly --hypothesis-profile=ci"
 # pytest-timeout fails a test that hangs, in its own process, so a stuck child process holds no
 # run (#1669). A hang bound, not a speed target: the slowest test in 185 cached gate runs took 139 s
 # at a load average of 30-50, and the slowest full run, 931 s, plus one hang stays under the run's
