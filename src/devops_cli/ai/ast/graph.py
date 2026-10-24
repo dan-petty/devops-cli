@@ -24,6 +24,13 @@ def _collect_target_files(root_dir: Path, max_files: int) -> list[Path]:
                 files.append(candidate)
             if len(files) >= max_files:
                 return files
+    for pattern in ("Dockerfile*", "Containerfile*"):
+        for candidate in root_dir.rglob(pattern):
+            if candidate.is_file() and not _is_excluded(candidate, repo_root):
+                if candidate not in files:
+                    files.append(candidate)
+            if len(files) >= max_files:
+                return files
     return files
 
 

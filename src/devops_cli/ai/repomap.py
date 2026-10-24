@@ -173,7 +173,12 @@ def _discover_repo_files(
         for p in target_dir.rglob(f"*{ext}"):
             if not _is_file_excluded(p, include_tests, repo_root):
                 found.append(p)
-    return sorted(found, key=lambda f: str(f))
+    if multilingual:
+        for pattern in ("Dockerfile*", "Containerfile*"):
+            for p in target_dir.rglob(pattern):
+                if p.is_file() and not _is_file_excluded(p, include_tests, repo_root):
+                    found.append(p)
+    return sorted(set(found), key=lambda f: str(f))
 
 
 def _polyglot_to_file_node(source_file: Path, base_root: Path) -> FileMapNode | None:

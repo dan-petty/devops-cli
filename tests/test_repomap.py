@@ -311,6 +311,23 @@ def test_generate_repo_map_multilingual(tmp_path: Path) -> None:
     assert isinstance(nodes, list)
 
 
+def test_generate_repo_map_multilingual_dockerfile_yaml_helm(tmp_path: Path) -> None:
+    """Verify generate_repo_map discovers Dockerfile, YAML, and Helm template files."""
+    (tmp_path / "Dockerfile").write_text("FROM alpine:3.18 as builder\n", encoding="utf-8")
+    (tmp_path / "deployment.yaml").write_text(
+        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test\n", encoding="utf-8"
+    )
+    (tmp_path / "_helpers.tpl").write_text(
+        '{{- define "test.tpl" -}}\n{{- end }}\n', encoding="utf-8"
+    )
+
+    nodes = generate_repo_map(root_dir=tmp_path, max_files=10, multilingual=True)
+    paths = {n.path for n in nodes}
+    assert "Dockerfile" in paths
+    assert "deployment.yaml" in paths
+    assert "_helpers.tpl" in paths
+
+
 def test_generate_repo_map_escaped_file(tmp_path: Path) -> None:
     """Verify generate_repo_map skips files that escape base directory."""
     outside_dir = tmp_path / "outside"
