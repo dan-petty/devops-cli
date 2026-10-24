@@ -746,8 +746,9 @@ def _enrich_span_attributes(
         attrs.setdefault("k8s.namespace.name", k8s_ns)
 
 
+# `cli.command` has no alias. The semantic conventions give `process.command_line` to the full
+# command line, and a command span holds only the name of the command (#2059).
 _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
-    "cli.command": "process.command_line",
     "cli.function": "code.function",
     "cli.error": "error.message",
     "file_path": "code.filepath",

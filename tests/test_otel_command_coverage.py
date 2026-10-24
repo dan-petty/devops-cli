@@ -188,23 +188,41 @@ def test_no_exported_attribute_holds_an_argument_value(
     )
 
 
+def _spans_by_name(payloads: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The attributes of each exported span, by the name of the span."""
+    return {
+        span["name"]: {a["key"]: next(iter(a["value"].values())) for a in span["attributes"]}
+        for payload in payloads
+        if "resourceSpans" in payload
+        for span in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    }
+
+
 def test_the_command_spans_keep_the_command_path_and_the_argument_count(
     delegated_set: list[dict[str, Any]],
 ) -> None:
     """With no argument value, the trace still names the command that ran and how many arguments
     it got."""
-    spans = {
-        span["name"]: {a["key"]: next(iter(a["value"].values())) for a in span["attributes"]}
-        for payload in delegated_set
-        if "resourceSpans" in payload
-        for span in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
-    }
+    spans = _spans_by_name(delegated_set)
     assert (
         spans["cli.dummy"]["cli.command"],
         spans["cli.dummy"]["cli.args_count"],
         "cli.args" in spans["cli.dummy"],
         spans["cli.set"].get("cli.command_path"),
     ) == ("dummy", "3", False, "devops dummy set")
+
+
+def test_a_command_span_holds_no_process_command_line(
+    delegated_set: list[dict[str, Any]],
+) -> None:
+    """The semantic conventions give `process.command_line` to the full command line. A command
+    span holds the name of the command in `cli.command` and sets no `process.command_line`
+    (#2059)."""
+    spans = _spans_by_name(delegated_set)
+    assert [
+        (name, spans[name].get("cli.command"), PROCESS_COMMAND_LINE in spans[name])
+        for name in ("cli.dummy", "cli.set")
+    ] == [("cli.dummy", "dummy", False), ("cli.set", "set", False)]
 
 
 # `devops uv run` passes the arguments of a person on to uv: here a credential that no secret
@@ -352,13 +370,7 @@ def test_a_usage_error_records_its_class_and_exit_code_and_no_argument_text(
 ) -> None:
     """The message of a usage error quotes what the person typed, so no span records it. The
     command span records the class of the error and the exit code (#2024)."""
-    spans = {
-        span["name"]: {a["key"]: next(iter(a["value"].values())) for a in span["attributes"]}
-        for payload in usage_error.payloads
-        if "resourceSpans" in payload
-        for span in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
-    }
-    command_span = spans[f"cli.{usage_error.command}"]
+    command_span = _spans_by_name(usage_error.payloads)[f"cli.{usage_error.command}"]
     assert (
         _TYPED_CREDENTIAL in json.dumps(usage_error.payloads, default=str),
         command_span.get("error.type"),

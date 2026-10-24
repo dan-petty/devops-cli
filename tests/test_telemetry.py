@@ -308,7 +308,7 @@ def test_response_span_attributes_and_semantic_conventions(
     )
     assert (
         len(sent_payloads),
-        attrs.get("process.command_line"),
+        attrs.get("cli.command"),
         attrs.get("process.executable.name"),
         attrs.get("gen_ai.usage.input_tokens"),
         attrs.get("gen_ai.usage.output_tokens"),
