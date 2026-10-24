@@ -135,6 +135,71 @@ class TestBench:
 
         assert ["ignore_eos" in b for b in bodies] == [False, False]
 
+    def test_run_level_returns_replies_when_requested(self) -> None:
+        """Verify run_level collects and returns response text when return_replies=True."""
+
+        def post(url: str, body: dict[str, Any], timeout: float) -> dict[str, Any]:
+            return {
+                "usage": {"completion_tokens": 15},
+                "choices": [{"message": {"content": '{"result": "ok"}'}}],
+            }
+
+        level = bench.run_level(
+            "http://backend.example.com/v1/chat/completions",
+            "model-test",
+            "probe prompt",
+            50,
+            concurrency=1,
+            total=2,
+            timeout=5.0,
+            return_replies=True,
+            post=post,
+        )
+
+        assert level["requests"] == 2
+        assert level["errors"] == 0
+        assert level["replies"] == ['{"result": "ok"}', '{"result": "ok"}']
+
+    def test_measure_executes_probes_when_provided(self) -> None:
+        """Verify measure runs probe levels and returns their replies."""
+        calls: list[dict[str, Any]] = []
+
+        def post(url: str, body: dict[str, Any], timeout: float) -> dict[str, Any]:
+            calls.append(body)
+            return {
+                "usage": {"completion_tokens": 10},
+                "choices": [{"message": {"content": "mock reply"}}],
+            }
+
+        def get(url: str, timeout: float) -> tuple[int, str]:
+            return 200, 'vllm:cache_config_info{num_gpu_blocks="10",block_size="16"}'
+
+        dep = {
+            "deployment_id": "dep-1",
+            "model": "openai/test-model",
+            "api_base": REMOTE_OPENAI,
+        }
+        probes = [
+            {"name": "json_adherence", "prompt": "return json", "rounds": 1, "max_tokens": 20}
+        ]
+
+        results = bench.measure(
+            deployments=[dep],
+            levels=[1],
+            rounds=1,
+            prompt="sweep prompt",
+            max_tokens=20,
+            post=post,
+            get=get,
+            probes=probes,
+        )
+
+        assert len(results) == 1
+        assert "probes" in results[0]
+        assert results[0]["probes"] is not None
+        assert "json_adherence" in results[0]["probes"]
+        assert results[0]["probes"]["json_adherence"]["replies"] == ["mock reply"]
+
     def test_engine_info_reads_vllm_kv_capacity_and_recognises_ollama(self) -> None:
         """Verify vLLM's KV-cache token capacity is read from /metrics and Ollama is detected."""
         metrics = (
@@ -602,12 +667,12 @@ class TestTune:
         debugs = kubectl.all_called("debug")
         (run_container,) = kubectl.containers.keys() - {"gateway-tune-0a1b2c"}
         assert re.fullmatch(r"gateway-tune-[0-9a-f]{6}", run_container)
-        # (10.2 s * 1 round * (1 level + 1 cost pass) + 60 s) * 2 deployments = 160.8 s.
+        # (10.2 s * 1 round * (1 level + 1 cost pass + 4 capability probes) + 60 s) * 2 deployments = 242.4 s.
         assert (
             [c[-3:] for c in debugs],
             [c[c.index("-c") + 1] for c in kubectl.all_called("exec")],
         ) == (
-            [["--", "sleep", "161"]],
+            [["--", "sleep", "243"]],
             [run_container, run_container],
         )
 
@@ -1105,3 +1170,206 @@ def test_tune_command_estimate_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     assert report["deployments"][0]["capacity_tokens_per_second"] == round(
         468.0 * (1008.0 / 936.0), 2
     )
+    assert report["deployments"][0]["capabilities"]["probed"] is False
+    assert report["deployments"][0]["capabilities"]["summary_label"] == "unmeasured"
+
+    result_table = runner.invoke(gateway_cli_app, ["tune", "--estimate"])
+    assert result_table.exit_code == 0
+    assert "Capabilities" in result_table.stdout
+    assert "unmeasured" in result_table.stdout
+
+
+def test_tune_pool_runs_capability_probes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify tune_pool sends capability probes and attaches scored DeploymentCapabilities."""
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 3090", memory_mib=24576, bandwidth_gbps=936.0)
+        ],
+    )
+
+    probe_payload = {
+        "json_adherence": {
+            "replies": [
+                '{"file": "a.py", "line": 1, "severity": "HIGH", "rule_id": "R1", "description": "d"}'
+            ]
+        },
+        "tool_choice": {"replies": ["inspect_ast"]},
+        "deep_recall": {"replies": ["CANARY-RECALL-9824"]},
+        "explicit_prohibition": {
+            "replies": ["SUMMARY: Code review validates system quality without defect leaks."]
+        },
+    }
+
+    measured_specs: list[dict[str, Any]] = []
+
+    def fake_measure(spec: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+        measured_specs.append(spec)
+        dep_id = spec["deployments"][0]["deployment_id"]
+        return [
+            {
+                "deployment_id": dep_id,
+                "engine": {"engine": "vllm"},
+                "capacity": [_level(1, 100)],
+                "cost": _level(1, 100),
+                "probes": probe_payload,
+            }
+        ]
+
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
+
+    report = tune_pool(
+        gateway_url=REMOTE_OPENAI,
+        allow_private=True,
+        api_key=None,
+        model_group="devops-review",
+        levels=[1],
+        rounds=1,
+        prompt_tokens=100,
+        max_tokens=50,
+        request_timeout=10.0,
+        namespace="llm",
+        deployment="llm-gateway",
+    )
+
+    assert len(measured_specs) == 1
+    assert "probes" in measured_specs[0]
+    assert len(measured_specs[0]["probes"]) == 4
+
+    dep = report.deployments[0]
+    assert dep.capabilities.probed is True
+    assert dep.capabilities.all_passed is True
+    assert dep.capabilities.passed_probes_count == 4
+    assert "4/4 passed" in dep.capabilities.summary_label
+
+
+def test_tune_command_renders_capabilities_and_records_probes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify tune command table shows Capabilities column and record_run persists probe results."""
+    settings = MagicMock()
+    settings.ai = AIConfig(gateway_url=REMOTE_OPENAI)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: "sk-gw")
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 4090", memory_mib=24576, bandwidth_gbps=1008.0)
+        ],
+    )
+
+    probe_payload = {
+        "json_adherence": {
+            "replies": [
+                '{"file": "x.py", "line": 5, "severity": "LOW", "rule_id": "L1", "description": "desc"}'
+            ]
+        },
+        "tool_choice": {"replies": ["inspect_ast"]},
+        "deep_recall": {"replies": ["CANARY-RECALL-9824"]},
+        "explicit_prohibition": {
+            "replies": ["SUMMARY: Static analysis inspects code structure and idioms."]
+        },
+    }
+
+    def fake_measure(spec: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+        dep_id = spec["deployments"][0]["deployment_id"]
+        return [
+            {
+                "deployment_id": dep_id,
+                "engine": {"engine": "vllm"},
+                "capacity": [_level(1, 100)],
+                "cost": _level(1, 100),
+                "probes": probe_payload,
+            }
+        ]
+
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
+
+    recorded_runs: list[Any] = []
+    monkeypatch.setattr(
+        "devops_cli.commands.ai_gateway.record_run",
+        lambda *args, **kwargs: (
+            recorded_runs.append((args, kwargs)) or MagicMock(run_id="run-456", path=Path("p"))
+        ),
+    )
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.announce_run", lambda *args, **kwargs: None)
+
+    result = runner.invoke(gateway_cli_app, ["tune", "--rounds", "1"])
+    assert result.exit_code == 0
+    assert "Capabilities" in result.stdout
+    assert "4/4" in result.stdout
+
+    assert len(recorded_runs) == 1
+    args, kwargs = recorded_runs[0]
+    results_dict = kwargs.get("results") or (args[3] if len(args) > 3 else {})
+    dep_rec = results_dict["deployments"][0]
+    assert dep_rec["capabilities"]["probed"] is True
+    assert dep_rec["capabilities"]["probes"]["json_adherence"]["passed"] == 1
+
+
+def test_tune_command_renders_capabilities_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify tune command JSON format outputs full capabilities structure."""
+    settings = MagicMock()
+    settings.ai = AIConfig(gateway_url=REMOTE_OPENAI)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: "sk-gw")
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 4090", memory_mib=24576, bandwidth_gbps=1008.0)
+        ],
+    )
+
+    probe_payload = {
+        "json_adherence": {
+            "replies": [
+                '{"file": "x.py", "line": 5, "severity": "LOW", "rule_id": "L1", "description": "desc"}'
+            ]
+        },
+        "tool_choice": {"replies": ["inspect_ast"]},
+        "deep_recall": {"replies": ["CANARY-RECALL-9824"]},
+        "explicit_prohibition": {
+            "replies": ["SUMMARY: Static analysis inspects code structure and idioms."]
+        },
+    }
+
+    def fake_measure(spec: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+        dep_id = spec["deployments"][0]["deployment_id"]
+        return [
+            {
+                "deployment_id": dep_id,
+                "engine": {"engine": "vllm"},
+                "capacity": [_level(1, 100)],
+                "cost": _level(1, 100),
+                "probes": probe_payload,
+            }
+        ]
+
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
+    monkeypatch.setattr(
+        "devops_cli.commands.ai_gateway.record_run",
+        lambda *args, **kwargs: MagicMock(run_id="run-456", path=Path("p")),
+    )
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.announce_run", lambda *args, **kwargs: None)
+
+    result = runner.invoke(gateway_cli_app, ["tune", "--rounds", "1", "--format", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    caps = data["deployments"][0]["capabilities"]
+    assert caps["probed"] is True
+    assert caps["all_passed"] is True
+    assert caps["passed_probes_count"] == 4

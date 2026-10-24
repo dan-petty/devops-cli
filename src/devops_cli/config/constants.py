@@ -2854,6 +2854,24 @@ CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (
 )
 # Response header in which the LiteLLM gateway names the backend (api_base) that served a call.
 CONST_AI_GATEWAY_SERVED_BY_HEADER: Final[str] = "x-litellm-model-api-base"
+CONST_CAPABILITY_PROBE_NAMES: Final[tuple[str, ...]] = (
+    "json_adherence",
+    "tool_choice",
+    "deep_recall",
+    "explicit_prohibition",
+)
+CONST_CAPABILITY_PROBE_JSON_FIELDS: Final[tuple[str, ...]] = (
+    "file",
+    "line",
+    "severity",
+    "rule_id",
+    "description",
+)
+CONST_CAPABILITY_PROBE_DEFAULT_TOOL: Final[str] = "inspect_ast"
+CONST_CAPABILITY_PROBE_CANARY: Final[str] = "CANARY-RECALL-9824"
+CONST_CAPABILITY_PROBE_FORBIDDEN_WORDS: Final[tuple[str, ...]] = ("security", "vulnerability")
+CONST_CAPABILITY_PROBE_PROHIBITION_PREFIX: Final[str] = "SUMMARY:"
+
 # Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and
 # Anthropic tables copy pydantic-ai 2.54.0's private maps (models/openai.py, models/anthropic.py),
 # which are not imported because they are private. A value absent from a table, or mapped to

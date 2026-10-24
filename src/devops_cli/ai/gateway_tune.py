@@ -29,6 +29,11 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai import gateway, gateway_bench
 from devops_cli.ai.gateway import fetch_model_info
+from devops_cli.ai.gateway_probes import (
+    DeploymentCapabilities,
+    build_capability_probes,
+    score_deployment_probes,
+)
 from devops_cli.ai.run_store import Mechanism, RunRecord, load_runs
 from devops_cli.ai.spend.ledger import SpendLedger, get_spend_ledger
 from devops_cli.config.constants import (
@@ -106,6 +111,7 @@ class DeploymentTune(BaseModel):
     requests_per_second: float = 0.0
     recommended_weight: int = 0
     recommended_concurrency: int | None = None
+    capabilities: DeploymentCapabilities = Field(default_factory=DeploymentCapabilities)
 
 
 class TuneReport(BaseModel):
@@ -715,6 +721,7 @@ def estimate_deployment(
         capacity_tokens_per_second=cap_tps,
         cost_tokens_per_request=round(cost_toks, 2) if cost_toks else None,
         requests_per_second=rps,
+        capabilities=DeploymentCapabilities(probed=False),
     )
 
 
@@ -723,6 +730,7 @@ def _tuned(
     result: dict[str, Any],
     gpus: list[GpuInfo],
     cost_tokens_per_request: float | None = None,
+    capabilities: DeploymentCapabilities | None = None,
 ) -> DeploymentTune:
     capacity = [LevelResult(**lvl) for lvl in result.get("capacity") or []]
     cost = LevelResult(**result["cost"]) if result.get("cost") else None
@@ -738,6 +746,14 @@ def _tuned(
     )
     capacity_tps = best.tokens_per_second if best else 0.0
     engine = result.get("engine") or {}
+    caps = capabilities
+    if caps is None:
+        res_probes = result.get("probes")
+        if res_probes:
+            probe_replies = {k: v.get("replies", []) for k, v in res_probes.items()}
+            caps = score_deployment_probes(probe_replies)
+        else:
+            caps = DeploymentCapabilities(probed=False)
     return DeploymentTune(
         deployment_id=dep["deployment_id"],
         backend=backend_label(dep["api_base"]),
@@ -755,7 +771,66 @@ def _tuned(
         requests_per_second=(
             round(capacity_tps / tokens_per_request, 4) if tokens_per_request else 0.0
         ),
+        capabilities=caps,
     )
+
+
+def _tune_deployment_sweep(
+    dep: dict[str, Any],
+    *,
+    levels: list[int],
+    rounds: int,
+    prompt_tokens: int,
+    max_tokens: int,
+    request_timeout: float,
+    exec_timeout: float,
+    run_container: str,
+    pool_len: int,
+    namespace: str,
+    deployment: str,
+    context: str | None,
+    image: str,
+    spend_costs: dict[str, float],
+) -> DeploymentTune:
+    """Measure a single deployment via sweep container and score capability probes."""
+    tokens = deployment_prompt_tokens(prompt_tokens, dep.get("max_input_tokens"))
+    b_label = backend_label(dep["api_base"])
+    spend_cost = spend_costs.get(b_label) or spend_costs.get(dep["api_base"])
+    include_cost = spend_cost is None
+    probes = build_capability_probes(tokens, dep.get("max_input_tokens"), trials=rounds)
+    spec = {
+        "deployments": [{k: dep[k] for k in ("deployment_id", "model", "api_base")}],
+        "levels": levels,
+        "rounds": rounds,
+        "prompt": review_prompt(tokens),
+        "max_tokens": max_tokens,
+        "timeout": request_timeout,
+        "include_cost": include_cost,
+        "probes": probes,
+    }
+    result = measure_in_gateway_pod(
+        spec,
+        namespace=namespace,
+        deployment=deployment,
+        context=context,
+        timeout=exec_timeout,
+        image=image,
+        container=run_container,
+        lifetime_seconds=exec_timeout * pool_len,
+    )
+    res_probes = result[0].get("probes")
+    if res_probes:
+        probe_replies = {k: v.get("replies", []) for k, v in res_probes.items()}
+        caps = score_deployment_probes(probe_replies, repeat=rounds)
+    else:
+        caps = DeploymentCapabilities(probed=False)
+    return _tuned(
+        dep,
+        result[0],
+        deployment_gpus(dep["api_base"], context),
+        cost_tokens_per_request=spend_cost,
+        capabilities=caps,
+    ).model_copy(update={"prompt_tokens": tokens})
 
 
 def tune_pool(
@@ -810,43 +885,30 @@ def tune_pool(
                 )
             )
     else:
-        # Each capacity level's workers, and then the cost pass, send `rounds` requests in turn.
-        exec_timeout = request_timeout * rounds * (len(levels) + 1) + 60
+        # Each capacity level's workers, the cost pass, and 4 capability probes send requests.
+        exec_timeout = request_timeout * (rounds * (len(levels) + 1) + 4 * rounds) + 60
         # One container serves every deployment, so it must outlive all of their sweeps.
         run_container = f"gateway-tune-{uuid.uuid4().hex[:6]}"
         for dep in pool:
             if on_deployment:
                 on_deployment(dep)
-            tokens = deployment_prompt_tokens(prompt_tokens, dep["max_input_tokens"])
-            b_label = backend_label(dep["api_base"])
-            spend_cost = spend_costs.get(b_label) or spend_costs.get(dep["api_base"])
-            include_cost = spend_cost is None
-            spec = {
-                "deployments": [{k: dep[k] for k in ("deployment_id", "model", "api_base")}],
-                "levels": levels,
-                "rounds": rounds,
-                "prompt": review_prompt(tokens),
-                "max_tokens": max_tokens,
-                "timeout": request_timeout,
-                "include_cost": include_cost,
-            }
-            result = measure_in_gateway_pod(
-                spec,
-                namespace=namespace,
-                deployment=deployment,
-                context=context,
-                timeout=exec_timeout,
-                image=image,
-                container=run_container,
-                lifetime_seconds=exec_timeout * len(pool),
-            )
             tuned.append(
-                _tuned(
+                _tune_deployment_sweep(
                     dep,
-                    result[0],
-                    deployment_gpus(dep["api_base"], context),
-                    cost_tokens_per_request=spend_cost,
-                ).model_copy(update={"prompt_tokens": tokens})
+                    levels=levels,
+                    rounds=rounds,
+                    prompt_tokens=prompt_tokens,
+                    max_tokens=max_tokens,
+                    request_timeout=request_timeout,
+                    exec_timeout=exec_timeout,
+                    run_container=run_container,
+                    pool_len=len(pool),
+                    namespace=namespace,
+                    deployment=deployment,
+                    context=context,
+                    image=image,
+                    spend_costs=spend_costs,
+                )
             )
 
     measured_rates = {t.deployment_id: t.requests_per_second for t in tuned}
@@ -872,6 +934,7 @@ def tune_pool(
 
 
 __all__ = [
+    "DeploymentCapabilities",
     "DeploymentTune",
     "GatewayTuneError",
     "GpuInfo",
@@ -880,6 +943,7 @@ __all__ = [
     "backend_label",
     "backend_pods",
     "bench_script",
+    "build_capability_probes",
     "calculate_hardware_concurrency",
     "calculate_hardware_weights",
     "deployment_gpus",
@@ -895,5 +959,6 @@ __all__ = [
     "measure_in_gateway_pod",
     "recommend_weights",
     "review_prompt",
+    "score_deployment_probes",
     "tune_pool",
 ]
