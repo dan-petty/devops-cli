@@ -160,24 +160,24 @@ def parse_service_url(url: str) -> ServiceRef:
     """
     parsed = urlparse(url)
     if parsed.scheme not in CONST_K8S_URL_SCHEMES:
-        raise ServiceAddressError(f"'{url}' is not a cluster service URL.")
+        raise ServiceAddressError("not a cluster service URL")
 
     namespace = (parsed.hostname or "").strip()
     if not namespace:
-        raise ServiceAddressError(f"'{url}' is missing a namespace.")
+        raise ServiceAddressError("missing a namespace")
 
     segments = [segment for segment in parsed.path.split("/") if segment]
     if not segments:
-        raise ServiceAddressError(f"'{url}' is missing a service name.")
+        raise ServiceAddressError("missing a service name")
 
     service_segment, *rest = segments
     service, separator, port = service_segment.partition(":")
     if not service:
-        raise ServiceAddressError(f"'{url}' is missing a service name.")
+        raise ServiceAddressError("missing a service name")
     if not separator or not port:
         raise ServiceAddressError(
-            f"'{url}' is missing a service port. A Service may expose several, so the "
-            f"port is required rather than guessed."
+            "missing a service port; a Service may expose several, so the "
+            "port is required rather than guessed"
         )
 
     return ServiceRef(

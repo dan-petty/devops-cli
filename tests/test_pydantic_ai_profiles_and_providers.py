@@ -208,16 +208,16 @@ def test_remote_model_is_sent_to_its_configured_endpoint(
 @pytest.mark.parametrize(
     ("model", "ai_fields", "key"),
     [
-        ("openai:gpt-4o", {"api_base_url": "localhost:8000/v1"}, "ai.api_base_url"),
-        ("litellm:devops-coder", {"gateway_url": "localhost:4000/v1"}, "ai.gateway_url"),
-        ("portkey:devops-coder", {"portkey_url": "ftp://example.com/v1"}, "ai.portkey_url"),
+        ("openai:gpt-4o", {"api_base_url": "http://169.254.169.254/v1"}, "ai.api_base_url"),
+        ("litellm:devops-coder", {"gateway_url": "http://169.254.169.254/v1"}, "ai.gateway_url"),
+        ("portkey:devops-coder", {"portkey_url": "http://169.254.169.254/v1"}, "ai.portkey_url"),
     ],
 )
 def test_remote_model_with_malformed_base_url_raises(
     remote_bridge: Any, model: str, ai_fields: dict[str, Any], key: str
 ) -> None:
     """Verify an endpoint URL that cannot be used raises an error naming its setting."""
-    from devops_cli.exceptions import ConfigurationError, InvalidURLError
+    from devops_cli.exceptions import ConfigurationError, SSRFBlockedError
 
     with pytest.raises(ConfigurationError) as caught:
         remote_bridge.resolve_pydantic_ai_model(
@@ -226,7 +226,18 @@ def test_remote_model_with_malformed_base_url_raises(
 
     assert caught.value.details["key"] == key
     assert str(caught.value).startswith(f"{key} cannot serve model {model!r}")
-    assert isinstance(caught.value.__cause__, InvalidURLError)
+    assert isinstance(caught.value.__cause__, SSRFBlockedError)
+
+
+def test_schemeless_url_refused_on_assignment() -> None:
+    """Verify a schemeless URL is refused on assignment to ai.api_base_url."""
+    from pydantic import ValidationError
+
+    settings = Settings()
+    with pytest.raises(ValidationError) as caught:
+        settings.ai.api_base_url = "localhost:8000/v1"
+
+    assert "api_base_url" in str(caught.value)
 
 
 _PRIVATE_BASE = "http://192.0.2.10:4000/v1"

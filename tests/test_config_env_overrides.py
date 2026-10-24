@@ -297,6 +297,32 @@ def test_the_telemetry_variables_hold_when_the_settings_cannot_load(
     )
 
 
+@pytest.mark.parametrize(
+    ("env_var", "val"),
+    [
+        ("DEVOPS_CLI_TELEMETRY_ENABLED", "bogus"),
+        ("DEVOPS_CLI_TELEMETRY_ENDPOINT", "localhost:4318"),
+    ],
+)
+def test_telemetry_invalid_variables_fail_load_settings_but_keep_export_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_var: str, val: str
+) -> None:
+    """Invalid telemetry variables fail load_settings but keep tracer export off without raising."""
+    _only_this_telemetry_config(tmp_path, monkeypatch, "telemetry:\n  enabled: true\n")
+    monkeypatch.setenv(env_var, val)
+    with pytest.raises(ConfigurationError) as exc_info:
+        settings.load_settings()
+    assert env_var in str(exc_info.value)
+
+    from devops_cli.telemetry.tracer import _resolve_telemetry_settings, get_tracer, reset_tracer
+
+    assert _resolve_telemetry_settings().enabled is False
+    assert settings.telemetry_from_environment().enabled is False
+    tracer = get_tracer()
+    reset_tracer()
+    assert tracer.enabled is False
+
+
 def test_ai_gateway_url_environment_variable_override_and_spec(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

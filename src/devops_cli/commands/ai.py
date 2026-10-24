@@ -432,15 +432,19 @@ def config(
         )
         raise typer.Exit(1)
     target = getattr(settings.ai.tasks, task) if task else settings.ai
-    _apply_ai_settings(
-        target,
-        provider=provider,
-        model=model,
-        ollama_urls=ollama_urls,
-        ollama_max_parallel=ollama_max_parallel,
-        api_base_url=api_base_url,
-        max_retries=max_retries,
-    )
+    try:
+        _apply_ai_settings(
+            target,
+            provider=provider,
+            model=model,
+            ollama_urls=ollama_urls,
+            ollama_max_parallel=ollama_max_parallel,
+            api_base_url=api_base_url,
+            max_retries=max_retries,
+        )
+    except (AttributeError, ValueError) as exc:
+        print_error(f"Failed to configure AI settings: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
     if api_key:
         try:
             dotted_set(settings, AI_API_KEY, api_key)

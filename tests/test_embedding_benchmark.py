@@ -292,7 +292,7 @@ def test_embedding_engine_provider_resolution() -> None:
     )
     runner.settings.ai.provider = "gateway"
     runner.settings.ai.gateway_url = "https://example.com:4000/v1"
-    runner.settings.ai.ollama_urls = ["http://example.com:11434", "example.com:11434"]
+    runner.settings.ai.ollama_urls = ["http://example.com:11434"]
     runner.provider = "gateway"
 
     with pytest.raises(ValidationError) as exc_info:
