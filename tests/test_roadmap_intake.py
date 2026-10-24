@@ -209,7 +209,7 @@ class Roadmap:
         return (found.status, found.priority, found.value, found.effort, found.milestone)
 
     def comments(self, number: int) -> list[str]:
-        return self.store.comments_on(number)
+        return [comment.body for comment in self.store.comments_on(number)]
 
     def plan(self, model: FakeModel, **options: Any) -> IntakePlan:
         return plan_intake(self.store, repo=REPO, model=model, **options)

@@ -11,3 +11,4 @@ The reply has these keys and no other, at the top level or inside any criterion 
 - `split_offs`: when `fits_one_pr` is `false`, one line for each item the change splits into; otherwise an empty list.
 - `suspected_block`: one line naming what outside this roadmap the work waits on, or `null`.
 - `dependencies`: the numbers of the issues this one needs done first, or an empty list.
+- `block_paths`: when `suspected_block` or `dependencies` is set and code in this repository causes the block, the paths of the files that hold that code, each a repository path such as `src/app.py`; otherwise an empty list. A change to one of these files makes refine look at the issue again.

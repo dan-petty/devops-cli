@@ -561,7 +561,7 @@ class GitHubFake:
             return {}
         if rest == ["comments"]:
             bodies = self.comments.get(number, []) if page == 1 else []
-            return [{"body": body} for body in bodies]
+            return [{"body": body, "created_at": "2026-10-01T00:00:00Z"} for body in bodies]
         return issue
 
     def close(self, number: int, reason: str) -> None:

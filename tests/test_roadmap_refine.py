@@ -14,7 +14,7 @@ import subprocess
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping
-from datetime import date
+from datetime import date, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -445,6 +445,11 @@ def _require_item(store: InMemoryRoadmapStore, number: int) -> Item:
     return item
 
 
+def _comment_bodies(store: InMemoryRoadmapStore, number: int) -> list[str]:
+    """The body of each comment on issue `number`, oldest first."""
+    return [comment.body for comment in store.comments_on(number)]
+
+
 def test_selection_second_milestone_backlog_priorities_and_cap(store: InMemoryRoadmapStore) -> None:
     # The second open milestone
     n1 = store.seed_issue("Next critical", milestone=SECOND, on_board=True)
@@ -588,7 +593,7 @@ def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_then_waits_on_
     sha = inspect_checkout(git_repo, REPO)[:12]
     assert (
         _require_item(store, number).status,
-        store.comments_on(number),
+        _comment_bodies(store, number),
         again.refined_items,
         [(w.item.number, w.step) for w in again.waiting_items],
     ) == (
@@ -1703,7 +1708,7 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
     marker = constants.CONST_ROADMAP_REFINE_COMMENT_MARKER
     record_keys = ("refine.next_step", "refine.needs_split", "refine.blocked_by")
     assert (
-        {number: store.comments_on(number) for number in (asked, split, blocked)},
+        {number: _comment_bodies(store, number) for number in (asked, split, blocked)},
         {
             number: tuple(
                 _require_item(store, number).job_record.get(RefineRecordKey(key))
@@ -1751,7 +1756,7 @@ def test_the_next_step_comment_holds_the_models_text_sanitized_and_one_line_for_
 
     _refine_round(store, git_repo)
 
-    assert [comment.splitlines()[-2:] for comment in store.comments_on(number)] == [
+    assert [comment.splitlines()[-2:] for comment in _comment_bodies(store, number)] == [
         ["1. Ask `@owner` now ## Then this", "2. The second change."]
     ]
 
@@ -1823,7 +1828,7 @@ def test_an_unchanged_item_whose_record_needs_a_split_but_holds_no_step_gets_its
 
     assert (
         [(r.item.number, r.next_step) for r in plan.refined_items],
-        [comment.splitlines()[-2:] for comment in store.comments_on(number)],
+        [comment.splitlines()[-2:] for comment in _comment_bodies(store, number)],
     ) == ([(number, "split")], [["1. The first change.", "2. The second change."]])
 
 
@@ -1938,3 +1943,128 @@ def test_the_report_groups_every_item_under_its_next_step(
     rounds = [_refine_round(store, git_repo), _refine_round(store, git_repo)]
 
     assert [render_refine_plan(plan) for plan in rounds] == snapshot
+
+
+# ── A change to the code its block cites ends an item's wait (#2005) ──────────────────────
+
+_CITED_PATH = "src/sample.py"
+
+
+def _block_in_code(blocker: int | None) -> RefinementProposal:
+    """A proposal whose block the code in `src/sample.py` causes: it waits on the open item
+    `blocker`, or, with None, on a suspected block alone, which a person decides."""
+    proposal = _READY.model_copy(
+        update={
+            "suspected_block": "`hello_world` in src/sample.py returns a fixed text.",
+            "block_paths": [_CITED_PATH],
+        }
+    )
+    return proposal if blocker is None else proposal.model_copy(update={"dependencies": [blocker]})
+
+
+def _refine_comment_at(store: InMemoryRoadmapStore, number: int) -> datetime:
+    """When refine last commented on issue `number`."""
+    marker = constants.CONST_ROADMAP_REFINE_COMMENT_MARKER
+    return [c.created_at for c in store.comments_on(number) if marker in c.body][-1]
+
+
+def _seed_item_blocked_in_code(
+    store: InMemoryRoadmapStore, model_fake: ModelFake, *, blocked: bool = True
+) -> int:
+    """On a private repository, a New backlog P1 whose proposal cites `src/sample.py` as the
+    cause of its block: it waits on an item In Progress, or on a person when not `blocked`."""
+    store.seed_visibility(is_private=True)
+    blocker = _seed_item(store, "In Progress", "P1-High")
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_block_in_code(blocker if blocked else None))
+    return number
+
+
+@pytest.mark.parametrize("blocked", [True, False], ids=["blocked", "suspected-block"])
+def test_a_waiting_item_whose_cited_path_changes_on_main_after_refines_comment_is_refined_again(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, blocked: bool
+) -> None:
+    """Refine records the path that its proposal cites as the cause of the block. A commit on
+    the default branch that changes that path after refine's last comment ends the wait: the
+    next round refines the item again, with no reply and no body edit (#2005)."""
+    number = _seed_item_blocked_in_code(store, model_fake, blocked=blocked)
+    _refine_round(store, git_repo)
+    calls = model_fake.call_count
+
+    store.seed_commit(_CITED_PATH, at=_refine_comment_at(store, number) + timedelta(minutes=5))
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        _require_item(store, number).job_record.get(RefineRecordKey.BLOCK_PATHS),
+        [r.item.number for r in again.refined_items],
+        again.waiting_items,
+        model_fake.call_count - calls,
+    ) == (_CITED_PATH, [number], [], 1)
+
+
+def test_a_waiting_item_whose_cited_path_does_not_change_keeps_waiting_with_no_model_call(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A commit that changed the cited path before refine's last comment, and a later commit
+    that changed another path, leave the item waiting on its blocker, and the round makes no
+    model call (#2005)."""
+    number = _seed_item_blocked_in_code(store, model_fake)
+    _refine_round(store, git_repo)
+    calls = model_fake.call_count
+
+    commented = _refine_comment_at(store, number)
+    store.seed_commit(_CITED_PATH, at=commented - timedelta(days=1))
+    store.seed_commit("CONTEXT.md", at=commented + timedelta(minutes=5))
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(w.item.number, w.step) for w in again.waiting_items],
+        again.refined_items,
+        model_fake.call_count - calls,
+    ) == ([(number, "blocked")], [], 0)
+
+
+def test_refine_records_each_cited_path_the_checkout_holds_once_and_names_them_in_its_comment(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """Refine keeps a cited path once and without its line, only when the checkout holds it at
+    the refined commit, and never a path outside the repository. Its comment names the files
+    whose change ends the wait (#2005)."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    cited = ["src/sample.py:1", "src/missing.py", "../CONTEXT.md", "/etc/hosts"]
+    cited += ["src/sample.py", "CONTEXT.md"]
+    model_fake.answer(_block_in_code(None).model_copy(update={"block_paths": cited}))
+
+    _refine_round(store, git_repo)
+
+    (comment,) = store.comments_on(number)
+    assert (
+        _require_item(store, number).job_record.get(RefineRecordKey.BLOCK_PATHS),
+        comment.body.splitlines()[-1],
+    ) == (
+        "src/sample.py,CONTEXT.md",
+        "The next refine round also looks at the item again when a commit on the default "
+        "branch changes one of these files: `src/sample.py`, `CONTEXT.md`.",
+    )
+
+
+@pytest.mark.parametrize("proposal", [_READY, _QUESTION], ids=["ready", "question"])
+def test_a_proposal_that_names_no_block_records_no_cited_path(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    proposal: RefinementProposal,
+) -> None:
+    """A path is recorded only as the cause of a block: a proposal with no suspected block and
+    no open dependency records none, and its comment names none (#2005)."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(proposal.model_copy(update={"block_paths": [_CITED_PATH]}))
+
+    _refine_round(store, git_repo)
+
+    assert (
+        _require_item(store, number).job_record.get(RefineRecordKey.BLOCK_PATHS),
+        [_CITED_PATH in comment.body for comment in store.comments_on(number)],
+    ) == (None, [False])

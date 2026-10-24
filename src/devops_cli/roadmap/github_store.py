@@ -14,7 +14,9 @@ Projects filter at the source, leaves archived items out, checks the budget firs
 each page's reported points, and is checked against the total for the same filter, so a short
 read is caught; a count that changes during the read is read again once before the read fails.
 A poll reads the repository's issue events newest first and stops at the first event older
-than the time it reads from, requesting no later page (#1360).
+than the time it reads from, requesting no later page (#1360). The newest commit that changed a
+path is one `gh api` read of the commits listing, one commit a page, which the store makes once
+for each path (#2005).
 
 The store reads the board listing once for each filter, and the board's fields once, and keeps
 both for its life, one command or one Service round (#1361): every reader of a filter shares its
@@ -115,6 +117,7 @@ from devops_cli.roadmap.store import (
     EvidenceKind,
     FieldOption,
     GitHubState,
+    IssueComment,
     IssueRecord,
     Item,
     ItemField,
@@ -260,6 +263,10 @@ class _IsPrivatePayload(BaseModel):
 
 class _CommentPayload(BaseModel):
     body: str = ""
+    created_at: datetime
+
+    def comment(self) -> IssueComment:
+        return IssueComment(body=self.body, created_at=self.created_at)
 
 
 class _TimelineNodePayload(BaseModel):
@@ -293,6 +300,12 @@ class _TimelinePayload(BaseModel):
 
 class _WorkflowRunPayload(BaseModel):
     conclusion: str | None = None
+
+
+class _CommitPayload(BaseModel):
+    """A commit as the commits listing gives it: when its committer made it."""
+
+    committed_at: datetime = Field(validation_alias=AliasPath("commit", "committer", "date"))
 
 
 class _BoardItemPayload(BaseModel):
@@ -447,6 +460,7 @@ _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _COMMENT = TypeAdapter(_CommentPayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
+_COMMITS = TypeAdapter(list[_CommitPayload])
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
 
 # The board is found by its owner's login and number; `ProjectV2Owner` covers users and
@@ -753,6 +767,12 @@ def commit_args(repo: str, value: str) -> list[str]:
     return ["api", f"repos/{repo}/commits/{_segment(value)}"]
 
 
+def path_commits_args(repo: str, path: str) -> list[str]:
+    """The `gh` arguments that read the newest commit on the default branch that changed
+    `path`: the commits listing gives the newest first, and one a page."""
+    return ["api", f"repos/{repo}/commits?path={_segment(path)}&per_page=1"]
+
+
 def is_private_args(repo: str) -> list[str]:
     """The `gh` arguments that query whether `repo` is private."""
     return repository_query_args(repo, _IS_PRIVATE_QUERY)
@@ -802,6 +822,8 @@ class GitHubRoadmapStore(RoadmapStore):
         # The board's node id and fields, and its listing by filter, read once when first needed.
         self._schema: _BoardSchema | None = None
         self._listings: dict[str, list[_BoardItemPayload]] = {}
+        # When the newest commit that changed each path refine reads was made (#2005).
+        self._path_changes: dict[str, datetime | None] = {}
 
     # ── Milestones ──
 
@@ -982,12 +1004,22 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         self._write(write_issue_body_args(self._repo, number, body), f"write body of #{number}")
 
-    def comments_on(self, number: int) -> list[str]:
-        """The body of every comment on issue `number`, oldest first."""
+    def comments_on(self, number: int) -> list[IssueComment]:
+        """Every comment on issue `number`, oldest first."""
         listing = self._listing(
             comments_endpoint(self._repo, number), _COMMENT, f"#{number} comments"
         )
-        return [comment.body for comment in listing]
+        return [comment.comment() for comment in listing]
+
+    def path_changed_at(self, path: str) -> datetime | None:
+        """When the newest commit on the default branch that changed `path` was made, or None
+        when no commit changed it, read once for the store's life (#2005)."""
+        if path not in self._path_changes:
+            commits = self._read(
+                path_commits_args(self._repo, path), _COMMITS, f"the commits of {path}"
+            )
+            self._path_changes[path] = commits[0].committed_at if commits else None
+        return self._path_changes[path]
 
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
@@ -1562,6 +1594,7 @@ __all__ = [
     "listing_path",
     "milestone_edit_args",
     "milestones_endpoint",
+    "path_commits_args",
     "repository_file_args",
     "repository_issue_events_endpoint",
     "repository_query_args",

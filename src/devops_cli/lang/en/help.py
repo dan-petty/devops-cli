@@ -1096,7 +1096,8 @@ class RoadmapCommandHelp:
         "An item refine cannot set to Ready gets one comment with its next step. The step is "
         "the questions a person answers, the split a person makes, or the open items it waits "
         "on. Refine looks at the item again after a reply, a body edit or the close of those "
-        "items. The report groups every item by its next step. "
+        "items, or after a commit on the default branch changes a file that the block cites. "
+        "The report groups every item by its next step. "
         "An item whose model call fails is skipped and reported; the others are still refined, "
         "and refine then exits 1."
     )

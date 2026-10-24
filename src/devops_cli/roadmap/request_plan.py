@@ -226,6 +226,10 @@ class StoreRequests:
     def issue(self, subject: str) -> Requests:
         return [self.gh(gh.issue_args(self.repo, _number(subject)), "issue", subject=subject)]
 
+    def path_change(self, path: str) -> Requests:
+        """The newest commit on the default branch that changed `path` (#2005)."""
+        return [self.gh(gh.path_commits_args(self.repo, path), "path_change", subject=path)]
+
     def closures(self, subject: str) -> Requests:
         args = gh.closures_args(self.repo, _number(subject))
         return [self.gh(args, "closures", subject=subject)]
@@ -330,7 +334,8 @@ def refine_requests(
     """What `devops roadmap refine` reads, in order, ending with its closing budget read,
     and the writes `--confirm` makes before that last read. Each item's comments are read for
     the replies since refine's last comment, and each open item a blocked item waits on is read
-    for its state (#1758)."""
+    for its state (#1758). A round without `--item` reads the newest commit of each path the
+    block of a waiting item cites, when no reply ends the wait first (#2005)."""
     store = StoreRequests(repo, CONST_ROADMAP_REFINE_BOARD_FILTER)
     texts = MESSAGES.roadmap
     cond, rep = texts.plan_conditions, texts.plan_repeat
@@ -365,6 +370,11 @@ def refine_requests(
                 repeat=each_candidate,
             ),
             *blockers,
+            *within(
+                store.path_change(_p("path")),
+                cond["still_waiting"],
+                repeat=rep["block_path"],
+            ),
         ]
         writes = [
             *within(
