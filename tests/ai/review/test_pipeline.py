@@ -24,6 +24,7 @@ from devops_cli.security.trivy import parse_trivy_json
 
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
+    from tests.support.fakes.scanners import ScannerFake
 
 _REVIEW_TOML = """\
 [paths]
@@ -158,7 +159,7 @@ def test_review_toml_severity_caps_apply_at_admission_and_spare_secret_findings(
 
 
 def test_a_review_caps_the_scanner_findings_it_reports(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
 ) -> None:
     """The orchestrator's scanner stage passes the caps it read to admission: Bandit's HIGH in a
     test is reported LOW."""
@@ -181,7 +182,9 @@ def test_a_review_caps_the_scanner_findings_it_reports(
         "_scan_semgrep",
     ):
         monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
-    orchestrator = ReviewPipelineOrchestrator(session_id="s1301-stage", target_dir=root)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s1301-stage", target_dir=root, tool_executor=scanner_fake
+    )
 
     reported = orchestrator._run_static_scanners(["tests/test_app.py"])
 
@@ -189,7 +192,10 @@ def test_a_review_caps_the_scanner_findings_it_reports(
 
 
 def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_fake: ModelFake,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Fake Semgrep and Bandit results with absolute paths come out as src/app.py:12 in
     findings.json and review.md, with no absolute path in the description. The report's group
@@ -238,7 +244,9 @@ def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
     ):
         monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="s788", target_dir=repo)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s788", target_dir=repo, tool_executor=scanner_fake
+    )
     reported = orchestrator._run_static_scanners(["src/app.py"])
 
     findings_for_file = reported.get("src/app.py", [])

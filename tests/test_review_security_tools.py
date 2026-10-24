@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +12,8 @@ import pytest
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding
 from devops_cli.ai.tools.registry import get_default_tools
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_native_security_tools_in_registry() -> None:
@@ -23,95 +27,141 @@ def test_native_security_tools_in_registry() -> None:
     assert "scan_popeye" in tool_names
 
 
-@pytest.mark.usefixtures("scanner_fake")
-@patch("devops_cli.security.trivy.run_trivy_scan")
-@patch("devops_cli.security.kubelinter.run_kubelinter_scan")
-@patch("devops_cli.security.pluto.run_pluto_scan")
-@patch("devops_cli.security.bandit.run_bandit_scan")
+_MANIFEST = """\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: example.com/app:1.0
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: app
+"""
+
+
+def _scanned_workspace(root: Path, git: Callable[..., None]) -> Path:
+    """A checkout with a Dockerfile, a Python module and a Kubernetes manifest, whose review.toml
+    names the Kubernetes version that Pluto checks against."""
+    root.mkdir()
+    git(root, "init", "--quiet")
+    files = {
+        "Dockerfile": "FROM alpine\n",
+        "src/main.py": "import subprocess\n" * 15,
+        "k8s/app.yaml": _MANIFEST,
+        ".devops/review.toml": 'kubernetes_version = "v1.31.0"\n',
+    }
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+    return root
+
+
+def _script_scanner_reports(scanner_fake: ScannerFake, workspace: Path) -> None:
+    """Script one finding for Trivy, Bandit, kube-linter and Pluto, in the report that each tool
+    prints."""
+    trivy = {
+        "Results": [
+            {
+                "Target": "Dockerfile",
+                "Misconfigurations": [
+                    {
+                        "ID": "DS002",
+                        "Title": "Image user should not be 'root'",
+                        "Severity": "HIGH",
+                        "Resolution": "Add 'USER <non root user name>' line to the Dockerfile",
+                    }
+                ],
+            }
+        ]
+    }
+    bandit = {
+        "errors": [],
+        "results": [
+            {
+                "filename": str(workspace / "src" / "main.py"),
+                "issue_severity": "HIGH",
+                "issue_text": "subprocess call with shell=True identified, security issue.",
+                "line_number": 10,
+                "test_id": "B602",
+                "test_name": "subprocess_popen_with_shell_equals_true",
+            }
+        ],
+    }
+    kube_linter = {
+        "Reports": [
+            {
+                "Check": "no-read-only-root-fs",
+                "Diagnostic": {
+                    "Message": 'container "app" does not have a read-only root file system'
+                },
+                "Remediation": "Set readOnlyRootFilesystem to true in the container securityContext.",
+                "Object": {
+                    "K8sObject": {"GroupVersionKind": {"Kind": "Deployment"}, "Name": "app"},
+                    "Metadata": {"FilePath": str(workspace / "k8s" / "app.yaml")},
+                },
+            }
+        ]
+    }
+    pluto = {
+        "items": [
+            {
+                "name": "app",
+                "filePath": "k8s/app.yaml",
+                "api": {
+                    "version": "extensions/v1beta1",
+                    "kind": "Ingress",
+                    "replacement-api": "networking.k8s.io/v1",
+                },
+                "deprecated": True,
+                "removed": True,
+            }
+        ]
+    }
+    # Each tool's exit code for a report with a finding: Pluto's 3 says that an API is removed.
+    for tool, exit_code, report in (
+        ("trivy", 0, trivy),
+        ("bandit", 1, bandit),
+        ("kube-linter", 1, kube_linter),
+        ("pluto", 3, pluto),
+    ):
+        scanner_fake.script(tool, ToolAnswer(exit_code=exit_code, stdout=json.dumps(report)))
+
+
 def test_pipeline_multi_scanner_aggregation(
-    mock_bandit: MagicMock,
-    mock_pluto: MagicMock,
-    mock_kl: MagicMock,
-    mock_trivy: MagicMock,
-    tmp_path: Path,
+    tmp_path: Path, git: Callable[..., None], scanner_fake: ScannerFake
 ) -> None:
-    """Verify payloads aggregate findings across Trivy, Kube-linter, Pluto, Bandit."""
-    mock_trivy.return_value = [
-        Finding(
-            severity="CRITICAL",
-            location="Dockerfile:cve-1",
-            title="[CVE-2026-1001] OpenSSL Vulnerability",
-            description="Buffer overflow in crypto",
-            fix="Upgrade OpenSSL",
-            confidence_score=0.95,
-        )
-    ]
-    mock_bandit.return_value = [
-        Finding(
-            severity="HIGH",
-            location="src/main.py:10",
-            title="[B602] Shell injection",
-            description="Subprocess shell=True",
-            fix="Use list args",
-            confidence_score=0.95,
-        )
-    ]
-    mock_kl.return_value = [
-        Finding(
-            severity="MEDIUM",
-            location="k8s/app.yaml:Deployment/app",
-            title="[no-read-only-root-fs] Root filesystem writeable",
-            description="Set readOnlyRootFilesystem to true",
-            fix="Update securityContext",
-            confidence_score=0.9,
-        )
-    ]
-    mock_pluto.return_value = [
-        Finding(
-            severity="HIGH",
-            location="k8s/app.yaml:Ingress/app",
-            title="[Removed API] Ingress uses extensions/v1beta1",
-            description="Deprecated in 1.22",
-            fix="Upgrade to networking.k8s.io/v1",
-            confidence_score=0.95,
-        )
-    ]
-
-    (tmp_path / "Dockerfile").write_text("FROM alpine\n", encoding="utf-8")
-    src_dir = tmp_path / "src"
-    src_dir.mkdir(parents=True, exist_ok=True)
-    (src_dir / "main.py").write_text("import os\n" * 15, encoding="utf-8")
-    k8s_dir = tmp_path / "k8s"
-    k8s_dir.mkdir(parents=True, exist_ok=True)
-    (k8s_dir / "app.yaml").write_text("apiVersion: v1\n", encoding="utf-8")
-
+    """Each payload holds the findings of the scanners of its file: Trivy for the Dockerfile,
+    Bandit for the Python module, kube-linter and Pluto for the manifest. The orchestrator takes
+    a temporary workspace and the scanner fake through its constructor (#2098)."""
+    workspace = _scanned_workspace(tmp_path / "workspace", git)
+    _script_scanner_reports(scanner_fake, workspace)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-sec-tools",
         session_dir=tmp_path / "test-sec-tools",
-        target_dir=tmp_path,
+        target_dir=workspace,
+        tool_executor=scanner_fake,
     )
+
     payloads = orchestrator.init_per_file_payloads(
         file_paths=["Dockerfile", "src/main.py", "k8s/app.yaml"],
         metadata_by_path={},
     )
 
-    assert len(payloads) == 3
-    docker_payload = next(p for p in payloads if p.file_path == "Dockerfile")
-    py_payload = next(p for p in payloads if p.file_path == "src/main.py")
-    yaml_payload = next(p for p in payloads if p.file_path == "k8s/app.yaml")
-
-    # Docker payload has Trivy
-    docker_titles = [f.title for f in docker_payload.findings]
-    assert any("CVE-2026-1001" in t for t in docker_titles)
-
-    # Python payload has Bandit
-    py_titles = [f.title for f in py_payload.findings]
-    assert any("B602" in t for t in py_titles)
-
-    # YAML payload has Kube-linter + Pluto
-    yaml_titles = [f.title for f in yaml_payload.findings]
-    assert any("no-read-only-root-fs" in t for t in yaml_titles)
-    assert any("Removed API" in t for t in yaml_titles)
+    assert {p.file_path: sorted(f.title for f in p.findings) for p in payloads} == {
+        "Dockerfile": ["[DS002] Image user should not be 'root'"],
+        "src/main.py": ["[B602] subprocess call with shell=True identified, security issue."],
+        "k8s/app.yaml": [
+            "[Removed API] Ingress 'app' uses extensions/v1beta1",
+            '[no-read-only-root-fs] container "app" does not have a read-only root file system',
+        ],
+    }
 
 
 @pytest.mark.usefixtures("scanner_fake")

@@ -471,10 +471,17 @@ def _make_review_clients(
     )
 
 
-def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
+def _is_allowed_review_boundary(target: Path, settings: Settings, working_directory: Path) -> bool:
+    """Whether a review may read `target`: it lies under `working_directory`, the repository that
+    holds that directory or the target, or the repos base directory.
+
+    `working_directory` is the directory the command runs in, which the command reads one time
+    and gives down. No review module reads the working directory of the process (#2098).
+    """
     target_resolved = target.resolve()
-    allowed_roots: list[Path] = [Path.cwd().resolve()]
-    if (cwd_repo := _git_repo_root(Path.cwd())) is not None:
+    workspace = working_directory.resolve()
+    allowed_roots: list[Path] = [workspace]
+    if (cwd_repo := _git_repo_root(workspace)) is not None:
         allowed_roots.append(cwd_repo.resolve())
     if (target_repo := _git_repo_root(target_resolved)) is not None:
         allowed_roots.append(target_repo.resolve())
@@ -548,9 +555,11 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
     return str(preferred_base)
 
 
-def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, list[str]]:
+def _prepare_path_content(
+    target: Path, pattern: str, *, working_directory: Path
+) -> tuple[list[str], str, list[str]]:
     """Prepare paginated pages, title, and the files kept off the pages for the secret scan
-    alone, for a path review target."""
+    alone, for a path review target inside the review boundary of `working_directory`."""
     import typer
 
     from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
@@ -558,7 +567,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, l
 
     settings = load_settings()
     target_resolved = target.resolve()
-    if not _is_allowed_review_boundary(target, settings):
+    if not _is_allowed_review_boundary(target, settings, working_directory):
         err_msg = MESSAGES.review.outside_boundary.format(target=target_resolved)
         print_error(err_msg, prefix=False)
         raise typer.Exit(1)
@@ -717,17 +726,18 @@ def _branch_base_revision(
 
 
 def _prepare_branch_content(
-    branch_name: str | None, base: str, repo_path: Path
+    branch_name: str | None, base: str, repo_path: Path, *, working_directory: Path
 ) -> tuple[list[str], str, str, BaseRevision]:
     """Prepare diff blocks, title, resolved target_branch, and the base
-    revision the diff starts from."""
+    revision the diff starts from, for a repository inside the review boundary of
+    `working_directory`."""
     import typer
 
     from devops_cli.lang import MESSAGES
 
     settings = load_settings()
     repo_resolved = repo_path.resolve()
-    if not _is_allowed_review_boundary(repo_resolved, settings):
+    if not _is_allowed_review_boundary(repo_resolved, settings, working_directory):
         err_msg = MESSAGES.review.outside_boundary.format(target=repo_resolved)
         print_error(err_msg, prefix=False)
         raise typer.Exit(1)
@@ -1000,7 +1010,6 @@ def _record_review_metrics(
 def _run_profiled_session(
     orchestrator: ReviewPipelineOrchestrator,
     all_files: list[str],
-    target_dir: Path,
     pages: list[str],
     target_type: Literal["branch", "pr", "path"],
     target_ref: str,
@@ -1011,7 +1020,6 @@ def _run_profiled_session(
     with profiling() as profiler:
         with review_stage("pre_analysis"):
             metadata_by_path = orchestrator.run_pre_analysis_refresh(
-                target_dir=target_dir,
                 files=all_files,
                 target_type=target_type,
                 target_ref=target_ref,
@@ -1024,7 +1032,6 @@ def _run_profiled_session(
             orchestrator,
             all_files,
             metadata_by_path,
-            target_dir,
             pages,
             stage_flags=stage_flags,
         )
@@ -1041,7 +1048,6 @@ def _run_orchestrator_review(
     orchestrator: ReviewPipelineOrchestrator,
     all_files: list[str],
     metadata_by_path: dict[str, FileAnalysisMeta],
-    target_dir: Path | None,
     pages: list[str],
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
@@ -1051,7 +1057,6 @@ def _run_orchestrator_review(
         payloads = orchestrator.init_per_file_payloads(
             all_files,
             metadata_by_path,
-            target_dir=target_dir,
             stage_flags=stage_flags,
             diff_text_by_file=diff_map,
             pages=pages,
@@ -1237,11 +1242,8 @@ def _execute_review_workflow(
 
     if summary_only:
         print_info(f"[dim]{MESSAGES.review.generating_metadata}[/dim]", prefix=False)
-        try:
-            repo_target = find_repo_root(target_dir)
-        except Exception:
-            repo_target = None
-        analysis_metas = _load_file_analysis_metas(all_files, repo_root=repo_target)
+        # The analysis of the reviewed repository, never of the working directory (#2098).
+        analysis_metas = _load_file_analysis_metas(all_files, repo_root=find_repo_root(target_dir))
         _print_analysis_metadata(analysis_metas, title)
         return []
 
@@ -1283,7 +1285,6 @@ def _execute_review_workflow(
         results = _run_profiled_session(
             orchestrator,
             all_files,
-            target_dir,
             pages,
             target_type,
             target_ref,

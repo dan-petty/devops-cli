@@ -6,16 +6,40 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from devops_cli.ai.review.exporter import export_invalidated_feedback
+from devops_cli.exceptions import SecurityError
 from tests.support.paths import REPO_ROOT
 
 
 def test_export_invalidated_feedback_empty_dir(tmp_path: Path) -> None:
     reviews_dir = tmp_path / "reviews"
     output_file = tmp_path / "output.jsonl"
-    count, out_path = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    count, out_path = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
     assert count == 0
     assert out_path == output_file
+
+
+def test_the_working_directory_of_the_process_allows_no_reviews_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the workspace that the command gives, the data root and the temporary directory hold
+    a reviews directory to export. From `/`, the working directory of the process held every path,
+    so a reviews directory outside the workspace was read (#2098)."""
+    monkeypatch.chdir("/")
+    outside = Path("/devops-cli-test-reviews-outside-the-workspace")
+
+    with pytest.raises(SecurityError) as refused:
+        export_invalidated_feedback(reviews_dir=outside, workspace_root=tmp_path)
+
+    assert (
+        refused.value.exit_code,
+        refused.value.error_code,
+        str(outside) in str(refused.value),
+    ) == (1, "SECURITY_ERROR", True)
 
 
 def test_export_invalidated_feedback_records(tmp_path: Path) -> None:
@@ -48,7 +72,9 @@ def test_export_invalidated_feedback_records(tmp_path: Path) -> None:
     (session_dir / "findings.json").write_text(json.dumps(findings_payload), encoding="utf-8")
 
     output_file = tmp_path / "dataset.jsonl"
-    count, out_path = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    count, out_path = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
 
     assert count == 1
     assert out_path.exists()
@@ -99,7 +125,10 @@ def test_export_feedback_by_status_and_all(tmp_path: Path) -> None:
     # Filter by VERIFIED
     out_verified = tmp_path / "verified.jsonl"
     count_v, _ = export_invalidated_feedback(
-        reviews_dir=reviews_dir, output_file=out_verified, status_filter="VERIFIED"
+        reviews_dir=reviews_dir,
+        output_file=out_verified,
+        status_filter="VERIFIED",
+        workspace_root=tmp_path,
     )
     assert count_v == 1
     v_lines = out_verified.read_text(encoding="utf-8").strip().splitlines()
@@ -109,14 +138,20 @@ def test_export_feedback_by_status_and_all(tmp_path: Path) -> None:
     # Export ALL via None
     out_all = tmp_path / "all.jsonl"
     count_all, _ = export_invalidated_feedback(
-        reviews_dir=reviews_dir, output_file=out_all, status_filter=None
+        reviews_dir=reviews_dir,
+        output_file=out_all,
+        status_filter=None,
+        workspace_root=tmp_path,
     )
     assert count_all == 2
 
     # Export ALL via string "ALL"
     out_all_str = tmp_path / "all_str.jsonl"
     count_all_str, _ = export_invalidated_feedback(
-        reviews_dir=reviews_dir, output_file=out_all_str, status_filter="ALL"
+        reviews_dir=reviews_dir,
+        output_file=out_all_str,
+        status_filter="ALL",
+        workspace_root=tmp_path,
     )
     assert count_all_str == 2
 
@@ -172,8 +207,12 @@ def test_an_export_appends_and_skips_records_the_dataset_already_holds(tmp_path:
     earlier = {"session_id": "20261001-224227", "title": "Earlier record", "status": "VERIFIED"}
     output_file.write_text(json.dumps(earlier) + "\n", encoding="utf-8")
 
-    first, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
-    second, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    first, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
+    second, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
 
     assert (first, second, [r["title"] for r in _lines(output_file)]) == (
         1,
@@ -193,7 +232,9 @@ def test_an_export_reads_the_verdicts_in_candidates_json(tmp_path: Path) -> None
     _session(reviews_dir, "20261002-214641", [reported], candidates=[reported, dropped])
     output_file = tmp_path / "dataset.jsonl"
 
-    count, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    count, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
 
     assert (count, sorted(r["title"] for r in _lines(output_file))) == (
         2,
@@ -225,7 +266,9 @@ def test_each_record_carries_its_subject_category_references_and_cited_excerpt(
     )
     output_file = tmp_path / "dataset.jsonl"
 
-    export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
     record = _lines(output_file)[0]
 
     assert (
@@ -243,7 +286,9 @@ def test_an_export_with_no_records_leaves_the_dataset_as_it_was(tmp_path: Path) 
     output_file = tmp_path / "dataset.jsonl"
     output_file.write_text(json.dumps({"title": "Kept"}) + "\n", encoding="utf-8")
 
-    count, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    count, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
 
     assert (count, [r["title"] for r in _lines(output_file)]) == (0, ["Kept"])
 

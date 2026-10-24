@@ -18,9 +18,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 import errno
-import functools
 import ipaddress
-import json
 import socket
 import subprocess
 import sys
@@ -28,7 +26,6 @@ import threading
 import weakref
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 from unittest.mock import patch
@@ -927,58 +924,6 @@ def process_fake(monkeypatch: pytest.MonkeyPatch) -> Iterator[ProcessFake]:
         yield fake
     finally:
         reset_process_runner()
-
-
-@functools.lru_cache(maxsize=1)
-def _load_recorded_canary_outputs() -> dict[str, Any]:
-    """Load recorded canary outputs once per worker process for offline test isolation.
-
-    They are read through the `tests` package, not `tests.support.paths`: a conftest that
-    imported the paths would make every change to them reach every test (#1312).
-    """
-    recorded = files("tests").joinpath("fixtures", "review_canary", "recorded_outputs.json")
-    data = json.loads(recorded.read_text(encoding="utf-8"))
-    return data if isinstance(data, dict) else {}
-
-
-def _recorded_canary_answers() -> Any:
-    """A tool executor fake that answers the canary of each review tool with the output that the
-    pinned tool printed, as `tests/fixtures/review_canary/recorded_outputs.json` holds it."""
-    from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
-
-    recorded = ToolExecutorFake()
-    for tool, entry in _load_recorded_canary_outputs().items():
-        out = entry.get("output", "") if isinstance(entry, dict) else ""
-        recorded.script(tool, ToolAnswer(stdout=out if isinstance(out, str) else json.dumps(out)))
-    return recorded
-
-
-@pytest.fixture(autouse=True)
-def pin_review_tool_canaries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Answer the canaries of the review tools with their recorded outputs, and clear the canary
-    cache between tests (#1143).
-
-    A review runs the canary of each tool on its tool executor (#1978). A test that gives the
-    review `tool_executor_fake` scripts the canaries there. Every other review runs them on
-    `DirectToolExecutor`, which would start the real tools. This fixture answers each canary run
-    of that executor with the recorded output, and starts every other run as before.
-    """
-    from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
-    from devops_cli.review import canary as canary_module
-    from devops_cli.security.tool_executor import DirectToolExecutor
-
-    recorded = _recorded_canary_answers()
-    real_run = DirectToolExecutor.run
-
-    def run(self: DirectToolExecutor, request: Any) -> Any:
-        if request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX):
-            return recorded.run(request)
-        return real_run(self, request)
-
-    canary_module.clear_canary_cache()
-    monkeypatch.setattr(DirectToolExecutor, "run", run)
-    yield
-    canary_module.clear_canary_cache()
 
 
 @pytest.fixture(autouse=True, scope="session")

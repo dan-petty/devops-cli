@@ -300,7 +300,7 @@ def test_orchestrated_review_profiles_each_stage_and_its_findings() -> None:
     orchestrator.generate_consolidated_report.return_value = ({}, "report")
 
     with profiling() as profiler:
-        _run_orchestrator_review(orchestrator, ["a.yaml"], {}, Path("."), ["a.yaml"])
+        _run_orchestrator_review(orchestrator, ["a.yaml"], {}, ["a.yaml"])
         profile = profiler.build(session_id="s", target="t")
 
     assert (

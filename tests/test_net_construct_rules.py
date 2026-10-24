@@ -25,8 +25,17 @@ CONST_BANNED_HAND_ROLLED_APIS: tuple[str, ...] = (
 pytestmark = pytest.mark.live("ast-grep", "ruff")
 
 _RULES_DIR = REPO_ROOT / ".ast-grep" / "rules"
-# The other tree of the two that the `constructs` row scans.
-_OTHER_TREE = {"src": "tests", "tests": "src"}
+# The command layer reads the working directory one time and gives it down (#2098).
+_COMMAND_LAYER = "src/devops_cli/commands"
+# A tree that the `constructs` row scans and that the rule of the violation does not hold.
+_OTHER_TREE = {
+    "src": "tests",
+    "tests": "src",
+    "src/devops_cli/ai/review": _COMMAND_LAYER,
+    "src/devops_cli/review": _COMMAND_LAYER,
+    "src/devops_cli/security": _COMMAND_LAYER,
+}
+_CWD_READ = "from pathlib import Path\n\nroot = Path.cwd()\n"
 
 _ELAPSED_UPPER_BOUND = (
     "import time\n\n\n"
@@ -75,6 +84,15 @@ _VIOLATIONS = [
     pytest.param(
         "test-elapsed-upper-bound", "tests", _ELAPSED_UPPER_BOUND, id="test-elapsed-upper-bound"
     ),
+    pytest.param(
+        "review-cwd-read", "src/devops_cli/ai/review", _CWD_READ, id="review-cwd-read-ai-review"
+    ),
+    pytest.param(
+        "review-cwd-read", "src/devops_cli/review", _CWD_READ, id="review-cwd-read-review"
+    ),
+    pytest.param(
+        "review-cwd-read", "src/devops_cli/security", _CWD_READ, id="review-cwd-read-security"
+    ),
 ]
 
 
@@ -109,12 +127,13 @@ def test_ast_grep_rule_tests_pass() -> None:
 
 
 def test_the_violations_name_every_rule_and_the_tree_it_holds() -> None:
-    """The scan tests below hold one violation of each rule in the tree that its `files` name."""
+    """The scan tests below hold one violation of each rule in each tree that its `files` name."""
     rules = [yaml.safe_load(path.read_text(encoding="utf-8")) for path in _RULES_DIR.glob("*.yml")]
+    held: dict[str, list[str]] = {}
+    for param in _VIOLATIONS:
+        held.setdefault(param.values[0], []).append(f"{param.values[1]}/**")
 
-    assert {param.values[0]: [f"{param.values[1]}/**"] for param in _VIOLATIONS} == {
-        rule["id"]: rule.get("files") for rule in rules
-    }
+    assert held == {rule["id"]: rule.get("files") for rule in rules}
 
 
 @pytest.mark.parametrize(("rule", "tree", "source"), _VIOLATIONS)

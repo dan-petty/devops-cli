@@ -78,7 +78,6 @@ def _pre_analysis(
 ) -> dict[str, FileAnalysisMeta]:
     """Pre-analysis of every Python module of the checkout, `other.py` among them."""
     return orchestrator.run_pre_analysis_refresh(
-        target_dir=repo,
         files=sorted(path.name for path in repo.glob("*.py")),
         target_type="branch",
         target_ref="feature",
@@ -178,7 +177,9 @@ def _branch_review_metadata(
         patch("devops_cli.git.operations.list_changed_files", side_effect=list_changes),
         patch("devops_cli.git.operations.read_file_at_revision", side_effect=read),
     ):
-        *_, base_revision = _prepare_branch_content(targets[0], "main", repo)
+        *_, base_revision = _prepare_branch_content(
+            targets[0], "main", repo, working_directory=repo
+        )
         metadata = _pre_analysis(_orchestrator(repo, _NoModel()), repo, base_revision)
     return asked, metadata
 

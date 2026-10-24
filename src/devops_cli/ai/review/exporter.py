@@ -165,14 +165,13 @@ def _recorded_fingerprints(path: Path) -> set[str]:
     return fingerprints
 
 
-def _resolve_reviews_dir(reviews_dir: Path | None) -> Path:
+def _resolve_reviews_dir(reviews_dir: Path | None, workspace_root: Path) -> Path:
     """The reviews directory to read, refused when it escapes the allowed roots."""
     if reviews_dir is None:
         return ReviewSessionStore.root()
     import tempfile
 
     resolved_r_dir = reviews_dir.resolve()
-    workspace_root = Path.cwd().resolve()
     data_root = ReviewSessionStore.root().parent
     allowed_review_roots = [workspace_root, data_root, Path(tempfile.gettempdir()).resolve()]
     if not any(
@@ -185,7 +184,9 @@ def _resolve_reviews_dir(reviews_dir: Path | None) -> Path:
     return resolved_r_dir
 
 
-def _resolve_output_path(output_file: Path | None, reviews_dir: Path | None) -> Path:
+def _resolve_output_path(
+    output_file: Path | None, reviews_dir: Path | None, workspace_root: Path
+) -> Path:
     """The dataset to append to: the configured one, or a given path the allowed roots hold."""
     if output_file is None:
         from devops_cli.config.settings import load_settings
@@ -195,7 +196,7 @@ def _resolve_output_path(output_file: Path | None, reviews_dir: Path | None) -> 
     import tempfile
 
     resolved_out = output_file.resolve()
-    allowed_roots = [Path.cwd().resolve(), ReviewSessionStore.root().parent]
+    allowed_roots = [workspace_root, ReviewSessionStore.root().parent]
     if reviews_dir is not None:
         allowed_roots.append(reviews_dir.resolve().parent)
     allowed_roots.append(Path(tempfile.gettempdir()).resolve())
@@ -210,14 +211,21 @@ def export_invalidated_feedback(
     reviews_dir: Path | None = None,
     output_file: Path | None = None,
     status_filter: str | None = CONST_STATUS_INVALIDATED,
+    *,
+    workspace_root: Path,
 ) -> tuple[int, Path]:
     """Append the findings matching status_filter (all when None) the dataset does not hold yet.
 
     Returns (records appended, output_path). With nothing to append, the dataset is left as it
     was, and an absent one is not created.
+
+    A given reviews directory or output path must lie under `workspace_root`, the data root or the
+    temporary directory. The command gives the directory that it runs in as `workspace_root`: the
+    working directory of the process is no root of its own (#2098).
     """
-    r_dir = _resolve_reviews_dir(reviews_dir)
-    out_path = _resolve_output_path(output_file, reviews_dir)
+    root = workspace_root.resolve()
+    r_dir = _resolve_reviews_dir(reviews_dir, root)
+    out_path = _resolve_output_path(output_file, reviews_dir, root)
     if not r_dir.exists():
         return 0, out_path
 

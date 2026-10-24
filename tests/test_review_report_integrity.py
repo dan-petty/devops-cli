@@ -22,6 +22,7 @@ from devops_cli.ai.review_schema import (
     sort_findings,
 )
 from devops_cli.security.base import ScanOutcome
+from tests.support.fakes.scanners import ScannerFake
 
 _NOW = "2026-10-02T12:00:00+00:00"
 
@@ -207,12 +208,12 @@ def scanners(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[list[Path]]]:
 
 
 @pytest.mark.usefixtures("scanners")
-def test_the_analyzer_line_comes_from_the_scan(tmp_path: Path) -> None:
+def test_the_analyzer_line_comes_from_the_scan(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     """Verify the executive summary counts an analyzer as run only when it ran, names the one on
     built-in patterns and the one that failed, and counts the scan's critical findings: one
     analyzer with a critical finding never yields "with 0 critical findings"."""
     (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
-    orchestrator = _orchestrator(tmp_path)
+    orchestrator = _orchestrator(tmp_path, tool_executor=scanner_fake)
     orchestrator._run_static_scanners(["app.py"])
 
     summary = _executive_summary(

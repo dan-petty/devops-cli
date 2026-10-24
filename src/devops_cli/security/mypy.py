@@ -21,10 +21,7 @@ from devops_cli.config.constants import (
     CONST_MYPY_CACHE_DIR_NAME,
     CONST_TOOL_TARGETS_PLACEHOLDER,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
-    DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.exceptions.sandbox import SandboxError
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
@@ -216,9 +213,9 @@ def _mypy_interpreter(checkout: Path) -> Path:
 
 
 def run_mypy_scan(
-    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
+    target: Path | list[Path],
     *,
-    tree: Path | None = None,
+    tree: Path,
     checkout_root: Path | None = None,
     python_version: str | None = None,
     timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
@@ -230,6 +227,9 @@ def run_mypy_scan(
     scanner starts its tool. The request names the interpreter as its program, and the
     environment of the interpreter as a read-only bind. The cache directory goes to mypy through
     `MYPY_CACHE_DIR`, so the command names no path but the config file and the targets.
+
+    `tree` is the reviewed tree that the caller gives: mypy starts there and reads its config from
+    there. Without `checkout_root`, the checkout is the main worktree of `tree` (#2098).
     """
     from devops_cli.dry_run.state import is_dry_run
     from devops_cli.security.tool_executor import DirectToolExecutor, ToolLimits, ToolRequest
@@ -237,14 +237,9 @@ def run_mypy_scan(
     if is_dry_run():
         return ScanOutcome(status="dry_run", findings=MypyScanner().dry_run_scan(target))
 
-    effective_tree = tree if tree is not None else Path.cwd()
-    effective_checkout = (
-        checkout_root if checkout_root is not None else main_worktree_root(effective_tree)
-    )
+    effective_checkout = checkout_root if checkout_root is not None else main_worktree_root(tree)
 
-    resolved_ver, gap_outcome = _check_mypy_preconditions(
-        effective_tree, effective_checkout, python_version
-    )
+    resolved_ver, gap_outcome = _check_mypy_preconditions(tree, effective_checkout, python_version)
     if gap_outcome is not None:
         return gap_outcome
 
@@ -254,13 +249,13 @@ def run_mypy_scan(
     if not files:
         return ScanOutcome(status="no files", findings=[])
 
-    config_file = effective_tree / "pyproject.toml"
+    config_file = tree / "pyproject.toml"
     if not config_file.is_file():
         config_file = effective_checkout / "pyproject.toml"
     config_files = (config_file.resolve(),) if config_file.is_file() else ()
 
     cache_dir = _mypy_cache_dir(
-        effective_tree, resolved_ver or "", hash_file(effective_checkout / "uv.lock") or ""
+        tree, resolved_ver or "", hash_file(effective_checkout / "uv.lock") or ""
     )
     cache_dir.mkdir(parents=True, exist_ok=True)
     request = ToolRequest(
@@ -275,7 +270,7 @@ def run_mypy_scan(
             "--no-error-summary",
             CONST_TOOL_TARGETS_PLACEHOLDER,
         ),
-        workdir=effective_tree,
+        workdir=tree,
         targets=tuple(f.resolve() for f in files),
         config_files=config_files,
         read_only_binds=(interpreter.parent.parent,),
@@ -297,5 +292,5 @@ def run_mypy_scan(
             )
     if result.timed_out:
         return ScanOutcome(status="failed", findings=[], reason=f"timed out after {timeout:g} s")
-    findings = parse_mypy_output(result.stdout + result.stderr, default_path=str(effective_tree))
+    findings = parse_mypy_output(result.stdout + result.stderr, default_path=str(tree))
     return ScanOutcome(status="ran", findings=findings)

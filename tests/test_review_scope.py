@@ -245,10 +245,9 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
         llm_client=MagicMock(),
         session_dir=tmp_path / "session",
         concurrency=1,
-        target_dir=tmp_path,
+        target_dir=head_dir,
     )
     metadata = orchestrator.run_pre_analysis_refresh(
-        target_dir=head_dir,
         files=["mod.py", "new_name.py", "added.py"],
         target_type="pr",
         target_ref="7",
@@ -367,7 +366,7 @@ def test_each_file_is_reviewed_with_its_own_pages_only() -> None:
     orchestrator.generate_consolidated_report.return_value = ({}, "report")
     pages = ["### File: data.py\n```python\nx = 1\n```", "### File: a.py\n```python\ny = 2\n```"]
 
-    _run_orchestrator_review(orchestrator, ["a.py", "data.py"], {}, None, pages)
+    _run_orchestrator_review(orchestrator, ["a.py", "data.py"], {}, pages)
 
     diff_map = orchestrator.init_per_file_payloads.call_args.kwargs["diff_text_by_file"]
     assert (diff_map["a.py"], diff_map["data.py"]) == (pages[1], pages[0])

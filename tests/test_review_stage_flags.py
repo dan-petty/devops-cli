@@ -155,7 +155,6 @@ def test_orchestrator_stage_bypasses(tmp_path) -> None:
     # 1. Skip pre-analysis
     flags_no_pre = ReviewStageFlags(pre_analysis=False)
     meta = orchestrator.run_pre_analysis_refresh(
-        target_dir=tmp_path,
         files=["main.py"],
         stage_flags=flags_no_pre,
     )
@@ -168,7 +167,6 @@ def test_orchestrator_stage_bypasses(tmp_path) -> None:
     payloads = orchestrator.init_per_file_payloads(
         [str(test_file)],
         {},
-        target_dir=tmp_path,
         stage_flags=flags_no_static,
     )
     assert len(payloads) == 1

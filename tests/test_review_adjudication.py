@@ -238,7 +238,9 @@ def test_the_exporter_labels_a_record_human_only_when_a_person_judged_it(tmp_pat
     (session / "findings.json").write_text(json.dumps(payload), encoding="utf-8")
 
     count, out = export_invalidated_feedback(
-        reviews_dir=tmp_path / "reviews", output_file=tmp_path / "dataset.jsonl"
+        reviews_dir=tmp_path / "reviews",
+        output_file=tmp_path / "dataset.jsonl",
+        workspace_root=tmp_path,
     )
     labels = [json.loads(line)["verified_by"] for line in out.read_text().splitlines()]
     bare = FeedbackRecord(

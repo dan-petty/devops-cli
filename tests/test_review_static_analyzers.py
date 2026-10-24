@@ -108,7 +108,9 @@ def test_the_summary_says_when_no_analyzer_ran() -> None:
 
 @pytest.mark.usefixtures("only_bandit")
 def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Verify the reported case end to end: console, orchestrator state and review profile."""
     (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
@@ -123,7 +125,9 @@ def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
         monkeypatch.setattr(pipeline, scan, lambda paths, *_, **__: [])
     printed: list[str] = []
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: printed.append(text))
-    orchestrator = ReviewPipelineOrchestrator(session_id="s516", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s516", target_dir=tmp_path, tool_executor=scanner_fake
+    )
 
     with profiling() as profiler:
         orchestrator._run_static_scanners(["app.py", "deploy.yaml", "Dockerfile"])
@@ -216,7 +220,9 @@ def test_the_report_says_why_an_analyzer_failed_and_the_console_points_there(
 
 @pytest.mark.usefixtures("only_bandit")
 def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Verify a token a failing scanner printed instead of JSON never reaches review.md (#915)."""
     token = "ghp_" + "Q7rT2xW9yB4nM6kP1sD8fG3hJ5lZ0cV2aE7u"
@@ -230,7 +236,9 @@ def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
     for scan in ("_scan_secrets", "_scan_semgrep"):
         monkeypatch.setattr(pipeline, scan, lambda paths, *_, **__: [])
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
-    orchestrator = ReviewPipelineOrchestrator(session_id="s915", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s915", target_dir=tmp_path, tool_executor=scanner_fake
+    )
 
     orchestrator._run_static_scanners(["app.py"])
     report = orchestrator._build_consolidated_markdown_report("s915", "now", [], [], [])
@@ -244,7 +252,9 @@ def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
 
 
 def test_a_scanner_timeout_reads_timed_out_in_the_report_and_the_profile(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Verify a scanner that ran out of time says so (#1079). Semgrep's row read `failed:
     Scanner execution failed: Command '['semgrep', 'scan', …`, cut before the timeout, and the
@@ -260,7 +270,9 @@ def test_a_scanner_timeout_reads_timed_out_in_the_report_and_the_profile(
         MagicMock(side_effect=subprocess.TimeoutExpired(["semgrep", "scan"], 300.0)),
     )
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
-    orchestrator = ReviewPipelineOrchestrator(session_id="s1079", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s1079", target_dir=tmp_path, tool_executor=scanner_fake
+    )
 
     with profiling() as profiler:
         orchestrator._run_static_scanners(["app.py"])
