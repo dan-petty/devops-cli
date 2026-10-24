@@ -26,6 +26,7 @@ spec:
     namespace: otel
   syncPolicy:
     automated:
+      enabled: true
       prune: true
       selfHeal: true
     retry:

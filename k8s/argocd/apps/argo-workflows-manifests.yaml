@@ -20,6 +20,7 @@ spec:
     namespace: argo-workflows
   syncPolicy:
     automated:
+      enabled: true
       prune: true
       selfHeal: true
     retry:

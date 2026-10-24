@@ -130,11 +130,17 @@ def test_an_application_destination_outside_its_project_is_reported() -> None:
 
 
 def test_automated_sync_policies() -> None:
+    """Every Application declares automated sync on, with prune, self-heal and retries.
+
+    Git holds `automated.enabled: true` (#1626), so it is in the parent's last-applied
+    configuration: a pause set in the UI shows as drift on the parent, and self-heal reverts it.
+    """
     apps = _all_applications()
     for name, app in apps.items():
         sync = app["spec"]["syncPolicy"]
         automated = sync.get("automated", {})
         retry = sync.get("retry", {})
+        assert automated.get("enabled") is True, f"{name} automated.enabled is not True"
         assert automated.get("prune") is True, f"{name} automated.prune is not True"
         assert automated.get("selfHeal") is True, f"{name} automated.selfHeal is not True"
         assert retry.get("limit") == 5, f"{name} retry.limit is not 5"
@@ -700,7 +706,9 @@ def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_la
 
     The chart renders `extraObjects` as written. Without `writeBackConfig` the method is
     `argocd`: Image Updater sets `spec.source.kustomize.images` on the Application it selects,
-    which the `cluster` app-of-apps leaves alone, and commits nothing.
+    which the `cluster` app-of-apps leaves alone, and commits nothing. With `forceUpdate` it
+    updates the image also when no pod in the Application's tree runs it (#1626): the CronJob is
+    a suspended template, and the Jobs `devops k8s run-job` starts are outside the tree.
     """
     values = _load_yaml(ARGOCD_DIR / "image-updater-values.yaml")
     (updater,) = values["extraObjects"]
@@ -723,7 +731,10 @@ def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_la
                                     {
                                         "alias": "service",
                                         "imageName": "ghcr.io/dan-petty/devops-cli/service:latest",
-                                        "commonUpdateSettings": {"updateStrategy": "digest"},
+                                        "commonUpdateSettings": {
+                                            "updateStrategy": "digest",
+                                            "forceUpdate": True,
+                                        },
                                     }
                                 ],
                             }
