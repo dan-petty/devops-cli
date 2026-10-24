@@ -2684,6 +2684,9 @@ CONST_VALKEY_SCHEMES: Final[frozenset[str]] = frozenset(
     {"valkey", "valkeys", "redis", "rediss", "tcp"}
 )
 
+# Schemes of a Valkey endpoint that valkey-py dials over TLS
+CONST_VALKEY_TLS_SCHEMES: Final[frozenset[str]] = frozenset({"valkeys", "rediss"})
+
 # Characters of a failed embedding reply's body quoted in its EmbeddingsError
 CONST_EMBEDDING_REPLY_EXCERPT_CHARS: Final[int] = 500
 

@@ -3,6 +3,7 @@
 **Issue**: [#1113](https://github.com/dan-petty/devops-cli/issues/1113)
 **Scope**: scope/cli, scope/security
 **Feasibility**: Checked against valkey-py 6.2.0 (released 2026-10-12, MIT, `requires-python >=3.11`, `py.typed`, no required runtime dependency on Python 3.14), installed into the project environment with `uv add`, which adds only valkey, fakeredis 2.40.0 (dev group) and redis 8.1.0 to `uv.lock`. A client over `valkey.ConnectionPool` was run on CPython 3.14.7 against fakeredis's in-memory Valkey server and against loopback sockets: a wrong password, a refused port, a silent listener, a rejected command and a dropped server each raise a valkey-py exception, and a pipeline raises it from `execute`, outside any single-command wrapper, so the client maps failures around every call it makes. `uv run mypy src` (strict) accepts the client once calls into valkey-py's unannotated functions go through one helper. `python -X importtime` shows no `valkey` module imported by `devops --help`. The checks for Part 2 ran on the release tip 3ef69850. A search of `src` and `tests` found no user outside the deleted code. The search covered the two package names, every exported symbol, the tier constants and the `ai.cache.backend` option. A search of `src` found no reader of the setting. A config file that still holds `ai.cache.backend` loads. The next save drops the key, because `AICacheConfig` ignores unknown keys. Now `devops config get ai.cache.backend` exits 1 with `Unknown config key`.
+**Update**: Item #1988 replaced the destination check. The client now resolves a name once, when it dials, vets every answer at the private egress level and dials a vetted address. `ValkeyClient` has no `allow_private_network` argument. This file records the original work.
 
 ## Description
 
@@ -55,7 +56,7 @@ Behaviour that changes with the library:
 - [x] Lower the swallowed-failure ceilings, edit the knowledge-base class name and key examples, and regenerate `docs/ENV_VARS.md` and `docs/CONFIGURATION.md`.
 - [x] Add a short note to the task files of #154, #312 and #1741, which describe the deleted code as present.
 - Not done: one validated `valkey.url` with `--url` on the `devops valkey` commands, in place of `valkey.host`, `valkey.port` and `valkey.db` (a later Part of #1113).
-- Not done: resolve a name once, check every answer and dial the checked address, under #898's resolve-and-check function (a later Part of #1113).
+- [x] Resolve a name once, check every answer and dial the checked address, under #898's resolve-and-check function. `docs/agent/tasks/task-1988-valkey-vetted-dial.md` describes this step.
 - Not done: build the k8s URLs with `httpx2.URL` (a later Part of #1113).
 - [x] Fix the dashboard INFO reading and its plaintext password. `docs/agent/tasks/task-1113-the-valkey-dashboard-panel-reads-the-real-client.md` describes this step.
 - Not done: share one fail-soft client between the embeddings, library-symbol and threat-intel caches (a later Part of #1113).
