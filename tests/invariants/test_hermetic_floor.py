@@ -302,3 +302,85 @@ def test_cli_fixture_runs_app_in_process_with_stdin(cli: Callable[..., Any]) -> 
     help_result = cli(["--help"], input="ignored\n")
     assert help_result.exit_code == 0
     assert "Usage:" in help_result.stdout
+
+
+def _tree(root: Path) -> dict[str, str | None]:
+    """Each path under `root`, relative, with a file's text, or None for a directory."""
+    return {
+        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        if path.is_file()
+        else None
+        for path in sorted(root.rglob("*"))
+    }
+
+
+def test_a_config_write_outside_the_run_fails_at_the_write_naming_the_test(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test that opens a config file for writing, renames a file onto one or removes one
+    outside its run's temporary directory fails at that operation, naming itself, also when it
+    catches the failure, and so does `save_settings` without isolation. The file stays as it was.
+    A config file under `tmp_path` and another file outside stay writable (#1921).
+
+    The files outside the inner run lie in this test's own temporary directory, so a guard that
+    lets a write through changes nothing a person keeps."""
+    outside = pytester.path / "outside"
+    (outside / "kept").mkdir(parents=True)
+    (outside / "kept" / "config.yaml").write_text("ssh:\n  key_prefix: kept\n", encoding="utf-8")
+    (outside / "checkout" / ".git").mkdir(parents=True)
+    checkout_config = "ssh:\n  key_prefix: devops_cli\n"
+    (outside / "checkout" / "config.yaml").write_text(checkout_config, encoding="utf-8")
+    before = _tree(outside)
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        f"""
+        import os
+        from pathlib import Path
+
+        from devops_cli.config.settings import load_settings, save_settings
+
+        OUTSIDE = Path({str(outside)!r})
+
+        def test_opens_for_writing():
+            (OUTSIDE / "config.yaml").write_text("ssh: null\\n", encoding="utf-8")
+
+        def test_renames_onto(tmp_path):
+            staged = tmp_path / "staged.yaml"
+            staged.write_text("ssh: null\\n", encoding="utf-8")
+            os.replace(staged, OUTSIDE / ".devops.yaml")
+
+        def test_removes():
+            os.remove(OUTSIDE / "kept" / "config.yaml")
+
+        def test_catches_the_failure():
+            try:
+                (OUTSIDE / "kept" / "config.yaml").write_text("ssh: null\\n", encoding="utf-8")
+            except Exception:
+                pass
+
+        def test_saves_settings_without_isolation(monkeypatch):
+            monkeypatch.delenv("DEVOPS_CLI_CONFIG")
+            monkeypatch.chdir(OUTSIDE / "checkout")
+            save_settings(load_settings())
+
+        def test_writes_a_config_file_under_tmp_path(tmp_path):
+            (tmp_path / "config.yaml").write_text("ssh: null\\n", encoding="utf-8")
+
+        def test_writes_another_file_outside():
+            (OUTSIDE / "notes.txt").write_text("notes\\n", encoding="utf-8")
+        """,
+    )
+    result.assert_outcomes(passed=2, failed=5, errors=5)
+    output = result.stdout.str()
+    refused = [line for line in output.splitlines() if "config write outside the run's" in line]
+    failing = {
+        "test_opens_for_writing",
+        "test_renames_onto",
+        "test_removes",
+        "test_catches_the_failure",
+        "test_saves_settings_without_isolation",
+    }
+    named = {test for test in failing for line in refused if f"::{test} (call)" in line}
+    assert named == failing
+    assert _tree(outside) == {**before, "notes.txt": "notes\n"}

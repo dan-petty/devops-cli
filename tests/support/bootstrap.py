@@ -32,18 +32,29 @@ def is_xdist_worker(config: pytest.Config) -> bool:
     return getattr(config, "workerinput", None) is not None
 
 
-def isolate_home(config: pytest.Config) -> None:
-    """Isolate HOME into an empty directory under pytest basetemp, with a git identity on
-    `example.com`, and record it for the workspace tripwire's worker-home check (#1311)."""
+def _basetemp(config: pytest.Config) -> Path:
+    """pytest's basetemp for this process, made on first use."""
     factory = getattr(config, "_tmp_path_factory", None)
     if factory is None:
         from _pytest.tmpdir import TempPathFactory
 
         factory = TempPathFactory.from_config(config, _ispytest=True)
         config._tmp_path_factory = factory  # type: ignore[attr-defined]
+    return factory.getbasetemp()
 
-    basetemp = factory.getbasetemp()
-    is_worker = is_xdist_worker(config)
+
+def run_temp_root(config: pytest.Config) -> Path:
+    """The run's temporary directory, which holds the temporary directory of every test in the
+    run: pytest's basetemp, and for an xdist worker the controller's, which holds the workers'
+    (#1311, #1921)."""
+    basetemp = _basetemp(config)
+    return basetemp.parent if is_xdist_worker(config) else basetemp
+
+
+def isolate_home(config: pytest.Config) -> None:
+    """Isolate HOME into an empty directory under pytest basetemp, with a git identity on
+    `example.com`, and record it for the workspace tripwire's worker-home check (#1311)."""
+    basetemp = _basetemp(config)
     home_dir = basetemp / "home"
     home_dir.mkdir(parents=True, exist_ok=True)
     gitconfig = home_dir / ".gitconfig"
@@ -54,7 +65,7 @@ def isolate_home(config: pytest.Config) -> None:
         )
     os.environ["HOME"] = str(home_dir)
 
-    shared = basetemp.parent if is_worker else basetemp
+    shared = run_temp_root(config)
     config._tripwire_basetemp = shared  # type: ignore[attr-defined]
     reg = shared / ".worker_homes"
     try:
