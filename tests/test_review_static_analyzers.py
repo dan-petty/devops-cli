@@ -19,11 +19,14 @@ import pytest
 from devops_cli.ai.review import pipeline
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
+    _compute_coverage_matrix,
+    _resolve_effective_tool_states,
     _scan_kubernetes_manifests,
     _static_analyzer_states,
     _static_analyzer_summary,
 )
 from devops_cli.ai.review.profile import ReviewProfile, profiling, summarize_profiles
+from devops_cli.ai.review_schema import Finding
 from devops_cli.commands import review as review_commands
 from devops_cli.review.session import ReviewSession
 from devops_cli.security import is_kubernetes_manifest
@@ -448,3 +451,99 @@ def test_a_review_warns_when_the_cached_registry_ruleset_is_older_than_a_day_and
         "! The cached registry rules p/default are 25 hours old, and the scan uses them. "
         "Run `devops review rules fetch --ruleset p/default` to refresh them.\n"
     ) in capsys.readouterr().out
+
+
+def test_two_manifest_scan_where_one_fails_admits_good_findings_and_records_per_file_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed manifest gets failed(<reason>) in its row; the tool reads 'ran; N of M files failed' (#1140)."""
+    good_yaml = tmp_path / "good.yaml"
+    bad_yaml = tmp_path / "bad.yaml"
+    good_yaml.write_text(
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: good\n", encoding="utf-8"
+    )
+    bad_yaml.write_text(
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: bad\n", encoding="utf-8"
+    )
+
+    good_finding = Finding(
+        severity="HIGH",
+        location=f"{good_yaml}:1",
+        title="[privileged-container] Privileged container",
+        description="Container runs as privileged",
+        fix="Set securityContext.privileged to false",
+        confidence_score=None,
+    )
+
+    def _mock_kl(path: Path, **_: Any) -> ScanOutcome:
+        if path.name == "good.yaml":
+            return ScanOutcome("ran", [good_finding])
+        return ScanOutcome("failed", [], "Scanner execution failed: exit 1")
+
+    monkeypatch.setattr("devops_cli.security.kubelinter.run_kubelinter_scan", _mock_kl)
+    monkeypatch.setattr(
+        "devops_cli.security.pluto.run_pluto_scan", lambda *_, **__: ScanOutcome("ran")
+    )
+
+    outcomes: dict[str, Any] = {}
+    findings = _scan_kubernetes_manifests([good_yaml, bad_yaml], outcomes=outcomes)
+
+    assert len(findings) == 1
+    assert outcomes["Kube-linter"].status == "ran; 1 of 2 files failed"
+    assert outcomes["Kube-linter"].reason == "Scanner execution failed: exit 1"
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1140", target_dir=tmp_path)
+    orchestrator._record_static_analyzers(
+        {"yaml": [good_yaml, bad_yaml], "python": [], "container": [], "any": []},
+        observed_outcomes=outcomes,
+    )
+
+    assert orchestrator.static_analyzers["Kube-linter"] == "ran; 1 of 2 files failed"
+    assert orchestrator.static_analyzer_reasons["Kube-linter"] == "Scanner execution failed: exit 1"
+
+    report = orchestrator._build_consolidated_markdown_report("s1140", "now", [], [], [])
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert "| Kube-linter | ran; 1 of 2 files failed: Scanner execution failed: exit 1 |" in section
+
+    tools = ["Kube-linter"]
+    tool_effective_states = _resolve_effective_tool_states(
+        orchestrator.static_analyzers,
+        orchestrator.static_analyzer_reasons,
+        orchestrator.static_analyzer_unscanned,
+    )
+    matrix = _compute_coverage_matrix(
+        tools,
+        ["good.yaml", "bad.yaml"],
+        lambda f: tmp_path / f,
+        tool_effective_states,
+        {},
+        unscanned=orchestrator.static_analyzer_unscanned,
+        failed_files=orchestrator.static_analyzer_failed_files,
+    )
+    assert matrix["Kube-linter"]["good.yaml"] == "scanned"
+    assert matrix["Kube-linter"]["bad.yaml"] == "failed(Scanner execution failed: exit 1)"
+
+
+def test_manifest_scan_with_twenty_one_files_and_two_failures_records_fractional_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Status is recorded per file: 'ran; 2 of 21 files failed: <reason>' (#1140)."""
+    manifests = [tmp_path / f"manifest_{i}.yaml" for i in range(21)]
+    for m in manifests:
+        m.write_text("apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8")
+
+    def _mock_kl(path: Path, **_: Any) -> ScanOutcome:
+        if path.name in ("manifest_0.yaml", "manifest_1.yaml"):
+            return ScanOutcome("failed", [], "Scanner execution failed: exit 1")
+        return ScanOutcome("ran", [])
+
+    monkeypatch.setattr("devops_cli.security.kubelinter.run_kubelinter_scan", _mock_kl)
+    monkeypatch.setattr(
+        "devops_cli.security.pluto.run_pluto_scan", lambda *_, **__: ScanOutcome("ran")
+    )
+
+    outcomes: dict[str, Any] = {}
+    _scan_kubernetes_manifests(manifests, outcomes=outcomes)
+
+    assert outcomes["Kube-linter"].status == "ran; 2 of 21 files failed"
+    assert outcomes["Kube-linter"].reason == "Scanner execution failed: exit 1"

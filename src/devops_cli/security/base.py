@@ -99,6 +99,8 @@ class ScanOutcome(list[Finding]):
         findings: list[Finding] | None = None,
         reason: str = "",
         unscanned: Mapping[str, str] | None = None,
+        failed_files: Mapping[str, str] | None = None,
+        file_statuses: Mapping[str, str] | None = None,
     ) -> None:
         items = list(findings) if findings is not None else []
         super().__init__(items)
@@ -106,6 +108,8 @@ class ScanOutcome(list[Finding]):
         self.findings: list[Finding] = items
         self.reason: str = masked_reason(reason)
         self.unscanned: dict[str, str] = dict(unscanned or {})
+        self.failed_files: dict[str, str] = dict(failed_files or {})
+        self.file_statuses: dict[str, str] = dict(file_statuses or {})
         # When the scanner started and finished, in UTC; set by `BaseSecurityScanner.scan`.
         self.started_utc: str | None = None
         self.ended_utc: str | None = None
@@ -113,16 +117,26 @@ class ScanOutcome(list[Finding]):
     def __repr__(self) -> str:
         return (
             f"ScanOutcome(status={self.status!r}, findings={self.findings!r}, "
-            f"reason={self.reason!r}, unscanned={self.unscanned!r})"
+            f"reason={self.reason!r}, unscanned={self.unscanned!r}, "
+            f"failed_files={self.failed_files!r}, file_statuses={self.file_statuses!r})"
         )
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, ScanOutcome):
-            return (self.status, self.findings, self.reason, self.unscanned) == (
+            return (
+                self.status,
+                self.findings,
+                self.reason,
+                self.unscanned,
+                self.failed_files,
+                self.file_statuses,
+            ) == (
                 other.status,
                 other.findings,
                 other.reason,
                 other.unscanned,
+                other.failed_files,
+                other.file_statuses,
             )
         return super().__eq__(other)
 
@@ -139,7 +153,20 @@ def merge_outcomes(outcomes: list[ScanOutcome]) -> ScanOutcome:
     findings = [f for o in outcomes for f in o.findings]
     reasons = dict.fromkeys(o.reason for o in outcomes if o.reason)
     unscanned = {path: why for o in outcomes for path, why in o.unscanned.items()}
-    merged = ScanOutcome(status, findings, "; ".join(reasons), unscanned)
+    failed_files = {
+        path: why for o in outcomes for path, why in getattr(o, "failed_files", {}).items()
+    }
+    file_statuses = {
+        path: st for o in outcomes for path, st in getattr(o, "file_statuses", {}).items()
+    }
+    merged = ScanOutcome(
+        status,
+        findings,
+        "; ".join(reasons),
+        unscanned,
+        failed_files=failed_files,
+        file_statuses=file_statuses,
+    )
     starts = [o.started_utc for o in outcomes if o.started_utc]
     ends = [o.ended_utc for o in outcomes if o.ended_utc]
     merged.started_utc, merged.ended_utc = min(starts, default=None), max(ends, default=None)

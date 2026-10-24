@@ -504,3 +504,55 @@ def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
         "Zero findings identified." in comment,
         "- **Analyzers:** None" in comment,
     ) == (True, True)
+
+
+def test_branch_review_excludes_deleted_files_from_pages_and_targets(tmp_path: Path) -> None:
+    """A branch review leaves the files it deletes out of persona pages and scanners (#1140)."""
+    import subprocess
+
+    from devops_cli.ai.review.runner import _prepare_branch_content
+    from devops_cli.review.diff import diff_file_names
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "Test Runner"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "runner@example.com"],
+        check=True,
+        capture_output=True,
+    )
+
+    (repo / "keep.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
+    (repo / "deleted.yaml").write_text("apiVersion: v1\nkind: Secret\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True
+    )
+
+    subprocess.run(
+        ["git", "-C", str(repo), "checkout", "-b", "feat/delete-manifest"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "-C", str(repo), "rm", "deleted.yaml"], check=True, capture_output=True)
+    (repo / "keep.yaml").write_text(
+        "apiVersion: v1\nkind: ConfigMap\ndata:\n  key: val\n", encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-am", "delete manifest"],
+        check=True,
+        capture_output=True,
+    )
+
+    pages, _title, _target_branch, _base_rev = _prepare_branch_content(
+        "feat/delete-manifest", "main", repo, working_directory=repo
+    )
+
+    page_files = [f for p in pages for f in diff_file_names(p)]
+    assert "deleted.yaml" not in page_files
+    assert "keep.yaml" in page_files

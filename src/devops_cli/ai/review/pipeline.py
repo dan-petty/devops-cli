@@ -139,6 +139,7 @@ from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadP
 from devops_cli.telemetry import trace_span
 
 if TYPE_CHECKING:
+    from devops_cli.security.base import ScanOutcome
     from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -647,9 +648,10 @@ def _scan_kubernetes_manifests(
 
     manifests = [yp for yp in yaml_paths if _is_scannable_manifest(yp)]
     findings: list[SavedFinding] = []
+    total_manifests = len(manifests)
     for yp in manifests:
         kl = run_kubelinter_scan(yp, isolated=True, tool_executor=tool_executor)
-        _observe_outcome(outcomes, "Kube-linter", kl)
+        _observe_outcome(outcomes, "Kube-linter", kl, file_path=yp, total_files=total_manifests)
         if kl:
             findings.extend(_wrap_static_findings(kl, tool="kube-linter"))
 
@@ -661,7 +663,7 @@ def _scan_kubernetes_manifests(
             require_version=require_kubernetes_version,
             tool_executor=tool_executor,
         )
-        _observe_outcome(outcomes, "Pluto", pl)
+        _observe_outcome(outcomes, "Pluto", pl, file_path=yp, total_files=total_manifests)
         if pl:
             findings.extend(_wrap_static_findings(pl, tool="pluto"))
     return findings
@@ -677,11 +679,12 @@ def _scan_container_and_lockfiles(
     from devops_cli.security.trivy import run_trivy_scan
 
     findings: list[SavedFinding] = []
+    total_containers = len(container_paths)
     for dp in container_paths:
         t_findings = run_trivy_scan(
             dp, scan_type="config", isolated=True, tool_executor=tool_executor
         )
-        _observe_outcome(outcomes, "Trivy", t_findings)
+        _observe_outcome(outcomes, "Trivy", t_findings, file_path=dp, total_files=total_containers)
         if t_findings:
             findings.extend(_wrap_static_findings(t_findings, tool="trivy"))
     return findings
@@ -1016,6 +1019,8 @@ def _static_analyzer_state_from_outcome(outcome: Any) -> str:
     status = getattr(outcome, "status", None)
     if status == "ran":
         return ANALYZER_RAN
+    if isinstance(status, str) and status.startswith("ran; "):
+        return status
     if status == "built-in patterns":
         return ANALYZER_BUILTIN_PATTERNS
     if status in ("unavailable", "not installed"):
@@ -1065,7 +1070,7 @@ def _static_analyzer_reasons(
     reasons: dict[str, str] = {}
     for name, state in states.items():
         reason = getattr(outcomes.get(name), "reason", "")
-        if state in (ANALYZER_FAILED, "coverage_gap") and reason:
+        if (state in (ANALYZER_FAILED, "coverage_gap") or state.startswith("ran; ")) and reason:
             reasons[name] = str(reason)
     return reasons
 
@@ -1078,6 +1083,17 @@ def _static_analyzer_unscanned(
         name: dict(unscanned)
         for name, outcome in (observed_outcomes or {}).items()
         if (unscanned := getattr(outcome, "unscanned", None))
+    }
+
+
+def _static_analyzer_failed_files(
+    observed_outcomes: dict[str, Any] | None = None,
+) -> dict[str, dict[str, str]]:
+    """The files each analyzer's scan failed on, with the reason, for the coverage matrix (#1140)."""
+    return {
+        name: dict(failed_files)
+        for name, outcome in (observed_outcomes or {}).items()
+        if (failed_files := getattr(outcome, "failed_files", None))
     }
 
 
@@ -1113,7 +1129,7 @@ def _resolve_single_tool_state(state: str, reason: str | None, files_left_out: b
         return f"failed({reason})" if reason else "failed"
     if state == ANALYZER_NOT_INSTALLED:
         return "not installed"
-    if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS):
+    if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS) or state.startswith("ran; "):
         return "ran"
     return state
 
@@ -1144,12 +1160,33 @@ def _is_tool_container_or_lockfile_match(resolved_path: Path) -> bool:
     ) or resolved_path.suffix in (".lock", ".lockb")
 
 
+def _lookup_file_reason(
+    f: str, resolved_path: Path, failure_map: Mapping[str, str] | None
+) -> str | None:
+    """Look up failure reason for a file from a failure map by exact, resolved, or name match."""
+    if not failure_map:
+        return None
+    if f in failure_map:
+        return failure_map[f]
+    resolved_str = str(resolved_path)
+    if resolved_str in failure_map:
+        return failure_map[resolved_str]
+    name = resolved_path.name
+    if name in failure_map:
+        return failure_map[name]
+    for key, reason in failure_map.items():
+        if Path(key).name == name or key.endswith("/" + f) or f.endswith("/" + key):
+            return reason
+    return None
+
+
 def _resolve_tool_file_status(
     tool: str,
     resolved_path: Path,
     tool_state: str | None,
     path_classes: Mapping[str, Sequence[str]],
     not_scanned: str | None = None,
+    failed_reason: str | None = None,
 ) -> str:
     """Resolve status of a single (tool, file) pairing; `not_scanned` is the reason the tool left
     the file out of a scan that ran (#1144)."""
@@ -1164,6 +1201,9 @@ def _resolve_tool_file_status(
 
     if tool == "Trivy" and not _is_tool_container_or_lockfile_match(resolved_path):
         return "skipped(not container or lockfile)"
+
+    if failed_reason is not None:
+        return f"failed({failed_reason})" if failed_reason else "failed"
 
     if not_scanned is not None:
         return f"not scanned({not_scanned})"
@@ -1181,6 +1221,7 @@ def _compute_coverage_matrix(
     tool_states: dict[str, str],
     path_classes: Mapping[str, Sequence[str]],
     unscanned: Mapping[str, Mapping[str, str]] | None = None,
+    failed_files: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, dict[str, str]]:
     """Compute (tool, file) coverage matrix recording scanned, skipped, failed, not scanned, etc.
 
@@ -1189,9 +1230,15 @@ def _compute_coverage_matrix(
     for tool in tools:
         tool_state = tool_states.get(tool)
         left_out = (unscanned or {}).get(tool, {})
+        left_failed = (failed_files or {}).get(tool, {})
         matrix[tool] = {
             f: _resolve_tool_file_status(
-                tool, resolve_fn(f), tool_state, path_classes, left_out.get(f)
+                tool,
+                resolve_fn(f),
+                tool_state,
+                path_classes,
+                left_out.get(f),
+                _lookup_file_reason(f, resolve_fn(f), left_failed),
             )
             for f in files
         }
@@ -1203,7 +1250,7 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
     ran = [
         f"{name} (built-in patterns)" if state == ANALYZER_BUILTIN_PATTERNS else name
         for name, state in states.items()
-        if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS)
+        if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS) or state.startswith("ran; ")
     ]
     missing = [name for name, state in states.items() if state == ANALYZER_NOT_INSTALLED]
     failed = [name for name, state in states.items() if state == ANALYZER_FAILED]
@@ -1249,7 +1296,11 @@ def _static_analysis_line(states: dict[str, str], severities: Counter[str]) -> s
     named: defaultdict[str, list[str]] = defaultdict(list)
     for name, state in sorted(states.items()):
         named[state].append(name)
-    ran = named[ANALYZER_RAN]
+    ran = [
+        name
+        for name, state in sorted(states.items())
+        if state == ANALYZER_RAN or state.startswith("ran; ")
+    ]
     sentences = [
         f"**Static Security Analysis**: {len(ran)} analyzer(s) ran ({', '.join(ran)})."
         if ran
@@ -1316,14 +1367,127 @@ def _run_seconds(outcome: Any) -> float | None:
     return (datetime.fromisoformat(ended) - datetime.fromisoformat(started)).total_seconds()
 
 
-def _observe_outcome(outcomes: dict[str, Any] | None, name: str, outcome: Any) -> None:
-    """Keep an analyzer's outcome for the report, its first or a failed one, and add the time
-    the scan ran to the review's profile."""
-    if outcomes is not None and (
-        name not in outcomes
-        or getattr(outcome, "status", None) in (ANALYZER_FAILED, "coverage_gap")
-    ):
-        outcomes[name] = outcome
+def _compute_multi_file_status(total: int, failed_count: int) -> str:
+    """Compute scanner status across multiple files: 'ran', 'ran; N of M files failed', or 'failed' (#1140)."""
+    if failed_count == 0:
+        return ANALYZER_RAN
+    if failed_count < total:
+        return f"ran; {failed_count} of {total} files failed"
+    return ANALYZER_FAILED
+
+
+def _extract_file_failures(
+    outcome: Any, path_str: str, failed_files: dict[str, str], reasons: list[str]
+) -> None:
+    """Extract failure information for a file outcome into failed_files and reasons (#1140)."""
+    st = getattr(outcome, "status", None) or "ran"
+    reason = getattr(outcome, "reason", "")
+    if st == ANALYZER_FAILED:
+        failed_files[path_str] = reason or "failed"
+        if reason and reason not in reasons:
+            reasons.append(reason)
+    elif getattr(outcome, "failed_files", None):
+        for fp, r in outcome.failed_files.items():
+            failed_files[str(fp)] = r
+            if r and r not in reasons:
+                reasons.append(r)
+
+
+def _merge_outcome_payload(existing: ScanOutcome, outcome: Any) -> None:
+    """Merge findings and timestamps from an outcome into existing ScanOutcome (#1140)."""
+    if isinstance(outcome, list):
+        for f in outcome:
+            if f not in existing.findings:
+                existing.findings.append(f)
+                existing.append(f)
+    started = getattr(outcome, "started_utc", None)
+    ended = getattr(outcome, "ended_utc", None)
+    if started:
+        existing.started_utc = (
+            min(existing.started_utc, started) if existing.started_utc else started
+        )
+    if ended:
+        existing.ended_utc = max(existing.ended_utc, ended) if existing.ended_utc else ended
+
+
+def _init_aggregated_outcome(
+    outcome: Any,
+    file_path: Path | str,
+    total_files: int,
+) -> ScanOutcome:
+    """Initialize an aggregated ScanOutcome from the first observed file outcome (#1140)."""
+    from devops_cli.security.base import ScanOutcome
+
+    path_str = str(file_path)
+    failed_files: dict[str, str] = {}
+    reasons: list[str] = []
+    _extract_file_failures(outcome, path_str, failed_files, reasons)
+
+    findings = (
+        list(getattr(outcome, "findings", []))
+        if hasattr(outcome, "findings")
+        else (list(outcome) if isinstance(outcome, list) else [])
+    )
+    res = ScanOutcome(
+        status=_compute_multi_file_status(total_files, len(failed_files)),
+        findings=findings,
+        reason="; ".join(reasons),
+        failed_files=failed_files,
+        file_statuses={path_str: getattr(outcome, "status", None) or "ran"},
+    )
+    res.started_utc = getattr(outcome, "started_utc", None)
+    res.ended_utc = getattr(outcome, "ended_utc", None)
+    return res
+
+
+def _update_aggregated_outcome(
+    existing: ScanOutcome,
+    outcome: Any,
+    file_path: Path | str,
+    total_files: int,
+) -> None:
+    """Fold an additional file scan outcome into an existing aggregated ScanOutcome (#1140)."""
+    path_str = str(file_path)
+    reasons = [r for r in existing.reason.split("; ") if r]
+
+    existing.file_statuses[path_str] = getattr(outcome, "status", None) or "ran"
+    _extract_file_failures(outcome, path_str, existing.failed_files, reasons)
+
+    existing.status = _compute_multi_file_status(total_files, len(existing.failed_files))
+    existing.reason = "; ".join(reasons)
+    _merge_outcome_payload(existing, outcome)
+
+
+def _observe_outcome(
+    outcomes: dict[str, Any] | None,
+    name: str,
+    outcome: Any,
+    file_path: Path | str | None = None,
+    total_files: int | None = None,
+) -> None:
+    """Keep an analyzer's outcome for the report, recording per-file status when provided,
+    and add the time the scan ran to the review's profile (#1140)."""
+    if outcomes is not None:
+        if file_path is not None:
+            from devops_cli.security.base import ScanOutcome
+
+            existing = outcomes.get(name)
+            tf = (
+                total_files
+                if total_files is not None
+                else (len(getattr(existing, "_file_statuses", {})) + 1 if existing else 1)
+            )
+            if existing is None or not isinstance(existing, ScanOutcome):
+                outcomes[name] = _init_aggregated_outcome(outcome, file_path, tf)
+            else:
+                _update_aggregated_outcome(existing, outcome, file_path, tf)
+        else:
+            if name not in outcomes or getattr(outcome, "status", None) in (
+                ANALYZER_FAILED,
+                "coverage_gap",
+            ):
+                outcomes[name] = outcome
+
     seconds = _run_seconds(outcome)
     if seconds is not None and (profiler := active_profiler()):
         profiler.add_static_analyzer_seconds(name, seconds)
@@ -1722,7 +1886,7 @@ def _scan_golangci_lint(
     """Execute golangci-lint once per nearest go.mod root and return wrapped findings (#603)."""
     if not go_paths:
         return []
-    from devops_cli.security.base import ScanOutcome, merge_outcomes
+    from devops_cli.security.base import merge_outcomes
     from devops_cli.security.golangci_lint import GolangciLintScanner
 
     roots: dict[Path, list[Path]] = {}
@@ -2142,6 +2306,7 @@ class ReviewPipelineOrchestrator:
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self.static_analyzer_reasons: dict[str, str] = {}
+        self.static_analyzer_failed_files: dict[str, dict[str, str]] = {}
         # The files each analyzer's scan left out, with the reason (#1144).
         self.static_analyzer_unscanned: dict[str, dict[str, str]] = {}
         # The static analyzers' findings by severity, for the report's analyzer line.
@@ -2451,6 +2616,7 @@ class ReviewPipelineOrchestrator:
                     tool_effective_states,
                     self.path_classes,
                     self.static_analyzer_unscanned,
+                    failed_files=self.static_analyzer_failed_files,
                 )
                 active_prof = active_profiler()
                 if active_prof:
@@ -2572,10 +2738,13 @@ class ReviewPipelineOrchestrator:
             self.static_analyzers, observed_outcomes
         )
         self.static_analyzer_unscanned = _static_analyzer_unscanned(observed_outcomes)
+        self.static_analyzer_failed_files = _static_analyzer_failed_files(observed_outcomes)
         for tool_key, analyzer_name in CONST_CANARY_TOOL_TO_ANALYZER.items():
-            if self.canary_results.get(tool_key) is False and self.static_analyzers.get(
-                analyzer_name
-            ) in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS):
+            if self.canary_results.get(tool_key) is False and (
+                self.static_analyzers.get(analyzer_name)
+                in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS)
+                or (self.static_analyzers.get(analyzer_name) or "").startswith("ran; ")
+            ):
                 self.static_analyzers[analyzer_name] = ANALYZER_FAILED
                 self.static_analyzer_reasons[analyzer_name] = "canary failed"
         if profiler := active_profiler():
