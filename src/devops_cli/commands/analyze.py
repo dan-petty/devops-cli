@@ -313,7 +313,7 @@ def analyze_path(  # noqa: C901
             from devops_cli.config.settings import load_settings
 
             settings = load_settings()
-            ai_client = get_llm_client(settings=settings)
+            ai_client = get_llm_client("metadata", settings=settings)
             print_info(
                 f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
                 prefix=False,
@@ -408,7 +408,7 @@ def analyze_branch(
             from devops_cli.config.settings import load_settings
 
             settings = load_settings()
-            ai_client = get_llm_client(settings=settings)
+            ai_client = get_llm_client("metadata", settings=settings)
             print_info(
                 f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
                 prefix=False,
@@ -502,7 +502,7 @@ def analyze_pr(  # noqa: C901
             from devops_cli.ai.client import get_llm_client
 
             settings = load_settings()
-            ai_client = get_llm_client(settings=settings)
+            ai_client = get_llm_client("metadata", settings=settings)
             print_info(
                 f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
                 prefix=False,
