@@ -72,7 +72,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`grafana_dashboards_list`](#grafana-dashboards-list) | `true` | List all dashboards. |
 | [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | `true` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
-| [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
+| [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress. |
 | [`k8s_chaos`](#k8s-chaos) | `false` | Run resilience and chaos experiments against Kubernetes workloads. |
 | [`k8s_create_tls_secret`](#k8s-create-tls-secret) | `false` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 | [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.  Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything. |
@@ -1148,7 +1148,7 @@ Sanitize active K8s/Minikube cluster resource health using Derailed Popeye.
 
 ### `k8s_bootstrap`
 
-Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack.
+Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress.
 
 **Annotations:** `readOnlyHint: false`
 

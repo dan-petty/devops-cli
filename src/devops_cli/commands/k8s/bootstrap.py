@@ -45,7 +45,7 @@ def bootstrap(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
+    """Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress."""
     if not runtime._minikube_running():
         if auto_start:
             print_info(MESSAGES.k8s.starting_minikube, prefix=False)

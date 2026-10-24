@@ -837,7 +837,7 @@ devops k8s logs [OPTIONS] <pod> <query_arg>
 
 ### `devops k8s bootstrap`
 
-**Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack.**
+**Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress.**
 
 ```bash
 devops k8s bootstrap [OPTIONS]

@@ -387,11 +387,13 @@ class K8sMessages:
     switched_context: str = "✓ Switched to Kubernetes context: [bold green]{context}[/bold green]"
     no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."
     cluster_not_reachable: str = "Kubernetes cluster is not reachable."
-    start_minikube_tip: str = "Start it with: [cyan]minikube start --driver=docker[/cyan]"
+    start_minikube_tip: str = (
+        "Start it with: [cyan]minikube start --driver=docker --cni=calico[/cyan]"
+    )
     starting_minikube: str = "[bold cyan]Starting minikube cluster...[/bold cyan]"
     failed_start_minikube: str = "Failed to start minikube cluster."
     minikube_not_running: str = (
-        "minikube is not running. Start with: minikube start --driver=docker"
+        "minikube is not running. Start with: minikube start --driver=docker --cni=calico"
     )
     adding_helm_repos: str = "[bold]Adding Helm repositories...[/bold]"
     removing_stack_namespaces: str = "[bold]Removing all stack namespaces...[/bold]"
