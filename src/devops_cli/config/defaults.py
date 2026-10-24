@@ -210,6 +210,17 @@ DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT: float = 120.0
 DEFAULT_RAG_EMBEDDING_BATCH_SIZE: int = 32  # Dynamic batch starting size
 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE: int = 1  # Smallest batch: one text, whose failure raises
 DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS: float = 2.0  # Target latency ceiling
+# A batch counts toward an increase of the batch size only when it takes at most this share of
+# the latency threshold. One increase step adds 2 texts (CONST_AIMD_ADDITIVE_INCREASE_STEP), so
+# for a size of 2 texts or more, the new size is not more than two times the old size. When the
+# latency of a batch increases at most linearly with its size, a size whose batch takes half of
+# the threshold or less can become two times as large and stay at or below the threshold.
+DEFAULT_RAG_EMBEDDING_INCREASE_LATENCY_RATIO: float = 0.5
+# After each change of the batch size, a fast batch counts toward an increase only after this
+# time. A direct Ollama node gives its reply or its read timeout for a request in the default
+# read timeout of a node (DEFAULT_RAG_EMBEDDING_TIMEOUT) or less. Thus no request that was sent
+# before the change counts toward the next increase.
+DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS: float = DEFAULT_RAG_EMBEDDING_TIMEOUT
 DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS: float = 0.5  # Base delay for exponential backoff
 DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS: float = 2.0  # Max delay cap for backoff
 DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS: int = 604800  # 7 days TTL for cached chunk embeddings

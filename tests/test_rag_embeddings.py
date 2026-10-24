@@ -20,6 +20,7 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import defaults
 from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.settings import AIConfig
+from tests.support.fakes.clock import ClockFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -518,37 +519,6 @@ def test_calculate_backoff_delay_bounded() -> None:
 
     d2 = _calculate_backoff_delay(2, base=0.5, max_delay=2.0)
     assert 2.0 <= d2 <= 2.25  # capped at 2.0 + jitter
-
-
-def test_adaptive_batch_sizing_halves_on_timeout() -> None:
-    """Verify batch size dynamically halves from 32 down to 16, 8, 4 on timeouts."""
-    ai_cfg = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
-    engine = EmbeddingsEngine(ai_cfg, batch_size=32)
-    assert engine._current_batch_size == 32
-
-    assert engine._halve_batch_size() == 16
-    assert engine._current_batch_size == 16
-
-    assert engine._halve_batch_size() == 8
-    assert engine._halve_batch_size() == 4
-    assert engine._halve_batch_size() == 2
-    assert engine._halve_batch_size() == 1
-    # Cannot drop below minimum of 1
-    assert engine._halve_batch_size() == 1
-
-
-def test_adaptive_batch_sizing_halves_on_latency_degradation() -> None:
-    """Verify batch size halves when observed latency exceeds latency ceiling."""
-    ai_cfg = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
-    engine = EmbeddingsEngine(ai_cfg, batch_size=32)
-
-    # Within threshold (<= 2.0s): batch size stays unchanged
-    engine._record_batch_latency(1.2)
-    assert engine._current_batch_size == 32
-
-    # Exceeding threshold (> 2.0s): triggers halving
-    engine._record_batch_latency(2.8)
-    assert engine._current_batch_size == 16
 
 
 def test_sub_batch_splitting(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1456,3 +1426,168 @@ def test_a_configured_embedding_timeout_is_the_read_timeout_of_a_gateway_batch(
     _gateway_engine(ai_cfg).embed_texts(["one text"])
 
     assert gateway.read_timeouts == [10.0]
+
+
+# =============================================================================
+# Tests: a slow batch halves the batch size once for the size it was sent at, and the size grows
+# back only after a cooldown and below a margin (#2072)
+# =============================================================================
+
+_SLOW_BATCH_SECONDS = defaults.DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS + 1.0
+
+
+class _TimedNode:
+    """The replies of one Ollama node, each taking the next of `seconds` on the fake clock.
+
+    The last of `seconds` repeats for every later reply. A test sets `seconds` again between calls.
+    """
+
+    def __init__(self, clock: ClockFake, *seconds: float) -> None:
+        self.clock = clock
+        self.seconds = list(seconds)
+
+    def reply(self, request: httpx2.Request) -> httpx2.Response:
+        taken = self.seconds.pop(0) if len(self.seconds) > 1 else self.seconds[0]
+        self.clock.shift(taken)
+        return _ollama_reply(request)
+
+
+def _batch_sizes(
+    engine: EmbeddingsEngine, sent: list[httpx2.Request], call: int, texts: int
+) -> list[int]:
+    """Embed `texts` new texts in one call, and give the size of each batch it sent, largest first."""
+    sent.clear()
+    engine.embed_texts([f"call {call} text {index}" for index in range(texts)])
+    return sorted((len(_inputs(request)) for request in sent), reverse=True)
+
+
+def test_parallel_slow_batches_halve_the_batch_size_once_for_the_size_they_were_sent_at(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """A slow batch halves the batch size only when it holds no more texts than the size in use.
+
+    Each call cuts eight texts at the size in use, and two workers send the batches in parallel.
+    Each reply takes longer than the latency threshold. The first slow batch of a call halves the
+    size. The other batches of that call hold more texts than the halved size, so they do not
+    halve it again. At one text, the size stays at one text.
+    """
+    sent = _serve(monkeypatch, _TimedNode(clock, _SLOW_BATCH_SECONDS).reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=4)
+
+    sizes = [_batch_sizes(engine, sent, call, 8) for call in range(4)]
+
+    assert sizes == [[4, 4], [2, 2, 2, 2], [1] * 8, [1] * 8]
+
+
+def test_parallel_batches_that_time_out_on_an_ollama_node_halve_the_batch_size_once(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """Two batches of four texts time out in parallel on the one node, and the size halves once.
+
+    The two batches wait their backoff at the same time, so both timeouts come before a reply.
+    Then the engine sends each batch again as two halves, and the node replies at once. These
+    replies come in the cooldown, so the size stays at two texts for the next call.
+    """
+
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        texts = _inputs(request)
+        if len(texts) == 4 and texts[0].startswith("call 0 "):
+            raise httpx2.ReadTimeout("timed out", request=request)
+        return _ollama_reply(request)
+
+    sent = _serve(monkeypatch, reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=4)
+
+    with clock.concurrent_sleeps(2):
+        first_call = _batch_sizes(engine, sent, 0, 8)
+    second_call = _batch_sizes(engine, sent, 1, 8)
+
+    assert [first_call, second_call] == [[4, 4, 2, 2, 2, 2], [2, 2, 2, 2]]
+
+
+def test_parallel_gateway_batches_that_time_out_halve_the_batch_size_once(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """Two gateway batches of four texts time out in parallel, and the size halves once.
+
+    The first request of each batch times out, the two batches wait their backoff at the same
+    time, and the second request of each batch gets its reply. The next call cuts its texts into
+    batches of two texts.
+    """
+    timed_out: set[str] = set()
+    lock = threading.Lock()
+
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        first_text = _inputs(request)[0]
+        with lock:
+            first_request = first_text not in timed_out
+            timed_out.add(first_text)
+        if first_request and first_text.startswith("call 0 "):
+            raise httpx2.ReadTimeout("timed out", request=request)
+        return _gateway_reply(request)
+
+    sent = _serve(monkeypatch, reply)
+    engine = _gateway_engine(batch_size=4)
+
+    with clock.concurrent_sleeps(2):
+        first_call = _batch_sizes(engine, sent, 0, 8)
+    second_call = _batch_sizes(engine, sent, 1, 8)
+
+    assert [first_call, second_call] == [[4, 4, 4, 4], [2, 2, 2, 2]]
+
+
+def test_fast_batches_grow_the_batch_size_once_per_cooldown_up_to_the_configured_size(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """After a change of the batch size, fast batches grow it only when the cooldown has passed.
+
+    A slow batch halves the size from six texts to three. Fast batches in the cooldown do not
+    grow it. After the cooldown, two fast batches grow it by two texts, and the cooldown starts
+    again. The size grows to the configured six texts, and not more.
+    """
+    node = _TimedNode(clock, _SLOW_BATCH_SECONDS)
+    sent = _serve(monkeypatch, node.reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=6)
+    cooldown = defaults.DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS
+
+    sizes = [_batch_sizes(engine, sent, 0, 6)]
+    node.seconds = [0.0]
+    sizes.append(_batch_sizes(engine, sent, 1, 6))
+    clock.shift(cooldown)
+    sizes.append(_batch_sizes(engine, sent, 2, 6))
+    sizes.append(_batch_sizes(engine, sent, 3, 6))
+    clock.shift(cooldown)
+    sizes.append(_batch_sizes(engine, sent, 4, 6))
+    clock.shift(cooldown)
+    sizes.append(_batch_sizes(engine, sent, 5, 12))
+
+    assert sizes == [[6], [3, 3], [3, 3], [5, 1], [5, 1], [6, 6]]
+
+
+def test_only_a_batch_within_the_margin_below_the_latency_threshold_counts_as_fast(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """A batch counts toward growth only when it takes at most the margin share of the threshold.
+
+    One worker sends the batches, so each latency is the latency of one batch. After a decrease
+    and the cooldown, a batch at the margin counts as fast. A batch slower than the margin but not
+    slower than the threshold stops the run of fast batches. The size grows only after two fast
+    batches in a row.
+    """
+    ai_cfg = _ollama_config()
+    ai_cfg.ollama_max_parallel = 1
+    node = _TimedNode(clock, _SLOW_BATCH_SECONDS)
+    sent = _serve(monkeypatch, node.reply)
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=None, batch_size=4)
+    threshold = defaults.DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS
+    margin = threshold * defaults.DEFAULT_RAG_EMBEDDING_INCREASE_LATENCY_RATIO
+
+    sizes = [_batch_sizes(engine, sent, 0, 4)]
+    clock.shift(defaults.DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS)
+    node.seconds = [margin, (margin + threshold) / 2, margin]
+    sizes.append(_batch_sizes(engine, sent, 1, 6))
+    node.seconds = [margin]
+    sizes.append(_batch_sizes(engine, sent, 2, 6))
+    sizes.append(_batch_sizes(engine, sent, 3, 6))
+
+    assert sizes == [[4], [2, 2, 2], [2, 2, 2], [4, 2]]
