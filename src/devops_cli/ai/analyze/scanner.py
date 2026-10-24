@@ -7,7 +7,7 @@ import mimetypes
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from devops_cli.ai.ast.engine import _header_language
 from devops_cli.config.defaults import (
@@ -229,6 +229,43 @@ def detect_language(filepath: Path | str, content: str | None = None) -> str:
         return mime_lang
 
     return _EXT_LANG_FALLBACK.get(ext, "plaintext")
+
+
+CODE_LANGUAGES: frozenset[str] = frozenset(
+    {
+        "bash",
+        "c",
+        "cpp",
+        "csharp",
+        "go",
+        "java",
+        "javascript",
+        "kotlin",
+        "lua",
+        "php",
+        "powershell",
+        "python",
+        "ruby",
+        "rust",
+        "scala",
+        "shell",
+        "swift",
+        "tsx",
+        "typescript",
+    }
+)
+
+
+def syntax_from_language(lang: str | None) -> Literal["code", "data"]:
+    """Return whether a detected language has 'code' or 'data' syntax."""
+    if not lang:
+        return "data"
+    return "code" if lang.strip().lower() in CODE_LANGUAGES else "data"
+
+
+def detect_syntax(filepath: Path | str, content: str | None = None) -> Literal["code", "data"]:
+    """Detect whether a file path has 'code' or 'data' syntax based on its language."""
+    return syntax_from_language(detect_language(filepath, content))
 
 
 def _extract_ast_symbols(body: list[ast.stmt]) -> list[str]:

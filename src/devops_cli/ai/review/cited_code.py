@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from devops_cli.ai.analyze.scanner import detect_syntax
 from devops_cli.ai.review_schema import CitedCode, DefectClass, SavedFinding, _parse_location
 from devops_cli.config.defaults import (
     DEFAULT_CITED_EXCERPT_MAX_LINES,
@@ -41,11 +42,12 @@ def cited_code(location: str, file_path: Path, checkout: Path) -> CitedCode | No
     if start > len(lines):
         return None
     last = min(end or start, len(lines), start + DEFAULT_CITED_EXCERPT_MAX_LINES - 1)
+    syntax = detect_syntax(resolved)
     return CitedCode(
         project=main_worktree_root(root).name,
         file=resolved.relative_to(root).as_posix(),
         line=start,
-        excerpt=mask_secrets("\n".join(lines[start - 1 : last])),
+        excerpt=mask_secrets("\n".join(lines[start - 1 : last]), syntax=syntax),
     )
 
 
