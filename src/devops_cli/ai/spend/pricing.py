@@ -241,8 +241,20 @@ def _is_local_gateway_configured() -> bool:
     return False
 
 
-def is_local(server: str | None = None, provider: str | None = None) -> bool:
-    """Return True if the backend server or provider indicates local execution."""
+def is_local(
+    server: str | None = None, provider: str | None = None, served_by: str | None = None
+) -> bool:
+    """Return True if the call ran on local hardware.
+
+    `served_by` is the backend that served the call, as the LLM gateway names it in its reply
+    (`ai/client/network.py` reads the header). When the reply names it, it decides: a hosted route
+    behind a local gateway is hosted, and a local backend behind a gateway on a public host is
+    local (#1631). LiteLLM names the API base of a route only when it knows it, so a gateway
+    route sets `api_base`. When the reply names no backend, the provider and the server the call
+    was sent to decide.
+    """
+    if served_by and served_by.strip():
+        return _is_local_server(served_by)
     if _is_local_provider(provider):
         return True
     if _is_local_server(server):
@@ -250,9 +262,6 @@ def is_local(server: str | None = None, provider: str | None = None) -> bool:
     if provider and provider.strip().lower() == "gateway" and not server:
         return _is_local_gateway_configured()
     return False
-
-
-_is_local = is_local
 
 
 def _candidate_models(model: str) -> tuple[str, ...]:
@@ -425,18 +434,23 @@ class PricingRegistry:
         server: str | None = None,
         provider: str | None = None,
         request_timestamp: datetime | None = None,
+        served_by: str | None = None,
     ) -> ModelPricing:
-        """Resolve token pricing in priority order: overrides, local zero-cost, genai-prices lookup."""
-        override = self._get_override_pricing(model, server)
-        if override is not None:
-            return override
+        """Resolve token pricing in priority order: local zero-cost, overrides, genai-prices lookup.
 
-        if _is_local(server=server, provider=provider):
+        A local call costs nothing, whatever override names its model or server, so its tokens
+        count in local savings and never as spend (#1631).
+        """
+        if is_local(server=server, provider=provider, served_by=served_by):
             return ModelPricing(
                 prompt_usd_per_million=0.0,
                 completion_usd_per_million=0.0,
                 source="local",
             )
+
+        override = self._get_override_pricing(model, server)
+        if override is not None:
+            return override
 
         prov_clean = provider.strip().lower() if provider else ""
         cache_key = f"{prov_clean}:{model.strip().lower()}"
@@ -511,17 +525,21 @@ class PricingRegistry:
         server: str | None = None,
         provider: str | None = None,
         request_timestamp: datetime | None = None,
+        served_by: str | None = None,
     ) -> float:
-        """Calculate exact cost for a request using real token usage and request timestamp."""
+        """Calculate exact cost for a request using real token usage and request timestamp.
+
+        A local call costs nothing, whatever override names its model or server (#1631).
+        """
         if prompt_tokens <= 0 and completion_tokens <= 0:
+            return 0.0
+
+        if is_local(server=server, provider=provider, served_by=served_by):
             return 0.0
 
         override_cost = self._check_override_cost(model, server, prompt_tokens, completion_tokens)
         if override_cost is not None:
             return override_cost
-
-        if _is_local(server=server, provider=provider):
-            return 0.0
 
         exact_cost = self._calc_exact_genai_cost(
             model, prompt_tokens, completion_tokens, provider, request_timestamp
@@ -530,7 +548,11 @@ class PricingRegistry:
             return exact_cost
 
         pricing = self.get_pricing(
-            model, server=server, provider=provider, request_timestamp=request_timestamp
+            model,
+            server=server,
+            provider=provider,
+            request_timestamp=request_timestamp,
+            served_by=served_by,
         )
         return pricing.calculate_cost(prompt_tokens, completion_tokens)
 

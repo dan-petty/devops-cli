@@ -600,8 +600,8 @@ def test_spend_ledger_export_prometheus_with_report(tmp_path: Path) -> None:
     prom_output = export_ai_spend_prometheus(report=report)
 
     assert (
-        "devops_cli_ai_counterfactual_spend_usd" in prom_output,
-        "devops_cli_ai_tokens_total" in prom_output,
+        "devops_cli_ai_ledger_counterfactual_spend_usd" in prom_output,
+        "devops_cli_ai_ledger_tokens" in prom_output,
     ) == (True, True)
 
 
@@ -764,12 +764,14 @@ def test_spend_ledger_cli_prometheus_filtering_and_reference_model(
     )
     assert (
         res_4o.exit_code,
-        'devops_cli_ai_requests_total{model="model-today"' in res_4o.stdout,
+        'devops_cli_ai_ledger_requests{model="model-today"' in res_4o.stdout,
         'model="model-old"' not in res_4o.stdout,
-        "devops_cli_ai_hardware_cost_usd 1000.0" in res_4o.stdout,
+        "devops_cli_ai_ledger_hardware_cost_usd 1000.0" in res_4o.stdout,
     ) == (0, True, True, True)
 
-    match_4o = re.search(r"devops_cli_ai_counterfactual_spend_usd\s+([0-9.]+)", res_4o.stdout)
+    match_4o = re.search(
+        r"devops_cli_ai_ledger_counterfactual_spend_usd\s+([0-9.]+)", res_4o.stdout
+    )
     assert match_4o is not None
     cf_spend_4o = float(match_4o.group(1))
 
@@ -788,7 +790,9 @@ def test_spend_ledger_cli_prometheus_filtering_and_reference_model(
             "gpt-4o-mini",
         ],
     )
-    match_mini = re.search(r"devops_cli_ai_counterfactual_spend_usd\s+([0-9.]+)", res_mini.stdout)
+    match_mini = re.search(
+        r"devops_cli_ai_ledger_counterfactual_spend_usd\s+([0-9.]+)", res_mini.stdout
+    )
     assert match_mini is not None
     cf_spend_mini = float(match_mini.group(1))
     assert (res_mini.exit_code, cf_spend_4o != cf_spend_mini) == (0, True)
@@ -809,9 +813,9 @@ def test_spend_ledger_cli_prometheus_filtering_and_reference_model(
     )
     assert (
         res_bare.exit_code,
-        'devops_cli_ai_requests_total{model="model-today"' in res_bare.stdout,
+        'devops_cli_ai_ledger_requests{model="model-today"' in res_bare.stdout,
         'model="model-old"' not in res_bare.stdout,
-        "devops_cli_ai_hardware_cost_usd 1000.0" in res_bare.stdout,
+        "devops_cli_ai_ledger_hardware_cost_usd 1000.0" in res_bare.stdout,
     ) == (0, True, True, True)
 
 
@@ -898,3 +902,34 @@ def test_the_embedding_reference_is_a_setting(tmp_path: Path, config: Callable[.
         "text-embedding-3-large",
         0.13,
     )
+
+
+def test_the_report_counts_a_gateway_call_as_local_by_the_backend_that_served_it(
+    tmp_path: Path,
+) -> None:
+    """Of two calls through one loopback gateway, the one a cluster Ollama served counts in local
+    savings and the one a hosted API served does not, and the gateway is not a local server
+    (#1631)."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    for served_by, cost in (
+        ("http://ollama-16gib.llm.svc.cluster.local:11434", 0.0),
+        ("https://api.openai.com", 2.5),
+    ):
+        ledger.record_request(
+            provider="gateway",
+            server="localhost:4000",
+            served_by=served_by,
+            model="gpt-4o",
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+            cost_usd=cost,
+        )
+
+    report = ledger.get_lifetime_report(reference_model="gpt-4o")
+
+    assert (
+        report.local_requests,
+        report.local_prompt_tokens,
+        report.local_cost_equivalent_usd,
+        [(s.server, s.is_local) for s in report.servers],
+    ) == (1, 1_000_000, 2.5, [("localhost:4000", False)])

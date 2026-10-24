@@ -259,10 +259,11 @@ async def test_embedder_and_embedding_result() -> None:
     assert res_test["Test query"] == res_test[0]
 
 
-def test_embedding_cost_of_an_unpriced_local_model_follows_the_pricing_registry(
+def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A local embedding model costs nothing until an override prices it (provider and timestamp reach the registry)."""
+    """A local embedding model costs nothing, also when a custom price names it, because its
+    tokens count in local savings (#1631). Provider and timestamp reach the registry."""
     from datetime import UTC, datetime
 
     from pydantic_ai.usage import RequestUsage
@@ -301,7 +302,7 @@ def test_embedding_cost_of_an_unpriced_local_model_follows_the_pricing_registry(
     )
     unpriced_cost = result.cost()
     pricing.set_custom_pricing("local-embed", 1.5, 0.0)
-    overridden_cost = result.cost()
+    custom_priced_cost = result.cost()
 
     request = {
         "model": "local-embed",
@@ -310,9 +311,9 @@ def test_embedding_cost_of_an_unpriced_local_model_follows_the_pricing_registry(
         "provider": "ollama",
         "request_timestamp": request_timestamp,
     }
-    assert (unpriced_cost, overridden_cost, priced_requests) == (
+    assert (unpriced_cost, custom_priced_cost, priced_requests) == (
         EmbeddingCost(total_price=0.0),
-        EmbeddingCost(total_price=0.15),
+        EmbeddingCost(total_price=0.0),
         [request, request],
     )
 

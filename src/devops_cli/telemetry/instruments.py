@@ -73,7 +73,8 @@ AI_SPEND_USD_TOTAL = Instrument(
     "devops_cli_ai_spend_usd_total",
     InstrumentKind.COUNTER,
     "USD",
-    "Approximate LLM and embedding spend, by operation, provider, model, server and backend",
+    "Approximate LLM and embedding spend, by operation, provider, model, server and backend. "
+    "Each request that a model answers adds to it, and a local request adds 0",
 )
 AI_LOCAL_COST_EQUIVALENT_USD_TOTAL = Instrument(
     "devops_cli_ai_local_cost_equivalent_usd_total",

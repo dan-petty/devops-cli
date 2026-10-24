@@ -862,7 +862,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server) (rate(devops_cli_ai_spend_usd_total[5m])) * 3600",
+          "expr": "sum by (server) (rate(devops_cli_ai_spend_usd_total[5m])) * 3600 or sum by (server) (rate(devops_cli_ai_requests_total{cached=\"false\"}[5m])) * 0",
           "legendFormat": "{{server}}",
           "refId": "A"
         }

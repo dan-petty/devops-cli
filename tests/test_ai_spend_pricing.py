@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -94,16 +94,14 @@ def test_pricing_registry_local_calls_zero_cost(tmp_path: Path) -> None:
 
 
 def test_pricing_registry_custom_overrides(tmp_path: Path) -> None:
-    """Verify custom pricing override setting, persistence, and lookup priority over local."""
+    """Verify a custom price for a hosted model or server persists and prices its calls."""
     registry = PricingRegistry(data_dir=tmp_path)
 
-    registry.set_custom_pricing("qwen2.5-coder:7b", prompt_rate=0.15, completion_rate=0.30)
-    registry.set_custom_pricing("http://localhost:11434", prompt_rate=0.05, completion_rate=0.10)
+    registry.set_custom_pricing("gpt-4o", prompt_rate=0.15, completion_rate=0.30)
+    registry.set_custom_pricing("example.com", prompt_rate=0.05, completion_rate=0.10)
 
-    # Model override takes priority even on local server
-    resolved_model = registry.get_pricing(
-        "qwen2.5-coder:7b", server="http://localhost:11434", provider="ollama"
-    )
+    # Model override takes priority over the server's
+    resolved_model = registry.get_pricing("gpt-4o", server="example.com", provider="openai")
     assert (
         resolved_model.prompt_usd_per_million,
         resolved_model.completion_usd_per_million,
@@ -115,9 +113,7 @@ def test_pricing_registry_custom_overrides(tmp_path: Path) -> None:
     )
 
     # Server override applies when model has no override
-    resolved_server = registry.get_pricing(
-        "other-model", server="http://localhost:11434", provider="ollama"
-    )
+    resolved_server = registry.get_pricing("other-model", server="example.com", provider="openai")
     assert (
         resolved_server.prompt_usd_per_million,
         resolved_server.completion_usd_per_million,
@@ -130,9 +126,7 @@ def test_pricing_registry_custom_overrides(tmp_path: Path) -> None:
 
     # Recreate registry from disk cache to ensure persistence
     reloaded_registry = PricingRegistry(data_dir=tmp_path)
-    reloaded = reloaded_registry.get_pricing(
-        "qwen2.5-coder:7b", server="http://localhost:11434", provider="ollama"
-    )
+    reloaded = reloaded_registry.get_pricing("gpt-4o", server="example.com", provider="openai")
     assert (
         reloaded.prompt_usd_per_million,
         reloaded.completion_usd_per_million,
@@ -142,6 +136,62 @@ def test_pricing_registry_custom_overrides(tmp_path: Path) -> None:
         0.30,
         "custom_override",
     )
+
+
+def test_a_custom_price_leaves_a_local_call_at_no_cost(tmp_path: Path) -> None:
+    """Verify a custom price for a local model or a local server books no spend, so the call
+    stays in local savings (#1631)."""
+    registry = PricingRegistry(data_dir=tmp_path)
+    registry.set_custom_pricing("qwen2.5-coder:7b", prompt_rate=0.15, completion_rate=0.30)
+    registry.set_custom_pricing("http://localhost:11434", prompt_rate=0.05, completion_rate=0.10)
+
+    by_model = registry.get_pricing(
+        "qwen2.5-coder:7b", server="http://localhost:11434", provider="ollama"
+    )
+    by_server = registry.get_pricing("other-model", server="http://localhost:11434")
+
+    assert (
+        (by_model.prompt_usd_per_million, by_model.completion_usd_per_million, by_model.source),
+        (by_server.prompt_usd_per_million, by_server.completion_usd_per_million, by_server.source),
+        registry.calculate_request_cost(
+            "qwen2.5-coder:7b", 1_000_000, 1_000_000, server="localhost:11434", provider="ollama"
+        ),
+        registry.calculate_request_cost(
+            "other-model", 1_000_000, 0, server="http://localhost:11434"
+        ),
+    ) == ((0.0, 0.0, "local"), (0.0, 0.0, "local"), 0.0, 0.0)
+
+
+def test_a_gateway_call_is_priced_by_the_backend_that_served_it(tmp_path: Path) -> None:
+    """Verify a call a hosted API served through a loopback gateway is priced at the model's
+    hosted rate, and one a cluster Ollama served through a gateway host nothing configures
+    costs nothing (#1631)."""
+    registry = PricingRegistry(data_dir=tmp_path)
+    peak_ts = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+    hosted = registry.calculate_request_cost(
+        "gpt-4o",
+        1_000_000,
+        0,
+        server="localhost:4000",
+        provider="gateway",
+        request_timestamp=peak_ts,
+        served_by="https://api.openai.com",
+    )
+    hosted_rate = registry.get_pricing(
+        "gpt-4o", server="localhost:4000", provider="gateway", served_by="https://api.openai.com"
+    )
+    local = registry.calculate_request_cost(
+        "gpt-4o",
+        1_000_000,
+        0,
+        server="example.com:4000",
+        provider="gateway",
+        request_timestamp=peak_ts,
+        served_by="http://ollama-16gib.llm.svc.cluster.local:11434",
+    )
+
+    assert (hosted, hosted_rate.prompt_usd_per_million, local) == (2.5, 2.5, 0.0)
 
 
 def test_pricing_registry_cost_calculation(tmp_path: Path) -> None:
@@ -627,6 +677,27 @@ def test_is_local_configured_cluster_and_gateway(
         False,
         True,
     )
+
+
+def test_a_gateway_call_is_local_by_the_backend_that_served_it(
+    config: Callable[..., Path],
+) -> None:
+    """Verify the backend a gateway reply names decides whether the call is local: a cluster
+    Service or a configured Ollama URL is local behind a gateway host nothing configures, and a
+    hosted API is hosted behind a loopback gateway. With no backend named, the host decides
+    (#1631)."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    config(ai={"ollama_urls": ["http://ollama.example.com:11434"]})
+    cluster_ollama = "http://ollama-16gib.llm.svc.cluster.local:11434"
+
+    assert [
+        is_local("example.com:4000", "gateway", served_by=cluster_ollama),
+        is_local("example.com:4000", "gateway", served_by="http://ollama.example.com:11434"),
+        is_local("localhost:4000", "gateway", served_by="https://api.openai.com"),
+        is_local("localhost:4000", "gateway"),
+        is_local("example.com:4000", "gateway"),
+    ] == [True, True, False, True, False]
 
 
 def test_pricing_local_vs_remote_and_configured_domain_table(

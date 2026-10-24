@@ -133,6 +133,22 @@ GROUP BY server, provider
 ORDER BY s_cost DESC, t_tokens DESC;
 """
 
+# The backend that served a call decides whether it ran locally, so local usage is tallied by
+# server, provider and serving backend (#1631).
+_QUERY_SERVED_USAGE = """
+SELECT
+    server,
+    provider,
+    served_by,
+    COUNT(*) as req_count,
+    COALESCE(SUM(prompt_tokens), 0) as p_tokens,
+    COALESCE(SUM(completion_tokens), 0) as c_tokens,
+    COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens
+FROM ai_spend_records
+WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
+GROUP BY server, provider, served_by;
+"""
+
 _QUERY_MODEL_BREAKDOWN = """
 SELECT
     model,
@@ -232,8 +248,8 @@ def _resolve_reference_pricing(reference_model: str | None = None) -> _Reference
     )
 
 
-class _LocalUsage(NamedTuple):
-    """What the local servers of a report served."""
+class _Usage(NamedTuple):
+    """The requests and tokens of a set of ledger rows."""
 
     requests: int
     prompt_tokens: int
@@ -241,28 +257,47 @@ class _LocalUsage(NamedTuple):
     embedding_tokens: int
 
 
+class _ServedUsage(NamedTuple):
+    """What one backend served of the calls sent to one server; no backend for a direct call."""
+
+    server: str
+    provider: str
+    served_by: str | None
+    usage: _Usage
+
+
 def _tally_and_annotate_servers(
-    servers: list[ServerSpendSummary], ref_pricing: _ReferencePricing
-) -> _LocalUsage:
+    servers: list[ServerSpendSummary],
+    served: list[_ServedUsage],
+    ref_pricing: _ReferencePricing,
+) -> _Usage:
     """Annotate servers with local status and cost equivalent, tallying local usage.
 
-    The response cache ran no model, local or hosted, so its replies are no local requests.
+    The backend that served a call decides whether it ran locally (#1631), so a server is local
+    only when every backend that served its calls is local. The response cache ran no model,
+    local or hosted, so its replies are no local requests.
     """
     from devops_cli.ai.spend.pricing import is_local
 
+    local: list[_Usage] = []
+    hosted: set[tuple[str, str]] = set()
+    for group in served:
+        if group.server != CONST_RESPONSE_CACHE_SERVER and is_local(
+            server=group.server, provider=group.provider, served_by=group.served_by
+        ):
+            local.append(group.usage)
+        else:
+            hosted.add((group.server, group.provider))
     for s in servers:
-        s.is_local = s.server != CONST_RESPONSE_CACHE_SERVER and is_local(
-            server=s.server, provider=s.provider
-        )
+        s.is_local = (s.server, s.provider) not in hosted
         s.cost_equivalent_usd = ref_pricing.cost(
             s.prompt_tokens, s.completion_tokens, s.embedding_tokens
         )
-    local = [s for s in servers if s.is_local]
-    return _LocalUsage(
-        requests=sum(s.request_count for s in local),
-        prompt_tokens=sum(s.prompt_tokens for s in local),
-        completion_tokens=sum(s.completion_tokens for s in local),
-        embedding_tokens=sum(s.embedding_tokens for s in local),
+    return _Usage(
+        requests=sum(u.requests for u in local),
+        prompt_tokens=sum(u.prompt_tokens for u in local),
+        completion_tokens=sum(u.completion_tokens for u in local),
+        embedding_tokens=sum(u.embedding_tokens for u in local),
     )
 
 
@@ -448,6 +483,7 @@ class SpendLedger:
         with contextlib.closing(self._get_connection()) as conn:
             summary = self._query_overall_summary(conn, params)
             servers = self._query_server_breakdown(conn, params)
+            served = self._query_served_usage(conn, params)
             models = self._query_model_breakdown(conn, params)
             providers = self._query_provider_breakdown(conn, params)
             backends = self._query_backend_breakdown(conn, params)
@@ -456,7 +492,7 @@ class SpendLedger:
         ref_pricing = _resolve_reference_pricing(reference_model)
         ref_model = ref_pricing.chat_model
 
-        local = _tally_and_annotate_servers(servers, ref_pricing)
+        local = _tally_and_annotate_servers(servers, served, ref_pricing)
         _annotate_models(models, ref_pricing)
         _annotate_stages(stages, ref_pricing)
 
@@ -545,6 +581,25 @@ class SpendLedger:
                 )
             )
         return results
+
+    def _query_served_usage(
+        self, conn: sqlite3.Connection, params: _QueryParams
+    ) -> list[_ServedUsage]:
+        """Aggregate spend records by server, provider and the backend that served them."""
+        return [
+            _ServedUsage(
+                server=r["server"],
+                provider=r["provider"],
+                served_by=r["served_by"],
+                usage=_Usage(
+                    requests=int(r["req_count"] or 0),
+                    prompt_tokens=int(r["p_tokens"] or 0),
+                    completion_tokens=int(r["c_tokens"] or 0),
+                    embedding_tokens=int(r["e_tokens"] or 0),
+                ),
+            )
+            for r in conn.execute(_QUERY_SERVED_USAGE, params).fetchall()
+        ]
 
     def _query_model_breakdown(
         self, conn: sqlite3.Connection, params: _QueryParams
@@ -688,6 +743,7 @@ def _emit_local_cost_equivalent(
     source: dict[str, str],
     server: str | None,
     provider: str | None,
+    served_by: str | None,
     prompt_tokens: int,
     completion_tokens: int,
     request_type: str,
@@ -696,7 +752,7 @@ def _emit_local_cost_equivalent(
     from devops_cli.ai.spend.pricing import is_local
     from devops_cli.telemetry.instruments import AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, emit
 
-    if not is_local(server=server, provider=provider):
+    if not is_local(server=server, provider=provider, served_by=served_by):
         return
     embedding_tokens = prompt_tokens if request_type == CONST_SPEND_REQUEST_TYPE_EMBEDDING else 0
     local_equiv = _resolve_reference_pricing().cost(
@@ -726,7 +782,8 @@ def track_request_spend(
 
     ``finish_reason`` is why the provider says the reply ended, None when it did not say; the
     ledger stores it and observers receive it. The metrics carry the call's GenAI operation:
-    `embeddings` for an embedding request, `chat` for every other call.
+    `embeddings` for an embedding request, `chat` for every other call. ``served_by``, the
+    backend a gateway reply names, decides whether the call is spend or local savings.
     """
     from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
         GenAiOperationNameValues,
@@ -752,6 +809,7 @@ def track_request_spend(
             server=server,
             provider=provider,
             request_timestamp=now_utc,
+            served_by=served_by,
         )
         if not cached
         else 0.0
@@ -806,15 +864,18 @@ def track_request_spend(
     emit(AI_REQUESTS_TOTAL, 1, source | {"cached": str(cached).lower()})
     emit(AI_TOKENS_TOTAL, prompt_tokens, source | {"type": "prompt"})
     emit(AI_TOKENS_TOTAL, completion_tokens, source | {"type": "completion"})
-    if cost:
-        emit(AI_SPEND_USD_TOTAL, cost, source)
-    elif not cached:
-        _emit_local_cost_equivalent(
-            source=source,
-            server=server,
-            provider=provider,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            request_type=request_type,
-        )
+    if cached:
+        return rec
+    # Every request a model answered adds to the spend counter, a local one 0, so the series
+    # exists before the first hosted request and a dashboard shows $0, not "No data" (#1631).
+    emit(AI_SPEND_USD_TOTAL, cost, source)
+    _emit_local_cost_equivalent(
+        source=source,
+        server=server,
+        provider=provider,
+        served_by=served_by,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        request_type=request_type,
+    )
     return rec

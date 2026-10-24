@@ -558,7 +558,7 @@ def cost_payback(
 
 @app.command(name="prometheus")
 def cost_prometheus() -> None:
-    """Export AI spend and usage metrics in Prometheus exposition format."""
+    """Export the totals of the spend ledger as Prometheus gauges."""
     from devops_cli.ai.spend import export_ai_spend_prometheus
 
     ledger = get_spend_ledger()
@@ -693,7 +693,7 @@ def cost_set_price(
     target: Annotated[
         str,
         typer.Argument(
-            help="Target model identifier or backend server address (e.g. 'qwen2.5-coder:14b', 'localhost:11434').",
+            help="Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings.",
         ),
     ],
     prompt_rate: Annotated[
@@ -709,7 +709,7 @@ def cost_set_price(
         ),
     ],
 ) -> None:
-    """Set custom token pricing override for a model or backend server."""
+    """Set a custom token price for the hosted calls of a model or backend server."""
     registry = get_pricing_registry()
     p = registry.set_custom_pricing(target, prompt_rate, completion_rate)
     print_success(
