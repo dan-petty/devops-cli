@@ -606,6 +606,20 @@ CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
     "ran",
     "not_applicable",
 )
+# The statuses of a scan that gave no result: its tool is not installed, it failed, or it does not
+# apply to the target. Such a scan says nothing about the target, so no reply or report of one
+# calls the target clean (#1435).
+CONST_SCAN_NO_RESULT_STATUSES: Final[frozenset[str]] = frozenset(
+    {"unavailable", "not installed", "failed", "not_applicable"}
+)
+# The word that the reply of an agent scan tool gives a scan status (#1435). A scan that ran is
+# `ok`, and a tool that no directory of PATH holds is `not installed`, whichever adapter found it
+# missing. Every other status, such as `failed`, `not_applicable` or `coverage_gap`, keeps its name.
+CONST_AGENT_SCAN_STATUS_WORDS: Final[dict[str, str]] = {
+    "ran": "ok",
+    "clean": "ok",
+    "unavailable": "not installed",
+}
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"

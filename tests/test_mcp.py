@@ -27,6 +27,8 @@ from devops_cli.ai.mcp.server import (
 from devops_cli.commands.mcp import app
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
 from devops_cli.exceptions import ValidationError
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
 
 if TYPE_CHECKING:
     pass
@@ -670,3 +672,20 @@ def test_mcp_command_failure_contract_raises_tool_error() -> None:
             "Command exited with status 2" in err_msg,
             "Unknown option: --nonexistent" in err_msg,
         ) == (True, True)
+
+
+@pytest.mark.usefixtures("cached_default_ruleset")
+def test_the_mcp_semgrep_tool_scans_with_the_default_ruleset_unless_the_caller_names_one(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The MCP `scan_sast` tool runs the Semgrep adapter with `DEFAULT_SEMGREP_CONFIG`, read from
+    its cached ruleset, and with the ruleset that the caller names in its place (#1435)."""
+    monkeypatch.chdir(tmp_path)
+
+    for arguments in ({"target": str(tmp_path)}, {"target": str(tmp_path), "config": "./rules"}):
+        asyncio.run(mcp.call_tool("scan_sast", arguments, run_middleware=False))
+
+    assert [run.argv[run.argv.index("--config") + 1] for run in scanner_fake.runs] == [
+        f"./{CACHED_RULESET_FILE_NAME}",
+        "./rules",
+    ]

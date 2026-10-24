@@ -6,9 +6,13 @@ import logging
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from devops_cli.config.commands import build_pluto_cmd
-from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
+from devops_cli.config.constants import (
+    CONST_AGENT_SCAN_STATUS_WORDS,
+    CONST_BINARY_EXTENSIONS,
+    CONST_SCAN_NO_RESULT_STATUSES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_K8S_NAMESPACE,
     DEFAULT_OBSERVABILITY_NAMESPACE,
@@ -29,6 +33,10 @@ from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subp
 from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.models.vulnerability import VulnerabilityRecord
 
+if TYPE_CHECKING:
+    from devops_cli.ai.review_schema import Finding
+    from devops_cli.security.base import ScanOutcome
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,11 +47,17 @@ def _is_safe_workspace_path(target: Path, workspace_root: Path | None = None) ->
     return is_safe_subpath(root, target)
 
 
+def _truncated(text: str, max_chars: int = DEFAULT_TOOL_DIFF_MAX_CHARS) -> str:
+    """`text`, cut at `max_chars` characters with a line that says where, when it is longer."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"\n... [truncated at {max_chars} chars]"
+
+
 def _run_tool_cmd(
     cmd: list[str],
     fallback_msg: str = "",
     max_chars: int = DEFAULT_TOOL_DIFF_MAX_CHARS,
-    cwd: Path | None = None,
 ) -> str:
     """Safely run a subprocess command for an agent tool without blocking async loops."""
 
@@ -54,13 +68,10 @@ def _run_tool_cmd(
                 capture_output=True,
                 text=True,
                 check=False,
-                cwd=cwd,
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )
             output = str(res.stdout).strip()
-            if len(output) > max_chars:
-                return str(output[:max_chars]) + f"\n... [truncated at {max_chars} chars]"
-            return output or fallback_msg
+            return _truncated(output, max_chars) if output else fallback_msg
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("Tool command %s failed: %s", cmd[0], exc)
             return ERRORS.tools.tool_execution_failed.format(tool=cmd[0], exc=exc)
@@ -247,39 +258,83 @@ def argo_app_status(app_name: str) -> str:
     )
 
 
+def _workspace_target(target: str | Path) -> Path | None:
+    """`target` resolved, when it lies inside the workspace; else None."""
+    target_path = Path(target).resolve()
+    return target_path if _is_safe_workspace_path(target_path) else None
+
+
+def _outside_workspace_reply(target: str | Path) -> str:
+    """The reply of a tool that refuses a target outside the workspace."""
+    return f"Access Denied: {target} is outside workspace."
+
+
 def _run_workspace_security_scan(
     target: str | Path,
     cmd_builder: Callable[[Path], list[str]],
     *,
     fallback_msg: str = "",
-    missing_tool_name: str | None = None,
-    cwd: Path | None = None,
 ) -> str:
     """Validate target path security boundaries and execute scanner subprocess."""
-    target_path = Path(target).resolve()
-    if not _is_safe_workspace_path(target_path):
-        return f"Access Denied: {target} is outside workspace."
-    cmd = cmd_builder(target_path)
-    res = _run_tool_cmd(
-        cmd,
-        cwd=cwd,
+    target_path = _workspace_target(target)
+    if target_path is None:
+        return _outside_workspace_reply(target)
+    return _run_tool_cmd(
+        cmd_builder(target_path),
         fallback_msg=fallback_msg,
         max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
-    if missing_tool_name and f"No such file or directory: '{missing_tool_name}'" in res:
-        cap_name = missing_tool_name.capitalize()
-        return f"{cap_name} static analysis tool is not installed in the environment."
-    return res
+
+
+def _finding_line(finding: Finding) -> str:
+    """One finding of a scan reply: its severity, location and title, then its fix if it has one."""
+    line = MESSAGES.tools.scan_finding.format(
+        severity=finding.severity, location=finding.location, title=finding.title
+    )
+    return (
+        MESSAGES.tools.scan_finding_fix.format(finding=line, fix=finding.fix)
+        if finding.fix
+        else line
+    )
+
+
+def _scan_reply(scanner: str, outcome: ScanOutcome) -> str:
+    """The reply of an agent scan tool: the status of the scan first, then why when the outcome
+    says, then the findings, or that the scan gave no result (#1435).
+
+    The whole reply is masked, then cut at the limit of a tool's output, so the cut cannot split a
+    secret that the masking patterns would match.
+    """
+    from devops_cli.security.sanitizer import mask_secrets
+
+    status = CONST_AGENT_SCAN_STATUS_WORDS.get(outcome.status, outcome.status)
+    lines = [MESSAGES.tools.scan_status.format(scanner=scanner, status=status)]
+    if outcome.reason:
+        lines.append(MESSAGES.tools.scan_reason.format(reason=outcome.reason))
+    if outcome.status in CONST_SCAN_NO_RESULT_STATUSES:
+        lines.append(MESSAGES.tools.scan_gave_no_result)
+    elif outcome.findings:
+        lines.append(MESSAGES.tools.scan_findings.format(count=len(outcome.findings)))
+        lines.extend(_finding_line(finding) for finding in outcome.findings)
+    else:
+        lines.append(MESSAGES.tools.scan_no_findings)
+    return _truncated(mask_secrets("\n".join(lines)))
+
+
+def _run_adapter_scan(scanner: str, target: str, scan: Callable[[Path], ScanOutcome]) -> str:
+    """Run the scanner adapter `scan` over `target`, a path inside the workspace, and reply with
+    its outcome."""
+    target_path = _workspace_target(target)
+    if target_path is None:
+        return _outside_workspace_reply(target)
+    return _scan_reply(scanner, scan(target_path))
 
 
 def scan_trivy(target: str = ".") -> str:
     """Run Aqua Trivy filesystem security scanner for CVEs, secrets, and misconfigurations."""
-    return _run_workspace_security_scan(
-        target,
-        lambda p: ["trivy", "fs", str(p), "--format", "json", "--quiet"],
-        fallback_msg="No security vulnerabilities or misconfigurations detected by Trivy.",
-        missing_tool_name="trivy",
-    )
+    from devops_cli.security.trivy import run_trivy_scan
+
+    return _run_adapter_scan("Trivy", target, run_trivy_scan)
 
 
 def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
@@ -292,37 +347,28 @@ def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
             else ["uv", "pip", "audit", "-r", str(p / requirements_file)]
         ),
         fallback_msg="No known security vulnerabilities identified by uv audit.",
-        missing_tool_name="uv",
     )
 
 
 def scan_kubelinter(target: str = ".") -> str:
     """Run kube-linter static security and linting analysis across Kubernetes YAML manifests."""
-    return _run_workspace_security_scan(
-        target,
-        lambda p: ["kube-linter", "lint", str(p), "--format", "json"],
-        fallback_msg="No Kubernetes manifest linting violations found.",
-        missing_tool_name="kube-linter",
-    )
+    from devops_cli.security.kubelinter import run_kubelinter_scan
+
+    return _run_adapter_scan("Kube-linter", target, run_kubelinter_scan)
 
 
 def scan_pluto(target: str = ".") -> str:
     """Detect deprecated and removed Kubernetes API versions in Helm charts and manifests."""
-    return _run_workspace_security_scan(
-        target,
-        build_pluto_cmd,
-        fallback_msg="No deprecated Kubernetes APIs detected by Pluto.",
-    )
+    from devops_cli.security.pluto import run_pluto_scan
+
+    return _run_adapter_scan("Pluto", target, run_pluto_scan)
 
 
 def scan_bandit(target: str = DEFAULT_SRC_DIR) -> str:
     """Run PyCQA Bandit static security vulnerability analysis on Python source files."""
-    return _run_workspace_security_scan(
-        target,
-        lambda p: ["bandit", "-r", str(p), "-ll", "-q"],
-        fallback_msg="No high/medium security issues detected by Bandit.",
-        missing_tool_name="bandit",
-    )
+    from devops_cli.security.bandit import run_bandit_scan
+
+    return _run_adapter_scan("Bandit", target, run_bandit_scan)
 
 
 def scan_popeye(namespace: str = "") -> str:
@@ -339,40 +385,23 @@ def scan_popeye(namespace: str = "") -> str:
 
 def scan_gitleaks(target: str = ".") -> str:
     """Run Gitleaks secret pre-filter scan across workspace or targets."""
-    return _run_workspace_security_scan(
-        target,
-        lambda p: ["gitleaks", "detect", "--no-git", "--source", str(p), "--report-format", "json"],
-        fallback_msg="No secrets or credential leaks detected by Gitleaks.",
-        missing_tool_name="gitleaks",
-    )
+    from devops_cli.security.gitleaks import run_gitleaks_scan
+
+    return _run_adapter_scan("Gitleaks", target, run_gitleaks_scan)
 
 
 def scan_semgrep(target: str = ".", config: str = DEFAULT_SEMGREP_CONFIG) -> str:
     """Run Semgrep multilingual static AST pattern matching scan.
 
     A registry ruleset such as `p/default` is read from the cache `devops review rules fetch`
-    writes: the scan reaches no registry, runs from the cache directory so that rule ids are
-    plain, and with no cache it names the fetch command (#1144).
+    writes: the scan reaches no registry, and runs from the cache directory so that rule ids are
+    plain. With no cache it runs devops-cli's rule pack alone, and the reply calls it a coverage
+    gap and names the fetch command (#1144).
     """
-    from devops_cli.security.semgrep import rules_configs, semgrep_scan_command
-    from devops_cli.security.semgrep_registry import (
-        cached_ruleset,
-        is_registry_id,
-        warn_of_old_cache,
-    )
+    from devops_cli.security.semgrep import run_semgrep_scan
 
-    from_registry = is_registry_id(config)
-    ruleset = cached_ruleset(config) if from_registry else None
-    if ruleset is not None:
-        warn_of_old_cache(config, ruleset)
-    elif from_registry:
-        return MESSAGES.review.registry_not_cached.format(ruleset=config)
-    return _run_workspace_security_scan(
-        target,
-        lambda p: semgrep_scan_command([p], rules_configs(config, ruleset)),
-        fallback_msg="No AST code pattern flaws detected by Semgrep.",
-        missing_tool_name="semgrep",
-        cwd=ruleset.path.parent if ruleset else None,
+    return _run_adapter_scan(
+        "Semgrep", target, lambda target_path: run_semgrep_scan(target_path, config=config)
     )
 
 

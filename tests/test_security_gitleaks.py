@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.scan import app as scan_app
@@ -85,6 +88,24 @@ def test_scan_secrets_cli(tmp_path: Path) -> None:
 
         res_json = runner.invoke(scan_app, ["secrets", str(secret_file), "--json"])
         assert (res_json.exit_code, "GITLEAKS" in res_json.stdout) == (0, True)
+
+
+def test_scan_secrets_without_gitleaks_says_it_did_not_run_and_not_that_it_passed(
+    cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gitleaks that no directory of PATH holds is not installed, so `devops scan secrets`, which
+    the MCP `scan_secrets` tool runs, says that the scan did not run (#1435)."""
+    no_scanners = tmp_path / "no-scanners"
+    no_scanners.mkdir()
+    monkeypatch.setenv("PATH", str(no_scanners))
+
+    result = cli("scan", "secrets", str(tmp_path))
+
+    assert (result.exit_code, result.output) == (
+        0,
+        f"Executing Gitleaks secret scan on '{tmp_path.resolve()}'...\n"
+        "! Gitleaks was not run (Binary 'gitleaks' not found on PATH).\n",
+    )
 
 
 def test_gitleaks_binary_mocked_execution(tmp_path: Path) -> None:

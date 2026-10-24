@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -22,6 +24,7 @@ from devops_cli.ai.tools.builtin_tools import (
     list_files,
     read_file,
     scan_bandit,
+    scan_gitleaks,
     scan_kubelinter,
     scan_osv,
     scan_pluto,
@@ -31,9 +34,10 @@ from devops_cli.ai.tools.builtin_tools import (
     scan_uv_audit,
     search_code,
 )
+from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.scanners import RecordedScannerRun, ScannerFake
 from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -181,7 +185,8 @@ def test_search_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify all external DevOps tool wrappers execute expected commands."""
+    """Verify the external DevOps tool wrappers that run no scanner adapter execute expected
+    commands."""
     called_cmds: list[list[str]] = []
 
     def mock_tool_cmd(cmd: list[str], *args, **kwargs) -> str:
@@ -199,28 +204,8 @@ def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
     argo_apps()
     assert called_cmds[-1][:3] == ["argocd", "app", "list"]
 
-    scan_trivy("src")
-    assert called_cmds[-1][:2] == ["trivy", "fs"]
-
     scan_uv_audit(".")
     assert called_cmds[-1][:2] == ["uv", "audit"]
-
-    scan_kubelinter("k8s")
-    assert called_cmds[-1][:2] == ["kube-linter", "lint"]
-
-    scan_pluto("k8s")
-    pluto_dir_cmd = called_cmds[-1][:2]
-
-    scan_pluto("k8s/deployment.yaml")
-    pluto_file_cmd = called_cmds[-1][:2]
-
-    assert (pluto_dir_cmd, pluto_file_cmd) == (
-        ["pluto", "detect-files"],
-        ["pluto", "detect"],
-    )
-
-    scan_bandit("src")
-    assert called_cmds[-1][:2] == ["bandit", "-r"]
 
     scan_popeye("monitoring")
     assert called_cmds[-1][:2] == ["popeye", "-n"]
@@ -399,11 +384,10 @@ def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
     )
 
 
-@pytest.mark.usefixtures("cached_default_ruleset")
 def test_builtin_security_and_iac_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
-    """Verify scan_gitleaks, scan_semgrep, scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search.
+    """Verify scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search.
 
     The knowledge base check before the search finds Qdrant down, refused through
     `refusing_port`, and its retry waits return at once.
@@ -413,9 +397,7 @@ def test_builtin_security_and_iac_tools(
         docker_analyze_layers,
         k8s_validate_manifests,
         rag_search,
-        scan_gitleaks,
         scan_iac,
-        scan_semgrep,
         tf_lint,
     )
 
@@ -437,15 +419,6 @@ def test_builtin_security_and_iac_tools(
         total_bytes=10 * 1024 * 1024,
     )
 
-    import subprocess
-
-    mock_scan_proc = subprocess.CompletedProcess(
-        args=["scan"],
-        returncode=0,
-        stdout="Found 1 finding in target",
-        stderr="",
-    )
-
     from devops_cli.config.settings import reset_settings_cache
 
     monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
@@ -454,7 +427,6 @@ def test_builtin_security_and_iac_tools(
 
     with (
         patch("devops_cli.ai.tools.builtin_tools._is_safe_workspace_path", return_value=True),
-        patch("devops_cli.ai.tools.builtin_tools.run_subprocess", return_value=mock_scan_proc),
         patch("devops_cli.security.checkov.run_checkov_scan", return_value=[mock_finding]),
         patch("devops_cli.security.tflint.run_tflint_scan", return_value=[mock_finding]),
         patch(
@@ -468,12 +440,6 @@ def test_builtin_security_and_iac_tools(
             return_value=MagicMock(results=[]),
         ),
     ):
-        res_gitleaks = scan_gitleaks(str(tmp_path))
-        assert "Found 1 finding in target" in res_gitleaks
-
-        res_semgrep = scan_semgrep(str(tmp_path))
-        assert "Found 1 finding in target" in res_semgrep
-
         res_iac = scan_iac(str(tmp_path))
         assert "Sample issue" in res_iac
 
@@ -528,33 +494,37 @@ def test_rag_search_names_an_embedding_failure(
     )
 
 
+def _semgrep_directory_scan(target: Path, *configs: str) -> list[str]:
+    """The Semgrep command that the agent tool runs over a directory with `configs`: the
+    adapter's, with the rule pack, and with the directories of dependencies and data left out."""
+    return [
+        "semgrep",
+        "scan",
+        "--json",
+        "--metrics",
+        "off",
+        "--disable-version-check",
+        *(arg for config in (*configs, str(RULE_PACK_DIR)) for arg in ("--config", config)),
+        "--disable-nosem",
+        *("--exclude", ".venv", "--exclude", "venv", "--exclude", "node_modules"),
+        *("--exclude", ".data", "--exclude", "repos", "--exclude", ".git"),
+        "--quiet",
+        str(target.resolve()),
+    ]
+
+
 def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The tool's scan sends no metrics, checks no version, runs the rule pack and excludes no
-    directory (#1144)."""
+    """The tool's scan sends no metrics, checks no version, runs the rule pack, leaves out the
+    directories of dependencies and data, and starts in its target (#1144, #1435)."""
     monkeypatch.chdir(tmp_path)
 
     scan_semgrep(str(tmp_path), config="./local-rules")
 
-    assert [run.argv for run in scanner_fake.runs] == [
-        [
-            "semgrep",
-            "scan",
-            "--json",
-            "--metrics",
-            "off",
-            "--disable-version-check",
-            "--config",
-            "./local-rules",
-            "--config",
-            str(RULE_PACK_DIR),
-            "--disable-nosem",
-            "--quiet",
-            str(tmp_path.resolve()),
-        ]
+    assert [(run.argv, run.cwd) for run in scanner_fake.runs] == [
+        (_semgrep_directory_scan(tmp_path, "./local-rules"), str(tmp_path.resolve()))
     ]
-    assert [run.cwd for run in scanner_fake.runs] == [None]
 
 
 def test_the_agent_semgrep_tool_runs_from_the_cache_directory_with_the_cached_ruleset_named_there(
@@ -567,28 +537,17 @@ def test_the_agent_semgrep_tool_runs_from_the_cache_directory_with_the_cached_ru
     from the cache directory and names the target by its absolute path."""
     monkeypatch.chdir(tmp_path)
 
-    scan_semgrep(str(tmp_path))
+    reply = scan_semgrep(str(tmp_path))
 
-    assert [(run.argv, run.cwd) for run in scanner_fake.runs] == [
-        (
-            [
-                "semgrep",
-                "scan",
-                "--json",
-                "--metrics",
-                "off",
-                "--disable-version-check",
-                "--config",
-                f"./{CACHED_RULESET_FILE_NAME}",
-                "--config",
-                str(RULE_PACK_DIR),
-                "--disable-nosem",
-                "--quiet",
-                str(tmp_path.resolve()),
-            ],
-            str(cached_default_ruleset.parent),
-        )
-    ]
+    assert (reply, [(run.argv, run.cwd) for run in scanner_fake.runs]) == (
+        "Semgrep scan status: ok\nNo findings.",
+        [
+            (
+                _semgrep_directory_scan(tmp_path, f"./{CACHED_RULESET_FILE_NAME}"),
+                str(cached_default_ruleset.parent),
+            )
+        ],
+    )
 
 
 def test_the_agent_semgrep_tool_warns_when_the_cached_ruleset_is_older_than_a_day(
@@ -626,15 +585,192 @@ def test_the_agent_semgrep_tool_warns_of_nothing_when_the_cached_ruleset_is_curr
     assert capsys.readouterr().err == ""
 
 
-def test_the_agent_semgrep_tool_without_the_cached_ruleset_names_the_fetch_command(
+def test_the_agent_semgrep_tool_without_the_cached_ruleset_runs_the_rule_pack_and_names_the_fetch_command(
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """With no cached `p/default` the scan runs the rule pack alone, and the reply calls it a
+    coverage gap and names the fetch command, as the adapter does for every scan (#1144)."""
     monkeypatch.chdir(tmp_path)
 
     reply = scan_semgrep(str(tmp_path))
 
-    assert (reply, scanner_fake.runs) == (
-        "The registry rules p/default are not cached, or the cached file is not a Semgrep "
-        "ruleset. Run `devops review rules fetch --ruleset p/default`.",
-        [],
+    assert (reply, [run.argv for run in scanner_fake.runs]) == (
+        "Semgrep scan status: coverage_gap\n"
+        "Reason: The registry rules p/default are not cached, or the cached file is not a "
+        "Semgrep ruleset. Run `devops review rules fetch --ruleset p/default`.\n"
+        "No findings.",
+        [_semgrep_directory_scan(tmp_path)],
+    )
+
+
+# Each agent scan tool that runs a scanner adapter over a workspace path (#1435): the tool, the
+# name its reply gives the scanner, and the program the adapter starts.
+_ADAPTER_SCAN_TOOLS = [
+    pytest.param(scan_trivy, "Trivy", "trivy", id="trivy"),
+    pytest.param(scan_kubelinter, "Kube-linter", "kube-linter", id="kube-linter"),
+    pytest.param(scan_pluto, "Pluto", "pluto", id="pluto"),
+    pytest.param(scan_bandit, "Bandit", "bandit", id="bandit"),
+    pytest.param(scan_gitleaks, "Gitleaks", "gitleaks", id="gitleaks"),
+    pytest.param(scan_semgrep, "Semgrep", "semgrep", id="semgrep"),
+]
+
+
+@pytest.mark.parametrize(("scan_tool", "scanner", "program"), _ADAPTER_SCAN_TOOLS)
+def test_an_agent_scan_tool_whose_scanner_is_not_installed_says_so_and_not_clean(
+    scan_tool: Callable[[str], str],
+    scanner: str,
+    program: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scanner that no directory of PATH holds gives no result, and the reply says so first
+    (#1435)."""
+    no_scanners = tmp_path / "no-scanners"
+    no_scanners.mkdir()
+    monkeypatch.setenv("PATH", str(no_scanners))
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_tool(str(tmp_path))
+
+    assert reply == (
+        f"{scanner} scan status: not installed\n"
+        f"Reason: Binary '{program}' not found on PATH\n"
+        "The scan gave no result. Do not report the target as clean."
+    )
+
+
+@pytest.mark.parametrize(("scan_tool", "scanner", "program"), _ADAPTER_SCAN_TOOLS)
+def test_an_agent_scan_tool_whose_scanner_fails_with_no_output_says_failed_and_not_clean(
+    scan_tool: Callable[[str], str],
+    scanner: str,
+    program: str,
+    scanner_fake: ScannerFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scanner that exits non-zero and writes nothing on stdout gives no result, and the reply
+    says that the scan failed, with what the scanner wrote on stderr (#1435)."""
+    scanner_fake.recorded[program] = RecordedScannerRun(
+        version="", argv=(), returncode=2, stdout="", stderr="fatal: the target cannot be read"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_tool(str(tmp_path))
+
+    assert (reply, len(scanner_fake.runs)) == (
+        f"{scanner} scan status: failed\n"
+        "Reason: Scanner exited with code 2: fatal: the target cannot be read\n"
+        "The scan gave no result. Do not report the target as clean.",
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("scan_tool", "scanner"), [(scan_bandit, "Bandit"), (scan_gitleaks, "Gitleaks")]
+)
+def test_an_agent_scan_tool_whose_scanner_finds_nothing_says_ok_and_no_findings(
+    scan_tool: Callable[[str], str],
+    scanner: str,
+    scanner_fake: ScannerFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recorded runs of the real scanners find nothing, and the reply says the scan is ok."""
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_tool(str(tmp_path))
+
+    assert reply == f"{scanner} scan status: ok\nNo findings."
+
+
+def _trivy_run(results: list[dict[str, object]]) -> RecordedScannerRun:
+    """A Trivy run that exits 0 and reports `results` as JSON on stdout."""
+    return RecordedScannerRun(
+        version="", argv=(), returncode=0, stdout=json.dumps({"Results": results}), stderr=""
+    )
+
+
+def test_an_agent_scan_tool_leads_with_the_status_and_lists_each_finding_masked(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reply gives the status first, then each finding of the adapter, with every secret in
+    the text masked (#1435)."""
+    token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz"
+    scanner_fake.recorded["trivy"] = _trivy_run(
+        [
+            {
+                "Target": "uv.lock",
+                "Vulnerabilities": [
+                    {
+                        "VulnerabilityID": "CVE-2026-0001",
+                        "PkgName": "requests",
+                        "InstalledVersion": "2.0.0",
+                        "FixedVersion": "2.32.0",
+                        "Severity": "HIGH",
+                        "Title": "requests sends the session cookie to any host",
+                    }
+                ],
+            },
+            {
+                "Target": "app.env",
+                "Secrets": [
+                    {"RuleID": "github-pat", "Title": f"token {token}", "Severity": "CRITICAL"}
+                ],
+            },
+        ]
+    )
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_trivy(str(tmp_path))
+
+    assert reply == (
+        "Trivy scan status: ok\n"
+        "Findings (2):\n"
+        "- [HIGH] uv.lock:requests: [CVE-2026-0001] requests sends the session cookie to any "
+        "host (Upgrade requests from 2.0.0 to 2.32.0)\n"
+        "- [CRITICAL] app.env:github-pat: [SECRET] token <masked-github-token> (Remove "
+        "hardcoded secret and store in OS Keyring or environment variables)"
+    )
+
+
+def test_an_agent_scan_tool_cuts_a_long_reply_at_the_tool_output_limit(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reply longer than the limit of a tool's output is cut there, and says where (#1435)."""
+    packages = [f"pkg{number}" for number in range(200)]
+    scanner_fake.recorded["trivy"] = _trivy_run(
+        [
+            {
+                "Target": "uv.lock",
+                "Vulnerabilities": [
+                    {
+                        "VulnerabilityID": "CVE-2026-0001",
+                        "PkgName": package,
+                        "InstalledVersion": "1.0",
+                        "FixedVersion": "2.0",
+                        "Severity": "LOW",
+                        "Title": "t",
+                    }
+                    for package in packages
+                ],
+            }
+        ]
+    )
+    monkeypatch.chdir(tmp_path)
+    whole = "\n".join(
+        [
+            "Trivy scan status: ok",
+            "Findings (200):",
+            *(
+                f"- [LOW] uv.lock:{package}: [CVE-2026-0001] t (Upgrade {package} from 1.0 to 2.0)"
+                for package in packages
+            ),
+        ]
+    )
+
+    reply = scan_trivy(str(tmp_path))
+
+    assert reply == (
+        f"{whole[:DEFAULT_TOOL_DIFF_MAX_CHARS]}\n"
+        f"... [truncated at {DEFAULT_TOOL_DIFF_MAX_CHARS} chars]"
     )
