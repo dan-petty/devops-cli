@@ -486,11 +486,17 @@ class AICacheConfig(BaseModel):
 class AITaskOverride(BaseModel):
     """Per-task model/server override; unset fields fall back to the parent AIConfig."""
 
-    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
+    )
     provider: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
     supports_reasoning: bool | None = None
+    use_model_sampling: bool | None = Field(
+        default=None,
+        description="Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p.",
+    )
     temperature: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
     context_window: int | None = Field(default=None, gt=0)
@@ -507,21 +513,50 @@ class AITaskOverride(BaseModel):
         description="Seconds this task's requests wait for their reply, in place of `ai.timeout`",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_unknown_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            allowed = set(cls.model_fields.keys())
+            for key in data:
+                if key not in allowed:
+                    if key in (
+                        "top_k",
+                        "min_p",
+                        "presence_penalty",
+                        "repeat_penalty",
+                        "think",
+                        "keep_alive",
+                    ):
+                        raise ValueError(
+                            f"Unknown configuration key '{key}'. Per-model sampling and serving settings "
+                            f"belong in a gateway deployment's litellm_params or the Ollama tag."
+                        )
+                    raise ValueError(f"Unknown configuration key '{key}'.")
+        return data
+
 
 class AITasksConfig(BaseModel):
-    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
+    )
     chat: AITaskOverride = AITaskOverride()
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
+    verification: AITaskOverride = AITaskOverride()
+    compose: AITaskOverride = AITaskOverride()
     embedding: AITaskOverride = Field(
         default_factory=lambda: AITaskOverride(model=DEFAULT_RAG_EMBEDDING_MODEL)
     )
 
 
 class AIConfig(BaseModel):
-    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
+    )
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
+    api_key: str | None = Field(default=None, repr=False)
     reference_model: str = DEFAULT_AI_REFERENCE_MODEL
     reference_embedding_model: str = DEFAULT_AI_REFERENCE_EMBEDDING_MODEL
     reference_provider: str = DEFAULT_AI_REFERENCE_PROVIDER
@@ -530,6 +565,10 @@ class AIConfig(BaseModel):
     )
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
     supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING
+    use_model_sampling: bool = Field(
+        default=False,
+        description="Leave sampling parameters to the model. When true, requests carry neither temperature nor top_p.",
+    )
     temperature: float = Field(default=DEFAULT_AI_TEMPERATURE, ge=0.0, allow_inf_nan=False)
     top_p: float = Field(default=DEFAULT_AI_TOP_P, ge=0.0, le=1.0, allow_inf_nan=False)
     context_window: int = Field(default=DEFAULT_AI_CONTEXT_WINDOW, gt=0)
@@ -564,12 +603,34 @@ class AIConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _migrate_append_cache(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "append_cache" in data:
-            val = data.pop("append_cache")
-            if "cache" in data and isinstance(data["cache"], dict):
-                data["cache"].setdefault("append_cache", val)
-            elif "cache" not in data:
-                data["cache"] = {"append_cache": val}
+        if isinstance(data, dict):
+            data.pop("durable", None)
+            if "ollama_base_url" in data:
+                val = data.pop("ollama_base_url")
+                if "ollama_urls" not in data and val:
+                    data["ollama_urls"] = [val] if isinstance(val, str) else val
+            if "append_cache" in data:
+                val = data.pop("append_cache")
+                if "cache" in data and isinstance(data["cache"], dict):
+                    data["cache"].setdefault("append_cache", val)
+                elif "cache" not in data:
+                    data["cache"] = {"append_cache": val}
+            allowed = set(cls.model_fields.keys()) | {"append_cache"}
+            for key in data:
+                if key not in allowed:
+                    if key in (
+                        "top_k",
+                        "min_p",
+                        "presence_penalty",
+                        "repeat_penalty",
+                        "think",
+                        "keep_alive",
+                    ):
+                        raise ValueError(
+                            f"Unknown configuration key '{key}'. Per-model sampling and serving settings "
+                            f"belong in a gateway deployment's litellm_params or the Ollama tag."
+                        )
+                    raise ValueError(f"Unknown configuration key '{key}'.")
         return data
 
     @property
@@ -620,6 +681,7 @@ class AIConfig(BaseModel):
                 "model": override.model,
                 "reasoning_effort": override.reasoning_effort,
                 "supports_reasoning": override.supports_reasoning,
+                "use_model_sampling": override.use_model_sampling,
                 "temperature": override.temperature,
                 "top_p": override.top_p,
                 "context_window": override.context_window,

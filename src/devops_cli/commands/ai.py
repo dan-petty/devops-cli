@@ -177,7 +177,7 @@ def ai_main(
 # =============================================================================
 
 # The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
-_AI_TASKS = ("chat", "metadata", "analysis", "embedding")
+_AI_TASKS = ("chat", "metadata", "analysis", "verification", "compose", "embedding")
 
 
 def _get_agents_task_addendum(meta: ProjectMetadata) -> str:

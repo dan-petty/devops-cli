@@ -70,12 +70,12 @@ ai:
     assert (
         loaded_settings.ai.tasks.analysis.model,
         (analysis.provider, analysis.model),
-        setup["models"],
+        setup["models"]["analysis"],
         setup["pools"],
     ) == (
         "gpt-oss:20b",
         ("gateway", "gpt-oss:20b"),
-        {"analysis": "gateway/gpt-oss:20b"},
+        "gateway/gpt-oss:20b",
         {"gpt-oss:20b": pool},
     )
 
