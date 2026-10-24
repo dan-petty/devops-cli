@@ -39,16 +39,21 @@ from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
+# The route of each virtual model: the model that the gateway config (k8s/llm/gateway/config.yaml)
+# sends to the tier of the default Ollama Service. The wheel and the service image hold only
+# src/devops_cli, so the CLI cannot read that config. tests/test_k8s_llm_gateway.py fails when a
+# route, or the route that a failover records, names a model that the config does not send to the
+# route's tier (#1969).
 DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     {
         "virtual_model": "devops-chat",
-        "target_model": "qwen2.5-coder:7b",
+        "target_model": "qwen3.8:27b",
         "backend_type": "ollama",
         "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-coder",
-        "target_model": "qwen2.5-coder:14b",
+        "target_model": "qwen3-coder:30b",
         "backend_type": "ollama",
         "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
@@ -181,13 +186,19 @@ def _save_gateway_state(
 
 
 def _resolve_fallback_physical_route(
-    fallback_target: str, active_routes: list[GatewayRoute]
+    virtual_model: str, fallback_target: str, active_routes: list[GatewayRoute]
 ) -> tuple[str, str, str]:
-    """Resolve virtual alias to its physical target model, backend type, and URL."""
-    target_r = next((r for r in active_routes if r.virtual_model == fallback_target), None)
-    if target_r is not None:
-        return target_r.target_model, target_r.backend_type, target_r.backend_url
-    return "qwen2.5-coder:7b", "ollama", DEFAULT_OLLAMA_CLUSTER_URL
+    """Resolve the failover of `virtual_model` to its target model, backend type and URL.
+
+    A fallback to another virtual model takes the route of that model. `direct-ollama` names no
+    route: the virtual model keeps the target model of its default route, which calls the default
+    Ollama tier without the gateway.
+    """
+    route = next(
+        (r for r in active_routes if r.virtual_model == fallback_target),
+        next(r for r in _build_default_routes() if r.virtual_model == virtual_model),
+    )
+    return route.target_model, route.backend_type, route.backend_url
 
 
 def _wildcard_pattern(items: list[dict[str, Any]]) -> str:
@@ -498,7 +509,7 @@ class GatewayRouter:
             record_metric("ai.gateway.failover_events", 1)
             fallback_target = MODEL_FAILOVER_PAIRS.get(virtual_model, "direct-ollama")
             target_m, b_type, b_url = _resolve_fallback_physical_route(
-                fallback_target, self._active_routes
+                virtual_model, fallback_target, self._active_routes
             )
             validate_failover_capability(virtual_model, target_m, b_type, force=force)
 
