@@ -8,9 +8,9 @@ metadata:
 spec:
   project: homelab
   sources:
-  - repoURL: https://grafana.github.io/helm-charts
+  - repoURL: https://grafana-community.github.io/helm-charts
     chart: grafana
-    targetRevision: 10.5.15
+    targetRevision: 14.0.1
     helm:
       valueFiles:
       - $values/k8s/monitoring/grafana-values.yaml

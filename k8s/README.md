@@ -772,7 +772,7 @@ k8s/
 │   ├── kustomization.yaml    # Kustomize overlay for monitoring: NetworkPolicy and dashboards
 │   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
-│   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
+│   ├── grafana-values.yaml   # Helm values for grafana-community/grafana (datasources, dashboard sidecar)
 │   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, annotation autodiscovery, CoreDNS, profiling, and the Alloy, Grafana, Loki, Tempo and DCGM integrations)
 │   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
 │   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager and alert rules)

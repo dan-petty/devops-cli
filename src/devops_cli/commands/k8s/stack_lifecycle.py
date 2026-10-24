@@ -122,10 +122,10 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
         },
         {
             "name": "grafana",
-            "chart": "grafana/grafana",
+            "chart": "grafana-community/grafana",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml"),
-            "version": "10.5.15",
+            "version": "14.0.1",
         },
         {
             "name": "dcgm-exporter",
