@@ -19,6 +19,7 @@ import yaml
 from docker.utils import parse_repository_tag
 
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, GatewayRoute, GatewayRouter
+from devops_cli.ai.harness.slots import ModelSlot, SubAgentSlot
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
@@ -26,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_RAG_MAX_CHUNK_TOKENS,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_CLUSTER_URL,
@@ -1445,26 +1447,45 @@ def _tiers_of(url: str) -> set[str]:
     }
 
 
+def _deployment_tiers() -> list[tuple[dict[str, Any], set[str]]]:
+    """Return each gateway deployment with the Ollama tiers that its Service selects. The tiers of
+    each URL are found once, because each find reads the profiles again."""
+    deployments = _gateway_config()["model_list"]
+    tiers = {url: _tiers_of(url) for url in {m["litellm_params"]["api_base"] for m in deployments}}
+    return [(m, tiers[m["litellm_params"]["api_base"]]) for m in deployments]
+
+
 def _gateway_tier_models() -> set[tuple[str, str]]:
     """Return each tier and model to which a gateway deployment sends requests: the model of the
     deployment without its provider, on each tier that its Service selects."""
     providers = _gateway_providers()
     return {
         (tier, _without_provider(m["litellm_params"]["model"], providers))
-        for m in _gateway_config()["model_list"]
-        for tier in _tiers_of(m["litellm_params"]["api_base"])
+        for m, tiers in _deployment_tiers()
+        for tier in tiers
+    }
+
+
+def _off_the_gateway(targets: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    """Return each target, as a model and a URL, whose Service selects no serving tier, or whose
+    model no gateway deployment sends to a serving tier that the Service selects."""
+    served, serving = _gateway_tier_models(), _serving_tiers()
+    return {
+        (model, url)
+        for model, url in targets
+        if not (tiers := _tiers_of(url) & serving)
+        or any((tier, model) not in served for tier in tiers)
     }
 
 
 def _routes_off_the_gateway(routes: list[GatewayRoute]) -> set[tuple[str, str]]:
-    """Return each route, as its virtual and target model, whose Service selects no serving tier,
-    or whose model no gateway deployment sends to a serving tier that the Service selects."""
-    served, serving = _gateway_tier_models(), _serving_tiers()
+    """Return each route, as its virtual and target model, whose model and Service are off the
+    gateway."""
+    off = _off_the_gateway({(route.target_model, route.backend_url) for route in routes})
     return {
         (route.virtual_model, route.target_model)
         for route in routes
-        if not (tiers := _tiers_of(route.backend_url) & serving)
-        or any((tier, route.target_model) not in served for tier in tiers)
+        if (route.target_model, route.backend_url) in off
     }
 
 
@@ -1522,6 +1543,83 @@ def test_the_route_check_names_each_route_whose_tier_the_gateway_sends_no_such_m
         ("devops-embedding", "qwen3-embedding:0.6b"),
         ("devops-chat", "qwen3.8:27b"),
     }
+
+
+def _default_fallback_models() -> dict[str, str]:
+    """Return each place that names the default fallback model, with the model that it names: the
+    default of `devops ai failover` and `devops ai chaos-model`, and the defaults of the harness
+    model slot and of the sub-agent's model slot."""
+    return {
+        "devops_cli.config.defaults.DEFAULT_AI_FALLBACK_MODEL": DEFAULT_AI_FALLBACK_MODEL,
+        "devops_cli.ai.harness.slots.ModelSlot": ModelSlot(name="model").model_name,
+        "devops_cli.ai.harness.slots.SubAgentSlot": SubAgentSlot(
+            name="subagent"
+        ).model_slot.model_name,
+    }
+
+
+def test_the_default_fallback_model_is_a_model_that_the_default_ollama_tier_serves() -> None:
+    """Each place that names the default fallback model names a model that a gateway deployment
+    sends to the serving tier of the default Ollama Service, as a failover to direct Ollama does
+    (#1969). Before #2047 each named qwen2.5-coder:7b, which no gateway deployment names, so a
+    fallback to it found no model on the tier."""
+    fallback_models = _default_fallback_models()
+    off = _off_the_gateway(
+        {(model, DEFAULT_OLLAMA_CLUSTER_URL) for model in fallback_models.values()}
+    )
+
+    assert (
+        bool(fallback_models),
+        {
+            place: model
+            for place, model in fallback_models.items()
+            if (model, DEFAULT_OLLAMA_CLUSTER_URL) in off
+        },
+    ) == (True, {})
+
+
+def _open_webui_default_models() -> set[str]:
+    """Return each model that Open WebUI's `DEFAULT_MODELS` names. Open WebUI splits the value at
+    each comma."""
+    return {
+        model.strip() for model in _open_webui_env()["DEFAULT_MODELS"].split(",") if model.strip()
+    }
+
+
+def _groups_off_the_gateway(models: set[str]) -> set[str]:
+    """Return each of `models` that is no group of the gateway config, or whose deployments call
+    no serving tier."""
+    serving = _serving_tiers()
+    return models - {m["model_name"] for m, tiers in _deployment_tiers() if tiers & serving}
+
+
+def test_every_open_webui_default_model_is_a_group_that_the_gateway_serves() -> None:
+    """Each model that Open WebUI's `DEFAULT_MODELS` names is a group of the gateway config with a
+    deployment on a serving tier. Open WebUI asks its OpenAI connection, the gateway, for the
+    model by its group name. The values set no `MODEL_FILTER_LIST`: Open WebUI removed that
+    allow list in v0.4.0, and the list named two models that the gateway does not serve (#2047)."""
+    default_models = _open_webui_default_models()
+
+    assert (
+        bool(default_models),
+        _groups_off_the_gateway(default_models),
+        "MODEL_FILTER_LIST" in _open_webui_env(),
+    ) == (True, set(), False)
+
+
+def test_the_group_check_names_each_model_that_is_no_served_gateway_group() -> None:
+    """Negative control: the check names a model that no gateway deployment names, a virtual model
+    that the gateway config does not have, and an Ollama model name that is no group. It passes
+    the groups that the gateway serves."""
+    assert _groups_off_the_gateway(
+        {
+            "devops-chat",
+            "qwen3-coder:30b",
+            "qwen2.5-coder:7b",
+            "devops-flagship",
+            "hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
+        }
+    ) == {"qwen2.5-coder:7b", "devops-flagship", "hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S"}
 
 
 @pytest.mark.parametrize("directory", [LLM_DIR, GATEWAY_DIR], ids=["argo-cd", "deploy-stack"])
