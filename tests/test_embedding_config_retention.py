@@ -14,7 +14,7 @@ pytestmark = pytest.mark.usefixtures("mock_keyring")
 def _settings_without_valkey(refusing_port: int) -> Settings:
     """Default settings whose Valkey cache is down, refused through `refusing_port`."""
     settings = Settings()
-    settings.valkey.host = f"127.0.0.1:{refusing_port}"
+    settings.valkey.url = f"valkey://127.0.0.1:{refusing_port}"
     return settings
 
 

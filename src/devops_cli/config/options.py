@@ -62,10 +62,8 @@ QDRANT_COLLECTION_PREFIX = "qdrant.collection_prefix"
 QDRANT_TIMEOUT = "qdrant.timeout"
 
 # Valkey In-Memory Data Store & Distributed Cache
-VALKEY_HOST = "valkey.host"
-VALKEY_PORT = "valkey.port"
+VALKEY_URL = "valkey.url"
 VALKEY_PASSWORD = "valkey.password"
-VALKEY_DB = "valkey.db"
 VALKEY_TIMEOUT = "valkey.timeout"
 
 # Evaluation Run Store: the shared index of benchmark and evaluation runs
@@ -183,10 +181,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     QDRANT_API_KEY,
     QDRANT_COLLECTION_PREFIX,
     QDRANT_TIMEOUT,
-    VALKEY_HOST,
-    VALKEY_PORT,
+    VALKEY_URL,
     VALKEY_PASSWORD,
-    VALKEY_DB,
     VALKEY_TIMEOUT,
     RUNS_INDEX_URL,
     RUNS_INDEX_PASSWORD,

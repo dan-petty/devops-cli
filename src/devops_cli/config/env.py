@@ -7,7 +7,11 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 import devops_cli.config.options as opt
-from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
+from devops_cli.config.defaults import (
+    DEFAULT_OTEL_ENDPOINT,
+    DEFAULT_VALKEY_TIMEOUT_SECONDS,
+    DEFAULT_VALKEY_URL,
+)
 
 ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
 ENV_AGENT_GRANT = "DEVOPS_CLI_AGENT_GRANT"
@@ -65,10 +69,8 @@ ENV_QDRANT_API_KEY = "DEVOPS_CLI_QDRANT_API_KEY"
 ENV_QDRANT_COLLECTION_PREFIX = "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX"
 ENV_QDRANT_TIMEOUT = "DEVOPS_CLI_QDRANT_TIMEOUT"
 
-ENV_VALKEY_HOST = "DEVOPS_CLI_VALKEY_HOST"
-ENV_VALKEY_PORT = "DEVOPS_CLI_VALKEY_PORT"
+ENV_VALKEY_URL = "DEVOPS_CLI_VALKEY_URL"
 ENV_VALKEY_PASSWORD = "DEVOPS_CLI_VALKEY_PASSWORD"
-ENV_VALKEY_DB = "DEVOPS_CLI_VALKEY_DB"
 ENV_VALKEY_TIMEOUT = "DEVOPS_CLI_VALKEY_TIMEOUT"
 ENV_RUNS_INDEX_URL = "DEVOPS_CLI_RUNS_INDEX_URL"
 ENV_RUNS_INDEX_PASSWORD = "DEVOPS_CLI_RUNS_INDEX_PASSWORD"
@@ -153,10 +155,8 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.QDRANT_API_KEY: ENV_QDRANT_API_KEY,
     opt.QDRANT_COLLECTION_PREFIX: ENV_QDRANT_COLLECTION_PREFIX,
     opt.QDRANT_TIMEOUT: ENV_QDRANT_TIMEOUT,
-    opt.VALKEY_HOST: ENV_VALKEY_HOST,
-    opt.VALKEY_PORT: ENV_VALKEY_PORT,
+    opt.VALKEY_URL: ENV_VALKEY_URL,
     opt.VALKEY_PASSWORD: ENV_VALKEY_PASSWORD,
-    opt.VALKEY_DB: ENV_VALKEY_DB,
     opt.VALKEY_TIMEOUT: ENV_VALKEY_TIMEOUT,
     opt.RUNS_INDEX_URL: ENV_RUNS_INDEX_URL,
     opt.RUNS_INDEX_PASSWORD: ENV_RUNS_INDEX_PASSWORD,
@@ -467,16 +467,11 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "per attempt (default: 300)",
         ),
         EnvVarSpec(
-            ENV_VALKEY_HOST,
-            opt.VALKEY_HOST,
+            ENV_VALKEY_URL,
+            opt.VALKEY_URL,
             False,
-            "Valkey workstation caching server host (default: 127.0.0.1)",
-        ),
-        EnvVarSpec(
-            ENV_VALKEY_PORT,
-            opt.VALKEY_PORT,
-            False,
-            "Valkey workstation caching server port (default: 6379)",
+            "Valkey URL of the workstation cache: the scheme valkey or valkeys, the host, the port "
+            f"and the database (default: {DEFAULT_VALKEY_URL})",
         ),
         EnvVarSpec(
             ENV_VALKEY_PASSWORD,
@@ -485,16 +480,11 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Valkey authentication password (stored in OS keyring)",
         ),
         EnvVarSpec(
-            ENV_VALKEY_DB,
-            opt.VALKEY_DB,
-            False,
-            "Valkey database index (default: 0)",
-        ),
-        EnvVarSpec(
             ENV_VALKEY_TIMEOUT,
             opt.VALKEY_TIMEOUT,
             False,
-            "Valkey network socket connection/read timeout in seconds (default: 5.0)",
+            "Valkey network socket connection/read timeout in seconds "
+            f"(default: {DEFAULT_VALKEY_TIMEOUT_SECONDS})",
         ),
         EnvVarSpec(
             ENV_RUNS_INDEX_URL,

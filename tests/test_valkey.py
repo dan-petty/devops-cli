@@ -10,13 +10,25 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer.main
 import valkey.client
+import yaml
 from fakeredis import FakeServer
 from typer.testing import CliRunner
 
+from devops_cli.ai.run_store import (
+    Mechanism,
+    RunIndex,
+    RunIndexNotConfiguredError,
+    new_run,
+    save_run,
+)
 from devops_cli.commands.valkey import app
+from devops_cli.config import options as opt
+from devops_cli.config.constants import CONST_ERROR_CODE_CONFIG
 from devops_cli.config.defaults import DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS
-from devops_cli.config.settings import ValkeyConfig, load_settings
+from devops_cli.config.settings import ValkeyConfig, load_settings, save_settings
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.valkey import (
     ValkeyAuthenticationError,
     ValkeyCommandError,
@@ -24,8 +36,14 @@ from devops_cli.exceptions.valkey import (
     ValkeyTimeoutError,
 )
 from devops_cli.valkey.client import ValkeyClient
+from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 from tests.support.certificates import LocalCa
-from tests.support.fakes.valkey import bulk_reply, serving_valkey, valkey_client_on
+from tests.support.fakes.valkey import (
+    bulk_reply,
+    serving_valkey,
+    valkey_client_on,
+    valkey_endpoint,
+)
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
@@ -45,13 +63,9 @@ class TestValkeyClientDestination:
     connection.
     """
 
-    def test_empty_host_rejected(self) -> None:
-        with pytest.raises(ValkeyConnectionError, match="host cannot be empty"):
-            ValkeyClient(host="")
-
     def test_the_constructor_makes_no_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
         resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        client = ValkeyClient(host="example.com")
+        client = ValkeyClient(valkey_endpoint("valkey://example.com"))
         assert ((client.host, client.port), resolver.lookups) == (
             ("example.com", 6379),
             {"example.com": 0},
@@ -65,7 +79,7 @@ class TestValkeyClientDestination:
             resolver = scripted_resolver(
                 monkeypatch, {"example.com": [["127.0.0.1"], [PUBLIC_ADDRESS]]}
             )
-            client = ValkeyClient(host="example.com", port=port)
+            client = ValkeyClient(valkey_endpoint(f"valkey://example.com:{port}"))
             pinged = client.ping()
             client.close()
         assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
@@ -76,19 +90,26 @@ class TestValkeyClientDestination:
         """Nothing listens at the first answer, so it refuses the connection; the second accepts it."""
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
             resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.2", "127.0.0.1"]]})
-            client = ValkeyClient(host="example.com", port=port)
+            client = ValkeyClient(valkey_endpoint(f"valkey://example.com:{port}"))
             pinged = client.ping()
             client.close()
         assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
 
     @pytest.mark.parametrize(
-        "host", ["example.com", "169.254.169.254", "2852039166", "::ffff:169.254.169.254"]
+        ("authority", "host"),
+        [
+            ("example.com", "example.com"),
+            ("169.254.169.254", "169.254.169.254"),
+            ("2852039166", "2852039166"),
+            # The URL parser writes an IPv6 address in its normal form.
+            ("[::ffff:169.254.169.254]", "::ffff:a9fe:a9fe"),
+        ],
     )
     def test_a_host_that_answers_cloud_metadata_is_a_connection_error_with_no_dial(
-        self, host: str, monkeypatch: pytest.MonkeyPatch
+        self, authority: str, host: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         scripted_resolver(monkeypatch, {"example.com": [["169.254.169.254"]]})
-        client = ValkeyClient(host=host, port=6379)
+        client = ValkeyClient(valkey_endpoint(f"valkey://{authority}:6379"))
         with pytest.raises(ValkeyConnectionError) as raised:
             client.ping()
         assert (raised.value.message, raised.value.details) == (
@@ -98,7 +119,7 @@ class TestValkeyClientDestination:
 
     @pytest.mark.unreachable("example.com")
     def test_a_failed_lookup_is_a_connection_error_that_names_the_host(self) -> None:
-        client = ValkeyClient(host="example.com", port=6379)
+        client = ValkeyClient(valkey_endpoint("valkey://example.com:6379"))
         with pytest.raises(
             ValkeyConnectionError, match=r"Cannot resolve the Valkey host example\.com: "
         ) as raised:
@@ -108,7 +129,7 @@ class TestValkeyClientDestination:
     @pytest.mark.unreachable("169.254.1.2:6379")
     def test_a_link_local_address_that_is_not_cloud_metadata_is_dialled(self) -> None:
         """Rootless Podman reaches its host at 169.254.1.2. The floor refuses the connect and names it."""
-        client = ValkeyClient(host="169.254.1.2", port=6379)
+        client = ValkeyClient(valkey_endpoint("valkey://169.254.1.2:6379"))
         with pytest.raises(
             RuntimeError, match=r"edge reached without a fake: 169\.254\.1\.2:6379 "
         ):
@@ -117,7 +138,7 @@ class TestValkeyClientDestination:
     def test_a_numeric_spelling_is_dialled_as_the_address_it_spells(self) -> None:
         """`2130706433` is 127.0.0.1 to the resolver; the metadata case above judges such a spelling."""
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
-            client = ValkeyClient(host="2130706433", port=port)
+            client = ValkeyClient(valkey_endpoint(f"valkey://2130706433:{port}"))
             pinged = client.ping()
             client.close()
         assert (pinged, received) == (True, [["PING"]])
@@ -136,7 +157,7 @@ class TestValkeyClientTls:
         resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
         tls = local_ca.server_context("example.com")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
-            client = ValkeyClient(host=f"valkeys://example.com:{port}")
+            client = ValkeyClient(valkey_endpoint(f"valkeys://example.com:{port}"))
             pinged = client.ping()
             client.close()
         assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
@@ -147,7 +168,7 @@ class TestValkeyClientTls:
         scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
         tls = local_ca.server_context("example.org")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
-            client = ValkeyClient(host=f"valkeys://example.com:{port}")
+            client = ValkeyClient(valkey_endpoint(f"valkeys://example.com:{port}"))
             with pytest.raises(
                 ValkeyConnectionError, match=r"certificate is not valid for 'example\.com'"
             ):
@@ -156,23 +177,223 @@ class TestValkeyClientTls:
         assert received == []
 
 
-# What every save of the settings writes for `valkey.host` and `valkey.port`, the defaults.
-_SAVED_VALKEY_ADDRESS = {"host": "localhost:6379", "port": 6379}
+# The password of a refused URL; no message may quote it.
+_URL_PASSWORD = "s3cret-in-url"
+
+# Each URL that a Valkey setting refuses, and the words of the reason that its message gives.
+_REFUSED_URLS = [
+    pytest.param("valkey://2001:db8::1:6379", "invalid port number", id="ipv6-without-brackets"),
+    pytest.param(
+        f"valkey://user:{_URL_PASSWORD}@example.com:6379", "user name or a password", id="userinfo"
+    ),
+    pytest.param(
+        f"valkey://:{_URL_PASSWORD}@example.com:6379", "user name or a password", id="password"
+    ),
+    pytest.param("valkey://example.com:99999", "invalid port number", id="port-out-of-range"),
+    pytest.param("valkey://example.com:abc", "invalid port number", id="port-not-a-number"),
+    pytest.param("valkey://example.com:0", "port 0", id="port-0"),
+    pytest.param("valkey://example.com:6379/notanint", "database", id="database-not-an-integer"),
+    pytest.param("valkey://example.com:6379/-1", "database", id="negative-database"),
+    pytest.param("valkey://example.com:6379/1?db=2", "database", id="two-databases"),
+    pytest.param("valkey://example.com:6379?ssl=true", "'ssl'", id="unknown-query-key"),
+    pytest.param("valkey://example.com:6379#frag", "fragment", id="fragment"),
+    pytest.param("redis://example.com:6379", "'redis'", id="redis"),
+    pytest.param("rediss://example.com:6379", "'rediss'", id="rediss"),
+    pytest.param(f"tcp://:{_URL_PASSWORD}@example.com:6379", "'tcp'", id="tcp"),
+    pytest.param("unix:///run/valkey.sock", "'unix'", id="unix"),
+    pytest.param("http://example.com:6379", "'http'", id="http"),
+    pytest.param("localhost:6380", "'localhost'", id="host-read-as-scheme"),
+    pytest.param("//example.com:6379", "no scheme", id="no-scheme"),
+    pytest.param("valkey://", "empty host", id="no-host"),
+]
+
+# The options that could name a Valkey address on the command line. `-h` is the help option.
+_ADDRESS_FLAGS = frozenset({"--url", "--host", "--port", "-p"})
 
 
 @pytest.mark.usefixtures("mock_keyring")
 class TestValkeyUrl:
-    """`valkey.url` names the endpoint that a Valkey client dials, and its scheme decides TLS.
+    """One rule validates each Valkey URL: `valkey.url`, `runs.index_url` and the `--url` option.
 
-    A save of the settings writes the default `valkey.host` and `valkey.port`, so each case saves
-    them beside the URL. The resolver answers `example.com` with loopback. The server has a
-    certificate from a CA made for the test, which the client trusts through `SSL_CERT_FILE`.
+    The resolver answers `example.com` with loopback. The TLS server has a certificate from a CA
+    made for the test, which the client trusts through `SSL_CERT_FILE`.
     """
 
-    @pytest.mark.parametrize("scheme", ["valkeys", "rediss"])
+    @pytest.mark.parametrize(
+        ("url", "endpoint"),
+        [
+            pytest.param(
+                "valkey://example.com:6379/0",
+                ValkeyEndpoint(scheme="valkey", host="example.com", port=6379, db=0),
+                id="host-port-database",
+            ),
+            pytest.param(
+                "valkey://example.com/3",
+                ValkeyEndpoint(scheme="valkey", host="example.com", port=6379, db=3),
+                id="default-port",
+            ),
+            pytest.param(
+                "valkey://example.com:6379?db=4",
+                ValkeyEndpoint(scheme="valkey", host="example.com", port=6379, db=4),
+                id="database-query",
+            ),
+            pytest.param(
+                "valkeys://example.com:6380/0",
+                ValkeyEndpoint(scheme="valkeys", host="example.com", port=6380, db=0),
+                id="tls",
+            ),
+            pytest.param(
+                "valkey://[2001:db8::1]:6379/0",
+                ValkeyEndpoint(scheme="valkey", host="2001:db8::1", port=6379, db=0),
+                id="ipv6",
+            ),
+            pytest.param(
+                "valkey://bücher.example:6379",
+                ValkeyEndpoint(scheme="valkey", host="bücher.example", port=6379, db=0),
+                id="non-ascii-host",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("setting", [opt.VALKEY_URL, opt.RUNS_INDEX_URL, "--url"])
+    def test_a_valid_url_names_the_scheme_host_port_and_database(
+        self, url: str, endpoint: ValkeyEndpoint, setting: str
+    ) -> None:
+        assert (parse_valkey_url(url, setting=setting), endpoint.tls) == (
+            endpoint,
+            endpoint.scheme == "valkeys",
+        )
+
+    @pytest.mark.parametrize(("url", "reason"), _REFUSED_URLS)
+    def test_each_setting_refuses_an_invalid_url_with_a_message_that_names_it(
+        self, url: str, reason: str, config: Callable[..., Path]
+    ) -> None:
+        config(valkey={"url": url}, runs={"index_url": url})
+        settings = load_settings()
+        with pytest.raises(ConfigurationError) as valkey_url:
+            _ = settings.valkey.endpoint
+        with pytest.raises(RunIndexNotConfiguredError) as index_url:
+            RunIndex.from_settings()
+        with pytest.raises(ConfigurationError) as option:
+            parse_valkey_url(url, setting="--url")
+        messages = {
+            opt.VALKEY_URL: valkey_url.value.message,
+            opt.RUNS_INDEX_URL: index_url.value.message,
+            "--url": option.value.message,
+        }
+        assert {
+            setting: (
+                message.startswith(f"{setting} "),
+                reason in message,
+                _URL_PASSWORD in message,
+            )
+            for setting, message in messages.items()
+        } == {setting: (True, True, False) for setting in messages}
+
+    @pytest.mark.parametrize(
+        "argv",
+        [["valkey", "ping"], ["valkey", "ping", "--url", f"tcp://:{_URL_PASSWORD}@example.com"]],
+        ids=["setting", "option"],
+    )
+    def test_a_command_given_an_invalid_url_exits_with_the_message_and_no_traceback(
+        self, argv: list[str], cli: Callable[..., Any], config: Callable[..., Path]
+    ) -> None:
+        config(valkey={"url": f"tcp://:{_URL_PASSWORD}@example.com"})
+        result = cli(argv)
+        output = " ".join(result.output.split())
+        setting = "--url" if "--url" in argv else opt.VALKEY_URL
+        assert (
+            result.exit_code,
+            f"{setting} has the scheme 'tcp'" in output,
+            _URL_PASSWORD in output,
+            "Traceback" in output,
+        ) == (1, True, False, False)
+
+    def test_a_saved_url_that_is_refused_names_the_command_that_writes_it(
+        self, cli: Callable[..., Any], config: Callable[..., Path]
+    ) -> None:
+        save_run(new_run(Mechanism.CORPUS_SCORE, setup={}, subject={}, results={}))
+        config(valkey={"url": "tcp://example.com:6379"}, runs={"index_url": "tcp://example.com"})
+        assert (
+            "devops k8s configure-urls" in " ".join(cli("valkey", "ping").output.split()),
+            "devops ai runs connect" in " ".join(cli("ai", "runs", "reindex").output.split()),
+        ) == (True, True)
+
+    def test_an_invalid_url_does_not_stop_the_settings_from_loading(
+        self, config: Callable[..., Path]
+    ) -> None:
+        config(valkey={"url": "tcp://example.com:6379"})
+        settings = load_settings()
+        with pytest.raises(ConfigurationError) as raised:
+            _ = settings.valkey.endpoint
+        assert (raised.value.exit_code, raised.value.error_code, raised.value.details) == (
+            1,
+            CONST_ERROR_CODE_CONFIG,
+            {"key": "valkey.url"},
+        )
+
+    @pytest.mark.parametrize(
+        "saved", [{}, {"url": ""}, {"url": None}], ids=["unset", "empty", "null"]
+    )
+    def test_an_unset_url_is_the_default_endpoint(self, saved: dict[str, Any]) -> None:
+        assert ValkeyConfig.model_validate(saved).endpoint == ValkeyEndpoint(
+            scheme="valkey", host="localhost", port=6379, db=0
+        )
+
+    def test_an_environment_url_replaces_the_url_of_the_file(
+        self, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config(valkey={"url": "valkey://example.com:6379/1"})
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_URL", "valkeys://example.org:6381/2")
+        assert load_settings().valkey.endpoint == ValkeyEndpoint(
+            scheme="valkeys", host="example.org", port=6381, db=2
+        )
+
+    def test_a_file_with_the_removed_host_port_and_db_keys_loads_and_saves_without_them(
+        self, config: Callable[..., Path], tmp_path: Path
+    ) -> None:
+        """Every save before `valkey.url` became the one address wrote `host`, `port` and `db`."""
+        config(
+            valkey={
+                "host": "localhost:6379",
+                "port": 6379,
+                "db": 0,
+                "url": "valkey://example.com:6380/1",
+            }
+        )
+        settings = load_settings()
+        saved = tmp_path / "saved.yaml"
+        save_settings(settings, saved)
+        assert (
+            settings.valkey.endpoint,
+            sorted(yaml.safe_load(saved.read_text(encoding="utf-8"))["valkey"]),
+        ) == (
+            ValkeyEndpoint(scheme="valkey", host="example.com", port=6380, db=1),
+            ["threat_intel_ttl", "timeout", "url"],
+        )
+
+    def test_the_database_of_the_url_is_selected_on_each_new_connection(
+        self, cli: Callable[..., Any], config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+            config(valkey={"url": f"valkey://example.com:{port}/2"})
+            result = cli("valkey", "ping")
+        assert (result.exit_code, resolver.lookups, received) == (
+            0,
+            {"example.com": 1},
+            [["SELECT", "2"], ["PING"]],
+        )
+
+    def test_the_url_option_replaces_the_saved_url(
+        self, cli: Callable[..., Any], config: Callable[..., Path]
+    ) -> None:
+        config(valkey={"url": "tcp://example.com:6379"})
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+            result = cli("valkey", "ping", "--url", f"valkey://127.0.0.1:{port}/3")
+        assert (result.exit_code, received) == (0, [["SELECT", "3"], ["PING"]])
+
     def test_a_tls_url_connects_over_tls_to_its_host(
         self,
-        scheme: str,
         cli: Callable[..., Any],
         config: Callable[..., Path],
         monkeypatch: pytest.MonkeyPatch,
@@ -181,7 +402,7 @@ class TestValkeyUrl:
         resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
         tls = local_ca.server_context("example.com")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
-            config(valkey={**_SAVED_VALKEY_ADDRESS, "url": f"{scheme}://example.com:{port}"})
+            config(valkey={"url": f"valkeys://example.com:{port}"})
             result = cli("valkey", "ping")
         assert (result.exit_code, resolver.lookups, received) == (
             0,
@@ -199,7 +420,7 @@ class TestValkeyUrl:
         scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
         tls = local_ca.server_context("example.org")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
-            config(valkey={**_SAVED_VALKEY_ADDRESS, "url": f"valkeys://example.com:{port}"})
+            config(valkey={"url": f"valkeys://example.com:{port}"})
             result = cli("valkey", "ping")
         assert (result.exit_code, received) == (1, [])
         assert "certificate is not valid for 'example.com'" in result.output
@@ -209,7 +430,7 @@ class TestValkeyUrl:
     ) -> None:
         resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
-            config(valkey={**_SAVED_VALKEY_ADDRESS, "url": f"valkey://example.com:{port}"})
+            config(valkey={"url": f"valkey://example.com:{port}"})
             result = cli("valkey", "ping")
         assert (result.exit_code, resolver.lookups, received) == (
             0,
@@ -217,69 +438,17 @@ class TestValkeyUrl:
             [["PING"]],
         )
 
-    @pytest.mark.parametrize(
-        ("saved", "endpoint"),
-        [
-            pytest.param(
-                {"url": "valkeys://example.com:6380"}, "valkeys://example.com:6380", id="valkeys"
-            ),
-            pytest.param({"url": "rediss://example.com"}, "rediss://example.com:6379", id="rediss"),
-            pytest.param(
-                {"url": "valkey://[2001:db8::1]:6379/0"},
-                "valkey://[2001:db8::1]:6379",
-                id="valkey-ipv6",
-            ),
-            pytest.param(
-                {"url": "valkeys://:<masked-password>@example.com:6380"},
-                "valkeys://example.com:6380",
-                id="password-stays-out",
-            ),
-            pytest.param(
-                {**_SAVED_VALKEY_ADDRESS, "url": "valkeys://example.com:6380"},
-                "valkeys://example.com:6380",
-                id="url-over-saved-host",
-            ),
-            pytest.param({"host": "example.com:6380"}, "example.com:6380", id="host-without-url"),
-            pytest.param(
-                {"host": "192.0.2.7:30637", "port": 30637, "url": "http://192.0.2.7:30637"},
-                "192.0.2.7:30637",
-                id="url-without-a-valkey-scheme",
-            ),
-        ],
-    )
-    def test_the_endpoint_is_the_address_behind_the_scheme_of_the_url(
-        self, saved: dict[str, Any], endpoint: str
-    ) -> None:
-        assert ValkeyConfig.model_validate(saved).endpoint == endpoint
-
-    @pytest.mark.parametrize(
-        ("url", "environment_host", "endpoint"),
-        [
-            pytest.param(
-                "valkeys://example.com:6380",
-                "example.org:6381",
-                "valkeys://example.org:6381",
-                id="the-url-scheme",
-            ),
-            pytest.param(
-                "valkey://example.com:6379",
-                "valkeys://example.org:6381",
-                "valkeys://example.org:6381",
-                id="its-own-scheme",
-            ),
-        ],
-    )
-    def test_an_environment_host_replaces_the_host_of_the_url(
-        self,
-        url: str,
-        environment_host: str,
-        endpoint: str,
-        config: Callable[..., Path],
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        config(valkey={"url": url})
-        monkeypatch.setenv("DEVOPS_CLI_VALKEY_HOST", environment_host)
-        assert load_settings().valkey.endpoint == endpoint
+    def test_every_valkey_command_takes_a_url_and_no_host_or_port(self) -> None:
+        commands = typer.main.get_group(app).commands
+        assert {
+            name: sorted(
+                flag for param in command.params for flag in param.opts if flag in _ADDRESS_FLAGS
+            )
+            for name, command in commands.items()
+        } == {
+            name: ["--url"]
+            for name in ("ping", "info", "stats", "keys", "get", "set", "flush", "backup", "cli")
+        }
 
 
 class TestValkeyClientCommands:
@@ -332,7 +501,7 @@ class TestValkeyClientCommands:
     def test_info_is_parsed_into_a_dict(self) -> None:
         text = "# Server\r\nvalkey_version:8.0.0\r\nuptime_in_seconds:3600\r\n"
         with serving_valkey({"INFO": bulk_reply(text.encode())}) as (port, _received):
-            client = ValkeyClient(host="127.0.0.1", port=port)
+            client = ValkeyClient(valkey_endpoint(f"valkey://127.0.0.1:{port}"))
             info = client.info()
             client.close()
         assert info == {"valkey_version": "8.0.0", "uptime_in_seconds": 3600}
@@ -388,38 +557,49 @@ class TestValkeyClientCommands:
 
 
 class TestValkeyClientConnection:
-    """What the client's own arguments make a new connection send and read, over a loopback socket.
+    """What the client's endpoint and password make a new connection send and read, over a loopback socket.
 
-    These tests reach the pool the client builds from its arguments. The in-memory server of the
+    These tests reach the pool the client builds from its endpoint. The in-memory server of the
     other classes connects through the `connection_pool` seam with a pool of its own, so it
     cannot show that the client passes its password, database or decoding settings on.
     """
 
     @pytest.mark.parametrize(
-        ("arguments", "announced"),
+        ("database", "password", "announced"),
         [
-            pytest.param({}, [], id="neither"),
-            pytest.param({"password": "s3cret"}, [["AUTH", "s3cret"]], id="password"),
-            pytest.param({"db": 3}, [["SELECT", "3"]], id="database"),
+            pytest.param("", None, [], id="neither"),
+            pytest.param("", "s3cret", [["AUTH", "s3cret"]], id="password"),
+            pytest.param("/3", None, [["SELECT", "3"]], id="database"),
             pytest.param(
-                {"password": "s3cret", "db": 3},
-                [["AUTH", "s3cret"], ["SELECT", "3"]],
-                id="password-and-database",
+                "/3", "s3cret", [["AUTH", "s3cret"], ["SELECT", "3"]], id="password-and-database"
             ),
         ],
     )
     def test_a_new_connection_authenticates_and_selects_what_the_client_was_given(
-        self, arguments: dict[str, Any], announced: list[list[str]]
+        self, database: str, password: str | None, announced: list[list[str]]
     ) -> None:
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
-            client = ValkeyClient(host="127.0.0.1", port=port, **arguments)
+            endpoint = valkey_endpoint(f"valkey://127.0.0.1:{port}{database}")
+            client = ValkeyClient(endpoint, password=password)
             pinged = client.ping()
             client.close()
         assert (pinged, received) == (True, [*announced, ["PING"]])
 
+    def test_a_refused_password_is_an_authentication_error_that_does_not_quote_it(self) -> None:
+        refusal = b"-WRONGPASS invalid username-password pair or user is disabled.\r\n"
+        with serving_valkey({"AUTH": refusal}) as (port, _received):
+            client = ValkeyClient(valkey_endpoint(f"valkey://127.0.0.1:{port}"), password="s3cret")
+            with pytest.raises(ValkeyAuthenticationError) as raised:
+                client.ping()
+            client.close()
+        assert (raised.value.error_code, "s3cret" in raised.value.message) == (
+            "VALKEY_AUTHENTICATION_ERROR",
+            False,
+        )
+
     def test_a_reply_that_is_not_utf8_is_decoded_with_replacement(self) -> None:
         with serving_valkey({"GET": bulk_reply(b"ok\xff")}) as (port, _received):
-            client = ValkeyClient(host="127.0.0.1", port=port)
+            client = ValkeyClient(valkey_endpoint(f"valkey://127.0.0.1:{port}"))
             values = (client.get("blob"), client.execute("GET", "blob"))
             client.close()
         assert values == ("ok\ufffd", "ok\ufffd")
@@ -466,7 +646,7 @@ class TestValkeyClientFailures:
     def test_a_refused_port_is_a_connection_error_naming_the_endpoint(
         self, refusing_port: int
     ) -> None:
-        client = ValkeyClient(host="127.0.0.1", port=refusing_port)
+        client = ValkeyClient(valkey_endpoint(f"valkey://127.0.0.1:{refusing_port}"))
         with pytest.raises(ValkeyConnectionError) as raised:
             client.ping()
         assert raised.value.details == {"host": "127.0.0.1", "port": refusing_port}
@@ -476,7 +656,7 @@ class TestValkeyClientFailures:
             listener.bind(("127.0.0.1", 0))
             listener.listen(1)
             port = listener.getsockname()[1]
-            client = ValkeyClient(host="127.0.0.1", port=port, timeout=0.05)
+            client = ValkeyClient(valkey_endpoint(f"valkey://127.0.0.1:{port}"), timeout=0.05)
             with pytest.raises(ValkeyTimeoutError) as raised:
                 client.ping()
         assert raised.value.details == {"host": "127.0.0.1", "port": port, "timeout_seconds": 0.05}
@@ -654,50 +834,6 @@ class TestValkeyCliCommands:
         assert res.exit_code != 0
         assert "ghp_secretvalkey" not in res.output
         assert "<masked-github-token>" in res.output
-
-
-def test_parse_valkey_endpoint_formats() -> None:
-    """Ensure parse_valkey_endpoint handles hostname:port, raw host, and uri schemes."""
-    from devops_cli.valkey.client import parse_valkey_endpoint
-
-    assert parse_valkey_endpoint("localhost:6379") == ("localhost", 6379)
-    assert parse_valkey_endpoint("127.0.0.1:6380") == ("127.0.0.1", 6380)
-    assert parse_valkey_endpoint("localhost", default_port=6379) == ("localhost", 6379)
-    assert parse_valkey_endpoint("valkey://localhost:6379") == ("localhost", 6379)
-    assert parse_valkey_endpoint("redis://127.0.0.1:6379") == ("127.0.0.1", 6379)
-    assert parse_valkey_endpoint("[::1]:6379") == ("::1", 6379)
-    assert parse_valkey_endpoint("[::1]") == ("::1", 6379)
-    assert parse_valkey_endpoint("[2001:db8::1]:6379") == ("2001:db8::1", 6379)
-    assert parse_valkey_endpoint("valkey://[2001:db8::1]") == ("2001:db8::1", 6379)
-    assert parse_valkey_endpoint("valkey://[2001:db8::1]:6382") == ("2001:db8::1", 6382)
-    assert parse_valkey_endpoint("VALKEY://[2001:db8::1]:6381") == ("2001:db8::1", 6381)
-    assert parse_valkey_endpoint("REDIS://localhost:6379") == ("localhost", 6379)
-    assert parse_valkey_endpoint("TCP://127.0.0.1:6379") == ("127.0.0.1", 6379)
-
-
-def test_valkey_config_hostname_port_normalization() -> None:
-    """Ensure ValkeyConfig normalizes host and port into standard hostname:port."""
-    from devops_cli.config.settings import ValkeyConfig
-
-    cfg1 = ValkeyConfig(host="localhost:6379")
-    assert cfg1.host == "localhost:6379"
-    assert cfg1.port == 6379
-
-    cfg2 = ValkeyConfig(host="localhost", port=6380)
-    assert cfg2.host == "localhost:6380"
-    assert cfg2.port == 6380
-
-    cfg3 = ValkeyConfig(host="[2001:db8::1]:6379")
-    assert cfg3.host == "[2001:db8::1]:6379"
-    assert cfg3.port == 6379
-
-    cfg4 = ValkeyConfig(host="valkey://[2001:db8::1]:6382")
-    assert cfg4.host == "[2001:db8::1]:6382"
-    assert cfg4.port == 6382
-
-    cfg5 = ValkeyConfig(host="VALKEY://[2001:db8::1]:6383")
-    assert cfg5.host == "[2001:db8::1]:6383"
-    assert cfg5.port == 6383
 
 
 def test_valkey_cli_error_and_edge_cases() -> None:

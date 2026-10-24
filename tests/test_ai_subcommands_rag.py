@@ -36,8 +36,7 @@ def test_try_retrieve_rag_context_success(
     settings.qdrant.api_key = None
     settings.qdrant.collection_prefix = "devops"
     settings.telemetry.endpoint = f"http://127.0.0.1:{unserved_side_channel_port}"
-    settings.valkey.host = "127.0.0.1"
-    settings.valkey.port = refusing_port
+    settings.valkey.url = f"valkey://127.0.0.1:{refusing_port}"
     with (
         patch("devops_cli.config.settings.load_settings", return_value=settings),
         patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),

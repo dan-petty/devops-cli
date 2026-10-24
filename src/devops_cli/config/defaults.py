@@ -601,7 +601,7 @@ DEFAULT_EMBEDDING_INPUT_TYPE: Literal["query", "document"] = "query"
 DEFAULT_EMBEDDING_CURRENCY: str = "USD"
 
 # ── Valkey Defaults ─────────────────────────────────────────────────────────
-DEFAULT_VALKEY_HOST: str = "localhost"
+DEFAULT_VALKEY_URL: str = f"valkey://localhost:{DEFAULT_VALKEY_PORT}/0"
 DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0

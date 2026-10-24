@@ -464,13 +464,7 @@ class EmbeddingsEngine:
 
             settings = load_settings()
             cfg = settings.valkey
-            connect = partial(
-                ValkeyClient,
-                host=cfg.endpoint,
-                port=cfg.port,
-                password=get_valkey_password(settings),
-                db=cfg.db,
-            )
+            connect = partial(ValkeyClient, cfg.endpoint, password=get_valkey_password(settings))
             probe = connect(timeout=min(float(cfg.timeout), 0.1))
             try:
                 if not probe.ping():

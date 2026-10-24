@@ -92,6 +92,40 @@ def test_the_ai_cache_backend_is_not_a_config_option() -> None:
     ) == (False, False, False, 1)
 
 
+def test_valkey_url_is_the_one_option_that_names_the_valkey_address() -> None:
+    """No option, variable or field holds a Valkey host, port or database beside `valkey.url`."""
+    from devops_cli.config import options as opt
+    from devops_cli.config.env import get_all_env_var_specs
+    from devops_cli.config.settings import ValkeyConfig
+
+    assert (
+        sorted(key for key in opt.CONFIG_OPTIONS if key.startswith("valkey.")),
+        sorted(
+            spec.env_var
+            for spec in get_all_env_var_specs()
+            if spec.env_var.startswith("DEVOPS_CLI_VALKEY_")
+        ),
+        sorted(ValkeyConfig.model_fields),
+        [runner.invoke(app, ["get", key]).exit_code for key in ("valkey.host", "valkey.db")],
+    ) == (
+        ["valkey.password", "valkey.timeout", "valkey.url"],
+        ["DEVOPS_CLI_VALKEY_PASSWORD", "DEVOPS_CLI_VALKEY_TIMEOUT", "DEVOPS_CLI_VALKEY_URL"],
+        ["password", "threat_intel_ttl", "timeout", "url"],
+        [1, 1],
+    )
+
+
+def test_the_valkey_timeout_variable_names_the_default_timeout() -> None:
+    from devops_cli.config.defaults import DEFAULT_VALKEY_TIMEOUT_SECONDS
+    from devops_cli.config.env import get_all_env_var_specs
+
+    assert [
+        spec.description.endswith(f"(default: {DEFAULT_VALKEY_TIMEOUT_SECONDS})")
+        for spec in get_all_env_var_specs()
+        if spec.env_var == "DEVOPS_CLI_VALKEY_TIMEOUT"
+    ] == [True]
+
+
 def test_config_env_aliases() -> None:
     res1 = runner.invoke(app, ["env"])
     assert res1.exit_code == 0

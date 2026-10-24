@@ -2699,13 +2699,14 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
-# Schemes recognized for Valkey and Redis connection endpoints
-CONST_VALKEY_SCHEMES: Final[frozenset[str]] = frozenset(
-    {"valkey", "valkeys", "redis", "rediss", "tcp"}
-)
+# The schemes of a Valkey URL. Every other scheme is refused, also those that valkey-py reads.
+CONST_VALKEY_SCHEMES: Final[frozenset[str]] = frozenset({"valkey", "valkeys"})
 
-# Schemes of a Valkey endpoint that valkey-py dials over TLS
-CONST_VALKEY_TLS_SCHEMES: Final[frozenset[str]] = frozenset({"valkeys", "rediss"})
+# The scheme of a Valkey URL that connects over TLS
+CONST_VALKEY_TLS_SCHEME: Final[str] = "valkeys"
+
+# The one query key that a Valkey URL can hold: the database, as in `valkey://example.com/?db=2`
+CONST_VALKEY_URL_QUERY_KEYS: Final[frozenset[str]] = frozenset({"db"})
 
 # Characters of a failed embedding reply's body quoted in its EmbeddingsError
 CONST_EMBEDDING_REPLY_EXCERPT_CHARS: Final[int] = 500

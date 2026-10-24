@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
+from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_ADDRESSING_FQDN,
     CONST_ADDRESSING_INGRESS,
@@ -40,11 +41,13 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
     DEFAULT_TEMPO_PORT,
     DEFAULT_VALKEY_PORT,
+    DEFAULT_VALKEY_URL,
 )
 from devops_cli.config.settings import load_settings, save_settings
 from devops_cli.core.cli import exit_on_error
 from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.k8s.service_proxy import ServiceRef
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -443,46 +446,34 @@ def _configure_infra_stack_urls(
             configured["otel.endpoint"] = otel_url
 
 
-def _has_non_default_valkey_port(valkey_cfg: Any, existing_url: str | None) -> bool:
-    """Check if configured valkey port differs from default 6379."""
-    from urllib.parse import urlparse
+def _as_valkey_url(url: str | None) -> str | None:
+    """The `valkey://` URL of a detected Valkey address, which service detection writes as `http://`."""
+    import httpx2
 
-    cfg_port = getattr(valkey_cfg, "port", None)
-    if cfg_port is not None:
-        try:
-            if int(cfg_port) != 6379:
-                return True
-        except ValueError, TypeError:
-            pass
-    if existing_url:
-        p_port = urlparse(existing_url).port
-        if p_port is not None and p_port != 6379:
-            return True
-    return False
+    if not url:
+        return None
+    address = httpx2.URL(url)
+    return str(httpx2.URL(scheme="valkey", host=address.host, port=address.port))
 
 
-def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
-    """Determine whether detected valkey_url should update valkey host/port configuration."""
+def _update_valkey_url(settings: Any, configured: dict[str, str], valkey_url: str | None) -> None:
+    """Save the detected `valkey.url` by the rules of the other service URLs, with one more rule.
 
-    if not valkey_url:
-        return False
-    valkey_cfg = getattr(settings, "valkey", None)
-    if valkey_cfg is None:
-        return True
+    A saved loopback URL on a port other than the default is a port-forward that a person chose,
+    so it survives detection. A saved URL that is not a valid Valkey URL is replaced.
+    """
+    from devops_cli.valkey.endpoint import parse_valkey_url
 
-    existing_url = getattr(valkey_cfg, "url", None)
-    if _has_non_default_valkey_port(valkey_cfg, existing_url):
-        return False
-    if existing_url and not _should_update_url(existing_url, valkey_url):
-        return False
-
-    existing_host_raw = getattr(valkey_cfg, "host", "") or ""
-    parsed_existing = urlsplit(f"//{existing_host_raw.strip()}")
-    existing_host = (parsed_existing.hostname or existing_host_raw).strip().lower()
-    new_host = (urlsplit(valkey_url).hostname or "").strip().lower()
-    if existing_host and not is_loopback_host(existing_host) and is_loopback_host(new_host):
-        return False
-    return True
+    saved = settings.valkey.url
+    try:
+        endpoint = parse_valkey_url(saved, setting=opt.VALKEY_URL) if saved else None
+    except ConfigurationError:
+        saved = endpoint = None
+    if endpoint and is_loopback_host(endpoint.host) and endpoint.port != DEFAULT_VALKEY_PORT:
+        return
+    _apply_service_url(
+        settings, configured, opt.VALKEY_URL, valkey_url, saved, default_url=DEFAULT_VALKEY_URL
+    )
 
 
 def _configure_llm_stack_urls(
@@ -491,10 +482,7 @@ def _configure_llm_stack_urls(
     configured: dict[str, str],
 ) -> None:
     """Detect and configure accessible URLs for LLM stack services."""
-    from urllib.parse import urlparse
-
     from devops_cli.config.defaults import DEFAULT_QDRANT_URL
-    from devops_cli.config.settings import dotted_set
 
     raw_ollama = _detect_service_url(
         DEFAULT_OLLAMA_CLUSTER_SERVICE, "llm", context=effective_context
@@ -506,8 +494,10 @@ def _configure_llm_stack_urls(
     ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
     webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
     qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
-    valkey_url = _resolve_accessible_url(
-        raw_valkey, preferred_localhost_ports=[6379], default_scheme="tcp"
+    valkey_url = _as_valkey_url(
+        _resolve_accessible_url(
+            raw_valkey, preferred_localhost_ports=[DEFAULT_VALKEY_PORT], default_scheme="valkey"
+        )
     )
 
     _update_ollama_urls(settings, configured, ollama_url)
@@ -522,14 +512,7 @@ def _configure_llm_stack_urls(
         getattr(settings.qdrant, "url", None),
         default_url=DEFAULT_QDRANT_URL,
     )
-    if valkey_url and _should_update_valkey(settings, valkey_url):
-        dotted_set(settings, "valkey.url", valkey_url)
-        p_valkey = urlparse(valkey_url)
-        if p_valkey.port:
-            h = p_valkey.hostname or "localhost"
-            dotted_set(settings, "valkey.host", f"{h}:{p_valkey.port}")
-            dotted_set(settings, "valkey.port", str(p_valkey.port))
-        configured["valkey.url"] = valkey_url
+    _update_valkey_url(settings, configured, valkey_url)
 
 
 # Which Service backs each configured endpoint. Names are matched as substrings, most
@@ -627,7 +610,7 @@ def _preview_nodeport_addresses(stacks: Sequence[str]) -> dict[str, str]:
 
     preview: dict[str, str] = {}
     for key in keys:
-        scheme = "tcp" if key.startswith("valkey") else "http"
+        scheme = "valkey" if key.startswith("valkey") else "http"
         preview[key] = f"{scheme}://{CONST_PLACEHOLDER_NODE}:{CONST_PLACEHOLDER_PORT}"
     return preview
 
@@ -1002,7 +985,7 @@ def _build_port_forward_details(
                 "ollama.url": f"http://localhost:{ports['ollama']}",
                 "open_webui.url": f"http://localhost:{ports['open_webui']}",
                 "qdrant.url": f"http://localhost:{ports['qdrant']}",
-                "valkey.url": f"tcp://localhost:{ports['valkey']}",
+                "valkey.url": f"valkey://localhost:{ports['valkey']}",
             }
         )
     return details

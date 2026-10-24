@@ -6,6 +6,8 @@ import json
 import subprocess
 from unittest.mock import patch
 
+import pytest
+
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.commands.k8s.networking import (
     _build_port_forward_details,
@@ -15,7 +17,6 @@ from devops_cli.commands.k8s.networking import (
     _resolve_effective_addressing,
     _select_best_ingress_host,
     _should_update_url,
-    _should_update_valkey,
     _update_ollama_urls,
     port_forward,
 )
@@ -47,24 +48,99 @@ def test_should_update_url_edge_cases() -> None:
     assert test_cases == expected
 
 
-def test_should_update_valkey_preserves_remote_host() -> None:
-    """_should_update_valkey refuses to clobber a remote host with a loopback URL."""
-    from types import SimpleNamespace
+def _valkey_url_after_detection(saved: str | None, detected: str, reachable: bool) -> str | None:
+    """The `valkey.url` that configure-urls leaves after it detects the cache Valkey at `detected`.
 
-    settings_remote = SimpleNamespace(
-        valkey=SimpleNamespace(url=None, host="example.com:6379", port="6379")
-    )
-    settings_loopback = SimpleNamespace(
-        valkey=SimpleNamespace(url=None, host="127.0.0.1:6379", port="6379")
-    )
+    When the detected address does not answer, detection falls back to a loopback port-forward on
+    the node port.
+    """
+    settings = Settings()
+    settings.valkey.url = saved
+    with (
+        patch(
+            "devops_cli.commands.k8s.networking._detect_service_url",
+            side_effect=lambda service, namespace, context=None: (
+                detected if service == "valkey" else None
+            ),
+        ),
+        patch(
+            "devops_cli.commands.k8s.networking._verify_url_reachability",
+            side_effect=lambda url, timeout=0.0: reachable and url == detected,
+        ),
+    ):
+        _configure_llm_stack_urls(None, settings, {})
+    return settings.valkey.url
 
-    assert (
-        _should_update_valkey(settings_remote, "http://127.0.0.2:6379"),
-        _should_update_valkey(settings_remote, "http://localhost:6379"),
-        _should_update_valkey(settings_remote, "http://example.com:6380"),
-        _should_update_valkey(settings_loopback, "http://127.0.0.2:6379"),
-        _should_update_valkey(None, None),
-    ) == (False, False, True, True, False)
+
+@pytest.mark.parametrize(
+    ("saved", "detected", "reachable", "url"),
+    [
+        pytest.param(
+            None, "http://192.0.2.7:30637", True, "valkey://192.0.2.7:30637", id="detected-ipv4"
+        ),
+        pytest.param(
+            None,
+            "http://[2001:db8::5]:30637",
+            True,
+            "valkey://[2001:db8::5]:30637",
+            id="detected-ipv6",
+        ),
+        pytest.param(
+            "valkey://[2001:db8::5]:6379",
+            "http://192.0.2.7:30637",
+            False,
+            "valkey://[2001:db8::5]:6379",
+            id="saved-ipv6-survives-loopback",
+        ),
+        pytest.param(
+            "valkey://[::ffff:192.0.2.5]:6379",
+            "http://192.0.2.7:30637",
+            False,
+            "valkey://[::ffff:192.0.2.5]:6379",
+            id="saved-mapped-ipv4-survives-loopback",
+        ),
+        pytest.param(
+            "valkey://example.com:6379",
+            "http://192.0.2.7:30637",
+            False,
+            "valkey://example.com:6379",
+            id="saved-host-name-survives-loopback",
+        ),
+        pytest.param(
+            "valkey://localhost:6379",
+            "http://192.0.2.7:30637",
+            False,
+            "valkey://localhost:30637",
+            id="saved-loopback-replaced-by-loopback",
+        ),
+        pytest.param(
+            "valkey://localhost:6380",
+            "http://192.0.2.7:30637",
+            False,
+            "valkey://localhost:6380",
+            id="saved-loopback-on-another-port-survives",
+        ),
+        pytest.param(
+            "tcp://localhost:6379",
+            "http://192.0.2.7:30637",
+            False,
+            "valkey://localhost:30637",
+            id="saved-tcp-url-replaced",
+        ),
+        pytest.param(
+            "http://192.0.2.7:30637",
+            "http://192.0.2.7:30637",
+            False,
+            "valkey://localhost:30637",
+            id="saved-http-url-replaced",
+        ),
+    ],
+)
+def test_configure_urls_saves_valkey_url_as_a_valkey_url(
+    saved: str | None, detected: str, reachable: bool, url: str
+) -> None:
+    """configure-urls writes `valkey://`, keeps a saved non-loopback URL and a chosen local port."""
+    assert _valkey_url_after_detection(saved, detected, reachable) == url
 
 
 def test_update_ollama_urls_endpoint_preservation() -> None:
@@ -145,12 +221,14 @@ def test_collect_port_forward_services_and_details() -> None:
         details_infra["argocd.url"],
         details_infra["pyroscope.url"],
         details_llm["ollama.url"],
+        details_llm["valkey.url"],
     ) == (
         6,
         4,
         "http://localhost:8080",
         "http://localhost:4040",
         "http://localhost:11434",
+        "valkey://localhost:6379",
     )
 
 
@@ -492,22 +570,3 @@ def test_configure_fqdn_gateway_preserves_remote_custom_gateway_url() -> None:
         "https://example.com/v1",
         False,
     )
-
-
-def test_should_update_valkey_preserves_non_default_port() -> None:
-    """_should_update_valkey ensures a valkey URL with a non-default port is not overwritten."""
-    from devops_cli.commands.k8s.networking import _should_update_valkey
-
-    settings_custom_port = Settings()
-    settings_custom_port.valkey.port = 6380
-    settings_custom_port.valkey.url = "tcp://localhost:6380"
-
-    settings_default_port = Settings()
-    settings_default_port.valkey.port = 6379
-    settings_default_port.valkey.url = None
-
-    results = (
-        _should_update_valkey(settings_custom_port, "tcp://localhost:6379"),
-        _should_update_valkey(settings_default_port, "tcp://localhost:6379"),
-    )
-    assert results == (False, True)

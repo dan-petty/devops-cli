@@ -74,11 +74,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_TAVILY_API_KEY` | `tavily.api_key` | 🔒 Yes | API key for Tavily search provider |
 | `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | No | Export OpenTelemetry traces and metrics: true or false (default: true) |
 | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | No | OpenTelemetry collector that traces and metrics are exported to (default: OTEL_EXPORTER_OTLP_ENDPOINT, else http://localhost:4318) |
-| `DEVOPS_CLI_VALKEY_DB` | `valkey.db` | No | Valkey database index (default: 0) |
-| `DEVOPS_CLI_VALKEY_HOST` | `valkey.host` | No | Valkey workstation caching server host (default: 127.0.0.1) |
 | `DEVOPS_CLI_VALKEY_PASSWORD` | `valkey.password` | 🔒 Yes | Valkey authentication password (stored in OS keyring) |
-| `DEVOPS_CLI_VALKEY_PORT` | `valkey.port` | No | Valkey workstation caching server port (default: 6379) |
-| `DEVOPS_CLI_VALKEY_TIMEOUT` | `valkey.timeout` | No | Valkey network socket connection/read timeout in seconds (default: 5.0) |
+| `DEVOPS_CLI_VALKEY_TIMEOUT` | `valkey.timeout` | No | Valkey network socket connection/read timeout in seconds (default: 2.0) |
+| `DEVOPS_CLI_VALKEY_URL` | `valkey.url` | No | Valkey URL of the workstation cache: the scheme valkey or valkeys, the host, the port and the database (default: valkey://localhost:6379/0) |
 | `DEVOPS_CLI_WORKSPACE_FILE` | `workspace.file` | No | Path to VS Code workspace file |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *None* | No | OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` is unset |
 

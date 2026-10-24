@@ -262,10 +262,10 @@ def test_the_nodeport_preview_names_the_shape_of_what_it_cannot_know() -> None:
 
 
 def test_the_valkey_preview_keeps_its_scheme() -> None:
-    """Valkey is addressed over tcp, not http; a preview that said otherwise would mislead."""
+    """Valkey is addressed as `valkey://`, not http; a preview that said otherwise would mislead."""
     from devops_cli.commands.k8s.networking import _dry_run_preview
 
-    assert _dry_run_preview(["llm"], "nodeport")["valkey.url"].startswith("tcp://")
+    assert _dry_run_preview(["llm"], "nodeport")["valkey.url"].startswith("valkey://")
 
 
 def test_a_stack_that_was_not_selected_is_absent_from_the_preview() -> None:
