@@ -558,3 +558,39 @@ serverFiles:
             annotations:
               summary: "Valkey cache {{ $labels.namespace }}/{{ $labels.instance }} is down or rejecting connections"
               description: "Valkey exporter {{ $labels.namespace }}/{{ $labels.instance }} reports redis_up == 0 or rejected client connections over the last 5 minutes."
+  # The hosted price that the AI spend dashboard multiplies local tokens by, in USD per token,
+  # for each operation and token type (#1672). devops-cli sends the tokens that a local model
+  # ran as `devops_cli_ai_tokens_total{local="true"}` and no price. Thus the workstation and the
+  # Service are priced at one reference, and a changed price applies to the whole range of a
+  # stat panel. Each price is genai-prices' price of the default reference model of its
+  # operation (`ai.reference_model` for chat, `ai.reference_embedding_model` for embeddings,
+  # under `ai.reference_provider`), written in USD per million tokens.
+  # tests/test_k8s_monitoring_dashboards.py fails when a price differs from genai-prices.
+  recording_rules.yml:
+    groups:
+      - name: devops-cli-ai-reference-prices
+        rules:
+          - record: devops_cli:ai_reference_price_usd_per_token
+            expr: vector(0.15 / 1e6)
+            labels:
+              operation: chat
+              type: prompt
+              reference_model: gpt-4o-mini
+          - record: devops_cli:ai_reference_price_usd_per_token
+            expr: vector(0.6 / 1e6)
+            labels:
+              operation: chat
+              type: completion
+              reference_model: gpt-4o-mini
+          - record: devops_cli:ai_reference_price_usd_per_token
+            expr: vector(0.02 / 1e6)
+            labels:
+              operation: embeddings
+              type: prompt
+              reference_model: text-embedding-3-small
+          - record: devops_cli:ai_reference_price_usd_per_token
+            expr: vector(0 / 1e6)
+            labels:
+              operation: embeddings
+              type: completion
+              reference_model: text-embedding-3-small

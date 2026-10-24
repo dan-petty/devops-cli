@@ -21,7 +21,9 @@ from devops_cli.ai.spend.models import (
     SpendRecord,
     StageSpendSummary,
 )
+from devops_cli.config import options as opt
 from devops_cli.config.constants import (
+    CONST_PRICING_SOURCE_LOCAL,
     CONST_RESPONSE_CACHE_SERVER,
     CONST_SPEND_REQUEST_TYPE_EMBEDDING,
 )
@@ -53,7 +55,8 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     request_type TEXT NOT NULL DEFAULT 'chat',
     duration_seconds REAL NOT NULL DEFAULT 0.0,
     stage TEXT,
-    finish_reason TEXT
+    finish_reason TEXT,
+    pricing_source TEXT
 );
 """
 _QUERY_IDX_TIMESTAMP = (
@@ -72,14 +75,15 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
     ("served_by", "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;"),
     ("stage", "ALTER TABLE ai_spend_records ADD COLUMN stage TEXT;"),
     ("finish_reason", "ALTER TABLE ai_spend_records ADD COLUMN finish_reason TEXT;"),
+    ("pricing_source", "ALTER TABLE ai_spend_records ADD COLUMN pricing_source TEXT;"),
 )
 
 _QUERY_INSERT_RECORD = """
 INSERT INTO ai_spend_records (
     timestamp, provider, server, backend_info, served_by, model,
     prompt_tokens, completion_tokens, total_tokens,
-    cost_usd, cached, request_type, duration_seconds, stage, finish_reason
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    cost_usd, cached, request_type, duration_seconds, stage, finish_reason, pricing_source
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 _QUERY_STAGE_BREAKDOWN = """
@@ -211,40 +215,80 @@ def _ai_setting(name: str, default: str) -> str:
     return value.strip() if isinstance(value, str) and value.strip() else default
 
 
-def _resolve_reference_model(reference_model: str | None = None) -> str:
-    """The chat reference model: the one given, else `ai.reference_model`."""
-    if reference_model and reference_model.strip():
-        return reference_model.strip()
-    return _ai_setting("reference_model", DEFAULT_AI_REFERENCE_MODEL)
+# What a warning names as the source of a reference model given to a report, not read from
+# `ai.reference_model` (#1672).
+_REFERENCE_MODEL_OPTION = "--reference-model"
 
 
-class _ReferencePricing(NamedTuple):
-    """The hosted models local tokens are priced against, one for each kind of request."""
+class ReferencePricing(NamedTuple):
+    """The hosted models local tokens are priced against, one for each kind of request.
+
+    A price is None when neither genai-prices nor a price override prices its model (#1672).
+    """
 
     chat_model: str
     embedding_model: str
-    chat: ModelPricing
-    embedding: ModelPricing
+    chat: ModelPricing | None
+    embedding: ModelPricing | None
 
-    def cost(self, prompt_tokens: int, completion_tokens: int, embedding_tokens: int = 0) -> float:
-        """The hosted cost of the tokens, of which `embedding_tokens` prompt tokens embedded text."""
-        chat_cost = self.chat.calculate_cost(prompt_tokens - embedding_tokens, completion_tokens)
-        return round(chat_cost + self.embedding.calculate_cost(embedding_tokens, 0), 6)
+    @property
+    def unpriced_models(self) -> list[str]:
+        """The reference models that have no price."""
+        return [
+            model
+            for model, pricing in (
+                (self.chat_model, self.chat),
+                (self.embedding_model, self.embedding),
+            )
+            if pricing is None
+        ]
+
+    def cost(
+        self, prompt_tokens: int, completion_tokens: int, embedding_tokens: int = 0
+    ) -> float | None:
+        """The hosted cost of the tokens, of which `embedding_tokens` prompt tokens embedded text.
+
+        None when a kind of token that the tokens hold has a reference model with no price, so
+        unpriced savings never read as $0 (#1672).
+        """
+        chat_tokens = (prompt_tokens - embedding_tokens, completion_tokens)
+        chat_cost = self.chat.calculate_cost(*chat_tokens) if self.chat else None
+        embedding_cost = (
+            self.embedding.calculate_cost(embedding_tokens, 0) if self.embedding else None
+        )
+        if (chat_cost is None and any(chat_tokens)) or (
+            embedding_cost is None and embedding_tokens
+        ):
+            return None
+        return round((chat_cost or 0.0) + (embedding_cost or 0.0), 6)
 
 
-def _resolve_reference_pricing(reference_model: str | None = None) -> _ReferencePricing:
-    """Both reference models and their prices, from genai-prices under `ai.reference_provider`."""
+def resolve_reference_pricing(reference_model: str | None = None) -> ReferencePricing:
+    """Both reference models and their prices, from genai-prices under `ai.reference_provider`.
+
+    The chat reference is `reference_model` when given, else `ai.reference_model`. The pricing
+    registry logs one warning for each reference model that has no price (#1672).
+    """
     from devops_cli.ai.spend.pricing import get_pricing_registry
 
-    chat_model = _resolve_reference_model(reference_model)
+    given = reference_model.strip() if reference_model else ""
+    chat_setting = _REFERENCE_MODEL_OPTION if given else opt.AI_REFERENCE_MODEL
+    chat_model = given or _ai_setting("reference_model", DEFAULT_AI_REFERENCE_MODEL)
     embedding_model = _ai_setting("reference_embedding_model", DEFAULT_AI_REFERENCE_EMBEDDING_MODEL)
     provider = _ai_setting("reference_provider", DEFAULT_AI_REFERENCE_PROVIDER)
     registry = get_pricing_registry()
-    return _ReferencePricing(
+    return ReferencePricing(
         chat_model=chat_model,
         embedding_model=embedding_model,
-        chat=registry.get_pricing(chat_model, provider=provider),
-        embedding=registry.get_pricing(embedding_model, provider=provider),
+        chat=registry.price_reference(
+            chat_model, setting=chat_setting, kind="chat", provider=provider
+        ),
+        embedding=registry.price_reference(
+            embedding_model,
+            setting=opt.AI_REFERENCE_EMBEDDING_MODEL,
+            kind="embedding",
+            provider=provider,
+        ),
     )
 
 
@@ -269,7 +313,7 @@ class _ServedUsage(NamedTuple):
 def _tally_and_annotate_servers(
     servers: list[ServerSpendSummary],
     served: list[_ServedUsage],
-    ref_pricing: _ReferencePricing,
+    ref_pricing: ReferencePricing,
 ) -> _Usage:
     """Annotate servers with local status and cost equivalent, tallying local usage.
 
@@ -301,7 +345,7 @@ def _tally_and_annotate_servers(
     )
 
 
-def _annotate_models(models: list[ModelSpendSummary], ref_pricing: _ReferencePricing) -> None:
+def _annotate_models(models: list[ModelSpendSummary], ref_pricing: ReferencePricing) -> None:
     """Annotate model summaries with hosted cost equivalent."""
     for m in models:
         m.cost_equivalent_usd = ref_pricing.cost(
@@ -309,7 +353,7 @@ def _annotate_models(models: list[ModelSpendSummary], ref_pricing: _ReferencePri
         )
 
 
-def _annotate_stages(stages: list[StageSpendSummary], ref_pricing: _ReferencePricing) -> None:
+def _annotate_stages(stages: list[StageSpendSummary], ref_pricing: ReferencePricing) -> None:
     """Annotate stage summaries with hosted cost equivalent."""
     for stg in stages:
         stg.cost_equivalent_usd = ref_pricing.cost(
@@ -393,6 +437,7 @@ class SpendLedger:
         timestamp: str | None = None,
         stage: str | None = None,
         finish_reason: FinishReason | None = None,
+        pricing_source: str | None = None,
     ) -> SpendRecord | None:
         """Record an inference request in the persistent SQLite ledger."""
         ts = timestamp or datetime.now(UTC).isoformat()
@@ -419,6 +464,7 @@ class SpendLedger:
                         round(duration_seconds, 4),
                         stage,
                         finish_reason,
+                        pricing_source,
                     ),
                 )
                 rec_id = cursor.lastrowid
@@ -439,6 +485,7 @@ class SpendLedger:
                     duration_seconds=duration_seconds,
                     stage=stage,
                     finish_reason=finish_reason,
+                    pricing_source=pricing_source,
                 )
         except Exception:
             # Defensive logging: database failure must never crash user workflows
@@ -477,7 +524,8 @@ class SpendLedger:
         """Aggregate lifetime spend metrics grouped by server, model, provider, and stage.
 
         Local tokens are priced at the hosted reference models: embedding tokens at
-        `ai.reference_embedding_model`, every other token at `reference_model`.
+        `ai.reference_embedding_model`, every other token at `reference_model`. A cost
+        equivalent is None when a reference model that prices its tokens has no price (#1672).
         """
         params = self._build_where_params(days)
         with contextlib.closing(self._get_connection()) as conn:
@@ -489,7 +537,7 @@ class SpendLedger:
             backends = self._query_backend_breakdown(conn, params)
             stages = self._query_stage_breakdown(conn, params)
 
-        ref_pricing = _resolve_reference_pricing(reference_model)
+        ref_pricing = resolve_reference_pricing(reference_model)
         ref_model = ref_pricing.chat_model
 
         local = _tally_and_annotate_servers(servers, served, ref_pricing)
@@ -500,6 +548,7 @@ class SpendLedger:
         summary.hardware_cost_usd = eff_hardware_cost
         summary.reference_model = ref_model
         summary.reference_embedding_model = ref_pricing.embedding_model
+        summary.unpriced_reference_models = ref_pricing.unpriced_models
         summary.local_requests = local.requests
         summary.local_prompt_tokens = local.prompt_tokens
         summary.local_completion_tokens = local.completion_tokens
@@ -513,16 +562,19 @@ class SpendLedger:
             summary.total_completion_tokens,
             summary.total_embedding_tokens,
         )
-        summary.counterfactual_savings_usd = round(
-            max(0.0, summary.counterfactual_spend_usd - summary.total_spend_usd), 6
+        summary.counterfactual_savings_usd = (
+            None
+            if summary.counterfactual_spend_usd is None
+            else round(max(0.0, summary.counterfactual_spend_usd - summary.total_spend_usd), 6)
         )
 
-        if eff_hardware_cost > 0 or summary.local_cost_equivalent_usd > 0:
+        local_savings = summary.local_cost_equivalent_usd
+        if local_savings is not None and (eff_hardware_cost > 0 or local_savings > 0):
             from devops_cli.ai.spend.payoff import compute_hardware_payoff
 
             summary.hardware_payoff = compute_hardware_payoff(
                 hardware_cost_usd=eff_hardware_cost,
-                local_cost_equivalent_usd=summary.local_cost_equivalent_usd,
+                local_cost_equivalent_usd=local_savings,
                 reference_model=ref_model,
                 first_recorded_at=summary.first_recorded_at,
                 last_recorded_at=summary.last_recorded_at,
@@ -739,29 +791,6 @@ def _notify_call_observers(call: dict[str, Any]) -> None:
         observer(call)
 
 
-def _emit_local_cost_equivalent(
-    source: dict[str, str],
-    server: str | None,
-    provider: str | None,
-    served_by: str | None,
-    prompt_tokens: int,
-    completion_tokens: int,
-    request_type: str,
-) -> None:
-    """Send what a local call would have cost hosted, at the reference model of its kind."""
-    from devops_cli.ai.spend.pricing import is_local
-    from devops_cli.telemetry.instruments import AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, emit
-
-    if not is_local(server=server, provider=provider, served_by=served_by):
-        return
-    embedding_tokens = prompt_tokens if request_type == CONST_SPEND_REQUEST_TYPE_EMBEDDING else 0
-    local_equiv = _resolve_reference_pricing().cost(
-        prompt_tokens, completion_tokens, embedding_tokens
-    )
-    if local_equiv > 0:
-        emit(AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, local_equiv, source)
-
-
 def track_request_spend(
     *,
     provider: str,
@@ -783,7 +812,9 @@ def track_request_spend(
     ``finish_reason`` is why the provider says the reply ended, None when it did not say; the
     ledger stores it and observers receive it. The metrics carry the call's GenAI operation:
     `embeddings` for an embedding request, `chat` for every other call. ``served_by``, the
-    backend a gateway reply names, decides whether the call is spend or local savings.
+    backend a gateway reply names, decides whether the call is spend or local savings. The
+    ledger stores where the price came from. The tokens carry `local`, and no process sends a
+    price for them: the cluster prices local tokens at one reference for every process (#1672).
     """
     from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
         GenAiOperationNameValues,
@@ -801,8 +832,11 @@ def track_request_spend(
 
     active_ledger = ledger or get_spend_ledger()
     now_utc = datetime.now(UTC)
-    cost = (
-        get_pricing_registry().calculate_request_cost(
+    # The response cache ran no model, so its reply has no price.
+    priced = (
+        None
+        if cached
+        else get_pricing_registry().calculate_request_cost(
             model=model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
@@ -811,9 +845,9 @@ def track_request_spend(
             request_timestamp=now_utc,
             served_by=served_by,
         )
-        if not cached
-        else 0.0
     )
+    cost = priced.cost_usd if priced else 0.0
+    pricing_source = priced.pricing_source if priced else None
     effective_stage = resolve_spend_stage(stage)
     try:
         rec = active_ledger.record_request(
@@ -831,6 +865,7 @@ def track_request_spend(
             timestamp=now_utc.isoformat(),
             stage=effective_stage,
             finish_reason=finish_reason,
+            pricing_source=pricing_source,
         )
     except Exception:
         rec = None
@@ -862,20 +897,12 @@ def track_request_spend(
         "operation": operation.value,
     }
     emit(AI_REQUESTS_TOTAL, 1, source | {"cached": str(cached).lower()})
-    emit(AI_TOKENS_TOTAL, prompt_tokens, source | {"type": "prompt"})
-    emit(AI_TOKENS_TOTAL, completion_tokens, source | {"type": "completion"})
+    tokens = source | {"local": str(pricing_source == CONST_PRICING_SOURCE_LOCAL).lower()}
+    emit(AI_TOKENS_TOTAL, prompt_tokens, tokens | {"type": "prompt"})
+    emit(AI_TOKENS_TOTAL, completion_tokens, tokens | {"type": "completion"})
     if cached:
         return rec
     # Every request a model answered adds to the spend counter, a local one 0, so the series
     # exists before the first hosted request and a dashboard shows $0, not "No data" (#1631).
     emit(AI_SPEND_USD_TOTAL, cost, source)
-    _emit_local_cost_equivalent(
-        source=source,
-        server=server,
-        provider=provider,
-        served_by=served_by,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        request_type=request_type,
-    )
     return rec

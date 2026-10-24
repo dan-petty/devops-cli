@@ -269,7 +269,7 @@ def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(
     from pydantic_ai.usage import RequestUsage
 
     from devops_cli.ai.agents.embeddings import EmbeddingCost, EmbeddingResult
-    from devops_cli.ai.spend.pricing import PricingRegistry
+    from devops_cli.ai.spend.pricing import PricingRegistry, RequestCost
 
     pricing = PricingRegistry(data_dir=tmp_path)
     priced_requests: list[dict[str, Any]] = []
@@ -277,7 +277,7 @@ def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(
 
     def record_request(
         model: str, prompt_tokens: int, completion_tokens: int, **context: Any
-    ) -> float:
+    ) -> RequestCost:
         priced_requests.append(
             {
                 "model": model,

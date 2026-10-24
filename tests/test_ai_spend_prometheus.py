@@ -119,6 +119,19 @@ def test_the_ledger_exposition_shares_no_name_with_an_otlp_instrument(
     ) == (["gauge"], [], ["completion", "prompt"])
 
 
+def test_an_unpriced_reference_exposes_no_savings_gauge(seeded_ledger: SpendLedger) -> None:
+    """Verify a reference model that genai-prices does not know leaves the savings and
+    counterfactual gauges out, so a scrape reads no savings rather than $0 (#1672)."""
+    names = {
+        family.name
+        for family in text_string_to_metric_families(
+            export_ai_spend_prometheus(seeded_ledger, reference_model="gpt-4o-mni")
+        )
+    }
+
+    assert sorted(name for name in names if "counterfactual" in name or "equivalent" in name) == []
+
+
 def test_the_exported_request_count_counts_only_requests_sent_to_a_model(
     seeded_ledger: SpendLedger,
 ) -> None:

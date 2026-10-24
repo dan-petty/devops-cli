@@ -142,6 +142,11 @@ def show() -> None:
         rows=rows,
     )
     print_info(f"\nConfig file: [dim]{get_active_config_path()}[/dim]", prefix=False)
+    # The pricing registry logs a warning for each reference model it cannot price. It is not a
+    # load error, so a registry update cannot break config loading (#1672).
+    from devops_cli.ai.spend.ledger import resolve_reference_pricing
+
+    resolve_reference_pricing()
 
 
 # =============================================================================

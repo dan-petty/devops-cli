@@ -16,14 +16,21 @@ from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
     CONST_LOCAL_PROVIDER_NAMES,
     CONST_LOCAL_TRANSPORT_LABELS,
+    CONST_PRICING_SOURCE_LOCAL,
+    CONST_PRICING_SOURCE_UNKNOWN,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_PRICING_OVERRIDES_FILENAME,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_review_data_path
+from devops_cli.lang import MESSAGES
 
 logger = logging.getLogger(__name__)
+
+# What genai-prices raises for a model it cannot price: LookupError for a model or provider it
+# does not know, ValueError for a price in a snapshot that is not valid.
+_GENAI_PRICES_UNPRICED_ERRORS: tuple[type[Exception], ...] = (LookupError, ValueError)
 
 
 class UpdatePricingResult(NamedTuple):
@@ -31,6 +38,17 @@ class UpdatePricingResult(NamedTuple):
 
     source_model_count: int
     merged_model_count: int
+
+
+class RequestCost(NamedTuple):
+    """The cost of one request, and where its price came from (#1672).
+
+    `pricing_source` is `local`, the source of a price override, `genai_prices:<provider>`, or
+    `unknown` for a hosted model that neither genai-prices nor an override prices.
+    """
+
+    cost_usd: float
+    pricing_source: str
 
 
 def _get_installed_genai_prices_version() -> str:
@@ -299,7 +317,7 @@ def _query_genai_prices(
                 completion_usd_per_million=round(float(p.output_price) * 1_000.0, 6),
                 source=f"genai_prices:{p.provider.id}",
             )
-        except Exception:
+        except _GENAI_PRICES_UNPRICED_ERRORS:
             continue
     if prov_id is not None:
         for cand in candidates:
@@ -314,7 +332,7 @@ def _query_genai_prices(
                     completion_usd_per_million=round(float(p.output_price) * 1_000.0, 6),
                     source=f"genai_prices:{p.provider.id}",
                 )
-            except Exception:
+            except _GENAI_PRICES_UNPRICED_ERRORS:
                 continue
     return None
 
@@ -335,6 +353,9 @@ class PricingRegistry:
         self._catalog: dict[str, ModelPricing] = {}
         self._overrides: dict[str, ModelPricing] = {}
         self._pricing_cache: dict[str, ModelPricing] = {}
+        # The unpriced models already warned about. A process keeps one registry, so it warns
+        # once for each model (#1672).
+        self._warned_unpriced: set[tuple[str, ...]] = set()
         self._load_local_data()
 
     def _load_local_data(self) -> None:
@@ -445,7 +466,7 @@ class PricingRegistry:
             return ModelPricing(
                 prompt_usd_per_million=0.0,
                 completion_usd_per_million=0.0,
-                source="local",
+                source=CONST_PRICING_SOURCE_LOCAL,
             )
 
         override = self._get_override_pricing(model, server)
@@ -463,58 +484,66 @@ class PricingRegistry:
         pricing = resolved or ModelPricing(
             prompt_usd_per_million=0.0,
             completion_usd_per_million=0.0,
-            source="unknown",
+            source=CONST_PRICING_SOURCE_UNKNOWN,
         )
         if request_timestamp is None:
             self._pricing_cache[cache_key] = pricing
         return pricing
 
-    def _check_override_cost(
-        self, model: str, server: str | None, prompt_tokens: int, completion_tokens: int
-    ) -> float | None:
-        """Calculate cost from custom override if registered."""
-        m_key = model.strip().lower()
-        if m_key in self._overrides:
-            return self._overrides[m_key].calculate_cost(prompt_tokens, completion_tokens)
-        norm_key = _normalize_model_name(model)
-        if norm_key in self._overrides:
-            return self._overrides[norm_key].calculate_cost(prompt_tokens, completion_tokens)
-        if server:
-            srv_pricing = self._overrides.get(server.strip().lower())
-            if srv_pricing is not None:
-                return srv_pricing.calculate_cost(prompt_tokens, completion_tokens)
+    def _warn_unpriced_once(self, key: tuple[str, ...], message: str) -> None:
+        """Log `message` as a warning, once for each `key` in the life of the registry."""
+        if key in self._warned_unpriced:
+            return
+        self._warned_unpriced.add(key)
+        logger.warning(message)
+
+    def price_reference(
+        self, model: str, *, setting: str, kind: str, provider: str
+    ) -> ModelPricing | None:
+        """The hosted price of a reference model that prices local `kind` tokens.
+
+        None when neither genai-prices nor a price override prices `model`. The registry then
+        logs one warning that names the model and `setting`, the option or setting that chose
+        it, so a typo cannot make the local savings $0 with no sign (#1672).
+        """
+        pricing = self.get_pricing(model, provider=provider)
+        if pricing.source != CONST_PRICING_SOURCE_UNKNOWN:
+            return pricing
+        self._warn_unpriced_once(
+            ("reference", setting, model.strip().lower()),
+            MESSAGES.ai.reference_model_unpriced.format(
+                model=model, setting=setting, provider=provider, kind=kind
+            ),
+        )
         return None
 
-    def _calc_exact_genai_cost(
-        self,
+    @staticmethod
+    def _genai_prices_cost(
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
         provider: str | None,
         request_timestamp: datetime | None,
-    ) -> float | None:
-        """Calculate real request cost using genai-prices exact tiered usage."""
+    ) -> RequestCost | None:
+        """The cost of the request at genai-prices' price for its tokens and timestamp; None when
+        genai-prices cannot price the model."""
         import genai_prices
 
         usage = genai_prices.Usage(input_tokens=prompt_tokens, output_tokens=completion_tokens)
         candidates = _candidate_models(model)
         prov_id = provider.strip().lower() if provider else None
         req_ts = request_timestamp or datetime.now(UTC)
-        for cand in candidates:
+        attempts = [(cand, prov_id) for cand in candidates]
+        if prov_id is not None:
+            attempts += [(cand, None) for cand in candidates]
+        for cand, attempt_provider in attempts:
             try:
                 p = genai_prices.calc_price(
-                    usage, cand, provider_id=prov_id, genai_request_timestamp=req_ts
+                    usage, cand, provider_id=attempt_provider, genai_request_timestamp=req_ts
                 )
-                return round(float(p.total_price), 6)
-            except Exception:
+            except _GENAI_PRICES_UNPRICED_ERRORS:
                 continue
-        if prov_id is not None:
-            for cand in candidates:
-                try:
-                    p = genai_prices.calc_price(usage, cand, genai_request_timestamp=req_ts)
-                    return round(float(p.total_price), 6)
-                except Exception:
-                    continue
+            return RequestCost(round(float(p.total_price), 6), f"genai_prices:{p.provider.id}")
         return None
 
     def calculate_request_cost(
@@ -526,35 +555,36 @@ class PricingRegistry:
         provider: str | None = None,
         request_timestamp: datetime | None = None,
         served_by: str | None = None,
-    ) -> float:
-        """Calculate exact cost for a request using real token usage and request timestamp.
+    ) -> RequestCost:
+        """The cost of a request at its real token usage and timestamp, and its pricing source.
 
-        A local call costs nothing, whatever override names its model or server (#1631).
+        A local call costs nothing, whatever override names its model or server (#1631). A
+        hosted model that neither an override nor genai-prices prices costs $0 with the source
+        `unknown`, and the registry logs one warning for each such model (#1672).
         """
-        if prompt_tokens <= 0 and completion_tokens <= 0:
-            return 0.0
-
         if is_local(server=server, provider=provider, served_by=served_by):
-            return 0.0
+            return RequestCost(0.0, CONST_PRICING_SOURCE_LOCAL)
 
-        override_cost = self._check_override_cost(model, server, prompt_tokens, completion_tokens)
-        if override_cost is not None:
-            return override_cost
+        override = self._get_override_pricing(model, server)
+        if override is not None:
+            return RequestCost(
+                override.calculate_cost(prompt_tokens, completion_tokens), override.source
+            )
 
-        exact_cost = self._calc_exact_genai_cost(
+        priced = self._genai_prices_cost(
             model, prompt_tokens, completion_tokens, provider, request_timestamp
         )
-        if exact_cost is not None:
-            return exact_cost
+        if priced is not None:
+            return priced
 
-        pricing = self.get_pricing(
-            model,
-            server=server,
-            provider=provider,
-            request_timestamp=request_timestamp,
-            served_by=served_by,
+        provider_name = provider.strip().lower() if provider else ""
+        self._warn_unpriced_once(
+            ("hosted", provider_name, model.strip().lower()),
+            MESSAGES.ai.hosted_model_unpriced.format(
+                model=model, provider=provider_name or "(none)"
+            ),
         )
-        return pricing.calculate_cost(prompt_tokens, completion_tokens)
+        return RequestCost(0.0, CONST_PRICING_SOURCE_UNKNOWN)
 
     def set_custom_pricing(
         self, target: str, prompt_rate: float, completion_rate: float

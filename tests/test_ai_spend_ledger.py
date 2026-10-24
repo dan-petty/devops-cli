@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import logging
 import sqlite3
 import threading
 from collections.abc import Callable
@@ -582,6 +584,77 @@ def test_spend_ledger_init_db_duplicate_column_tolerance(tmp_path: Path) -> None
     assert ("served_by" in cols, "stage" in cols, "finish_reason" in cols) == (True, True, True)
 
 
+def _pricing_sources(db_path: Path) -> list[tuple[str, str | None, float]]:
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT model, pricing_source, cost_usd FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+
+
+def test_each_request_records_where_its_price_came_from(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A hosted model that genai-prices does not know was stored at $0 and nothing recorded that
+    it went unpriced. Each row now stores its pricing source: genai-prices and its provider,
+    `local`, or `unknown` with one warning for each model; a cached reply ran no model and has
+    none (#1672)."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    caplog.set_level(logging.WARNING)
+    for model, server, provider, cached in (
+        ("gpt-4o", "example.com", "openai", False),
+        ("gpt-9-preview", "example.com", "openai", False),
+        ("gpt-9-preview", "example.com", "openai", False),
+        ("qwen3:8b", "localhost:11434", "ollama", False),
+        ("gpt-4o", "cache", "openai", True),
+    ):
+        track_request_spend(
+            provider=provider,
+            model=model,
+            server=server,
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+            cached=cached,
+            ledger=ledger,
+        )
+
+    assert (
+        _pricing_sources(ledger.db_path),
+        sum("gpt-9-preview" in record.getMessage() for record in caplog.records),
+    ) == (
+        [
+            ("gpt-4o", "genai_prices:openai", 2.5),
+            ("gpt-9-preview", "unknown", 0.0),
+            ("gpt-9-preview", "unknown", 0.0),
+            ("qwen3:8b", "local", 0.0),
+            ("gpt-4o", None, 0.0),
+        ],
+        1,
+    )
+
+
+def test_an_existing_ledger_gains_the_pricing_source_column(tmp_path: Path) -> None:
+    """Verify a ledger written before pricing_source existed keeps its rows and records it."""
+    db_path = tmp_path / "spend.db"
+    with contextlib.closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute(_SCHEMA_BEFORE_FINISH_REASON)
+        conn.execute(
+            "INSERT INTO ai_spend_records (timestamp, provider, server, model) "
+            "VALUES ('2026-09-01T00:00:00+00:00', 'ollama', 'local', 'qwen')"
+        )
+
+    SpendLedger(db_path=db_path).record_request(
+        provider="ollama",
+        server="local",
+        model="llama3:8b",
+        prompt_tokens=10,
+        completion_tokens=5,
+        cost_usd=0.0,
+        pricing_source="local",
+    )
+
+    assert _pricing_sources(db_path) == [("qwen", None, 0.0), ("llama3:8b", "local", 0.0)]
+
+
 def test_spend_ledger_export_prometheus_with_report(tmp_path: Path) -> None:
     """Verify export_ai_spend_prometheus accepts precomputed report."""
     from devops_cli.ai.spend.prometheus import export_ai_spend_prometheus
@@ -933,3 +1006,102 @@ def test_the_report_counts_a_gateway_call_as_local_by_the_backend_that_served_it
         report.local_cost_equivalent_usd,
         [(s.server, s.is_local) for s in report.servers],
     ) == (1, 1_000_000, 2.5, [("localhost:4000", False)])
+
+
+def _local_chat_and_embedding_ledger(db_path: Path) -> SpendLedger:
+    """A ledger with one local chat request and one local embedding request, of 1M tokens each."""
+    ledger = SpendLedger(db_path=db_path)
+    for model, request_type in (("qwen3:8b", "chat"), ("bge-m3:latest", "embedding")):
+        ledger.record_request(
+            provider="ollama",
+            server="localhost:11434",
+            model=model,
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+            cost_usd=0.0,
+            request_type=request_type,
+        )
+    return ledger
+
+
+def test_an_unknown_reference_model_leaves_local_savings_unpriced_and_warns_once(
+    tmp_path: Path, config: Callable[..., Path], caplog: pytest.LogCaptureFixture
+) -> None:
+    """The typo `gpt-4o-mni` in `ai.reference_model`, which genai-prices does not know, made the
+    savings of every local request $0 with no warning. Now each report leaves the savings of chat
+    tokens unpriced, embedding tokens keep their price at the embedding reference, no hardware
+    pay-off is calculated, and the process logs one warning that names the model and the setting
+    (#1672)."""
+    config(ai={"reference_model": "gpt-4o-mni"})
+    ledger = _local_chat_and_embedding_ledger(tmp_path / "spend.db")
+    caplog.set_level(logging.WARNING)
+
+    report, _ = (ledger.get_lifetime_report(hardware_cost_usd=100.0) for _ in range(2))
+
+    assert (
+        report.unpriced_reference_models,
+        report.local_cost_equivalent_usd,
+        report.counterfactual_spend_usd,
+        report.counterfactual_savings_usd,
+        report.hardware_payoff,
+        sorted((m.model, m.cost_equivalent_usd) for m in report.models),
+        [s.cost_equivalent_usd for s in report.servers],
+        [s.cost_equivalent_usd for s in report.stages],
+        [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING],
+    ) == (
+        ["gpt-4o-mni"],
+        None,
+        None,
+        None,
+        None,
+        [("bge-m3:latest", 0.02), ("qwen3:8b", None)],
+        [None],
+        [None],
+        [
+            "genai-prices and the price overrides hold no price for gpt-4o-mni (ai.reference_model) under provider openai, so the local savings of chat tokens are unpriced."
+        ],
+    )
+
+
+def test_devops_ai_cost_says_local_savings_are_unpriced_instead_of_printing_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`devops ai cost` with a reference model that genai-prices does not know shows the savings
+    as unpriced in the table, null in JSON, and no hardware pay-off, and the warning names the
+    option (#1672)."""
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.ai_cost import app
+
+    runner = CliRunner(env={"COLUMNS": "250"})
+    ledger = _local_chat_and_embedding_ledger(tmp_path / "spend.db")
+    monkeypatch.setattr("devops_cli.commands.ai_cost.get_spend_ledger", lambda: ledger)
+    caplog.set_level(logging.WARNING)
+    unknown = ["--reference-model", "gpt-4o-mni"]
+
+    table = runner.invoke(app, ["report", *unknown])
+    data = json.loads(runner.invoke(app, ["report", *unknown, "--json"]).stdout)
+    roi = runner.invoke(app, ["roi", *unknown, "--hardware-cost", "100"])
+    summary = {
+        label: next((line for line in table.stdout.splitlines() if label in line), "")
+        for label in ("Local Calls Hosted Equivalent", "Estimated Cloud Spend Avoided")
+    }
+
+    assert (
+        table.exit_code,
+        {label: ("unpriced" in line, "$" in line) for label, line in summary.items()},
+        (data["local_cost_equivalent_usd"], data["unpriced_reference_models"]),
+        (roi.exit_code, "unpriced" in roi.stdout, "gpt-4o-mni" in roi.stdout),
+        sorted({r.getMessage() for r in caplog.records if r.levelno == logging.WARNING}),
+    ) == (
+        0,
+        {
+            "Local Calls Hosted Equivalent": (True, False),
+            "Estimated Cloud Spend Avoided": (True, False),
+        },
+        (None, ["gpt-4o-mni"]),
+        (0, True, True),
+        [
+            "genai-prices and the price overrides hold no price for gpt-4o-mni (--reference-model) under provider openai, so the local savings of chat tokens are unpriced."
+        ],
+    )

@@ -36,9 +36,8 @@ native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 | `devops_cli_review_duration_seconds` | Histogram | `s` | Review wall time, by target type. |
 | `devops_cli_findings_total` | Counter | `1` | Review findings, by producer, severity and status. |
 | `devops_cli_ai_requests_total` | Counter | `1` | LLM calls and embedding requests, by operation (chat or embeddings), provider, model, server, serving backend and whether the cache answered. |
-| `devops_cli_ai_tokens_total` | Counter | `1` | LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), provider, model, server and backend. |
+| `devops_cli_ai_tokens_total` | Counter | `1` | LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), provider, model, server, backend and local: true when a local model ran them. The AI spend dashboard prices local tokens as savings at the reference price that the Prometheus recording rule devops_cli:ai_reference_price_usd_per_token holds for their operation and type. |
 | `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM and embedding spend, by operation, provider, model, server and backend. Each request that a model answers adds to it, and a local request adds 0. |
-| `devops_cli_ai_local_cost_equivalent_usd_total` | Counter | `USD` | Equivalent hosted cloud spend avoided by local model execution, by operation, at the reference model of the operation. |
 | `devops_cli_ai_json_repairs_total` | Counter | `1` | LLM JSON replies repaired after strict parsing failed, by entry point source. |
 | `devops_cli_ai_gateway_slot_wait_seconds` | Histogram | `s` | Time a chat call to the LLM gateway waited in this process for one of the gateway's backend slots, by outcome: ok once it held one, or timeout. |
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
@@ -60,6 +59,15 @@ native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 | `devops_cli_project_forks_total` | Gauge | `1` | GitHub repository forks count. |
 | `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
 | `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
+
+No process sends local savings in USD. `devops_cli_ai_tokens_total{local="true"}`
+counts the tokens that a local model ran, and the AI spend dashboard multiplies them
+by the Prometheus recording rule `devops_cli:ai_reference_price_usd_per_token` in
+`k8s/monitoring/prometheus-values.yaml`. The rule holds genai-prices' price of the
+default reference model for each operation and token type, so the workstation and
+the Service are priced at one reference. `ai.reference_model` and
+`ai.reference_embedding_model` price only the local ledger that `devops ai cost`
+reports.
 
 ---
 

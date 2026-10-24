@@ -181,7 +181,7 @@ class EmbeddingResult(PydanticEmbeddingResult):
                 provider=self.provider_name,
                 request_timestamp=self.timestamp,
             )
-            return EmbeddingCost(total_price=calc)
+            return EmbeddingCost(total_price=calc.cost_usd)
 
 
 class Embedder(PydanticEmbedder):

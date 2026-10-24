@@ -1174,6 +1174,11 @@ CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"
 # The `request_type` of a spend-ledger row that records one embedding request. Its tokens are
 # all input tokens, and its local savings use the embedding reference model (#1623).
 CONST_SPEND_REQUEST_TYPE_EMBEDDING: Final[str] = "embedding"
+# The pricing source of a call that ran on local hardware and costs nothing, and of a hosted
+# model that neither genai-prices nor a price override prices. A spend-ledger row stores it in
+# `pricing_source` (#1672).
+CONST_PRICING_SOURCE_LOCAL: Final[str] = "local"
+CONST_PRICING_SOURCE_UNKNOWN: Final[str] = "unknown"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 # What the GitHub session sends with every REST request (#983): GitHub requires a User-Agent
 # naming the project or user, and the API version pins the REST contract the session reads.
