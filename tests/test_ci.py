@@ -1014,7 +1014,7 @@ def test_changed_line_coverage_step_is_advisory_on_pull_requests() -> None:
 
     The step reads the coverage.xml the gate already wrote, runs only on pull requests,
     takes the base ref through env rather than an inline expression, and stays advisory
-    (no --fail-under). It is never part of the pre-push gate, so no check row runs it.
+    (no --fail-under). It is never part of `devops ci`, so no check row runs it.
     """
     import yaml
 

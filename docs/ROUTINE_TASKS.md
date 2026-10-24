@@ -32,7 +32,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Inner Loop (Daily / Per Edit)** | Telemetry, Log & CLI Output Review | Step 7 | `devops telemetry status` / log inspection | Inspect CLI command outputs, `.data/logs/`, metrics, and tracing spans for performance bottlenecks, misconfigurations, and warnings | Clean logs, no warnings, nominal latencies |
 | **Final Pre-Commit / Pre-PR** | Documentation & README Sync | Step 1 | `uv run devops docs generate --sync-readme` | CLI introspection & README Command Matrix update | `uv run devops docs check` passes |
 | **Final Pre-Commit / Pre-PR** | Full Parallel Test Suite | Step 2 | `uv run pytest` | Complete parallel test run (`addopts`' `-n logical --dist worksteal`) | All tests pass |
-| **Final Pre-Commit / Pre-PR** | Full CI Validation Suite | Step 3 | `uv run devops ci` | Runs full automated verification suite | All checks show `✓ pass` |
+| **Final Pre-Commit / Pre-PR** | Full CI Validation Suite | Step 3 | `uv run devops ci` | Runs the full automated verification suite by hand, when you want it before the push. The required checks of CI gate the merge | All checks show `✓ pass` |
 | **Final Pre-Commit / Pre-PR** | Observability, Log & Trace Audit | Step 4 | `devops telemetry status` / `.data/logs/` | Audit CLI command outputs, application logs, metrics, and OpenTelemetry tracing data for performance issues and misconfigurations | Zero unhandled exceptions or warnings in logs/spans |
 | **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <type>/<name> origin/main` | Dedicated topic branch branching off `main` | Clean branch based on `origin/main` |
 | **Feature / PR Lifecycle** | PR Submission | Step 2 | `devops pr create --title "<type>(<scope>): <summary>"` | Opens a draft PR into `main`; the title becomes the changelog line | Draft PR opened with Conventional Commit title |
@@ -130,7 +130,7 @@ Executed at the final stage of work after all iterative feature modifications an
    uv run devops docs generate --sync-readme
    uv run devops docs check
    ```
-2. **Run Full Local CI Validation Suite (Primary Gate)**:
+2. **Optional: Run the Full Local CI Validation Suite by Hand**: The pre-push hook runs only the fast static checks, and the required checks of CI gate the merge ([`docs/SDLC.md`](SDLC.md), Phase 4).
    ```bash
    uv run devops ci
    ```

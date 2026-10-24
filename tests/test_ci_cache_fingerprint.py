@@ -59,9 +59,9 @@ def test_staging_a_change_does_not_change_the_fingerprint(repo: Path) -> None:
 def test_committing_does_not_change_the_fingerprint(repo: Path) -> None:
     """This is the defect that made the cache useless in practice.
 
-    Committing is exactly what happens between running `devops ci` and pushing, and the
-    fingerprint included HEAD -- so the pre-push hook could never hit the cache and re-ran
-    the entire suite on every push.
+    A commit often comes between two runs of `devops ci`, and the fingerprint included
+    HEAD -- so the second run could never hit the cache and ran the entire suite again
+    (#375).
     """
     (repo / "app.py").write_text("value = 2\n", encoding="utf-8")
     git(repo, "add", "-A")

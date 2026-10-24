@@ -539,7 +539,7 @@ DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
     "Never echo plaintext secrets, tokens, private keys, or the contents of hidden or .gitignored files.",
     "Never write concrete internal hostnames, private RFC 1918 addresses, private registries, or homelab topology into any artifact; examples use example.com, RFC 5737 blocks, or localhost.",
     "Never lower, relax, bypass, or disable a security standard, quality threshold, or compliance check unless explicitly instructed by the user.",
-    "Never push before uv run devops ci passes locally. Never commit or push directly to main.",
+    "Never push with --no-verify or before the pre-push hook passes. Never commit or push directly to main.",
 )
 DEFAULT_EMBEDDING_MODEL_NAME: str = "default"
 DEFAULT_EMBEDDING_PROVIDER_NAME: str = "devops-cli"

@@ -623,8 +623,9 @@ CONST_AGENT_SCAN_STATUS_WORDS: Final[dict[str, str]] = {
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
-# The gate runs before every push, so its test step must stay inside this budget; past it, the
-# gate names the slowest tests from a pytest durations report of this many entries.
+# A check that averages more than 5 minutes is a P0 bug (AGENTS.md rule 5), so the test step must
+# stay inside this budget; past it, the gate names the slowest tests from a pytest durations report
+# of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than

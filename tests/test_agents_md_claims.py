@@ -45,6 +45,12 @@ CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
     "filing quota",
     "budget/borrowed",
     "#1153",
+    # The pre-push hook runs only the fast static checks (#1752).
+    "pre-push gate",
+    "pre-push `uv run devops ci`",
+    "pre-push hook runs `uv run devops ci`",
+    "pre-push hook runs the full gate",
+    "pre-push hook runs the same gate",
 )
 
 
@@ -372,9 +378,10 @@ def _deleted_process_names(texts: dict[str, str]) -> dict[str, list[str]]:
 
 
 def test_no_agent_instruction_names_a_deleted_process(tmp_path: Path) -> None:
-    """An instruction that names a release branch, the cut, a changelog fragment, the planner or
-    the filing quota sends an agent into a process that no longer exists. No agent instruction,
-    and no AGENTS.md that `devops ai agents` writes, names one."""
+    """An instruction that names a release branch, the cut, a changelog fragment, the planner,
+    the filing quota or the full gate in the pre-push hook sends an agent into a process that no
+    longer exists. No agent instruction, and no AGENTS.md that `devops ai agents` writes, names
+    one."""
     paths = sorted({path for glob in _AGENT_INSTRUCTION_GLOBS for path in REPO_ROOT.glob(glob)})
     texts = {str(path.relative_to(REPO_ROOT)): path.read_text(encoding="utf-8") for path in paths}
     generated = _scaffold_with_every_routed_document(tmp_path)

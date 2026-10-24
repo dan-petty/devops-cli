@@ -7,9 +7,9 @@ rest. One check over every Python file under `tests/` but `tests/fixtures/` name
 and import as `path:line`.
 
 The check parses every file under `tests/`, so it runs only in the full gate, `uv run devops ci`
-and the pre-push hook. It lives in this module alone, which imports nothing from devops-cli and
-no module under `tests/`, spells no devops-cli module's dotted name and is named for none, so no
-narrowed selection over a changed source or helper module reaches it
+and the `Tests & Coverage` check of CI. It lives in this module alone, which imports nothing
+from devops-cli and no module under `tests/`, spells no devops-cli module's dotted name and is
+named for none, so no narrowed selection over a changed source or helper module reaches it
 (`tests/test_test_selection.py` checks both); a narrowed run reaches it only when given this
 module, or when it runs the whole suite. It reads the repository root from pytest's `rootpath`
 rather than from `tests.support.paths`, which would make every change to that module select it.

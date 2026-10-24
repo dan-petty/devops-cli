@@ -83,7 +83,8 @@ repos:
 
       # The OpenSpec gate (ADR 0010) over the plans and the committed skills: it needs Node and the
       # pinned openspec (`uv run devops install-tools --tool openspec --only-missing`), so it runs
-      # only when a commit touches the files it checks, and `devops ci` runs it on every push.
+      # only when a commit touches the files it checks. Every `devops ci` and the `Static Analysis`
+      # check of CI run it with no path filter.
       - id: openspec-gate
         name: openspec gate (change folders and generated skills)
         entry: uv run devops ci --only openspec
@@ -93,12 +94,12 @@ repos:
         pass_filenames: false
         require_serial: true
 
-      # A commit runs no tests: the tests that cover a change of a shared module such as
-      # config/constants.py are a large part of the suite, and this hook runs the full suite
-      # before each push (#2086).
+      # A push runs only the fast static checks, in check-only mode, so the hook changes no file
+      # (#1752). A commit runs no tests (#2086). The required checks of CI run the test suite and
+      # the other checks of `devops ci` before a merge, and `uv run devops ci` runs them by hand.
       - id: devops-ci-pre-push
-        name: devops ci (pre-push quality gate)
-        entry: uv run devops ci
+        name: devops ci (fast static checks before a push)
+        entry: uv run devops ci --check --only lint,format,actionlint,zizmor
         language: system
         stages: [pre-push]
         pass_filenames: false
