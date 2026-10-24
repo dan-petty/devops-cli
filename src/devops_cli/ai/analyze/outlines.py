@@ -19,6 +19,7 @@ from devops_cli.ai.analyze.scanner import (
     _extract_file_purpose,
     _extract_file_symbols,
     detect_language,
+    syntax_from_language,
 )
 from devops_cli.ai.personas import (
     ANALYZE_PSEUDOCODE_SYSTEM_PROMPT,
@@ -74,11 +75,11 @@ def _validate_enhanced_metadata(
     return parsed, None
 
 
-def _mask_sensitive_data(text: str) -> str:
+def _mask_sensitive_data(text: str, syntax: str = "data") -> str:
     """Mask credentials and secrets before transmitting code to external LLM services."""
     from devops_cli.security.sanitizer import mask_secrets
 
-    return mask_secrets(text)
+    return mask_secrets(text, syntax=syntax)
 
 
 def _enhance_file_metadata_with_ai(
@@ -94,7 +95,7 @@ def _enhance_file_metadata_with_ai(
     from devops_cli.ai.review_schema import extract_json_block
     from devops_cli.models.ai import ChatMessage
 
-    sanitized_content = _mask_sensitive_data(content[:150000])
+    sanitized_content = _mask_sensitive_data(content[:150000], syntax=syntax_from_language(lang))
     rag_context = ""
     try:
         from devops_cli.ai.rag.investigator import (
@@ -300,7 +301,9 @@ def _generate_ai_pseudocode(
         )
         from devops_cli.models.ai import ChatMessage
 
-        sanitized_content = _mask_sensitive_data(content[:150000])
+        sanitized_content = _mask_sensitive_data(
+            content[:150000], syntax=syntax_from_language(lang)
+        )
         rag_ctx = investigate_rag_context(f"{rel_path} {' '.join(symbols[:3])}", top_k=2)
         rag_info = format_rag_investigation_for_prompt(rag_ctx, "Interface & Module Context")
 

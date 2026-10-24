@@ -5,15 +5,12 @@ from __future__ import annotations
 import ipaddress
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx2
 
-from devops_cli.config.constants import (
-    CONST_CODE_EXEMPTION_RECEIVERS,
-    CONST_URL_CANDIDATE_RE,
-)
+from devops_cli.config.constants import CONST_URL_CANDIDATE_RE
 from devops_cli.core.validation import is_loopback_host
 
 # The keyword patterns below match a word following "secret", "token" or "password". In
@@ -162,139 +159,179 @@ def _is_code_value(value: str) -> bool:
         return False
     parts = val.split(".")
     if len(parts) >= 2 and all(p.isidentifier() for p in parts):
-        if parts[0] in CONST_CODE_EXEMPTION_RECEIVERS:
-            return True
-        return False
+        return True
     return _is_code_call_or_index(val)
 
 
-def _mask_literal(match: re.Match[str], masked: str) -> str:
+def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> str:
     """Mask an assigned credential, leaving an unquoted code expression as written.
 
     Rewriting code before review hides defects: an MD5-hashed password or a token read from
     the query string turn into what look like harmless redactions.
     """
-    if not match.group("quote") and _is_code_value(match.group("value")):
+    if is_code and not match.group("quote") and _is_code_value(match.group("value")):
         return match.group(0)
     return masked
 
 
-_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
-    (
-        # GitHub documents six token prefixes; the only length it states is the legacy
-        # 40-character installation token, so a ghs_ body has at least 36 characters. ghp_,
-        # gho_, ghu_ and ghr_ keep a 10-character minimum, so a shortened token is still
-        # masked, and github_pat_ keeps 20. Installation tokens (Actions' GITHUB_TOKEN
-        # included) are now ghs_APPID_JWT, about 520 characters and varying, so ghs_ also
-        # allows "." and "-". A prefix after a letter, a digit or "_" is inside a longer word,
-        # such as the identifier "test_it_reads_ghu_login_of_the_user", and is left alone.
-        re.compile(
-            r"(?<![A-Za-z0-9_<])(?:gh[pour]_[A-Za-z0-9_]{10,}|ghs_[A-Za-z0-9_.-]{36,}"
-            r"|github_pat_[A-Za-z0-9_]{20,})\b"
+def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Replacement], ...]:
+    return (
+        (
+            # GitHub documents six token prefixes; the only length it states is the legacy
+            # 40-character installation token, so a ghs_ body has at least 36 characters. ghp_,
+            # gho_, ghu_ and ghr_ keep a 10-character minimum, so a shortened token is still
+            # masked, and github_pat_ keeps 20. Installation tokens (Actions' GITHUB_TOKEN
+            # included) are now ghs_APPID_JWT, about 520 characters and varying, so ghs_ also
+            # allows "." and "-". A prefix after a letter, a digit or "_" is inside a longer word,
+            # such as the identifier "test_it_reads_ghu_login_of_the_user", and is left alone.
+            re.compile(
+                r"(?<![A-Za-z0-9_])(?:gh[pour]_[A-Za-z0-9_]{10,}|ghs_[A-Za-z0-9_.-]{36,}"
+                r"|github_pat_[A-Za-z0-9_]{20,})\b"
+            ),
+            "<masked-github-token>",
         ),
-        "<masked-github-token>",
-    ),
-    (
-        re.compile(
-            r"\b(?:password|passwd|pwd)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
-            r"(?P<value>[^\s\"',;]{8,})[\"']?",
-            re.IGNORECASE,
+        (
+            re.compile(
+                r"\b(?:password|passwd|pwd)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
+                r"(?P<value>[^\s\"',;]{8,})[\"']?",
+                re.IGNORECASE,
+            ),
+            lambda match: _mask_literal(match, "password=<masked-password>", is_code=is_code),
         ),
-        lambda match: _mask_literal(match, "password=<masked-password>"),
-    ),
-    (
-        re.compile(
-            r"(?<![a-zA-Z0-9/\\<])(?<!task-)(?<!subtask-)sk-ant-[A-Za-z0-9_-]{19,}[A-Za-z0-9]\b"
+        (
+            re.compile(
+                r"(?<![a-zA-Z0-9/\\])(?<!task-)(?<!subtask-)sk-ant-[A-Za-z0-9_-]{19,}[A-Za-z0-9]\b"
+            ),
+            "<masked-anthropic-key>",
         ),
-        "<masked-anthropic-key>",
-    ),
-    (
-        re.compile(
-            r"(?<![a-zA-Z0-9/\\<])(?<!task-)(?<!subtask-)sk-(?!ant-)[A-Za-z0-9_-]{19,}[A-Za-z0-9]\b"
+        (
+            re.compile(
+                r"(?<![a-zA-Z0-9/\\])(?<!task-)(?<!subtask-)sk-(?!ant-)[A-Za-z0-9_-]{19,}[A-Za-z0-9]\b"
+            ),
+            "<masked-openai-key>",
         ),
-        "<masked-openai-key>",
-    ),
-    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
-    (
-        re.compile(
-            r"\b(?:token|auth_token)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
-            r"(?P<value>[^\s\"',;]{8,})[\"']?",
-            re.IGNORECASE,
+        (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
+        (
+            re.compile(
+                r"\b(?:token|auth_token)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
+                r"(?P<value>[^\s\"',;]{8,})[\"']?",
+                re.IGNORECASE,
+            ),
+            lambda match: _mask_literal(match, "token=<masked-token>", is_code=is_code),
         ),
-        lambda match: _mask_literal(match, "token=<masked-token>"),
-    ),
-    (
-        re.compile(
-            r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*[\"']?[A-Za-z0-9/+=]{40}[\"']?"
+        (
+            re.compile(
+                r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*[\"']?[A-Za-z0-9/+=]{40}[\"']?"
+            ),
+            "aws_secret_access_key=<masked-aws-secret>",
         ),
-        "aws_secret_access_key=<masked-aws-secret>",
-    ),
-    (
-        re.compile(
-            r"(?:client_secret|client-secret|AZURE_CLIENT_SECRET)\s*[:=]\s*[\"']?[A-Za-z0-9_\-~.]{20,}[\"']?"
+        (
+            re.compile(
+                r"(?:client_secret|client-secret|AZURE_CLIENT_SECRET)\s*[:=]\s*[\"']?[A-Za-z0-9_\-~.]{20,}[\"']?"
+            ),
+            "client_secret=<masked-client-secret>",
         ),
-        "client_secret=<masked-client-secret>",
-    ),
-    (
-        re.compile(
-            r"\b(?:gcloud[- ]?auth[- ]?token|google[-\s]?service[-\s]?account|gcp_[A-Za-z0-9_]{20,})"
+        (
+            re.compile(
+                r"\b(?:gcloud[- ]?auth[- ]?token|google[-\s]?service[-\s]?account|gcp_[A-Za-z0-9_]{20,})"
+            ),
+            "<masked-gcp-service-account>",
         ),
-        "<masked-gcp-service-account>",
-    ),
-    (
-        re.compile(
-            r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)\s*[:=]\s*(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-.]{20,}\b(?!\s*\())",
-            re.IGNORECASE,
+        (
+            re.compile(
+                r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)\s*[:=]\s*(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-.]{20,}\b(?!\s*\())",
+                re.IGNORECASE,
+            ),
+            "api_key=<masked-api-key>",
         ),
-        "api_key=<masked-api-key>",
-    ),
-    (
-        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
-        "<masked-jwt>",
-    ),
-    (
-        re.compile(
-            r"((?:[:=]\s*[\"']?|\bBearer\s+|\btoken\s+|[\"']))secret_[A-Za-z0-9_]{10,}\b",
-            re.IGNORECASE,
+        (
+            re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+            "<masked-jwt>",
         ),
-        r"\g<1><masked-secret>",
-    ),
-    (
-        re.compile(
-            r"\b(?:token|bearer|secret|password|api_key)\s+([A-Za-z0-9_\-.]{10,})\b",
-            re.IGNORECASE,
+        (
+            re.compile(
+                r"((?:[:=]\s*[\"']?|\bBearer\s+|\btoken\s+|[\"']))secret_[A-Za-z0-9_]{10,}\b",
+                re.IGNORECASE,
+            ),
+            r"\g<1><masked-secret>",
         ),
-        _mask_credential_like_value,
-    ),
-    (
-        re.compile(
-            r"-----BEGIN (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
-            r"[\s\S]+?-----END (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
+        (
+            re.compile(
+                r"\b(?:token|bearer|secret|password|api_key)\s+([A-Za-z0-9_\-.]{10,})\b",
+                re.IGNORECASE,
+            ),
+            _mask_credential_like_value,
         ),
-        # Keep the key's line count, so line numbers after it still match the file.
-        lambda match: "<masked-private-key>" + "\n" * match.group(0).count("\n"),
-    ),
-    (
-        CONST_URL_CANDIDATE_RE,
-        _mask_url_candidate,
-    ),
-    (
-        re.compile(r"\b(?:hvs\.[A-Za-z0-9_-]{20,}|s\.[A-Za-z0-9]{24}|hvb\.[A-Za-z0-9_-]{20,})\b"),
-        "<masked-vault-token>",
-    ),
-    (
-        re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}\b"),
-        "<masked-gitlab-token>",
-    ),
-    (
-        re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_-]+"),
-        "<masked-slack-webhook>",
-    ),
-    (
-        re.compile(r"\bhf_[A-Za-z0-9]{32,}\b"),
-        "<masked-huggingface-token>",
-    ),
+        (
+            re.compile(
+                r"-----BEGIN (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
+                r"[\s\S]+?-----END (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
+            ),
+            # Keep the key's line count, so line numbers after it still match the file.
+            lambda match: "<masked-private-key>" + "\n" * match.group(0).count("\n"),
+        ),
+        (
+            CONST_URL_CANDIDATE_RE,
+            _mask_url_candidate,
+        ),
+        (
+            re.compile(
+                r"\b(?:hvs\.[A-Za-z0-9_-]{20,}|s\.[A-Za-z0-9]{24}|hvb\.[A-Za-z0-9_-]{20,})\b"
+            ),
+            "<masked-vault-token>",
+        ),
+        (
+            re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}\b"),
+            "<masked-gitlab-token>",
+        ),
+        (
+            re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_-]+"),
+            "<masked-slack-webhook>",
+        ),
+        (
+            re.compile(r"\bhf_[A-Za-z0-9]{32,}\b"),
+            "<masked-huggingface-token>",
+        ),
+    )
+
+
+_SECRET_PATTERNS_DATA: tuple[tuple[re.Pattern[str], _Replacement], ...] = _build_secret_patterns(
+    is_code=False
 )
+_SECRET_PATTERNS_CODE: tuple[tuple[re.Pattern[str], _Replacement], ...] = _build_secret_patterns(
+    is_code=True
+)
+_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = _SECRET_PATTERNS_DATA
+
+_CODE_LANGUAGES: frozenset[str] = frozenset(
+    {
+        "bash",
+        "c",
+        "cpp",
+        "csharp",
+        "go",
+        "java",
+        "javascript",
+        "kotlin",
+        "lua",
+        "php",
+        "powershell",
+        "python",
+        "ruby",
+        "rust",
+        "scala",
+        "shell",
+        "swift",
+        "tsx",
+        "typescript",
+    }
+)
+
+
+def _is_code_syntax(syntax: str) -> bool:
+    clean = syntax.strip().lower()
+    return clean == "code" or clean in _CODE_LANGUAGES
+
 
 PRIVATE_HOST_PATTERNS: tuple[str, ...] = (
     r"\b[a-zA-Z0-9_.-]+\.(?:internal|local|lan|corp|home\.arpa)\b",
@@ -307,32 +344,33 @@ PRIVATE_HOST_PATTERNS: tuple[str, ...] = (
 )
 
 
-def redact_text(text: str) -> str:
+def redact_text(text: str, syntax: Literal["code", "data"] | str = "data") -> str:
     """Sanitize and redact known credential and secret patterns in the input text."""
     if not text:
         return ""
+    patterns = _SECRET_PATTERNS_CODE if _is_code_syntax(syntax) else _SECRET_PATTERNS_DATA
     result = text
-    for pattern, replacement in _SECRET_PATTERNS:
+    for pattern, replacement in patterns:
         result = pattern.sub(replacement, result)
     return result
 
 
-def mask_secrets(text: str) -> str:
+def mask_secrets(text: str, syntax: Literal["code", "data"] | str = "data") -> str:
     """Mask known secret patterns, tokens, and credentials in the input text."""
-    return redact_text(text)
+    return redact_text(text, syntax=syntax)
 
 
 sanitize_secrets = mask_secrets
 
 
-def mask_dict_secrets(data: Any) -> Any:
+def mask_dict_secrets(data: Any, syntax: Literal["code", "data"] | str = "data") -> Any:
     """Recursively mask secrets in string values across dictionaries and lists."""
     if isinstance(data, dict):
-        return {k: mask_dict_secrets(v) for k, v in data.items()}
+        return {k: mask_dict_secrets(v, syntax=syntax) for k, v in data.items()}
     if isinstance(data, list):
-        return [mask_dict_secrets(item) for item in data]
+        return [mask_dict_secrets(item, syntax=syntax) for item in data]
     if isinstance(data, str):
-        return mask_secrets(data)
+        return mask_secrets(data, syntax=syntax)
     return data
 
 

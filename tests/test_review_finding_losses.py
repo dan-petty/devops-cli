@@ -237,27 +237,27 @@ def test_sanitizing_still_removes_praise_reasoning_and_leaks(text: str, expected
 
 
 @pytest.mark.parametrize(
-    ("code", "masked"),
+    ("code", "syntax", "masked"),
     [
-        ("password = hashlib.md5(pw.encode()).hexdigest()", False),
-        ("const token = req.query.token;", False),
-        ('token = os.environ["GH_TOKEN"]', False),
-        ('requests.get("http://api.internal:8080/v1/users?email=a@b.com")', False),
-        ("password: hunter2hunter2", True),
-        ('password = "hunter2(x)y"', True),
-        ("https://bob:s3cr3tpass@db.example.com/x", True),
-        ("password: hunter2(x)y", True),
-        ("password=Xk9{mP2[qL7z", True),
-        ("password: correct.horse.battery", True),
-        ("token=Ab3dEf[gh]Ij9kLmN", True),
-        ("--password=Pa(ss)word1!", True),
+        ("password = hashlib.md5(pw.encode()).hexdigest()", "code", False),
+        ("const token = req.query.token;", "code", False),
+        ('token = os.environ["GH_TOKEN"]', "code", False),
+        ('requests.get("http://api.internal:8080/v1/users?email=a@b.com")', "code", False),
+        ("password: hunter2hunter2", "code", True),
+        ('password = "hunter2(x)y"', "code", True),
+        ("https://bob:s3cr3tpass@db.example.com/x", "code", True),
+        ("password: hunter2(x)y", "code", True),
+        ("password=Xk9{mP2[qL7z", "code", True),
+        ("password: correct.horse.battery", "data", True),
+        ("token=Ab3dEf[gh]Ij9kLmN", "code", True),
+        ("--password=Pa(ss)word1!", "code", True),
     ],
 )
-def test_redaction_masks_secrets_but_not_code(code: str, masked: bool) -> None:
+def test_redaction_masks_secrets_but_not_code(code: str, syntax: str, masked: bool) -> None:
     """Verify redaction hides credential literals and leaves code the reviewer must see."""
     from devops_cli.security.sanitizer import mask_secrets
 
-    assert ("<masked-" in mask_secrets(code)) is masked
+    assert ("<masked-" in mask_secrets(code, syntax=syntax)) is masked
 
 
 def test_a_masked_private_key_keeps_its_line_count() -> None:

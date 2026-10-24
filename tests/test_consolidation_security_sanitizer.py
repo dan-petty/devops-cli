@@ -496,3 +496,43 @@ def test_every_github_token_prefix_is_masked_whole(token: str) -> None:
 )
 def test_a_near_miss_github_token_is_left_alone(text: str) -> None:
     assert mask_secrets(text) == text
+
+
+# =============================================================================
+# Syntax-aware secret masking and enclosed tokens (#889)
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("text", "syntax", "expected"),
+    [
+        ("password=cfg.db_password", "code", "password=cfg.db_password"),
+        ("password=cfg.db_password", "data", "password=<masked-password>"),
+        ("password=settings.Hunter22", "code", "password=settings.Hunter22"),
+        ("password=settings.Hunter22", "data", "password=<masked-password>"),
+        ("password=cfg.db_password", None, "password=<masked-password>"),
+        ("password=settings.Hunter22", None, "password=<masked-password>"),
+    ],
+)
+def test_syntax_aware_secret_masking_distinguishes_code_from_data(
+    text: str,
+    syntax: str | None,
+    expected: str,
+) -> None:
+    """Unquoted code expressions stay as written in code syntax, and are masked in data syntax."""
+    if syntax is None:
+        assert mask_secrets(text) == expected
+    else:
+        assert mask_secrets(text, syntax=syntax) == expected
+
+
+def test_tokens_enclosed_in_brackets_are_masked() -> None:
+    """A token right after '<' is masked; documentation placeholders below minimum lengths are left alone."""
+    inst = installation_token()
+    assert mask_secrets(f"<{inst}>") == "<<masked-github-token>>"
+    assert mask_secrets("<sk-ant-api03-abcdef123456789012345678>") == "<<masked-anthropic-key>>"
+    assert mask_secrets("<sk-proj-abcdef1234567890abcdef1234567890>") == "<<masked-openai-key>>"
+    # Placeholders below minimum lengths remain unmasked
+    assert mask_secrets("<ghp_token>") == "<ghp_token>"
+    assert mask_secrets("<ghs_token>") == "<ghs_token>"
+    assert mask_secrets("<sk-key>") == "<sk-key>"

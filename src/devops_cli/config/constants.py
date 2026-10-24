@@ -4474,26 +4474,6 @@ CONST_TRIVY_DB_METADATA: Final[tuple[str, ...]] = ("db", "metadata.json")
 # to prevent resource exhaustion and unbounded range vectors (CWE-400).
 CONST_MAX_PROMETHEUS_WINDOW_SECONDS: Final[int] = 30 * 86400
 
-# Receiver objects and prefixes permitted for code expression exemptions in secret masking.
-CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
-    {
-        "req",
-        "request",
-        "res",
-        "response",
-        "params",
-        "props",
-        "self",
-        "this",
-        "process",
-        "config",
-        "settings",
-        "context",
-        "ctx",
-        "session",
-    }
-)
-
 # No library finds arbitrary URLs embedded inside prose. linkify-it-py 2.2.0
 # misses non-http schemes (mysql://, postgres://) and fails on passwords with '@'.
 # Candidate URLs are located by RFC 3986 scheme grammar capped at 32 chars and
