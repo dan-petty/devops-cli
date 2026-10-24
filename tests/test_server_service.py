@@ -62,8 +62,15 @@ from devops_cli.server.service import (
     TriggerBatch,
     create_service_app,
 )
+from devops_cli.telemetry.instruments import AI_REQUESTS_TOTAL, emit
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from devops_cli.telemetry.tracer import _from_otlp_any_value, get_tracer, reset_tracer
+from devops_cli.telemetry.tracer import (
+    OTelTelemetryClient,
+    _from_otlp_any_value,
+    get_tracer,
+    reset_tracer,
+)
+from tests.support.telemetry_capture import Captured
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 LANE = CONST_SERVICE_LANE_DEFAULT
@@ -948,6 +955,40 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
         True,
         "simulated job failure",
     )
+
+
+def test_each_batch_exports_its_ai_requests_before_the_workers_next_batch_starts(
+    tracer: OTelTelemetryClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Service runs every lane job in one long process, so each batch exports the counters
+    it recorded when it ends, also when its job raises, and not only when the pod stops (#1629).
+    Each export holds only its batch's delta, so the collector's running total is the sum of the
+    requests recorded."""
+    sink = Captured()
+    monkeypatch.setattr(tracer, "_send_payload", sink)
+    exported_at_start: list[int] = []
+
+    def job(batch: TriggerBatch) -> None:
+        exported_at_start.append(len(sink.payloads))
+        emit(AI_REQUESTS_TOTAL, 1.0, {"operation": "chat", "model": "devops-background"})
+        if len(exported_at_start) == 1:
+            raise RuntimeError("the round failed after one model call")
+
+    worker = RepoWorker(
+        repo="example-org/repo1", lane=LANE, job_func=job, clock=lambda: datetime.now(UTC)
+    )
+    worker.start()
+    for _ in range(2):
+        worker.enqueue("webhook", "issues", "opened")
+        assert worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    worker.stop()
+
+    assert (
+        worker.join(THREAD_HANDOFF_BOUND_SECONDS),
+        exported_at_start,
+        len(sink.payloads),
+        [value for _, value in sink.points(AI_REQUESTS_TOTAL.name)],
+    ) == (True, [0, 1], 2, [1.0, 1.0])
 
 
 # ── A GraphQL budget refusal holds every repository's rounds (#1400) ──────────

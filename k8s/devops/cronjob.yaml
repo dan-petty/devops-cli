@@ -53,6 +53,10 @@ spec:
                   value: /config/devops-cli.yaml
                 - name: DEVOPS_CLI_DATA_DIR
                   value: /home/devops/.data
+                # The telemetry of a cluster Job has its own `job` in Prometheus, apart from
+                # workstation runs (devops-cli) and roadmap-service.
+                - name: OTEL_SERVICE_NAME
+                  value: devops-cli-job
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp

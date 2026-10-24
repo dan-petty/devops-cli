@@ -67,6 +67,11 @@ spec:
               value: /home/devops/.data
             - name: OTEL_SERVICE_NAME
               value: roadmap-service
+            # Prometheus names the series by service.instance.id (`instance`). It defaults to
+            # the host name, which is the pod name and changes at each restart. One replica
+            # and the Recreate strategy mean one pod sends at a time, so all pods share one id.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.instance.id=roadmap-service
           volumeMounts:
             - name: tmp
               mountPath: /tmp

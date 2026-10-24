@@ -837,6 +837,9 @@ class OTelTelemetryClient:
         self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
         self._client_lock = threading.Lock()
+        # One flush at a time: the collector drops a delta that is not later than the last one
+        # it added to the series, so a flush collects only once the export before it is done.
+        self._flush_lock = threading.Lock()
         # Exports still in flight, drained at shutdown; and how exports have fared, so a
         # collector that never answers is reported rather than silently dropping everything.
         self._pending: set[Future[None]] = set()
@@ -962,7 +965,7 @@ class OTelTelemetryClient:
                     ExponentialBucketHistogramAggregation,
                     View,
                 )
-                from opentelemetry.sdk.resources import Resource
+                from opentelemetry.sdk.resources import OTELResourceDetector, Resource
 
                 self._metric_reader = InMemoryMetricReader(
                     preferred_temporality={
@@ -973,6 +976,10 @@ class OTelTelemetryClient:
                 )
                 # Metrics identify their source by host, not process: every command is a
                 # short-lived process, and the collector adds up each series' deltas across them.
+                # The SDK's detector of the standard OTEL_RESOURCE_ATTRIBUTES and
+                # OTEL_SERVICE_NAME merges last, as in the SDK's Resource.create, so a workload
+                # whose host changes at each start, such as a pod, sets one service.instance.id
+                # there and keeps its series (#1629).
                 resource = Resource(
                     {
                         "service.name": self.service_name,
@@ -982,7 +989,7 @@ class OTelTelemetryClient:
                         "telemetry.sdk.name": "devops-cli-otel",
                         "telemetry.sdk.language": "python",
                     }
-                )
+                ).merge(OTELResourceDetector().detect())
                 self._meter_provider = MeterProvider(
                     resource=resource,
                     metric_readers=[self._metric_reader],
@@ -1392,10 +1399,11 @@ class OTelTelemetryClient:
 
     def flush(self, timeout: float = DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS) -> None:
         """Export buffered SDK metrics and wait, up to ``timeout`` seconds, for queued exports to finish."""
-        self._flush_sdk_metrics()
-        pending = [f for f in list(self._pending) if not f.done()]
-        if pending:
-            wait_futures(pending, timeout=timeout)
+        with self._flush_lock:
+            self._flush_sdk_metrics()
+            pending = [f for f in list(self._pending) if not f.done()]
+            if pending:
+                wait_futures(pending, timeout=timeout)
 
     def shutdown(self, timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
         """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout.
