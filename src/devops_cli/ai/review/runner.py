@@ -611,6 +611,85 @@ def _prepare_path_content(
     return pages, title, routed
 
 
+def _is_watch_candidate_included(
+    file_path: Path,
+    target_root: Path,
+    pattern: str,
+) -> bool:
+    """Predicate determining if a changed file should be included in a watch review."""
+    from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
+
+    if not file_path.is_file():
+        return False
+    repo_root = _git_repo_root(target_root) or find_repo_root(file_path)
+    if is_ignored_by_git(repo_root, file_path):
+        return False
+    if target_root.is_dir():
+        try:
+            rel = file_path.relative_to(target_root)
+        except ValueError:
+            return False
+        if not rel.match(pattern):
+            return False
+    try:
+        if file_path.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+            return False
+    except OSError:
+        return False
+    file_label = _review_label(file_path, target_root, repo_root)
+    if is_secret_scan_only(file_label):
+        return False
+    return True
+
+
+def _find_matching_watch_target(
+    file_path: Path,
+    resolved_targets: Sequence[Path],
+    pattern: str,
+) -> Path | None:
+    """Find the target containing file_path that accepts it for review."""
+    for target in resolved_targets:
+        if target.is_file() and file_path == target:
+            if _is_watch_candidate_included(file_path, target, pattern):
+                return target
+        elif target.is_dir() and file_path.is_relative_to(target):
+            if _is_watch_candidate_included(file_path, target, pattern):
+                return target
+    return None
+
+
+def _prepare_watch_content(
+    changed_paths: Sequence[Path],
+    path_targets: Sequence[Path],
+    pattern: str,
+    *,
+    working_directory: Path,
+) -> list[str]:
+    """Prepare paginated pages for changed files in a watch session."""
+    resolved_targets = [(working_directory / t).resolve() for t in path_targets]
+    included_files: list[tuple[Path, Path]] = []
+    seen: set[Path] = set()
+
+    for raw in changed_paths:
+        try:
+            resolved = raw.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        target = _find_matching_watch_target(resolved, resolved_targets, pattern)
+        if target is not None:
+            seen.add(resolved)
+            included_files.append((resolved, target))
+
+    included_files.sort(key=lambda item: item[0])
+    blocks: list[str] = []
+    for file_path, target in included_files:
+        blocks.extend(_file_blocks(target, [file_path]))
+
+    return [redact_text(b) for b in blocks]
+
+
 def _get_current_git_branch(repo_path: Path) -> str:
     """Return active git branch name if HEAD is attached, otherwise empty string."""
     proc = _run_subprocess(

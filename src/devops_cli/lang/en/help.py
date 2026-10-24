@@ -53,7 +53,7 @@ class OptionHelp:
     tail: str = "Number of recent lines to display."
     target_dir: str = "Target directory path for operation."
     workspace_dir: str = "Workspace root directory path."
-    watch: str = "Continuously watch target paths for changes and re-run reviews."
+    watch: str = "Continuously watch target paths for changes and review only the changed files."
     debounce_ms: str = "Debounce window in milliseconds for filesystem watcher."
     chaos_mode: str = (
         "Chaos fault mode to simulate (latency, rate-limit, timeout, malformed-json, all)."

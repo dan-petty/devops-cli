@@ -39,6 +39,7 @@ class ReviewMessages:
     total_elapsed: str = "  total {elapsed}"
     collecting_files: str = "Collecting {pattern} files under {target}..."
     no_files_found: str = "No files found."
+    no_reviewable_files_changed: str = "No reviewable files changed."
     diffing_branches: str = "Diffing {branch} against {base}..."
     no_diff_found: str = "No differences found between branches."
     nothing_for_personas: str = (

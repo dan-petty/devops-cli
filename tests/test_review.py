@@ -421,6 +421,63 @@ def test_review_path_watch_mode(tmp_path: Path) -> None:
         assert mock_watcher_watch.called
 
 
+def test_review_path_watch_reviews_only_changed_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify review path --watch reviews only the files that changed and skips unchanged files."""
+    monkeypatch.chdir(tmp_path)
+    target_dir = tmp_path / "src"
+    target_dir.mkdir()
+    a_file = target_dir / "a.py"
+    a_file.write_text("def a(): pass\n", encoding="utf-8")
+    b_file = target_dir / "b.py"
+    b_file.write_text("def b(): pass\n", encoding="utf-8")
+
+    from devops_cli.watchers.file_watcher import DebouncedFileWatcher
+
+    def fake_watch(self: DebouncedFileWatcher) -> None:
+        self.on_change([a_file])
+
+    with (
+        patch("devops_cli.commands.review._make_review_clients"),
+        patch("devops_cli.commands.review._execute_review_workflow") as mock_workflow,
+        patch.object(DebouncedFileWatcher, "watch", fake_watch),
+    ):
+        res = runner.invoke(review_app, ["path", str(target_dir), "--watch"])
+        assert res.exit_code == 0
+        assert mock_workflow.call_count == 1
+        pages = mock_workflow.call_args[0][0]
+        assert len(pages) == 1
+        assert "a.py" in pages[0]
+        assert "b.py" not in pages[0]
+
+
+def test_review_path_watch_skips_deleted_files_and_runs_no_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify review path --watch skips deleted files and runs no review."""
+    monkeypatch.chdir(tmp_path)
+    target_dir = tmp_path / "src"
+    target_dir.mkdir()
+    a_file = target_dir / "a.py"
+    a_file.write_text("def a(): pass\n", encoding="utf-8")
+    deleted_file = target_dir / "deleted.py"
+
+    from devops_cli.watchers.file_watcher import DebouncedFileWatcher
+
+    def fake_watch(self: DebouncedFileWatcher) -> None:
+        self.on_change([deleted_file])
+
+    with (
+        patch("devops_cli.commands.review._make_review_clients"),
+        patch("devops_cli.commands.review._execute_review_workflow") as mock_workflow,
+        patch.object(DebouncedFileWatcher, "watch", fake_watch),
+    ):
+        res = runner.invoke(review_app, ["path", str(target_dir), "--watch"])
+        assert res.exit_code == 0
+        assert mock_workflow.call_count == 0
+
+
 def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
     """Verify that criteria leakage or prompt instructions in location and title are stripped."""
     from devops_cli.ai.review_schema import Finding
