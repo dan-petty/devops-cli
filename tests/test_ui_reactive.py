@@ -1128,21 +1128,26 @@ async def test_a_slow_subsystem_does_not_freeze_the_interface(
     This is the defect the reactive architecture exists to fix: the previous design called
     every provider synchronously from the keypress handler, so one unreachable cluster
     froze every unrelated tab for the duration of its timeout.
+
+    The k8s fetch is held until the test releases it, with no bound of its own, so it outlives
+    every wait that observes it. A 10 s hold ran out on a loaded host before the test looked,
+    and the fetch was then over (#2092). The test releases the hold before the app exits on every
+    path, since Textual waits for its thread workers when it shuts down.
     """
     release = threading.Event()
     entered = threading.Event()
 
     def slow_k8s() -> Any:
         entered.set()
-        release.wait(timeout=10)
+        release.wait()
         return _k8s()
 
     patched_fetchers(k8s=slow_k8s)
     state = DashboardState()
     app = DashboardApp(refresh_interval=0, state=state)
-    try:
-        async with app.run_test() as pilot:
-            assert entered.wait(timeout=10), "the k8s worker never started"
+    async with app.run_test() as pilot:
+        try:
+            assert entered.wait(THREAD_HANDOFF_BOUND_SECONDS), "the k8s worker never started"
 
             await pilot.press("2")
             await pilot.pause()
@@ -1152,17 +1157,15 @@ async def test_a_slow_subsystem_does_not_freeze_the_interface(
             await _settle(pilot, lambda: docker_table.row_count > 0)
             rendered_while_blocked = docker_table.row_count
             k8s_still_fetching = state.in_flight() == ["k8s"]
-
+        finally:
             release.set()
-            await _settle(pilot, lambda: not state.pending_domains())
+        await _settle(pilot, lambda: not state.pending_domains())
 
-        assert (active_while_blocked, rendered_while_blocked, k8s_still_fetching) == (
-            "tab-docker",
-            1,
-            True,
-        )
-    finally:
-        release.set()
+    assert (active_while_blocked, rendered_while_blocked, k8s_still_fetching) == (
+        "tab-docker",
+        1,
+        True,
+    )
 
 
 @pytest.mark.asyncio

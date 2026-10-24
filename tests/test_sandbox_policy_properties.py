@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import Phase, example, given, settings
+from hypothesis import HealthCheck, Phase, example, given, settings
 from hypothesis import strategies as st
 
 from devops_cli.ai.models.ollama import _is_cloud_metadata_host as _ollama_is_metadata
@@ -250,6 +250,18 @@ def test_property_parse_whitelist_entry_reads_ipv6_hosts_and_ports_oracle(
         (ip_str, 443),
         (ip_str, port),
     )
+
+
+def test_the_properties_run_under_the_ci_profile_so_a_loaded_host_cannot_fail_them() -> None:
+    """Every run loads Hypothesis's `ci` profile through `addopts`, so the properties here have
+    no deadline and no `too_slow` health check. With the default 200 ms deadline, a loaded host
+    that made the five parses of one IPv6 example slow failed the oracle property with
+    DeadlineExceeded (#2092)."""
+    assert (
+        settings.get_current_profile_name(),
+        _DERANDOMIZED.deadline,
+        HealthCheck.too_slow in _DERANDOMIZED.suppress_health_check,
+    ) == ("ci", None, True)
 
 
 def test_parse_whitelist_entry_host_extraction_and_rejections() -> None:

@@ -1,13 +1,20 @@
-"""The one bound a test waits with for something it expects another thread to do (#1664)."""
+"""The one bound a test waits with for something it expects another thread to do (#1664), and
+the wait with no bound of its own for an event of a process the test started (#2092)."""
 
 from __future__ import annotations
 
+import subprocess
 import threading
 
 import pytest
 
 from tests.support import waits
-from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS, wait_until
+from tests.support.waits import (
+    POLL_INTERVAL_SECONDS,
+    THREAD_HANDOFF_BOUND_SECONDS,
+    wait_until,
+    wait_while_running,
+)
 
 LATE_EVENT_SECONDS = 1.5
 """How late the event comes: later than the one-second deadlines that failed correct code while
@@ -91,3 +98,44 @@ def test_a_condition_that_already_holds_is_read_once_and_not_waited_for(
         return True
 
     assert (wait_until(holds), len(reads), virtual_time.sleeps) == (True, 1, [])
+
+
+PROCESS_HOLD_SECONDS = int(10 * THREAD_HANDOFF_BOUND_SECONDS)
+"""How long the running process sleeps: longer than every wait that observes it, so it runs until
+the test stops it."""
+
+
+@pytest.mark.live("sleep")
+def test_a_wait_while_a_process_runs_sees_an_event_later_than_the_handoff_bound(
+    virtual_time: _VirtualTime,
+) -> None:
+    """On a clock only the wait's sleeps move, the wait sees an event that comes at twice the
+    handoff bound while the process still runs, as a fresh `devops` started its child on a
+    loaded host after more than the bound (#2092)."""
+    late = 2 * THREAD_HANDOFF_BOUND_SECONDS
+    process = subprocess.Popen(["sleep", str(PROCESS_HOLD_SECONDS)])
+    try:
+        seen = wait_while_running(lambda: virtual_time.now >= late, process)
+        still_running = process.poll() is None
+    finally:
+        process.kill()
+        process.wait()
+
+    assert (seen, still_running, virtual_time.now >= late) == (True, True, True)
+
+
+@pytest.mark.live("true")
+def test_a_wait_while_a_process_runs_ends_once_the_process_exits_without_the_event(
+    virtual_time: _VirtualTime,
+) -> None:
+    """A process that exits without the event ends the wait: the condition is read once after the
+    exit and no poll interval is slept."""
+    process = subprocess.Popen(["true"])
+    process.wait(THREAD_HANDOFF_BOUND_SECONDS)
+    reads: list[bool] = []
+
+    def never() -> bool:
+        reads.append(False)
+        return False
+
+    assert (wait_while_running(never, process), reads, virtual_time.sleeps) == (False, [False], [])
