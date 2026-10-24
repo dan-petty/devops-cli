@@ -90,6 +90,23 @@ stream_finish_reason: ContextVar[FinishReason | None] = ContextVar(
     "stream_finish_reason", default=None
 )
 
+
+@dataclass(frozen=True)
+class StreamUsage:
+    """Token usage metrics reported directly by a streaming LLM provider."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    reasoning_tokens: int | None = None
+
+
+# Token usage metrics extracted from the final frames of a streamed reply.
+stream_usage: ContextVar[StreamUsage | None] = ContextVar("stream_usage", default=None)
+
+# The specific server node leased for a streamed request, e.g. for multi-node Ollama.
+stream_server: ContextVar[str | None] = ContextVar("stream_server", default=None)
+
 # A reply-token cap for the calls made inside `limit_completion_tokens`. It travels with the
 # context, like the request priority, so one call site can bound a reply without every layer
 # between it and the provider taking a parameter.

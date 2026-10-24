@@ -1105,3 +1105,101 @@ def test_devops_ai_cost_says_local_savings_are_unpriced_instead_of_printing_zero
             "genai-prices and the price overrides hold no price for gpt-4o-mni (--reference-model) under provider openai, so the local savings of chat tokens are unpriced."
         ],
     )
+
+
+def test_spend_ledger_records_reasoning_tokens_and_aggregates(tmp_path: Path) -> None:
+    """Record reasoning tokens in spend ledger and verify aggregations include them."""
+    db_path = tmp_path / "spend.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    rec = ledger.record_request(
+        provider="openai",
+        server="api.openai.com",
+        model="o1-preview",
+        prompt_tokens=100,
+        completion_tokens=60,
+        cost_usd=0.005,
+        served_by="gateway-node-1",
+        stage="planner",
+        reasoning_tokens=40,
+    )
+    assert rec is not None
+    assert rec.reasoning_tokens == 40
+
+    report = ledger.get_lifetime_report()
+    assert report.total_reasoning_tokens == 40
+    assert len(report.servers) == 1
+    assert report.servers[0].reasoning_tokens == 40
+    assert len(report.models) == 1
+    assert report.models[0].reasoning_tokens == 40
+    assert len(report.backends) == 1
+    assert report.backends[0].reasoning_tokens == 40
+    assert len(report.stages) == 1
+    assert report.stages[0].reasoning_tokens == 40
+
+
+def test_track_request_spend_emits_reasoning_tokens_telemetry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """track_request_spend emits AI_TOKENS_TOTAL with type reasoning when reasoning tokens are present."""
+    from devops_cli.telemetry.instruments import AI_TOKENS_TOTAL
+
+    db_path = tmp_path / "spend.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    emitted: list[tuple[Any, int, dict[str, str]]] = []
+    monkeypatch.setattr(
+        "devops_cli.telemetry.instruments.emit",
+        lambda instrument, value, labels: emitted.append((instrument, value, labels)),
+    )
+
+    track_request_spend(
+        provider="openai",
+        model="o1-mini",
+        server="api.openai.com",
+        prompt_tokens=50,
+        completion_tokens=30,
+        reasoning_tokens=20,
+        ledger=ledger,
+    )
+
+    token_emits = [e for e in emitted if e[0] == AI_TOKENS_TOTAL]
+    assert len(token_emits) == 3
+    assert (token_emits[0][1], token_emits[0][2]["type"]) == (50, "prompt")
+    assert (token_emits[1][1], token_emits[1][2]["type"]) == (30, "completion")
+    assert (token_emits[2][1], token_emits[2][2]["type"]) == (20, "reasoning")
+
+
+def test_schema_migration_adds_reasoning_tokens_column(tmp_path: Path) -> None:
+    """A legacy spend table without reasoning_tokens column gains it via _init_db."""
+    db_path = tmp_path / "legacy.db"
+    legacy_create_table = """
+    CREATE TABLE ai_spend_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        server TEXT NOT NULL,
+        backend_info TEXT,
+        served_by TEXT,
+        model TEXT NOT NULL,
+        prompt_tokens INTEGER NOT NULL DEFAULT 0,
+        completion_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0.0,
+        cached INTEGER NOT NULL DEFAULT 0,
+        request_type TEXT NOT NULL DEFAULT 'chat',
+        duration_seconds REAL NOT NULL DEFAULT 0.0,
+        stage TEXT,
+        finish_reason TEXT,
+        pricing_source TEXT
+    );
+    """
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        conn.execute(legacy_create_table)
+
+    # Initialize SpendLedger on top of legacy DB
+    SpendLedger(db_path=db_path)
+
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()}
+    assert "reasoning_tokens" in cols

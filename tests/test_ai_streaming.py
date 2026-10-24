@@ -760,3 +760,187 @@ def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
             chunks.append(chunk)
 
     assert (chunks, len(sent), type(raised.value)) == (["Hi"], 1, AIClientError)
+
+
+def test_openai_stream_sends_stream_options_and_records_provider_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify OpenAI stream asks for usage and records provider-reported token usage."""
+    recorded_spends: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.track_request_spend",
+        lambda **kwargs: recorded_spends.append(kwargs) or None,
+    )
+    client = LLMClient(
+        AIConfig(
+            provider="openai",
+            model="gpt-4o",
+            api_base_url="http://example.com/v1",
+            allow_private_network=True,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+    usage_data = sse_data(
+        {
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 22,
+                "total_tokens": 33,
+                "completion_tokens_details": {"reasoning_tokens": 8},
+            },
+        }
+    )
+    frames = [openai_chunk("Hello "), openai_chunk("world", "stop"), usage_data, OPENAI_DONE]
+    sent_requests: list[httpx2.Request] = []
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        sent_requests.append(request)
+        return reply(frames)
+
+    route_client(client, monkeypatch, handle)
+    chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+    assert chunks == ["Hello ", "world"]
+    assert len(sent_requests) == 1
+    sent_payload = json.loads(sent_requests[0].content.decode("utf-8"))
+    assert sent_payload.get("stream_options") == {"include_usage": True}
+    assert len(recorded_spends) == 1
+    spend = recorded_spends[0]
+    assert (spend["prompt_tokens"], spend["completion_tokens"], spend["reasoning_tokens"]) == (
+        11,
+        22,
+        8,
+    )
+
+
+def test_ollama_stream_records_provider_eval_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Ollama stream captures final eval_count and prompt_eval_count."""
+    recorded_spends: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.track_request_spend",
+        lambda **kwargs: recorded_spends.append(kwargs) or None,
+    )
+    client = LLMClient(
+        AIConfig(
+            provider="ollama",
+            model="llama3",
+            ollama_urls=["http://example.com:11434"],
+            allow_private_network=True,
+        ),
+        cache_enabled=False,
+    )
+    frames = [
+        ollama_line("Hello "),
+        ollama_line("world", done=True, prompt_eval_count=14, eval_count=28),
+    ]
+    route_client(client, monkeypatch, lambda request: reply(frames, NDJSON))
+    chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+    assert chunks == ["Hello ", "world"]
+    assert len(recorded_spends) == 1
+    spend = recorded_spends[0]
+    assert (spend["prompt_tokens"], spend["completion_tokens"]) == (14, 28)
+
+
+def test_claude_stream_records_provider_message_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Claude stream captures message_start input tokens and message_delta output tokens."""
+    recorded_spends: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.track_request_spend",
+        lambda **kwargs: recorded_spends.append(kwargs) or None,
+    )
+    client = LLMClient(
+        AIConfig(
+            provider="claude",
+            model="claude-3-5-sonnet",
+            api_base_url="http://example.com",
+            allow_private_network=True,
+        ),
+        api_key="sk-ant-test",
+        cache_enabled=False,
+    )
+    frames = [
+        anthropic_event("message_start", message={"id": "msg_1", "usage": {"input_tokens": 16}}),
+        anthropic_text("Hello "),
+        anthropic_text("world"),
+        anthropic_event(
+            "message_delta",
+            delta={"stop_reason": "end_turn"},
+            usage={"output_tokens": 32},
+        ),
+        anthropic_event("message_stop"),
+    ]
+    route_client(client, monkeypatch, lambda request: reply(frames))
+    chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+    assert chunks == ["Hello ", "world"]
+    assert len(recorded_spends) == 1
+    spend = recorded_spends[0]
+    assert (spend["prompt_tokens"], spend["completion_tokens"]) == (16, 32)
+
+
+def test_multi_node_ollama_stream_records_leased_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify multi-node Ollama stream records the leased node as server instead of joined list."""
+    recorded_spends: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.track_request_spend",
+        lambda **kwargs: recorded_spends.append(kwargs) or None,
+    )
+    client = LLMClient(
+        AIConfig(
+            provider="ollama",
+            model="llama3",
+            ollama_urls=["http://example.com:11434", "http://example.com:11435"],
+            allow_private_network=True,
+        ),
+        cache_enabled=False,
+    )
+    frames = [
+        ollama_line("Hello "),
+        ollama_line("world", done=True, prompt_eval_count=10, eval_count=20),
+    ]
+    route_client(client, monkeypatch, lambda request: reply(frames, NDJSON))
+    chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+    assert chunks == ["Hello ", "world"]
+    assert len(recorded_spends) == 1
+    spend = recorded_spends[0]
+    assert spend["server"] == "example.com:11434"
+
+
+def test_stream_closed_after_partial_consumption_records_spent_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify stream closed early records spent tokens in a finally block."""
+    client = _openai_client(monkeypatch)
+    recorded_spends: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.track_request_spend",
+        lambda **kwargs: recorded_spends.append(kwargs) or None,
+    )
+    frames = [
+        openai_chunk("One "),
+        openai_chunk("Two "),
+        openai_chunk("Three "),
+        openai_chunk("Four", "stop"),
+        OPENAI_DONE,
+    ]
+    route_client(client, monkeypatch, lambda request: reply(frames))
+
+    gen = client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")])
+    c1 = next(gen)
+    c2 = next(gen)
+    gen.close()
+
+    assert (c1, c2) == ("One ", "Two ")
+    assert len(recorded_spends) == 1
+    spend = recorded_spends[0]
+    assert spend["completion_tokens"] == len("One Two ")

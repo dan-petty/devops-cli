@@ -153,6 +153,8 @@ def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) ->
         span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
     if res.completion_tokens is not None:
         span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
+    if getattr(res, "reasoning_tokens", None) is not None:
+        span_handle.set_attribute("gen_ai.usage.reasoning.output_tokens", res.reasoning_tokens)
     _set_timing_span_attributes(span_handle, res)
     _set_finish_reason_attribute(span_handle, res.finish_reason)
     span_handle.set_attribute("llm.response_preview", res.text[:200].replace("\n", " ").strip())
@@ -465,6 +467,11 @@ class LLMClient(
         c_tokens = (
             res.completion_tokens if res.completion_tokens is not None else count_tokens(res.text)
         )
+        r_tokens = (
+            res.reasoning_tokens
+            if res.reasoning_tokens is not None
+            else (count_tokens(res.thinking) if res.thinking else 0)
+        )
         rec = track_request_spend(
             provider=p,
             model=self._config.model,
@@ -478,6 +485,7 @@ class LLMClient(
             duration_seconds=res.wall_seconds or duration,
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
             finish_reason=res.finish_reason,
+            reasoning_tokens=r_tokens,
         )
         if rec is not None:
             span_handle.set_attribute("llm.usage.cost_usd", rec.cost_usd)
@@ -898,8 +906,11 @@ class LLMClient(
             network.stream_served_by.set(None)
             network.stream_finish_reason.set(None)
             network.stream_slot_wait.set(0.0)
+            network.stream_server.set(None)
+            network.stream_usage.set(None)
             accumulated_chunks: list[str] = []
             processor: Any = None
+            spend_recorded = False
             try:
                 gen = self._dispatch_stream(
                     system, messages, enable_thinking=enable_thinking, priority=resolved_p
@@ -919,8 +930,8 @@ class LLMClient(
                 if processor is not None:
                     _set_stream_sanitizer_attributes(span_h, processor)
                 span_h.record_exception(exc)
-                if accumulated_chunks:
-                    # The provider produced tokens before failing, so they were spent.
+                if accumulated_chunks and not spend_recorded:
+                    spend_recorded = True
                     self._record_stream_spend(
                         span_h,
                         p,
@@ -931,17 +942,25 @@ class LLMClient(
                         CONST_FINISH_REASON_ERROR,
                     )
                 raise
-
-            total_dur = self._stream_seconds(t_start)
-            finish_reason = network.stream_finish_reason.get()
-            _set_finish_reason_attribute(span_h, finish_reason)
-            span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))
-            span_h.set_attribute("llm.wall_seconds", total_dur)
-            if processor is not None:
-                _set_stream_sanitizer_attributes(span_h, processor)
-            self._record_stream_spend(
-                span_h, p, messages, system, "".join(accumulated_chunks), total_dur, finish_reason
-            )
+            finally:
+                if accumulated_chunks and not spend_recorded:
+                    spend_recorded = True
+                    total_dur = self._stream_seconds(t_start)
+                    finish_reason = network.stream_finish_reason.get()
+                    _set_finish_reason_attribute(span_h, finish_reason)
+                    span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))
+                    span_h.set_attribute("llm.wall_seconds", total_dur)
+                    if processor is not None:
+                        _set_stream_sanitizer_attributes(span_h, processor)
+                    self._record_stream_spend(
+                        span_h,
+                        p,
+                        messages,
+                        system,
+                        "".join(accumulated_chunks),
+                        total_dur,
+                        finish_reason,
+                    )
 
     def _record_stream_spend(
         self,
@@ -957,11 +976,30 @@ class LLMClient(
         from devops_cli.ai.context_budget import count_tokens
         from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
 
-        srv = _extract_server_from_backend_info(self.backend_info, self.backend_host)
-        p_tokens = sum(count_tokens(m.content) for m in messages) + (
-            count_tokens(system) if system else 0
+        srv = network.stream_server.get() or _extract_server_from_backend_info(
+            self.backend_info, self.backend_host
         )
-        c_tokens = count_tokens(accumulated_text)
+        usage = network.stream_usage.get()
+        if (
+            usage is not None
+            and usage.prompt_tokens is not None
+            and usage.completion_tokens is not None
+        ):
+            p_tokens = usage.prompt_tokens
+            c_tokens = usage.completion_tokens
+            r_tokens = usage.reasoning_tokens or 0
+        else:
+            p_tokens = sum(count_tokens(m.content) for m in messages) + (
+                count_tokens(system) if system else 0
+            )
+            c_tokens = count_tokens(accumulated_text)
+            r_tokens = 0
+            from devops_cli.ai.thinking_stream import extract_think_blocks
+
+            inner_thinks, _ = extract_think_blocks(accumulated_text)
+            if inner_thinks:
+                r_tokens = min(count_tokens("\n".join(inner_thinks)), c_tokens)
+
         rec = track_request_spend(
             provider=p,
             model=self._config.model,
@@ -975,9 +1013,16 @@ class LLMClient(
             duration_seconds=total_dur,
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
             finish_reason=finish_reason,
+            reasoning_tokens=r_tokens,
         )
         if rec is not None:
             span_h.set_attribute("llm.usage.cost_usd", rec.cost_usd)
+        if p_tokens is not None:
+            span_h.set_attribute("gen_ai.usage.input_tokens", p_tokens)
+        if c_tokens is not None:
+            span_h.set_attribute("gen_ai.usage.output_tokens", c_tokens)
+        if r_tokens:
+            span_h.set_attribute("gen_ai.usage.reasoning.output_tokens", r_tokens)
 
     def list_models(self) -> list[str]:
         """List available models for the current provider."""

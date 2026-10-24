@@ -101,7 +101,7 @@ def _yield_model_gauges(report: LifetimeSpendReport) -> Iterator[GaugeMetricFami
     )
     tokens_family = GaugeMetricFamily(
         "devops_cli_ai_ledger_tokens",
-        "Tokens processed per model in the ledger, by token type (prompt or completion)",
+        "Tokens processed per model in the ledger, by token type (prompt, completion, or reasoning)",
         labels=["model", "provider", "type"],
     )
     # Replies the response cache answered ran no model, and add no tokens or spend here. No
@@ -116,6 +116,8 @@ def _yield_model_gauges(report: LifetimeSpendReport) -> Iterator[GaugeMetricFami
             ("completion", mdl.completion_tokens),
         ):
             tokens_family.add_metric([mdl.model, mdl.provider, token_type], token_val)
+        if mdl.reasoning_tokens > 0:
+            tokens_family.add_metric([mdl.model, mdl.provider, "reasoning"], mdl.reasoning_tokens)
     yield spend_family
     yield requests_family
     yield tokens_family

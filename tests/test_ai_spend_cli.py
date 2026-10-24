@@ -284,3 +284,38 @@ def test_spend_report_counts_a_cache_hit_as_a_cached_request_and_no_backend(
         [(p["provider"], p["request_count"], p["server_count"]) for p in data["providers"]],
         data["local_requests"],
     ) == (0, (2, 1, 1), [("ollama", 2, 1)], 1)
+
+
+def test_ai_cost_report_reasoning_share_columns(mock_spend_env: SpendLedger) -> None:
+    """Verify devops ai cost report shows reasoning share column in server and backend tables."""
+    # Seed request with reasoning tokens
+    mock_spend_env.record_request(
+        provider="gateway",
+        server="gateway.local:8000",
+        model="deepseek-r1",
+        prompt_tokens=1000,
+        completion_tokens=500,
+        reasoning_tokens=250,
+        cost_usd=0.001,
+        served_by="http://worker-node-1:8000",
+        duration_seconds=2.0,
+    )
+
+    # Default report (server breakdown)
+    res_default = runner.invoke(cost_app, ["report"])
+    assert res_default.exit_code == 0
+    assert "Reasoning Share" in res_default.stdout
+    assert "50.0%" in res_default.stdout
+
+    # Backend breakdown
+    res_backend = runner.invoke(cost_app, ["report", "--by", "backend"])
+    assert res_backend.exit_code == 0
+    assert "Reasoning Share" in res_backend.stdout
+    assert "50.0%" in res_backend.stdout
+
+    # JSON report includes reasoning tokens
+    res_json = runner.invoke(cost_app, ["report", "--json"])
+    assert res_json.exit_code == 0
+    data = json.loads(res_json.stdout)
+    assert data["total_reasoning_tokens"] == 250
+    assert any(b.get("reasoning_tokens") == 250 for b in data["backends"])

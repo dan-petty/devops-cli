@@ -442,3 +442,34 @@ def test_a_gateway_call_is_timed_from_when_its_slot_is_held(
         _REQUEST_SECONDS,
         [_REQUEST_SECONDS],
     )
+
+
+def test_chat_dispatch_span_records_reasoning_tokens_attribute(
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+) -> None:
+    """The dispatch span sets gen_ai.usage.reasoning.output_tokens when reasoning tokens are present."""
+
+    def reply_with_reasoning(*args: Any, **kwargs: Any) -> LLMResponse:
+        return LLMResponse(
+            "Final text",
+            backend_info="openai (api.openai.com)",
+            model="o1-preview",
+            prompt_tokens=20,
+            completion_tokens=50,
+            total_tokens=70,
+            reasoning_tokens=35,
+        )
+
+    monkeypatch.setattr(LLMClient, "_openai_compat_messages", reply_with_reasoning)
+    client = LLMClient(
+        AIConfig(provider="openai", model="o1-preview"),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+    client.chat("system instructions", "hello", use_cache=False)
+
+    (dispatch,) = _spans(sent_spans, "ai.llm.dispatch")
+    attrs = _attributes(dispatch)
+    assert attrs.get("gen_ai.usage.input_tokens") == 20
+    assert attrs.get("gen_ai.usage.output_tokens") == 50
+    assert attrs.get("gen_ai.usage.reasoning.output_tokens") == 35
