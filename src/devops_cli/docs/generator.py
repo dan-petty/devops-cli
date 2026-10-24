@@ -1094,6 +1094,14 @@ class DocGenerator:
             "## Distributed Tracing & W3C Context Propagation",
             "",
             "- **Root Trace Context**: CLI delegate sets up root spans (`cli.<subcommand>`) with execution metadata.",
+            "- **No Argument Values**: The command spans describe the command line with the "
+            "command (`cli.command`), its command path (`cli.command_path`, such as `devops config "
+            "set`), the number of arguments (`cli.args_count`) and the names of the parameters "
+            "(`cli.kwargs_keys`). They do not record the argument values. An argument can be a "
+            "credential (`devops config set <key> <value>`), and a secret pattern does not find "
+            "all credentials. For this reason, the resource also has no `process.command_line` "
+            "and no `process.command_args`. The OpenTelemetry semantic conventions make these two "
+            "attributes Opt-In.",
             "- **W3C `traceparent` Injection**: Subprocesses, sandbox containers (`devops sandbox "
             "deploy`, `devops docker sandbox`, `devops test sandbox`) and commands run with "
             "`devops sandbox exec` receive the active span as `TRACEPARENT` in their environment "

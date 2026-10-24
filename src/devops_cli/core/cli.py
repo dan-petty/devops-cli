@@ -79,7 +79,14 @@ def _execute_traced_cli_command(
     f_kwargs: dict[str, Any],
     cmd_name: str,
 ) -> Any:
-    """Execute CLI subcommand wrapped in OpenTelemetry span with telemetry recording."""
+    """Execute CLI subcommand wrapped in OpenTelemetry span with telemetry recording.
+
+    The span names the parameters and holds no parameter value, as the command span of
+    `main._delegate` does (#1996). Click's command path, such as `devops config set`, names the
+    command that runs: it holds the command names and no argument.
+    """
+    from typer._click.globals import get_current_context
+
     from devops_cli.telemetry import trace_span
 
     span_name = f"cli.{cmd_name}"
@@ -87,13 +94,16 @@ def _execute_traced_cli_command(
     kwargs_summary = ", ".join(f_kwargs.keys()) if f_kwargs else ""
     func_name = getattr(f, "__qualname__", getattr(f, "__name__", str(f)))
     module_name = getattr(f, "__module__", "")
-    attrs = {
+    attrs: dict[str, Any] = {
         "cli.command": cmd_name,
         "code.function": func_name,
         "code.namespace": module_name,
         "cli.args_count": len(f_args),
         "cli.kwargs_keys": kwargs_summary,
     }
+    context = get_current_context(silent=True)
+    if context is not None:
+        attrs["cli.command_path"] = context.command_path
     with trace_span(span_name, attributes=attrs) as span_h:
         span_h.add_event("subcommand_started", {"command": cmd_name})
         try:

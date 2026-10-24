@@ -882,13 +882,10 @@ class OTelTelemetryClient:
             self._cached_resource_attributes.append(
                 {"key": "k8s.cluster.name", "value": {"stringValue": k8s_ctx}}
             )
-        if sys.argv:
-            from devops_cli.security.sanitizer import mask_secrets
-
-            clean_cmd = mask_secrets(" ".join(sys.argv))
-            self._cached_resource_attributes.append(
-                {"key": "process.command_line", "value": {"stringValue": clean_cmd}}
-            )
+        # The resource holds no `process.command_line` and no `process.command_args`. They are
+        # Opt-In in the OpenTelemetry semantic conventions, which say not to collect them by
+        # default unless sanitization excludes sensitive data. A secret pattern does not: it
+        # misses a credential given to `devops config set` (#1996).
         self._meter_provider: Any = None
         self._metric_reader: Any = None
         self._meter: Any = None

@@ -3,7 +3,10 @@ across all DevOps CLI commands."""
 
 from __future__ import annotations
 
+import json
 import subprocess
+import sys
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -129,6 +132,69 @@ def test_cli_delegate_root_span_and_metrics(
     ]
     assert "devops_cli_command_total" in metric_names
     assert "devops_cli_command_duration_seconds" in metric_names
+
+
+# A credential that no secret pattern of `mask_secrets` finds, typed as the value of a secret key
+# whose name the patterns also miss.
+_TYPED_CREDENTIAL = "correct-horse-battery-staple"
+_SET_A_CREDENTIAL = ["set", "cloudflare.tunnel_token", _TYPED_CREDENTIAL]
+
+
+@pytest.fixture
+def delegated_set(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Run `devops dummy set <key> <credential>` through `_delegate` and return each payload the
+    tracer exported. The tracer is made after `sys.argv` holds the command line, as it is when a
+    person runs the command."""
+    monkeypatch.setattr(sys, "argv", ["devops", "dummy", *_SET_A_CREDENTIAL])
+    reset_tracer()
+    exported: list[dict[str, Any]] = []
+    monkeypatch.setattr(get_tracer(), "_send_payload", lambda _path, p: exported.append(p))
+
+    dummy_app = new_typer()
+
+    @dummy_app.callback()
+    def dummy_cb() -> None:
+        pass
+
+    @dummy_app.command(name="set")
+    def dummy_set(key: str, value: str) -> None:
+        pass
+
+    module = SimpleNamespace(app=dummy_app)
+    monkeypatch.setattr("devops_cli.main.import_module", lambda _path: module)
+
+    _delegate("devops_cli.commands.dummy", "dummy", list(_SET_A_CREDENTIAL))
+    return exported
+
+
+def test_no_exported_attribute_holds_an_argument_value(
+    delegated_set: list[dict[str, Any]],
+) -> None:
+    """A credential given as an argument (`devops config set <key> <value>`) is in no span
+    attribute, event or resource attribute that goes to the trace backend (#1996)."""
+    assert (bool(delegated_set), _TYPED_CREDENTIAL in json.dumps(delegated_set, default=str)) == (
+        True,
+        False,
+    )
+
+
+def test_the_command_spans_keep_the_command_path_and_the_argument_count(
+    delegated_set: list[dict[str, Any]],
+) -> None:
+    """With no argument value, the trace still names the command that ran and how many arguments
+    it got."""
+    spans = {
+        span["name"]: {a["key"]: next(iter(a["value"].values())) for a in span["attributes"]}
+        for payload in delegated_set
+        if "resourceSpans" in payload
+        for span in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    }
+    assert (
+        spans["cli.dummy"]["cli.command"],
+        spans["cli.dummy"]["cli.args_count"],
+        "cli.args" in spans["cli.dummy"],
+        spans["cli.set"].get("cli.command_path"),
+    ) == ("dummy", "3", False, "devops dummy set")
 
 
 def test_subprocess_span_and_metrics(

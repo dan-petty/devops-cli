@@ -162,7 +162,7 @@ To ensure complete stylistic cohesion, maintainability, and zero boilerplate pro
 ### 1. Declarative CLI Command Dispatch & OpenTelemetry Instrumentation
 Every command is registered on a `new_typer()` app (`OTelTyper`, `devops_cli/core/cli.py`), which wraps it in a `cli.<command>` OpenTelemetry span:
 - Each command handles `--dry-run` itself via `is_dry_run()` / `render_dry_run_result()`.
-- Automatic OpenTelemetry span wrapping with standardized span attributes (`domain`, `operation`, `arguments`).
+- Automatic OpenTelemetry span wrapping with standardized span attributes: the command, its command path and the number of arguments, never an argument value ([docs/TELEMETRY.md](docs/TELEMETRY.md)).
 - Centralized domain exception interception with formatted Rich diagnostics output.
 - Commands that offer machine-readable output declare their own `--format` (table/json/yaml via `devops_cli.output.serialization.emit_serialized`) or `--json` flag. There is no global `--format` option.
 
