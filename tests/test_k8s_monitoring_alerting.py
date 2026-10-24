@@ -36,6 +36,7 @@ SERVED_SERIES = frozenset(
         "up",
         # kube-state-metrics, deployed and scraped by k8s-monitoring.
         "kube_node_status_condition",
+        "kube_persistentvolumeclaim_info",
         "kube_persistentvolumeclaim_resource_requests_storage_bytes",
         "kube_pod_info",
         "kube_pod_spec_volumes_persistentvolumeclaims_info",
@@ -162,6 +163,7 @@ def test_the_baseline_rule_set() -> None:
         ("HostFilesystemSpaceLow", "critical"),
         ("HostFilesystemSpaceLow", "warning"),
         ("K3sServiceNotActive", "critical"),
+        ("LocalPathNodeDiskHigh", "warning"),
         ("LogOrMetricVolumeDiskLow", "warning"),
         ("LokiRequestErrors", "warning"),
         ("LokiRetentionNotRunning", "warning"),
@@ -214,6 +216,7 @@ def test_every_node_scoped_rule_names_its_node() -> None:
         ("GpuPowerLimitServiceNotActive", "critical"): from_instance,
         ("HostFilesystemSpaceLow", "warning"): from_instance,
         ("HostFilesystemSpaceLow", "critical"): from_instance,
+        ("LocalPathNodeDiskHigh", "warning"): from_instance,
     }
 
 
@@ -318,6 +321,38 @@ def test_the_claim_rule_divides_one_series_by_one() -> None:
         ("prometheus_tsdb_head_chunks_storage_size_bytes", True),
         ("kube_persistentvolumeclaim_resource_requests_storage_bytes", False),
     ]
+
+
+def test_the_image_gc_rule_warns_on_the_root_disk_of_nodes_with_local_path_pods() -> None:
+    """`LocalPathNodeDiskHigh` warns at 85% used, where the kubelet starts image GC (#1634).
+
+    It reads the root filesystem of each node that runs a pod on a `local-path` claim: the claim
+    gives the storage class, the pod's volumes give the claim, and `kube_pod_info` gives the node.
+    A pod on a local-path volume cannot start on another node, so DiskPressure on its node stops
+    it. `HostFilesystemSpaceLow` fires later, at 10% free, on every node. Each join is `and`, not
+    `group_left`: for a few minutes after a pod moves, `kube_pod_info` holds a series for each of
+    its nodes, which a one-to-one join on the pod refuses to evaluate.
+    """
+    (rule,) = [rule for rule in _rules() if rule["alert"] == "LocalPathNodeDiskHigh"]
+    assert (
+        [(s.metric, s.labels) for s in selectors(rule["expr"])],
+        '{storageclass="local-path"}' in rule["expr"],
+        "> 0.85" in rule["expr"],
+        "group_left" in rule["expr"] or "group_right" in rule["expr"],
+        rule["for"],
+    ) == (
+        [
+            ("node_filesystem_avail_bytes", frozenset({"mountpoint"})),
+            ("node_filesystem_size_bytes", frozenset({"mountpoint"})),
+            ("kube_pod_info", frozenset()),
+            ("kube_pod_spec_volumes_persistentvolumeclaims_info", frozenset()),
+            ("kube_persistentvolumeclaim_info", frozenset({"storageclass"})),
+        ],
+        True,
+        True,
+        False,
+        "15m",
+    )
 
 
 def test_the_size_cap_rule_reads_this_server_only() -> None:

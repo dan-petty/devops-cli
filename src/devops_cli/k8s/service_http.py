@@ -78,6 +78,52 @@ def get_json(
     return json.loads(response.text)
 
 
+def _is_dial_failure(status_code: int, body: str) -> bool:
+    """Report whether an answer is the API server's own Status for a backend it could not dial.
+
+    The API server answers 503 with a `Status` of reason `ServiceUnavailable` when no endpoint
+    of the Service answers its dial. An answer of any other form comes from the Service.
+    """
+    if status_code != 503:
+        return False
+    try:
+        status = json.loads(body)
+    except ValueError:
+        return False
+    return (
+        isinstance(status, dict)
+        and status.get("kind") == "Status"
+        and status.get("reason") == "ServiceUnavailable"
+    )
+
+
+def reaches_service(
+    url: str,
+    *,
+    timeout: float = DEFAULT_K8S_PROXY_TIMEOUT_SECONDS,
+    context: str | None = None,
+) -> bool:
+    """Report whether the API server reaches the Service that a `k8s://` address names.
+
+    The API server dials the Service's endpoints itself. A NetworkPolicy that admits only pods
+    refuses that dial for an endpoint on another node than the API server, so an address can
+    resolve and still never answer. One GET of the Service's root path tells the two apart: any
+    answer from the Service, a redirect or an error included, means that the address works.
+    """
+    ref = parse_service_url(url)
+    target = resolve_proxy_target(ref, "/", context)
+    client = get_shared_client(
+        f"k8s-proxy:{_transport_key(target.url)}",
+        EgressLevel.PRIVATE,
+        verify=target.ssl_context,
+    )
+    # A redirect is an answer from the Service; following it could leave the API server.
+    response = client.get(
+        target.url, headers=target.headers, timeout=timeout, follow_redirects=False
+    )
+    return not _is_dial_failure(response.status_code, response.text)
+
+
 def describe_endpoint(url: str) -> str:
     """Render an endpoint for display, naming the cluster service when it is one."""
     if not is_service_url(url):
@@ -88,4 +134,4 @@ def describe_endpoint(url: str) -> str:
         return url
 
 
-__all__ = ["describe_endpoint", "get_json"]
+__all__ = ["describe_endpoint", "get_json", "reaches_service"]

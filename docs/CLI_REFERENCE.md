@@ -979,7 +979,7 @@ devops k8s configure-urls [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
+| `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, only for the Services that the API server reaches, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s service-url`

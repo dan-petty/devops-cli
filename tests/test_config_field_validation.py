@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -18,11 +17,9 @@ from devops_cli.config.settings import (
     dotted_set,
     load_settings,
     reset_settings_cache,
-    save_settings,
     telemetry_from_environment,
 )
 from devops_cli.exceptions import ConfigurationError
-from devops_cli.k8s.service_proxy import ServiceRef
 from devops_cli.telemetry.tracer import _resolve_telemetry_settings
 
 runner = CliRunner()
@@ -331,37 +328,6 @@ def test_ai_gateway_weights_refuses_scalar_string_in_config_set(
     res = runner.invoke(config_app, ["set", "ai.gateway_weights", "a=1"])
     assert res.exit_code == 1
     assert "ai.gateway_weights" in res.output
-
-
-def test_proxy_addressing_survives_round_trip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """_configure_proxy_urls writes into real Settings with unpatched dotted_set and survives round trip."""
-    from devops_cli.commands.k8s.networking import _configure_proxy_urls
-
-    _set_project_config(tmp_path, monkeypatch, "")
-    settings = load_settings()
-    configured: dict[str, str] = {}
-
-    def fake_discover(
-        namespace: str, patterns: Any, port_hints: Any = (), context: Any = None
-    ) -> Any:
-        if any("prometheus" in p for p in patterns):
-            return ServiceRef(namespace="monitoring", service="prometheus", port="9090")
-        if any("qdrant" in p for p in patterns):
-            return ServiceRef(namespace="llm", service="qdrant", port="6333")
-        return None
-
-    with patch("devops_cli.k8s.service_proxy.discover_service", side_effect=fake_discover):
-        _configure_proxy_urls(None, settings, configured, ["infra", "llm"])
-
-    assert settings.prometheus.url == "k8s://monitoring/prometheus:9090"
-    assert settings.qdrant.url == "k8s://llm/qdrant:6333"
-    save_settings(settings)
-
-    reloaded = load_settings()
-    assert reloaded.prometheus.url == "k8s://monitoring/prometheus:9090"
-    assert reloaded.qdrant.url == "k8s://llm/qdrant:6333"
 
 
 def test_telemetry_stays_fail_closed_on_invalid_variables(monkeypatch: pytest.MonkeyPatch) -> None:

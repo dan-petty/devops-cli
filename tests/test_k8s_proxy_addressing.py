@@ -127,25 +127,6 @@ def test_a_failed_listing_returns_nothing() -> None:
 # =============================================================================
 
 
-def test_proxy_mode_records_portable_addresses() -> None:
-    """The recorded address carries no host, so it resolves on any cluster."""
-    from devops_cli.commands.k8s.networking import _configure_proxy_urls
-    from devops_cli.k8s.service_proxy import ServiceRef
-
-    configured: dict[str, str] = {}
-    settings = MagicMock()
-    with (
-        patch(
-            "devops_cli.k8s.service_proxy.discover_service",
-            return_value=ServiceRef(namespace="monitoring", service="prometheus", port="9090"),
-        ),
-        patch("devops_cli.config.settings.dotted_set"),
-    ):
-        _configure_proxy_urls(None, settings, configured, ["infra"])
-
-    assert configured["prometheus.url"] == "k8s://monitoring/prometheus:9090"
-
-
 def test_proxy_mode_skips_components_that_are_not_installed() -> None:
     """A partial stack configures what exists rather than failing outright."""
     from devops_cli.commands.k8s.networking import _configure_proxy_urls

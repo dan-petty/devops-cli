@@ -932,6 +932,25 @@ CONST_K8S_GPU_TOTAL_VRAM_LABEL: Final[str] = "nvidia.com/gpu.total-vram-gib"
 CONST_K8S_GPU_ARCHITECTURE_LABEL: Final[str] = "nvidia.com/gpu.architecture"
 CONST_K8S_OLLAMA_PROVIDER_LABEL: Final[tuple[str, str]] = ("llm.devops.io/provider", "ollama")
 CONST_K8S_OLLAMA_PROFILES_PATH: Final[str] = "llm/profiles/ollama-profiles.yaml"
+CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS: Final[dict[str, str]] = {
+    "k8s/logging/loki-values.yaml:singleBinary": (
+        "Volume storage-loki-0 is still on the control-plane node; with the affinity, the pod "
+        "cannot start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
+    ),
+    "k8s/monitoring/grafana-values.yaml:grafana": (
+        "Volume grafana is still on the control-plane node; with the affinity, the pod cannot "
+        "start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
+    ),
+    "k8s/monitoring/prometheus-values.yaml:server": (
+        "Volume prometheus-server is still on the control-plane node; with the affinity, the pod "
+        "cannot start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
+    ),
+}
+"""The pods on a local-path claim that may run on the control-plane node, each with its reason.
+
+A key is `<values file>:<pod>` for a chart pod or `<manifest>:<kind>/<name>` for a manifest pod,
+as `tests/test_k8s_local_path_placement.py` names them (#1634).
+"""
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
 CONST_INLINE_SUPPRESSION_MARKERS: Final[dict[str, tuple[str, ...]]] = {

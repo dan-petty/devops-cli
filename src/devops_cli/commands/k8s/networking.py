@@ -536,13 +536,19 @@ def _configure_proxy_urls(
     configured: dict[str, str],
     stacks: Sequence[str],
 ) -> None:
-    """Record cluster-native addresses for each detected service.
+    """Record cluster-native addresses for each detected service that the API server reaches.
 
     These addresses carry no host and no local port, so the same configuration resolves on
-    whichever cluster is active and survives a cluster being rebuilt.
+    whichever cluster is active and survives a cluster being rebuilt. The API server dials the
+    Service from its own node, and a NetworkPolicy that admits only pods refuses that dial for a
+    pod on another node (#1634). Such an address is not written, and a warning names the modes
+    that reach the Service.
     """
+    import httpx2
+
     from devops_cli.config.settings import dotted_set
-    from devops_cli.k8s.service_proxy import discover_service
+    from devops_cli.k8s.service_http import reaches_service
+    from devops_cli.k8s.service_proxy import ServiceAddressError, discover_service
 
     targets: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = []
     if "infra" in stacks:
@@ -556,6 +562,19 @@ def _configure_proxy_urls(
             logger.debug("No service matching %s in namespace '%s'", patterns, namespace)
             continue
         address = ref.describe()
+        try:
+            reached = reaches_service(address, context=effective_context)
+        except (ServiceAddressError, httpx2.HTTPError) as exc:
+            print_warning(
+                MESSAGES.k8s.proxy_service_check_failed.format(key=key, address=address, error=exc),
+                safe=True,
+            )
+            continue
+        if not reached:
+            print_warning(
+                MESSAGES.k8s.proxy_service_unreachable.format(key=key, address=address), safe=True
+            )
+            continue
         dotted_set(settings, key, address)
         configured[key] = address
 

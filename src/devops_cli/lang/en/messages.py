@@ -394,6 +394,14 @@ class K8sMessages:
     switched_context: str = "✓ Switched to Kubernetes context: [bold green]{context}[/bold green]"
     no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."
     cluster_not_reachable: str = "Kubernetes cluster is not reachable."
+    proxy_service_unreachable: str = (
+        "Did not write {key}: the API server cannot reach {address}. A NetworkPolicy can admit "
+        "only pods, and then the API server reaches only the pods on its own node. Use "
+        "'--addressing fqdn', or 'devops k8s port-forward'."
+    )
+    proxy_service_check_failed: str = (
+        "Did not write {key}: the check of {address} through the API server failed: {error}"
+    )
     start_minikube_tip: str = (
         "Start it with: [cyan]minikube start --driver=docker --cni=calico[/cyan]"
     )

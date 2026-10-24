@@ -380,7 +380,8 @@ class K8sCommandHelp:
     )
     addressing: str = (
         "How to record endpoints: 'nodeport' writes a cluster-specific host and port, "
-        "'proxy' writes portable k8s:// service addresses needing no port-forward, "
+        "'proxy' writes portable k8s:// service addresses needing no port-forward, only for "
+        "the Services that the API server reaches, "
         "'fqdn' discovers Ingress hostnames and writes domain-based URLs."
     )
     proxy_service: str = "Service name to address through the Kubernetes API server."

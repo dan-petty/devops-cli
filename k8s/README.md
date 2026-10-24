@@ -187,7 +187,7 @@ The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Pro
 
 - `devops k8s port-forward` works wherever the pods run: `kubectl port-forward` enters the pod's own network namespace, and no policy applies.
 - `--addressing fqdn` goes through Traefik.
-- `--addressing proxy` writes `k8s://` addresses that the API server proxies from the control-plane node's host network. kube-router admits host-network traffic only to pods on the same node, so Grafana, Prometheus and Pyroscope answer this way only while they run on the control-plane node. Elsewhere, use port-forward or `fqdn`. The same holds for any namespace behind a perimeter, `llm` included.
+- `--addressing proxy` writes `k8s://` addresses that the API server proxies from the control-plane node's host network. kube-router admits host-network traffic only to pods on the same node, so in a namespace behind a perimeter (Grafana, Prometheus and Pyroscope in `monitoring`, and the `llm` Services), a Service answers this way only while its pod runs on the control-plane node, and the pods on local-path volumes keep off that node (Local-Path Volume Placement, below). So `configure-urls --addressing proxy` sends one GET through the API server for each address. It writes only the addresses that the Service answers. When the API server cannot dial the Service, it writes nothing for that key and names `fqdn` and port-forward.
 
 ## Scrape Ownership
 
@@ -287,6 +287,67 @@ kubectl -n monitoring get pvc alloy-wal-k8s-monitoring-alloy-metrics-0
 
 `--cascade=orphan` keeps the pod while the StatefulSet is gone, so the metrics stop only for the restart of the pod. The new StatefulSet adopts the pod but cannot replace it: Kubernetes does not let a pod's volumes change, so each update fails with `pod updates may not change fields other than ...`, and the claim stays `Pending`. The pod that the StatefulSet makes after the delete mounts the volume of `alloy-wal-k8s-monitoring-alloy-metrics-0`, and the claim binds on the node of that pod. The samples in the old pod's own filesystem are lost one time. The StatefulSet keeps its claims when it is deleted or scaled down, so the volume and its log stay.
 
+## Local-Path Volume Placement
+
+The StorageClasses `local-path` and `fast-nvme` use the local-path provisioner. It keeps a volume in a directory on the root filesystem of one node, and it binds the volume on the node where the first pod of the claim runs (`WaitForFirstConsumer`). The volume then keeps each later pod of the claim on that node. The root disk of the control-plane node is the smallest in the cluster, and it also holds the model store of the slow Ollama tier (GPU Placement, above). So each pod that mounts a claim has this required node affinity:
+
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role.kubernetes.io/control-plane
+              operator: DoesNotExist
+```
+
+Kubernetes puts the label `node-role.kubernetes.io/control-plane` on each control-plane node, so the rule needs no label of its own. The affinity has an effect on a new volume and on a moved volume. A bound volume keeps its pod on its node.
+
+`tests/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It also fails when an Argo CD Application installs a chart that the test does not know, because each chart keeps its claims and its affinity at different values. A pod that must stay on the control-plane node is in `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS` (`src/devops_cli/config/constants.py`), with its reason. Grafana (claim `grafana`), the Prometheus server (`prometheus-server`) and Loki (`storage-loki-0`) are in it, because their volumes are on the control-plane node, and with the affinity their pods cannot start. Move each volume as below, then remove its exemption and add the affinity to its values in one pull request.
+
+`LocalPathNodeDiskHigh` (Alerting, below) warns when the root filesystem of a node that runs a pod on a `local-path` claim is over 85% used. At 85% the kubelet starts to delete unused images. Under DiskPressure it evicts pods, and a pod on a local-path volume cannot start on another node.
+
+### Move a volume to another node
+
+The copy keeps the data. The workload stops while the copy runs. Move one volume at a time, and stop at the first result that you do not expect: the old volume keeps its data.
+
+1. Set the reclaim policy of the old volume to `Retain`, so that a deleted claim does not delete the data:
+
+   ```bash
+   kubectl patch pv <old-pv> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+   ```
+
+2. Pause Argo CD from the top down, as Pausing an Application (below) tells: `bootstrap`, then `cluster`, then the Application of the workload. If you do not, self-heal starts the workload again during the copy.
+
+   ```bash
+   kubectl -n argocd patch application <app> --type merge -p '{"spec":{"syncPolicy":{"automated":{"enabled":false}}}}'
+   ```
+
+3. Make the claim `<claim>-move`, with the size and the class of the old claim, and a pod that mounts it and has the `nodeSelector` `kubernetes.io/hostname: <worker-node>`. local-path binds the new volume on that node.
+4. Scale the workload to zero. Then start a pod that mounts the old claim read-only. Its volume keeps it on the control-plane node. One pod cannot mount the two claims, because each volume keeps its pod on its own node.
+5. Copy through the API server with GNU tar, which keeps the owners, the modes and the sparse files. If the stream stops (`connection reset by peer`), empty the destination and copy again.
+
+   ```bash
+   kubectl -n <namespace> exec <source-pod> -- tar -C /src --numeric-owner --sparse -cpf - . \
+     | kubectl -n <namespace> exec -i <destination-pod> -- tar -C /dst --numeric-owner -xpf -
+   ```
+
+6. Compare the two sides: the number of files and entries, the bytes, a digest of the metadata (`find . -printf '%y %m %U:%G %P\n' | LC_ALL=C sort | sha256sum`) and a digest of the content (`find . -type f -print0 | LC_ALL=C sort -z | xargs -0r sha256sum | sha256sum`).
+7. Delete the two copy pods, set the new volume to `Retain`, and delete the claim `<claim>-move`. Save the old claim (`kubectl get pvc <claim> -o json`) and delete it. Then reserve the new volume for the claim name:
+
+   ```bash
+   kubectl patch pv <new-pv> --type merge \
+     -p '{"spec":{"claimRef":{"name":"<claim>","namespace":"<namespace>","uid":null,"resourceVersion":null}}}'
+   ```
+
+8. Make the claim again from the saved one, with its labels, its annotations and `spec.volumeName: <new-pv>`. Leave out the annotation `kubectl.kubernetes.io/last-applied-configuration`, and patch its saved value back after the create. `kubectl create` writes the whole new object, `volumeName` included, into that annotation when the manifest has it. Argo CD then tries to remove `volumeName`, and the API server refuses the change (`spec is immutable after creation`).
+9. Scale the workload to one. Make sure that its pod runs on the worker node and that the data is there. Then turn on automated sync again: the Application, then `bootstrap`, which restores `cluster`, which restores the others from git.
+10. The old volume stays `Released`, with its data, until a person deletes it. Set its reclaim policy to `Delete`, and local-path deletes the volume and its directory on the node:
+
+    ```bash
+    kubectl patch pv <old-pv> -p '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'
+    ```
+
 ## Host Journals and Health Metrics
 
 Each node sends its journal to Loki and its health series to Prometheus through the k8s-monitoring chart (`monitoring/k8s-monitoring-values.yaml`), with no agent installed on the host:
@@ -316,6 +377,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `GpuTemperatureHigh` | A GPU is over 85 °C (warning) or at 90 °C or more (critical) | 10m, 2m | warning, critical |
 | `GpuPowerOverSiteBudget` | All GPUs together draw more than the site budget in the rule (1000 W) | 5m | critical |
 | `HostFilesystemSpaceLow` | A node filesystem has under 10% (warning) or 5% (critical) free | 15m, 5m | warning, critical |
+| `LocalPathNodeDiskHigh` | The root filesystem of a node that runs a pod on a `local-path` claim is over 85% used, where the kubelet starts to delete unused images | 15m | warning |
 | `PersistentVolumeSpaceLow` | A volume that reports kubelet volume stats has under 10% free; no volume on this cluster reports them yet | 15m | warning |
 | `LogOrMetricVolumeDiskLow` | The root filesystem of the node holding `storage-loki-0` or `prometheus-server` has under 10% free; names the claim at risk | 30m | warning |
 | `PrometheusNearRetentionSizeCap` | Prometheus's data uses over 80% of `server.retentionSize`, before the cap deletes blocks younger than 30 days | 1h | warning |
@@ -725,7 +787,7 @@ Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git,
 
 - Pause an Application in git: set `enabled: false` in its manifest and merge the change. While it is paused, the `ArgoCdAutoSyncDisabled` alert fires after 15 minutes.
 - Do not pause an Application in the Argo CD UI or API. Its parent shows it OutOfSync and turns automated sync on again at its next self-heal.
-- For an emergency stop that cannot wait for a merge, pause from the top down: `bootstrap`, then `cluster`, then the Application. A paused `bootstrap` does not revert itself. Then commit the pause, or turn `bootstrap` on again: it restores `cluster`, and `cluster` restores the others from git.
+- For an emergency stop that cannot wait for a merge, or for a volume move (Local-Path Volume Placement), pause from the top down: `bootstrap`, then `cluster`, then the Application. A paused `bootstrap` does not revert itself. Then commit the pause, or turn `bootstrap` on again: it restores `cluster`, and `cluster` restores the others from git.
 
 ### Replaced Hand Steps
 
