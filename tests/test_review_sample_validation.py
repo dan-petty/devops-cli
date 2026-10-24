@@ -71,6 +71,7 @@ def test_a_category_report_names_what_the_tooling_could_not_do(tmp_path: Path) -
             "pkg/Program.cs": "class Program { static void Main() {} }\n",
             "pkg/format.cc": "int answer() { return 42; }\n",
             "pkg/values.yaml": "replicas: 1\n",
+            "pkg/manual.rst": "User Guide\n==========\n",
             "pkg/LICENSE": "MIT License\n",
         },
     )
@@ -85,15 +86,16 @@ def test_a_category_report_names_what_the_tooling_could_not_do(tmp_path: Path) -
             "demo/pkg/empty.ts": "typescript",
             "demo/pkg/Program.cs": "csharp",
             "demo/pkg/format.cc": "cpp",
-            "demo/pkg/values.yaml": None,
+            "demo/pkg/values.yaml": "yaml",
+            "demo/pkg/manual.rst": None,
             "demo/pkg/LICENSE": None,
         },
     )
     assert report.problems == [
         "typescript: 1 of 1 files yielded no symbols",
-        "no AST support for .yaml (1 file)",
+        "no AST support for .rst (1 file)",
     ]
-    assert [(m.sample, m.files_mapped) for m in report.repomaps] == [("demo", 4)]
+    assert [(m.sample, m.files_mapped) for m in report.repomaps] == [("demo", 5)]
 
 
 def _score(found: int, reported: int) -> CorpusScore:

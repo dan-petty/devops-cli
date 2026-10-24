@@ -60,6 +60,58 @@ module "endpoints" {
   source = "./modules/vpc-endpoints"
 }
 """
+DOCKERFILE = """FROM python:3.11-slim as builder
+WORKDIR /app
+RUN pip install poetry
+FROM --platform=linux/amd64 alpine:3.18
+COPY --from=builder /app /app
+"""
+HELM = """{{/* vim: set filetype=mustache: */}}
+{{- define "common.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 -}}
+{{- end }}
+
+{{- define "common.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 -}}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 -}}
+{{- end }}
+{{- end }}
+"""
+YAML = """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  ports:
+    - port: 80
+"""
+YAML_GENERIC = """image:
+  repository: nginx
+  tag: latest
+service:
+  type: ClusterIP
+  port: 80
+"""
+YAML_HELM = """{{- if .Values.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "common.fullname" . }}
+spec:
+  ports:
+    - port: 80
+{{- end }}
+"""
 
 
 @pytest.mark.parametrize(
@@ -121,6 +173,31 @@ module "endpoints" {
                 ('module "endpoints"', "module"),
             },
         ),
+        (
+            "dockerfile",
+            DOCKERFILE,
+            {
+                ("builder", "module"),
+                ("python:3.11-slim", "constant"),
+                ("alpine:3.18", "constant"),
+            },
+        ),
+        (
+            "helm",
+            HELM,
+            {
+                ("common.name", "function"),
+                ("common.fullname", "function"),
+            },
+        ),
+        (
+            "yaml",
+            YAML,
+            {
+                ("Deployment/nginx-deployment", "struct"),
+                ("Service/nginx-service", "struct"),
+            },
+        ),
     ],
 )
 def test_each_language_is_parsed_natively_with_its_declarations(
@@ -130,6 +207,25 @@ def test_each_language_is_parsed_natively_with_its_declarations(
     file_map = TreeSitterEngine().parse_code(code, language)
 
     assert {(s.name, s.kind.value) for s in file_map.symbols} == expected
+
+
+def test_yaml_generic_mapping_keys_are_extracted_when_no_k8s_resource() -> None:
+    """Verify generic YAML files extract top-level mapping keys."""
+    file_map = TreeSitterEngine().parse_code(YAML_GENERIC, "yaml")
+
+    assert {(s.name, s.kind.value) for s in file_map.symbols} == {
+        ("image", "constant"),
+        ("service", "constant"),
+    }
+
+
+def test_helm_templated_yaml_manifest_extracts_k8s_resource() -> None:
+    """Verify Helm template directives are handled and k8s resources extracted."""
+    file_map = TreeSitterEngine().parse_code(YAML_HELM, "yaml")
+
+    assert {(s.name, s.kind.value) for s in file_map.symbols} == {
+        ("Service/common.fullname", "struct"),
+    }
 
 
 def test_nested_terraform_blocks_are_not_symbols() -> None:

@@ -45,6 +45,10 @@ EXT_TO_LANG: dict[str, str] = {
     ".envsh": "bash",
     ".md": "markdown",
     ".markdown": "markdown",
+    ".dockerfile": "dockerfile",
+    ".tpl": "helm",
+    ".yaml": "yaml",
+    ".yml": "yaml",
 }
 
 # Each language's grammar package and the function returning its language. The TypeScript
@@ -64,6 +68,8 @@ LANG_TO_GRAMMAR: dict[str, tuple[str, str]] = {
     "bash": ("tree_sitter_bash", "language"),
     # The block grammar: headings and sections, without inline markup.
     "markdown": ("tree_sitter_markdown", "language"),
+    "dockerfile": ("tree_sitter_dockerfile", "language"),
+    "yaml": ("tree_sitter_yaml", "language"),
 }
 
 # Other names for a language, as the analysis scanner and users write them.
@@ -74,6 +80,10 @@ LANG_ALIASES: dict[str, str] = {
     "cs": "csharp",
     "c++": "cpp",
     "md": "markdown",
+    "docker": "dockerfile",
+    "gotemplate": "helm",
+    "go-template": "helm",
+    "yml": "yaml",
 }
 
 # C++ in a .h header: a namespace, a template, a class with a body, or a scope operator, none of
@@ -91,7 +101,11 @@ def _header_language(code: str) -> str:
 def detect_language(path: Path | str, content: str | None = None) -> str | None:
     """The file's language from its extension, or None for an unknown one. Given the content, a
     .h header is C++ when that content uses C++ (see _header_language), otherwise C."""
-    suffix = Path(path).suffix.lower()
+    path_obj = Path(path)
+    name = path_obj.name.lower()
+    if name == "dockerfile" or name.startswith("dockerfile.") or name.startswith("dockerfile-"):
+        return "dockerfile"
+    suffix = path_obj.suffix.lower()
     if suffix == ".h" and content is not None:
         return _header_language(content)
     return EXT_TO_LANG.get(suffix)
@@ -315,6 +329,184 @@ def _markdown_heading(node: Any) -> tuple[SymbolKind, str] | None:
     return (SymbolKind.HEADING, name) if name else None
 
 
+_HELM_BLOCK_START = re.compile(r"\{\{-?\s*(define|if|range|with|block)\b")
+_HELM_BLOCK_END = re.compile(r"\{\{-?\s*end\b")
+_HELM_DEFINE_NAME = re.compile(r"""\{\{-?\s*define\s+["']([^"']+)["']""")
+
+
+def _parse_helm_symbols(code: str) -> list[PolyglotSymbol]:
+    """Extract named templates from Helm define blocks."""
+    lines = code.splitlines()
+    symbols: list[PolyglotSymbol] = []
+    stack: list[tuple[str, str, int, str]] = []
+
+    for i, line in enumerate(lines, 1):
+        for match in _HELM_BLOCK_START.finditer(line):
+            kw = match.group(1)
+            if kw == "define":
+                m = _HELM_DEFINE_NAME.search(line[match.start() :])
+                name = m.group(1) if m else ""
+                stack.append(("define", name, i, line.strip()))
+            else:
+                stack.append((kw, "", i, ""))
+        for _ in _HELM_BLOCK_END.finditer(line):
+            if stack:
+                kind, name, start_line, sig = stack.pop()
+                if kind == "define" and name:
+                    symbols.append(
+                        PolyglotSymbol(
+                            name=name,
+                            kind=SymbolKind.FUNCTION,
+                            span=CodeSpan(line_start=start_line, line_end=i),
+                            signature=sig,
+                            language="helm",
+                        )
+                    )
+    return symbols
+
+
+_HELM_STANDALONE_DIRECTIVE = re.compile(r"^\s*\{\{.*\}\}\s*$")
+_HELM_INCLUDE_OR_TEMPLATE = re.compile(r"""(?:include|template)\s+["']([^"']+)["']""")
+_HELM_INLINE_DIRECTIVE = re.compile(
+    r"""\{\{[-]?\s*(?:include|template)\s+["']([^"']+)["'][^}]*\}\}"""
+)
+_HELM_TRIM_CURLIES = re.compile(r"^\{\{[-]?\s*|\s*[-]?\}\}$")
+
+
+def _clean_helm_yaml(code: str) -> str:
+    """Mask standalone Helm template lines as comments for YAML parsing."""
+    lines = code.splitlines()
+    return "\n".join(
+        f"# {line}" if _HELM_STANDALONE_DIRECTIVE.match(line) else line for line in lines
+    )
+
+
+def _clean_yaml_name(raw: str) -> str:
+    """Clean a Kubernetes resource name and extract template identifiers."""
+    if _HELM_INCLUDE_OR_TEMPLATE.search(raw):
+        raw = _HELM_INLINE_DIRECTIVE.sub(r"\1", raw)
+    return _HELM_TRIM_CURLIES.sub("", raw).strip("\"'")
+
+
+def _find_yaml_mapping(node: Any) -> Any | None:
+    """Find the first block_mapping or flow_mapping node in the subtree."""
+    if getattr(node, "type", "") in ("block_mapping", "flow_mapping"):
+        return node
+    for child in getattr(node, "children", []):
+        result = _find_yaml_mapping(child)
+        if result is not None:
+            return result
+    return None
+
+
+def _extract_metadata_name(node: Any) -> str | None:
+    """Find the name key inside a metadata mapping node."""
+    meta_map = _find_yaml_mapping(node)
+    if meta_map is None:
+        return None
+    for mp in getattr(meta_map, "children", []):
+        if getattr(mp, "type", "") in ("block_mapping_pair", "flow_pair"):
+            mk = mp.child_by_field_name("key")
+            mv = mp.child_by_field_name("value")
+            if mk and mv and _text(mk) == "name":
+                return _clean_yaml_name(_text(mv))
+    return None
+
+
+def _inspect_resource_pair(
+    pair: Any, lines: list[str], kind: str | None, name: str | None, sig: str
+) -> tuple[str | None, str | None, str]:
+    """Inspect a mapping pair node for kind, name, or metadata declarations."""
+    k_node = pair.child_by_field_name("key")
+    v_node = pair.child_by_field_name("value")
+    if not k_node or not v_node:
+        return kind, name, sig
+    k_text = _text(k_node)
+    if k_text == "kind" and not kind:
+        kind = _text(v_node).strip("\"'")
+        sig_row = getattr(pair, "start_point", (0, 0))[0]
+        sig = lines[sig_row].strip() if sig_row < len(lines) else ""
+    elif k_text == "name" and not name:
+        name = _clean_yaml_name(_text(v_node))
+    elif k_text == "metadata" and not name:
+        name = _extract_metadata_name(v_node)
+    return kind, name, sig
+
+
+def _extract_k8s_resource(doc: Any, lines: list[str]) -> tuple[str | None, str | None, str]:
+    """Extract Kubernetes resource kind, name, and signature from a document node."""
+    kind: str | None = None
+    name: str | None = None
+    sig = ""
+    stack = [doc]
+    while stack:
+        curr = stack.pop()
+        if getattr(curr, "type", "") in ("block_mapping_pair", "flow_pair"):
+            kind, name, sig = _inspect_resource_pair(curr, lines, kind, name, sig)
+        for ch in reversed(getattr(curr, "children", [])):
+            stack.append(ch)
+    return kind, name, sig
+
+
+def _extract_top_mapping_pairs(doc: Any) -> list[tuple[str, Any]]:
+    """Extract top-level mapping keys and their nodes from a document."""
+    mapping = _find_yaml_mapping(doc)
+    if not mapping:
+        return []
+    top_pairs: list[tuple[str, Any]] = []
+    for pair_node in getattr(mapping, "children", []):
+        if getattr(pair_node, "type", "") in ("block_mapping_pair", "flow_pair"):
+            k_node = pair_node.child_by_field_name("key")
+            if k_node:
+                top_pairs.append((_text(k_node).strip("\"'"), pair_node))
+    return top_pairs
+
+
+def _parse_yaml_doc_symbols(doc: Any, lines: list[str]) -> list[PolyglotSymbol]:
+    """Parse symbols from one YAML document or error recovery block."""
+    kind, name, sig = _extract_k8s_resource(doc, lines)
+    start_pt = getattr(doc, "start_point", (0, 0))
+    end_pt = getattr(doc, "end_point", (0, 0))
+    span = CodeSpan(line_start=start_pt[0] + 1, line_end=end_pt[0] + 1)
+
+    if kind and name:
+        return [
+            PolyglotSymbol(
+                name=f"{kind}/{name}",
+                kind=SymbolKind.STRUCT,
+                span=span,
+                signature=sig or f"kind: {kind}",
+                language="yaml",
+            )
+        ]
+    if kind:
+        return [
+            PolyglotSymbol(
+                name=kind,
+                kind=SymbolKind.STRUCT,
+                span=span,
+                signature=sig or f"kind: {kind}",
+                language="yaml",
+            )
+        ]
+
+    symbols: list[PolyglotSymbol] = []
+    for k_text, pair_node in _extract_top_mapping_pairs(doc):
+        p_start = getattr(pair_node, "start_point", (0, 0))
+        p_end = getattr(pair_node, "end_point", (0, 0))
+        p_sig = lines[p_start[0]].strip() if p_start[0] < len(lines) else ""
+        symbols.append(
+            PolyglotSymbol(
+                name=k_text,
+                kind=SymbolKind.CONSTANT,
+                span=CodeSpan(line_start=p_start[0] + 1, line_end=p_end[0] + 1),
+                signature=p_sig,
+                language="yaml",
+            )
+        )
+    return symbols
+
+
 _SPECIAL_NODES: dict[str, Any] = {
     "variable_declarator": _declared_function,
     "type_spec": _go_type_spec,
@@ -328,6 +520,8 @@ _SPECIAL_NODES: dict[str, Any] = {
     "enum_specifier": _c_type_with_body(SymbolKind.TYPE),
     "atx_heading": _markdown_heading,
     "setext_heading": _markdown_heading,
+    "image_alias": lambda node: (SymbolKind.MODULE, _text(node)),
+    "image_spec": lambda node: (SymbolKind.CONSTANT, _text(node)),
 }
 
 
@@ -366,15 +560,22 @@ class TreeSitterEngine:
 
     def is_language_supported(self, lang_or_ext: str) -> bool:
         """Check if a language identifier or file extension is supported."""
+        if lang_or_ext.lower() in ("dockerfile", "containerfile", "helm", "yaml"):
+            return True
         if lang_or_ext.startswith("."):
             return lang_or_ext.lower() in EXT_TO_LANG
         lang = LANG_ALIASES.get(lang_or_ext.lower(), lang_or_ext.lower())
         return lang in LANG_TO_GRAMMAR or lang in EXT_TO_LANG.values()
 
     def _resolve_lang(self, lang_or_ext: str) -> str:
+        lower = lang_or_ext.lower()
+        if lower in ("dockerfile", "containerfile") or lower.startswith("dockerfile."):
+            return "dockerfile"
+        if lower in ("yaml", "yml"):
+            return "yaml"
         if lang_or_ext.startswith("."):
-            return EXT_TO_LANG.get(lang_or_ext.lower(), "python")
-        return LANG_ALIASES.get(lang_or_ext.lower(), lang_or_ext.lower())
+            return EXT_TO_LANG.get(lower, "python")
+        return LANG_ALIASES.get(lower, lower)
 
     def _load_native_parser(self, lang: str) -> tuple[Any, Any] | None:
         with self._lock:
@@ -451,8 +652,33 @@ class TreeSitterEngine:
             line_count=len(code.splitlines()),
         )
 
+    def _parse_yaml_symbols(self, code: str) -> list[PolyglotSymbol]:
+        """Extract Kubernetes resource symbols or top-level mapping keys."""
+        pair = self._load_native_parser("yaml")
+        if pair is None:
+            return []
+        parser, _ = pair
+        cleaned = _clean_helm_yaml(code)
+        tree = parser.parse(bytes(cleaned, "utf-8"))
+
+        lines = code.splitlines()
+        docs = [
+            c
+            for c in getattr(tree.root_node, "children", [])
+            if getattr(c, "type", "") in ("document", "ERROR")
+        ] or [tree.root_node]
+
+        symbols: list[PolyglotSymbol] = []
+        for doc in docs:
+            symbols.extend(_parse_yaml_doc_symbols(doc, lines))
+        return symbols
+
     def _parse_native_symbols(self, code: str, lang: str) -> list[PolyglotSymbol]:
         """The symbols tree-sitter finds in the code, none without a grammar for the language."""
+        if lang == "helm":
+            return _parse_helm_symbols(code)
+        if lang == "yaml":
+            return self._parse_yaml_symbols(code)
         pair = self._load_native_parser(lang)
         if pair is None:
             return []
@@ -514,11 +740,13 @@ class TreeSitterEngine:
         raises tree_sitter.QueryError."""
         from tree_sitter import Query, QueryCursor
 
-        pair = self._load_native_parser(self._resolve_lang(language_or_ext))
+        lang = self._resolve_lang(language_or_ext)
+        pair = self._load_native_parser(lang)
         if pair is None:
             return []
         parser, ts_lang = pair
-        root = parser.parse(bytes(code, "utf-8")).root_node
+        parse_code = _clean_helm_yaml(code) if lang == "yaml" else code
+        root = parser.parse(bytes(parse_code, "utf-8")).root_node
         captures = QueryCursor(Query(ts_lang, query_sexpr)).captures(root)
         captured = sorted(
             ((name, node) for name, nodes in captures.items() for node in nodes),

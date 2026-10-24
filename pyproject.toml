@@ -63,6 +63,8 @@ dependencies = [
     "tree-sitter-cpp==0.23.4",
     "tree-sitter-bash==0.25.1",
     "tree-sitter-markdown==0.5.1",
+    "tree-sitter-dockerfile==0.2.0",
+    "tree-sitter-yaml==0.7.2",
     "markdown-it-py==4.2.0",
     "graphql-core==3.3.0",
     "statsmodels==0.15.0",
@@ -292,5 +294,7 @@ DEP002 = [
     "tree-sitter-python",
     "tree-sitter-rust",
     "tree-sitter-typescript",
+    "tree-sitter-dockerfile",
+    "tree-sitter-yaml",
     "openai",
 ]
