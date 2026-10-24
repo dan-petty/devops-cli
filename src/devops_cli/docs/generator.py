@@ -1117,9 +1117,10 @@ class DocGenerator:
             "set`), the number of arguments (`cli.args_count`) and the names of the parameters "
             "(`cli.kwargs_keys`). They do not record the argument values. An argument can be a "
             "credential (`devops config set <key> <value>`), and a secret pattern does not find "
-            "all credentials. For this reason, the resource also has no `process.command_line` "
-            "and no `process.command_args`. The OpenTelemetry semantic conventions make these two "
-            "attributes Opt-In.",
+            "all credentials. For this reason, the command spans and the resource have no "
+            "`process.command_line` and no `process.command_args`. The OpenTelemetry semantic "
+            "conventions make these two attributes Opt-In, and give `process.command_line` to "
+            "the full command line, not to the name of the command.",
             "- **Subprocess Spans**: Each program that devops-cli runs gets a `subprocess.<program>` "
             "span with the name of the program (`process.executable.name`) and the number of its "
             "arguments (`process.args_count`). By default the span does not record the arguments, "

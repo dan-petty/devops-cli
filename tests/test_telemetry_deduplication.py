@@ -43,7 +43,8 @@ def test_normalize_and_deduplicate_attributes_removes_duplicate_tags() -> None:
         "cli.error" in attrs,
         attrs.get("code.function"),
         attrs.get("error.message"),
-        attrs.get("process.command_line"),
+        attrs.get("cli.command"),
+        "process.command_line" in attrs,
         attrs.get("vcs.branch"),
         attrs.get("process.executable.name"),
     ) == (
@@ -52,6 +53,7 @@ def test_normalize_and_deduplicate_attributes_removes_duplicate_tags() -> None:
         "my_module.my_func",
         "Something went wrong",
         "test-cmd",
+        False,
         "feat/my-branch",
         "git",
     )
