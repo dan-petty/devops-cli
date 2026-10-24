@@ -12,7 +12,6 @@ import typer
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
-    CONST_CONFIG_PATH,
     CONST_GH_CLI,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_SECRET_FILE_MAX_BYTES,
@@ -354,9 +353,11 @@ def init() -> None:  # noqa: C901
             except SecretStorageError as exc:
                 _render_secret_store_error(opt.ARGOCD_TOKEN, exc)
 
-    save_settings(settings)
+    # The write and the message use one resolved path, so the message names the written file.
+    config_path = get_active_config_path()
+    save_settings(settings, config_path)
     print_success("Configuration saved!")
-    print_info(f"Config file: [dim]{CONST_CONFIG_PATH}[/dim]", prefix=False)
+    print_info(f"Config file: [dim]{config_path}[/dim]", prefix=False)
 
 
 # =============================================================================
