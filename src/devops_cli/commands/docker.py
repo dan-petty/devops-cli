@@ -21,7 +21,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.docker.engine import DockerEngineService, get_engine
 from devops_cli.dry_run import is_dry_run
-from devops_cli.exceptions.docker import DockerError
+from devops_cli.exceptions.docker import DockerEngineError, DockerError
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.docker import BuildCacheReport, ContainerStatEntry
 from devops_cli.output import (
@@ -209,7 +209,7 @@ def push(
 # =============================================================================
 
 
-@app.command()
+@app.command(help=HELP.docker.prune)
 def prune(
     volumes: Annotated[bool, typer.Option("--volumes", help=HELP.docker.volumes)] = False,
     force: Annotated[bool, typer.Option("--force", "-f", help=HELP.options.force)] = False,
@@ -218,7 +218,7 @@ def prune(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Remove unused containers, images, and networks."""
+    """Remove stopped containers, unused networks, dangling images and, with --volumes, unused volumes."""
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops docker prune",
@@ -227,18 +227,18 @@ def prune(
         )
         return
     if not force:
-        typer.confirm(
-            "Remove all unused containers, images, and networks?",
-            abort=True,
+        prompt = (
+            "Remove stopped containers, unused networks, dangling images, and unused volumes?"
+            if volumes
+            else "Remove stopped containers, unused networks, and dangling images?"
         )
-    client = _engine().client()
-    result = client.system.prune(volumes=volumes)
-    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], dict):
-        reclaimed_bytes = sum(result[1].values())
-    elif isinstance(result, dict):
-        reclaimed_bytes = result.get("SpaceReclaimed", 0)
-    else:
-        reclaimed_bytes = 0
+        typer.confirm(prompt, abort=True)
+    engine = _engine()
+    try:
+        reclaimed_bytes = engine.prune(volumes=volumes)
+    except DockerEngineError as exc:
+        print_error(str(exc), prefix=False, safe=True)
+        raise typer.Exit(1) from exc
     reclaimed_mb = reclaimed_bytes // (1024 * 1024)
     print_success(MESSAGES.docker.pruned_success.format(mb=reclaimed_mb))
 

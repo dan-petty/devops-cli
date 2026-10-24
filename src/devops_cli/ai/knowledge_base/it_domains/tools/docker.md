@@ -34,7 +34,7 @@ Docker provides OS-level virtualization to deliver software in lightweight, isol
 # View active container resource utilization (CPU, memory, net, I/O)
 devops docker stats
 
-# Clean up dangling images, unused networks, and build cache
+# Clean up stopped containers, unused networks, dangling images, and unused volumes
 devops docker prune --volumes
 ```
 

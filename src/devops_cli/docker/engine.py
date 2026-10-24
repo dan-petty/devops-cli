@@ -795,6 +795,31 @@ class DockerEngineService:
         self._cache.pop("disk_usage", None)
         return int((result or {}).get("SpaceReclaimed", 0) or 0)
 
+    def prune(self, *, volumes: bool = False) -> int:
+        """Reclaim stopped containers, unused networks, dangling images, and optionally volumes."""
+        try:
+            client = self.client()
+            reclaimed = _extract_reclaimed_bytes(client.containers.prune())
+            reclaimed += _extract_reclaimed_bytes(client.networks.prune())
+            reclaimed += _extract_reclaimed_bytes(client.images.prune())
+            if volumes:
+                reclaimed += _extract_reclaimed_bytes(client.volumes.prune())
+        except DockerEngineError:
+            raise
+        except Exception as exc:
+            raise DockerEngineError(f"Docker prune failed: {exc}") from exc
+        self._cache.pop("disk_usage", None)
+        return reclaimed
+
+
+def _extract_reclaimed_bytes(reply: Any) -> int:
+    """Extract SpaceReclaimed integer bytes from a daemon prune response dictionary."""
+    if isinstance(reply, dict):
+        space = reply.get("SpaceReclaimed")
+        if isinstance(space, (int, float)):
+            return int(space)
+    return 0
+
 
 def get_engine() -> DockerEngineService:
     """Return the process-wide Docker Engine API service singleton."""

@@ -230,7 +230,7 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 | **docker** | `devops docker images [OPTIONS]` | List local Docker images. |
 |  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |
 |  | `devops docker push [OPTIONS] <image>` | Push a Docker image to a registry. |
-|  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
+|  | `devops docker prune [OPTIONS]` | Remove stopped containers, unused networks, dangling images and, with --volumes, unused volumes. |
 |  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
 |  | `devops docker cache [OPTIONS]` | Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space. |
 |  | `devops docker analyze-layers [OPTIONS] <image>` | Analyze container image layer efficiency and wasted space using Dive. |

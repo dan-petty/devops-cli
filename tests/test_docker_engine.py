@@ -1308,6 +1308,68 @@ def test_prune_build_cache_failure_is_typed(docker_engine: Any) -> None:
             engine.prune_build_cache()
 
 
+def test_engine_prune_calls_collections_in_order(docker_engine: Any, docker_client: Any) -> None:
+    """DockerEngineService.prune calls containers, networks, and images in order."""
+    with docker_engine(docker_client) as engine:
+        engine.prune()
+
+    assert docker_client.mock_calls == [
+        call.containers.prune(),
+        call.networks.prune(),
+        call.images.prune(),
+    ]
+
+
+def test_engine_prune_with_volumes(docker_engine: Any, docker_client: Any) -> None:
+    """DockerEngineService.prune with volumes=True calls volumes.prune."""
+    with docker_engine(docker_client) as engine:
+        engine.prune(volumes=True)
+
+    assert docker_client.mock_calls == [
+        call.containers.prune(),
+        call.networks.prune(),
+        call.images.prune(),
+        call.volumes.prune(),
+    ]
+
+
+def test_engine_prune_reclaimed_bytes_sum(docker_engine: Any, docker_client: Any) -> None:
+    """DockerEngineService.prune sums SpaceReclaimed across collection responses."""
+    docker_client.containers.prune.return_value = {"SpaceReclaimed": 500}
+    docker_client.networks.prune.return_value = {"NetworksDeleted": ["n1"]}
+    docker_client.images.prune.return_value = {"SpaceReclaimed": 300}
+    docker_client.volumes.prune.return_value = {"SpaceReclaimed": 200}
+
+    with docker_engine(docker_client) as engine:
+        reclaimed_no_vol = engine.prune()
+        reclaimed_vol = engine.prune(volumes=True)
+
+    assert (reclaimed_no_vol, reclaimed_vol) == (800, 1000)
+
+
+def test_engine_prune_invalidates_disk_usage_cache(docker_engine: Any, docker_client: Any) -> None:
+    """Pruning invalidates the memoised disk-usage response."""
+    docker_client.df.return_value = {"BuildCache": []}
+
+    with docker_engine(docker_client) as engine:
+        engine.build_cache()
+        engine.prune()
+        engine.build_cache()
+
+    assert docker_client.df.call_count == 2
+
+
+def test_engine_prune_failure_is_typed(docker_engine: Any, docker_client: Any) -> None:
+    """A collection prune failure surfaces as a typed DockerEngineError."""
+    from docker.errors import APIError
+
+    docker_client.containers.prune.side_effect = APIError("daemon error")
+
+    with docker_engine(docker_client) as engine:
+        with pytest.raises(DockerEngineError, match="daemon error"):
+            engine.prune()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. devops docker cache CLI command
 # ─────────────────────────────────────────────────────────────────────────────
