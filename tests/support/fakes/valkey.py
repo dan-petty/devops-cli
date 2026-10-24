@@ -13,12 +13,14 @@ loopback listener that never answers, as the floor's `refusing_port` does for a 
 The pool is the fake's own, so a test of what the client's own `password`, `db` and decoding
 arguments send and read binds a loopback listener that records the commands it receives. That
 listener is `serving_valkey`. A test of INFO uses it too. It replies with the text of a server,
-and the client's own parser turns that text into the mapping the test reads.
+and the client's own parser turns that text into the mapping the test reads. A test of a
+`valkeys://` endpoint gives `serving_valkey` a TLS context from `tests/support/certificates.py`.
 """
 
 from __future__ import annotations
 
 import socket
+import ssl
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -76,6 +78,7 @@ def _commands_in(request: bytes) -> list[list[str]]:
 @contextmanager
 def serving_valkey(
     replies: Mapping[str, bytes] | None = None,
+    tls: ssl.SSLContext | None = None,
 ) -> Iterator[tuple[int, list[list[str]]]]:
     """A loopback server that records the commands it receives and answers each from `replies`.
 
@@ -83,6 +86,9 @@ def serving_valkey(
     +OK. The yielded record is complete once the block exits, which waits for the client to close
     its connection. valkey-py announces its name and version with `CLIENT SETINFO` after it
     connects; the record leaves those out.
+
+    With `tls`, the server does the TLS handshake with that context before it reads a command. When
+    the client refuses the handshake, the server closes the connection and records no command.
     """
     answers = replies or {}
     received: list[list[str]] = []
@@ -92,6 +98,12 @@ def serving_valkey(
 
         def serve() -> None:
             connection, _ = listener.accept()
+            if tls is not None:
+                try:
+                    connection = tls.wrap_socket(connection, server_side=True)
+                except ssl.SSLError:
+                    connection.close()
+                    return
             with connection:
                 while request := connection.recv(4096):
                     commands = _commands_in(request)

@@ -21,15 +21,12 @@ from devops_cli.exceptions.valkey import (
     ValkeyTimeoutError,
 )
 from devops_cli.valkey.client import ValkeyClient
+from tests.support.certificates import LocalCa
 from tests.support.fakes.valkey import bulk_reply, serving_valkey, valkey_client_on
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
 runner = CliRunner()
-
-_PUBLIC_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("203.0.113.10", 6379))
-_LINK_LOCAL_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 6379))
-_PRIVATE_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379))
-
 
 # =============================================================================
 # 1. ValkeyClient: destination check, commands, failures
@@ -37,68 +34,123 @@ _PRIVATE_ANSWER = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379)
 
 
 class TestValkeyClientDestination:
-    """The egress check refuses unsafe destinations before and at every dial."""
+    """The client resolves its host once, when it dials, vets every answer and dials a vetted address.
 
-    def test_reject_ssrf_and_invalid_host(self) -> None:
-        with pytest.raises(ValkeyConnectionError, match="Invalid or prohibited"):
-            ValkeyClient(host="169.254.169.254", port=6379)
+    The resolver is the shared `ScriptedResolver`, whose answers for a name can change from one
+    lookup to the next, as the answers of a rebinding DNS server do. The floor fails a test whose
+    code connects to an address that is not loopback, so a refusal that a test expects opens no
+    connection.
+    """
 
     def test_empty_host_rejected(self) -> None:
         with pytest.raises(ValkeyConnectionError, match="host cannot be empty"):
             ValkeyClient(host="")
 
-    def test_private_ip_rejected_when_not_allowed(self) -> None:
-        with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
-            ValkeyClient(host="10.0.0.1", allow_private_network=False)
+    def test_the_constructor_makes_no_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        client = ValkeyClient(host="example.com")
+        assert ((client.host, client.port), resolver.lookups) == (
+            ("example.com", 6379),
+            {"example.com": 0},
+        )
 
-    def test_hostname_resolving_to_link_local_rejected(self) -> None:
-        with patch("socket.getaddrinfo", return_value=[_LINK_LOCAL_ANSWER]):
-            with pytest.raises(
-                ValkeyConnectionError, match="link-local metadata endpoints are prohibited"
-            ):
-                ValkeyClient(host="example.com", port=6379)
-
-    def test_hostname_resolving_to_private_rejected_when_not_allowed(self) -> None:
-        with patch("socket.getaddrinfo", return_value=[_PRIVATE_ANSWER]):
-            with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
-                ValkeyClient(host="example.com", allow_private_network=False)
-
-    def test_hostname_dns_failure_rejected_when_private_not_allowed(self) -> None:
-        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
-            with pytest.raises(ValkeyConnectionError, match="DNS resolution failed"):
-                ValkeyClient(host="example.com", allow_private_network=False)
-
-    def test_hostname_dns_failure_is_left_to_the_dial_when_private_networks_are_allowed(
-        self,
+    def test_one_dial_makes_one_lookup_and_dials_the_address_it_vetted(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
-            client = ValkeyClient(host="example.com")
-        assert (client.host, client.port) == ("example.com", 6379)
+        """The name answers loopback first and a public address after; the client dials loopback."""
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+            resolver = scripted_resolver(
+                monkeypatch, {"example.com": [["127.0.0.1"], [PUBLIC_ADDRESS]]}
+            )
+            client = ValkeyClient(host="example.com", port=port)
+            pinged = client.ping()
+            client.close()
+        assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
 
-    def test_a_name_that_resolves_to_link_local_at_dial_time_is_refused_then(self) -> None:
-        """The first answer passes construction; the answer at the dial is checked again."""
-        answers = iter([[_PUBLIC_ANSWER], [_LINK_LOCAL_ANSWER]])
-        with patch("socket.getaddrinfo", side_effect=lambda *args, **kwargs: next(answers)):
-            client = ValkeyClient(host="example.com")
+    def test_the_client_dials_the_vetted_addresses_in_answer_order(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing listens at the first answer, so it refuses the connection; the second accepts it."""
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+            resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.2", "127.0.0.1"]]})
+            client = ValkeyClient(host="example.com", port=port)
+            pinged = client.ping()
+            client.close()
+        assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
+
+    @pytest.mark.parametrize(
+        "host", ["example.com", "169.254.169.254", "2852039166", "::ffff:169.254.169.254"]
+    )
+    def test_a_host_that_answers_cloud_metadata_is_a_connection_error_with_no_dial(
+        self, host: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        scripted_resolver(monkeypatch, {"example.com": [["169.254.169.254"]]})
+        client = ValkeyClient(host=host, port=6379)
+        with pytest.raises(ValkeyConnectionError) as raised:
+            client.ping()
+        assert (raised.value.message, raised.value.details) == (
+            f"The egress check refuses Valkey at {host}:6379: the destination is a cloud metadata address.",
+            {"host": host, "port": 6379},
+        )
+
+    @pytest.mark.unreachable("example.com")
+    def test_a_failed_lookup_is_a_connection_error_that_names_the_host(self) -> None:
+        client = ValkeyClient(host="example.com", port=6379)
+        with pytest.raises(
+            ValkeyConnectionError, match=r"Cannot resolve the Valkey host example\.com: "
+        ) as raised:
+            client.ping()
+        assert raised.value.details == {"host": "example.com", "port": 6379}
+
+    @pytest.mark.unreachable("169.254.1.2:6379")
+    def test_a_link_local_address_that_is_not_cloud_metadata_is_dialled(self) -> None:
+        """Rootless Podman reaches its host at 169.254.1.2. The floor refuses the connect and names it."""
+        client = ValkeyClient(host="169.254.1.2", port=6379)
+        with pytest.raises(
+            RuntimeError, match=r"edge reached without a fake: 169\.254\.1\.2:6379 "
+        ):
+            client.ping()
+
+    def test_a_numeric_spelling_is_dialled_as_the_address_it_spells(self) -> None:
+        """`2130706433` is 127.0.0.1 to the resolver; the metadata case above judges such a spelling."""
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+            client = ValkeyClient(host="2130706433", port=port)
+            pinged = client.ping()
+            client.close()
+        assert (pinged, received) == (True, [["PING"]])
+
+
+class TestValkeyClientTls:
+    """A `valkeys://` client dials the vetted address and checks the certificate against the URL host.
+
+    The server is a loopback listener with a certificate from a CA made for the test, which the
+    client trusts through `SSL_CERT_FILE`, as it trusts the platform store.
+    """
+
+    def test_a_certificate_for_the_url_host_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, local_ca: LocalCa
+    ) -> None:
+        resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        tls = local_ca.server_context("example.com")
+        with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
+            client = ValkeyClient(host=f"valkeys://example.com:{port}")
+            pinged = client.ping()
+            client.close()
+        assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
+
+    def test_a_certificate_for_another_name_is_refused_before_a_command(
+        self, monkeypatch: pytest.MonkeyPatch, local_ca: LocalCa
+    ) -> None:
+        scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        tls = local_ca.server_context("example.org")
+        with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
+            client = ValkeyClient(host=f"valkeys://example.com:{port}")
             with pytest.raises(
-                ValkeyConnectionError, match="link-local metadata endpoints are prohibited"
+                ValkeyConnectionError, match=r"certificate is not valid for 'example\.com'"
             ):
                 client.ping()
-
-    def test_a_name_that_resolves_to_a_non_public_address_at_dial_time_is_refused_when_private_networks_are_not_allowed(
-        self, public_dns: str, refusing_port: int
-    ) -> None:
-        """The name resolves publicly at construction, then to loopback when the dial resolves it.
-
-        Loopback is non-public, so with private networks disallowed the check itself refuses the
-        dial. A client that let the flag lapse would dial `refusing_port` and fail with the
-        kernel's refusal instead.
-        """
-        client = ValkeyClient(host="example.com", port=refusing_port, allow_private_network=False)
-        loopback = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", refusing_port))
-        with patch("socket.getaddrinfo", return_value=[loopback]):
-            with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
-                client.ping()
+            client.close()
+        assert received == []
 
 
 class TestValkeyClientCommands:

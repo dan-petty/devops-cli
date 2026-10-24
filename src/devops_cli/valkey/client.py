@@ -1,34 +1,43 @@
-"""Valkey access: valkey-py behind the egress check and the repo's exception types."""
+"""Valkey access: valkey-py behind the egress check and the repo's exception types.
+
+valkey-py resolves the host itself when it dials, so a check that resolves the host before the
+dial leaves a window: a rebinding DNS server can give the dial an address that the check did not
+see. The connection classes here resolve the host once, when they dial, with `vet_addresses` at
+the private egress level, and connect only to the vetted IP literals. Valkey is an internal
+service, so every address but a cloud metadata address and a scoped IPv6 address is admitted. This
+includes the link-local 169.254.1.2 that a rootless Podman container reaches its host at.
+"""
 
 from __future__ import annotations
 
 import ipaddress
 import socket
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager, suppress
-from functools import partial
+from contextlib import contextmanager
 from itertools import batched
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpcore2
 import valkey
 from valkey import exceptions as valkey_exceptions
-from valkey.connection import Connection
+from valkey.connection import Connection, SSLConnection
 
-from devops_cli.config.constants import CONST_VALKEY_SCHEMES
+from devops_cli.config.constants import CONST_VALKEY_SCHEMES, CONST_VALKEY_TLS_SCHEMES
 from devops_cli.config.defaults import (
     DEFAULT_VALKEY_HOST,
     DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
     DEFAULT_VALKEY_PORT,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
 )
-from devops_cli.core.validation import is_non_public_ip
+from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.exceptions.valkey import (
     ValkeyAuthenticationError,
     ValkeyCommandError,
     ValkeyConnectionError,
     ValkeyTimeoutError,
 )
+from devops_cli.http.egress import EgressLevel, vet_addresses
 
 
 def parse_valkey_endpoint(
@@ -49,66 +58,60 @@ def parse_valkey_endpoint(
         return clean, default_port
 
 
-def _resolved_addresses(
-    host: str, port: int, allow_private_network: bool
-) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-    """Every address a host names: the literal itself, or what the resolver answers."""
-    with suppress(ValueError):
-        return [ipaddress.ip_address(host)]
-    try:
-        answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        if allow_private_network:
-            return []
-        raise ValkeyConnectionError(
-            f"Invalid or unresolvable host '{host}': DNS resolution failed under non-private egress policy."
-        ) from exc
-    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
-    for answer in answers:
-        with suppress(ValueError):
-            addresses.append(ipaddress.ip_address(answer[4][0]))
-    return addresses
+class _VettedConnection(Connection):
+    """A valkey-py connection that resolves its host once for each dial and dials a vetted address.
+
+    valkey-py's own dial would resolve the host again. This dial tries each address that
+    `vet_addresses` returns, in answer order, as `socket.create_connection` tries the answers of a
+    name, and raises the last failure. An unsafe answer raises `SSRFBlockedError` and a failed lookup
+    raises `httpcore2.ConnectError`, before a socket opens. valkey-py does not catch either, and
+    `_valkey_failures` makes each a `ValkeyConnectionError`. The client sets no keepalive options,
+    so the dial sets none.
+    """
+
+    def _connect(self) -> socket.socket:
+        failures: list[OSError] = []
+        for address in vet_addresses(self.host, self.port, EgressLevel.PRIVATE):
+            ip_version = ipaddress.ip_address(address).version
+            sock = socket.socket(socket.AF_INET6 if ip_version == 6 else socket.AF_INET)
+            try:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                sock.settimeout(self.socket_connect_timeout)
+                sock.connect((address, self.port))
+            except OSError as exc:
+                sock.close()
+                failures.append(exc)
+                continue
+            sock.settimeout(self.socket_timeout)
+            return sock
+        raise failures[-1]
 
 
-def validate_destination(host: str, port: int, allow_private_network: bool = True) -> None:
-    """Refuse a link-local destination always, and a non-public one unless private networks are allowed."""
-    if not host.strip():
-        raise ValkeyConnectionError("Invalid host: host cannot be empty.")
-    for address in _resolved_addresses(host.strip(), port, allow_private_network):
-        if address.is_link_local:
-            raise ValkeyConnectionError(
-                f"Invalid or prohibited host '{host}': link-local metadata endpoints are prohibited."
-            )
-        if not allow_private_network and is_non_public_ip(address):
-            raise ValkeyConnectionError(
-                f"Invalid or prohibited host '{host}': non-public IP disallowed by egress policy."
-            )
+class _VettedSSLConnection(SSLConnection, _VettedConnection):
+    """The TLS connection: `SSLConnection` wraps the socket of the vetted dial.
 
-
-def _invoke(command: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """Call into valkey-py, whose functions carry no annotations, and type the result as Any."""
-    return command(*args, **kwargs)
-
-
-class _GuardedConnection(Connection):
-    """A valkey-py connection that checks its destination again each time it dials."""
-
-    def __init__(self, *args: Any, allow_private_network: bool = True, **kwargs: Any) -> None:
-        _invoke(super().__init__, *args, **kwargs)
-        self._allow_private_network = allow_private_network
-
-    def connect(self) -> None:
-        """Check the destination, then dial it, unless the connection is already open."""
-        if self._sock is None:
-            validate_destination(self.host, self.port, self._allow_private_network)
-        _invoke(super().connect)
+    `SSLConnection._connect` gets its socket from the next class in the method resolution order,
+    which is `_VettedConnection`. The TCP connection goes to the vetted IP literal. The handshake
+    sends `self.host`, the name of the endpoint, as the server name and checks the certificate
+    against it.
+    """
 
 
 @contextmanager
 def _valkey_failures(host: str, port: int, timeout: float) -> Iterator[None]:
-    """Raise the repo's ValkeyError family for a failure valkey-py reports."""
+    """Raise the repo's ValkeyError family for a failure valkey-py or the egress check reports."""
     try:
         yield
+    except SSRFBlockedError as exc:
+        raise ValkeyConnectionError(
+            f"The egress check refuses Valkey at {host}:{port}: {exc.details['reason']}.",
+            host=host,
+            port=port,
+        ) from exc
+    except httpcore2.ConnectError as exc:
+        raise ValkeyConnectionError(
+            f"Cannot resolve the Valkey host {host}: {exc}", host=host, port=port
+        ) from exc
     except valkey_exceptions.AuthenticationError as exc:
         raise ValkeyAuthenticationError(
             f"Authentication failed for Valkey at {host}:{port}: {exc}", host=host, port=port
@@ -128,13 +131,15 @@ def _valkey_failures(host: str, port: int, timeout: float) -> Iterator[None]:
 
 
 class ValkeyClient:
-    """The Valkey commands devops-cli runs, sent by valkey-py after the egress check.
+    """The Valkey commands devops-cli runs, sent by valkey-py over vetted connections.
 
-    Construction checks the destination without connecting; every connection checks it again
-    when it dials. Failures raise the `ValkeyError` family. `execute` returns replies as the
-    server sent them, decoded to text; the named commands return what valkey-py parses.
-    `connection_pool` replaces the pool the client builds from the endpoint, which is how a
-    test connects it to an in-memory server.
+    Construction makes no DNS lookup and opens no connection. Each connection resolves the host
+    once when it dials, vets every answer, and dials a vetted address. A `valkeys://` or
+    `rediss://` endpoint connects over TLS, which sends the endpoint's host name as the server
+    name and checks the certificate against it with the platform CA store. Failures raise the
+    `ValkeyError` family. `execute` returns replies as the server sent them, decoded to text; the
+    named commands return what valkey-py parses. `connection_pool` replaces the pool the client
+    builds from the endpoint, which is how a test connects it to an in-memory server.
     """
 
     def __init__(
@@ -144,17 +149,19 @@ class ValkeyClient:
         password: str | None = None,
         db: int = 0,
         timeout: float = DEFAULT_VALKEY_TIMEOUT_SECONDS,
-        allow_private_network: bool = True,
         connection_pool: valkey.ConnectionPool | None = None,
     ) -> None:
         self.host, self.port = parse_valkey_endpoint(host, default_port=port)
         self.db = db
         self.timeout = timeout
-        validate_destination(self.host, self.port, allow_private_network)
+        if not self.host:
+            raise ValkeyConnectionError("Invalid host: host cannot be empty.")
+        connection: dict[str, Any] = (
+            {"connection_class": _VettedSSLConnection, "ssl_check_hostname": True}
+            if urlsplit(host.strip()).scheme.lower() in CONST_VALKEY_TLS_SCHEMES
+            else {"connection_class": _VettedConnection}
+        )
         pool = connection_pool or valkey.ConnectionPool(
-            connection_class=partial(
-                _GuardedConnection, allow_private_network=allow_private_network
-            ),
             host=self.host,
             port=self.port,
             db=db,
@@ -163,6 +170,7 @@ class ValkeyClient:
             socket_connect_timeout=timeout,
             decode_responses=True,
             encoding_errors="replace",
+            **connection,
         )
         self._valkey = valkey.Valkey(connection_pool=pool)
         self._raw = valkey.Valkey(connection_pool=pool)
