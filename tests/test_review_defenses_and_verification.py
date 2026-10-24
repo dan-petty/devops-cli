@@ -62,11 +62,11 @@ def test_validate_vault_path_percent_encoded_traversal() -> None:
         _validate_vault_path("secret/%2e%2e/admin")
 
 
-def test_export_invalidated_feedback_unsafe_reviews_dir() -> None:
+def test_export_invalidated_feedback_unsafe_reviews_dir(tmp_path: Path) -> None:
     outside_dir = Path("/etc/unauthorized_reviews_dir")
 
     with pytest.raises(SecurityError, match="escapes allowed"):
-        export_invalidated_feedback(reviews_dir=outside_dir)
+        export_invalidated_feedback(reviews_dir=outside_dir, workspace_root=tmp_path)
 
 
 def test_mask_secrets_preserves_function_invocations() -> None:

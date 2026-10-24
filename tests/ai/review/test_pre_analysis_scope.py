@@ -36,9 +36,7 @@ def _pre_analysis(root: Path, files: list[str]) -> list[str]:
     orchestrator = ReviewPipelineOrchestrator(
         session_id="pre-analysis", target_dir=root, session_dir=root.parent / "session"
     )
-    metadata = orchestrator.run_pre_analysis_refresh(
-        target_dir=root, files=files, target_type="pr", target_ref="7"
-    )
+    metadata = orchestrator.run_pre_analysis_refresh(files=files, target_type="pr", target_ref="7")
     return sorted(metadata)
 
 

@@ -10,10 +10,17 @@ with `script`. For the whole test, the fixture makes every `DirectToolExecutor` 
 fake, also an executor made before the test, such as that of each scanner of the global registry.
 So every scan that gets no executor of its own reaches the fake. A request for any other tool goes
 on to the `run` that the fixture replaced: git runs, and the floor of the suite refuses a real
-scanner. So does the canary run of a tool, in a working directory named with
-`CONST_CANARY_WORKDIR_PREFIX`: the root conftest answers it with the recorded canary output
-(`pin_review_tool_canaries`), and the canary of a scanner that the fake holds still passes. The fake records each run as the direct executor does: a checkout that git cannot read
+scanner. The fake records each run as the direct executor does: a checkout that git cannot read
 has no commit, and a file that it cannot digest has the digest `unavailable`.
+
+A review runs the canary of each tool before its scans, in a working directory named with
+`CONST_CANARY_WORKDIR_PREFIX`, on the tool executor of the review (#1978). The fake answers each
+canary run with the output that the pinned tool printed for its canary, as
+`tests/fixtures/review_canary/recorded_outputs.json` holds it, so every canary passes. It keeps the
+canary requests apart, in `canaries.requests`, and never in `runs` or `requests`. A test that gives
+the review the fake through the constructor of the orchestrator (`tool_executor=scanner_fake`) or
+through the fixture's `DirectToolExecutor` gets the same canary answers, and no review starts a
+real tool for a canary.
 
 A scanner first looks for its program on PATH. The fake puts a stand-in for each scanner that it
 answers in `bin_dir`, and the fixture puts `bin_dir` first on PATH, so `shutil.which` finds the
@@ -99,9 +106,33 @@ def recorded_scanner_runs() -> dict[str, RecordedScannerRun]:
     }
 
 
+def recorded_canary_answers() -> ToolExecutorFake:
+    """A tool executor fake that answers the canary of each review tool with the output that the
+    pinned tool printed for it, as `tests/fixtures/review_canary/recorded_outputs.json` holds it.
+
+    The recordings are read through the `tests` package, as `recorded_scanner_runs` reads its own.
+    """
+    recorded = files("tests").joinpath("fixtures", "review_canary", "recorded_outputs.json")
+    entries: dict[str, Any] = json.loads(recorded.read_text(encoding="utf-8"))
+    canaries = ToolExecutorFake()
+    for tool, entry in entries.items():
+        out = entry.get("output", "") if isinstance(entry, dict) else ""
+        canaries.script(tool, ToolAnswer(stdout=out if isinstance(out, str) else json.dumps(out)))
+    return canaries
+
+
+def is_canary_run(request: ToolRequest) -> bool:
+    """Whether `request` is the canary run of a tool: it starts in a working directory named with
+    `CONST_CANARY_WORKDIR_PREFIX`."""
+    from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
+
+    return request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX)
+
+
 class ScannerFake(ToolExecutorFake):
     """The tool executor of a test whose code starts security scanners: each scanner that it
-    answers is on PATH under `bin_dir`, and answers with its recorded run or the scripted one."""
+    answers is on PATH under `bin_dir`, and answers with its recorded run or the scripted one. The
+    canary run of every review tool gets the recorded canary answer."""
 
     def __init__(self, recorded: dict[str, RecordedScannerRun], bin_dir: Path) -> None:
         super().__init__(require_commit=False, require_files=False)
@@ -110,6 +141,7 @@ class ScannerFake(ToolExecutorFake):
         self.programs: set[str] = set()
         self.runs: list[ScannerRun] = []
         self.snapshot_workdirs = False
+        self.canaries = recorded_canary_answers()
         bin_dir.mkdir(parents=True, exist_ok=True)
         for program, run in recorded.items():
             self.script(
@@ -138,7 +170,10 @@ class ScannerFake(ToolExecutorFake):
         return {path.name: path.read_bytes() for path in cwd.iterdir() if path.is_file()}
 
     def run(self, request: ToolRequest) -> ToolResult:
-        """Keep the run of `request`, then answer it with the answer of its tool."""
+        """Answer a canary run with the recorded canary answer. Keep the run of any other
+        `request`, then answer it with the answer of its tool."""
+        if is_canary_run(request):
+            return self.canaries.run(request)
         cwd = request.cwd or request.workdir
         program = str(request.program) if request.program else request.tool
         self.runs.append(
@@ -149,8 +184,7 @@ class ScannerFake(ToolExecutorFake):
 
 @pytest.fixture
 def scanner_fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ScannerFake:
-    """The recorded security scanners, on PATH and answered for the whole test."""
-    from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
+    """The recorded security scanners and tool canaries, on PATH and answered for the whole test."""
     from devops_cli.security.tool_executor import DirectToolExecutor
 
     fake = ScannerFake(recorded_scanner_runs(), tmp_path / "scanner-bin")
@@ -158,8 +192,7 @@ def scanner_fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ScannerFake
     direct_run = DirectToolExecutor.run
 
     def run(executor: DirectToolExecutor, request: ToolRequest) -> ToolResult:
-        is_canary = request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX)
-        if request.tool in fake.programs and not is_canary:
+        if request.tool in fake.programs or is_canary_run(request):
             return fake.run(request)
         return direct_run(executor, request)
 

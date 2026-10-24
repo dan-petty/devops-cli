@@ -303,6 +303,8 @@ def path(
         if stage_flags.needs_model()
         else ReviewClients()
     )
+    # The one read of the working directory: every target and boundary comes from it (#2098).
+    working_directory = Path.cwd().resolve()
     path_targets = targets or [DEFAULT_CURRENT_PATH]
 
     def _execute_current_review() -> None:
@@ -310,8 +312,10 @@ def path(
 
         print_info("Scanning in place (uncommitted work)...", prefix=False)
         if len(path_targets) == 1:
-            target = path_targets[0]
-            pages, title, routed_files = _prepare_path_content(target, pattern)
+            target = working_directory / path_targets[0]
+            pages, title, routed_files = _prepare_path_content(
+                target, pattern, working_directory=working_directory
+            )
             target_resolved = target.resolve()
             top = git_show_toplevel(target_resolved)
             target_dir = (
@@ -324,15 +328,17 @@ def path(
             all_pages: list[str] = []
             target_names: list[str] = []
             routed_files = []
-            first_target_dir = Path.cwd().resolve()
+            first_target_dir = working_directory
             for t in path_targets:
-                t_resolved = t.resolve()
-                t_pages, _, t_routed = _prepare_path_content(t, pattern)
+                t_resolved = (working_directory / t).resolve()
+                t_pages, _, t_routed = _prepare_path_content(
+                    t_resolved, pattern, working_directory=working_directory
+                )
                 all_pages.extend(t_pages)
                 routed_files.extend(t_routed)
                 target_names.append(str(t_resolved))
                 if (
-                    first_target_dir == Path.cwd().resolve()
+                    first_target_dir == working_directory
                     and t_resolved.exists()
                     and t_resolved.is_dir()
                 ):
@@ -494,7 +500,12 @@ def branch(
         if stage_flags.needs_model()
         else ReviewClients()
     )
-    pages, title, target_ref, base_revision = _prepare_branch_content(branch_name, base, repo_path)
+    # The one read of the working directory: the repository and the boundary come from it (#2098).
+    working_directory = Path.cwd().resolve()
+    repo_path = (working_directory / repo_path).resolve()
+    pages, title, target_ref, base_revision = _prepare_branch_content(
+        branch_name, base, repo_path, working_directory=working_directory
+    )
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     if base_revision is None or getattr(base_revision, "read_head", None) is None:
         print_info("Scanning in place (uncommitted work)...", prefix=False)
@@ -610,11 +621,13 @@ def _run_pr_review_workflow(
     from devops_cli.git.worktree import fetch_pr_head, review_worktrees_context
 
     base_sha = pull.base.sha
-    local_repo = get_repo_origin_name(Path.cwd())
+    # The one read of the working directory: the local checkout of the PR's repository (#2098).
+    checkout = Path.cwd()
+    local_repo = get_repo_origin_name(checkout)
     if repo_arg is not None and local_repo is not None and repo_arg != local_repo:
         pr_commit = None
     else:
-        pr_commit = fetch_pr_head(Path.cwd(), number)
+        pr_commit = fetch_pr_head(checkout, number)
     if pr_commit is None:
         print_warning(
             f"PR head unavailable from refs/pull/{number}/head; marked partial context",
@@ -638,7 +651,7 @@ def _run_pr_review_workflow(
         )
 
     with review_worktrees_context(
-        Path.cwd(),
+        checkout,
         commit_rev=pr_commit,
         base_rev=base_sha,
         session_id=session_id,
@@ -2463,7 +2476,10 @@ def export_feedback(
     from devops_cli.ai.review.exporter import export_invalidated_feedback
 
     count, out_path = export_invalidated_feedback(
-        reviews_dir=reviews_dir, output_file=output, status_filter=status_filter
+        reviews_dir=reviews_dir,
+        output_file=output,
+        status_filter=status_filter,
+        workspace_root=Path.cwd(),
     )
     if count == 0:
         target_dir = reviews_dir or ReviewSessionStore.root()

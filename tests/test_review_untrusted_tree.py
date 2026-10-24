@@ -31,6 +31,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings, load_settings, reset_settings_cache
+from tests.support.fakes.scanners import recorded_canary_answers
 from tests.support.registry_cache import CACHED_RULESET_WORKDIR_NAME
 
 # The gateway the repository under review names, and the one the user's own config names.
@@ -237,7 +238,7 @@ def _review_data_locations() -> dict[str, Path]:
 
     return {
         "reviews": ReviewSessionStore.root(),
-        "feedback dataset": _resolve_output_path(None, None),
+        "feedback dataset": _resolve_output_path(None, None, Path.cwd()),
         "runs": runs_dir(),
         "samples": samples_dir(),
         "library contracts": library_contracts_dir(),
@@ -300,7 +301,7 @@ def test_what_a_review_keeps_is_found_by_every_command_that_reads_it(
         session.mkdir(parents=True)
         findings = json.dumps({"findings": [verdict]})
         (session / "findings.json").write_text(findings, encoding="utf-8")
-        dataset = _resolve_output_path(None, None)
+        dataset = _resolve_output_path(None, None, Path.cwd())
         dataset.parent.mkdir(parents=True, exist_ok=True)
         dataset.write_text(json.dumps(verdict) + "\n", encoding="utf-8")
         save_run(run)
@@ -440,7 +441,11 @@ def _review_scanner_calls(
         return subprocess.CompletedProcess(cmd, 0, "{}", "")
 
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="scan", target_dir=tree, session_dir=session_dir, llm_client=MagicMock()
+        session_id="scan",
+        target_dir=tree,
+        session_dir=session_dir,
+        llm_client=MagicMock(),
+        tool_executor=recorded_canary_answers(),
     )
     with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
         orchestrator._run_static_scanners(["app.py", "deploy.yaml", "Dockerfile"])
@@ -524,7 +529,10 @@ def _semgrep_runs(
         return subprocess.CompletedProcess(cmd, 0, "{}", "")
 
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="semgrep", target_dir=tree, llm_client=MagicMock()
+        session_id="semgrep",
+        target_dir=tree,
+        llm_client=MagicMock(),
+        tool_executor=recorded_canary_answers(),
     )
     with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
         orchestrator._run_static_scanners(files)
@@ -639,7 +647,10 @@ def test_a_file_the_tree_names_like_an_option_is_only_a_file_to_semgrep(
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="semgrep", target_dir=hostile_repo, llm_client=MagicMock()
+        session_id="semgrep",
+        target_dir=hostile_repo,
+        llm_client=MagicMock(),
+        tool_executor=recorded_canary_answers(),
     )
     with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
         findings = orchestrator._run_static_scanners(reviewed)

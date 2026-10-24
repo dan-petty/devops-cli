@@ -21,6 +21,7 @@ from devops_cli.ai.review.pipeline import (
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.commands import BIN_GOLANGCI_LINT
 from devops_cli.security.base import ScanOutcome
+from tests.support.fakes.scanners import ScannerFake
 
 
 def test_static_analyzers_contains_golangci_lint() -> None:
@@ -106,7 +107,9 @@ def test_static_analyzer_states_for_golangci_lint() -> None:
 
 
 def test_run_static_scanners_executes_golangci_lint_for_go_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """_run_static_scanners runs golangci-lint on go.mod root and filters findings."""
     (tmp_path / "go.mod").write_text("module example.com/test\ngo 1.23\n", encoding="utf-8")
@@ -118,7 +121,9 @@ def test_run_static_scanners_executes_golangci_lint_for_go_files(
     monkeypatch.setattr("devops_cli.ai.review.pipeline._scan_secrets", lambda *_, **__: [])
     monkeypatch.setattr("devops_cli.ai.review.pipeline._scan_semgrep", lambda *_, **__: [])
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-go", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="test-go", target_dir=tmp_path, tool_executor=scanner_fake
+    )
 
     fake_finding = Finding(
         severity="HIGH",

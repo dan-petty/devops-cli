@@ -177,21 +177,14 @@ class MaterializedTargets(NamedTuple):
         return name.removeprefix("./") if name.startswith("./") else name
 
 
-def _scan_root_candidates(root: Path | str | None) -> list[Path]:
-    """Candidate directories to relativize scan paths against."""
-    candidates: list[Path] = []
-    if root is not None:
-        try:
-            r = Path(root).resolve()
-            if r.is_dir():
-                candidates.append(r)
-        except OSError, RuntimeError:
-            pass
+def _scan_root(root: Path | str) -> Path | None:
+    """The directory to relativize scan paths against: `root` resolved, or None when it is no
+    directory."""
     try:
-        candidates.append(Path.cwd().resolve())
+        resolved = Path(root).resolve()
     except OSError, RuntimeError:
-        pass
-    return candidates
+        return None
+    return resolved if resolved.is_dir() else None
 
 
 def _relativize_against(target: Path, candidate: Path) -> str | None:
@@ -210,12 +203,12 @@ def _relativize_against(target: Path, candidate: Path) -> str | None:
     return None
 
 
-def relativize_scan_path(path_str: str, root: Path | str | None = None) -> str:
-    """Normalize a scan finding's path string to be relative to the scan root or workspace.
+def relativize_scan_path(path_str: str, root: Path | str) -> str:
+    """Normalize a scan finding's path string to be relative to `root`, the scanned tree that the
+    caller gives.
 
-    Strips any leading `./`, and if `path_str` is absolute, relativizes it against `root`,
-    `root.parent` (if `root` is a file), or `Path.cwd()`. If `path_str` does not lie inside any
-    candidate root, returns `path_str` normalized.
+    Strips any leading `./`, and if `path_str` is absolute, relativizes it against `root`. A path
+    outside `root` is returned normalized: the working directory of the process is no root (#2098).
     """
     clean = str(path_str).strip()
     if not clean or clean.startswith(("<", "(")):
@@ -228,12 +221,9 @@ def relativize_scan_path(path_str: str, root: Path | str | None = None) -> str:
     if not p.is_absolute():
         return p.as_posix()
 
-    for candidate in _scan_root_candidates(root):
-        rel = _relativize_against(p, candidate)
-        if rel is not None:
-            return rel
-
-    return p.as_posix()
+    scan_root = _scan_root(root)
+    rel = _relativize_against(p, scan_root) if scan_root is not None else None
+    return rel if rel is not None else p.as_posix()
 
 
 def _file_inside(target: Path, root: Path) -> Path | None:
@@ -636,25 +626,22 @@ class BaseSecurityScanner(ABC):
         return subprocess.CompletedProcess(cmd, result.exit_code, result.stdout, result.stderr)
 
     def _resolve_cwd(self, target_path: Any, **kwargs: Any) -> Path:
-        """Safely resolve working directory for subprocess execution: the target's.
+        """The directory a scan that is not isolated starts in: the nearest directory on disk that
+        holds its targets, the targets that exist when some do.
+
+        The targets are the caller's. A relative target, such as the name of an image, is a path in
+        the directory that the caller runs in, so its scan starts there. A scan with no target
+        starts in the temporary directory, where it finds no file of a tree. No scanner reads the
+        working directory of the process for itself (#2098).
 
         A scanner that must run elsewhere reads its scan's `kwargs` here, as Semgrep does (#1144).
         """
-        try:
-            if isinstance(target_path, Path) and target_path.exists():
-                return target_path if target_path.is_dir() else target_path.parent
-            if isinstance(target_path, list) and target_path:
-                file_strs = [
-                    str(Path(p).resolve())
-                    for p in target_path
-                    if isinstance(p, (str, Path)) and Path(p).exists()
-                ]
-                if file_strs:
-                    common = Path(os.path.commonpath(file_strs))
-                    return common if common.is_dir() else common.parent
-        except Exception:
-            pass
-        return Path.cwd()
+        targets = _scan_targets(target_path)
+        if not targets:
+            return Path(tempfile.gettempdir())
+        existing = [target for target in targets if target.exists()]
+        common = Path(os.path.commonpath(existing or targets))
+        return next(path for path in (common, *common.parents) if path.is_dir())
 
     def _run_scanner_command(
         self,

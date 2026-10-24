@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,8 @@ from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter
 from devops_cli.security.pluto import PlutoScanner, parse_pluto_json, run_pluto_scan
 from devops_cli.security.popeye import parse_popeye_json, run_popeye_scan
 from devops_cli.security.trivy import parse_trivy_json, run_trivy_scan
+from tests.support.fakes.scanners import ScannerFake, ScannerRun
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_trivy_parser() -> None:
@@ -115,9 +118,9 @@ def test_popeye_parser() -> None:
     assert "PODS" in findings[0].title
 
 
-def test_popeye_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_popeye_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
-    findings = run_popeye_scan()
+    findings = run_popeye_scan(workdir=tmp_path)
     assert [f.title for f in findings] == ["[DRY-RUN] Simulated Popeye Kubernetes Cluster Scan"]
 
 
@@ -239,7 +242,7 @@ def test_pluto_scanner_execution(tmp_path: Path) -> None:
         assert run_pluto_scan(tmp_path) == []
 
 
-def test_popeye_scanner_execution() -> None:
+def test_popeye_scanner_execution(tmp_path: Path) -> None:
     """Verify popeye subprocess execution and exit 127 handling."""
     import json
     import subprocess
@@ -261,7 +264,7 @@ def test_popeye_scanner_execution() -> None:
         args=["popeye"], returncode=0, stdout=popeye_json, stderr=""
     )
     with patch("devops_cli.security.popeye.run_subprocess", return_value=mock_popeye_proc):
-        popeye_findings = run_popeye_scan()
+        popeye_findings = run_popeye_scan(workdir=tmp_path)
         assert len(popeye_findings) == 1
         assert popeye_findings[0].severity == "HIGH"
 
@@ -269,7 +272,7 @@ def test_popeye_scanner_execution() -> None:
         args=["cmd"], returncode=127, stdout="", stderr="not found"
     )
     with patch("devops_cli.security.popeye.run_subprocess", return_value=mock_127):
-        assert run_popeye_scan() == []
+        assert run_popeye_scan(workdir=tmp_path) == []
 
 
 def test_secops_scanners_dry_run(tmp_path: Path) -> None:
@@ -283,7 +286,7 @@ def test_secops_scanners_dry_run(tmp_path: Path) -> None:
         assert len(run_pluto_scan(tmp_path)) == 1
 
     with patch("devops_cli.security.popeye.is_dry_run", return_value=True):
-        assert len(run_popeye_scan()) == 1
+        assert len(run_popeye_scan(workdir=tmp_path)) == 1
 
 
 def test_kubelinter_locations_are_relative_to_the_nested_worktree(
@@ -305,3 +308,71 @@ def test_kubelinter_locations_are_relative_to_the_nested_worktree(
     findings = parse_kubelinter_json({"Reports": [report]}, target_path=str(manifest))
 
     assert [finding.location for finding in findings] == ["k8s/deployment.yaml:Deployment/web"]
+
+
+def test_a_kubelinter_finding_names_the_manifest_in_its_own_checkout_from_any_directory(
+    nested_worktree: tuple[Path, Path],
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A review of another checkout names a kube-linter finding by the path of the manifest in
+    that checkout. The location was relative to the checkout of the working directory, so a review
+    started outside the checkout named the manifest by its file name alone (#2098)."""
+    _, nested = nested_worktree
+    manifest = nested / "k8s" / "deployment.yaml"
+    manifest.parent.mkdir()
+    manifest.write_text("kind: Deployment\n", encoding="utf-8")
+    report = {
+        "Check": "run-as-non-root",
+        "Diagnostic": {"Message": 'container "web" is not set to runAsNonRoot'},
+        "Object": {
+            "K8sObject": {"GroupVersionKind": {"Kind": "Deployment"}, "Name": "web"},
+            "Metadata": {"FilePath": str(manifest)},
+        },
+    }
+    monkeypatch.chdir(tmp_path_factory.mktemp("elsewhere"))
+
+    findings = parse_kubelinter_json({"Reports": [report]})
+
+    assert [finding.location for finding in findings] == ["k8s/deployment.yaml:Deployment/web"]
+
+
+def test_a_kubelinter_finding_names_a_manifest_that_no_checkout_holds_by_its_file_name(
+    tmp_path: Path,
+) -> None:
+    """A manifest that no working tree holds is named by its file name alone (#2098)."""
+    manifest = tmp_path / "k8s" / "deployment.yaml"
+    manifest.parent.mkdir()
+    manifest.write_text("kind: Deployment\n", encoding="utf-8")
+    report = {
+        "Check": "run-as-non-root",
+        "Diagnostic": {"Message": 'container "web" is not set to runAsNonRoot'},
+        "Object": {
+            "K8sObject": {"GroupVersionKind": {"Kind": "Deployment"}, "Name": "web"},
+            "Metadata": {"FilePath": str(manifest)},
+        },
+    }
+
+    findings = parse_kubelinter_json({"Reports": [report]})
+
+    assert [finding.location for finding in findings] == ["deployment.yaml:Deployment/web"]
+
+
+def test_popeye_starts_in_the_directory_its_caller_gives(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """Popeye reads the cluster and starts in the directory that the command gives, not in the
+    working directory of the process (#2098)."""
+    scanner_fake.script(
+        "popeye",
+        ToolAnswer(stdout=json.dumps({"popeye": {"sanitizers": []}}), version="0.22.1"),
+    )
+    workdir = tmp_path / "command-directory"
+    workdir.mkdir()
+
+    outcome = run_popeye_scan(workdir=workdir)
+
+    assert (outcome.status, scanner_fake.runs) == (
+        "ran",
+        [ScannerRun(["popeye", "-o", "json", "-s", "error,warn"], str(workdir))],
+    )

@@ -5,8 +5,10 @@ Example:
     >>> from devops_cli.ai.review import ReviewPipelineOrchestrator
     >>>
     >>> from pathlib import Path
-    >>> orchestrator = ReviewPipelineOrchestrator(session_id="session-001", target_dir=Path("."))
-    >>> metadata = orchestrator.run_pre_analysis_refresh(Path("."), ["src/main.py"])
+    >>> orchestrator = ReviewPipelineOrchestrator(
+    ...     session_id="session-001", target_dir=Path("/path/to/checkout")
+    ... )
+    >>> metadata = orchestrator.run_pre_analysis_refresh(["src/main.py"])
     >>> payloads = orchestrator.init_per_file_payloads(["src/main.py"], metadata)
     >>> data_out, report_md = orchestrator.generate_consolidated_report(payloads)
 """
@@ -665,10 +667,11 @@ def _scan_container_and_lockfiles(
 def _scan_lockfiles(
     lockfiles: list[Path],
     outcomes: dict[str, Any] | None = None,
-    tree: Path | None = None,
+    *,
+    tree: Path,
     tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
-    """Scan lockfiles with osv-scanner offline (#1146)."""
+    """Scan the lockfiles of the reviewed `tree` with osv-scanner offline (#1146)."""
     from devops_cli.security.base import ScanOutcome
     from devops_cli.security.osv_scanner import (
         detect_manifest_coverage_gaps,
@@ -677,11 +680,10 @@ def _scan_lockfiles(
     )
 
     if not lockfiles:
-        if tree is not None:
-            gaps = detect_manifest_coverage_gaps(tree, known_lockfiles=lockfiles)
-            if gaps:
-                gap_outcome = ScanOutcome("coverage_gap", [], "; ".join(gaps))
-                _observe_outcome(outcomes, "osv-scanner", gap_outcome)
+        gaps = detect_manifest_coverage_gaps(tree, known_lockfiles=lockfiles)
+        if gaps:
+            gap_outcome = ScanOutcome("coverage_gap", [], "; ".join(gaps))
+            _observe_outcome(outcomes, "osv-scanner", gap_outcome)
         return []
 
     outcome = run_osv_scan(lockfiles, tree=tree, isolated=True, tool_executor=tool_executor)
@@ -791,8 +793,8 @@ def _build_malicious_network_finding(
 def _checked_session_dir(session_dir: Path) -> Path:
     """A review session directory, refused when it escapes the places sessions may be written.
 
-    No `..` component, and inside the reviews directory, the working directory or the system
-    temporary directory.
+    No `..` component, and inside the reviews directory or the system temporary directory. The
+    working directory of the process is no such place (#2098).
     """
     import tempfile
 
@@ -800,7 +802,6 @@ def _checked_session_dir(session_dir: Path) -> Path:
         raise SecurityError(f"Path traversal detected in session_dir: {session_dir}")
     allowed = (
         ReviewSessionStore.root(),
-        Path.cwd().resolve(),
         Path(tempfile.gettempdir()).resolve(),
     )
     resolved = session_dir.resolve()
@@ -1718,13 +1719,14 @@ def _scan_golangci_lint(
 def _run_scanners_for_buckets(
     buckets: ScannerFileBuckets,
     *,
-    tree: Path | None = None,
+    tree: Path,
     observed_outcomes: dict[str, Any] | None = None,
     kubernetes_version: str | None = None,
     require_kubernetes_version: bool = False,
     tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
-    """Execute Bandit, Kube-linter/Pluto, Trivy, Gitleaks, and Semgrep scanners (#871)."""
+    """Execute Bandit, Kube-linter/Pluto, Trivy, osv-scanner, Gitleaks, Semgrep and golangci-lint
+    on the files of the reviewed `tree` (#871)."""
     from devops_cli.security.bandit import run_bandit_scan
 
     outcomes = observed_outcomes if observed_outcomes is not None else {}
@@ -1760,10 +1762,9 @@ def _run_scanners_for_buckets(
             )
         )
 
-    if buckets.lockfiles or tree is not None:
-        findings.extend(
-            _scan_lockfiles(buckets.lockfiles, outcomes, tree=tree, tool_executor=tool_executor)
-        )
+    findings.extend(
+        _scan_lockfiles(buckets.lockfiles, outcomes, tree=tree, tool_executor=tool_executor)
+    )
 
     if buckets.leak_targets:
         findings.extend(
@@ -1772,7 +1773,7 @@ def _run_scanners_for_buckets(
             )
         )
 
-    if buckets.any_files and tree is not None:
+    if buckets.any_files:
         findings.extend(
             _scan_semgrep(buckets.any_files, outcomes, tree=tree, tool_executor=tool_executor)
         )
@@ -2025,7 +2026,14 @@ def _evaluate_session_complexity_deltas(
 
 
 class ReviewPipelineOrchestrator:
-    """Orchestrates staged code reviews with per-file payloads."""
+    """Orchestrates staged code reviews with per-file payloads.
+
+    The orchestrator takes its workspace through its constructor, and from nowhere else (#2098).
+    `target_dir` is the absolute path of the reviewed directory: the orchestrator finds the
+    reviewed tree, the files and their siblings, the manifests and the review config from it.
+    `tool_executor` starts every analyzer, evidence tool and canary of the review. The command
+    layer reads the working directory one time and gives these down, so no stage reads it.
+    """
 
     def __init__(
         self,
@@ -2214,7 +2222,6 @@ class ReviewPipelineOrchestrator:
 
     def run_pre_analysis_refresh(
         self,
-        target_dir: Path,
         files: Sequence[str],
         target_type: Literal["branch", "pr", "path"] = "path",
         target_ref: str = ".",
@@ -2222,7 +2229,7 @@ class ReviewPipelineOrchestrator:
         stage_flags: ReviewStageFlags | None = None,
         base_revision: BaseRevision | None = None,
     ) -> dict[str, FileAnalysisMeta]:
-        """Refresh the metadata of the files under review, and of no other file in `target_dir`.
+        """Refresh the metadata of the files under review, and of no other file in the target.
 
         A file whose cached metadata still matches its content reuses it; the others are
         analyzed again. The analysis calls no model. With `base_revision`, each Python file the
@@ -2244,14 +2251,13 @@ class ReviewPipelineOrchestrator:
             )
             return {}
 
-        self.target_dir = target_dir
         with trace_span(
             "review.pre_analysis",
             attributes={"target_ref": target_ref, "target_type": target_type},
         ):
-            repo = find_repo_root(target_dir)
+            repo = find_repo_root(self.target_dir)
             display_ref = (
-                target_ref if target_ref and target_ref != "." else str(target_dir.resolve())
+                target_ref if target_ref and target_ref != "." else str(self.target_dir.resolve())
             )
             print_info(
                 f"[dim]Scanning pre-analysis metadata for '{display_ref}'...[/dim]",
@@ -2805,16 +2811,12 @@ class ReviewPipelineOrchestrator:
         self,
         file_paths: list[str],
         metadata_by_path: dict[str, FileAnalysisMeta],
-        target_dir: Path | None = None,
         stage_flags: ReviewStageFlags | None = None,
         diff_text_by_file: Mapping[str, str] | None = None,
         pages: Sequence[str] | None = None,
         added_diff_lines: set[tuple[str, int]] | None = None,
     ) -> list[FileReviewPayload]:
         """Initialize per-file JSON payloads under session files directory."""
-        if target_dir is not None:
-            self.target_dir = target_dir
-
         self.added_diff_lines = _resolve_review_added_diff_lines(
             getattr(self, "added_diff_lines", None),
             added_diff_lines,

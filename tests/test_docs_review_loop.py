@@ -131,7 +131,7 @@ def test_every_feedback_dataset_path_the_documents_name_is_where_the_exporter_wr
     """The exporter appends to `feedback_dataset.jsonl` in the data directory, `.data` unless
     `DEVOPS_CLI_DATA_DIR` moves it, and every path the documents name for the dataset is that
     one."""
-    _, written = export_invalidated_feedback()
+    _, written = export_invalidated_feedback(workspace_root=isolate_data_dir)
     named = _dataset_paths(_documents())
     allowed = {CONST_FEEDBACK_DATASET_NAME, DEFAULT_FEEDBACK_DATASET_PATH.as_posix()}
     wrong = sorted(where for where, path in named.items() if path not in allowed)

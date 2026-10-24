@@ -24,6 +24,7 @@ from devops_cli.review.suppression import (
 )
 from devops_cli.security.normalization import NormalizedFinding
 from devops_cli.security.sarif import from_sarif, to_sarif
+from tests.support.fakes.scanners import ScannerFake
 
 
 def test_anchor_protocol_and_implementations() -> None:
@@ -647,7 +648,9 @@ def test_review_markdown_sections() -> None:
 
 
 def test_orchestrator_static_scanners_populate_admitted_scanner_findings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Static security scanners wire candidates through admit(), populating admitted_scanner_findings."""
     src_dir = tmp_path / "src"
@@ -682,7 +685,9 @@ def test_orchestrator_static_scanners_populate_admitted_scanner_findings(
     ):
         monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="s871-admit", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s871-admit", target_dir=tmp_path, tool_executor=scanner_fake
+    )
     by_file = orchestrator._run_static_scanners(["src/app.py"])
 
     admitted = orchestrator.admitted_scanner_findings
@@ -767,7 +772,9 @@ def test_audit_file_dependencies_admits_with_advisory_anchor(tmp_path: Path) -> 
 
 
 def test_base_revision_fingerprints_distinguishes_preexisting_findings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Pre-existing findings in base revision are admitted as unchanged / not introduced (#871)."""
     from typing import Any
@@ -818,6 +825,7 @@ def test_base_revision_fingerprints_distinguishes_preexisting_findings(
         session_id="test-base-diff",
         target_dir=tmp_path,
         base_revision=base_rev,
+        tool_executor=scanner_fake,
     )
     orchestrator._run_static_scanners(["app.py"])
 
@@ -860,7 +868,9 @@ def _stub_bandit_only(monkeypatch: pytest.MonkeyPatch, bandit_findings: list[obj
 
 
 def test_review_toml_suppressed_scanner_finding_is_listed_not_reported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """A scanner finding a review.toml suppression covers leaves the reported set, stays in the
     admitted findings SARIF is written from, and is listed under Suppressed in review.md (#1295)."""
@@ -879,7 +889,9 @@ def test_review_toml_suppressed_scanner_finding_is_listed_not_reported(
             SchemaFinding(title="[B101] assert used", location="src/app.py:3", severity="LOW"),
         ],
     )
-    orchestrator = ReviewPipelineOrchestrator(session_id="s1295-supp", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s1295-supp", target_dir=tmp_path, tool_executor=scanner_fake
+    )
     orchestrator.suppressions = [
         ReviewSuppression(rule="B101", path="src/**", reason="accepted risk")
     ]
@@ -909,7 +921,9 @@ def test_review_toml_suppressed_scanner_finding_is_listed_not_reported(
 
 
 def test_scanner_finding_at_a_base_fingerprint_is_listed_as_preexisting(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """A scanner finding whose fingerprint the base revision has is reported under Pre-existing
     in review.md, not under Introduced (#1295)."""
@@ -922,7 +936,9 @@ def test_scanner_finding_at_a_base_fingerprint_is_listed_as_preexisting(
         monkeypatch,
         [SchemaFinding(title="[B102] exec used", location="src/app.py:1", severity="HIGH")],
     )
-    orchestrator = ReviewPipelineOrchestrator(session_id="s1295-base", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s1295-base", target_dir=tmp_path, tool_executor=scanner_fake
+    )
     orchestrator._run_static_scanners(["src/app.py"])
     orchestrator.base_fingerprints = {orchestrator.admitted_scanner_findings[0].fingerprint_v2}
 
@@ -944,7 +960,9 @@ def test_scanner_finding_at_a_base_fingerprint_is_listed_as_preexisting(
 
 
 def test_head_revision_admission_rejections_reach_the_profile(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Scanner candidates admission rejects at the reviewed revision are counted by type in
     profile.json (#1295)."""
@@ -964,7 +982,9 @@ def test_head_revision_admission_rejections_reach_the_profile(
     )
 
     with profiling() as profiler:
-        orchestrator = ReviewPipelineOrchestrator(session_id="s1295-rej", target_dir=tmp_path)
+        orchestrator = ReviewPipelineOrchestrator(
+            session_id="s1295-rej", target_dir=tmp_path, tool_executor=scanner_fake
+        )
         orchestrator._run_static_scanners(["src/app.py"])
         profile = profiler.build(session_id="s1295-rej", target="src/app.py", files=1)
 

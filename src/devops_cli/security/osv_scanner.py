@@ -324,12 +324,16 @@ class OsvScanner(BaseSecurityScanner):
 def run_osv_scan(
     targets: Sequence[Path],
     *,
-    tree: Path | None = None,
+    tree: Path,
     isolated: bool = False,
     snapshot_digest: str | None = None,
     tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
-    """Execute osv-scanner over target lockfiles and return ScanOutcome (#1146)."""
+    """Execute osv-scanner over target lockfiles and return ScanOutcome (#1146).
+
+    `tree` is the scanned tree that the caller gives. With no lockfile named, the scan looks for
+    the lockfiles of `tree` (#2098).
+    """
     scanner = OsvScanner(snapshot_digest=snapshot_digest, tool_executor=tool_executor)
-    target_path = targets[0] if targets else (tree or Path.cwd())
+    target_path = targets[0] if targets else tree
     return scanner.scan(target_path, lockfiles=targets, tree=tree, isolated=isolated)

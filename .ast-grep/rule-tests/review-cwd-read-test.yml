@@ -1,0 +1,11 @@
+id: review-cwd-read
+valid:
+  - 'root = find_worktree_root(manifest)'
+  - 'cwd = request.cwd or request.workdir'
+  - 'workdir = Path(scan_dir)'
+invalid:
+  - 'root = Path.cwd().resolve()'
+  - 'root = pathlib.Path.cwd()'
+  - 'here = os.getcwd()'
+  - 'here = getcwd()'
+  - 'default = Path.cwd'

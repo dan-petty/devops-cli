@@ -38,6 +38,7 @@ from tests.support.fakes.github import (
     route_merge_base,
     route_pull_request,
 )
+from tests.support.fakes.scanners import ScannerFake
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -111,7 +112,7 @@ def test_a_branch_review_reaches_the_personas_with_only_reviewable_files(
     root = tmp_path / "project"
     _branch(root, git, ("src/app.py", *_ROUTED))
 
-    pages, *_ = _prepare_branch_content("feature", "main", root)
+    pages, *_ = _prepare_branch_content("feature", "main", root, working_directory=root)
 
     assert _page_files(pages) == ["src/app.py"]
 
@@ -206,7 +207,10 @@ def secret_scan(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[list[Path]]]:
 
 
 def test_a_routed_file_still_reaches_the_secret_scan(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, secret_scan: dict[str, list[list[Path]]]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    secret_scan: dict[str, list[list[Path]]],
+    scanner_fake: ScannerFake,
 ) -> None:
     """Verify Gitleaks reads a changed plan the personas never see, Semgrep does not, and
     the secret it finds lands in a payload of its own that persona review skips."""
@@ -219,6 +223,7 @@ def test_a_routed_file_still_reaches_the_secret_scan(
         target_dir=tmp_path,
         llm_client=client,
         secret_scan_files=["openspec/changes/1-x/tasks.md"],
+        tool_executor=scanner_fake,
     )
 
     payloads = orchestrator.init_per_file_payloads(["src/app.py"], {})
@@ -251,7 +256,9 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
     legacy engine sent that page to the model."""
     root = tmp_path / "project"
     _branch(root, git, ("openspec/changes/1-x/tasks.md",))
-    pages, title, target, base_revision = _prepare_branch_content("feature", "main", root)
+    pages, title, target, base_revision = _prepare_branch_content(
+        "feature", "main", root, working_directory=root
+    )
     model = MagicMock(spec=ReviewLLMClient)
     printed: list[str] = []
     monkeypatch.setattr(
@@ -286,7 +293,9 @@ def _review_routed_branch(
     """Review a branch touching only a change folder; what was printed, and findings.json."""
     root = tmp_path / "project"
     _branch(root, git, ("openspec/changes/1-x/tasks.md",))
-    pages, title, target, base_revision = _prepare_branch_content("feature", "main", root)
+    pages, title, target, base_revision = _prepare_branch_content(
+        "feature", "main", root, working_directory=root
+    )
     printed: list[str] = []
     monkeypatch.setattr(
         "devops_cli.ai.review.runner.print_info", lambda text, **_: printed.append(text)

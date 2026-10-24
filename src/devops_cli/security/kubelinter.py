@@ -23,9 +23,11 @@ logger = logging.getLogger(__name__)
 
 
 def _manifest_location(target_path: str) -> str:
-    """The scanned manifest's path relative to the working tree the scan runs in.
+    """The scanned manifest's path relative to the working tree that holds it.
 
-    A path outside that tree is named by its file name alone.
+    The tree is found from the manifest, not from the working directory of the process, so a
+    review of another checkout names the manifest by its path there (#2098). A manifest that no
+    tree holds is named by its file name alone.
     """
     if not target_path:
         return ""
@@ -33,7 +35,8 @@ def _manifest_location(target_path: str) -> str:
     try:
         from devops_cli.core.repo import find_worktree_root
 
-        return str(manifest.resolve().relative_to(find_worktree_root(Path.cwd())))
+        resolved = manifest.resolve()
+        return str(resolved.relative_to(find_worktree_root(resolved)))
     except Exception:
         return manifest.name
 

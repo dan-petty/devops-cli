@@ -248,16 +248,21 @@ def _semgrep_result(name: str, line: int) -> dict[str, Any]:
 def _review_scan(
     tree: Path,
     semgrep: Callable[..., subprocess.CompletedProcess[str]],
+    tool_executor: ScannerFake,
     files: list[str] = _REVIEWED_FILES,
 ) -> dict[str, list[SavedFinding]]:
-    """Run the review's static scanners over `files` with `semgrep` as the binary."""
-    orchestrator = ReviewPipelineOrchestrator(session_id="semgrep", target_dir=tree)
+    """Run the review's static scanners over `files` with `semgrep` as the binary, and the canaries
+    of the review on `tool_executor`."""
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="semgrep", target_dir=tree, tool_executor=tool_executor
+    )
     with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)):
         return orchestrator._run_static_scanners(list(files))
 
 
 def test_a_reviews_semgrep_scan_names_only_targets_under_its_working_directory(
     reviewed_checkout: Path,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Semgrep 1.178.0 takes its fast path only for a regular file under its working directory;
     for each other target it starts a `semgrep-core -rpc` that walks the whole checkout. Since
@@ -271,7 +276,7 @@ def test_a_reviews_semgrep_scan_names_only_targets_under_its_working_directory(
         named.extend((name, _a_regular_file_under(workdir, name)) for name in _named_targets(cmd))
         return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": []}), "")
 
-    _review_scan(reviewed_checkout, semgrep)
+    _review_scan(reviewed_checkout, semgrep, scanner_fake)
 
     assert sorted(named) == sorted(
         (os.path.join(os.curdir, name), True) for name in _REVIEWED_FILES
@@ -280,6 +285,7 @@ def test_a_reviews_semgrep_scan_names_only_targets_under_its_working_directory(
 
 def test_semgrep_findings_carry_the_reviewed_trees_paths_and_lines(
     reviewed_checkout: Path,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Semgrep reports a target under the name its command gave it. Named relative to its
     working directory, a finding still lands on the reviewed file at its line, located in the
@@ -293,7 +299,7 @@ def test_semgrep_findings_carry_the_reviewed_trees_paths_and_lines(
         results = [_semgrep_result(name, 3) for name in names if name.endswith("/mod_7.py")]
         return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": results}), "")
 
-    findings = _review_scan(reviewed_checkout, semgrep, _REVIEWED_FILES[:12])
+    findings = _review_scan(reviewed_checkout, semgrep, scanner_fake, _REVIEWED_FILES[:12])
 
     assert {name: [f.location for f in found] for name, found in findings.items()} == {
         "pkg7/mod_7.py": ["pkg7/mod_7.py:3"]
@@ -302,7 +308,9 @@ def test_semgrep_findings_carry_the_reviewed_trees_paths_and_lines(
 
 @pytest.mark.usefixtures("cached_default_ruleset")
 def test_a_semgrep_timeout_loses_only_its_batch(
-    reviewed_checkout: Path, monkeypatch: pytest.MonkeyPatch
+    reviewed_checkout: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scanner_fake: ScannerFake,
 ) -> None:
     """A review scans its targets in batches, each with its own timeout. A batch that runs out of
     time loses its own files and says which batch it was; the other batches' findings stay. Ten
@@ -319,7 +327,9 @@ def test_a_semgrep_timeout_loses_only_its_batch(
         results = [_semgrep_result(name, 3) for name in names if name in kept]
         return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": results}), "")
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="semgrep", target_dir=reviewed_checkout)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="semgrep", target_dir=reviewed_checkout, tool_executor=scanner_fake
+    )
     with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)):
         findings = orchestrator._run_static_scanners(_REVIEWED_FILES[:10])
 
@@ -872,7 +882,9 @@ def test_a_report_without_a_list_of_scanned_paths_leaves_no_file_unscanned() -> 
 
 
 def test_a_review_shows_the_files_semgrep_left_out_in_its_coverage_and_analyzer_sections(
-    reviewed_checkout: Path, cached_default_ruleset: Path
+    reviewed_checkout: Path,
+    cached_default_ruleset: Path,
+    scanner_fake: ScannerFake,
 ) -> None:
     """Semgrep scanned two of the four files. The coverage matrix names the two files it left
     out, and the other files stay scanned. Review.md and the profile give the count of two in the
@@ -886,7 +898,9 @@ def test_a_review_shows_the_files_semgrep_left_out_in_its_coverage_and_analyzer_
         report = {"results": [], "paths": {"scanned": [n for n in scanned if n not in left_out]}}
         return subprocess.CompletedProcess(cmd, 0, json.dumps(report), "")
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="semgrep", target_dir=reviewed_checkout)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="semgrep", target_dir=reviewed_checkout, tool_executor=scanner_fake
+    )
     with (
         profiling() as profiler,
         patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)),

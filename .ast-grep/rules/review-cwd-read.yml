@@ -1,0 +1,22 @@
+id: review-cwd-read
+language: python
+severity: error
+files:
+  - "src/devops_cli/ai/review/**"
+  - "src/devops_cli/review/**"
+  - "src/devops_cli/security/**"
+message: A review or scanner module reads the working directory of the process. Take the directory from the caller, as a parameter or through the constructor of the orchestrator.
+note: |
+  The command layer reads the working directory one time and gives it down (ARCHITECTURE.md, section 7.4).
+  A review of a path then does not change with the directory that the command starts in, and a test gives a temporary workspace.
+rule:
+  any:
+    - kind: attribute
+      regex: '^(?:pathlib\.)?Path\.cwd$'
+    - kind: attribute
+      regex: '^os\.getcwdb?$'
+    - kind: call
+      has:
+        field: function
+        kind: identifier
+        regex: '^getcwdb?$'

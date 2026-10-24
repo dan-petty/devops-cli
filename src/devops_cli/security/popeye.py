@@ -104,8 +104,14 @@ def run_popeye_scan(
     namespace: str | None = None,
     context: str | None = None,
     save_output: bool = True,
+    *,
+    workdir: Path,
 ) -> ScanOutcome:
-    """Execute Popeye sanitizer and return scan outcome."""
+    """Execute Popeye sanitizer and return scan outcome.
+
+    Popeye reads the cluster, not a tree. It starts in `workdir`, which the caller gives: the
+    command gives the directory that it runs in (#2098).
+    """
     scanner = PopeyeScanner()
     effective_context = context or "current"
-    return scanner.scan(Path.cwd(), namespace=namespace, context=effective_context)
+    return scanner.scan(workdir, namespace=namespace, context=effective_context)

@@ -12,6 +12,7 @@ from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.review.session import ReviewSessionStore
+from tests.support.fakes.scanners import ScannerFake
 
 
 @pytest.fixture(autouse=True)
@@ -20,49 +21,27 @@ def mock_rag_investigator():
         yield
 
 
-def _create_mock_review_llm() -> MagicMock:
-    """Helper creating a mock LLM for review pipeline tests."""
-    mock_llm = MagicMock()
-    review_json = (
-        '```json\n{"findings": [{"severity": "HIGH", "location": "src/dummy.py:1", '
-        '"title": "Test Issue", "description": "Desc", "fix": "Fix", '
-        '"confidence_score": 0.95}]}\n```'
-    )
-    verify_json = (
-        '```json\n[{"location": "src/dummy.py:1", "severity": "HIGH", '
-        '"verified": true, "mitigated": false, "confidence_score": 0.95, "reason": "Valid"}]\n```'
-    )
-
-    def _fake_chat(*args: object, **kwargs: object) -> str:
-        content = str(args)
-        if "Verify each finding" in content:
-            return verify_json
-        return review_json
-
-    mock_llm.chat_messages.side_effect = _fake_chat
-    mock_llm.chat_complete.side_effect = _fake_chat
-    mock_llm.chat.side_effect = _fake_chat
-    mock_llm.complete.side_effect = _fake_chat
-    return mock_llm
-
-
-def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test the staged review pipeline's initialization and execution."""
+def test_review_pipeline_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
+) -> None:
+    """A review runs its stages over a temporary workspace that the orchestrator takes through its
+    constructor, with every tool and canary answered by the scanner fake (#2098). The stages call
+    no model: no scanner finding reaches the group analysis."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    mock_llm = _create_mock_review_llm()
+    workspace = tmp_path / "workspace"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "src" / "dummy.py").write_text("def foo() -> int:\n    return 1\n", "utf-8")
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="test-session", llm_client=mock_llm, target_dir=tmp_path
+        session_id="test-session", target_dir=workspace, tool_executor=scanner_fake
     )
 
     # Stage 1: Pre-analysis refresh
-    meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path, ["src/dummy.py"])
-    assert isinstance(meta_dict, dict)
+    meta_dict = orchestrator.run_pre_analysis_refresh(["src/dummy.py"])
+    assert sorted(meta_dict) == ["src/dummy.py"]
 
     # Stage 2: Per-file payload initialization
-    fmeta = FileAnalysisMeta(path="src/dummy.py", key_symbols=["foo"], dependencies=["utils"])
-    payloads = orchestrator.init_per_file_payloads(["src/dummy.py"], {"src/dummy.py": fmeta})
-    assert len(payloads) == 1
-    assert payloads[0].file_path == "src/dummy.py"
+    payloads = orchestrator.init_per_file_payloads(["src/dummy.py"], meta_dict)
+    assert [payload.file_path for payload in payloads] == ["src/dummy.py"]
 
     # Stage 3: Consolidated report generation
     data_out, report_md = orchestrator.generate_consolidated_report(payloads)
@@ -75,6 +54,13 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert len(list((published / "files").glob("*.json"))) == 1
     assert session.findings_path.exists()
     assert session.report_path.exists()
+    # Each scan reads the file of the workspace, never one of the working directory.
+    reviewed = (workspace / "src" / "dummy.py").resolve()
+    assert [(request.tool, request.targets) for request in scanner_fake.requests] == [
+        ("bandit", (reviewed,)),
+        ("gitleaks", (reviewed,)),
+        ("semgrep", (reviewed,)),
+    ]
 
 
 def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
@@ -177,12 +163,15 @@ def test_a_review_that_fails_part_way_publishes_nothing(
 
 @pytest.mark.parametrize("file_path", ["a%00b.py", "%2e%2e%2fx.py"])
 def test_a_file_whose_name_holds_percent_escapes_is_reviewed(
-    file_path: str, tmp_path: Path
+    file_path: str, tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
     """Verify a file named like an encoded NUL byte or an encoded `..` has its record written,
     not dropped as an errored file by the path validator that reads the escapes (#771)."""
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="20261001-120000", llm_client=MagicMock(), target_dir=tmp_path
+        session_id="20261001-120000",
+        llm_client=MagicMock(),
+        target_dir=tmp_path,
+        tool_executor=scanner_fake,
     )
 
     payloads = orchestrator.init_per_file_payloads(
@@ -218,10 +207,14 @@ def test_get_server_info_formatting() -> None:
     assert info_formatted == "ollama (localhost:11434) [model: qwen2.5-coder:7b]"
 
 
-def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> None:
+def test_init_per_file_payloads_path_matching(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
+) -> None:
     """init_per_file_payloads matches metadata by exact and normalized suffix paths."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-path-matching", target_dir=tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="test-path-matching", target_dir=tmp_path, tool_executor=scanner_fake
+    )
 
     meta_full = FileAnalysisMeta(
         path="src/devops_cli/ai/agents/__init__.py",

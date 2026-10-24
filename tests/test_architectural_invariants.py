@@ -144,9 +144,16 @@ CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "net-url-build",
 )
 CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("test-elapsed-upper-bound",)
+# The review and scanner packages, which take the working directory from the command layer (#2098).
+CONST_REVIEW_CWD_READ_FILES: Final[tuple[str, ...]] = (
+    "src/devops_cli/ai/review/**",
+    "src/devops_cli/review/**",
+    "src/devops_cli/security/**",
+)
 CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
     **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
     **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
+    "review-cwd-read": CONST_REVIEW_CWD_READ_FILES,
 }
 CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
     "socket.inet_aton",

@@ -40,6 +40,7 @@ from devops_cli.output import (
 )
 from devops_cli.review.session import ReviewSessionStore
 from tests.support.fakes.github import pull_request_payload, route_pull_request
+from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -102,7 +103,7 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
 
     assert (
         _git_repo_root(sample_file),
-        _is_allowed_review_boundary(sample_file, st),
+        _is_allowed_review_boundary(sample_file, st, tmp_path),
         is_ignored_by_git(repo_dir, sample_file),
     ) == (repo_dir, True, False)
 
@@ -119,9 +120,9 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
 
 def test_prepare_content_helpers(tmp_path: Path, github_api: GitHubApiFake) -> None:
     """Verify content preparation for paths, branches, and PRs."""
-    test_file = Path("src/devops_cli/main.py")
+    test_file = REPO_ROOT / "src/devops_cli/main.py"
 
-    pages, title, routed = _prepare_path_content(test_file, "*")
+    pages, title, routed = _prepare_path_content(test_file, "*", working_directory=REPO_ROOT)
     assert (len(pages) >= 1, "main.py" in title, routed) == (True, True, [])
 
     import subprocess
@@ -138,7 +139,9 @@ def test_prepare_content_helpers(tmp_path: Path, github_api: GitHubApiFake) -> N
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        b_pages, b_title, b_target, _ = _prepare_branch_content("feat/test", "main", Path("."))
+        b_pages, b_title, b_target, _ = _prepare_branch_content(
+            "feat/test", "main", REPO_ROOT, working_directory=REPO_ROOT
+        )
         assert (len(b_pages) >= 1, "feat/test" in b_title, b_target) == (True, True, "feat/test")
 
     route_pull_request(
@@ -330,9 +333,9 @@ def test_is_allowed_review_boundary() -> None:
 
     st = Settings()
     assert (
-        _is_allowed_review_boundary(Path("src/app.py"), st),
-        _is_allowed_review_boundary(Path("/etc/shadow"), st),
-        _is_allowed_review_boundary(Path("/etc/passwd"), st),
+        _is_allowed_review_boundary(REPO_ROOT / "src/app.py", st, REPO_ROOT),
+        _is_allowed_review_boundary(Path("/etc/shadow"), st, REPO_ROOT),
+        _is_allowed_review_boundary(Path("/etc/passwd"), st, REPO_ROOT),
     ) == (True, False, False)
 
 
@@ -537,7 +540,9 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, target, _ = _prepare_branch_content("main", "main", Path("."))
+        pages, title, target, _ = _prepare_branch_content(
+            "main", "main", REPO_ROOT, working_directory=REPO_ROOT
+        )
         assert (len(pages) >= 1, "feat/19-example" in title, "main" in title, target) == (
             True,
             True,
@@ -555,7 +560,9 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, target, _ = _prepare_branch_content(None, "main", Path("."))
+        pages, title, target, _ = _prepare_branch_content(
+            None, "main", REPO_ROOT, working_directory=REPO_ROOT
+        )
         assert (len(pages) >= 1, "main" in title, "HEAD" in title, target) == (
             True,
             True,

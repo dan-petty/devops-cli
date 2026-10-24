@@ -11,8 +11,8 @@ read the recorded run as it read the real one: a scan that ran and found nothing
 each recording's version against the lock. Where a case fails, the recording no longer stands for
 the real tool: record the run again with the real tool at its locked version, as the fake's
 docstring says. The last cases hold the fake to its install: the recorded scanners are on PATH,
-the fake answers them and no other tool, and it leaves the canary runs of a review to the recorded
-canary answers of the suite."""
+the fake answers them and no other tool, and it answers the canary run of each tool with the
+recorded canary output, through the default executor and as the executor that a test gives."""
 
 from __future__ import annotations
 
@@ -121,16 +121,22 @@ def test_the_fake_finds_and_answers_only_the_recorded_scanners(
 # The tools that have a canary and that the fake can answer: Semgrep and Bandit, which it holds a
 # recording of, and kube-linter and Pluto, which a test can script. Gitleaks and osv-scanner have no
 # canary.
+@pytest.mark.parametrize("given", [False, True], ids=["default-executor", "given-executor"])
 @pytest.mark.parametrize("tool", ["semgrep", "bandit", "kube-linter", "pluto"])
 def test_a_canary_run_gets_the_recorded_canary_answer_and_not_the_answer_of_the_fake(
-    tool: str, scanner_fake: ScannerFake
+    tool: str, given: bool, scanner_fake: ScannerFake
 ) -> None:
-    """A review runs the canary of each tool on the default executor before its scans. The fake
-    holds an answer for the tool, an empty run that the canary does not pass on. It passes a run
-    in a canary working directory on, so the canary reads the recorded canary output and passes,
-    and the fake answers no run."""
+    """A review runs the canary of each tool on its tool executor before its scans: the default
+    executor, or the fake that a test gives the orchestrator (#1978, #2098). The fake holds an
+    answer for the tool, an empty run that the canary does not pass on. It answers a run in a
+    canary working directory with the recorded canary output, so the canary passes, and it keeps
+    the canary run apart from the runs of the scans."""
     scanner_fake.script(tool, ToolAnswer())
 
-    result = run_tool_canary(tool, use_cache=False)
+    result = run_tool_canary(tool, use_cache=False, tool_executor=scanner_fake if given else None)
 
-    assert (result.passed, scanner_fake.runs) == (True, [])
+    assert (
+        result.passed,
+        scanner_fake.runs,
+        [request.tool for request in scanner_fake.canaries.requests],
+    ) == (True, [], [tool])

@@ -154,7 +154,7 @@ def k8s_audit(
     if not is_dry_run():
         print_info(MESSAGES.k8s.popeye_executing, prefix=False)
 
-    findings = run_popeye_scan()
+    findings = run_popeye_scan(workdir=Path.cwd())
 
     if is_dry_run():
         render_dry_run_result(

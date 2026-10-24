@@ -115,18 +115,25 @@ def _checkout(root: Path, files: dict[str, str]) -> Path:
 def test_no_review_layer_falls_back_to_the_working_directory_for_its_target() -> None:
     """Verify every layer that carries a review's target down to the personas requires it
     (#1100). A default of the working directory let a new caller that left the target out
-    type-check and review the working directory's files, one layer above the fix."""
+    type-check and review the working directory's files, one layer above the fix. The
+    orchestrator takes the target through its constructor alone: no stage takes another (#2098)."""
     layers = {
         "_execute_review_workflow": _execute_review_workflow,
         "ReviewPipelineOrchestrator": ReviewPipelineOrchestrator.__init__,
     }
     targets = {name: inspect.signature(fn).parameters["target_dir"] for name, fn in layers.items()}
-    refresh = inspect.signature(ReviewPipelineOrchestrator.run_pre_analysis_refresh)
+    stages = (
+        ReviewPipelineOrchestrator.run_pre_analysis_refresh,
+        ReviewPipelineOrchestrator.init_per_file_payloads,
+    )
 
     assert {
         name: (p.kind, p.default is inspect.Parameter.empty) for name, p in targets.items()
     } == dict.fromkeys(layers, (inspect.Parameter.KEYWORD_ONLY, True))
-    assert refresh.parameters["target_dir"].default is inspect.Parameter.empty
+    assert ["target_dir" in inspect.signature(stage).parameters for stage in stages] == [
+        False,
+        False,
+    ]
 
 
 def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metadata(
@@ -415,7 +422,6 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
             orchestrator,
             ["app.py"],
             {},
-            repo,
             ["app.py"],
             stage_flags=flags_no_rep,
         )
@@ -435,7 +441,6 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
             orchestrator,
             ["app.py"],
             {},
-            repo,
             ["app.py"],
             stage_flags=flags_rep,
         )
@@ -490,7 +495,6 @@ def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
         orchestrator,
         ["app.py"],
         {},
-        repo,
         ["app.py"],
         stage_flags=flags,
     )

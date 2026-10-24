@@ -93,7 +93,6 @@ def test_branch_review_worktree_isolation_regression(tmp_path: Path) -> None:
             target_dir=rw.commit_worktree,
         )
         metas = orchestrator.run_pre_analysis_refresh(
-            target_dir=rw.commit_worktree,
             files=["app.py"],
             target_type="branch",
             target_ref="feature",
