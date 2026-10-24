@@ -77,6 +77,9 @@ TELEMETRY_CAPTURE_LLM_CONTENT = "telemetry.capture_llm_content"
 TELEMETRY_LOGFIRE = "telemetry.logfire"
 TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
 
+# Gitea, the homelab's internal forge (#1081)
+GITEA_ADMIN_PASSWORD = "gitea.admin_password"
+
 # Kubernetes Cluster & Minikube Configuration
 K8S_CONTEXT = "k8s.context"
 K8S_DOMAIN = "k8s.domain"
@@ -205,6 +208,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     TELEMETRY_LOGFIRE,
     TELEMETRY_LOGFIRE_TOKEN,
     SANDBOX_EXCLUDE_HOME_DIR,
+    GITEA_ADMIN_PASSWORD,
     K8S_CONTEXT,
     K8S_DOMAIN,
     K8S_GITHUB_ACCOUNT,
@@ -238,6 +242,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         QDRANT_API_KEY,
         VALKEY_PASSWORD,
         RUNS_INDEX_PASSWORD,
+        GITEA_ADMIN_PASSWORD,
         TELEMETRY_LOGFIRE_TOKEN,
         CLOUDFLARE_API_TOKEN,
         CLOUDFLARE_TUNNEL_TOKEN,
@@ -255,6 +260,7 @@ KEYRING_KEYS: dict[str, str] = {
     QDRANT_API_KEY: "qdrant_api_key",
     VALKEY_PASSWORD: "valkey_password",
     RUNS_INDEX_PASSWORD: "runs_index_password",
+    GITEA_ADMIN_PASSWORD: "gitea_admin_password",
     TELEMETRY_LOGFIRE_TOKEN: "logfire_token",
     CLOUDFLARE_API_TOKEN: "cloudflare_api_token",
     CLOUDFLARE_TUNNEL_TOKEN: "cloudflare_tunnel_token",

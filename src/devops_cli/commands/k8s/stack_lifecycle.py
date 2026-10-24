@@ -70,12 +70,16 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "logging": {
         "grafana": "https://grafana.github.io/helm-charts",
     },
+    "gitea": {
+        "gitea-charts": "https://dl.gitea.com/charts/",
+    },
 }
 
 _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["infra"],
     **_HELM_REPOS_BY_STACK["llm"],
     **_HELM_REPOS_BY_STACK["logging"],
+    **_HELM_REPOS_BY_STACK["gitea"],
 }
 
 
@@ -189,6 +193,17 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "version": "7.3.0",
         },
     ],
+    # The internal forge and container registry (#1081). Its pod waits for Secret gitea-admin,
+    # which the push of stack `gitea` writes before the chart installs.
+    "gitea": [
+        {
+            "name": "gitea",
+            "chart": "gitea-charts/gitea",
+            "namespace": "gitea",
+            "values": str(DEFAULT_K8S_DIR / "gitea" / "values.yaml"),
+            "version": "12.7.0",
+        },
+    ],
 }
 
 _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
@@ -218,6 +233,9 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     ],
     "logging": [
         DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
+    ],
+    "gitea": [
+        DEFAULT_K8S_DIR / "gitea" / "networkpolicy.yaml",
     ],
     "devops": [
         DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
@@ -249,7 +267,7 @@ _POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "llm": (Path("llm", "gateway", "servicemonitor.yaml"),),
 }
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "gitea", "all")
 
 
 def _recover_stuck_helm_release_if_pending(

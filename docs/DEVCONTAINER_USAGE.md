@@ -563,7 +563,7 @@ devops k8s pods --all-namespaces
 devops k8s deploy-stack --stack infra     # ArgoCD, k8s-monitoring (Alloy), Prometheus, Grafana, OTel Collector, Tempo
 devops k8s deploy-stack --stack llm       # Ollama profiles, LLM gateway, Open WebUI, Qdrant, Valkey
 devops k8s deploy-stack --stack logging   # Loki, Fluent Bit
-devops k8s deploy-stack --stack all       # all three
+devops k8s deploy-stack --stack all       # every stack, also devops and gitea
 
 # 6. Stream logs from a deployed controller
 devops k8s stream-logs argocd-server -n argocd --tail 100 -f

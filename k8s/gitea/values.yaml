@@ -1,0 +1,131 @@
+# Gitea Helm chart values: the internal forge and container registry of the homelab (#1081).
+# Chart gitea 12.7.0 from https://dl.gitea.com/charts/, with Gitea 1.27.3 (rootless image).
+#
+# Pods and Argo CD reach Gitea in the cluster over HTTP at the chart's Service,
+# http://gitea-http.gitea.svc.cluster.local:3000. Workstations reach it at https://git.<domain>
+# through the Cloudflare tunnel and Traefik. The Ingress of that host is in
+# k8s/ingress/ingress-routes.yaml, and deploy-stack sets the configured domain on it (#1290).
+# No value here names a domain: the Argo CD gate refuses the placeholder domain in a values file.
+
+replicaCount: 1
+# One SQLite file. The chart's RollingUpdate with maxSurge 100% would run two pods on it.
+strategy:
+  type: Recreate
+
+image:
+  tag: "1.27.3"
+  rootless: true
+
+# As k8s/llm/gateway/deployment.yaml: the init containers and Gitea run as user 1000.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# A pod that mounts a local-path claim never runs on the control-plane node (#1634).
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role.kubernetes.io/control-plane
+              operator: DoesNotExist
+
+service:
+  http:
+    type: ClusterIP
+    port: 3000
+
+# The Ingress of the git host is in k8s/ingress/ingress-routes.yaml (see the top of this file).
+ingress:
+  enabled: false
+
+persistence:
+  enabled: true
+  create: true
+  claimName: gitea-shared-storage
+  size: 10Gi
+  storageClass: local-path
+  accessModes:
+    - ReadWriteOnce
+  annotations:
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+
+# The chart's connection test pod runs busybox:latest with no security context.
+test:
+  enabled: false
+
+gitea:
+  # `devops k8s push-secrets --stack gitea` writes Secret gitea-admin (keys `username` and
+  # `password`) from the keyring. Each start sets the admin's password to the Secret's.
+  admin:
+    existingSecret: gitea-admin
+    passwordMode: keepUpdated
+  config:
+    server:
+      # The in-cluster address. Gitea builds the URLs of each request from its Host header and
+      # X-Forwarded-Proto: Cloudflare sends `https`, and Traefik's `web` entrypoint keeps it.
+      DOMAIN: gitea-http.gitea.svc.cluster.local
+      ROOT_URL: http://gitea-http.gitea.svc.cluster.local:3000/
+      PUBLIC_URL_DETECTION: auto
+      # HTTPS only: the rootless image would otherwise start its own SSH server on 2222.
+      DISABLE_SSH: true
+      START_SSH_SERVER: false
+      OFFLINE_MODE: true
+    # Chosen at the first install: Gitea does not support a later change of database type.
+    database:
+      DB_TYPE: sqlite3
+      SQLITE_JOURNAL_MODE: WAL
+    # Sessions in the database, so a restart signs nobody out.
+    session:
+      PROVIDER: db
+    cache:
+      ADAPTER: memory
+    queue:
+      TYPE: level
+    service:
+      DISABLE_REGISTRATION: true
+      REQUIRE_SIGNIN_VIEW: true
+    # Only the API creates a repository, so a mistyped remote fails instead.
+    repository:
+      DEFAULT_PRIVATE: private
+      ENABLE_PUSH_CREATE_USER: false
+      ENABLE_PUSH_CREATE_ORG: false
+      DISABLE_MIGRATIONS: true
+    mirror:
+      ENABLED: false
+    actions:
+      ENABLED: false
+    # The container registry of the cluster (k8s/README.md, Internal Image Registry).
+    packages:
+      ENABLED: true
+    cron.update_checker:
+      ENABLED: false
+
+# The bundled database and cache charts are Bitnami's, on bitnamilegacy images.
+postgresql:
+  enabled: false
+postgresql-ha:
+  enabled: false
+valkey:
+  enabled: false
+valkey-cluster:
+  enabled: false

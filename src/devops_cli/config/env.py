@@ -74,6 +74,7 @@ ENV_VALKEY_PASSWORD = "DEVOPS_CLI_VALKEY_PASSWORD"
 ENV_VALKEY_TIMEOUT = "DEVOPS_CLI_VALKEY_TIMEOUT"
 ENV_RUNS_INDEX_URL = "DEVOPS_CLI_RUNS_INDEX_URL"
 ENV_RUNS_INDEX_PASSWORD = "DEVOPS_CLI_RUNS_INDEX_PASSWORD"
+ENV_GITEA_ADMIN_PASSWORD = "DEVOPS_CLI_GITEA_ADMIN_PASSWORD"
 ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
 ENV_K8S_DOMAIN = "DEVOPS_CLI_K8S_DOMAIN"
 ENV_K8S_GITHUB_ACCOUNT = "DEVOPS_CLI_K8S_GITHUB_ACCOUNT"
@@ -160,6 +161,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.VALKEY_TIMEOUT: ENV_VALKEY_TIMEOUT,
     opt.RUNS_INDEX_URL: ENV_RUNS_INDEX_URL,
     opt.RUNS_INDEX_PASSWORD: ENV_RUNS_INDEX_PASSWORD,
+    opt.GITEA_ADMIN_PASSWORD: ENV_GITEA_ADMIN_PASSWORD,
     opt.K8S_CONTEXT: ENV_K8S_CONTEXT,
     opt.K8S_DOMAIN: ENV_K8S_DOMAIN,
     opt.K8S_GITHUB_ACCOUNT: ENV_K8S_GITHUB_ACCOUNT,
@@ -497,6 +499,13 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.RUNS_INDEX_PASSWORD,
             True,
             "Run index Valkey password (stored in OS keyring)",
+        ),
+        EnvVarSpec(
+            ENV_GITEA_ADMIN_PASSWORD,
+            opt.GITEA_ADMIN_PASSWORD,
+            True,
+            "Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret "
+            "gitea/gitea-admin (stored in OS keyring)",
         ),
         EnvVarSpec(
             ENV_K8S_CONTEXT,

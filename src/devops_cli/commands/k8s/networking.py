@@ -65,14 +65,14 @@ from devops_cli.output.serialization import emit_serialized, resolve_format
 
 logger = logging.getLogger(__name__)
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "gitea", "all")
 
 
 def _resolve_stacks(stack: str) -> list[str]:
     s = stack.strip().lower()
     if s == "all":
-        return ["infra", "llm", "logging", "devops"]
-    if s in ("infra", "llm", "logging", "devops"):
+        return ["infra", "llm", "logging", "devops", "gitea"]
+    if s in ("infra", "llm", "logging", "devops", "gitea"):
         return [s]
     print_error(
         f"Invalid stack: {stack!r}. Supported stacks: {', '.join(VALID_STACKS)}",

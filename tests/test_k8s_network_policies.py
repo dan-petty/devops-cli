@@ -24,7 +24,7 @@ K8S_DIR = REPO_ROOT / "k8s"
 # or leaves its file; the guard below fails until then.
 UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {}
 
-TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops", "argo-workflows")
+TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops", "argo-workflows", "gitea")
 METADATA_SSRF_IP = "169.254.169.254/32"
 TRAEFIK_PEER = {
     "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
@@ -258,7 +258,7 @@ def test_monitoring_ingress_admits_no_world_cidr() -> None:
     ) == ([], [([TRAEFIK_PEER], MONITORING_TRAEFIK_PORTS)])
 
 
-@pytest.mark.parametrize("namespace", ("argocd", "otel", "argo-workflows"))
+@pytest.mark.parametrize("namespace", ("argocd", "otel", "argo-workflows", "gitea"))
 def test_ingress_admits_no_world_cidr(namespace: str) -> None:
     """Verify ingress perimeter defines no ingress ipBlocks (#1371).
 
@@ -294,6 +294,66 @@ def test_api_server_egress_admits_6443_through_ipblock(namespace: str) -> None:
         ip_blocks[0]["cidr"],
         METADATA_SSRF_IP in ip_blocks[0].get("except", []),
     ) == (1, "0.0.0.0/0", True)
+
+
+def _peer_namespace_and_pods(peer: dict[str, Any]) -> tuple[str | None, dict[str, str] | None]:
+    """The namespace a peer names (None: the policy's own) and its pod labels (None: any pod)."""
+    namespace = peer.get("namespaceSelector", {}).get("matchLabels", {})
+    pods = peer.get("podSelector")
+    return namespace.get("kubernetes.io/metadata.name"), (
+        pods.get("matchLabels") or None if pods is not None else None
+    )
+
+
+def test_gitea_perimeter_admits_only_its_http_port_from_traefik_argocd_and_its_namespace() -> None:
+    """Gitea answers on TCP 3000 only, from Traefik (the tunnel's path), Argo CD's repo server
+    (#1082) and its own namespace, and reaches only DNS and its own namespace (#1081). No peer
+    is an address range, and no rule admits the SSH ports 22 and 2222."""
+    spec = yaml.safe_load((K8S_DIR / "gitea" / "networkpolicy.yaml").read_text("utf-8"))["spec"]
+    ingress = [
+        (
+            sorted((_peer_namespace_and_pods(peer) for peer in rule.get("from", [])), key=str),
+            [(port["protocol"], port["port"]) for port in rule.get("ports", [])],
+        )
+        for rule in spec["ingress"]
+    ]
+    egress = [
+        (
+            [_peer_namespace_and_pods(peer) for peer in rule.get("to", [])],
+            [(port["protocol"], port["port"]) for port in rule.get("ports", [])],
+        )
+        for rule in spec["egress"]
+    ]
+    admitted_ports = {port for _, ports in ingress for _, port in ports}
+
+    assert (
+        spec["podSelector"],
+        spec["policyTypes"],
+        ingress,
+        egress,
+        admitted_ports & {22, 2222},
+    ) == (
+        {},
+        ["Ingress", "Egress"],
+        [
+            (
+                sorted(
+                    [
+                        ("kube-system", {"app.kubernetes.io/name": "traefik"}),
+                        ("argocd", {"app.kubernetes.io/name": "argocd-repo-server"}),
+                        (None, None),
+                    ],
+                    key=str,
+                ),
+                [("TCP", 3000)],
+            )
+        ],
+        [
+            ([("kube-system", {"k8s-app": "kube-dns"})], [("UDP", 53), ("TCP", 53)]),
+            ([(None, None)], []),
+        ],
+        set(),
+    )
 
 
 def test_otel_rule_4_admits_traefik_on_8888() -> None:

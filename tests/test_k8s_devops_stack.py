@@ -33,7 +33,7 @@ def test_devops_stack_registration_and_resolution() -> None:
         True,
         True,
         ["devops"],
-        ["infra", "llm", "logging", "devops"],
+        ["infra", "llm", "logging", "devops", "gitea"],
     )
 
 
