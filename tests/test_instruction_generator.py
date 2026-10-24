@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from typer.testing import CliRunner
@@ -29,10 +29,31 @@ from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_AGENTS_MD_MAX_CHARS,
     CONST_AGENTS_MD_ROUTES,
-    CONST_DELETED_PROCESS_TERMS,
 )
 from devops_cli.config.defaults import DEFAULT_AGENTS_MD_CHECK_COMMANDS
 from tests.support.paths import REPO_ROOT
+
+CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
+    "release branch",
+    "`release/",
+    "release/*",
+    "release/v",
+    "the cut",
+    "cut PR",
+    "changelog fragment",
+    "changelog.d",
+    "towncrier",
+    "Part of #",
+    "roadmap reprioritize",
+    "roadmap close",
+    "roadmap render",
+    "roadmap migrate",
+    "docs/ROADMAP.md",
+    "devops release",
+    "filing quota",
+    "budget/borrowed",
+    "#1153",
+)
 
 
 @pytest.fixture

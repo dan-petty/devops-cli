@@ -1,0 +1,21 @@
+# Tasks
+
+## 1. One validated Valkey URL names the address and the database
+
+- [x] 1.1 Write `TestValkeyUrl` and the endpoint and password cases in `tests/test_valkey.py`, `test_valkey_url_is_the_one_option_that_names_the_valkey_address` and `test_the_valkey_timeout_variable_names_the_default_timeout` in `tests/test_config_cmd.py`, and `test_a_run_is_kept_locally_when_the_index_url_is_not_a_valkey_url` in `tests/test_run_store.py`, and verify that they fail on the base with `uv run devops ci fail-to-pass --base origin/main`: `tests/test_valkey.py` cannot import `devops_cli.valkey.endpoint`, and the others fail
+- [x] 1.2 Add `parse_valkey_url` and `ValkeyEndpoint` in `src/devops_cli/valkey/endpoint.py`, make `ValkeyClient` take the endpoint, and delete `parse_valkey_endpoint`, and verify that `uv run devops ci test tests/test_valkey.py` passes
+- [x] 1.3 Replace `valkey.host`, `valkey.port` and `valkey.db` with `valkey.url` in `ValkeyConfig`, the options and the variables, add `DEVOPS_CLI_VALKEY_URL` and `DEFAULT_VALKEY_URL`, name the default timeout in the help of `DEVOPS_CLI_VALKEY_TIMEOUT`, shrink the schemes to `valkey` and `valkeys`, and delete `_valkey_scheme`, `_parse_valkey_url`, `_normalize_valkey_host`, `DEFAULT_VALKEY_HOST` and `CONST_VALKEY_TLS_SCHEMES`, and verify that `uv run devops ci test tests/test_config_cmd.py tests/test_config_env_overrides.py tests/test_config_commands.py` passes
+- [x] 1.4 Make `--url` replace `--host` and `--port` of the nine `devops valkey` commands, validate `runs.index_url` in `RunIndex`, and make the dashboard, the embedding cache and the Cloudflare Radar cache dial `valkey.url`, and verify that `uv run devops ci test tests/test_valkey.py tests/test_run_store.py tests/test_ui_dashboard.py tests/test_rag_embeddings.py tests/test_embedding_config_retention.py tests/test_ai_subcommands_rag.py tests/test_security_threat_intel.py tests/test_library_vector_tier.py` passes
+- [x] 1.5 Regenerate the docs with `uv run devops docs generate --sync-readme`, and verify that `uv run devops docs check` passes and that `rg -n 'parse_valkey_endpoint|_parse_valkey_url|_normalize_valkey_host|ENV_VALKEY_(HOST|PORT|DB)|DEVOPS_CLI_VALKEY_(HOST|PORT|DB)|opt\.VALKEY_(HOST|PORT|DB)|DEFAULT_VALKEY_HOST|valkey\.(host|port|db)\b' src docs/CONFIGURATION.md docs/ENV_VARS.md docs/CLI_REFERENCE.md docs/commands/valkey.md` prints nothing
+
+## 2. configure-urls saves valkey.url as a valkey URL
+
+- [x] 2.1 Write `test_configure_urls_saves_valkey_url_as_a_valkey_url` and the `valkey://` port-forward case in `tests/test_k8s_networking.py`, and move the cases of `tests/test_k8s_bootstrap.py` and `tests/test_k8s_proxy_addressing.py` to `valkey://`, and verify that they fail on the base with `uv run devops ci fail-to-pass --base origin/main`
+- [x] 2.2 Write the detected address as `valkey://` with `httpx2.URL`, send `valkey.url` through `_apply_service_url`, keep a saved loopback URL on a port other than 6379, replace a saved URL that is not valid, show `valkey://` in both previews, and delete `_has_non_default_valkey_port` and `_should_update_valkey`, and verify that `uv run devops ci test tests/test_k8s_networking.py tests/test_k8s_bootstrap.py tests/test_k8s_proxy_addressing.py tests/test_k8s.py` passes and that `rg -n 'tcp://|"tcp"' src/devops_cli/commands/k8s/networking.py src/devops_cli/commands/ai_runs.py src/devops_cli/ai/run_store.py src/devops_cli/valkey` prints nothing
+- [x] 2.3 Verify that the generated docs need no other change (`uv run devops docs generate --sync-readme`, then `uv run devops docs check`)
+
+## Workflow follow-up
+
+- Pending a person: on a workstation whose `config.yaml` holds the `tcp://` `valkey.url` that `devops k8s configure-urls` saved before this change, run `uv run devops valkey ping`. It names `devops k8s configure-urls`. Run that command, or `devops config set valkey.url valkey://<host>:<port>/0`, and `uv run devops valkey ping` connects.
+- Pending a person: against a real Valkey 8, run `uv run devops valkey set k v --url valkey://<host>:<port>/1`. Then `uv run devops valkey get k --url valkey://<host>:<port>/1` prints `v`, and `uv run devops valkey get k --url valkey://<host>:<port>/0` finds no key.
+- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

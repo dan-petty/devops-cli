@@ -6,6 +6,7 @@ import json
 import re
 from itertools import pairwise
 from pathlib import Path
+from typing import Final
 from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
@@ -21,9 +22,36 @@ from devops_cli.ai.personas import Persona
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_MAX_CHARS,
     CONST_AGENTS_MD_ROUTES,
-    CONST_DELETED_PROCESS_TERMS,
 )
 from tests.support.paths import REPO_ROOT
+
+CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
+    "release branch",
+    "`release/",
+    "release/*",
+    "release/v",
+    "the cut",
+    "cut PR",
+    "changelog fragment",
+    "changelog.d",
+    "towncrier",
+    "Part of #",
+    "roadmap reprioritize",
+    "roadmap close",
+    "roadmap render",
+    "roadmap migrate",
+    "docs/ROADMAP.md",
+    "devops release",
+    "filing quota",
+    "budget/borrowed",
+    "#1153",
+    # The pre-push hook runs only the fast static checks (#1752).
+    "pre-push gate",
+    "pre-push `uv run devops ci`",
+    "pre-push hook runs `uv run devops ci`",
+    "pre-push hook runs the full gate",
+    "pre-push hook runs the same gate",
+)
 
 
 def _extract_issue_templates(agents_md_content: str) -> set[str]:
@@ -51,9 +79,10 @@ def test_issue_templates_named_in_agents_md_exist() -> None:
     assert not missing, f"Missing issue templates referenced in AGENTS.md: {missing}"
 
     # Also assert that deprecated/unsupported templates are not referenced
-    assert "security_advisory.yml" not in templates and "task.yml" not in templates, (
+    assert "security_advisory.yml" not in templates, (
         "Deprecated templates must not be referenced in AGENTS.md"
     )
+    assert "task.yml" not in templates, "Deprecated templates must not be referenced in AGENTS.md"
 
 
 def test_personas_in_self_improvement_are_valid() -> None:
@@ -349,9 +378,10 @@ def _deleted_process_names(texts: dict[str, str]) -> dict[str, list[str]]:
 
 
 def test_no_agent_instruction_names_a_deleted_process(tmp_path: Path) -> None:
-    """An instruction that names a release branch, the cut, a changelog fragment, the planner or
-    the filing quota sends an agent into a process that no longer exists. No agent instruction,
-    and no AGENTS.md that `devops ai agents` writes, names one."""
+    """An instruction that names a release branch, the cut, a changelog fragment, the planner,
+    the filing quota or the full gate in the pre-push hook sends an agent into a process that no
+    longer exists. No agent instruction, and no AGENTS.md that `devops ai agents` writes, names
+    one."""
     paths = sorted({path for glob in _AGENT_INSTRUCTION_GLOBS for path in REPO_ROOT.glob(glob)})
     texts = {str(path.relative_to(REPO_ROOT)): path.read_text(encoding="utf-8") for path in paths}
     generated = _scaffold_with_every_routed_document(tmp_path)

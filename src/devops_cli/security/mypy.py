@@ -1,4 +1,9 @@
-"""Mypy static Python type checker security and review scanner integration (#873)."""
+"""Mypy static Python type checker security and review scanner integration (#873).
+
+Mypy runs as `python -I -m mypy` with the interpreter of the `.venv` of the reviewed checkout, so
+it imports what the reviewed project imports. It starts through the `ToolExecutor` that the scan
+gets, as every other review tool does (#1978).
+"""
 
 from __future__ import annotations
 
@@ -7,19 +12,26 @@ import hashlib
 import re
 import sys
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_MYPY
-from devops_cli.config.constants import CONST_MYPY_CACHE_DIR_NAME
+from devops_cli.config.constants import (
+    CONST_MYPY_CACHE_DIR_ENV,
+    CONST_MYPY_CACHE_DIR_NAME,
+    CONST_TOOL_TARGETS_PLACEHOLDER,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import main_worktree_root, resolve_data_path
+from devops_cli.exceptions.sandbox import SandboxError
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.normalization import normalize_severity
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor
 
 _MYPY_LINE_RE = re.compile(
     r"^(?P<path>[^:\n]+):(?P<line>\d+)(?::(?P<col>\d+))?: (?P<sev>[^:\n]+): (?P<msg>.+?)(?:  \[(?P<code>[^\]]+)\])?$"
@@ -196,6 +208,13 @@ def _mypy_cache_dir(tree: Path, python_version: str, environment_lock: str) -> P
     return cache_root / CONST_MYPY_CACHE_DIR_NAME / key
 
 
+def _mypy_interpreter(checkout: Path) -> Path:
+    """The interpreter that runs mypy: the one of the `.venv` of `checkout`, else the one that runs
+    devops-cli. It is named by the path of the `.venv`, not by the file that its link leads to."""
+    venv_python = checkout / ".venv" / "bin" / "python"
+    return venv_python if venv_python.is_file() else Path(sys.executable)
+
+
 def run_mypy_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     *,
@@ -203,9 +222,17 @@ def run_mypy_scan(
     checkout_root: Path | None = None,
     python_version: str | None = None,
     timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+    tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
-    """Run mypy on changed modules with project config and uv.lock environment validation."""
+    """Run mypy on changed modules with project config and uv.lock environment validation.
+
+    Mypy starts through `tool_executor`, and without one as a child process of devops-cli, as a
+    scanner starts its tool. The request names the interpreter as its program, and the
+    environment of the interpreter as a read-only bind. The cache directory goes to mypy through
+    `MYPY_CACHE_DIR`, so the command names no path but the config file and the targets.
+    """
     from devops_cli.dry_run.state import is_dry_run
+    from devops_cli.security.tool_executor import DirectToolExecutor, ToolLimits, ToolRequest
 
     if is_dry_run():
         return ScanOutcome(status="dry_run", findings=MypyScanner().dry_run_scan(target))
@@ -221,8 +248,7 @@ def run_mypy_scan(
     if gap_outcome is not None:
         return gap_outcome
 
-    venv_python = effective_checkout / ".venv" / "bin" / "python"
-    python_bin = str(venv_python) if venv_python.is_file() else sys.executable
+    interpreter = _mypy_interpreter(effective_checkout)
 
     files = _collect_mypy_target_files(target)
     if not files:
@@ -231,28 +257,45 @@ def run_mypy_scan(
     config_file = effective_tree / "pyproject.toml"
     if not config_file.is_file():
         config_file = effective_checkout / "pyproject.toml"
+    config_files = (config_file.resolve(),) if config_file.is_file() else ()
 
     cache_dir = _mypy_cache_dir(
         effective_tree, resolved_ver or "", hash_file(effective_checkout / "uv.lock") or ""
     )
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        python_bin,
-        "-I",
-        "-m",
-        "mypy",
-        f"--python-version={resolved_ver}",
-        *(["--config-file", str(config_file.resolve())] if config_file.is_file() else []),
-        "--cache-dir",
-        str(cache_dir),
-        "--no-error-summary",
-        *[str(f.resolve()) for f in files],
-    ]
+    request = ToolRequest(
+        tool=BIN_MYPY,
+        program=interpreter,
+        arguments=(
+            "-I",
+            "-m",
+            "mypy",
+            f"--python-version={resolved_ver}",
+            *(arg for path in config_files for arg in ("--config-file", str(path))),
+            "--no-error-summary",
+            CONST_TOOL_TARGETS_PLACEHOLDER,
+        ),
+        workdir=effective_tree,
+        targets=tuple(f.resolve() for f in files),
+        config_files=config_files,
+        read_only_binds=(interpreter.parent.parent,),
+        env={CONST_MYPY_CACHE_DIR_ENV: str(cache_dir)},
+        limits=ToolLimits(wall_seconds=timeout),
+    )
+    executor = tool_executor or DirectToolExecutor()
     with cache_dir.with_suffix(".lock").open("a", encoding="utf-8") as lock:
         # mypy keeps its cache in SQLite, which lets one process write at a time, so runs over
         # one tree take turns. Closing the lock file releases the lock.
         fcntl.flock(lock, fcntl.LOCK_EX)
-        proc = run_subprocess(cmd, cwd=effective_tree, check=False, timeout=timeout)
-    raw_out = (proc.stdout or "") + (proc.stderr or "")
-    findings = parse_mypy_output(raw_out, default_path=str(effective_tree))
+        try:
+            result = executor.run(request)
+        except SandboxError as exc:
+            # A request that the executor refuses starts nothing. The scan reports the refusal,
+            # as a scanner does, and the other evidence of the review stays.
+            return ScanOutcome(
+                status="failed", findings=[], reason=f"Scanner execution failed: {exc}"
+            )
+    if result.timed_out:
+        return ScanOutcome(status="failed", findings=[], reason=f"timed out after {timeout:g} s")
+    findings = parse_mypy_output(result.stdout + result.stderr, default_path=str(effective_tree))
     return ScanOutcome(status="ran", findings=findings)

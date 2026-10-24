@@ -13,58 +13,25 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from graphlib import CycleError
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Final
 
 import pathspec
 import pytest
 
 from devops_cli.config.constants import (
-    CONST_AST_GREP_IGNORE_COMMENT_RE,
-    CONST_AST_GREP_RULE_FILES,
-    CONST_AST_GREP_RULE_ID_SEPARATOR,
     CONST_AST_GREP_SCAN_ARGS,
-    CONST_AST_GREP_SCAN_ROOTS,
-    CONST_BANNED_HAND_ROLLED_APIS,
-    CONST_BLIND_EXCEPTION_TYPES,
-    CONST_COMPLEXITY_CAP_ROOTS,
     CONST_CONFTEST_FILENAME,
     CONST_DOCS_CLASS_HAND_WRITTEN,
     CONST_DOCS_INVENTORY,
-    CONST_FILE_DIRECTIVE_COMMENT_RE,
     CONST_GITIGNORE_FILENAME,
     CONST_GITIGNORE_PATTERN_STYLE,
-    CONST_NOQA_COMMENT_RE,
-    CONST_NOQA_RULE_CODE_RE,
-    CONST_NOSEC_COMMENT_RE,
-    CONST_PRAGMA_NO_COVER_COMMENT_RE,
-    CONST_PRAGMA_NO_MUTATE_COMMENT_RE,
+    CONST_PRESENCE_CHECK_NAMES,
     CONST_PYTHON_FILE_SUFFIX,
-    CONST_RUFF_IGNORE_FILE_NAMES,
-    CONST_RUFF_PER_FILE_IGNORE_KEYS,
-    CONST_RUFF_SOURCE_SUFFIXES,
-    CONST_SUPPRESSION_COMMENT_PREFILTER_RE,
-    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
-    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
-    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
-    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
-    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
-    CONST_SUPPRESSION_KIND_NOSEC,
-    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
-    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
-    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
-    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
-    CONST_SUPPRESSION_KINDS,
-    CONST_SUPPRESSION_LINT_RULES,
-    CONST_TEST_ASSERTION_LINT_RULES,
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
-    CONST_TYPE_IGNORE_COMMENT_RE,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AST_GREP_SUPPRESSION_CEILING,
-    DEFAULT_C901_SUPPRESSION_CEILING,
     DEFAULT_MAX_NESTING_DEPTH,
-    DEFAULT_SUPPRESSION_CEILINGS,
 )
 from devops_cli.core.code_metrics import measure_tree
 from devops_cli.core.import_graph import (
@@ -83,6 +50,137 @@ from tests.support.trees import (
     parse_python_file,
     parse_source_trees,
 )
+
+CONST_BLIND_EXCEPTION_TYPES: Final[frozenset[str]] = frozenset({"Exception", "BaseException"})
+CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset(
+    {"B011", "B015", "B017", "B018", "PT011", "PT015", "PT017", "PT018", "RUF043"}
+)
+CONST_SUPPRESSION_LINT_RULES: Final[frozenset[str]] = frozenset({"PGH003", "RUF100"})
+CONST_RUFF_PER_FILE_IGNORE_KEYS: Final[tuple[str, ...]] = (
+    "per-file-ignores",
+    "extend-per-file-ignores",
+)
+CONST_COMPLEXITY_CAP_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
+CONST_RUFF_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi", ".ipynb"})
+CONST_RUFF_IGNORE_FILE_NAMES: Final[frozenset[str]] = frozenset(
+    {CONST_GITIGNORE_FILENAME, ".ignore"}
+)
+CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"
+CONST_SUPPRESSION_KIND_NOQA_PREFIX: Final[str] = "noqa"
+CONST_SUPPRESSION_KIND_NOSEC: Final[str] = "nosec"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER: Final[str] = "pragma: no cover"
+CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE: Final[str] = "pragma: no mutate"
+CONST_SUPPRESSION_KIND_FILE_DIRECTIVE: Final[str] = "file-level directive"
+CONST_SUPPRESSION_KIND_AST_GREP_IGNORE: Final[str] = "ast-grep-ignore"
+CONST_SUPPRESSION_KIND_PER_FILE_IGNORES: Final[str] = "per-file-ignores"
+CONST_SUPPRESSION_KIND_MYPY_OVERRIDES: Final[str] = "[[tool.mypy.overrides]]"
+CONST_SUPPRESSION_KIND_COVERAGE_OMIT: Final[str] = "coverage omit"
+CONST_COMMENT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
+    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
+    CONST_SUPPRESSION_KIND_NOSEC,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
+    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
+    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
+    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
+)
+CONST_PYPROJECT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
+    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
+    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
+)
+CONST_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
+    *CONST_COMMENT_SUPPRESSION_KINDS,
+    *CONST_PYPROJECT_SUPPRESSION_KINDS,
+)
+CONST_SUPPRESSION_COMMENT_PREFILTER_RE: Final[re.Pattern[str]] = re.compile(
+    r"#[^\n]*(?:type[^\S\n]*:[^\S\n]*ignore\b|noqa\b|nosec\b"
+    r"|pragma[^\S\n]*:[^\S\n]*no[^\S\n]+(?:cover|mutate)\b"
+    r"|(?:ruff|flake8|mypy|pyright|pylint|bandit)[^\S\n]*:|ast-grep-ignore\b)",
+    re.IGNORECASE,
+)
+CONST_TYPE_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*type[^\S\n]*:[^\S\n]*ignore\b", re.IGNORECASE
+)
+CONST_NOQA_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*noqa(?:[^\S\n]*:[^\S\n]*"
+    r"(?P<codes>[A-Z0-9]+(?:(?:[^\S\n]*,[^\S\n]*|[^\S\n]+)[A-Z0-9]+)*)|(?=$|[^\S\n]+#))",
+    re.IGNORECASE,
+)
+CONST_NOQA_RULE_CODE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Z0-9]+")
+CONST_NOSEC_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*nosec\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_COVER_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+cover\b", re.IGNORECASE
+)
+CONST_PRAGMA_NO_MUTATE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+mutate\b", re.IGNORECASE
+)
+CONST_FILE_DIRECTIVE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*(?:(?:ruff|flake8)[^\S\n]*:[^\S\n]*noqa\b"
+    r"|ruff[^\S\n]*:[^\S\n]*(?:file-ignore|disable|ignore)\b"
+    r"|(?:mypy|pyright)[^\S\n]*:|(?:pylint|bandit)[^\S\n]*:[^\S\n]*skip-file\b)",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[^\S\n])#[^\S\n]*ast-grep-ignore(?:[^\S\n]*:[^\S\n]*(?P<ids>[^\n#]+))?\b",
+    re.IGNORECASE,
+)
+CONST_AST_GREP_RULE_ID_SEPARATOR: Final[str] = ","
+CONST_AST_GREP_SCAN_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
+CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
+    "net-address-list",
+    "net-bracket-affix",
+    "net-cidr-build",
+    "net-domain-list",
+    "net-domain-suffix",
+    "net-hostport",
+    "net-ip-literal",
+    "net-normalise",
+    "net-port-table",
+    "net-scheme-affix",
+    "net-scheme-in",
+    "net-url-build",
+)
+CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("test-elapsed-upper-bound",)
+CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
+    **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
+    **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
+}
+CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
+    "socket.inet_aton",
+    "socket.inet_ntoa",
+    "socket.inet_pton",
+    "socket.inet_ntop",
+)
+
+DEFAULT_C901_SUPPRESSION_CEILING: int = 25
+DEFAULT_AST_GREP_SUPPRESSION_CEILING: int = 0
+DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
+    "src type: ignore": 51,
+    "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
+    "src noqa: E402": 2,
+    "src noqa: F401": 15,
+    "src noqa: SIM115": 1,
+    "src noqa: UP036": 1,
+    "src nosec": 13,
+    "src pragma: no cover": 1,
+    "src pragma: no mutate": 0,
+    "src file-level directive": 0,
+    "src ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
+    "tests type: ignore": 79,
+    "tests noqa: F401": 3,
+    "tests noqa: N803": 1,
+    "tests nosec": 17,
+    "tests pragma: no cover": 0,
+    "tests pragma: no mutate": 0,
+    "tests file-level directive": 0,
+    "tests ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
+    "per-file-ignores": 0,
+    "[[tool.mypy.overrides]]": 1,
+    "coverage omit": 0,
+}
 
 
 def test_exception_taxonomy_inheritance() -> None:
@@ -1126,17 +1224,170 @@ def _blind_exception_assertions(
     return sites
 
 
+def _is_bool_literal(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, bool)
+
+
+def _is_presence_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    if isinstance(node.func, ast.Name):
+        return node.func.id in CONST_PRESENCE_CHECK_NAMES
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr in CONST_PRESENCE_CHECK_NAMES
+    return False
+
+
+def _is_opaque_tuple_assert(node: ast.Assert) -> bool:
+    if not isinstance(node.test, ast.Compare):
+        return False
+    cmp = node.test
+    if len(cmp.ops) != 1 or not isinstance(cmp.ops[0], ast.Eq):
+        return False
+    left, right = cmp.left, cmp.comparators[0]
+    if isinstance(left, (ast.Tuple, ast.List)) and isinstance(right, (ast.Tuple, ast.List)):
+        for el_l, el_r in zip(left.elts, right.elts, strict=False):
+            for el, other in [(el_l, el_r), (el_r, el_l)]:
+                if _is_presence_call(el) and _is_bool_literal(other):
+                    return True
+    return False
+
+
+def _is_none_comparison(test: ast.Compare) -> bool:
+    if len(test.ops) != 1 or not isinstance(test.ops[0], (ast.IsNot, ast.NotEq)):
+        return False
+    left, right = test.left, test.comparators[0]
+    return (isinstance(right, ast.Constant) and right.value is None) or (
+        isinstance(left, ast.Constant) and left.value is None
+    )
+
+
+def _is_presence_bool_comparison(test: ast.Compare) -> bool:
+    if len(test.ops) != 1:
+        return False
+    left, right = test.left, test.comparators[0]
+    for el, other in [(left, right), (right, left)]:
+        if _is_presence_call(el) and _is_bool_literal(other):
+            return True
+    return False
+
+
+def _is_presence_pair(elt_a: ast.expr, elt_b: ast.expr) -> bool:
+    for el, other in [(elt_a, elt_b), (elt_b, elt_a)]:
+        if _is_presence_call(el) and _is_bool_literal(other):
+            return True
+        if isinstance(el, ast.Compare) and _is_none_comparison(el) and _is_bool_literal(other):
+            return True
+    return False
+
+
+def _is_all_presence_tuple_comparison(test: ast.Compare) -> bool:
+    if len(test.ops) != 1 or not isinstance(test.ops[0], ast.Eq):
+        return False
+    left, right = test.left, test.comparators[0]
+    if not (isinstance(left, (ast.Tuple, ast.List)) and isinstance(right, (ast.Tuple, ast.List))):
+        return False
+    if len(left.elts) == 0 or len(left.elts) != len(right.elts):
+        return False
+    return all(
+        _is_presence_pair(elt_a, elt_b) for elt_a, elt_b in zip(left.elts, right.elts, strict=False)
+    )
+
+
+def _is_presence_check(node: ast.Assert) -> bool:
+    test = node.test
+    if isinstance(test, ast.Compare):
+        return (
+            _is_none_comparison(test)
+            or _is_presence_bool_comparison(test)
+            or _is_all_presence_tuple_comparison(test)
+        )
+    return _is_presence_call(test) or isinstance(test, (ast.Name, ast.Attribute))
+
+
+def _classify_test_node(
+    item: ast.AST,
+    test_funcs: list[ast.FunctionDef | ast.AsyncFunctionDef],
+    same_module_helpers: set[str],
+) -> None:
+    if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return
+    if item.name.startswith("test_"):
+        test_funcs.append(item)
+        return
+    if any(isinstance(c, ast.Assert) for c in ast.walk(item)):
+        same_module_helpers.add(item.name)
+
+
+def _collect_test_funcs_and_helpers(
+    tree: ast.Module,
+) -> tuple[list[ast.FunctionDef | ast.AsyncFunctionDef], set[str]]:
+    test_funcs: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+    same_module_helpers: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            for item in node.body:
+                _classify_test_node(item, test_funcs, same_module_helpers)
+        else:
+            _classify_test_node(node, test_funcs, same_module_helpers)
+    return test_funcs, same_module_helpers
+
+
+def _scan_test_function(
+    path_name: str,
+    fn: ast.FunctionDef | ast.AsyncFunctionDef,
+    same_module_helpers: set[str],
+) -> list[str]:
+    sites: list[str] = []
+    fn_asserts: list[ast.Assert] = []
+    delegates = False
+    for c in ast.walk(fn):
+        if isinstance(c, ast.Assert):
+            fn_asserts.append(c)
+        elif (
+            not delegates
+            and isinstance(c, ast.Call)
+            and isinstance(c.func, ast.Name)
+            and c.func.id in same_module_helpers
+        ):
+            delegates = True
+    for a in fn_asserts:
+        if _is_opaque_tuple_assert(a):
+            sites.append(f"{path_name}:{a.lineno}")
+    if fn_asserts and not delegates and all(_is_presence_check(a) for a in fn_asserts):
+        for a in fn_asserts:
+            sites.append(f"{path_name}:{a.lineno}")
+    return sites
+
+
+def _opaque_or_presence_assertions(
+    tests_dir: Path, trees: Mapping[Path, ast.Module] | None = None
+) -> list[str]:
+    """Report every `file:line` of an opaque tuple assert or presence-only test in `tests/`."""
+    sites: set[str] = set()
+    test_paths = (
+        [p for p in trees.keys() if p.name.startswith("test_") and p.name.endswith(".py")]
+        if trees
+        else sorted(tests_dir.rglob("test_*.py"))
+    )
+    for path in sorted(test_paths):
+        tree = trees[path] if trees and path in trees else parse_python_file(path)
+        test_funcs, helpers = _collect_test_funcs_and_helpers(tree)
+        for fn in test_funcs:
+            sites.update(_scan_test_function(path.name, fn, helpers))
+    return sorted(sites, key=lambda s: (s.split(":")[0], int(s.split(":")[1])))
+
+
 def test_no_test_certifies_a_failure_without_checking_it(
     parsed_test_trees: dict[Path, ast.Module],
 ) -> None:
-    """A test that expects a failure must say which failure, and Ruff must keep it saying so.
+    """A test must specify expected failures and test values or object identity.
 
-    `pytest.raises(Exception)` is satisfied by a `TypeError` an unrelated refactor
-    introduced, so it keeps reporting green through the very regression it exists to catch.
-    An unescaped `match=` pattern is the same defect in miniature: `"missing 'metadata.name'"`
-    accepts any character where the dots are, so the assertion is weaker than it reads.
-    Neither is visible in review -- both read as correct tests -- so the Ruff rules that
-    catch them are pinned here beside the scan, and dropping either rule fails this test.
+    `pytest.raises(Exception)` is satisfied by an unrelated `TypeError`.
+    A test whose assertions check only presence or hide presence calls in tuple equality
+    certifies an object exists without verifying its values or behavior.
+    Neither defect is visible in review.
+    Ruff rules and AST invariant checks prevent these defects.
     """
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lint = config["tool"]["ruff"]["lint"]
@@ -1148,8 +1399,9 @@ def test_no_test_certifies_a_failure_without_checking_it(
 
     assert (
         _blind_exception_assertions(REPO_ROOT / "tests", trees=parsed_test_trees),
+        _opaque_or_presence_assertions(REPO_ROOT / "tests", trees=parsed_test_trees),
         unenforced,
-    ) == ([], [])
+    ) == ([], [], [])
 
 
 def test_rule_enforcement_matches_ruffs_prefix_resolution() -> None:
@@ -1178,6 +1430,41 @@ def test_a_broad_ignore_defeats_a_broad_select() -> None:
         _ruff_enforces("RUF043", ["ALL"], ["RUF"]),
         _ruff_enforces("RUF043", ["ALL"], []),
     ) == (False, True)
+
+
+def test_opaque_and_presence_assertions_fixtures(tmp_path: Path) -> None:
+    """The presence and opaque tuple assert invariant reports file:line on acceptance fixtures."""
+    code = (
+        "def _helper_with_assert() -> None:\n"
+        "    assert 1 == 1\n"
+        "\n"
+        "def test_only_is_not_none() -> None:\n"
+        "    assert x is not None\n"
+        "\n"
+        "def test_only_bare_truthiness() -> None:\n"
+        "    assert x\n"
+        "\n"
+        "def test_only_opaque_tuple() -> None:\n"
+        "    assert (isinstance(x, Y),) == (True,)\n"
+        "\n"
+        "def test_delegates_to_helper() -> None:\n"
+        "    _helper_with_assert()\n"
+        "\n"
+        "def test_does_not_raise() -> None:\n"
+        "    pass\n"
+        "\n"
+        "def test_valid_checks() -> None:\n"
+        "    assert x is not None\n"
+        "    assert x.value == 42\n"
+    )
+    test_file = tmp_path / "test_fixtures.py"
+    test_file.write_text(code, encoding="utf-8")
+    violations = _opaque_or_presence_assertions(tmp_path)
+    assert violations == [
+        "test_fixtures.py:5",
+        "test_fixtures.py:8",
+        "test_fixtures.py:11",
+    ]
 
 
 def test_suppression_lint_rules_enforced() -> None:
@@ -2390,11 +2677,13 @@ def _collect_facade_import_violations(
 def test_ai_and_github_package_inits_hold_only_docstrings(
     parsed_source_trees: dict[Path, ast.Module],
 ) -> None:
-    """The four __init__.py files parse to a single docstring expression and nothing else (#1002)."""
+    """The six __init__.py files parse to a single docstring expression and nothing else (#1002, #776)."""
     init_paths = [
         REPO_ROOT / "src" / "devops_cli" / "ai" / "__init__.py",
         REPO_ROOT / "src" / "devops_cli" / "ai" / "agents" / "__init__.py",
         REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "config" / "__init__.py",
+        REPO_ROOT / "src" / "devops_cli" / "core" / "__init__.py",
         REPO_ROOT / "src" / "devops_cli" / "github" / "__init__.py",
     ]
     failures = []
@@ -2414,11 +2703,13 @@ def test_ai_and_github_package_inits_hold_only_docstrings(
 def test_no_non_submodule_imports_from_ai_and_github_facades(
     parsed_repo_trees: dict[Path, ast.Module],
 ) -> None:
-    """No import from devops_cli.ai, devops_cli.ai.agents, devops_cli.ai.mcp, or devops_cli.github names anything but a submodule (#1002)."""
+    """No import from facade packages names anything but a submodule (#1002, #776)."""
     facade_packages = {
         "devops_cli.ai": REPO_ROOT / "src" / "devops_cli" / "ai",
         "devops_cli.ai.agents": REPO_ROOT / "src" / "devops_cli" / "ai" / "agents",
         "devops_cli.ai.mcp": REPO_ROOT / "src" / "devops_cli" / "ai" / "mcp",
+        "devops_cli.config": REPO_ROOT / "src" / "devops_cli" / "config",
+        "devops_cli.core": REPO_ROOT / "src" / "devops_cli" / "core",
         "devops_cli.github": REPO_ROOT / "src" / "devops_cli" / "github",
     }
     allowed_submodules = {

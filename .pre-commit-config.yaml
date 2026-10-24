@@ -65,17 +65,6 @@ repos:
         types: [python]
         require_serial: true
 
-      # Runs only the tests covering the staged sources, so committing stays fast while
-      # still verifying the change. Falls back to the full suite when a staged source has
-      # no covering test, rather than passing without running anything.
-      - id: devops-ci-test-changed
-        name: devops ci test (covering tests for staged files)
-        entry: uv run devops ci test
-        language: system
-        stages: [pre-commit]
-        types: [python]
-        require_serial: true
-
       - id: ast-grep-scan
         name: ast-grep scan (network constructs in src, elapsed-time bounds in tests)
         entry: uv run ast-grep scan --error=unused-suppression --error=no-suppress-all src tests
@@ -94,7 +83,8 @@ repos:
 
       # The OpenSpec gate (ADR 0010) over the plans and the committed skills: it needs Node and the
       # pinned openspec (`uv run devops install-tools --tool openspec --only-missing`), so it runs
-      # only when a commit touches the files it checks, and `devops ci` runs it on every push.
+      # only when a commit touches the files it checks. Every `devops ci` and the `Static Analysis`
+      # check of CI run it with no path filter.
       - id: openspec-gate
         name: openspec gate (change folders and generated skills)
         entry: uv run devops ci --only openspec
@@ -104,9 +94,12 @@ repos:
         pass_filenames: false
         require_serial: true
 
+      # A push runs only the fast static checks, in check-only mode, so the hook changes no file
+      # (#1752). A commit runs no tests (#2086). The required checks of CI run the test suite and
+      # the other checks of `devops ci` before a merge, and `uv run devops ci` runs them by hand.
       - id: devops-ci-pre-push
-        name: devops ci (pre-push quality gate)
-        entry: uv run devops ci
+        name: devops ci (fast static checks before a push)
+        entry: uv run devops ci --check --only lint,format,actionlint,zizmor
         language: system
         stages: [pre-push]
         pass_filenames: false

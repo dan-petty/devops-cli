@@ -77,7 +77,9 @@ AI_SPEND_USD_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "USD",
     "Approximate LLM and embedding spend, by operation, provider, model, server and backend. "
-    "Each request that a model answers adds to it, and a local request adds 0",
+    "Each request that a model answers adds to it, and a local request adds 0. A hosted gateway "
+    "call is priced at the deployment model that the gateway names, and its model label is the "
+    "model that the client asked for, such as the route name",
 )
 AI_JSON_REPAIRS_TOTAL = Instrument(
     "devops_cli_ai_json_repairs_total",

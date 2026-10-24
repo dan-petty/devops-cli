@@ -1114,7 +1114,7 @@ def _collection_filters() -> list[str]:
 
 
 def test_the_full_gate_collects_the_test_module_ban(pytestconfig: pytest.Config) -> None:
-    """`uv run devops ci`, which the pre-push hook runs, collects the ban's module (#1312): its
+    """`uv run devops ci`, whose test step CI runs, collects the ban's module (#1312): its
     test step hands pytest exactly these options and `pyproject.toml` exactly these `addopts`,
     none of which names a path, ignores, deselects or selects by keyword or marker; pytest
     collects `test_*.py` and `*_test.py` under `tests`; and no conftest or support plugin keeps

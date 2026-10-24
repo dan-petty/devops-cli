@@ -362,12 +362,10 @@ def test_devops_review_pr_post_stops_when_the_files_of_the_pull_request_cannot_b
 
     result = _post_the_review_without_a_model(cli)
 
-    assert (
-        result.exit_code,
-        isinstance(result.exception, SystemExit),
-        _posted(github_api),
-        "(HTTP 500)" in result.output,
-    ) == (1, True, [], True)
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert _posted(github_api) == []
+    assert "(HTTP 500)" in result.output
 
 
 def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(

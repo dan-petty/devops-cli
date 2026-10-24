@@ -835,7 +835,8 @@ def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
     meta_dict = {"src/utils/helpers.py": meta_exact}
 
     matched_exact = orchestrator._find_matching_metadata("src/utils/helpers.py", meta_dict)
-    assert matched_exact is not None and matched_exact.key_symbols == ["help1"]
+    assert matched_exact is not None
+    assert matched_exact.key_symbols == ["help1"]
 
     matched_suffix = orchestrator._find_matching_metadata("utils/helpers.py", meta_dict)
     assert matched_suffix is not None

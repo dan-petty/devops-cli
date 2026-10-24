@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -15,10 +15,11 @@ from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import (
     CONST_CANARY_EXPECTED_RESULTS,
     CONST_CANARY_TOOLS,
+    CONST_CANARY_WORKDIR_PREFIX,
 )
 from devops_cli.review.canary import (
     CanaryCacheKey,
-    build_canary_command,
+    build_canary_request,
     evaluate_canary_gate,
     get_canary_cache,
     materialize_canary_fixtures,
@@ -31,6 +32,7 @@ from devops_cli.security.base import ScanOutcome
 from devops_cli.security.mypy import MypyScanner, run_mypy_scan
 from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
 from devops_cli.security.ruff import RuffScanner, run_ruff_scan
+from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
 from tests.support.paths import FIXTURES
 
 _RECORDED_FIXTURE_PATH = FIXTURES / "review_canary" / "recorded_outputs.json"
@@ -42,6 +44,12 @@ def recorded_outputs() -> dict[str, Any]:
     payload = json.loads(_RECORDED_FIXTURE_PATH.read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
+
+
+def _recorded(recorded_outputs: dict[str, Any], key: str) -> ToolAnswer:
+    """The answer of a tool whose canary run printed the recorded output `key`."""
+    output = recorded_outputs[key]["output"]
+    return ToolAnswer(stdout=output if isinstance(output, str) else json.dumps(output))
 
 
 # ── Criterion 1: Version flags come from the project; missing is a coverage gap ──
@@ -162,7 +170,7 @@ def test_canary_gate_requires_exact_match_on_expected_rule_and_line_set(
             {"test_id": "B101", "line_number": 10},
         ]
     }
-    cmds = {tool: build_canary_command(tool, tmp_path) for tool in CONST_CANARY_TOOLS}
+    cmds = {tool: build_canary_request(tool, tmp_path) for tool in CONST_CANARY_TOOLS}
 
     assert (
         all(res.passed and res.status == "passed" for res in results.values()),
@@ -209,13 +217,11 @@ def test_semgrep_1_178_0_recorded_output_fails_and_1_179_0_passes(
 # ── Criterion 4: Caching per (tool, version, binary_sha, language_version, ruleset_digest) ──
 
 
-def test_canary_caches_once_per_five_tuple_key(recorded_outputs: dict[str, Any]) -> None:
+def test_canary_caches_once_per_five_tuple_key(
+    recorded_outputs: dict[str, Any], tool_executor_fake: ToolExecutorFake
+) -> None:
     """Verify run_tool_canary executes once per (tool, version, binary_sha, language_version, ruleset_digest)."""
-    invocations: list[str] = []
-
-    def fake_runner(tool: str, _cmd: list[str], _workdir: Path) -> dict[str, Any]:
-        invocations.append(tool)
-        return dict(recorded_outputs[tool]["output"])
+    tool_executor_fake.script("ruff", _recorded(recorded_outputs, "ruff"))
 
     first = run_tool_canary(
         "ruff",
@@ -223,7 +229,7 @@ def test_canary_caches_once_per_five_tuple_key(recorded_outputs: dict[str, Any])
         binary_sha="sha-a",
         language_version="py314",
         ruleset_digest="digest-1",
-        runner=fake_runner,
+        tool_executor=tool_executor_fake,
     )
     second = run_tool_canary(
         "ruff",
@@ -231,7 +237,7 @@ def test_canary_caches_once_per_five_tuple_key(recorded_outputs: dict[str, Any])
         binary_sha="sha-a",
         language_version="py314",
         ruleset_digest="digest-1",
-        runner=fake_runner,
+        tool_executor=tool_executor_fake,
     )
     third = run_tool_canary(
         "ruff",
@@ -239,12 +245,12 @@ def test_canary_caches_once_per_five_tuple_key(recorded_outputs: dict[str, Any])
         binary_sha="sha-a",
         language_version="py313",
         ruleset_digest="digest-1",
-        runner=fake_runner,
+        tool_executor=tool_executor_fake,
     )
 
     expected_key = CanaryCacheKey("ruff", "0.16.8", "sha-a", "py314", "digest-1")
     assert (
-        len(invocations),
+        len(tool_executor_fake.requests),
         first == second,
         first.cache_key,
         third.cache_key.language_version,
@@ -258,6 +264,7 @@ def test_canary_caches_once_per_five_tuple_key(recorded_outputs: dict[str, Any])
 def test_failed_canary_withholds_findings_and_records_rejection_and_coverage_state(
     recorded_outputs: dict[str, Any],
     tmp_path: Path,
+    tool_executor_fake: ToolExecutorFake,
 ) -> None:
     """Admit a finding from a failed-canary tool and assert rejection count and coverage state."""
     src_dir = tmp_path / "src"
@@ -266,14 +273,10 @@ def test_failed_canary_withholds_findings_and_records_rejection_and_coverage_sta
     target_py.write_text("import subprocess\n", encoding="utf-8")
 
     # Seed the canary cache with a failing result for Semgrep (1.178.0 output) and passing Bandit.
-    run_tool_canary(
-        "semgrep",
-        runner=lambda *_: recorded_outputs["semgrep_1_178_0"]["output"],
-    )
-    run_tool_canary(
-        "bandit",
-        runner=lambda *_: recorded_outputs["bandit"]["output"],
-    )
+    tool_executor_fake.script("semgrep", _recorded(recorded_outputs, "semgrep_1_178_0"))
+    tool_executor_fake.script("bandit", _recorded(recorded_outputs, "bandit"))
+    run_tool_canary("semgrep", tool_executor=tool_executor_fake)
+    run_tool_canary("bandit", tool_executor=tool_executor_fake)
 
     semgrep_finding = ScanOutcome(
         "ran",
@@ -321,33 +324,28 @@ def test_failed_canary_withholds_findings_and_records_rejection_and_coverage_sta
     )
 
 
-def test_review_start_runs_canaries_automatically_via_subprocess_when_unmocked(
+def test_a_review_runs_each_canary_once_through_its_executor_and_records_no_canary_run(
     recorded_outputs: dict[str, Any],
     tmp_path: Path,
+    tool_executor_fake: ToolExecutorFake,
 ) -> None:
-    """Verify ReviewPipelineOrchestrator automatically runs and caches tool canaries at review start."""
+    """A review runs the canary of each tool it starts once, on the executor it was given, as it
+    starts the tool. A canary checks the tool on a fixture of its own and scans nothing of the
+    review, so the review keeps no record of a canary run among its tool runs."""
     src_dir = tmp_path / "src"
     src_dir.mkdir(parents=True)
     (src_dir / "main.py").write_text("x = 1\n", encoding="utf-8")
-
-    def fake_canary_subprocess(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        bin_name = Path(cmd[0]).name
-        tool_key = "mypy" if "-m" in cmd and "mypy" in cmd else bin_name
-        out = recorded_outputs[tool_key]["output"]
-        stdout_str = out if isinstance(out, str) else json.dumps(out)
-        return subprocess.CompletedProcess(cmd, 0, stdout_str, "")
+    for tool in ("bandit", "semgrep"):
+        tool_executor_fake.script(tool, _recorded(recorded_outputs, tool))
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-auto-canary",
         session_dir=tmp_path / "session",
         target_dir=tmp_path,
         llm_client=MagicMock(),
+        tool_executor=tool_executor_fake,
     )
     with (
-        patch(
-            "devops_cli.review.canary.run_subprocess",
-            MagicMock(side_effect=fake_canary_subprocess),
-        ) as mock_canary_proc,
         patch("devops_cli.security.bandit.run_bandit_scan", return_value=ScanOutcome("ran", [])),
         patch("devops_cli.security.semgrep.run_semgrep_scan", return_value=ScanOutcome("ran", [])),
         patch("devops_cli.ai.review.pipeline._scan_secrets", return_value=[]),
@@ -356,15 +354,56 @@ def test_review_start_runs_canaries_automatically_via_subprocess_when_unmocked(
         orchestrator._run_static_scanners(["src/main.py"])
 
     assert (
-        mock_canary_proc.call_count,
-        orchestrator.canary_results["bandit"],
-        orchestrator.canary_results["semgrep"],
-    ) == (2, True, True)
+        [
+            (request.tool, request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX))
+            for request in tool_executor_fake.requests
+        ],
+        orchestrator.canary_results,
+        orchestrator.tool_executor.runs,
+    ) == ([("bandit", True), ("semgrep", True)], {"bandit": True, "semgrep": True}, ())
+
+
+def test_the_mypy_canary_starts_the_interpreter_of_devops_cli_through_the_executor(
+    recorded_outputs: dict[str, Any], tool_executor_fake: ToolExecutorFake
+) -> None:
+    """The canary of mypy runs `python -I -m mypy` with the interpreter that runs devops-cli, which
+    the PATH of the host does not name. The request names that interpreter as its program, and
+    the canary reads what mypy printed to both of its output streams."""
+    output = recorded_outputs["mypy"]["output"]
+    tool_executor_fake.script("mypy", ToolAnswer(exit_code=1, stdout="", stderr=output))
+
+    result = run_tool_canary("mypy", language_version="3.14", tool_executor=tool_executor_fake)
+
+    [request] = tool_executor_fake.requests
+    assert (
+        result.passed,
+        request.tool,
+        request.program,
+        request.arguments,
+        request.targets,
+    ) == (
+        True,
+        "mypy",
+        Path(sys.executable),
+        (
+            "-I",
+            "-m",
+            "mypy",
+            "--python-version=3.14",
+            "--no-error-summary",
+            "--cache-dir",
+            str(request.workdir / "mypy_cache"),
+            "canary.py",
+        ),
+        (request.workdir / "canary.py",),
+    )
 
 
 def test_the_semgrep_canary_sends_no_metrics_and_checks_no_version(tmp_path: Path) -> None:
     """The canary runs Semgrep as every other scan does, on its probe rules alone (#1144)."""
-    assert build_canary_command("semgrep", tmp_path) == [
+    request = build_canary_request("semgrep", tmp_path)
+
+    assert [request.tool, *request.arguments] == [
         "semgrep",
         "scan",
         "--json",

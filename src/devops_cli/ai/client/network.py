@@ -20,6 +20,7 @@ from devops_cli.ai.client.models import AIClientError, RequestPriority
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_SERVED_BY_HEADER,
+    CONST_AI_GATEWAY_SERVED_MODEL_HEADER,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RESPONSE_BYTES,
@@ -81,6 +82,22 @@ def extract_served_by(headers: Mapping[str, str] | None) -> str | None:
     if "@" in val and not u.userinfo:
         return None
     return str(u.copy_with(userinfo=b""))
+
+
+# The deployment model a gateway named in a streamed response's headers, read with the backend.
+stream_served_model: ContextVar[str | None] = ContextVar("stream_served_model", default=None)
+
+
+def extract_served_model(headers: Mapping[str, str] | None) -> str | None:
+    """The deployment model that a gateway reply names as the model that served the call, such as
+    `openai/gpt-4o`; None when the reply names none.
+
+    The LiteLLM router writes the route name, such as `devops-chat`, in the reply body, so a
+    hosted call is priced at this model (#2031).
+    """
+    if not headers:
+        return None
+    return (headers.get(CONST_AI_GATEWAY_SERVED_MODEL_HEADER) or "").strip() or None
 
 
 # Why a streamed reply ended, set by the stream reader when the provider's final frame arrives.
@@ -280,7 +297,14 @@ def acquire_ollama_slot(
     timeout: float | None = None,
     priority: RequestPriority | str | None = None,
 ) -> Generator[str]:
-    """Dynamically lease an available Ollama slot across candidate nodes with priority scheduling."""
+    """Dynamically lease an available Ollama slot across candidate nodes with priority scheduling.
+
+    The lease counts the calls of this process only. `active_ollama_requests` and
+    `ollama_slot_condition` are module state, so two processes can each hold `max_parallel`
+    leases on one URL. This is by design. A lease across processes would add a hidden queue in
+    front of the queue of Ollama itself (`OLLAMA_NUM_PARALLEL` 1), as the gateway caps did
+    before #467. Ollama queues the excess calls itself.
+    """
     if not candidates:
         raise AIClientError("No candidate Ollama servers provided for slot leasing.")
 

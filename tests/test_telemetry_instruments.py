@@ -513,6 +513,29 @@ def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
     ) == ([spent], {str(saved).lower()})
 
 
+def test_a_call_priced_at_its_deployment_model_keeps_the_route_name_as_its_model_label(
+    captured: Captured, spend_ledger: SpendLedger
+) -> None:
+    """Verify a hosted gateway call is priced at the deployment model that the gateway names,
+    and its points keep the model that the client asked for, so the dashboards still group by
+    the route name (#2031)."""
+    track_request_spend(
+        provider="gateway",
+        model="devops-chat",
+        server="example.com:4000",
+        served_by="https://api.openai.com",
+        served_model="openai/gpt-4o",
+        prompt_tokens=1_000_000,
+        completion_tokens=0,
+    )
+
+    assert (
+        [(a["model"], v) for a, v in captured.points("devops_cli_ai_spend_usd_total")],
+        {a["model"] for a, _ in captured.points("devops_cli_ai_tokens_total")},
+        [a["model"] for a, _ in captured.points("devops_cli_ai_requests_total")],
+    ) == ([("devops-chat", 2.5)], {"devops-chat"}, ["devops-chat"])
+
+
 def test_a_price_override_leaves_a_local_call_in_local_savings(
     captured: Captured, spend_ledger: SpendLedger
 ) -> None:

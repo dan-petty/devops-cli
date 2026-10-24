@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shlex
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.commands.ci import get_check_spec
+from devops_cli.commands.ci import get_check_spec, resolve_step_rows
 from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.markdown_examples import CodeSnippet, devops_commands
@@ -415,6 +416,44 @@ def test_every_devops_command_the_workflows_actions_and_hooks_run_resolves() -> 
         if (finding := resolve_devops_argv(tokens)) is not None
     ]
     assert (bool(workflow_commands), bool(hook_commands), unresolved) == (True, True, [])
+
+
+def test_no_pre_commit_hook_runs_the_test_suite() -> None:
+    """A commit runs only the fast hooks. The required checks of CI run the tests (#2086)."""
+    config = yaml.safe_load(PRE_COMMIT_PATH.read_text(encoding="utf-8"))
+    default_stages = config.get("default_stages", ["pre-commit"])
+    commit_entries = [
+        str(hook.get("entry", ""))
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if "pre-commit" in hook.get("stages", default_stages)
+    ]
+    runs_tests = [
+        entry
+        for entry in commit_entries
+        if "pytest" in entry.split() or re.search(r"\bdevops ci( test\b|$)", entry)
+    ]
+    assert (bool(commit_entries), runs_tests) == (True, [])
+
+
+# The fast static checks that a push runs (#1752): rows of the `devops ci` check table.
+FAST_STATIC_CHECKS = ["lint", "format", "actionlint", "zizmor"]
+
+
+def test_the_pre_push_hook_runs_only_the_fast_static_checks() -> None:
+    """A push runs the fast static checks and changes no file. The required checks of CI run the
+    test suite and the other checks before a merge, and the full `devops ci` is a manual run
+    (#1752)."""
+    config = yaml.safe_load(PRE_COMMIT_PATH.read_text(encoding="utf-8"))
+    default_stages = config.get("default_stages", ["pre-commit"])
+    push_commands = [
+        [*shlex.split(str(hook.get("entry", ""))), *map(str, hook.get("args", []))]
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if "pre-push" in hook.get("stages", default_stages)
+    ]
+    assert [resolve_step_rows(shlex.join(argv)) for argv in push_commands] == [FAST_STATIC_CHECKS]
+    assert [argv for argv in push_commands if "--check" not in argv] == []
 
 
 def test_a_misspelled_command_in_a_workflow_is_reported() -> None:

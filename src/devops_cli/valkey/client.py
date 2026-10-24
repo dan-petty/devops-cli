@@ -16,18 +16,14 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from itertools import batched
 from typing import Any
-from urllib.parse import urlsplit
 
 import httpcore2
 import valkey
 from valkey import exceptions as valkey_exceptions
 from valkey.connection import Connection, SSLConnection
 
-from devops_cli.config.constants import CONST_VALKEY_SCHEMES, CONST_VALKEY_TLS_SCHEMES
 from devops_cli.config.defaults import (
-    DEFAULT_VALKEY_HOST,
     DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
-    DEFAULT_VALKEY_PORT,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
 )
 from devops_cli.exceptions import SSRFBlockedError
@@ -38,24 +34,7 @@ from devops_cli.exceptions.valkey import (
     ValkeyTimeoutError,
 )
 from devops_cli.http.egress import EgressLevel, vet_addresses
-
-
-def parse_valkey_endpoint(
-    endpoint: str, default_port: int = DEFAULT_VALKEY_PORT
-) -> tuple[str, int]:
-    """Parse a hostname, hostname:port, or Valkey/Redis URI into host and port."""
-    if not isinstance(endpoint, str):
-        return endpoint, default_port
-    clean = endpoint.strip()
-    scheme = urlsplit(clean).scheme.lower()
-    target = clean if scheme in CONST_VALKEY_SCHEMES else f"//{clean}"
-    try:
-        parsed = urlsplit(target)
-        host = parsed.hostname or clean
-        port = parsed.port if parsed.port is not None else default_port
-        return host, port
-    except ValueError, AttributeError:
-        return clean, default_port
+from devops_cli.valkey.endpoint import ValkeyEndpoint
 
 
 class _VettedConnection(Connection):
@@ -133,38 +112,35 @@ def _valkey_failures(host: str, port: int, timeout: float) -> Iterator[None]:
 class ValkeyClient:
     """The Valkey commands devops-cli runs, sent by valkey-py over vetted connections.
 
-    Construction makes no DNS lookup and opens no connection. Each connection resolves the host
-    once when it dials, vets every answer, and dials a vetted address. A `valkeys://` or
-    `rediss://` endpoint connects over TLS, which sends the endpoint's host name as the server
-    name and checks the certificate against it with the platform CA store. Failures raise the
-    `ValkeyError` family. `execute` returns replies as the server sent them, decoded to text; the
-    named commands return what valkey-py parses. `connection_pool` replaces the pool the client
-    builds from the endpoint, which is how a test connects it to an in-memory server.
+    The client dials the endpoint of one validated Valkey URL (`parse_valkey_url`). Construction
+    makes no DNS lookup and opens no connection. Each connection resolves the host once when it
+    dials, vets every answer, and dials a vetted address, and then selects the database of the
+    endpoint. A `valkeys://` endpoint connects over TLS, which sends the endpoint's host name as
+    the server name and checks the certificate against it with the platform CA store. Failures
+    raise the `ValkeyError` family. `execute` returns replies as the server sent them, decoded to
+    text; the named commands return what valkey-py parses. `connection_pool` replaces the pool the
+    client builds from the endpoint, which is how a test connects it to an in-memory server.
     """
 
     def __init__(
         self,
-        host: str = DEFAULT_VALKEY_HOST,
-        port: int = DEFAULT_VALKEY_PORT,
+        endpoint: ValkeyEndpoint,
+        *,
         password: str | None = None,
-        db: int = 0,
         timeout: float = DEFAULT_VALKEY_TIMEOUT_SECONDS,
         connection_pool: valkey.ConnectionPool | None = None,
     ) -> None:
-        self.host, self.port = parse_valkey_endpoint(host, default_port=port)
-        self.db = db
+        self.host, self.port, self.db = endpoint.host, endpoint.port, endpoint.db
         self.timeout = timeout
-        if not self.host:
-            raise ValkeyConnectionError("Invalid host: host cannot be empty.")
         connection: dict[str, Any] = (
             {"connection_class": _VettedSSLConnection, "ssl_check_hostname": True}
-            if urlsplit(host.strip()).scheme.lower() in CONST_VALKEY_TLS_SCHEMES
+            if endpoint.tls
             else {"connection_class": _VettedConnection}
         )
         pool = connection_pool or valkey.ConnectionPool(
             host=self.host,
             port=self.port,
-            db=db,
+            db=self.db,
             password=password,
             socket_timeout=timeout,
             socket_connect_timeout=timeout,

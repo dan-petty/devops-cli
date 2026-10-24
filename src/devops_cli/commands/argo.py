@@ -16,7 +16,6 @@ import httpx2
 import typer
 
 from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service
-from devops_cli.config import load_settings
 from devops_cli.config.constants import (
     CONST_ARGO_WORKFLOW_FAILURE_PHASES,
     CONST_ARGO_WORKFLOW_TERMINAL_PHASES,
@@ -31,6 +30,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS,
     DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_command, is_dry_run

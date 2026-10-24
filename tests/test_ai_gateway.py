@@ -28,6 +28,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import CapabilityDegradationError
+from tests.support.config_writes import written_keys
 
 pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
 
@@ -754,8 +755,13 @@ class TestGatewayRouteDiscovery:
         msg_orig = str(exc_info_orig.value)
         assert ("DEVOPS_CLI_AI_API_KEY" in msg_orig, "g-123" not in msg_orig) == (True, True)
 
-    def test_use_lan_brackets_ipv6_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify devops ai gateway use-lan properly brackets IPv6 addresses when building base_url."""
+    def test_use_lan_brackets_ipv6_host(
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, isolate_data_dir: Path
+    ) -> None:
+        """Verify devops ai gateway use-lan properly brackets IPv6 addresses when building base_url,
+        and writes only `ai.gateway_url` and `ai.allow_private_network` into the config file."""
+        config(ai={"allow_private_network": False})
+        monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
         monkeypatch.setattr(
             "devops_cli.commands.ai_gateway.node_port_address",
             lambda *args, **kwargs: ("2001:db8::1", 30400),
@@ -769,11 +775,8 @@ class TestGatewayRouteDiscovery:
             "devops_cli.commands.ai_gateway._probe_gateway_liveliness_and_models",
             lambda url, *args, **kwargs: probed_urls.append(url),
         )
-        monkeypatch.setattr(
-            "devops_cli.commands.ai_gateway.save_settings",
-            lambda *args, **kwargs: None,
-        )
 
         res = runner.invoke(gateway_cli_app, ["connect"])
         assert res.exit_code == 0
         assert probed_urls == ["http://[2001:db8::1]:30400"]
+        assert written_keys(isolate_data_dir) == [["ai.allow_private_network", "ai.gateway_url"]]

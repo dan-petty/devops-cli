@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     stage TEXT,
     finish_reason TEXT,
     pricing_source TEXT,
-    reasoning_tokens INTEGER NOT NULL DEFAULT 0
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    served_model TEXT
 );
 """
 _QUERY_IDX_TIMESTAMP = (
@@ -81,6 +82,7 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
         "reasoning_tokens",
         "ALTER TABLE ai_spend_records ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;",
     ),
+    ("served_model", "ALTER TABLE ai_spend_records ADD COLUMN served_model TEXT;"),
 )
 
 _QUERY_INSERT_RECORD = """
@@ -88,8 +90,9 @@ INSERT INTO ai_spend_records (
     timestamp, provider, server, backend_info, served_by, model,
     prompt_tokens, completion_tokens, total_tokens,
     cost_usd, cached, request_type, duration_seconds, stage, finish_reason, pricing_source,
-    reasoning_tokens
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    reasoning_tokens,
+    served_model
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 _QUERY_STAGE_BREAKDOWN = """
@@ -450,6 +453,7 @@ class SpendLedger:
         finish_reason: FinishReason | None = None,
         pricing_source: str | None = None,
         reasoning_tokens: int = 0,
+        served_model: str | None = None,
     ) -> SpendRecord | None:
         """Record an inference request in the persistent SQLite ledger."""
         ts = timestamp or datetime.now(UTC).isoformat()
@@ -478,6 +482,7 @@ class SpendLedger:
                         finish_reason,
                         pricing_source,
                         reasoning_tokens,
+                        served_model,
                     ),
                 )
                 rec_id = cursor.lastrowid
@@ -500,6 +505,7 @@ class SpendLedger:
                     finish_reason=finish_reason,
                     pricing_source=pricing_source,
                     reasoning_tokens=reasoning_tokens,
+                    served_model=served_model,
                 )
         except Exception:
             # Defensive logging: database failure must never crash user workflows
@@ -818,6 +824,7 @@ def track_request_spend(
     server: str,
     backend_info: str | None = None,
     served_by: str | None = None,
+    served_model: str | None = None,
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     reasoning_tokens: int = 0,
@@ -833,9 +840,12 @@ def track_request_spend(
     ``finish_reason`` is why the provider says the reply ended, None when it did not say; the
     ledger stores it and observers receive it. The metrics carry the call's GenAI operation:
     `embeddings` for an embedding request, `chat` for every other call. ``served_by``, the
-    backend a gateway reply names, decides whether the call is spend or local savings. The
-    ledger stores where the price came from. The tokens carry `local`, and no process sends a
-    price for them: the cluster prices local tokens at one reference for every process (#1672).
+    backend a gateway reply names, decides whether the call is spend or local savings.
+    ``served_model``, the deployment model a gateway reply names, prices a hosted call; ``model``
+    stays the model that the client asked for, such as a gateway route name, in the ledger and
+    on the metrics, so they still group by it (#2031). The ledger stores where the price came
+    from. The tokens carry `local`, and no process sends a price for them: the cluster prices
+    local tokens at one reference for every process (#1672).
     """
     from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
         GenAiOperationNameValues,
@@ -865,6 +875,7 @@ def track_request_spend(
             provider=provider,
             request_timestamp=now_utc,
             served_by=served_by,
+            served_model=served_model,
         )
     )
     cost = priced.cost_usd if priced else 0.0
@@ -888,6 +899,7 @@ def track_request_spend(
             finish_reason=finish_reason,
             pricing_source=pricing_source,
             reasoning_tokens=reasoning_tokens,
+            served_model=served_model,
         )
     except Exception:
         rec = None

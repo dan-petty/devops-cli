@@ -227,7 +227,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 10
       },
@@ -275,8 +275,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 8,
         "y": 10
       },
       "id": 8,
@@ -303,6 +303,64 @@
         }
       ],
       "description": "Seconds from a streamed request reaching a deployment to its first token, as the gateway measured it. Only streamed requests record it."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 10
+      },
+      "id": 30,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Latency per Output Token (p50 / p95) per Deployment",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le, api_base, litellm_model_name) (rate(litellm_deployment_latency_per_output_token_bucket{api_base!=\"\"}[5m])))",
+          "legendFormat": "{{api_base}} {{litellm_model_name}} p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, api_base, litellm_model_name) (rate(litellm_deployment_latency_per_output_token_bucket{api_base!=\"\"}[5m])))",
+          "legendFormat": "{{api_base}} {{litellm_model_name}} p95",
+          "refId": "B"
+        }
+      ],
+      "description": "The gateway (LiteLLM 1.103.0) divides the time of each successful call to a deployment by the number of output tokens of the call. For a call that is not streamed, the time includes the prompt time, the wait in the Ollama queue and any model load. For a streamed call, the time stops at the first token, so the value does not show the decode speed. A call with no output tokens, such as an embedding, records no value. The buckets are the Prometheus client defaults (5 ms, 10 ms, 25 ms and up), so a quantile is an estimate between two bucket limits."
     },
     {
       "id": 20,

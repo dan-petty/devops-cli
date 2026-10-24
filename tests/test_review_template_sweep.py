@@ -475,21 +475,12 @@ def test_cli_review_templates_list() -> None:
 
     data = json.loads(res_json.stdout)
 
-    assert (
-        res_table.exit_code,
-        res_json.exit_code,
-        isinstance(data, list),
-        len(data) > 0,
-        "name" in data[0],
-        "description" in data[0],
-    ) == (
-        0,
-        0,
-        True,
-        True,
-        True,
-        True,
-    )
+    assert res_table.exit_code == 0
+    assert res_json.exit_code == 0
+    assert isinstance(data, list)
+    assert len(data) > 0
+    assert "name" in data[0]
+    assert "description" in data[0]
 
 
 def test_cli_review_templates_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

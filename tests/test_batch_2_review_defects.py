@@ -48,22 +48,18 @@ def test_response_repair_nested_fence_in_fix() -> None:
         "```"
     )
     repaired = repair_json_string(raw)
-    assert (
-        isinstance(repaired, list),
-        len(repaired) if isinstance(repaired, list) else 0,
-        repaired[0].get("fix") if isinstance(repaired, list) and repaired else "",
-    ) == (True, 3, "```python\ndef foo():\n    pass\n```")
+    assert isinstance(repaired, list)
+    assert len(repaired) == 3
+    assert repaired[0].get("fix") == "```python\ndef foo():\n    pass\n```"
 
 
 def test_response_repair_write_file_inner_fence() -> None:
     """Tool-call arguments containing inner code fences arrive intact."""
     raw = '{"command": "write_file", "path": "test.md", "content": "```yaml\\nkey: value\\n```"}'
     repaired = repair_json_string(raw)
-    assert (
-        isinstance(repaired, dict),
-        repaired.get("command") if isinstance(repaired, dict) else "",
-        repaired.get("content") if isinstance(repaired, dict) else "",
-    ) == (True, "write_file", "```yaml\nkey: value\n```")
+    assert isinstance(repaired, dict)
+    assert repaired.get("command") == "write_file"
+    assert repaired.get("content") == "```yaml\nkey: value\n```"
 
 
 class _CountModel(BaseModel):

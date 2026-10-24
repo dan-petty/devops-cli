@@ -10,26 +10,36 @@ real files and a real git tree, as the real executors do.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review.profile import ReviewProfile, profiling
 from devops_cli.ai.review.runner import _write_review_profile
 from devops_cli.ai.review.tool_runs import TOOL_RUNS_COLUMNS, tool_runs_section
+from devops_cli.ai.review_schema import ReviewSessionPayload
 from devops_cli.ai.run_store import digest, file_digest
-from devops_cli.config.constants import CONST_REVIEW_SCAN_BANDIT_INI
+from devops_cli.config.constants import (
+    CONST_CANARY_WORKDIR_PREFIX,
+    CONST_REVIEW_SARIF_FILENAME,
+    CONST_REVIEW_SCAN_BANDIT_INI,
+)
 from devops_cli.exceptions.sandbox import SandboxValidationError
+from devops_cli.review.anchors import ToolAnchor
+from devops_cli.review.finding import Finding
 from devops_cli.review.rules_pack import discover_pack_rules
 from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.gitleaks import run_gitleaks_scan
 from devops_cli.security.kubelinter import run_kubelinter_scan
+from devops_cli.security.mypy import run_mypy_scan
 from devops_cli.security.osv_scanner import run_osv_scan
 from devops_cli.security.pluto import run_pluto_scan
 from devops_cli.security.ruff import run_ruff_scan
@@ -43,6 +53,7 @@ from devops_cli.security.tool_executor import (
 )
 from devops_cli.security.trivy import run_trivy_scan
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
+from tests.support.paths import FIXTURES
 from tests.support.registry_cache import REPLACED_RULESET
 
 _MANIFEST = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n"
@@ -76,8 +87,8 @@ def trivy_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def tree(tmp_path: Path, git: Callable[..., None], trivy_cache: Path) -> Path:
-    """A committed git tree holding one file for each review tool to read, and the config files
-    that Ruff and osv-scanner find on their own."""
+    """A committed git tree holding one file for each review tool to read, the config files that
+    Ruff and osv-scanner find on their own, and the Python version that mypy needs."""
     root = (tmp_path / "tree").resolve()
     (root / ".devops").mkdir(parents=True)
     (root / ".devops" / "review.toml").write_text(
@@ -90,22 +101,14 @@ def tree(tmp_path: Path, git: Callable[..., None], trivy_cache: Path) -> Path:
     (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     (root / "osv-scanner.toml").write_text("[[IgnoredVulns]]\n", encoding="utf-8")
     (root / "pyproject.toml").write_text(
-        '[project]\nrequires-python = ">=3.14"\n', encoding="utf-8"
+        '[project]\nrequires-python = ">=3.14"\n\n[tool.mypy]\npython_version = "3.14"\n',
+        encoding="utf-8",
     )
     (root / "rules.yaml").write_text(_RULES, encoding="utf-8")
     git(root, "init", "--quiet")
     git(root, "add", ".")
     git(root, "commit", "--quiet", "-m", "first")
     return root
-
-
-@pytest.fixture
-def mypy_set_aside(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mypy starts the interpreter of the reviewed repository, which a request cannot name yet. It
-    stays outside this seam until a later part of #772 moves it onto the executor."""
-    monkeypatch.setattr(
-        "devops_cli.security.mypy.run_mypy_scan", lambda *args, **kwargs: ScanOutcome("ran")
-    )
 
 
 @pytest.fixture
@@ -171,6 +174,10 @@ _REVIEW_SCANS: list[tuple[str, ScanOver]] = [
             [t / "app.py"], isolated=True, tree=t, require_version=True, tool_executor=x
         ),
     ),
+    (
+        "mypy",
+        lambda t, x: run_mypy_scan([t / "app.py"], tree=t, checkout_root=t, tool_executor=x),
+    ),
 ]
 
 # The file names that each review scan names for its tool, config files first and ruleset files
@@ -185,6 +192,7 @@ _READS: dict[str, tuple[list[str], list[str]]] = {
     "pluto": ([], []),
     "osv-scanner": (["osv-scanner.toml"], []),
     "ruff": (["pyproject.toml"], []),
+    "mypy": (["pyproject.toml"], []),
 }
 
 
@@ -472,6 +480,36 @@ def test_the_files_that_a_command_names_one_after_the_other_stand_once_in_the_te
     assert run.argv_template[:3] == ("bandit", "{targets}", "--ignore-nosec")
 
 
+def test_the_record_of_mypy_names_its_interpreter_by_its_file_name(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """Mypy runs as `python -I -m mypy` with an interpreter that the PATH does not name. The
+    template names the interpreter by its file name and the tool after `-m`. The cache directory
+    is no argument, so no path of the host stands in the template."""
+    python = tree / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+    recorder = RecordingToolExecutor(tool_executor_fake)
+
+    run_mypy_scan([tree / "app.py"], tree=tree, checkout_root=tree, tool_executor=recorder)
+
+    [run] = recorder.runs
+    assert (run.tool, run.argv_template) == (
+        "mypy",
+        (
+            "python",
+            "-I",
+            "-m",
+            "mypy",
+            "--python-version=3.14",
+            "--config-file",
+            "{config}",
+            "--no-error-summary",
+            "{targets}",
+        ),
+    )
+
+
 @pytest.mark.parametrize("field", ["config_files", "ruleset_files"])
 def test_a_path_that_is_a_target_and_a_file_the_tool_reads_stands_as_a_target_in_the_template(
     field: str, tree: Path, tool_executor_fake: ToolExecutorFake
@@ -502,12 +540,12 @@ def test_a_pipe_in_a_record_does_not_split_its_row_in_the_report(
     assert (len(cells), cells[1]) == (len(TOOL_RUNS_COLUMNS), " 1.0\\|beta ")
 
 
-@pytest.mark.usefixtures("mypy_set_aside")
 def test_a_review_profile_holds_one_row_per_tool_run_with_every_field(
     orchestrator: ReviewPipelineOrchestrator, tool_executor_fake: ToolExecutorFake
 ) -> None:
     """The orchestrator keeps the record of each run its analyzers make, and the profile of the
-    review holds one row for each. `profile.json` holds the rows in full."""
+    review holds one row for each. `profile.json` holds the rows in full. A canary checks a tool on
+    a fixture of its own and scans nothing of the review, so it has no row."""
     with profiling() as profiler:
         orchestrator.init_per_file_payloads(["app.py", "deploy.yaml", "Dockerfile", "uv.lock"], {})
         profile = _write_review_profile(profiler, orchestrator, "tree", 4, kept=False)
@@ -519,7 +557,12 @@ def test_a_review_profile_holds_one_row_per_tool_run_with_every_field(
         for name, value in row.model_dump().items()
         if value in ("", None, ())
     ]
-    assert [row.tool for row in rows] == [request.tool for request in tool_executor_fake.requests]
+    scans = [
+        request.tool
+        for request in tool_executor_fake.requests
+        if not request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX)
+    ]
+    assert [row.tool for row in rows] == scans
     assert ({row.tool for row in rows}, empty, {row.executor for row in rows}) == (
         {tool for tool, _ in _REVIEW_SCANS},
         [],
@@ -528,7 +571,6 @@ def test_a_review_profile_holds_one_row_per_tool_run_with_every_field(
     assert ReviewProfile.model_validate_json(profile.model_dump_json()).tool_runs == rows
 
 
-@pytest.mark.usefixtures("mypy_set_aside")
 def test_the_scan_of_the_base_revision_adds_its_rows_with_no_commit(
     tree: Path, tmp_path: Path, tool_executor_fake: ToolExecutorFake
 ) -> None:
@@ -547,7 +589,7 @@ def test_the_scan_of_the_base_revision_adds_its_rows_with_no_commit(
     runs = orchestrator.tool_executor.runs
     base = {run.tool for run in runs if run.commit is None}
     head = {run.tool for run in runs if run.commit is not None}
-    assert (base, head >= {"bandit", "gitleaks", "semgrep", "ruff"}) == (
+    assert (base, head >= {"bandit", "gitleaks", "semgrep", "ruff", "mypy"}) == (
         {"bandit", "gitleaks", "semgrep"},
         True,
     )
@@ -581,7 +623,46 @@ def test_the_report_shows_a_row_for_each_distinct_record_and_counts_its_runs(
         f"`{bandit.config_digest}` | `{bandit.ruleset_digest}` | `{bandit.commit}` | "
         f"`{' '.join(bandit.argv_template)}` | 1 |",
     ]
-    assert section[2].startswith("| gitleaks | ") and section[2].endswith(" | 2 |")
+    assert section[2].startswith("| gitleaks | ")
+    assert section[2].endswith(" | 2 |")
+
+
+def test_the_sarif_of_a_review_holds_the_records_of_each_tool_that_gave_a_result(
+    tree: Path, orchestrator: ReviewPipelineOrchestrator
+) -> None:
+    """`findings.sarif` holds the records of Gitleaks in the run of Gitleaks, each in full. Bandit
+    gave no result, and its records do not say that it succeeded, so it gets no run (#1983)."""
+    executor = orchestrator.tool_executor
+    run_gitleaks_scan([tree / "app.py", tree / "other.py"], isolated=True, tool_executor=executor)
+    run_bandit_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
+    orchestrator.admitted_scanner_findings = [
+        Finding(
+            anchor=ToolAnchor(run_id="r1", result_index=0, rule_id="aws-access-key-id"),
+            tool="gitleaks",
+            rule_id="aws-access-key-id",
+            path="app.py",
+            line=1,
+            message="AWS access key",
+            severity="HIGH",
+            severity_derivation="rule",
+            fingerprint_v2="fp-gitleaks-1",
+        )
+    ]
+
+    orchestrator._persist_session_artifacts(ReviewSessionPayload(), ReviewSessionPayload(), "")
+
+    sarif = orchestrator.session.staging / CONST_REVIEW_SARIF_FILENAME
+    document = json.loads(sarif.read_text(encoding="utf-8"))
+    [run] = document["runs"]
+    gitleaks = [record for record in executor.runs if record.tool == "gitleaks"]
+    assert (
+        run["tool"]["driver"]["name"],
+        run["tool"]["driver"]["version"],
+        [ToolRun.model_validate(record) for record in run["properties"]["tool_runs"]],
+        len(gitleaks),
+    ) == ("gitleaks", gitleaks[0].version, gitleaks, 2)
+    schema = json.loads((FIXTURES / "sarif-schema-2.1.0.json").read_text(encoding="utf-8"))
+    jsonschema.validators.validator_for(schema)(schema).validate(document)
 
 
 def test_a_report_of_a_review_that_ran_no_tool_has_no_tool_runs_section(tmp_path: Path) -> None:

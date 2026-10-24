@@ -3,11 +3,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding, ReviewSessionPayload
@@ -29,6 +25,7 @@ from devops_cli.security.ruff import (
     filter_or_group_advisories,
     parse_ruff_sarif,
 )
+from tests.support.fakes.tool_executor import ToolExecutorFake
 
 # ── Acceptance Criterion 1 & 2: C901 Complexity Deltas ───────────────────────
 
@@ -375,7 +372,7 @@ def test_mypy_lock_matching_and_coverage_gap(tmp_path: Path) -> None:
 
 
 def test_mypy_runs_over_one_tree_share_a_cache_in_the_data_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolate_data_dir: Path
+    tmp_path: Path, isolate_data_dir: Path, tool_executor_fake: ToolExecutorFake
 ) -> None:
     """Two mypy runs over one tree use one cache in the data directory, so the second is warm (#2034).
 
@@ -394,22 +391,19 @@ def test_mypy_runs_over_one_tree_share_a_cache_in_the_data_directory(
         (tree / "app.py").write_text("x: int = 1\n", encoding="utf-8")
         trees[name] = tree
 
-    cache_dirs: list[Path] = []
-    real_run = subprocess.run
-
-    def run(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
-        if cmd[1:4] == ["-I", "-m", "mypy"]:
-            cache_dirs.append(Path(cmd[cmd.index("--cache-dir") + 1]))
-            return subprocess.CompletedProcess(cmd, 0, "", "")
-        return real_run(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(subprocess, "run", run)
     statuses = [
-        run_mypy_scan([trees[name] / "app.py"], tree=trees[name], checkout_root=trees[name]).status
+        run_mypy_scan(
+            [trees[name] / "app.py"],
+            tree=trees[name],
+            checkout_root=trees[name],
+            tool_executor=tool_executor_fake,
+        ).status
         for name in ("tree-a", "tree-a", "tree-b")
     ]
 
-    first, second, other = cache_dirs
+    first, second, other = (
+        Path(request.env["MYPY_CACHE_DIR"]) for request in tool_executor_fake.requests
+    )
     assert (statuses, first == second, first == other) == (["ran", "ran", "ran"], True, False)
     assert [
         (path.is_relative_to(isolate_data_dir / "cache"), path.is_relative_to(tmp_path / "tree-a"))

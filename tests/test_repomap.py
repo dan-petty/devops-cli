@@ -309,6 +309,7 @@ def test_generate_repo_map_multilingual(tmp_path: Path) -> None:
     )
     nodes = generate_repo_map(root_dir=tmp_path, max_files=10, multilingual=True)
     assert isinstance(nodes, list)
+    assert "app.ts" in {n.path for n in nodes}
 
 
 def test_generate_repo_map_multilingual_dockerfile_yaml_helm(tmp_path: Path) -> None:

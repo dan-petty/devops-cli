@@ -298,6 +298,7 @@ def test_scanner_fallback_when_binary_unavailable(tmp_path: Path) -> None:
         for name in ALL_EXPECTED_SCANNER_NAMES:
             scanner = global_scanner_registry.get(name)
             assert scanner is not None
+            assert scanner.name == name
             findings = scanner.scan(test_file)
             assert isinstance(findings, list)
 

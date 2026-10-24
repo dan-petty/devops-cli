@@ -675,12 +675,10 @@ def test_analyze_pr_ends_with_the_github_error_when_the_pull_request_cannot_be_r
 
     result = cli("ai", "analyze", "pr", "158", "--no-enhanced")
 
-    assert (
-        result.exit_code,
-        isinstance(result.exception, SystemExit),
-        "(HTTP 500)" in result.output,
-        "Traceback" in result.output,
-    ) == (1, True, True, False)
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "(HTTP 500)" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_scan_directory_and_heuristics(tmp_path: Path) -> None:

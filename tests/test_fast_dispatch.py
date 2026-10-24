@@ -90,26 +90,26 @@ def test_render_dry_run_result(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_dry_run_getattr() -> None:
+    from devops_cli.dry_run.models import CommandDryRunResult
+
     cls = getattr(devops_cli.dry_run, "CommandDryRunResult")
-    assert cls is not None
+    assert cls is CommandDryRunResult
     with pytest.raises(AttributeError):
         _ = getattr(devops_cli.dry_run, "nonexistent_attr_xyz")
 
 
 def test_core_dry_run_exports() -> None:
-    assert callable(devops_cli.dry_run.format_command)
-    assert callable(devops_cli.dry_run.is_dry_run)
-    assert callable(devops_cli.dry_run.set_dry_run)
-    assert devops_cli.dry_run.CommandDryRunResult is not None
+    from devops_cli.dry_run.models import CommandDryRunResult
+    from devops_cli.dry_run.state import (
+        format_command,
+        is_dry_run,
+        set_dry_run,
+    )
 
-
-def test_core_getattr_exports() -> None:
-    assert callable(getattr(devops_cli.core, "run_subprocess"))
-    assert callable(getattr(devops_cli.core, "find_repo_root"))
-    assert callable(getattr(devops_cli.core, "validate_path"))
-    assert callable(getattr(devops_cli.core, "is_dry_run"))
-    with pytest.raises(AttributeError):
-        _ = getattr(devops_cli.core, "nonexistent_core_attr")
+    assert devops_cli.dry_run.format_command is format_command
+    assert devops_cli.dry_run.is_dry_run is is_dry_run
+    assert devops_cli.dry_run.set_dry_run is set_dry_run
+    assert devops_cli.dry_run.CommandDryRunResult is CommandDryRunResult
 
 
 def test_main_helpers_and_entrypoint() -> None:

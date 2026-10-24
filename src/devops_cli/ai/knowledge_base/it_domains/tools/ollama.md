@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "tool:ollama@0.6.*"
+  - "tool:ollama@0.34.*"
 sources:
   - "https://ollama.com/"
   - "https://github.com/ollama/ollama"
@@ -80,6 +80,9 @@ ollama run qwen3.8:27b
 # Check active running models in VRAM
 ollama ps
 
+# Show the loaded models, their size, context and expiry (UNTIL) on one cluster tier, such as ollama-48gib
+kubectl -n llm exec ds/<tier> -c ollama -- ollama ps
+
 # Generate an embedding vector via curl
 curl http://localhost:11434/api/embeddings -d '{
   "model": "qwen3-embedding:0.6b",
@@ -102,6 +105,12 @@ curl http://localhost:11434/api/embeddings -d '{
      ```
    - A tier that the gateway sends embeddings to (`ollama-16gib`, `ollama-48gib`, `ollama-64gib` and `ollama-48gib-slow`) keeps two models loaded (`OLLAMA_MAX_LOADED_MODELS: "2"`). Ollama loads the second model only when both fit in VRAM, and otherwise unloads the idle one, so `qwen3-embedding:0.6b` stays beside the chat model where it fits. The gateway sends `num_ctx: 8192` with each embedding, so the embedder needs 2.2 to 2.9 GB, not the 3.1 to 5.2 GB of its 32,768-token default.
    - `ollama-48gib-slow`, the background tier, keeps its two models loaded for good (`OLLAMA_KEEP_ALIVE: "-1"`): its embedding model and `qwen3.8:27b`, the one generation model the gateway sends it, so neither evicts the other. Ollama also evicts a resident model when it predicts that a new one needs more than 80% of the free VRAM: qwen3.8:27b is predicted to fit beside the embedder, while a dense ~30B model evicted it.
+   - The gateway sends no `keep_alive`, and a call without `keep_alive` keeps the keep-alive of the loaded model:
+     - A call through the gateway keeps the lease that `devops ai prewarm` set (one hour by default). Ollama starts that lease again when the call ends.
+     - A model that a gateway call loads gets the default keep-alive of its tier: `OLLAMA_KEEP_ALIVE`, or 5 minutes when the tier does not set it.
+     - A request that sends `keep_alive` replaces the lease. Thus a prewarm with `keep_alive: 1h` replaces the forever lease of `ollama-48gib-slow` with one hour. This comes from `useLoadedRunner` in the source, and nobody tested it on a live tier.
+     - Source: in Ollama 0.34.4 `server/sched.go`, `useLoadedRunner` changes the lease only when a request sends `keep_alive`. `load` uses `OLLAMA_KEEP_ALIVE` only when a request that loads a model sends none.
+     - Test: on 2026-10-24, on an idle tier, a prewarm with `keep_alive: 1h` set the expiry one hour later. Then `/api/chat` (blocking and streamed) and `/api/embed` without `keep_alive` kept the one-hour expiry.
 2. **Model Quantization & Sizing**: Use `q4_K_M` or `q8_0` quantized models to maximize inference throughput while staying within workstation VRAM / RAM limits.
 3. **Constrain Review Token Generation**: Set `max_tokens: 2048` and `reasoning_effort: low` for code reviews to prevent long generation delays during multi-file reviews.
 4. **Context Window Sizing**: Set `num_ctx` appropriately (e.g. `8192` or `16384`) in Ollama modelfiles when reviewing large multi-file diffs.

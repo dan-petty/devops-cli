@@ -22,9 +22,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from devops_cli.config import load_settings
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
-from devops_cli.config.settings import get_argocd_token
+from devops_cli.config.settings import get_argocd_token, load_settings
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git

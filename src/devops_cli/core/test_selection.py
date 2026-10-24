@@ -1,8 +1,7 @@
 """Map changed source files to the test modules that exercise them.
 
-Pre-commit hands a hook the list of staged files. Running the whole suite for a one-line
-change is the reason people start passing `--no-verify`, so this narrows the run to the
-tests that actually cover the changed sources.
+`devops ci test <paths>` narrows a run to the tests that cover the given files, so a person
+or an agent checks a change quickly before the full gate runs.
 
 Selection deliberately errs toward running too much: an extra test module costs seconds,
 whereas missing the one test that covers a change gives a false green.

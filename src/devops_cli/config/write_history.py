@@ -1,11 +1,11 @@
 """What a write of a config file leaves behind: a copy of the file it replaces and an audit record
 of the change (#1921).
 
-`save_settings` writes a whole config file from the settings in memory. Before this module, a
-write kept nothing, so a setting that a write dropped was lost, and nothing showed which command
-wrote the file. Now a write that changes the file first copies the file beside itself. Then it
-appends a record to the audit log (`data.audit_log_path`) that names the command and the dotted
-keys that changed. The record holds no value, so a secret never gets into it.
+Before this module, a write of a config file kept nothing, so a setting that a write dropped was
+lost, and nothing showed which command wrote the file. Now a write that changes the file first
+copies the file beside itself. Then it appends a record to the audit log (`data.audit_log_path`)
+that names the command and the dotted keys whose values changed in the file. The record holds no
+value, so a secret never gets into it.
 """
 
 from __future__ import annotations
@@ -26,8 +26,7 @@ from devops_cli.config.constants import (
     CONST_CONFIG_BACKUP_STAMP_FORMAT,
     CONST_CONFIG_BACKUPS_KEPT,
 )
-
-_ABSENT = object()
+from devops_cli.config.round_trip import changes
 
 
 def back_up(path: Path) -> Path | None:
@@ -69,39 +68,30 @@ def _is_stamp(text: str) -> bool:
 def changed_keys(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[str]:
     """The dotted names, such as `ssh.key_prefix`, of the settings that differ between two config
     mappings: each leaf that only one of them holds, or that they hold with different values."""
-    old, new = _leaves(before), _leaves(after)
-    return sorted(k for k in old.keys() | new.keys() if old.get(k, _ABSENT) != new.get(k, _ABSENT))
+    return sorted(".".join(path) for path in changes(before, after))
 
 
-def _leaves(mapping: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
-    """Each value of a nested mapping that is not itself a mapping with keys, by its dotted name."""
-    leaves: dict[str, Any] = {}
-    for key, value in mapping.items():
-        name = f"{prefix}{key}"
-        if isinstance(value, Mapping) and value:
-            leaves |= _leaves(value, f"{name}.")
-        else:
-            leaves[name] = value
-    return leaves
-
-
-def record_write(
-    path: Path, previous: bytes | None, written: Mapping[str, Any], backup: Path | None
-) -> None:
+def record_write(path: Path, previous: bytes | None, content: bytes, backup: Path | None) -> None:
     """Append the write of `path` to the audit log: the command that made it, the file, its copy
-    and the dotted names of the keys that changed from the `previous` content, never a value."""
+    and the dotted names of the keys whose values changed from the `previous` content to the
+    written `content`, never a value."""
     from devops_cli.core.audit import record_audit_event
 
-    before = yaml.safe_load(previous) if previous else None
     record_audit_event(
         _running_command(),
         details={
             "action": CONST_AUDIT_ACTION_CONFIG_WRITE,
             "path": str(path),
             "backup": str(backup) if backup is not None else None,
-            "changed_keys": changed_keys(before if isinstance(before, Mapping) else {}, written),
+            "changed_keys": changed_keys(_mapping(previous), _mapping(content)),
         },
     )
+
+
+def _mapping(content: bytes | None) -> Mapping[str, Any]:
+    """The mapping that a config file holds, or an empty one for no file or no mapping."""
+    loaded = yaml.safe_load(content) if content else None
+    return loaded if isinstance(loaded, Mapping) else {}
 
 
 def _running_command() -> str:

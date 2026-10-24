@@ -47,7 +47,8 @@ def test_compute_workspace_fingerprint_git(tmp_path: Path) -> None:
     # Returns a 2-tuple or None if not a git repo
     if res is not None:
         fp, head_sha = res
-        assert (len(fp) == 64, isinstance(head_sha, str)) == (True, True)
+        assert len(fp) == 64
+        assert isinstance(head_sha, str)
 
 
 def test_save_and_get_ci_cache(isolated_cache_dir: Path) -> None:

@@ -365,7 +365,7 @@ def test_fetch_metric_value_branches() -> None:
     # Case 1: no settings url returns None
     mock_settings_empty = MagicMock()
     mock_settings_empty.prometheus.url = ""
-    with patch("devops_cli.config.load_settings", return_value=mock_settings_empty):
+    with patch("devops_cli.config.settings.load_settings", return_value=mock_settings_empty):
         assert _fetch_metric_value("rate(http_requests[1m])") is None
 
     # Case 2: valid response with value
@@ -373,7 +373,7 @@ def test_fetch_metric_value_branches() -> None:
     mock_settings.prometheus.url = "http://example.com:9090"
     mock_settings.ai.allow_private_network = True
     with (
-        patch("devops_cli.config.load_settings", return_value=mock_settings),
+        patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
         patch("devops_cli.http.validation.validate_service_url"),
         patch("httpx2.Client") as mock_client_cls,
     ):
@@ -390,7 +390,7 @@ def test_fetch_metric_value_branches() -> None:
 
     # Case 3: exception during request returns None
     with (
-        patch("devops_cli.config.load_settings", return_value=mock_settings),
+        patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
         patch("devops_cli.http.validation.validate_service_url", side_effect=ValueError("bad url")),
     ):
         assert _fetch_metric_value("rate(http_requests[1m])") is None
@@ -442,7 +442,8 @@ def test_render_table_formatters() -> None:
         success=False,
     )
     tbl1 = render_fleet_sync_table(fleet_res)
-    assert tbl1 is not None
+    assert tbl1.title.startswith("Argo Fleet Synchronization")
+    assert len(tbl1.rows) == 2
 
     rollout_res = RolloutAnalysisResult(
         rollout_name="worker",
@@ -459,7 +460,8 @@ def test_render_table_formatters() -> None:
         ],
     )
     tbl2 = render_rollout_analysis_table(rollout_res)
-    assert tbl2 is not None
+    assert tbl2.title.startswith("Argo Rollout Analysis")
+    assert len(tbl2.rows) == 1
 
 
 def test_rollout_metric_threshold_invalid_operator() -> None:

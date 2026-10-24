@@ -11,7 +11,7 @@ DevOps CLI supports hierarchical configuration resolution through:
 
 A `devops review` command reads a tree it does not own. Started in a repository other than devops-cli's own, it looks for no project configuration, reading only the file `DEVOPS_CLI_CONFIG` names, and it resolves a relative data path under `~/.local/share/devops-cli` rather than under that repository, so its default data directory is `~/.local/share/devops-cli/.data`. What a review keeps -- its sessions, the feedback dataset, runs, samples, library contracts and AI spend -- every other command started outside devops-cli's own repository reads and writes there too. devops-cli's own repository is the one whose checkout holds the source of the devops-cli that runs, as an editable install's does; its code already runs, so a review started there, or in any worktree of it, reads its project configuration and keeps all data under its main worktree's `.data`, as every other command does. A clone nested in that checkout is another repository, and an installed devops-cli trusts no repository this way. An absolute `DEVOPS_CLI_DATA_DIR` or `data.dir` names the data directory every command uses.
 
-A command that saves settings, such as `devops config set`, writes the file `DEVOPS_CLI_CONFIG` names, else the project configuration it finds, else the global one. It writes the whole file from the settings it loaded. Before it changes the file, it copies the file to `<name>.bak-<YYYYMMDD-HHMMSS>` in the same directory, with the time in UTC, and keeps the newest 10 copies. Then it appends a record to the audit log (`data.audit_log_path`) with the command and the dotted names of the keys that changed, never a value. A save that changes no byte of the file writes nothing.
+A command that saves settings, such as `devops config set`, writes the file `DEVOPS_CLI_CONFIG` names, else the project configuration it finds, else the global one. It writes only the keys whose values the command changed, and it keeps the comments, the order of the keys and the keys that devops-cli does not know. A default, or a value that the other config file or an environment variable gives, stays out of the file, but `devops config set` writes the key that it names also when the value does not change. Before it changes the file, it copies the file to `<name>.bak-<YYYYMMDD-HHMMSS>` in the same directory, with the time in UTC, and keeps the newest 10 copies. Then it appends a record to the audit log (`data.audit_log_path`) with the command and the dotted names of the keys that changed, never a value. A save that changes no byte of the file writes nothing.
 
 ---
 
@@ -90,11 +90,8 @@ Valkey caching endpoint, authentication, TLS, and service addressing settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `host` | `str` | `localhost:6379` | `DEVOPS_CLI_VALKEY_HOST` | - |
-| `port` | `int` | `6379` | `DEVOPS_CLI_VALKEY_PORT` | - |
-| `url` | `Union` | - | - | The Valkey endpoint, such as `valkeys://example.com:6380`. Its host and port replace `host` and `port`. The scheme `valkeys` or `rediss` connects over TLS and checks the certificate against the host. The scheme `valkey` connects in plaintext |
+| `url` | `Union` | `valkey://localhost:6379/0` | `DEVOPS_CLI_VALKEY_URL` | The Valkey endpoint, such as `valkeys://example.com:6380/0`: the scheme, the host, the port and the database. The scheme `valkeys` connects over TLS and checks the certificate against the host. The scheme `valkey` connects in plaintext. The URL holds no password: `valkey.password` is in the OS keyring |
 | `password` | `Union` | - | `DEVOPS_CLI_VALKEY_PASSWORD` | - |
-| `db` | `int` | `0` | `DEVOPS_CLI_VALKEY_DB` | - |
 | `timeout` | `float` | `2.0` | `DEVOPS_CLI_VALKEY_TIMEOUT` | - |
 | `threat_intel_ttl` | `int` | `86400` | - | - |
 

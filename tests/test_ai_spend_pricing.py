@@ -789,6 +789,88 @@ def test_an_unknown_hosted_model_is_priced_unknown_and_warns_once(
     )
 
 
+def test_a_gateway_call_is_priced_at_the_litellm_reference_of_its_deployment_model(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The LiteLLM gateway names the deployment model of a call as a LiteLLM model reference,
+    such as `openai/gpt-4o`, and genai-prices takes the provider from its prefix. So each hosted
+    deployment is priced at the price of its provider, not at the route name `devops-chat` that
+    genai-prices does not know. A local backend stays local, and a deployment with no price
+    warns once with its own name (#2031)."""
+    registry = PricingRegistry(data_dir=tmp_path)
+    peak_ts = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    caplog.set_level(logging.WARNING, logger="devops_cli.ai.spend.pricing")
+
+    def price(served_model: str | None, served_by: str = "https://api.openai.com") -> RequestCost:
+        return registry.calculate_request_cost(
+            "devops-chat",
+            1_000_000,
+            0,
+            server="example.com:4000",
+            provider="gateway",
+            request_timestamp=peak_ts,
+            served_by=served_by,
+            served_model=served_model,
+        )
+
+    hosted = [
+        price(model)
+        for model in (
+            "openai/gpt-4o",
+            "openai/text-embedding-3-small",
+            "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0",
+            "openrouter/anthropic/claude-3.5-sonnet",
+            "openai/gpt-9-preview",
+            "openai/gpt-9-preview",
+        )
+    ]
+    local = price("ollama_chat/qwen3.8:27b", "http://ollama-16gib.llm.svc.cluster.local:11434")
+
+    assert (
+        hosted,
+        local,
+        [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING],
+    ) == (
+        [
+            RequestCost(2.5, "genai_prices:openai"),
+            RequestCost(0.02, "genai_prices:openai"),
+            RequestCost(3.0, "genai_prices:aws"),
+            RequestCost(3.0, "genai_prices:openrouter"),
+            RequestCost(0.0, "unknown"),
+            RequestCost(0.0, "unknown"),
+        ],
+        RequestCost(0.0, "local"),
+        [
+            "genai-prices and the price overrides hold no price for model openai/gpt-9-preview under provider litellm. Its requests are recorded at $0 with the pricing source unknown."
+        ],
+    )
+
+
+def test_a_price_override_of_the_deployment_model_prices_a_gateway_call(tmp_path: Path) -> None:
+    """When a gateway reply names its deployment model, that model is the target of a price
+    override, not the route name. A reply that names none takes the price of the route name, as
+    the help of `devops ai cost set-price` says (#2031)."""
+    registry = PricingRegistry(data_dir=tmp_path)
+    registry.set_custom_pricing("gpt-4o", prompt_rate=1.0, completion_rate=2.0)
+    registry.set_custom_pricing("devops-chat", prompt_rate=9.0, completion_rate=9.0)
+
+    def price(served_model: str | None) -> RequestCost:
+        return registry.calculate_request_cost(
+            "devops-chat",
+            1_000_000,
+            1_000_000,
+            server="example.com:4000",
+            provider="gateway",
+            served_by="https://api.openai.com",
+            served_model=served_model,
+        )
+
+    assert (price("openai/gpt-4o"), price(None)) == (
+        RequestCost(3.0, "custom_override"),
+        RequestCost(18.0, "custom_override"),
+    )
+
+
 def test_only_the_defaults_name_the_default_reference_model() -> None:
     """The default reference model is named in `config/defaults.py` alone, and other code reads
     `DEFAULT_AI_REFERENCE_MODEL`, so a changed default changes every use (#1672)."""

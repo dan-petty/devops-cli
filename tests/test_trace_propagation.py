@@ -348,7 +348,9 @@ def test_a_subprocess_spawned_outside_a_span_still_carries_a_valid_context(
     with patch("subprocess.run", side_effect=fake_run):
         run_subprocess(["echo", "hello"], quiet=True)
 
-    assert extract_env(captured["env"]) is not None
+    ctx = extract_env(captured["env"])
+    assert ctx is not None
+    assert len(ctx.trace_id) == 32
 
 
 def test_a_disabled_tracer_injects_no_context_into_a_child() -> None:
@@ -412,6 +414,7 @@ def test_a_span_ignores_a_malformed_context_inherited_from_a_parent_process(
             adopted = client.current_trace_id
         reset_tracer()
     assert adopted is not None
+    assert len(adopted) == 32
     assert parse_traceparent(f"00-{adopted}-{VALID_SPAN_ID}-01") is not None
 
 
@@ -528,7 +531,9 @@ def test_recorded_spans_are_copied_so_later_mutation_cannot_alter_them() -> None
 
 def test_generate_traceparent_produces_a_value_the_parser_accepts() -> None:
     """The public generator and the parser agree on what is valid."""
-    assert parse_traceparent(generate_traceparent()) is not None
+    context = parse_traceparent(generate_traceparent())
+    assert context is not None
+    assert len(context.trace_id) == 32
 
 
 def test_generate_traceparent_rejects_flags_outside_the_supported_set() -> None:
@@ -597,7 +602,9 @@ def test_injecting_traceparent_headers_can_generate_one_on_request() -> None:
     """Callers that need a correlation id can opt in."""
     reset_tracer()
     headers = inject_traceparent_headers(auto_generate=True)
-    assert parse_traceparent(headers[CONST_TRACEPARENT_HEADER]) is not None
+    context = parse_traceparent(headers[CONST_TRACEPARENT_HEADER])
+    assert context is not None
+    assert len(context.trace_id) == 32
 
 
 def test_injecting_traceparent_headers_preserves_an_existing_one() -> None:

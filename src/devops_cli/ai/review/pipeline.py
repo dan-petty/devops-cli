@@ -2051,8 +2051,12 @@ class ReviewPipelineOrchestrator:
         from devops_cli.security.tool_executor import DirectToolExecutor, RecordingToolExecutor
 
         # One executor for the whole review, so every analyzer starts its tool the same way. It
-        # keeps the record of every run, for the report and the profile (#772).
-        self.tool_executor = RecordingToolExecutor(tool_executor or DirectToolExecutor())
+        # keeps the record of every run, for the report and the profile (#772). The canaries of
+        # the tools run on the same executor with no record: a canary checks a tool on a fixture
+        # of its own and scans nothing of the review (#1978).
+        executor = tool_executor or DirectToolExecutor()
+        self.tool_executor = RecordingToolExecutor(executor)
+        self._canary_executor: ToolExecutor = executor
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.base_revision = base_revision
         self.partial_context = partial_context
@@ -2141,7 +2145,9 @@ class ReviewPipelineOrchestrator:
                 self.canary_results[norm] = True
                 continue
             lang_ver = _tool_language_version(norm, tree, self.kubernetes_version)
-            res = run_tool_canary(norm, language_version=lang_ver)
+            res = run_tool_canary(
+                norm, language_version=lang_ver, tool_executor=self._canary_executor
+            )
             self.canary_results[norm] = res.passed
 
     def _resolve_file_path(self, fpath: str) -> Path:
@@ -2460,6 +2466,7 @@ class ReviewPipelineOrchestrator:
                 py_paths,
                 tree=rev_tree,
                 checkout_root=checkout_root,
+                tool_executor=self.tool_executor,
             )
             all_evidence.extend(_wrap_static_findings(mypy_res.findings, tool="mypy"))
 
@@ -3830,7 +3837,7 @@ class ReviewPipelineOrchestrator:
             )
             for af in getattr(self, "admitted_scanner_findings", [])
         ]
-        self.session.write_sarif(to_sarif(sarif_findings))
+        self.session.write_sarif(to_sarif(sarif_findings, tool_runs=self.tool_executor.runs))
         self.session.write_report(report_md)
 
     def generate_consolidated_report(

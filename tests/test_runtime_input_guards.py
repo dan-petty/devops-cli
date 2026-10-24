@@ -62,7 +62,8 @@ def test_chaos_fault_runner_rejects_argument_injection() -> None:
     )
     report = runner.run_experiment(bad_exp)
     assert report.status.value in ("FAILED", "SKIPPED")
-    assert report.error is not None and (
+    assert report.error is not None
+    assert (
         "invalid" in report.error.lower()
         or "flag" in report.error.lower()
         or "injection" in report.error.lower()

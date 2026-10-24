@@ -82,7 +82,7 @@ def test_handle_deferred_tool_calls_capability() -> None:
         approvals=[ToolCallPart(tool_name="run_command", tool_call_id="c_1")]
     )
     res1 = cap1.handle_deferred(reqs)
-    assert res1 is not None
+    assert list(res1.approvals.keys()) == ["c_1"]
     assert isinstance(res1.approvals["c_1"], ToolApproved)
 
     # 2. Two argument handler (ctx, requests)
@@ -95,12 +95,12 @@ def test_handle_deferred_tool_calls_capability() -> None:
 
     ctx_admin = RunContext(session_id="admin_session")
     res_admin = cap2.handle_deferred(reqs, ctx_admin)
-    assert res_admin is not None
+    assert list(res_admin.approvals.keys()) == ["c_1"]
     assert isinstance(res_admin.approvals["c_1"], ToolApproved)
 
     ctx_user = RunContext(session_id="guest_session")
     res_guest = cap2.handle_deferred(reqs, ctx_user)
-    assert res_guest is not None
+    assert list(res_guest.approvals.keys()) == ["c_1"]
     assert isinstance(res_guest.approvals["c_1"], ToolDenied)
 
 

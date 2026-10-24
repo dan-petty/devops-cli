@@ -110,10 +110,12 @@ def test_http_client_invalid_timeout_type() -> None:
 
     with pytest.raises(HTTPTimeoutTypeError, match="timeout must be") as exc_info1:
         new_http_client(level=EgressLevel.PUBLIC, timeout="invalid-string")  # type: ignore[arg-type]
+    assert "timeout must be" in str(exc_info1.value)
     assert isinstance(exc_info1.value, TypeError)
     assert isinstance(exc_info1.value, ValidationError)
 
     with pytest.raises(HTTPTimeoutTypeError, match="read_timeout must be") as exc_info2:
         new_http_client(level=EgressLevel.PUBLIC, read_timeout="invalid-string")  # type: ignore[arg-type]
+    assert "read_timeout must be" in str(exc_info2.value)
     assert isinstance(exc_info2.value, TypeError)
     assert isinstance(exc_info2.value, ValidationError)

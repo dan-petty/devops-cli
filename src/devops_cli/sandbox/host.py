@@ -14,15 +14,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, NamedTuple
 
-from devops_cli.config import (
-    DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
-    DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
-    DEFAULT_HOST_SANDBOX_BINARY,
-)
 from devops_cli.config.constants import (
     CONST_HOST_SANDBOX_VIRTUALENV_BIN,
     CONST_PYTHON_STDLIB_LANDMARK_GLOB,
     CONST_SANDBOX_SENSITIVE_SUBPATHS,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
+    DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
+    DEFAULT_HOST_SANDBOX_BINARY,
 )
 from devops_cli.core.repo import (
     _gitdir_named_by,

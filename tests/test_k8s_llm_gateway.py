@@ -26,7 +26,6 @@ from devops_cli.config.constants import (
     CONST_RAG_MAX_CHUNK_TOKENS,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AI_GATEWAY_CLUSTER_URL,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_CLUSTER_URL,
@@ -42,6 +41,7 @@ from tests.support.markdown_examples import (
     tables,
 )
 
+DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
 GATEWAY_DIR = Path("k8s/llm/gateway")
 # The LiteLLM config; the gateway kustomization generates ConfigMap llm-gateway-config from it.
 GATEWAY_CONFIG = GATEWAY_DIR / "config.yaml"

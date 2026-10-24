@@ -66,7 +66,8 @@ def test_the_prefix_carries_no_leading_or_trailing_slash() -> None:
         prefix = resolve_proxy_connection(
             ServiceRef(namespace="llm", service="qdrant", port="6333")
         ).prefix
-    assert not prefix.startswith("/") and not prefix.endswith("/")
+    assert not prefix.startswith("/")
+    assert not prefix.endswith("/")
 
 
 # =============================================================================

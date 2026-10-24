@@ -71,7 +71,8 @@ def test_generate_server_certificate_ca_signed(tmp_path: Path) -> None:
 
     assert srv_cert.exists()
     assert srv_key.exists()
-    assert fullchain is not None and fullchain.exists()
+    assert fullchain is not None
+    assert fullchain.exists()
 
     # Inspect leaf certificate
     info = inspect_certificate(srv_cert)

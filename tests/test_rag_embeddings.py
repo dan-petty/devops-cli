@@ -14,12 +14,15 @@ import h11
 import httpcore2
 import httpx2
 import pytest
+from fakeredis import FakeServer
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import defaults
 from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.settings import AIConfig
+from devops_cli.valkey.client import ValkeyClient
+from tests.support.fakes.clock import ClockFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -520,37 +523,6 @@ def test_calculate_backoff_delay_bounded() -> None:
     assert 2.0 <= d2 <= 2.25  # capped at 2.0 + jitter
 
 
-def test_adaptive_batch_sizing_halves_on_timeout() -> None:
-    """Verify batch size dynamically halves from 32 down to 16, 8, 4 on timeouts."""
-    ai_cfg = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
-    engine = EmbeddingsEngine(ai_cfg, batch_size=32)
-    assert engine._current_batch_size == 32
-
-    assert engine._halve_batch_size() == 16
-    assert engine._current_batch_size == 16
-
-    assert engine._halve_batch_size() == 8
-    assert engine._halve_batch_size() == 4
-    assert engine._halve_batch_size() == 2
-    assert engine._halve_batch_size() == 1
-    # Cannot drop below minimum of 1
-    assert engine._halve_batch_size() == 1
-
-
-def test_adaptive_batch_sizing_halves_on_latency_degradation() -> None:
-    """Verify batch size halves when observed latency exceeds latency ceiling."""
-    ai_cfg = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
-    engine = EmbeddingsEngine(ai_cfg, batch_size=32)
-
-    # Within threshold (<= 2.0s): batch size stays unchanged
-    engine._record_batch_latency(1.2)
-    assert engine._current_batch_size == 32
-
-    # Exceeding threshold (> 2.0s): triggers halving
-    engine._record_batch_latency(2.8)
-    assert engine._current_batch_size == 16
-
-
 def test_sub_batch_splitting(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify failing large batches automatically subdivide into smaller slices."""
     ai_cfg = AIConfig(
@@ -643,23 +615,46 @@ def test_valkey_l2_chunk_cache_stores_fresh_embeddings(monkeypatch: pytest.Monke
     assert any(c[0] == key and c[2] == 604800 for c in mock_valkey.set_calls)
 
 
-def test_valkey_offline_does_not_stop_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify engine functions normally when Valkey raises connection errors."""
+def _valkey_cache_cooldown() -> float:
+    """The cooldown of the breaker of the Valkey cache tier, in seconds.
 
-    class _FailingValkey:
-        def get(self, key: str) -> None:
-            raise RuntimeError("Valkey socket connection refused")
+    The import is local, so the module loads on a base without the default.
+    """
+    from devops_cli.config.defaults import DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS
 
-        def set(self, key: str, value: str, ex: int | None = None) -> None:
-            raise RuntimeError("Valkey socket connection refused")
+    return DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS
 
-    monkeypatch.setattr(EmbeddingsEngine, "_dispatch_embed", _fixed_vectors(768))
-    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
-    engine = EmbeddingsEngine(ai_cfg, valkey_client=_FailingValkey())
 
-    embs = engine.embed_texts(["test text without valkey"])
-    assert len(embs) == 1
-    assert len(embs[0]) == 768
+def test_a_valkey_outage_turns_the_embedding_l2_cache_off_for_a_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+    valkey_server: FakeServer,
+    valkey_client: ValkeyClient,
+    clock: ClockFake,
+) -> None:
+    """A failed read sends texts to the provider for the cooldown; a read after it serves from Valkey.
+
+    A first engine embeds three texts, which puts their vectors in Valkey. A second engine, with an
+    empty memory cache, then embeds one of them in each phase, so each request that the provider
+    receives is a text that Valkey did not answer.
+    """
+    sent = _serve(monkeypatch, _gateway_reply)
+    EmbeddingsEngine(
+        _gateway_config(), api_key="sk-gateway", valkey_client=valkey_client
+    ).embed_texts(["in the outage", "in the cooldown", "after the cooldown"])
+    engine = EmbeddingsEngine(_gateway_config(), api_key="sk-gateway", valkey_client=valkey_client)
+
+    valkey_server.connected = False
+    engine.embed_texts(["in the outage"])
+    valkey_server.connected = True
+    engine.embed_texts(["in the cooldown"])
+    clock.shift(_valkey_cache_cooldown())
+    engine.embed_texts(["after the cooldown"])
+
+    assert [_inputs(request) for request in sent] == [
+        ["in the outage", "in the cooldown", "after the cooldown"],
+        ["in the outage"],
+        ["in the cooldown"],
+    ]
 
 
 def test_valkey_l2_cache_query_vs_document_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -687,88 +682,43 @@ def test_valkey_l2_cache_query_vs_document_isolation(monkeypatch: pytest.MonkeyP
     assert query_key in mock_valkey.store
 
 
-def _recording_valkey_client(answers_ping: bool) -> tuple[type, list[Any]]:
-    """A ValkeyClient stand-in that records each construction, answers PING and notes close()."""
-    built: list[Any] = []
-
-    class _RecordingValkeyClient:
-        def __init__(self, **kwargs: Any) -> None:
-            self.timeout = kwargs["timeout"]
-            self.closed = False
-            built.append(self)
-
-        def ping(self) -> bool:
-            return answers_ping
-
-        def close(self) -> None:
-            self.closed = True
-
-    return _RecordingValkeyClient, built
-
-
-def test_init_valkey_fast_probe_offline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _init_valkey returns None without blocking when Valkey ping fails."""
-    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
-
-    client_class, built = _recording_valkey_client(answers_ping=False)
-    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", client_class)
-    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
-    engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
-    assert (engine._valkey, [(probe.timeout, probe.closed) for probe in built]) == (
-        None,
-        [(0.1, True)],
-    )
-
-
-def test_init_valkey_probes_quickly_then_serves_with_the_configured_timeout(
-    monkeypatch: pytest.MonkeyPatch,
+def test_an_engine_whose_valkey_refuses_embeds_and_dials_it_once_in_each_cooldown(
+    monkeypatch: pytest.MonkeyPatch, unexpected_loopback_connects: list[str], clock: ClockFake
 ) -> None:
-    """The 0.1 s probe is thrown away; the client the engine keeps waits the configured timeout."""
-    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
-    from devops_cli.config.defaults import DEFAULT_VALKEY_TIMEOUT_SECONDS
-
-    client_class, built = _recording_valkey_client(answers_ping=True)
-    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", client_class)
-    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
-    engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
-    assert (engine._valkey is built[1], [(c.timeout, c.closed) for c in built]) == (
-        True,
-        [(0.1, True), (DEFAULT_VALKEY_TIMEOUT_SECONDS, False)],
-    )
-
-
-def test_init_valkey_runs_without_l2_when_valkey_refuses(
-    monkeypatch: pytest.MonkeyPatch, unexpected_loopback_connects: list[str]
-) -> None:
-    """Verify _init_valkey returns None when the network guard refuses the configured Valkey.
+    """The configured Valkey refuses each connection, and the engine embeds with no Valkey tier.
 
     A service binds and listens on the configured port through the C socket type, as a
-    port-forward to a live Valkey does, so the kernel would accept the probe. The guard refuses
-    it and reports the connect, and the service sees no connection.
+    port-forward to a live Valkey does, so the kernel would accept a connection. The guard refuses
+    each dial and reports it, and the service sees no connection. The first refused read opens the
+    breaker, so the second call dials nothing, and the call after the cooldown dials once more.
     """
     import _socket
     import socket
 
-    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
     from devops_cli.config.settings import reset_settings_cache
 
+    sent = _serve(monkeypatch, _gateway_reply)
     with socket.socket() as service:
         _socket.socket.bind(service, ("127.0.0.1", 0))
         _socket.socket.listen(service)
         service.setblocking(False)
         port = service.getsockname()[1]
-        monkeypatch.setenv("DEVOPS_CLI_VALKEY_HOST", "127.0.0.1")
-        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PORT", str(port))
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_URL", f"valkey://127.0.0.1:{port}")
         reset_settings_cache()
-        ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+        engine = EmbeddingsEngine(_gateway_config(), api_key="sk-gateway")
         try:
-            engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
+            engine.embed_texts(["first"])
+            engine.embed_texts(["second"])
+            dials_in_the_cooldown = list(unexpected_loopback_connects)
+            clock.shift(_valkey_cache_cooldown())
+            engine.embed_texts(["third"])
+            dials = list(unexpected_loopback_connects)
             with pytest.raises(BlockingIOError):
                 service.accept()
-            reported = list(unexpected_loopback_connects)
         finally:
             unexpected_loopback_connects.clear()
-    assert (engine._valkey, reported) == (None, [f"127.0.0.1:{port} (MainThread)"])
+    dial = f"127.0.0.1:{port} (MainThread)"
+    assert (len(sent), dials_in_the_cooldown, dials) == (3, [dial], [dial, dial])
 
 
 def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
@@ -1124,6 +1074,38 @@ def test_a_gateway_batch_records_one_embedding_row_with_the_replys_tokens_and_ba
     )
 
 
+def test_a_hosted_gateway_embedding_is_priced_at_the_deployment_model_that_it_names(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """A gateway reply that a hosted API served names its deployment model in
+    `x-litellm-model-name`. The row is priced at that model and keeps the requested model (#2031).
+    """
+
+    def hosted_reply(request: httpx2.Request) -> httpx2.Response:
+        texts = _inputs(request)
+        return httpx2.Response(
+            200,
+            headers={
+                CONST_AI_GATEWAY_SERVED_BY_HEADER: "https://api.openai.com",
+                "x-litellm-model-name": "openai/text-embedding-3-small",
+            },
+            json={
+                "data": [{"index": i, "embedding": [0.5] * 4} for i in range(len(texts))],
+                "usage": {"prompt_tokens": 1_000_000, "total_tokens": 1_000_000},
+            },
+        )
+
+    _serve(monkeypatch, hosted_reply)
+
+    _gateway_engine().embed_texts(["hosted chunk"])
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute(
+            "SELECT model, served_model, pricing_source, cost_usd FROM ai_spend_records"
+        ).fetchall()
+    assert rows == [("bge-m3:latest", "openai/text-embedding-3-small", "genai_prices:openai", 0.02)]
+
+
 def test_a_batch_retried_after_http_429_records_one_row(
     monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
 ) -> None:
@@ -1425,3 +1407,168 @@ def test_a_configured_embedding_timeout_is_the_read_timeout_of_a_gateway_batch(
     _gateway_engine(ai_cfg).embed_texts(["one text"])
 
     assert gateway.read_timeouts == [10.0]
+
+
+# =============================================================================
+# Tests: a slow batch halves the batch size once for the size it was sent at, and the size grows
+# back only after a cooldown and below a margin (#2072)
+# =============================================================================
+
+_SLOW_BATCH_SECONDS = defaults.DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS + 1.0
+
+
+class _TimedNode:
+    """The replies of one Ollama node, each taking the next of `seconds` on the fake clock.
+
+    The last of `seconds` repeats for every later reply. A test sets `seconds` again between calls.
+    """
+
+    def __init__(self, clock: ClockFake, *seconds: float) -> None:
+        self.clock = clock
+        self.seconds = list(seconds)
+
+    def reply(self, request: httpx2.Request) -> httpx2.Response:
+        taken = self.seconds.pop(0) if len(self.seconds) > 1 else self.seconds[0]
+        self.clock.shift(taken)
+        return _ollama_reply(request)
+
+
+def _batch_sizes(
+    engine: EmbeddingsEngine, sent: list[httpx2.Request], call: int, texts: int
+) -> list[int]:
+    """Embed `texts` new texts in one call, and give the size of each batch it sent, largest first."""
+    sent.clear()
+    engine.embed_texts([f"call {call} text {index}" for index in range(texts)])
+    return sorted((len(_inputs(request)) for request in sent), reverse=True)
+
+
+def test_parallel_slow_batches_halve_the_batch_size_once_for_the_size_they_were_sent_at(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """A slow batch halves the batch size only when it holds no more texts than the size in use.
+
+    Each call cuts eight texts at the size in use, and two workers send the batches in parallel.
+    Each reply takes longer than the latency threshold. The first slow batch of a call halves the
+    size. The other batches of that call hold more texts than the halved size, so they do not
+    halve it again. At one text, the size stays at one text.
+    """
+    sent = _serve(monkeypatch, _TimedNode(clock, _SLOW_BATCH_SECONDS).reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=4)
+
+    sizes = [_batch_sizes(engine, sent, call, 8) for call in range(4)]
+
+    assert sizes == [[4, 4], [2, 2, 2, 2], [1] * 8, [1] * 8]
+
+
+def test_parallel_batches_that_time_out_on_an_ollama_node_halve_the_batch_size_once(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """Two batches of four texts time out in parallel on the one node, and the size halves once.
+
+    The two batches wait their backoff at the same time, so both timeouts come before a reply.
+    Then the engine sends each batch again as two halves, and the node replies at once. These
+    replies come in the cooldown, so the size stays at two texts for the next call.
+    """
+
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        texts = _inputs(request)
+        if len(texts) == 4 and texts[0].startswith("call 0 "):
+            raise httpx2.ReadTimeout("timed out", request=request)
+        return _ollama_reply(request)
+
+    sent = _serve(monkeypatch, reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=4)
+
+    with clock.concurrent_sleeps(2):
+        first_call = _batch_sizes(engine, sent, 0, 8)
+    second_call = _batch_sizes(engine, sent, 1, 8)
+
+    assert [first_call, second_call] == [[4, 4, 2, 2, 2, 2], [2, 2, 2, 2]]
+
+
+def test_parallel_gateway_batches_that_time_out_halve_the_batch_size_once(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """Two gateway batches of four texts time out in parallel, and the size halves once.
+
+    The first request of each batch times out, the two batches wait their backoff at the same
+    time, and the second request of each batch gets its reply. The next call cuts its texts into
+    batches of two texts.
+    """
+    timed_out: set[str] = set()
+    lock = threading.Lock()
+
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        first_text = _inputs(request)[0]
+        with lock:
+            first_request = first_text not in timed_out
+            timed_out.add(first_text)
+        if first_request and first_text.startswith("call 0 "):
+            raise httpx2.ReadTimeout("timed out", request=request)
+        return _gateway_reply(request)
+
+    sent = _serve(monkeypatch, reply)
+    engine = _gateway_engine(batch_size=4)
+
+    with clock.concurrent_sleeps(2):
+        first_call = _batch_sizes(engine, sent, 0, 8)
+    second_call = _batch_sizes(engine, sent, 1, 8)
+
+    assert [first_call, second_call] == [[4, 4, 4, 4], [2, 2, 2, 2]]
+
+
+def test_fast_batches_grow_the_batch_size_once_per_cooldown_up_to_the_configured_size(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """After a change of the batch size, fast batches grow it only when the cooldown has passed.
+
+    A slow batch halves the size from six texts to three. Fast batches in the cooldown do not
+    grow it. After the cooldown, two fast batches grow it by two texts, and the cooldown starts
+    again. The size grows to the configured six texts, and not more.
+    """
+    node = _TimedNode(clock, _SLOW_BATCH_SECONDS)
+    sent = _serve(monkeypatch, node.reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=6)
+    cooldown = defaults.DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS
+
+    sizes = [_batch_sizes(engine, sent, 0, 6)]
+    node.seconds = [0.0]
+    sizes.append(_batch_sizes(engine, sent, 1, 6))
+    clock.shift(cooldown)
+    sizes.append(_batch_sizes(engine, sent, 2, 6))
+    sizes.append(_batch_sizes(engine, sent, 3, 6))
+    clock.shift(cooldown)
+    sizes.append(_batch_sizes(engine, sent, 4, 6))
+    clock.shift(cooldown)
+    sizes.append(_batch_sizes(engine, sent, 5, 12))
+
+    assert sizes == [[6], [3, 3], [3, 3], [5, 1], [5, 1], [6, 6]]
+
+
+def test_only_a_batch_within_the_margin_below_the_latency_threshold_counts_as_fast(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+) -> None:
+    """A batch counts toward growth only when it takes at most the margin share of the threshold.
+
+    One worker sends the batches, so each latency is the latency of one batch. After a decrease
+    and the cooldown, a batch at the margin counts as fast. A batch slower than the margin but not
+    slower than the threshold stops the run of fast batches. The size grows only after two fast
+    batches in a row.
+    """
+    ai_cfg = _ollama_config()
+    ai_cfg.ollama_max_parallel = 1
+    node = _TimedNode(clock, _SLOW_BATCH_SECONDS)
+    sent = _serve(monkeypatch, node.reply)
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=None, batch_size=4)
+    threshold = defaults.DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS
+    margin = threshold * defaults.DEFAULT_RAG_EMBEDDING_INCREASE_LATENCY_RATIO
+
+    sizes = [_batch_sizes(engine, sent, 0, 4)]
+    clock.shift(defaults.DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS)
+    node.seconds = [margin, (margin + threshold) / 2, margin]
+    sizes.append(_batch_sizes(engine, sent, 1, 6))
+    node.seconds = [margin]
+    sizes.append(_batch_sizes(engine, sent, 2, 6))
+    sizes.append(_batch_sizes(engine, sent, 3, 6))
+
+    assert sizes == [[4], [2, 2, 2], [2, 2, 2], [4, 2]]

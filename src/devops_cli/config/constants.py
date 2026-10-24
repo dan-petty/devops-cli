@@ -177,30 +177,6 @@ CONST_AGENTS_MD_ROUTES: Final[tuple[tuple[str, str], ...]] = (
     (".devops/review.toml", "suppress a review finding"),
     ("k8s/README.md", "change a manifest or the cluster"),
 )
-# The names of the processes that #1952, ADR 0013 and #1959 deleted: release branches and the
-# cut, changelog fragments, the `Part of` rule, the roadmap planner and its document, the
-# `devops release` commands and the agent filing quota. No agent instruction names one (#1961).
-CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
-    "release branch",
-    "`release/",
-    "release/*",
-    "release/v",
-    "the cut",
-    "cut PR",
-    "changelog fragment",
-    "changelog.d",
-    "towncrier",
-    "Part of #",
-    "roadmap reprioritize",
-    "roadmap close",
-    "roadmap render",
-    "roadmap migrate",
-    "docs/ROADMAP.md",
-    "devops release",
-    "filing quota",
-    "budget/borrowed",
-    "#1153",
-)
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
 CONST_UV_LOCK_FILENAME = "uv.lock"
 # The two files `npm ci` installs a Node tool from: the manifest naming its one dependency at an
@@ -212,14 +188,10 @@ CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 # The pre-commit stage of the hooks that run on `git push`.
 CONST_PRE_COMMIT_PRE_PUSH_STAGE: Final[str] = "pre-push"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
-CONST_README_FILENAME = "README.md"
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
-CONST_SRC_DIR_NAME = "src"
 CONST_DOCS_DIR_NAME = "docs"
 CONST_DOCS_DIR_PATH = Path(CONST_DOCS_DIR_NAME)
-CONST_TESTS_DIR_NAME = "tests"
-CONST_TESTS_DIR_PATH = Path(CONST_TESTS_DIR_NAME)
 CONST_VSCODE_DIR_NAME = ".vscode"
 CONST_MCP_JSON_NAME = "mcp.json"
 # Claude Code reads project-scoped MCP servers from `.mcp.json` at the repository root.
@@ -227,7 +199,6 @@ CONST_MCP_JSON_NAME = "mcp.json"
 # `${workspaceFolder}` is a VS Code substitution that Claude Code does not expand, so a
 # copy of the VS Code file would hand the server a literal `${workspaceFolder}` on PATH.
 CONST_CLAUDE_MCP_JSON_NAME = ".mcp.json"
-CONST_MCP_RESOURCE_SCHEME = "resource://"
 CONST_MCP_EAGER_DOMAINS: Final[frozenset[str]] = frozenset({"ai", "review", "config", "workspace"})
 CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
     {
@@ -260,15 +231,6 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
-CONST_MCP_ARGUMENT_MUTATING_TOOLS_FLOOR: Final[frozenset[str]] = frozenset(
-    {
-        "argo_rollouts_analyze",
-        "docker_sign",
-        "gh_project_reconcile",
-        "ai_rag_drift",
-    }
-)
-
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
 CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (
     (("ai", "ast", "graph"), 60.0, True, False),
@@ -414,313 +376,6 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("vault", "sync"), 60.0, False, False),
 )
 
-# Unexposed CLI leaf commands that must not be registered as MCP tools
-CONST_MCP_COMMAND_EXCLUSIONS: Final[frozenset[tuple[str, ...]]] = frozenset(
-    (
-        ("ai", "agents"),
-        ("ai", "analyze", "branch"),
-        ("ai", "analyze", "path"),
-        ("ai", "analyze", "pr"),
-        ("ai", "audit-library-usage"),
-        ("ai", "bundle-models"),
-        ("ai", "cache", "clear"),
-        ("ai", "cache", "status"),
-        ("ai", "chat"),
-        ("ai", "config"),
-        ("ai", "cost", "list-pricing"),
-        ("ai", "cost", "prometheus"),
-        ("ai", "cost", "reset"),
-        ("ai", "cost", "roi"),
-        ("ai", "cost", "set-price"),
-        ("ai", "cost", "update-pricing"),
-        ("ai", "gateway", "connect"),
-        ("ai", "gateway", "load"),
-        ("ai", "gateway", "render"),
-        ("ai", "gateway", "tune"),
-        ("ai", "harness", "run"),
-        ("ai", "ingest", "docs"),
-        ("ai", "ingest", "index-libraries"),
-        ("ai", "models"),
-        ("ai", "pipeline"),
-        ("ai", "preload"),
-        ("ai", "prompt-eval"),
-        ("ai", "rag", "clear"),
-        ("ai", "rag", "index-kb"),
-        ("ai", "rag", "search"),
-        ("ai", "rag", "status"),
-        ("ai", "research", "analogies"),
-        ("ai", "research", "annotate"),
-        ("ai", "research", "forage"),
-        ("ai", "research", "model"),
-        ("ai", "research", "socratic"),
-        ("ai", "review", "benchmark"),
-        ("ai", "review", "branch"),
-        ("ai", "review", "corpus", "generate"),
-        ("ai", "review", "corpus", "score"),
-        ("ai", "review", "export-feedback"),
-        ("ai", "review", "findings"),
-        ("ai", "review", "path"),
-        ("ai", "review", "pr"),
-        ("ai", "review", "rules", "fetch"),
-        ("ai", "review", "rules", "test"),
-        ("ai", "review", "samples", "fetch"),
-        ("ai", "review", "samples", "list"),
-        ("ai", "review", "samples", "validate"),
-        ("ai", "review", "score"),
-        ("ai", "review", "stats"),
-        ("ai", "review", "templates", "check"),
-        ("ai", "review", "templates", "list"),
-        ("ai", "review", "templates", "sweep"),
-        ("ai", "review", "verify"),
-        ("ai", "runs", "baseline", "list"),
-        ("ai", "runs", "baseline", "set"),
-        ("ai", "runs", "baseline", "show"),
-        ("ai", "runs", "check"),
-        ("ai", "runs", "compare"),
-        ("ai", "runs", "connect"),
-        ("ai", "runs", "list"),
-        ("ai", "runs", "reindex"),
-        ("ai", "runs", "show"),
-        ("ai", "spec"),
-        ("ai", "spend", "list-pricing"),
-        ("ai", "spend", "prometheus"),
-        ("ai", "spend", "report"),
-        ("ai", "spend", "reset"),
-        ("ai", "spend", "roi"),
-        ("ai", "spend", "set-price"),
-        ("ai", "spend", "update-pricing"),
-        ("ai", "test"),
-        ("ai", "token-count"),
-        ("argo", "cd", "apps", "bootstrap-gitops"),
-        ("argo", "cd", "apps", "sync"),
-        ("argo", "cd", "fleet", "sync"),
-        ("argo", "cd", "gitops", "drift"),
-        ("argo", "cd", "gitops", "sync"),
-        ("argo", "cd", "gitops", "watch"),
-        ("argo", "gitops", "drift"),
-        ("argo", "gitops", "sync"),
-        ("argo", "gitops", "watch"),
-        ("argo", "rollouts", "abort"),
-        ("argo", "rollouts", "list"),
-        ("argo", "rollouts", "promote"),
-        ("argo", "rollouts", "restart"),
-        ("argo", "rollouts", "status"),
-        ("argo", "sync"),
-        ("argo", "workflows", "list"),
-        ("argo", "workflows", "logs"),
-        ("argo", "workflows", "submit"),
-        ("branches", "clean"),
-        ("branches", "jira"),
-        ("branches", "sync"),
-        ("branches", "update"),
-        ("ci", "actionlint"),
-        ("ci", "audit"),
-        ("ci", "build"),
-        ("ci", "coverage"),
-        ("ci", "deps"),
-        ("ci", "devcontainer"),
-        ("ci", "docs"),
-        ("ci", "fail-to-pass"),
-        ("ci", "format"),
-        ("ci", "lint"),
-        ("ci", "lockfile"),
-        ("ci", "maintain"),
-        ("ci", "mutate"),
-        ("ci", "outdated"),
-        ("ci", "run"),
-        ("ci", "security"),
-        ("ci", "test"),
-        ("ci", "typecheck"),
-        ("ci", "uv-check"),
-        ("cloudflare", "access", "policies"),
-        ("cloudflare", "access", "status"),
-        ("cloudflare", "access", "sync"),
-        ("cloudflare", "dns", "delete"),
-        ("cloudflare", "dns", "list"),
-        ("cloudflare", "dns", "sync"),
-        ("cloudflare", "service-status"),
-        ("cloudflare", "status"),
-        ("cloudflare", "tunnel", "routes"),
-        ("cloudflare", "tunnel", "sync"),
-        ("config", "audit-stream"),
-        ("config", "auth-headless"),
-        ("config", "env"),
-        ("config", "env-vars"),
-        ("config", "get"),
-        ("config", "init"),
-        ("config", "set"),
-        ("dashboard",),
-        ("devcontainer", "bootstrap-k8s"),
-        ("devcontainer", "init"),
-        ("devcontainer", "list"),
-        ("devcontainer", "post-create"),
-        ("devcontainer", "post-start"),
-        ("devcontainer", "run-lifecycle"),
-        ("devcontainer", "unlock-keyring"),
-        ("devcontainer", "update"),
-        ("devcontainer", "validate"),
-        ("docker", "analyze-layers"),
-        ("docker", "build"),
-        ("docker", "cache"),
-        ("docker", "prune"),
-        ("docker", "push"),
-        ("docker", "stats"),
-        ("docs", "check"),
-        ("docs", "generate"),
-        ("docs", "sync-readme"),
-        ("format",),
-        ("gh", "api"),
-        ("gh", "branch-protection", "audit"),
-        ("gh", "branch-protection", "sync"),
-        ("gh", "labels", "audit"),
-        ("gh", "metrics"),
-        ("gh", "milestones", "status"),
-        ("gh", "pages", "builds"),
-        ("gh", "pr", "check-readiness"),
-        ("gh", "pr", "checks"),
-        ("gh", "pr", "close"),
-        ("gh", "pr", "create"),
-        ("gh", "pr", "diff"),
-        ("gh", "pr", "edit"),
-        ("gh", "pr", "hardening-report"),
-        ("gh", "pr", "list"),
-        ("gh", "pr", "monitor"),
-        ("gh", "pr", "ready"),
-        ("gh", "pr", "threads", "list"),
-        ("gh", "pr", "threads", "reply"),
-        ("gh", "pr", "threads", "resolve"),
-        ("gh", "pr", "threads", "resolve-all"),
-        ("gh", "pr", "threads", "unresolve"),
-        ("gh", "pr", "update"),
-        ("gh", "pr", "view"),
-        ("gh", "pr", "wait"),
-        ("gh", "project", "link"),
-        ("gh", "project", "template"),
-        ("gh", "project", "workflows", "list"),
-        ("gh", "secrets", "list"),
-        ("gh", "secrets", "sync"),
-        ("gh", "status"),
-        ("gh", "views", "list"),
-        ("grafana", "alerts"),
-        ("grafana", "dashboards", "export"),
-        ("grafana", "dashboards", "import"),
-        ("grafana", "dashboards", "lint"),
-        ("grafana", "dashboards", "sync"),
-        ("grafana", "datasources"),
-        ("grafana", "search"),
-        ("install-tools", "status"),
-        ("k8s", "apply"),
-        ("k8s", "bootstrap-openwebui"),
-        ("k8s", "check-deprecated"),
-        ("k8s", "configure-urls"),
-        ("k8s", "contexts"),
-        ("k8s", "gpu-matrix"),
-        ("k8s", "port-forward"),
-        ("k8s", "port-forward-status"),
-        ("k8s", "port-forward-stop"),
-        ("k8s", "push-secrets"),
-        ("k8s", "rbac-audit"),
-        ("k8s", "render"),
-        ("k8s", "run-job"),
-        ("k8s", "service-url"),
-        ("k8s", "stream-logs"),
-        ("k8s", "switch-context"),
-        ("k8s", "sync-secrets"),
-        ("k8s", "validate-policy"),
-        ("k8s", "volume", "reclaim"),
-        ("kustomize", "apply"),
-        ("kustomize", "build"),
-        ("kustomize", "diff"),
-        ("lint",),
-        ("mcp", "export-schemas"),
-        ("mcp", "serve"),
-        ("mcp", "tools"),
-        ("openspec", "archive"),
-        ("openspec", "check"),
-        ("openspec", "regenerate"),
-        ("pipeline",),
-        ("pr", "create"),
-        ("pr", "hardening-report"),
-        ("pr", "threads", "resolve-all"),
-        ("pr", "threads", "unresolve"),
-        ("pr", "view"),
-        ("pr", "wait"),
-        ("prometheus", "analyze"),
-        ("prometheus", "query-range"),
-        ("prometheus", "rules"),
-        ("prometheus", "targets"),
-        ("repos", "clone"),
-        ("repos", "clone-org"),
-        ("repos", "update"),
-        ("repos", "worktrees", "prune"),
-        ("repos", "worktrees", "status"),
-        ("review", "benchmark"),
-        ("review", "corpus", "generate"),
-        ("review", "corpus", "score"),
-        ("review", "rules", "fetch"),
-        ("review", "rules", "test"),
-        ("review", "samples", "fetch"),
-        ("review", "samples", "list"),
-        ("review", "samples", "validate"),
-        ("review", "score"),
-        ("review", "templates", "check"),
-        ("review", "templates", "list"),
-        ("review", "templates", "sweep"),
-        ("review", "verify"),
-        ("roadmap", "return"),
-        ("sandbox", "logs"),
-        ("sandbox", "metrics"),
-        ("sandbox", "probe"),
-        ("sandbox", "traces"),
-        ("scan", "report"),
-        ("scan", "sarif"),
-        ("scan", "workflows"),
-        ("serve",),
-        ("ssh", "generate"),
-        ("ssh", "list"),
-        ("ssh", "register"),
-        ("ssh", "rotate"),
-        ("status",),
-        ("survey",),
-        ("telemetry", "connect"),
-        ("telemetry", "open-ui"),
-        ("telemetry", "semconv", "refresh"),
-        ("test", "load"),
-        ("test", "profile-memory"),
-        ("test", "run"),
-        ("test", "sandbox"),
-        ("tf", "cost", "diff"),
-        ("tf", "deploy-cloud"),
-        ("tf", "destroy"),
-        ("tf", "drift"),
-        ("tf", "fmt"),
-        ("tf", "graph"),
-        ("tf", "init"),
-        ("tf", "lint"),
-        ("tf", "status"),
-        ("tf", "validate"),
-        ("tls", "enable-k8s"),
-        ("tls", "homelab"),
-        ("tls", "verify"),
-        ("tui",),
-        ("uv", "lock"),
-        ("uv", "python-install"),
-        ("uv", "run"),
-        ("uv", "sync"),
-        ("valkey", "backup"),
-        ("valkey", "cli"),
-        ("valkey", "keys"),
-        ("vault", "audit"),
-        ("vault", "leases"),
-        ("vault", "login"),
-        ("vault", "logout"),
-        ("workspace", "add"),
-        ("workspace", "clean"),
-        ("workspace", "generate"),
-        ("workspace", "open"),
-        ("workspace", "remove"),
-    )
-)
 # The argv heads that run the devops CLI, directly or through `uv run`. `devops docs check`
 # resolves every list literal under src/devops_cli that starts with one (#868). Such a list
 # spells the command word as a quoted literal in one of Python's two quote characters, so a
@@ -951,14 +606,27 @@ CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
     "ran",
     "not_applicable",
 )
+# The statuses of a scan that gave no result: its tool is not installed, it failed, or it does not
+# apply to the target. Such a scan says nothing about the target, so no reply or report of one
+# calls the target clean (#1435).
+CONST_SCAN_NO_RESULT_STATUSES: Final[frozenset[str]] = frozenset(
+    {"unavailable", "not installed", "failed", "not_applicable"}
+)
+# The word that the reply of an agent scan tool gives a scan status (#1435). A scan that ran is
+# `ok`, and a tool that no directory of PATH holds is `not installed`, whichever adapter found it
+# missing. Every other status, such as `failed`, `not_applicable` or `coverage_gap`, keeps its name.
+CONST_AGENT_SCAN_STATUS_WORDS: Final[dict[str, str]] = {
+    "ran": "ok",
+    "clean": "ok",
+    "unavailable": "not installed",
+}
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
-# The gate runs before every push, so its test step must stay inside this budget; past it, the
-# gate names the slowest tests from a pytest durations report of this many entries.
+# A check that averages more than 5 minutes is a P0 bug (AGENTS.md rule 5), so the test step must
+# stay inside this budget; past it, the gate names the slowest tests from a pytest durations report
+# of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
-# Margin added to the CI test budget when computing MCP tool timeouts for `ci_run`.
-CONST_CI_TEST_BUDGET_MARGIN_SECONDS: Final[float] = 60.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
@@ -967,6 +635,9 @@ CONST_LLM_CACHE_DIR_NAME = "llm"
 # The incremental mypy caches of reviews, below the data cache directory, one for each reviewed
 # tree, Python version and environment lock (#2034).
 CONST_MYPY_CACHE_DIR_NAME: Final[str] = "mypy"
+# The variable that names the cache directory of mypy. A review sets it in place of `--cache-dir`,
+# so the command of a mypy run names no path of the host but its config file and its targets.
+CONST_MYPY_CACHE_DIR_ENV: Final[str] = "MYPY_CACHE_DIR"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
@@ -980,16 +651,6 @@ CONST_RAG_DIR_NAME = "rag"
 CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
-# Test-only paths that must never appear in the project root; the workspace tripwire reports any
-CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
-    "test_config.yaml",
-    "test_data",
-    "test_llm_cache",
-    "gh-config",
-    ".data/test_llm_cache",
-    ".data/test_data",
-)
-
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
 CONST_FP32_BYTES_PER_ELEMENT: int = 4
 CONST_KILOBYTE_BYTES: int = 1024
@@ -1004,17 +665,9 @@ CONST_FULLCHAIN_CERT_NAME = "fullchain.crt"
 # ── DevContainer ──────────────────────────────────────────────────────────────
 CONST_DEVCONTAINER_DIR_NAME = ".devcontainer"
 CONST_DEVCONTAINER_JSON_NAME = "devcontainer.json"
-CONST_DEVCONTAINER_POST_CREATE_NAME = "postCreate.sh"
 CONST_DEVCONTAINER_JSON_PATH = Path(CONST_DEVCONTAINER_DIR_NAME) / CONST_DEVCONTAINER_JSON_NAME
-CONST_DEVCONTAINER_POST_CREATE_PATH = (
-    Path(CONST_DEVCONTAINER_DIR_NAME) / CONST_DEVCONTAINER_POST_CREATE_NAME
-)
 CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
 CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
-CONST_DEVCONTAINER_CLAUDE_EXTENSION: Final[str] = "anthropic.claude-code"
-CONST_DEVCONTAINER_CLAUDE_FEATURE: Final[str] = (
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1"
-)
 CONST_CANONICAL_OCI_SOURCE: Final[str] = "https://github.com/dan-petty/devops-cli"
 # The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
 # session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
@@ -1045,11 +698,6 @@ CONST_DEFAULT_PATH_CLASSES: Final[dict[str, tuple[str, ...]]] = {
     "docs": ("docs/**", "*.md", "*.rst", "LICENSE*", "NOTICE*"),
 }
 CONST_SPECS_DIR_PATH = Path(CONST_SPECS_DIR_NAME)
-CONST_CHAOS_DIR_NAME = "k8s/chaos"
-CONST_CHAOS_DIR_PATH = Path(CONST_CHAOS_DIR_NAME)
-CONST_LOAD_TESTS_DIR_NAME = "tests/load"
-CONST_LOAD_TESTS_DIR_PATH = Path(CONST_LOAD_TESTS_DIR_NAME)
-
 # ── OpenTofu & Infrastructure ──────────────────────────────────────────────────
 CONST_TF_DIR_NAME = "tf"
 CONST_TF_DIR_PATH = Path(CONST_TF_DIR_NAME)
@@ -1092,8 +740,6 @@ CONST_BINARY_EXTENSIONS: frozenset[str] = frozenset(
         ".log",
     }
 )
-CONST_ENTITY_SEPARATOR = "/"
-
 # ── Network & Remote Services ─────────────────────────────────────────────────
 CONST_GITHUB_HOST = "github.com"
 CONST_URL_SCHEME_HTTP = "http://"
@@ -1192,6 +838,9 @@ CONST_SPEND_REQUEST_TYPE_EMBEDDING: Final[str] = "embedding"
 # `pricing_source` (#1672).
 CONST_PRICING_SOURCE_LOCAL: Final[str] = "local"
 CONST_PRICING_SOURCE_UNKNOWN: Final[str] = "unknown"
+# The genai-prices provider ID that reads a LiteLLM model reference, such as `openai/gpt-4o`:
+# genai-prices takes the provider from the prefix and the model from the rest (#2031).
+CONST_GENAI_PRICES_LITELLM_PROVIDER: Final[str] = "litellm"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 # What the GitHub session sends with every REST request (#983): GitHub requires a User-Agent
 # naming the project or user, and the API version pins the REST contract the session reads.
@@ -1225,19 +874,6 @@ CONST_URL_CLOUDFLARE_STATUS_SUMMARY: Final[str] = (
     "https://www.cloudflarestatus.com/api/v2/summary.json"
 )
 CONST_STATUSPAGE_HTTP_TIMEOUT_SECONDS: Final[float] = 5.0
-CONST_STATUSPAGE_INDICATORS: Final[tuple[str, ...]] = (
-    "none",
-    "minor",
-    "major",
-    "critical",
-)
-CONST_STATUSPAGE_COMPONENT_STATUSES: Final[tuple[str, ...]] = (
-    "operational",
-    "degraded_performance",
-    "partial_outage",
-    "major_outage",
-    "under_maintenance",
-)
 CONST_STATUSPAGE_INDICATOR_VALUES: Final[dict[str, int]] = {
     "none": 0,
     "minor": 1,
@@ -1320,10 +956,6 @@ CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]
 """The homelab Applications whose hosts a stack's deploy sets."""
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
 """How long fetching an Application's revision may take before deploy-stack gives up."""
-CONST_K8S_ARGOCD_PRE_POST_DELETE_FINALIZERS_JQ: Final[str] = (
-    '.metadata.finalizers[] | select(startswith("pre-delete-finalizer.argocd.argoproj.io") '
-    'or startswith("post-delete-finalizer.argocd.argoproj.io"))'
-)
 """JQ expression in cluster.yaml ignoreDifferences matching Argo CD PreDelete/PostDelete finalizers (#1674)."""
 CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
     "GIT_TERMINAL_PROMPT": "0",
@@ -1431,20 +1063,6 @@ CONST_PERM_EXEC = 0o755
 CONST_PERM_REPO_FILE = 0o644
 
 CONST_MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024
-CONST_MAX_PROBE_FILE_SIZE_BYTES: Final[int] = (
-    512 * 1024
-)  # 512 KiB pre-flight file size cap for review probes
-CONST_PROBE_MANIFEST_NAMES: Final[tuple[str, ...]] = (
-    "pyproject.toml",
-    "package.json",
-    "cargo.toml",
-    "cargo.lock",
-    "go.mod",
-    "requirements.txt",
-    "requirements-dev.txt",
-    "requirements.in",
-)
-
 # ── Code Review & Analysis ────────────────────────────────────────────────────
 # Characters per token for sizing review pages from a context window (source code averages
 # slightly under four; the lower figure leaves margin).
@@ -1490,9 +1108,6 @@ CONST_GPU_MEMORY_BANDWIDTH_GBPS: Final[dict[str, float]] = {
     "gtx 1070": 256.0,
     "gtx 1050 ti": 112.0,
 }
-# Share of the context window a review page's diff may fill; the rest holds the persona system
-# prompt, instructions and the model's reply.
-CONST_REVIEW_PAGE_WINDOW_SHARE: Final[float] = 0.6
 # A review session's reported findings; a session directory holding one is a completed session.
 CONST_REVIEW_FINDINGS_FILENAME = "findings.json"
 # Every finding a review session produced, each with its verification status; findings.json keeps
@@ -1643,10 +1258,6 @@ CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS: Final[frozenset[tuple[str, str]]] = frozen
 # name, not the credential.
 CONST_DOC_CREDENTIAL_NAMING_WORD: Final[str] = "NAME"
 
-CONST_RECOMMENDATION_APPROVE = "APPROVE"
-CONST_RECOMMENDATION_REQUEST_CHANGES = "REQUEST CHANGES"
-CONST_RECOMMENDATION_BLOCK = "BLOCK"
-
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
 CONST_CI_WORKFLOW_FILE = "ci.yml"
@@ -1774,17 +1385,6 @@ CONST_GH_CHECK_BUCKET_PENDING: Final[str] = "pending"
 CONST_GH_CHECK_BUCKET_SKIPPING: Final[str] = "skipping"
 CONST_GH_CHECK_BUCKET_CANCEL: Final[str] = "cancel"
 CONST_GH_CHECK_BUCKET_UNREAD: Final[str] = "unread"
-
-CONST_GH_CHECK_BUCKETS: Final[frozenset[str]] = frozenset(
-    {
-        CONST_GH_CHECK_BUCKET_PASS,
-        CONST_GH_CHECK_BUCKET_FAIL,
-        CONST_GH_CHECK_BUCKET_PENDING,
-        CONST_GH_CHECK_BUCKET_SKIPPING,
-        CONST_GH_CHECK_BUCKET_CANCEL,
-        CONST_GH_CHECK_BUCKET_UNREAD,
-    }
-)
 
 CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
     "all": "all",
@@ -2110,15 +1710,6 @@ REVIEW_GENERIC_SYMBOL_STOPWORDS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Minimum length at which a single shared identifier is specific enough, on its own,
-# to conclude two findings describe the same defect.
-REVIEW_STRONG_SYMBOL_MIN_LENGTH: Final[int] = 6
-
-# Minimum description token overlap required before two findings that merely share an
-# enclosing symbol are treated as one defect. Set high enough that different defects in
-# the same function stay separate, since dropping a real finding is the costlier error.
-REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD: Final[float] = 0.35
-
 # ── Executable Verification Criteria Constants ──────────────────────────────
 # Closed, read-only allowlist of executable binaries for finding verification criteria. Each one
 # resolves inside the host sandbox: the system's under `/usr`, and python, python3 and ruff from
@@ -2286,20 +1877,6 @@ CONST_SECRET_PROVIDER_SETTINGS: Final[str] = "settings"
 # Upper bound on retained credential access records, preventing unbounded growth in
 CONST_SECRET_AUDIT_MAX_ENTRIES: Final[int] = 1000
 
-# Illustrative placeholder markers and documentation tokens ignored by native secret scanner.
-CONST_SECRET_PLACEHOLDER_MARKERS: Final[tuple[str, ...]] = (
-    "your_",
-    "placeholder",
-    "dummy",
-    "token_here",
-    "key_here",
-    "insert_",
-    "change_me",
-    "changeme",
-    "masked",
-    "xxx",
-)
-
 # Vault API paths. Fixed by the Vault HTTP API, so this set is closed and exhaustive.
 CONST_VAULT_API_PREFIX: Final[str] = "/v1"
 # Conventional KV-v2 mount and folder holding this project's managed credentials.
@@ -2309,7 +1886,6 @@ CONST_VAULT_PATH_KUBERNETES_LOGIN: Final[str] = "auth/kubernetes/login"
 
 # Supported Vault authentication methods, closed by what this CLI implements.
 CONST_VAULT_AUTH_METHODS: Final[frozenset[str]] = frozenset({"approle", "kubernetes"})
-CONST_VAULT_PATH_TOKEN_LOOKUP_SELF: Final[str] = "auth/token/lookup-self"
 CONST_VAULT_PATH_TOKEN_RENEW_SELF: Final[str] = "auth/token/renew-self"
 CONST_VAULT_PATH_TOKEN_REVOKE_SELF: Final[str] = "auth/token/revoke-self"
 CONST_VAULT_PATH_HEALTH: Final[str] = "sys/health"
@@ -2458,8 +2034,6 @@ CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES: Final[frozenset[int]] = frozense
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
 CONST_HCL_FILE_EXTENSIONS: Final[tuple[str, ...]] = (".tf",)
-CONST_HCL_JSON_FILE_EXTENSION: Final[str] = ".tf.json"
-
 # Candidate state file names, in the order Terraform and OpenTofu resolve them.
 CONST_TF_STATE_FILE_NAMES: Final[tuple[str, ...]] = (
     "terraform.tfstate",
@@ -2476,29 +2050,6 @@ CONST_HCL_BLOCK_DATA: Final[str] = "data"
 CONST_HCL_BLOCK_MODULE: Final[str] = "module"
 CONST_HCL_BLOCK_VARIABLE: Final[str] = "variable"
 CONST_HCL_BLOCK_OUTPUT: Final[str] = "output"
-CONST_HCL_BLOCK_LOCALS: Final[str] = "locals"
-CONST_HCL_BLOCK_PROVIDER: Final[str] = "provider"
-CONST_HCL_BLOCK_TERRAFORM: Final[str] = "terraform"
-CONST_HCL_BLOCK_MOVED: Final[str] = "moved"
-CONST_HCL_BLOCK_IMPORT: Final[str] = "import"
-CONST_HCL_BLOCK_CHECK: Final[str] = "check"
-
-CONST_HCL_BLOCK_TYPES: Final[frozenset[str]] = frozenset(
-    {
-        CONST_HCL_BLOCK_RESOURCE,
-        CONST_HCL_BLOCK_DATA,
-        CONST_HCL_BLOCK_MODULE,
-        CONST_HCL_BLOCK_VARIABLE,
-        CONST_HCL_BLOCK_OUTPUT,
-        CONST_HCL_BLOCK_LOCALS,
-        CONST_HCL_BLOCK_PROVIDER,
-        CONST_HCL_BLOCK_TERRAFORM,
-        CONST_HCL_BLOCK_MOVED,
-        CONST_HCL_BLOCK_IMPORT,
-        CONST_HCL_BLOCK_CHECK,
-    }
-)
-
 # Marker key `python-hcl2` injects to distinguish blocks from plain attribute maps.
 CONST_HCL_BLOCK_MARKER: Final[str] = "__is_block__"
 
@@ -2521,16 +2072,6 @@ CONST_ARGO_PLURAL_APPLICATION_SETS: Final[str] = "applicationsets"
 CONST_ARGO_PLURAL_ROLLOUTS: Final[str] = "rollouts"
 CONST_ARGO_PLURAL_ANALYSIS_RUNS: Final[str] = "analysisruns"
 CONST_ARGO_PLURAL_WORKFLOWS: Final[str] = "workflows"
-
-CONST_ARGO_RESOURCE_PLURALS: Final[frozenset[str]] = frozenset(
-    {
-        CONST_ARGO_PLURAL_APPLICATIONS,
-        CONST_ARGO_PLURAL_APPLICATION_SETS,
-        CONST_ARGO_PLURAL_ROLLOUTS,
-        CONST_ARGO_PLURAL_ANALYSIS_RUNS,
-        CONST_ARGO_PLURAL_WORKFLOWS,
-    }
-)
 
 # Argo Rollouts control-plane fields. The rollouts controller watches these
 # exact fields to drive promotion, abort, and restart, which is what the
@@ -2565,10 +2106,6 @@ CONST_DOCKER_UNIX_ADAPTER_SCHEME: Final[str] = "http+unix"
 
 # `GET /system/df` object types returned by the Engine API disk-usage endpoint.
 CONST_DOCKER_DF_BUILD_CACHE_KEY: Final[str] = "BuildCache"
-CONST_DOCKER_DF_IMAGES_KEY: Final[str] = "Images"
-CONST_DOCKER_DF_CONTAINERS_KEY: Final[str] = "Containers"
-CONST_DOCKER_DF_VOLUMES_KEY: Final[str] = "Volumes"
-
 # BuildKit build-cache record types emitted by `GET /system/df` (buildkit solver
 # vertex classes). Exhaustive per the BuildKit cache record schema.
 CONST_DOCKER_BUILD_CACHE_TYPES: Final[frozenset[str]] = frozenset(
@@ -2617,7 +2154,6 @@ CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST: Final[str] = "public_whitelist"
 CONST_SANDBOX_NETWORK_LOCAL_WHITELIST: Final[str] = "local_whitelist"
 CONST_SANDBOX_NETWORK_BRIDGE: Final[str] = "bridge"
 
-CONST_SANDBOX_DEFAULT_NAMESPACE: Final[str] = "sandbox"
 # The TCP port a whitelist entry that names none opens, by URL scheme ("" for no scheme). Any
 # other scheme has no default, so its entry must name a port.
 CONST_SANDBOX_WHITELIST_DEFAULT_PORTS: Final[dict[str, int]] = {"": 443, "https": 443, "http": 80}
@@ -2699,13 +2235,14 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
-# Schemes recognized for Valkey and Redis connection endpoints
-CONST_VALKEY_SCHEMES: Final[frozenset[str]] = frozenset(
-    {"valkey", "valkeys", "redis", "rediss", "tcp"}
-)
+# The schemes of a Valkey URL. Every other scheme is refused, also those that valkey-py reads.
+CONST_VALKEY_SCHEMES: Final[frozenset[str]] = frozenset({"valkey", "valkeys"})
 
-# Schemes of a Valkey endpoint that valkey-py dials over TLS
-CONST_VALKEY_TLS_SCHEMES: Final[frozenset[str]] = frozenset({"valkeys", "rediss"})
+# The scheme of a Valkey URL that connects over TLS
+CONST_VALKEY_TLS_SCHEME: Final[str] = "valkeys"
+
+# The one query key that a Valkey URL can hold: the database, as in `valkey://example.com/?db=2`
+CONST_VALKEY_URL_QUERY_KEYS: Final[frozenset[str]] = frozenset({"db"})
 
 # Characters of a failed embedding reply's body quoted in its EmbeddingsError
 CONST_EMBEDDING_REPLY_EXCERPT_CHARS: Final[int] = 500
@@ -2884,6 +2421,9 @@ CONST_CAPABILITY_PROBE_CANARY: Final[str] = "CANARY-RECALL-9824"
 CONST_CAPABILITY_PROBE_FORBIDDEN_WORDS: Final[tuple[str, ...]] = ("security", "vulnerability")
 CONST_CAPABILITY_PROBE_PROHIBITION_PREFIX: Final[str] = "SUMMARY:"
 
+# Response header in which the LiteLLM gateway names the deployment model that served a call,
+# such as `openai/gpt-4o`. The router writes the route name in the reply body (#2031).
+CONST_AI_GATEWAY_SERVED_MODEL_HEADER: Final[str] = "x-litellm-model-name"
 # Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and
 # Anthropic tables copy pydantic-ai 2.54.0's private maps (models/openai.py, models/anthropic.py),
 # which are not imported because they are private. A value absent from a table, or mapped to
@@ -2923,18 +2463,13 @@ CONST_UNCACHED_FINISH_REASONS: Final[frozenset[FinishReason]] = frozenset(
 # How a review profile counts a reply whose provider gave no finish reason.
 CONST_FINISH_REASON_UNKNOWN: Final[str] = "unknown"
 CONST_AI_GATEWAY_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey")
-CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
 CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
-CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
-CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
 CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama",)
 # The default fallback cascade, by path: a bare `litellm` or `portkey` member is that gateway's
 # default chat route (CONST_AI_GATEWAY_DEFAULT_ROUTE), and a bare `ollama` member is `ai.model`
 # on Ollama itself.
 CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
 CONST_AI_GATEWAY_DEFAULT_ROUTE: Final[str] = "devops-chat"
-CONST_THINKING_INITIAL_STATES: Final[tuple[str, ...]] = ("emitting", "thinking")
-CONST_THINKING_STATE_EMITTING: Final[str] = "emitting"
 CONST_THINKING_STATE_THINKING: Final[str] = "thinking"
 # The pydantic-ai model prefix a bare model name takes from `ai.provider`. OpenAI and Copilot
 # models use the chat completions API, as `LLMClient` does, which OpenAI-compatible servers at
@@ -3251,38 +2786,6 @@ CONST_SEMGREP_REGISTRY_RULESET_KINDS: Final[frozenset[str]] = frozenset({"p", "r
 CONST_SEMGREP_REGISTRY_CACHE_DIRNAME: Final[str] = "semgrep"
 
 
-CONST_DOC_FILENAMES: Final[frozenset[str]] = frozenset(
-    {
-        "license",
-        "copying",
-        "notice",
-        "authors",
-        "contributors",
-        "changelog",
-        "readme",
-        "agents.md",
-        "claude.md",
-    }
-)
-
-CONST_CONFIG_EXTENSIONS: Final[frozenset[str]] = frozenset(
-    {
-        ".yaml",
-        ".yml",
-        ".json",
-        ".toml",
-        ".ini",
-        ".cfg",
-        ".conf",
-        ".env",
-        ".tf",
-        ".hcl",
-        ".xml",
-        ".properties",
-        ".plist",
-    }
-)
-
 CONST_K8S_MANIFEST_EXTENSIONS: Final[frozenset[str]] = frozenset(
     {
         ".yaml",
@@ -3291,81 +2794,6 @@ CONST_K8S_MANIFEST_EXTENSIONS: Final[frozenset[str]] = frozenset(
     }
 )
 
-CONST_CONFIG_FILENAMES: Final[frozenset[str]] = frozenset(
-    {
-        "dockerfile",
-        "containerfile",
-        ".dockerignore",
-        ".gitignore",
-        ".gitattributes",
-        ".editorconfig",
-        ".flake8",
-        ".pylintrc",
-        "helmfile.yaml",
-        "chart.yaml",
-        "values.yaml",
-        "kustomization.yaml",
-        "requirements.txt",
-        "constraints.txt",
-        "cmakelists.txt",
-        "makefile",
-        "gnumakefile",
-        "justfile",
-        "go.mod",
-        "go.sum",
-        "gemfile",
-        "pipfile",
-        "procfile",
-        "jenkinsfile",
-        "vagrantfile",
-        "brewfile",
-    }
-)
-
-CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
-    {
-        ".py",
-        ".pyi",
-        ".ts",
-        ".tsx",
-        ".js",
-        ".jsx",
-        ".go",
-        ".rs",
-        ".java",
-        ".c",
-        ".cpp",
-        ".h",
-        ".hpp",
-        ".cs",
-        ".rb",
-        ".php",
-        ".swift",
-        ".kt",
-        ".kts",
-        ".scala",
-        ".sh",
-        ".bash",
-        ".zsh",
-        ".sql",
-        ".lua",
-        ".html",
-        ".htm",
-        ".j2",
-        ".jinja",
-        ".jinja2",
-        ".tmpl",
-        ".tpl",
-        ".hbs",
-        ".ejs",
-        ".vue",
-        ".svelte",
-        ".cmake",
-        ".mk",
-    }
-)
-
-CONST_AI_SPEND_TABLE_NAME: Final[str] = "ai_spend_records"
 CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
     {"ollama", "local", "in-process", "internal"}
 )
@@ -3435,8 +2863,6 @@ CONST_K8S_IN_CLUSTER_CONTEXT: Final[str] = "in-cluster"
 # ── Kubernetes Doctor Diagnostic Constants ───────────────────────────────────
 CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR: Final[str] = "type=Warning"
 CONST_K8S_KIND_PERSISTENT_VOLUME: Final[str] = "PersistentVolume"
-CONST_K8S_KIND_NODE: Final[str] = "Node"
-CONST_K8S_KIND_POD: Final[str] = "Pod"
 CONST_K8S_REASON_VOLUME_FAILED_DELETE: Final[str] = "VolumeFailedDelete"
 CONST_K8S_REASON_FAILED_SCHEDULING: Final[str] = "FailedScheduling"
 CONST_K8S_REASON_UNHEALTHY: Final[str] = "Unhealthy"
@@ -3456,21 +2882,8 @@ CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE: Final[str] = "pod-unschedulable"
 CONST_K8S_DOCTOR_RULE_POD_NOT_READY: Final[str] = "pod-not-ready"
 CONST_K8S_DOCTOR_RULE_WARNING_EVENTS: Final[str] = "warning-events"
 
-CONST_K8S_DOCTOR_RULES: Final[tuple[str, ...]] = (
-    CONST_K8S_DOCTOR_RULE_NODE_NOT_READY,
-    CONST_K8S_DOCTOR_RULE_NODE_CORDONED,
-    CONST_K8S_DOCTOR_RULE_VOLUME_RECLAIM_STUCK,
-    CONST_K8S_DOCTOR_RULE_POD_STUCK_TERMINATING,
-    CONST_K8S_DOCTOR_RULE_POD_CRASHLOOP,
-    CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL,
-    CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE,
-    CONST_K8S_DOCTOR_RULE_POD_NOT_READY,
-    CONST_K8S_DOCTOR_RULE_WARNING_EVENTS,
-)
-
 CONST_K8S_PV_PHASE_RELEASED: Final[str] = "Released"
 CONST_K8S_PV_PHASE_FAILED: Final[str] = "Failed"
-CONST_K8S_PV_PHASE_BOUND: Final[str] = "Bound"
 CONST_K8S_ORPHAN_VOLUME_PHASES: Final[frozenset[str]] = frozenset(
     {CONST_K8S_PV_PHASE_RELEASED, CONST_K8S_PV_PHASE_FAILED}
 )
@@ -3707,8 +3120,6 @@ CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
     ".devops/review.toml",
     "src/devops_cli/review/rules/",
 )
-# Taxonomy labels that classify a pull request as addressing a defect (#697).
-CONST_DEFECT_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
 # Conventional commit title pattern identifying a bug fix pull request (#697).
 CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
 
@@ -3790,297 +3201,15 @@ CONST_OUTPUT_FORMAT_YAML: Final[str] = "yaml"
 CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
     {CONST_OUTPUT_FORMAT_TABLE, CONST_OUTPUT_FORMAT_JSON, CONST_OUTPUT_FORMAT_YAML}
 )
-# The closed set of CLI leaf commands whose output is a serializable value (e.g. query,
-# diagnostic, inspect, or inventory report) rather than a lifecycle action, mutation, daemon,
-# or interactive session (#411). Every value command exposes `--format` and routes machine-readable
-# serialization through `emit_serialized`.
-CONST_CLI_VALUE_COMMANDS: Final[frozenset[str]] = frozenset(
-    {
-        "ai ast graph",
-        "ai ast parse",
-        "ai audit-library-usage",
-        "ai benchmark",
-        "ai cache status",
-        "ai chaos-model",
-        "ai constellation",
-        "ai cost list-pricing",
-        "ai cost payback",
-        "ai cost payoff",
-        "ai cost report",
-        "ai cost roi",
-        "ai diagram",
-        "ai failover",
-        "ai gateway failover",
-        "ai gateway load",
-        "ai gateway probe-backend",
-        "ai gateway routes",
-        "ai gateway status",
-        "ai gateway tune",
-        "ai harness offload",
-        "ai harness run",
-        "ai harness status",
-        "ai ingest docs",
-        "ai ingest index-libraries",
-        "ai ingest library",
-        "ai ingest query-library",
-        "ai pack-context",
-        "ai prewarm",
-        "ai prompt-eval",
-        "ai quiesce",
-        "ai rag drift",
-        "ai read",
-        "ai repomap",
-        "ai research analogies",
-        "ai research annotate",
-        "ai research forage",
-        "ai research model",
-        "ai research socratic",
-        "ai resume",
-        "ai review corpus score",
-        "ai review score",
-        "ai review templates check",
-        "ai review templates list",
-        "ai review templates sweep",
-        "ai runs baseline list",
-        "ai runs baseline show",
-        "ai runs check",
-        "ai runs compare",
-        "ai runs list",
-        "ai runs show",
-        "ai spec",
-        "ai spend list-pricing",
-        "ai spend payback",
-        "ai spend payoff",
-        "ai spend report",
-        "ai spend roi",
-        "ai test-gen",
-        "ai token-count",
-        "argo cd fleet sync",
-        "argo cd gitops drift",
-        "argo cd gitops sync",
-        "argo cd gitops watch",
-        "argo fleet sync",
-        "argo gitops drift",
-        "argo gitops sync",
-        "argo gitops watch",
-        "argo rollouts analyze",
-        "argo sync",
-        "cloudflare access policies",
-        "cloudflare access status",
-        "cloudflare access sync",
-        "cloudflare dns delete",
-        "cloudflare dns list",
-        "cloudflare dns sync",
-        "cloudflare service-status",
-        "cloudflare status",
-        "cloudflare tunnel routes",
-        "cloudflare tunnel sync",
-        "config audit-keys",
-        "config env",
-        "config env-vars",
-        "config output",
-        "docker analyze-layers",
-        "docker cache",
-        "docs generate",
-        "gh branch-protection audit",
-        "gh metrics",
-        "gh pr hardening-report",
-        "gh pr monitor",
-        "gh pr threads list",
-        "gh pr wait",
-        "gh project workflows list",
-        "gh rate-limit",
-        "gh rate_limit",
-        "gh runs list",
-        "gh status",
-        "grafana dashboards lint",
-        "k8s chaos",
-        "k8s doctor",
-        "k8s gpu-matrix",
-        "k8s logs",
-        "k8s security-stream",
-        "k8s service-url",
-        "k8s validate",
-        "k8s validate-policy",
-        "pr hardening-report",
-        "pr monitor",
-        "pr threads list",
-        "pr wait",
-        "prometheus analyze",
-        "repos worktrees prune",
-        "repos worktrees status",
-        "review corpus score",
-        "review score",
-        "review templates check",
-        "review templates list",
-        "review templates sweep",
-        "sandbox logs",
-        "sandbox metrics",
-        "sandbox probe",
-        "sandbox status",
-        "sandbox traces",
-        "scan aibom",
-        "scan complexity",
-        "scan iac",
-        "scan report",
-        "scan sarif",
-        "scan sast",
-        "scan sbom",
-        "scan secrets",
-        "scan trivy",
-        "status",
-        "telemetry logfire",
-        "telemetry profile",
-        "test profile-memory",
-        "tf cost breakdown",
-        "tf cost diff",
-        "tf drift",
-        "tf graph",
-        "tf lint",
-        "tf notify-plan",
-        "tf output",
-        "vault audit",
-    }
-)
-# The roots of the exception hierarchy. Naming one of these as the expected type of a
-# `pytest.raises` block asks nothing of the code under test: any failure at all satisfies
-# it, so the assertion keeps reporting green through the very regression it was written to
-# catch. A test that expects a failure has to say which one.
-CONST_BLIND_EXCEPTION_TYPES: Final[frozenset[str]] = frozenset({"Exception", "BaseException"})
-# The Ruff rules that keep the blind-assertion class from coming back: B011/B015/B018
-# for assertions that cannot fail, B017 for `pytest.raises(Exception)`, PT011/PT015/PT017
-# for broad exception raises or assertions, and RUF043 for a `match=` pattern whose
-# metacharacters are neither escaped nor declared raw. All of these defects read as
-# correct tests, so they belong in the lint selection rather than in a reviewer's memory.
-CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset(
-    {"B011", "B015", "B017", "B018", "PT011", "PT015", "PT017", "RUF043"}
-)
-# The Ruff rules that govern suppression integrity: PGH003 bans blanket type ignores
-# without a specific error code, and RUF100 removes unused noqa directives.
-CONST_SUPPRESSION_LINT_RULES: Final[frozenset[str]] = frozenset({"PGH003", "RUF100"})
-# The only flags a `ruff check` of the gate may pass: `--config` pins `pyproject.toml`, so a
-# nested Ruff configuration cannot outrank it, and `--fix` applies fixes. Any other flag can
-# select, ignore, extend or isolate the configuration, so the list admits nothing else.
-CONST_RUFF_CHECK_GATE_FLAGS: Final[frozenset[str]] = frozenset({"--config", "--fix"})
-# The Ruff rules that hold the complexity cap of 10 (#586): C901 is the cap (standard McCabe),
-# RUF100 reports a C901 marker left on a function back under the cap, and PGH004 bans the
-# blanket noqa that would silence C901 without naming it.
-CONST_COMPLEXITY_LINT_RULES: Final[frozenset[str]] = frozenset({"C901", "PGH004", "RUF100"})
-# The two tables that waive rules for the files they match; the suppression counters count each.
-CONST_RUFF_PER_FILE_IGNORE_KEYS: Final[tuple[str, ...]] = (
-    "per-file-ignores",
-    "extend-per-file-ignores",
-)
-# The roots the suppression counters read, and the suffixes Ruff lints there by default.
-CONST_COMPLEXITY_CAP_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
-CONST_RUFF_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi", ".ipynb"})
-# The ignore files Ruff's file walk honours by default (`respect-gitignore`). One under a covered
-# root, or a `.ignore` beside pyproject.toml, drops the files it lists from every rule.
-CONST_RUFF_IGNORE_FILE_NAMES: Final[frozenset[str]] = frozenset(
-    {CONST_GITIGNORE_FILENAME, ".ignore"}
-)
-# Suppression comment and configuration kinds tracked against ceilings (#849).
-CONST_SUPPRESSION_KIND_TYPE_IGNORE: Final[str] = "type: ignore"
-CONST_SUPPRESSION_KIND_NOQA_PREFIX: Final[str] = "noqa"
-CONST_SUPPRESSION_KIND_NOSEC: Final[str] = "nosec"
-CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER: Final[str] = "pragma: no cover"
-CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE: Final[str] = "pragma: no mutate"
-CONST_SUPPRESSION_KIND_FILE_DIRECTIVE: Final[str] = "file-level directive"
-CONST_SUPPRESSION_KIND_AST_GREP_IGNORE: Final[str] = "ast-grep-ignore"
-CONST_SUPPRESSION_KIND_PER_FILE_IGNORES: Final[str] = "per-file-ignores"
-CONST_SUPPRESSION_KIND_MYPY_OVERRIDES: Final[str] = "[[tool.mypy.overrides]]"
-CONST_SUPPRESSION_KIND_COVERAGE_OMIT: Final[str] = "coverage omit"
-CONST_COMMENT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
-    CONST_SUPPRESSION_KIND_TYPE_IGNORE,
-    CONST_SUPPRESSION_KIND_NOQA_PREFIX,
-    CONST_SUPPRESSION_KIND_NOSEC,
-    CONST_SUPPRESSION_KIND_PRAGMA_NO_COVER,
-    CONST_SUPPRESSION_KIND_PRAGMA_NO_MUTATE,
-    CONST_SUPPRESSION_KIND_FILE_DIRECTIVE,
-    CONST_SUPPRESSION_KIND_AST_GREP_IGNORE,
-)
-CONST_PYPROJECT_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
-    CONST_SUPPRESSION_KIND_PER_FILE_IGNORES,
-    CONST_SUPPRESSION_KIND_MYPY_OVERRIDES,
-    CONST_SUPPRESSION_KIND_COVERAGE_OMIT,
-)
-CONST_SUPPRESSION_KINDS: Final[tuple[str, ...]] = (
-    *CONST_COMMENT_SUPPRESSION_KINDS,
-    *CONST_PYPROJECT_SUPPRESSION_KINDS,
-)
-# Fast pre-filter over source text before tokenizing, and comment-token patterns (#849).
-CONST_SUPPRESSION_COMMENT_PREFILTER_RE: Final[re.Pattern[str]] = re.compile(
-    r"#[^\n]*(?:type[^\S\n]*:[^\S\n]*ignore\b|noqa\b|nosec\b"
-    r"|pragma[^\S\n]*:[^\S\n]*no[^\S\n]+(?:cover|mutate)\b"
-    r"|(?:ruff|flake8|mypy|pyright|pylint|bandit)[^\S\n]*:|ast-grep-ignore\b)",
-    re.IGNORECASE,
-)
-CONST_TYPE_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^\S\n])#[^\S\n]*type[^\S\n]*:[^\S\n]*ignore\b", re.IGNORECASE
-)
-CONST_NOQA_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^\S\n])#[^\S\n]*noqa(?:[^\S\n]*:[^\S\n]*"
-    r"(?P<codes>[A-Z0-9]+(?:(?:[^\S\n]*,[^\S\n]*|[^\S\n]+)[A-Z0-9]+)*)|(?=$|[^\S\n]+#))",
-    re.IGNORECASE,
-)
-CONST_NOQA_RULE_CODE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Z0-9]+")
-CONST_NOSEC_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^\S\n])#[^\S\n]*nosec\b", re.IGNORECASE
-)
-CONST_PRAGMA_NO_COVER_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+cover\b", re.IGNORECASE
-)
-CONST_PRAGMA_NO_MUTATE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+mutate\b", re.IGNORECASE
-)
-CONST_FILE_DIRECTIVE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^\S\n])#[^\S\n]*(?:(?:ruff|flake8)[^\S\n]*:[^\S\n]*noqa\b"
-    r"|ruff[^\S\n]*:[^\S\n]*(?:file-ignore|disable|ignore)\b"
-    r"|(?:mypy|pyright)[^\S\n]*:|(?:pylint|bandit)[^\S\n]*:[^\S\n]*skip-file\b)",
-    re.IGNORECASE,
-)
-# An ast-grep suppression comment. Its `ids` group is the comma-separated list of rule ids.
-CONST_AST_GREP_IGNORE_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^\S\n])#[^\S\n]*ast-grep-ignore(?:[^\S\n]*:[^\S\n]*(?P<ids>[^\n#]+))?\b",
-    re.IGNORECASE,
-)
-CONST_AST_GREP_RULE_ID_SEPARATOR: Final[str] = ","
-CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
-    "net-address-list",
-    "net-bracket-affix",
-    "net-cidr-build",
-    "net-domain-list",
-    "net-domain-suffix",
-    "net-hostport",
-    "net-ip-literal",
-    "net-normalise",
-    "net-port-table",
-    "net-scheme-affix",
-    "net-scheme-in",
-    "net-url-build",
-)
-# The rule that holds the tests: no assert bounds elapsed wall-clock time from above (#1902).
-CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = ("test-elapsed-upper-bound",)
 # The trees that the `constructs` scan reads, and the `files` globs of each rule: the network
 # construct rules hold src/, and the test rules hold tests/.
 CONST_AST_GREP_SCAN_ROOTS: Final[tuple[str, ...]] = ("src", "tests")
-CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
-    **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
-    **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
-}
 CONST_AST_GREP_SCAN_ARGS: Final[tuple[str, ...]] = (
     "scan",
     "--error=unused-suppression",
     "--error=no-suppress-all",
     *CONST_AST_GREP_SCAN_ROOTS,
 )
-CONST_BANNED_HAND_ROLLED_APIS: Final[tuple[str, ...]] = (
-    "socket.inet_aton",
-    "socket.inet_ntoa",
-    "socket.inet_pton",
-    "socket.inet_ntop",
-)
-
 # Who adjudicated a recorded finding when nothing says. The feedback exporter defaulted to
 # "human", which routed every finding the verifier never reached into the human
 # ground-truth bucket -- the one part of that dataset trusted because a person wrote it.
@@ -4380,12 +3509,6 @@ CONST_REVIEW_DEFECT_KEYWORDS: Final[tuple[tuple[str, str], ...]] = (
     ("owasp", "security"),
 )
 
-# Persona review reply outcomes: a persona returns valid findings, a clean empty findings list,
-# or an unparsed reply (malformed response or extraction failure).
-CONST_PERSONA_REPLY_FINDINGS: Final[str] = "findings"
-CONST_PERSONA_REPLY_EMPTY: Final[str] = "empty"
-CONST_PERSONA_REPLY_UNPARSED: Final[str] = "unparsed"
-
 # Maximum number of schema validation error field paths preserved in error reflection
 # prompts to bound token consumption while retaining sufficient diagnostic fidelity.
 CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
@@ -4467,26 +3590,6 @@ CONST_TRIVY_DB_METADATA: Final[tuple[str, ...]] = ("db", "metadata.json")
 # to prevent resource exhaustion and unbounded range vectors (CWE-400).
 CONST_MAX_PROMETHEUS_WINDOW_SECONDS: Final[int] = 30 * 86400
 
-# Receiver objects and prefixes permitted for code expression exemptions in secret masking.
-CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
-    {
-        "req",
-        "request",
-        "res",
-        "response",
-        "params",
-        "props",
-        "self",
-        "this",
-        "process",
-        "config",
-        "settings",
-        "context",
-        "ctx",
-        "session",
-    }
-)
-
 # No library finds arbitrary URLs embedded inside prose. linkify-it-py 2.2.0
 # misses non-http schemes (mysql://, postgres://) and fails on passwords with '@'.
 # Candidate URLs are located by RFC 3986 scheme grammar capped at 32 chars and
@@ -4517,21 +3620,9 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
     530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )
 
-# ── Swallowed Failures Ratchet Invariant ───────────────────────────────────────
-# Ruff rule codes and process return object attributes inspected by the ratchet (#1347).
-CONST_SWALLOWED_FAILURES_RUFF_RULES: Final[tuple[str, ...]] = ("BLE001", "S110", "S112")
-CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "stdout", "stderr")
-
 # ── Review Evidence (Ruff & Mypy) ─────────────────────────────────────────────
 CONST_DEFAULT_REVIEW_ADVISORY_RULES: Final[tuple[str, ...]] = ("BLE001",)
 CONST_COMPLEXITY_SOURCE: Final[str] = "mccabe (ruff C901)"
-
-# ── AI Research Information Foraging Constants ────────────────────────────────
-CONST_FORAGE_EDGE_TYPES: Final[tuple[str, ...]] = (
-    "import",
-    "markdown_link",
-    "git_co_change",
-)
 
 # ── AI Research Marginalia & Epistemic Scratchpad ─────────────────────────────
 CONST_MARGINALIA_TYPES: Final[tuple[str, ...]] = (
@@ -4540,32 +3631,6 @@ CONST_MARGINALIA_TYPES: Final[tuple[str, ...]] = (
     "CONTRADICTION",
     "QUESTION",
     "TODO",
-)
-
-# ── AI Research Socratic Inquiry ──────────────────────────────────────────────
-CONST_SOCRATIC_GAP_TYPES: Final[tuple[str, ...]] = (
-    "GAP",
-    "AMBIGUITY",
-    "UNDERSPECIFIED_CONTRACT",
-)
-CONST_SOCRATIC_LOOKUP_TYPES: Final[tuple[str, ...]] = (
-    "file",
-    "symbol",
-    "search",
-)
-
-# ── AI Research Mental Model & Causal Graph ───────────────────────────────────
-CONST_CAUSAL_NODE_TYPES: Final[tuple[str, ...]] = (
-    "cause",
-    "effect",
-    "mediator",
-    "outcome",
-)
-CONST_CAUSAL_RELATIONSHIPS: Final[tuple[str, ...]] = (
-    "causes",
-    "inhibits",
-    "triggers",
-    "mediates",
 )
 
 # ── AI Research Cross-Domain Analogies ────────────────────────────────────────
@@ -4663,6 +3728,8 @@ CONST_STRUCTURAL_PATTERN_DEFINITIONS: Final[dict[str, dict[str, Any]]] = {
 }
 
 # ── Review Tool Canary Constants (#1143) ─────────────────────────────────────
+# The start of the name of the scratch directory where the canary of a tool runs on its fixtures.
+CONST_CANARY_WORKDIR_PREFIX: Final[str] = "devops-canary-"
 CONST_CANARY_TOOLS: Final[tuple[str, ...]] = (
     "semgrep",
     "ruff",
@@ -4770,37 +3837,13 @@ RUN echo "canary"
 CONST_REVIEW_ANALYSIS_FILENAME: Final[str] = "analysis.json"
 CONST_ANALYSIS_PROMPT_FILENAME: Final[str] = "review_group_analysis.md"
 CONST_ANALYSIS_PLAN_PROMPT_FILENAME: Final[str] = "review_plan.md"
-CONST_ANALYSIS_GROUP_KINDS: Final[frozenset[str]] = frozenset({"region", "kubernetes", "advisory"})
-CONST_ANALYSIS_RELATIONS: Final[frozenset[str]] = frozenset(
-    {"caller", "callee", "same-symbol", "same-rule", "same-root-cause"}
-)
-CONST_ANALYSIS_CORRELATION_KEY_KINDS: Final[frozenset[str]] = frozenset(
-    {"cwe", "rule_family", "symbol_component", "purl", "manifest_source"}
-)
 CONST_ANALYSIS_K8S_TOOLS: Final[frozenset[str]] = frozenset({"kubelinter", "kube-linter", "pluto"})
 CONST_ANALYSIS_ADVISORY_TOOLS: Final[frozenset[str]] = frozenset({"osv", "osv-scanner", "trivy"})
 CONST_ANALYSIS_DROP_REASON_BUDGET: Final[str] = "budget"
 CONST_ANALYSIS_DROP_REASON_UNAVAILABLE: Final[str] = "unavailable"
-CONST_ANALYSIS_G10_REJECTION_REASONS: Final[tuple[str, ...]] = (
-    "unknown-finding-id",
-    "invalid-related-target",
-    "unmatched-code-quote",
-    "unmatched-doc-quote",
-    "unverified-version-or-package",
-    "invalid-python-code-block",
-    "unshared-root-cause-key",
-    "plan-incomplete-coverage",
-    "plan-order-violation",
-)
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = "reply-truncated"
 CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED: Final[str] = "schema-validation-failed"
 CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
-CONST_ANALYSIS_REJECTION_UNSHARED_ROOT_CAUSE_KEY: Final[str] = "unshared-root-cause-key"
-CONST_ANALYSIS_REJECTION_PLAN_INCOMPLETE_COVERAGE: Final[str] = "plan-incomplete-coverage"
-CONST_ANALYSIS_REJECTION_PLAN_ORDER_VIOLATION: Final[str] = "plan-order-violation"
-
-# ── OSV-Scanner Constants (#1146) ───────────────────────────────────────────
-CONST_BIN_OSV_SCANNER: Final[str] = "osv-scanner"
 CONST_OSV_OFFLINE_DB_TTL_SECONDS: Final[float] = 86400.0  # 24 hours TTL
 CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
     "uv.lock",
@@ -4815,16 +3858,6 @@ CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
     "composer.lock",
     "Gemfile.lock",
 )
-CONST_MANIFEST_NAMES: Final[tuple[str, ...]] = (
-    "pyproject.toml",
-    "requirements.in",
-    "setup.py",
-    "package.json",
-    "Cargo.toml",
-    "go.mod",
-    "composer.json",
-    "Gemfile",
-)
 CONST_MANIFEST_TO_LOCKFILES: Final[dict[str, tuple[str, ...]]] = {
     "pyproject.toml": ("uv.lock", "poetry.lock", "Pipfile.lock"),
     "requirements.in": ("requirements.txt", "uv.lock"),
@@ -4835,16 +3868,6 @@ CONST_MANIFEST_TO_LOCKFILES: Final[dict[str, tuple[str, ...]]] = {
     "composer.json": ("composer.lock",),
     "Gemfile": ("Gemfile.lock",),
 }
-
-# ── CLI Startup & Heavy Modules (#1002, #1687) ───────────────────────────────
-CONST_CLI_HEAVY_MODULES: Final[tuple[str, ...]] = (
-    "pydantic_ai",
-    "kubernetes",
-    "docker",
-    "fastmcp",
-    "qdrant_client",
-    "opentelemetry",
-)
 
 # ── Knowledge Base Version Grounding & Reference Tracking (#1149) ────────────
 CONST_KB_METADATA_TARGET_SUBDIRS: Final[tuple[str, ...]] = (
@@ -4924,3 +3947,7 @@ CONST_OPENSPEC_PROBE_CHANGE: Final[str] = "gate-probe"
 CONST_OPENSPEC_REWRITING_OPERATIONS: Final[frozenset[str]] = frozenset(
     {"MODIFIED", "REMOVED", "RENAMED"}
 )
+# The function names that count as presence checks in test assertions. A test that asserts
+# only presence or compares a presence call with a boolean literal in a tuple certifies
+# an object exists without verifying its values or behavior (#851).
+CONST_PRESENCE_CHECK_NAMES: Final[frozenset[str]] = frozenset({"callable", "hasattr", "isinstance"})

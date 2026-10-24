@@ -22,7 +22,6 @@ from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 from pydantic import ValidationError, create_model
 
-from devops_cli.config import Settings
 from devops_cli.config.constants import (
     CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GH_WEBHOOK_DELIVERY_HEADER,
@@ -41,7 +40,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
     WebhookProviderName,
 )
-from devops_cli.config.settings import ServiceConfig
+from devops_cli.config.settings import ServiceConfig, Settings
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.roadmap.board_read import GraphQLBudget, require_budget, require_write_floor

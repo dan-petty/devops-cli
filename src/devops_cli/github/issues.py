@@ -13,9 +13,10 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.store import RoadmapStore
 
 logger = logging.getLogger(__name__)
 
@@ -290,23 +291,77 @@ def create_repository_issue(
     return _parse_created_issue(res.stdout, title, body, assigned_milestone, labels)
 
 
-def audit_issues_triage(repo: str, *, awaiting_intake: Collection[int] = ()) -> IssueTriageAudit:
-    """Audit open issues against mandatory taxonomy labeling rules.
+def _resolve_store(repo: str, store: RoadmapStore | None) -> RoadmapStore | None:
+    """Return the given RoadmapStore or attempt to open it from repository configuration."""
+    if store is not None:
+        return store
+    try:
+        from devops_cli.roadmap.config import open_roadmap
 
-    An issue in `awaiting_intake`, open and not on the roadmap board, is reported once, as
-    awaiting intake: `devops roadmap intake` gives it its type and Priority (#742). A backlog
-    item has no milestone, so a missing milestone is no finding.
-    """
-    open_issues = get_repository_issues(repo, state="open", limit=100)
+        _, opened = open_roadmap(repo, ref=None)
+        return opened
+    except GitHubFileNotFoundError:
+        return None
+
+
+def _audit_board_store(
+    store: RoadmapStore, awaiting_intake: Collection[int] | None
+) -> IssueTriageAudit:
+    """Evaluate open board items and candidates against repository taxonomy rules."""
+    board_items = store.items()
+    open_board_items = [it for it in board_items if str(it.state).lower() == "open"]
+    candidates = store.candidates()
+    audit = IssueTriageAudit(total_open=len(open_board_items) + len(candidates))
+    awaiting_set = (
+        set(awaiting_intake) if awaiting_intake is not None else {c.number for c in candidates}
+    )
+
+    for candidate in candidates:
+        audit.issues_awaiting_intake.append(candidate.number)
+
+    for item in open_board_items:
+        if item.number in awaiting_set:
+            audit.issues_awaiting_intake.append(item.number)
+            continue
+        has_type = any(lbl.startswith("type/") for lbl in item.labels)
+        has_scope = any(lbl.startswith("scope/") for lbl in item.labels)
+        has_priority = bool(item.priority and item.priority.strip())
+
+        is_valid = True
+        if not has_type:
+            audit.issues_missing_type.append(item.number)
+            is_valid = False
+        if not has_scope:
+            audit.issues_missing_scope.append(item.number)
+            is_valid = False
+        if not has_priority:
+            audit.issues_missing_priority.append(item.number)
+            is_valid = False
+
+        if is_valid:
+            audit.valid_count += 1
+
+    audit.issues_missing_type.sort()
+    audit.issues_missing_scope.sort()
+    audit.issues_missing_priority.sort()
+    audit.issues_awaiting_intake.sort()
+    return audit
+
+
+def _audit_rest_issues(
+    open_issues: list[GitHubIssue], awaiting_intake: Collection[int] | None
+) -> IssueTriageAudit:
+    """Evaluate REST queried open issues when no roadmap board is present."""
     audit = IssueTriageAudit(total_open=len(open_issues))
+    awaiting_set = set(awaiting_intake or ())
 
     for issue in open_issues:
-        if issue.number in awaiting_intake:
+        if issue.number in awaiting_set:
             audit.issues_awaiting_intake.append(issue.number)
             continue
         has_type = any(lbl.startswith("type/") for lbl in issue.labels)
         has_scope = any(lbl.startswith("scope/") for lbl in issue.labels)
-        has_priority = any(lbl.startswith("priority/") for lbl in issue.labels)
+        has_priority = False
 
         is_valid = True
         if not has_type:
@@ -322,21 +377,79 @@ def audit_issues_triage(repo: str, *, awaiting_intake: Collection[int] = ()) -> 
         if is_valid:
             audit.valid_count += 1
 
+    audit.issues_missing_type.sort()
+    audit.issues_missing_scope.sort()
+    audit.issues_missing_priority.sort()
+    audit.issues_awaiting_intake.sort()
     return audit
 
 
-def get_issues_summary(repo: str) -> dict[str, Any]:
-    """Calculate aggregate issue counts by priority, type, and milestone."""
-    open_issues = get_repository_issues(repo, state="open", limit=100)
+def audit_issues_triage(
+    repo: str,
+    *,
+    awaiting_intake: Collection[int] | None = None,
+    store: RoadmapStore | None = None,
+) -> IssueTriageAudit:
+    """Audit open issues against mandatory taxonomy labeling rules and board Priority.
+
+    An issue in `awaiting_intake`, open and not on the roadmap board, is reported once, as
+    awaiting intake: `devops roadmap intake` gives it its type and Priority (#742). A backlog
+    item has no milestone, so a missing milestone is no finding.
+    """
+    resolved_store = _resolve_store(repo, store)
+    if resolved_store is not None:
+        return _audit_board_store(resolved_store, awaiting_intake)
+    open_issues = get_repository_issues(repo, state="open", limit=None)
+    return _audit_rest_issues(open_issues, awaiting_intake)
+
+
+def _summarize_board_store(store: RoadmapStore) -> dict[str, Any]:
+    """Aggregate open issues from board items and candidates by priority, type, and milestone."""
+    board_items = store.items()
+    open_board_items = [it for it in board_items if str(it.state).lower() == "open"]
+    candidates = store.candidates()
+    total_open = len(open_board_items) + len(candidates)
+    priority_counter: Counter[str] = Counter()
+    type_counter: Counter[str] = Counter()
+    milestone_counter: Counter[str] = Counter()
+
+    for item in open_board_items:
+        if item.priority:
+            priority_counter[item.priority] += 1
+        for lbl in item.labels:
+            if lbl.startswith("type/"):
+                type_counter[lbl] += 1
+        if item.milestone:
+            milestone_counter[item.milestone] += 1
+        else:
+            milestone_counter["no-milestone"] += 1
+
+    for candidate in candidates:
+        for lbl in candidate.labels:
+            if lbl.startswith("type/"):
+                type_counter[lbl] += 1
+        if candidate.milestone:
+            milestone_counter[candidate.milestone] += 1
+        else:
+            milestone_counter["no-milestone"] += 1
+
+    return {
+        "total_open": total_open,
+        "by_priority": dict(priority_counter),
+        "by_type": dict(type_counter),
+        "by_milestone": dict(milestone_counter),
+    }
+
+
+def _summarize_rest_issues(open_issues: list[GitHubIssue]) -> dict[str, Any]:
+    """Aggregate REST queried open issues by priority, type, and milestone."""
     priority_counter: Counter[str] = Counter()
     type_counter: Counter[str] = Counter()
     milestone_counter: Counter[str] = Counter()
 
     for issue in open_issues:
         for lbl in issue.labels:
-            if lbl.startswith("priority/"):
-                priority_counter[lbl] += 1
-            elif lbl.startswith("type/"):
+            if lbl.startswith("type/"):
                 type_counter[lbl] += 1
         if issue.milestone:
             milestone_counter[issue.milestone] += 1
@@ -349,6 +462,15 @@ def get_issues_summary(repo: str) -> dict[str, Any]:
         "by_type": dict(type_counter),
         "by_milestone": dict(milestone_counter),
     }
+
+
+def get_issues_summary(repo: str, *, store: RoadmapStore | None = None) -> dict[str, Any]:
+    """Calculate aggregate issue counts by priority, type, and milestone."""
+    resolved_store = _resolve_store(repo, store)
+    if resolved_store is not None:
+        return _summarize_board_store(resolved_store)
+    open_issues = get_repository_issues(repo, state="open", limit=None)
+    return _summarize_rest_issues(open_issues)
 
 
 def _is_trivial_milestone(milestone: str | int | None) -> bool:

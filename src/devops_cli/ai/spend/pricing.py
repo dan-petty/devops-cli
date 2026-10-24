@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
+    CONST_GENAI_PRICES_LITELLM_PROVIDER,
     CONST_LOCAL_PROVIDER_NAMES,
     CONST_LOCAL_TRANSPORT_LABELS,
     CONST_PRICING_SOURCE_LOCAL,
@@ -555,15 +556,23 @@ class PricingRegistry:
         provider: str | None = None,
         request_timestamp: datetime | None = None,
         served_by: str | None = None,
+        served_model: str | None = None,
     ) -> RequestCost:
         """The cost of a request at its real token usage and timestamp, and its pricing source.
 
         A local call costs nothing, whatever override names its model or server (#1631). A
         hosted model that neither an override nor genai-prices prices costs $0 with the source
         `unknown`, and the registry logs one warning for each such model (#1672).
+
+        `served_model` is the deployment model that a gateway reply names, a LiteLLM model
+        reference such as `openai/gpt-4o`. When the reply names it, a hosted call is priced at
+        it and not at `model`, the route name that the client asked for, which genai-prices does
+        not know. genai-prices takes the provider from the prefix of the reference (#2031).
         """
         if is_local(server=server, provider=provider, served_by=served_by):
             return RequestCost(0.0, CONST_PRICING_SOURCE_LOCAL)
+        if served_model:
+            model, provider = served_model, CONST_GENAI_PRICES_LITELLM_PROVIDER
 
         override = self._get_override_pricing(model, server)
         if override is not None:

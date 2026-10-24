@@ -25,6 +25,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from pydantic import ValidationError as PydanticValidationError
 
+from devops_cli.ai.analyze.scanner import detect_syntax
 from devops_cli.ai.client.models import ReplyRejectedError
 from devops_cli.ai.kb import (
     DriftManual,
@@ -511,11 +512,12 @@ def _build_anchor_excerpt(
     start_idx = max(1, line_no - context_lines)
     end_idx = min(len(lines), end_no + context_lines)
     raw_slice = "\n".join(lines[start_idx - 1 : end_idx])
+    syntax = detect_syntax(finding.path, content)
     return AnchorExcerpt(
         path=finding.path,
         start_line=start_idx,
         end_line=end_idx,
-        excerpt=mask_secrets(raw_slice),
+        excerpt=mask_secrets(raw_slice, syntax=syntax),
     )
 
 

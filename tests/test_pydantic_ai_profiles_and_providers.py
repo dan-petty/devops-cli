@@ -27,18 +27,14 @@ class TestPydanticAIProviders:
         from pydantic_ai.providers.openai import OpenAIProvider as NativeOpenAIProvider
 
         ollama_p = create_pydantic_ai_provider("ollama", base_url="http://localhost:11434")
-        assert (isinstance(ollama_p, NativeOllamaProvider), ollama_p.base_url) == (
-            True,
-            "http://localhost:11434",
-        )
+        assert isinstance(ollama_p, NativeOllamaProvider)
+        assert ollama_p.base_url == "http://localhost:11434"
 
         openai_p = create_pydantic_ai_provider(
             "openai", api_key="sk-test-key", base_url="https://api.openai.com/v1"
         )
-        assert (
-            isinstance(openai_p, NativeOpenAIProvider),
-            str(openai_p.base_url).rstrip("/"),
-        ) == (True, "https://api.openai.com/v1")
+        assert isinstance(openai_p, NativeOpenAIProvider)
+        assert str(openai_p.base_url).rstrip("/") == "https://api.openai.com/v1"
 
         anthropic_p = create_pydantic_ai_provider("anthropic", api_key="sk-ant-test")
         assert isinstance(anthropic_p, NativeAnthropicProvider)
@@ -94,6 +90,7 @@ class TestBridgeModelResolutionWithProviders:
 
         model = resolve_pydantic_ai_model("ollama:qwen2.5-coder:7b", settings=settings)
         assert model is not None
+        assert model.model_name == "qwen2.5-coder:7b"
 
 
 _EXAMPLE_BASE = "https://example.com/v1"
@@ -227,11 +224,9 @@ def test_remote_model_with_malformed_base_url_raises(
             model, settings=_remote_settings("openai", **ai_fields)
         )
 
-    assert (
-        caught.value.details["key"],
-        str(caught.value).startswith(f"{key} cannot serve model {model!r}"),
-        isinstance(caught.value.__cause__, InvalidURLError),
-    ) == (key, True, True)
+    assert caught.value.details["key"] == key
+    assert str(caught.value).startswith(f"{key} cannot serve model {model!r}")
+    assert isinstance(caught.value.__cause__, InvalidURLError)
 
 
 _PRIVATE_BASE = "http://192.0.2.10:4000/v1"
@@ -269,12 +264,10 @@ def test_remote_model_on_a_private_host_needs_the_opt_in(
         settings=_remote_settings(provider, allow_private_network=True, **{setting: _PRIVATE_BASE}),
     )
 
-    assert (
-        caught.value.details["key"],
-        str(caught.value).startswith(f"ai.{setting} cannot serve model {model!r}: Refusing "),
-        isinstance(caught.value.__cause__, SSRFBlockedError),
-        str(allowed.base_url),
-    ) == (f"ai.{setting}", True, True, f"{_PRIVATE_BASE}/")
+    assert caught.value.details["key"] == f"ai.{setting}"
+    assert str(caught.value).startswith(f"ai.{setting} cannot serve model {model!r}: Refusing ")
+    assert isinstance(caught.value.__cause__, SSRFBlockedError)
+    assert str(allowed.base_url) == f"{_PRIVATE_BASE}/"
 
 
 def test_provider_factory_allows_a_private_base_url_only_when_told(
@@ -358,13 +351,11 @@ def test_remote_model_whose_provider_package_is_missing_raises(
             "mistral:large", settings=_remote_settings("openai", api_base_url=_EXAMPLE_BASE)
         )
 
-    assert (
-        caught.value.details["key"],
-        str(caught.value).startswith(
-            "ai.model 'mistral:large' cannot be resolved for ai.provider 'openai': "
-        ),
-        isinstance(caught.value.__cause__, ImportError),
-    ) == ("ai.model", True, True)
+    assert caught.value.details["key"] == "ai.model"
+    assert str(caught.value).startswith(
+        "ai.model 'mistral:large' cannot be resolved for ai.provider 'openai': "
+    )
+    assert isinstance(caught.value.__cause__, ImportError)
 
 
 def _cascade_settings(provider: str) -> Settings:

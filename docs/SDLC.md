@@ -48,10 +48,10 @@ sequenceDiagram
     Dev->>Plan: Plan the change as an OpenSpec change & file candidates via devops roadmap intake
     Dev->>Test: Author unit/integration tests (tests/test_*.py)
     Dev->>Code: Implement domain logic meeting architectural invariants
-    Dev->>Gate: Execute devops ci (Gated CI quality checks & >=90% coverage)
+    Dev->>Gate: Run the targeted tests (devops ci test), and the full devops ci by hand if wanted
     Dev->>Review: Run automated review & verify findings
-    Dev->>Git: Push topic branch & open draft PR targeting main
-    Git->>CI: Trigger CI workflows (matrix build, linters, security)
+    Dev->>Git: Push topic branch through the fast static checks & open draft PR targeting main
+    Git->>CI: Trigger CI workflows and the required checks (Static Analysis, Tests & Coverage, Semantic PR title)
     Git->>Maintainer: Notify CODEOWNERS for mandatory human review
     Maintainer->>Git: Approve & squash-merge PR into main
     Rel->>Git: Open or update the release pull request (version, CHANGELOG.md)
@@ -70,7 +70,7 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - Plan every item as an OpenSpec change, `openspec/changes/<issue>-<slug>/` ([`openspec/config.yaml`](../openspec/config.yaml), [ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)). The change folder is the only in-repo record of the item. The proposal records the feasibility check and the existing tool considered.
    - The pull request that closes the issue archives the change in its last commit with `uv run devops openspec archive <change>`, after every task is ticked. `devops pr check-readiness` blocks a pull request that does not add `openspec/changes/archive/<date>-<issue>-<slug>/` for its issue. It also blocks a pull request that writes `openspec/specs/` or another issue's archived folder.
 2. **Roadmap & Backlog Synchronization**:
-   - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake checks it for a duplicate, gives it its type, Priority, Value and Effort, and puts it in the backlog. Never set a milestone or priority on a new issue: a person plans the milestones on the board.
+   - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake checks it for a duplicate, gives it its type, Priority, Value and Effort, and puts it in the backlog. Never set a milestone or priority on a new issue: intake sets the board's Priority field, and a person plans the milestones on the board.
    - The Value and Effort intake sets place each item in the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
 3. **Milestones Are Planning Buckets**:
    - A person groups items into milestones on the GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`). A milestone never names a version, and no release reads one.
@@ -153,10 +153,18 @@ flowchart TD
         H5[check-yaml / toml / json]
         H6[ruff check & format]
         H7[structural-invariants]
-        H8[devops-ci-test-changed]
+        H8[ast-grep scan & test]
+        H9[openspec gate]
     end
 
-    subgraph CIQualityGate["Primary Quality Gate (devops ci / uv run devops ci)"]
+    subgraph PrePush["Git Pre-Push Hook (fast static checks)"]
+        P1[ruff check]
+        P2[ruff format --check]
+        P3[actionlint]
+        P4[zizmor]
+    end
+
+    subgraph CIQualityGate["Primary Quality Gate (required checks of CI, or uv run devops ci by hand)"]
         G1[python_version]
         G2[pytest test suite]
         G3[code coverage >= 90%]
@@ -173,7 +181,8 @@ flowchart TD
         G13[outdated packages]
     end
 
-    PreCommit --> CIQualityGate
+    PreCommit --> PrePush
+    PrePush --> CIQualityGate
 ```
 
 #### Pre-Commit Hardening
@@ -183,11 +192,13 @@ The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter 
 - `check-yaml`, `check-toml`, `check-json`: Validates configuration syntax across all structured files.
 - `ruff`: Enforces lint rules and code formatting.
 - `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
-- `devops-ci-test-changed`: Runs targeted test suite covering staged files.
-- Pre-push `devops ci` gate: Runs every check of `devops ci` (including `actionlint` and `zizmor`) before a push, as the next section describes.
+- `ast-grep-scan` and `ast-grep-test`: Run the ast-grep rules over `src` and `tests`, and the tests of the rules.
+- `openspec-gate`: Runs `devops ci --only openspec` when a commit changes `openspec/` or the committed skills.
+- A commit runs no tests. The `Tests & Coverage` check of CI runs the full suite, and so does `uv run devops ci` by hand (#2086).
+- `devops-ci-pre-push`: Runs only the fast static checks before a push, `uv run devops ci --check --only lint,format,actionlint,zizmor` (#1752). It is in check-only mode, so it changes no file: when it reports a lint or format problem, fix it (`uv run devops ci format`, `uv run devops ci lint`), commit, and push again. Never use `--no-verify`.
 
 #### The Primary CI Verification Gate (`devops ci`)
-The pre-push hook's `uv run devops ci` is the gate run. A manual run counts only when nothing changes before the push. Run it, if at all, after the last rebase, amend or edit, in the worktree you push from, with no `--check`, `--no-fix`, `--only` or `--skip`. When the hook's docs pre-fix rewrites files, regenerate and commit the docs, then push again. Do not repeat the push unchanged. The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
+CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)). The required checks of the `main` ruleset, `Static Analysis`, `Tests & Coverage` and `Semantic PR title`, must pass on a pull request before it merges (Phase 6). `Static Analysis` runs `devops ci --check --no-cache --skip test,outdated`, and `Tests & Coverage` runs `devops ci --check --no-cache --only test`. The pre-push hook runs only the fast static checks, so the full `uv run devops ci` is a manual run. Run it by hand when you want every check before a push. The default run auto-applies ruff format and lint fixes and regenerates the docs, so commit what it changes. This command runs every check `devops ci` defines:
 1. `python_version`: Verifies Python runtime compatibility.
 2. `test`: Executes all unit and integration tests via `pytest`.
 3. `coverage`: Enforces strict $\ge 90\%$ code coverage across `src/`.
@@ -261,6 +272,7 @@ gitGraph
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
 - **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request, and a person merges it. Agents change the release workflow and its configuration through ordinary pull requests ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)).
+- **Required Checks Gate the Merge**: The `main` ruleset requires `Static Analysis`, `Tests & Coverage` and `Semantic PR title`. A pull request merges only when the three checks pass on the pull request. The release pull request runs the same checks on each new `main`, so its status shows a defect that two pull requests make together ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)): the pre-push hook runs only the fast static checks (Phase 4), so these checks are the first run of the test suite on a branch, unless the author runs `uv run devops ci` by hand ([ADR 0014](adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md)).
 - **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
 - **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. The `Semantic PR title` check enforces the PR title. The squash commit takes the title, and release-please writes it as the changelog line ([`CONTRIBUTING.md`](../CONTRIBUTING.md) lists the types that add a line).
   - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects.
@@ -302,7 +314,7 @@ gitGraph
   - Review feedback must be addressed iteratively via Test-First Development (author/update tests first in `tests/`, implement clean fixes in `src/`, ensuring zero zombie code).
   - **Mandatory Direct In-Thread Replies**: AI agents MUST reply **directly within each specific review discussion thread** on the exact comment being addressed (`devops pr threads reply <thread_id> "<body>"` or GraphQL `addPullRequestReviewThreadReply`). Never post solely a general, top-level PR summary comment.
   - **Conversation Resolution**: Once committed, pushed, and verified, AI agents MUST resolve the conversation thread on GitHub via GraphQL `resolveReviewThread` (or `devops pr threads resolve <thread_id>`).
-  - **Continuous Quality Gate Verification**: Re-verify local quality gates (`devops ci`) and monitor remote status via `devops pr monitor <pr_number>` until 100% green.
+  - **Continuous Check Verification**: Run the tests that a fix changes (`uv run devops ci test <paths>`), push through the pre-push hook, and monitor the required checks via `devops pr monitor <pr_number>` until 100% green.
 
 ---
 

@@ -48,6 +48,18 @@ spec:
                 - ALL
           # The password goes into a config file on a memory volume rather than onto the command
           # line, where it would show in the process list.
+          #
+          # Valkey keeps at most 1536 MiB of data, three quarters of the 2048Mi limit (#711). The
+          # Valkey administration guide sets maxmemory below the free memory by Valkey's own
+          # overhead and the fragmentation ("10 GB free: set it to 8 or 9"). maxmemory counts the
+          # bytes Valkey allocates, not its resident memory, and the allocator keeps the pages it
+          # frees. At the measured allocator fragmentation of about 1.2, 1536 MiB of data is
+          # about 1850 MiB resident. This Valkey has no replica, no AOF and no RDB, so it needs
+          # no replication buffer and no fork.
+          #
+          # At the bound Valkey refuses writes and evicts no key. Open WebUI keeps its session
+          # pools and token revocations here. Its Redis guide names noeviction, because an
+          # evicted revocation makes a signed-out token valid again.
           command:
             - sh
             - -c
@@ -58,6 +70,8 @@ spec:
               --save ""
               --appendonly no
               --dir /data
+              --maxmemory 1536mb
+              --maxmemory-policy noeviction
           env:
             - name: VALKEY_PASSWORD
               valueFrom:

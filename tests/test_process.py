@@ -90,7 +90,7 @@ def test_run_subprocess_check_and_timeout(monkeypatch: pytest.MonkeyPatch) -> No
     set_dry_run(True)
     try:
         proc_dry = run_subprocess(["echo", "dry_run_test"])
-        assert proc_dry is not None
+        assert proc_dry.returncode == 0
     finally:
         set_dry_run(False)
 

@@ -5231,7 +5231,7 @@ devops ai cost set-price <target> <prompt_rate> <completion_rate>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
+| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). When a gateway reply names its deployment model, such as 'openai/gpt-4o', that model is the target, not the route name. A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
 
@@ -5361,7 +5361,7 @@ devops ai spend set-price <target> <prompt_rate> <completion_rate>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
+| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). When a gateway reply names its deployment model, such as 'openai/gpt-4o', that model is the target, not the route name. A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
 
@@ -8873,8 +8873,7 @@ devops valkey ping [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey info`
 
@@ -8889,8 +8888,7 @@ devops valkey info [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--section`, `-s` | `string` | - | Specific INFO section (server, memory, clients, stats) |
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey stats`
 
@@ -8904,8 +8902,7 @@ devops valkey stats [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey keys`
 
@@ -8925,8 +8922,7 @@ devops valkey keys [OPTIONS] <pattern>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey get`
 
@@ -8946,8 +8942,7 @@ devops valkey get [OPTIONS] <key>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey set`
 
@@ -8970,8 +8965,7 @@ devops valkey set [OPTIONS] <key> <value>
 |---|---|---|---|
 | `--ex` | `integer` | - | Expiration timeout in seconds |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey flush`
 
@@ -8987,8 +8981,7 @@ devops valkey flush [OPTIONS]
 |---|---|---|---|
 | `--all`, `-a` | `boolean` | - | Flush all databases instead of just active one |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey backup`
 
@@ -9003,8 +8996,7 @@ devops valkey backup [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ### `devops valkey cli`
 
@@ -9024,8 +9016,7 @@ devops valkey cli [OPTIONS] <command_args>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--host`, `-h` | `string` | - | Valkey server host |
-| `--port`, `-p` | `integer` | - | Valkey server port |
+| `--url` | `string` | - | Valkey URL to use in place of `valkey.url`, such as `valkey://localhost:6379/0` |
 
 ---
 

@@ -75,6 +75,23 @@ def test_merged_outcomes_keep_the_files_every_run_did_not_scan() -> None:
     )
 
 
+def test_merged_outcomes_keep_the_earliest_start_and_latest_end_times() -> None:
+    """The merged outcome spans from the earliest run's start to the latest run's end."""
+    first = ScanOutcome("ran")
+    first.started_utc = "2026-10-01T12:00:01.000Z"
+    first.ended_utc = "2026-10-01T12:00:03.000Z"
+
+    second = ScanOutcome("ran")
+    second.started_utc = "2026-10-01T12:00:00.000Z"
+    second.ended_utc = "2026-10-01T12:00:02.000Z"
+
+    merged = merge_outcomes([first, second])
+    assert (merged.started_utc, merged.ended_utc) == (
+        "2026-10-01T12:00:00.000Z",
+        "2026-10-01T12:00:03.000Z",
+    )
+
+
 def test_dive_and_popeye_applicability_preflight(tmp_path: Path) -> None:
     """Dive and Popeye determine applicability before binary presence check."""
     dive = DiveScanner()

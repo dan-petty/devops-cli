@@ -319,7 +319,8 @@ def test_a_config_write_outside_the_run_fails_at_the_write_naming_the_test(
 ) -> None:
     """A test that opens a config file for writing, renames a file onto one or removes one
     outside its run's temporary directory fails at that operation, naming itself, also when it
-    catches the failure, and so does `save_settings` without isolation. The file stays as it was.
+    catches the failure, and so does a `save_settings` of a changed key without isolation. The
+    file stays as it was.
     A config file under `tmp_path` and another file outside stay writable (#1921).
 
     The files outside the inner run lie in this test's own temporary directory, so a guard that
@@ -362,7 +363,9 @@ def test_a_config_write_outside_the_run_fails_at_the_write_naming_the_test(
         def test_saves_settings_without_isolation(monkeypatch):
             monkeypatch.delenv("DEVOPS_CLI_CONFIG")
             monkeypatch.chdir(OUTSIDE / "checkout")
-            save_settings(load_settings())
+            settings = load_settings()
+            settings.ssh.key_prefix = "changed"
+            save_settings(settings)
 
         def test_writes_a_config_file_under_tmp_path(tmp_path):
             (tmp_path / "config.yaml").write_text("ssh: null\\n", encoding="utf-8")

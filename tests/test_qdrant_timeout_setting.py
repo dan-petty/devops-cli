@@ -15,7 +15,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.ai.rag import embeddings as embeddings_module
 from devops_cli.ai.rag import indexer as indexer_module
 from devops_cli.ai.rag import investigator as investigator_module
 from devops_cli.ai.tools import builtin_tools
@@ -32,13 +31,13 @@ def _configure_qdrant(config: Path, timeout: float) -> None:
 
 
 @pytest.fixture
-def no_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Resolve the API keys without the keyring, and probe no Valkey."""
+def no_secrets(monkeypatch: pytest.MonkeyPatch, mock_keyring: object) -> None:
+    """Resolve the API keys without the keyring, and the Valkey password from an empty keyring.
+
+    An embeddings engine reads the Valkey password when it builds its Valkey cache tier.
+    """
     monkeypatch.setattr(settings_module, "get_qdrant_api_key", lambda settings: "test-key")
     monkeypatch.setattr(settings_module, "get_ai_api_key", lambda settings: None)
-    monkeypatch.setattr(
-        embeddings_module.EmbeddingsEngine, "_init_valkey", lambda self, client: None
-    )
 
 
 def test_the_qdrant_timeout_is_read_from_the_config_file_and_the_environment(

@@ -25,12 +25,11 @@ from devops_cli.ai.research.socratic import (
     _build_user_prompt,
     render_socratic_markdown,
 )
-from devops_cli.config.constants import (
-    CONST_SOCRATIC_GAP_TYPES,
-    CONST_SOCRATIC_LOOKUP_TYPES,
-)
 from devops_cli.config.defaults import DEFAULT_AI_SOCRATIC_MAX_PROBES
 from devops_cli.main import app
+
+CONST_SOCRATIC_GAP_TYPES: tuple[str, ...] = ("GAP", "AMBIGUITY", "UNDERSPECIFIED_CONTRACT")
+CONST_SOCRATIC_LOOKUP_TYPES: tuple[str, ...] = ("file", "symbol", "search")
 
 runner = CliRunner()
 

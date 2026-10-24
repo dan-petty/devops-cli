@@ -6,9 +6,13 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fakeredis import FakeServer
 
+from devops_cli.config.constants import CONST_THREAT_INTEL_CACHE_PREFIX
 from devops_cli.models.vulnerability import NetworkReputationRecord
 from devops_cli.security.vulnerability_lookup import CloudflareRadarClient
+from devops_cli.valkey.client import ValkeyClient
+from tests.support.fakes.clock import ClockFake
 
 
 @pytest.fixture
@@ -84,29 +88,6 @@ def test_cloudflare_radar_valkey_l2_cache_miss_populates_l2(mock_valkey: MagicMo
         assert stored_payload["target"] == "new-domain.io"
         assert "Software" in stored_payload["tags"]
         assert call_args[1].get("ex") == 86400 or call_args[1].get("ttl") == 86400
-
-
-def test_cloudflare_radar_valkey_offline_fallback() -> None:
-    broken_valkey = MagicMock()
-    broken_valkey.get.side_effect = RuntimeError("Valkey socket connection refused")
-    broken_valkey.set.side_effect = RuntimeError("Valkey broken pipe")
-
-    client = CloudflareRadarClient(valkey_client=broken_valkey)
-    with patch("httpx2.Client.get") as mock_get:
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {"result": {"categories": [{"name": "Utility"}]}}
-        mock_get.return_value = mock_resp
-
-        # Should not raise; gracefully falls back to direct lookup
-        rec = client.check_domain("fallback-domain.org")
-        assert rec.target == "fallback-domain.org"
-        assert "Utility" in rec.tags
-        assert mock_get.call_count == 1
-
-        # Second call hits L1 cache without error
-        rec2 = client.check_domain("fallback-domain.org")
-        assert rec2.target == "fallback-domain.org"
-        assert mock_get.call_count == 1
 
 
 def test_cloudflare_radar_batch_domains(mock_valkey: MagicMock) -> None:
@@ -213,38 +194,80 @@ def test_cloudflare_radar_batch_size_validation() -> None:
         client.check_domains_batch(["example.org"], batch_size=-1)
 
 
-def test_cloudflare_radar_valkey_connection_error_disables_valkey() -> None:
-    broken_valkey = MagicMock()
-    broken_valkey.get.side_effect = ConnectionError("Connection refused")
+def _cooldown() -> float:
+    """The cooldown of the breaker of the Valkey cache tier, in seconds.
 
-    client = CloudflareRadarClient(valkey_client=broken_valkey)
-    with patch("httpx2.Client.get") as mock_get:
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {"result": {"categories": []}}
-        mock_get.return_value = mock_resp
+    The import is local, so the module loads on a base without the default.
+    """
+    from devops_cli.config.defaults import DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS
 
-        # First call triggers connection error and disables Valkey
-        client.check_domain("domain-1.org")
-        assert client._valkey is None
-        assert broken_valkey.get.call_count == 1
-
-        # Second call does not attempt broken Valkey
-        client.check_domain("domain-2.org")
-        assert broken_valkey.get.call_count == 1
+    return DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS
 
 
-def test_cloudflare_radar_valkey_corrupt_payload_keeps_valkey_enabled(
-    mock_valkey: MagicMock,
+def _l2_key(domain: str) -> str:
+    return f"{CONST_THREAT_INTEL_CACHE_PREFIX}:{domain}"
+
+
+def _radar_reply(category: str) -> MagicMock:
+    """A Radar reply of 200 that puts the domain in one category."""
+    reply = MagicMock(status_code=200)
+    reply.json.return_value = {"result": {"categories": [{"name": category}]}}
+    return reply
+
+
+def _stored_tags(valkey_client: ValkeyClient, domain: str) -> list[str]:
+    raw = valkey_client.get(_l2_key(domain))
+    assert raw is not None
+    return NetworkReputationRecord.model_validate_json(raw).tags
+
+
+def test_a_valkey_outage_turns_the_threat_intel_l2_cache_off_for_a_cooldown(
+    valkey_server: FakeServer, valkey_client: ValkeyClient, clock: ClockFake
 ) -> None:
-    mock_valkey.get.return_value = "not valid json {{"
+    """A failed read sends lookups to Radar for the cooldown; a read after it serves from Valkey.
 
-    client = CloudflareRadarClient(valkey_client=mock_valkey)
-    with patch("httpx2.Client.get") as mock_get:
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {"result": {"categories": []}}
-        mock_get.return_value = mock_resp
+    Valkey holds a `Cached` record of each of the first three domains, and Radar answers `Live`.
+    So the tags of a lookup show which tier answered it.
+    """
+    for domain in ("outage.org", "cooldown.org", "trial.org"):
+        cached = NetworkReputationRecord(
+            target=domain, ip="", source="Cloudflare Radar", tags=["Cached"]
+        )
+        valkey_client.set(_l2_key(domain), cached.model_dump_json())
+    client = CloudflareRadarClient(valkey_client=valkey_client)
 
-        # Corrupt payload returns None from L2, but Valkey remains enabled
-        client.check_domain("corrupt-domain.org")
-        assert client._valkey is mock_valkey
-        assert mock_valkey.set.call_count == 1
+    with patch("httpx2.Client.get") as radar_get:
+        radar_get.return_value = _radar_reply("Live")
+        valkey_server.connected = False
+        in_the_outage = client.check_domain("outage.org")
+        valkey_server.connected = True
+        in_the_cooldown = client.check_domain("cooldown.org")
+        clock.shift(_cooldown())
+        after_the_cooldown = client.check_domain("trial.org")
+        not_cached = client.check_domain("new.org")
+
+    assert [
+        record.tags for record in (in_the_outage, in_the_cooldown, after_the_cooldown, not_cached)
+    ] == [["Live"], ["Live"], ["Cached"], ["Live"]]
+    assert (
+        radar_get.call_count,
+        _stored_tags(valkey_client, "cooldown.org"),
+        _stored_tags(valkey_client, "new.org"),
+    ) == (3, ["Cached"], ["Live"])
+
+
+def test_a_corrupt_threat_intel_entry_is_a_miss_and_keeps_the_l2_cache_on(
+    valkey_client: ValkeyClient,
+) -> None:
+    """Radar answers the lookup, and its record replaces the corrupt entry in Valkey."""
+    valkey_client.set(_l2_key("corrupt-domain.org"), "not valid json {{")
+    client = CloudflareRadarClient(valkey_client=valkey_client)
+
+    with patch("httpx2.Client.get") as radar_get:
+        radar_get.return_value = _radar_reply("Live")
+        record = client.check_domain("corrupt-domain.org")
+
+    assert (record.tags, _stored_tags(valkey_client, "corrupt-domain.org")) == (
+        ["Live"],
+        ["Live"],
+    )

@@ -93,12 +93,19 @@ def check_tracked_diff(repo_root: Path, snapshot: dict[str, tuple[int, int]]) ->
     return diffs
 
 
+_FORBIDDEN_PROJECT_TEST_PATHS: tuple[str, ...] = (
+    "test_config.yaml",
+    "test_data",
+    "test_llm_cache",
+    "gh-config",
+    ".data/test_llm_cache",
+)
+
+
 def check_forbidden_test_paths(repo_root: Path) -> list[str]:
     """Detect explicit test-only paths created in the project repository."""
-    from devops_cli.config.constants import CONST_FORBIDDEN_PROJECT_TEST_PATHS
-
     diffs: list[str] = []
-    for rel in CONST_FORBIDDEN_PROJECT_TEST_PATHS:
+    for rel in _FORBIDDEN_PROJECT_TEST_PATHS:
         target = repo_root / rel
         if target.exists():
             diffs.append(f"{rel} (test path found in project directory)")

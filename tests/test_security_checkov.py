@@ -130,7 +130,7 @@ def test_run_checkov_scan_missing_binary(tmp_path: Path) -> None:
     """Verify graceful handling when checkov binary is not in PATH."""
     with patch("shutil.which", return_value=None):
         findings_nobin = run_checkov_scan(tmp_path)
-        assert isinstance(findings_nobin, list)
+        assert findings_nobin == []
 
 
 def test_run_checkov_scan_nonzero_exit_with_findings(tmp_path: Path) -> None:

@@ -1,0 +1,64 @@
+# agent-scan-tools Specification
+
+## Purpose
+How the scan tools that devops-cli gives to its agents and MCP clients run the scanner adapters, and how each reply reports the outcome of the scan, so that a missing or failed scan never reads as a clean scan.
+
+## Requirements
+
+### Requirement: An agent scan tool runs the scanner adapter over the workspace path
+The agent tools `scan_trivy`, `scan_kubelinter`, `scan_pluto`, `scan_bandit`, `scan_gitleaks` and `scan_semgrep` SHALL run the scanner adapter of `devops_cli.security` over their target, a path inside the workspace, and SHALL keep no command line of their own.
+
+#### Scenario: The Semgrep tool runs the scan of the adapter
+- **WHEN** the agent calls `scan_semgrep` over a directory with the config `./local-rules`
+- **THEN** Semgrep starts in that directory with `./local-rules` and the rule pack, sends no metrics, checks no version, and leaves out the directories of dependencies and data
+
+#### Scenario: The Semgrep tool reads the cached registry ruleset
+- **WHEN** the cached `p/default` exists, and the agent calls `scan_semgrep` over a directory with no config
+- **THEN** Semgrep starts in the cache directory with the cached file named there, and the reply is `Semgrep scan status: ok`, then `No findings.`
+
+### Requirement: The reply gives the status of the scan first
+The reply of an agent scan tool SHALL start with the line `<scanner> scan status: <status>`. The status SHALL be `ok` for a scan that ran, `not installed` for a scanner that no directory of PATH holds, and the name of the outcome status for every other outcome, such as `failed`, `not_applicable` or `coverage_gap`. When the outcome has a reason, the next line SHALL be `Reason: <reason>`.
+
+#### Scenario: Semgrep with no cached registry ruleset
+- **WHEN** no cached `p/default` exists, and the agent calls `scan_semgrep` over a directory with no config
+- **THEN** Semgrep runs the rule pack alone, and the reply is `Semgrep scan status: coverage_gap`, then a reason that names `devops review rules fetch --ruleset p/default`, then `No findings.`
+
+### Requirement: The reply of a scan that gave no result says so
+When the outcome status is in `CONST_SCAN_NO_RESULT_STATUSES`, the last line of the reply SHALL be `The scan gave no result. Do not report the target as clean.`, and the reply SHALL list no findings.
+
+#### Scenario: A scanner that is not installed
+- **WHEN** no directory of PATH holds the scanner of the tool, and the agent calls the tool
+- **THEN** the reply is `<scanner> scan status: not installed`, then `Reason: Binary '<program>' not found on PATH`, then `The scan gave no result. Do not report the target as clean.`
+
+#### Scenario: A scanner that fails with no output
+- **WHEN** the scanner exits with code 2, writes nothing on stdout, and writes `fatal: the target cannot be read` on stderr
+- **THEN** the reply is `<scanner> scan status: failed`, then `Reason: Scanner exited with code 2: fatal: the target cannot be read`, then `The scan gave no result. Do not report the target as clean.`
+
+### Requirement: The reply lists the findings of a scan that ran, masked and cut
+After the status, the reply of a scan that ran SHALL give the line `Findings (<count>):` and then one line `- [<severity>] <location>: <title> (<fix>)` for each finding, or SHALL give the line `No findings.` The tool SHALL mask the whole reply with `mask_secrets`, and SHALL then cut it at `DEFAULT_TOOL_DIFF_MAX_CHARS` characters, with a last line that gives the limit.
+
+#### Scenario: A scan that finds nothing
+- **WHEN** Bandit or Gitleaks runs and reports no finding
+- **THEN** the reply is `<scanner> scan status: ok`, then `No findings.`
+
+#### Scenario: A finding that holds a secret
+- **WHEN** Trivy reports a vulnerability and a secret whose title holds a GitHub token
+- **THEN** the reply is `Trivy scan status: ok`, then `Findings (2):`, then one line for each finding, and the token reads `<masked-github-token>`
+
+#### Scenario: A long reply
+- **WHEN** Trivy reports 200 vulnerabilities
+- **THEN** the reply is the first `DEFAULT_TOOL_DIFF_MAX_CHARS` characters of the whole reply, then the line `... [truncated at <limit> chars]`
+
+### Requirement: A scan command reports a scan that gave no result as not run
+`devops scan trivy`, `devops scan sast` and `devops scan secrets` SHALL report a scan whose outcome status is in `CONST_SCAN_NO_RESULT_STATUSES` as not run, with its reason, and SHALL NOT say that the scan passed. The MCP tools `scan_trivy`, `scan_sast` and `scan_secrets` run these commands.
+
+#### Scenario: Gitleaks is not installed
+- **WHEN** no directory of PATH holds Gitleaks, and `devops scan secrets <directory>` runs
+- **THEN** the command exits 0, and its last line is `! Gitleaks was not run (Binary 'gitleaks' not found on PATH).`
+
+### Requirement: The MCP Semgrep tool uses the default ruleset unless the caller names one
+The MCP tool `scan_sast` SHALL scan with `DEFAULT_SEMGREP_CONFIG` when the caller names no config, and with the config that the caller names otherwise.
+
+#### Scenario: The default ruleset and a named ruleset
+- **WHEN** the cached `p/default` exists, and an MCP client calls `scan_sast` once with no config and once with the config `./rules`
+- **THEN** the first Semgrep run names the cached file of `p/default` as its config, and the second run names `./rules`

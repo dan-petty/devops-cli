@@ -298,7 +298,7 @@ def test_complexity_scan_skips_symlinks(tmp_path: Path) -> None:
         sym_py.symlink_to(outside_py)
         findings = run_complexity_scan(scan_dir)
         # Should not crash and should skip symlink
-        assert isinstance(findings, list)
+        assert findings == []
     except OSError:
         pass
 

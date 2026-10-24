@@ -34,10 +34,8 @@ def test_build_fallback_cascade_model_and_runtime_failover() -> None:
 
     agent = Agent(model=fb_model)
     result = agent.run_sync("test prompt")
-    assert (result.output, isinstance(result.usage, RunUsage)) == (
-        "Fallback succeeded",
-        True,
-    )
+    assert result.output == "Fallback succeeded"
+    assert isinstance(result.usage, RunUsage)
 
 
 def test_resolve_pydantic_ai_model_cascade() -> None:
@@ -61,3 +59,4 @@ def test_llm_gateway_build_pydantic_cascade_model() -> None:
         mock_resolve.side_effect = lambda m, **kw: TestModel()
         model = gw.build_pydantic_cascade_model("devops-chat")
         assert isinstance(model, FallbackModel)
+        assert len(model.models) > 0

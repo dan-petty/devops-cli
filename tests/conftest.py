@@ -941,23 +941,42 @@ def _load_recorded_canary_outputs() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _recorded_canary_subprocess(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-    """Return the recorded canary output for `cmd` without spawning a real scanner binary."""
-    bin_name = Path(cmd[0]).name
-    tool_key = "mypy" if "-m" in cmd and "mypy" in cmd else bin_name
-    entry = _load_recorded_canary_outputs().get(tool_key, {})
-    out = entry.get("output", "") if isinstance(entry, dict) else ""
-    stdout_str = out if isinstance(out, str) else json.dumps(out)
-    return subprocess.CompletedProcess(cmd, 0, stdout_str, "")
+def _recorded_canary_answers() -> Any:
+    """A tool executor fake that answers the canary of each review tool with the output that the
+    pinned tool printed, as `tests/fixtures/review_canary/recorded_outputs.json` holds it."""
+    from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
+
+    recorded = ToolExecutorFake()
+    for tool, entry in _load_recorded_canary_outputs().items():
+        out = entry.get("output", "") if isinstance(entry, dict) else ""
+        recorded.script(tool, ToolAnswer(stdout=out if isinstance(out, str) else json.dumps(out)))
+    return recorded
 
 
 @pytest.fixture(autouse=True)
 def pin_review_tool_canaries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Feed review tool canaries recorded outputs and clear the canary cache between tests (#1143)."""
+    """Answer the canaries of the review tools with their recorded outputs, and clear the canary
+    cache between tests (#1143).
+
+    A review runs the canary of each tool on its tool executor (#1978). A test that gives the
+    review `tool_executor_fake` scripts the canaries there. Every other review runs them on
+    `DirectToolExecutor`, which would start the real tools. This fixture answers each canary run
+    of that executor with the recorded output, and starts every other run as before.
+    """
+    from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
     from devops_cli.review import canary as canary_module
+    from devops_cli.security.tool_executor import DirectToolExecutor
+
+    recorded = _recorded_canary_answers()
+    real_run = DirectToolExecutor.run
+
+    def run(self: DirectToolExecutor, request: Any) -> Any:
+        if request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX):
+            return recorded.run(request)
+        return real_run(self, request)
 
     canary_module.clear_canary_cache()
-    monkeypatch.setattr(canary_module, "run_subprocess", _recorded_canary_subprocess)
+    monkeypatch.setattr(DirectToolExecutor, "run", run)
     yield
     canary_module.clear_canary_cache()
 
@@ -1073,7 +1092,7 @@ def isolate_devops_cli_config(
         f"telemetry:\n  enabled: false\n  endpoint: http://{side_channel}\n"
         "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n"
         "qdrant:\n  url: http://localhost:6333\n"
-        f"valkey:\n  host: {side_channel}\n",
+        f"valkey:\n  url: valkey://{side_channel}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))

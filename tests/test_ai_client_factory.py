@@ -14,7 +14,8 @@ def test_get_llm_client_default() -> None:
     """Verify get_llm_client builds a client from active application settings."""
     client = get_llm_client()
     assert isinstance(client, LLMClient)
-    assert client._config is not None
+    assert client._config.provider == Settings().ai.provider
+    assert client._config.task_name is None
 
 
 def test_get_llm_client_task() -> None:

@@ -405,7 +405,7 @@ jobs:
           uv run devops ci test --repeat 3 -- "${CHANGED_TESTS[@]}"
 
   # Runs `semgrep --test` with the pinned Semgrep when any file under src/devops_cli/review/rules/**
-  # changes, kept outside the local pre-push gate (#1145).
+  # changes, kept outside `devops ci` and the pre-push hook (#1145).
   rule-pack:
     name: Rule Pack Tests
     if: github.event_name == 'pull_request'

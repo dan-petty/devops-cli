@@ -113,4 +113,5 @@ def test_markdown_table_rendering_escaping() -> None:
     row = f"| **{clean_sev}** | `{clean_loc}` | {clean_title} | {f.status} |"
     assert "\n" not in row
     assert "\\|" in row
-    assert row.startswith("|") and row.endswith("|")
+    assert row.startswith("|")
+    assert row.endswith("|")

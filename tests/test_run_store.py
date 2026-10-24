@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,7 @@ from devops_cli.config.settings import (
 )
 from devops_cli.k8s import node_port
 from devops_cli.main import app
+from tests.support.config_writes import written_keys
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -187,6 +189,20 @@ def test_runs_are_kept_locally_when_no_index_is_configured_or_reachable(
     ) == ((False, True), (False, True), 2)
 
 
+def test_a_run_is_kept_locally_when_the_index_url_is_not_a_valkey_url(
+    config: Callable[..., Path],
+) -> None:
+    """A refused `runs.index_url` keeps the run in the data directory and says why, with no dial."""
+    config(runs={"index_url": "tcp://example.com:6379"})
+    saved = record_run(Mechanism.PROMPT_EVAL, setup={}, subject={}, results={})
+
+    assert (
+        saved.shared,
+        saved.detail.startswith("runs.index_url has the scheme 'tcp'"),
+        len(load_runs(Mechanism.PROMPT_EVAL)),
+    ) == (False, True, 1)
+
+
 def test_reindex_rebuilds_the_index_from_the_data_directory(valkey: FakeValkey) -> None:
     """Verify every recorded run reaches the index in one round trip."""
     for mechanism in (Mechanism.CORPUS_SCORE, Mechanism.GATEWAY_TUNE):
@@ -226,10 +242,11 @@ def _fake_cluster(calls: list[list[str]]) -> Any:
 
 
 def test_connect_finds_the_index_saves_it_and_indexes_local_runs(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, isolate_data_dir: Path
 ) -> None:
     """Verify connect reads the NodePort and password from the cluster, stores the password in
-    the keyring rather than the config file, and indexes the runs already kept."""
+    the keyring rather than the config file, writes `runs.index_url` alone into the config file,
+    and indexes the runs already kept."""
     calls: list[list[str]] = []
     fake = FakeValkey()
     connected: list[tuple[str, str | None]] = []
@@ -256,6 +273,7 @@ def test_connect_finds_the_index_saves_it_and_indexes_local_runs(
         get_runs_index_password(settings),
         "s3cret" in settings.model_dump_json() + result.output,
         len(fake.strings),
+        written_keys(isolate_data_dir),
     ) == (
         0,
         [("valkey://cluster.example:31379", "s3cret")],
@@ -263,6 +281,7 @@ def test_connect_finds_the_index_saves_it_and_indexes_local_runs(
         "s3cret",
         False,
         1,
+        [["runs.index_url"]],
     )
 
 

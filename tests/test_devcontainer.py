@@ -1321,7 +1321,8 @@ def test_the_claude_config_avoids_vscode_substitutions() -> None:
     from devops_cli.core.templating import render_json_template
 
     rendered = render_json_template("claude_mcp.json.j2", project_name="devops-cli")
-    assert "${workspaceFolder}" not in rendered and "${env:HOME}" not in rendered
+    assert "${workspaceFolder}" not in rendered
+    assert "${env:HOME}" not in rendered
 
 
 def test_both_configs_launch_the_same_server() -> None:

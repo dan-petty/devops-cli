@@ -46,7 +46,11 @@ class SpendRecord(BaseModel):
     backend_info: str | None = None
     # The backend a gateway routed the call to (its api_base); None without a gateway.
     served_by: str | None = None
+    # The model the client asked for, such as a gateway route name.
     model: str
+    # The deployment model a gateway named as the model that served the call, which priced it;
+    # None when no gateway named one (#2031).
+    served_model: str | None = None
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0

@@ -15,7 +15,6 @@ from devops_cli.config.constants import (
     CONST_CONFIG_DIR,
     CONST_DOCS_DIR_PATH,
     CONST_FEEDBACK_DATASET_NAME,
-    CONST_INDEX_CACHE_FILENAME,
     CONST_LLM_CACHE_DIR_NAME,
     CONST_LOGS_DIR_NAME,
     CONST_MODELS_DIR_NAME,
@@ -43,12 +42,10 @@ DEFAULT_TLS_DATA_DIR = DEFAULT_DATA_DIR / CONST_TLS_DIR_NAME
 DEFAULT_RAG_DATA_DIR = DEFAULT_DATA_DIR / CONST_RAG_DIR_NAME
 DEFAULT_SAMPLES_DATA_DIR = DEFAULT_DATA_DIR / CONST_SAMPLES_DIR_NAME
 DEFAULT_RUNS_DATA_DIR = DEFAULT_DATA_DIR / CONST_RUNS_DIR_NAME
-DEFAULT_RAG_INDEX_CACHE_PATH = DEFAULT_RAG_DATA_DIR / CONST_INDEX_CACHE_FILENAME
 DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR / "sandbox"
 DEFAULT_SANDBOX_INSTANCES_FILE = DEFAULT_SANDBOX_DATA_DIR / "instances.json"
 DEFAULT_SANDBOX_INCIDENTS_DIR = DEFAULT_SANDBOX_DATA_DIR / "incidents"
 DEFAULT_SANDBOX_EXCLUDE_HOME: bool = True
-DEFAULT_SANDBOX_NETWORK_MODE: str = "isolated"
 DEFAULT_SANDBOX_NAMESPACE: str = "sandbox"
 
 # ── General Defaults ──────────────────────────────────────────────────────────
@@ -79,7 +76,6 @@ DEFAULT_THINKING_TAGS: Final[tuple[str, str]] = ("<think>", "</think>")
 DEFAULT_AI_TEMPERATURE: float = 0.1
 DEFAULT_AI_TOP_P: float = 0.95
 DEFAULT_AI_CONTEXT_WINDOW: int = 32768
-DEFAULT_AI_MAX_CONTEXT_WINDOW: int = 131072
 DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
 DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS: float = 900.0
@@ -91,14 +87,9 @@ DEFAULT_AI_STREAM_MAX_EVENT_BYTES: int = 1024 * 1024
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 4
-DEFAULT_REVIEW_RETRY_ATTEMPTS: int = 6
-DEFAULT_REVIEW_RETRY_MIN_BACKOFF: float = 2.0
-DEFAULT_REVIEW_RETRY_MAX_BACKOFF: float = 60.0
 DEFAULT_AI_GATEWAY_PROVIDER: str = "litellm"
 DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
-DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
 DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
-DEFAULT_PORTKEY_GATEWAY_CLUSTER_URL: str = "http://portkey.llm.svc.cluster.local:8787/v1"
 # The default Ollama Service (k8s/llm/profiles/services.yaml): the fast tier's speed Service. It
 # names no VRAM size, so a host change moves its selector and not this name (#1637).
 DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-fast"
@@ -106,7 +97,6 @@ DEFAULT_OLLAMA_CLUSTER_URL: str = (
     f"http://{DEFAULT_OLLAMA_CLUSTER_SERVICE}.llm.svc.cluster.local:11434"
 )
 DEFAULT_AI_GATEWAY_ENABLED: bool = False
-DEFAULT_AI_GATEWAY_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
 # `devops ai gateway tune`: the sweep runs in an ephemeral container attached to the gateway pod,
 # since the inference backends admit traffic only from the gateway. The image tracks this
@@ -200,7 +190,6 @@ DEFAULT_RAG_DOCS_COLLECTION = "devops_docs"
 DEFAULT_RAG_LIBRARIES_COLLECTION = "devops_libraries"
 DEFAULT_VALKEY_SYMBOL_TTL_SECONDS = 604800  # 7 days TTL for cached symbol signatures
 DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
-DEFAULT_RAG_EMBEDDING_URL: str | None = None
 DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
 DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Read timeout of one direct Ollama node, then failover
 # Read timeout of one embedding batch sent to the gateway or to an OpenAI-compatible API. On
@@ -210,6 +199,17 @@ DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT: float = 120.0
 DEFAULT_RAG_EMBEDDING_BATCH_SIZE: int = 32  # Dynamic batch starting size
 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE: int = 1  # Smallest batch: one text, whose failure raises
 DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS: float = 2.0  # Target latency ceiling
+# A batch counts toward an increase of the batch size only when it takes at most this share of
+# the latency threshold. One increase step adds 2 texts (CONST_AIMD_ADDITIVE_INCREASE_STEP), so
+# for a size of 2 texts or more, the new size is not more than two times the old size. When the
+# latency of a batch increases at most linearly with its size, a size whose batch takes half of
+# the threshold or less can become two times as large and stay at or below the threshold.
+DEFAULT_RAG_EMBEDDING_INCREASE_LATENCY_RATIO: float = 0.5
+# After each change of the batch size, a fast batch counts toward an increase only after this
+# time. A direct Ollama node gives its reply or its read timeout for a request in the default
+# read timeout of a node (DEFAULT_RAG_EMBEDDING_TIMEOUT) or less. Thus no request that was sent
+# before the change counts toward the next increase.
+DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS: float = DEFAULT_RAG_EMBEDDING_TIMEOUT
 DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS: float = 0.5  # Base delay for exponential backoff
 DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS: float = 2.0  # Max delay cap for backoff
 DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS: int = 604800  # 7 days TTL for cached chunk embeddings
@@ -240,13 +240,8 @@ DEFAULT_MCP_HOST = "127.0.0.1"
 # ── Security Scanner & Scan Command Defaults ──────────────────────────────────
 DEFAULT_TRIVY_SEVERITIES = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
 DEFAULT_TRIVY_SCAN_TYPE = "fs"
-DEFAULT_TRIVY_TIMEOUT_SECONDS: float = 120.0
-DEFAULT_KUBELINTER_TIMEOUT_SECONDS: float = 60.0
-DEFAULT_POPEYE_TIMEOUT_SECONDS: float = 60.0
-DEFAULT_PLUTO_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
-DEFAULT_SEMGREP_TIMEOUT_SECONDS: float = 300.0
 # The most files one Semgrep run of a review names; each batch has its own timeout, so one that
 # runs out of time loses only its files (#1079). Offline with the cached p/default, one run of 300
 # files took 81 to 93 s and three batches of 100 took 88 to 94 s in all (#1144): 100 files take
@@ -300,9 +295,6 @@ DEFAULT_DOCKER_CACHE_TTL_SECONDS: float = 5.0
 DEFAULT_DOCKER_FAILURE_CACHE_TTL_SECONDS: float = 2.0
 # Grace period granted to a container to flush and exit before SIGKILL.
 DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS: int = 10
-# Maximum consecutive samples drained from the Engine stats stream per invocation.
-DEFAULT_DOCKER_STATS_STREAM_SAMPLES: int = 1
-
 # ── Connection & Response Timeout Policies ───────────────────────────────────
 # NOTE (Design Justification): Connection timeouts are intentionally short (1.0s)
 # to fail fast when endpoints are unreachable, while response/read timeouts remain
@@ -316,8 +308,6 @@ DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_POOL_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
-DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8
-DEFAULT_REVIEW_OVERLAP_FACTOR: float = 0.1
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)
 # `devops ci mutate`'s `mutmut run`. The first run mutates the whole source tree (about 196,000
 # mutants, 506 s with 8 processes at a load average of 25) and then runs the test suite once,
@@ -337,8 +327,6 @@ DEFAULT_SERVER_DESCRIPTION: str = (
 DEFAULT_SERVER_DOCS_URL: str = "/docs"
 DEFAULT_SERVER_REDOC_URL: str = "/redoc"
 DEFAULT_SERVER_OPENAPI_URL: str = "/openapi.json"
-DEFAULT_SERVER_HOST: str = "127.0.0.1"
-DEFAULT_SERVER_PORT: int = 8000
 DEFAULT_SERVER_WORKERS: int = 1
 DEFAULT_LOG_LEVEL: Final = "info"
 
@@ -367,68 +355,40 @@ DEFAULT_ALLOWED_STREAM_PERSONAS: frozenset[str] = frozenset(
 
 # ── AI, RAG & Agent Defaults ──────────────────────────────────────────────────
 DEFAULT_TIKTOKEN_MODEL: str = "gpt-4o"
-DEFAULT_TIKTOKEN_ENCODINGS: tuple[str, ...] = ("cl100k_base", "o200k_base")
 DEFAULT_TIKTOKEN_CACHE_ENV_VARS: tuple[str, ...] = ("TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR")
 DEFAULT_TIKTOKEN_FALLBACK_CACHE_DIRS: tuple[str, ...] = (
     "/app/.cache/tiktoken",
     "/usr/local/share/tiktoken",
 )
 DEFAULT_TRUNCATION_SUFFIX: str = "\n...[truncated due to context budget]"
-DEFAULT_DOC_CHUNK_SIZE_WORDS: int = 400
-DEFAULT_DOC_CHUNK_OVERLAP_WORDS: int = 40
-DEFAULT_DOC_MIN_CHUNK_WORDS: int = 80
-DEFAULT_DOC_SAMPLE_COUNT: int = 15
-DEFAULT_BENCHMARK_RANDOM_SEED: int = 42
 DEFAULT_RERANKER_VECTOR_WEIGHT: float = 0.5
 DEFAULT_RERANKER_LEXICAL_WEIGHT: float = 0.2
-DEFAULT_RERANKER_BONUS: float = 0.15
 DEFAULT_RERANKER_INTENT_BOOST: float = 0.1
 DEFAULT_RAG_MAX_CHARS: int = 32000
 DEFAULT_RAG_INVESTIGATION_MAX_CHARS: int = 24000
 DEFAULT_RAG_INVESTIGATION_MAX_QUERY_CHARS: int = 2048  # Longer lookup queries are cut
-DEFAULT_RAG_MAX_PER_FILE: int = 8
-DEFAULT_RAG_UPSERT_BATCH_SIZE: int = 64
 DEFAULT_RAG_KB_SYNC_FAILURE_COOLDOWN_SECONDS: Final[float] = (
     1800.0  # 30-minute cooldown on KB rebuild failure
 )
-DEFAULT_QDRANT_RETRY_ATTEMPTS: int = 3
 # `qdrant.timeout`: how long each Qdrant request, a search or an indexing upsert or delete, waits
 # per attempt. 60 s is too short for a homelab Qdrant search; 300 to 600 s suits one (#975).
 DEFAULT_QDRANT_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_QDRANT_DISTANCE: str = "Cosine"
-DEFAULT_AI_PROMPT_TEST: str = "Reply with exactly one word: OK"
 DEFAULT_AI_PIPELINE_PROMPT: str = (
     "Perform a multi-agent review of workspace security, architecture, and code quality."
 )
 DEFAULT_AI_PIPELINE_PERSONAS: str = "devsecops,architect,qa"
 DEFAULT_AI_PIPELINE_MAX_TURNS: int = 5
 DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS: int = 4096
-DEFAULT_AI_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
-DEFAULT_AI_AGENT_NAME: str = "Assistant"
-DEFAULT_AI_PIPELINE_SESSION_ID: str = "pipeline-session"
-DEFAULT_MOCK_LLM_RESPONSE: str = '{"findings": []}'
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
-DEFAULT_ESTIMATED_PROMPT_TOKENS: int = 1500
 DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50MB DoS protection limit
 DEFAULT_AI_SPEND_DB_FILENAME: str = "spend.db"
-DEFAULT_AI_PRICING_CATALOG_FILENAME: str = "pricing_catalog.json"
 DEFAULT_AI_PRICING_OVERRIDES_FILENAME: str = "pricing_overrides.json"
-DEFAULT_AI_PRICING_CACHE_TTL_SECONDS: float = 7 * 86400.0  # 7 days
 
-
-# ── Code Review, Scanner & Tooling Defaults ───────────────────────────────────
-DEFAULT_BASE_BRANCH: str = "main"
 DEFAULT_MATCH_ALL_PATTERN: str = "*"
-DEFAULT_REVIEW_PERSONA: str = "devsecops"
 DEFAULT_REVIEW_MAX_DIFF_CHARS: int = 128000
-# Smallest review page, so a tiny context window cannot split a diff into hundreds of calls.
-DEFAULT_REVIEW_MIN_DIFF_CHARS: int = 8000
-# The reply cap of a persona's findings list, so a runaway generation cannot stall a review.
-DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS: int = 8192
 # Runs per review benchmark; findings vary between identical runs, so medians need several.
 DEFAULT_REVIEW_BENCHMARK_RUNS: int = 3
-# `.devops/review.md` is read in full up to this many characters, for the personas.
-DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS: int = 8000
 # Seed for synthetic defect corpora; the same seed and files give the same injections.
 DEFAULT_REVIEW_CORPUS_SEED: int = 1
 DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE: int = 2
@@ -441,7 +401,6 @@ DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS: Final[float] = 5.0
 DEFAULT_CRITERIA_MAX_OUTPUT_BYTES: Final[int] = 4096
 DEFAULT_HOST_SANDBOX_BINARY: Final[str] = "/usr/bin/bwrap"
 DEFAULT_PRE_ANALYSIS_WORKERS: int = 4
-DEFAULT_REVIEW_MAX_WORKERS: int = 4
 DEFAULT_REVIEW_CONCURRENCY: int = 4
 DEFAULT_GATEWAY_REVIEW_SLOTS: dict[str, int] = {
     "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 1,
@@ -454,7 +413,6 @@ DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_REVIEW_MAX_CONCURRENCY: int = 32
 DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
-DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
 # The niceness `devops ci security` starts Bandit with (#1725). The test row is the full gate's
 # critical path, and Bandit beside its workers took 61 s against 21 s alone; niced, it takes the
@@ -481,8 +439,6 @@ DEFAULT_OPENSPEC_COMMAND_TIMEOUT_SECONDS: Final[float] = 120.0
 DEFAULT_TRIVY_HIGH_SEVERITY: str = "HIGH,CRITICAL"
 DEFAULT_KUBECONFORM_VERSION: str = "master"
 DEFAULT_PACKAGE_ECOSYSTEM: str = "PyPI"
-DEFAULT_CHECK_ALL: str = "all"
-DEFAULT_AUDIT_STATUS_SUCCESS: str = "SUCCESS"
 DEFAULT_SRC_DIR: str = "src"
 DEFAULT_DOCS_FORMAT: str = "markdown"
 DEFAULT_TABLE_FORMAT: str = "table"
@@ -508,9 +464,7 @@ DEFAULT_HELM_RECOVERY_MAX_RETRIES: int = 20
 DEFAULT_K8S_TLS_SECRET_NAME: str = "homelab-tls"
 DEFAULT_CERT_COMMON_NAME: str = "homelab.local"
 DEFAULT_K8S_LOGS_TAIL: int = 100
-DEFAULT_URL_REACHABILITY_TIMEOUT: float = 0.8
 DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS: float = 0.8
-DEFAULT_LOCAL_BIND_ADDRESS: str = "127.0.0.1"
 DEFAULT_REST_HOST: str = "127.0.0.1"
 DEFAULT_REST_PORT: int = 8000
 DEFAULT_MCP_PORT: int = 8000
@@ -525,13 +479,8 @@ DEFAULT_OLLAMA_PORT: int = 11434
 DEFAULT_OPEN_WEBUI_PORT: int = 3000
 DEFAULT_QDRANT_PORT: int = 6333
 DEFAULT_VALKEY_PORT: int = 6379
-DEFAULT_PROMETHEUS_QUERY_START: str = "1h"
-DEFAULT_PROMETHEUS_QUERY_STEP: str = "60s"
 DEFAULT_PROMETHEUS_QUERY_RANGE_START: str = "1h"
 DEFAULT_PROMETHEUS_QUERY_RANGE_STEP: str = "60s"
-DEFAULT_PROMETHEUS_DEFAULT_QUERY: str = "up"
-DEFAULT_ARGOCD_DEFAULT_APP: str = "argocd"
-
 # ── Git Defaults ──────────────────────────────────────────────────────────────
 DEFAULT_CLEAN_WORKSPACE_DAYS: int = 7
 DEFAULT_GIT_LOG_COUNT: int = 10
@@ -578,9 +527,7 @@ DEFAULT_AGENTS_MD_CHECK_COMMANDS: tuple[str, ...] = (
     "uv run mypy src",
 )
 
-DEFAULT_AI_PROMPT_CACHE_TTL: str = "5m"
 DEFAULT_FINDING_STATUS: str = "UNVERIFIED"
-DEFAULT_ROUTER_LATENCY_TIER: str = "fast-interactive"
 DEFAULT_SYNTHESIZED_TEST_STATUS: str = "UNEXECUTED"
 DEFAULT_AGENT_NAME: str = "Assistant"
 DEFAULT_AGENT_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
@@ -592,7 +539,7 @@ DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
     "Never echo plaintext secrets, tokens, private keys, or the contents of hidden or .gitignored files.",
     "Never write concrete internal hostnames, private RFC 1918 addresses, private registries, or homelab topology into any artifact; examples use example.com, RFC 5737 blocks, or localhost.",
     "Never lower, relax, bypass, or disable a security standard, quality threshold, or compliance check unless explicitly instructed by the user.",
-    "Never push before uv run devops ci passes locally. Never commit or push directly to main.",
+    "Never push with --no-verify or before the pre-push hook passes. Never commit or push directly to main.",
 )
 DEFAULT_EMBEDDING_MODEL_NAME: str = "default"
 DEFAULT_EMBEDDING_PROVIDER_NAME: str = "devops-cli"
@@ -601,8 +548,15 @@ DEFAULT_EMBEDDING_INPUT_TYPE: Literal["query", "document"] = "query"
 DEFAULT_EMBEDDING_CURRENCY: str = "USD"
 
 # ── Valkey Defaults ─────────────────────────────────────────────────────────
-DEFAULT_VALKEY_HOST: str = "localhost"
+DEFAULT_VALKEY_URL: str = f"valkey://localhost:{DEFAULT_VALKEY_PORT}/0"
 DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
+# The circuit breaker of the Valkey cache tier (`devops_cli.valkey.cache`, #2073). One failed
+# command opens it: a failed command can cost the full `valkey.timeout`, and a miss costs only the
+# work that the cache saves. For the cooldown the tier sends no command, and then one trial
+# command decides. With the default timeout, an outage thus costs at most 2.0 s in each 60 s. The
+# cooldown is pybreaker's own default `reset_timeout` and the pause of the RAG lookups.
+DEFAULT_VALKEY_CACHE_BREAKER_FAILURES: int = 1
+DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS: float = 60.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 
@@ -611,9 +565,6 @@ DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 # established by the Okapi BM25 literature and used unchanged across both consumers.
 DEFAULT_BM25_K1: float = 1.5
 DEFAULT_BM25_B: float = 0.75
-# Candidate pool drawn from the dense index before lexical re-ranking is applied.
-DEFAULT_HYBRID_CANDIDATE_LIMIT: int = 50
-
 # ── Qdrant Vector Quantization ───────────────────────────────────────────────
 # Store vectors as int8 rather than float32. Trades a small amount of recall for roughly
 # a quarter of the memory footprint, which keeps a large index viable on a workstation.
@@ -649,61 +600,16 @@ DEFAULT_RESOURCE_WATCHER_NAME: str = "resource_watcher"
 # ── Project, Security & SBOM Defaults ───────────────────────────────────────
 DEFAULT_PROJECT_NAME: str = "devops-cli"
 DEFAULT_DEPENDENCY_MIN_SEVERITY: str = "HIGH"
-DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
-# The C901 markers src/ may carry, and tests/ none: the functions over the cap when Ruff began
-# enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 25
-# The rule ids listed in `# ast-grep-ignore:` comments in each tree that the ast-grep scan
-# reads (#849, #1107, #1902).
-DEFAULT_AST_GREP_SUPPRESSION_CEILING: int = 0
-# Ceilings for every suppression comment kind in src/ and tests/ and configuration waiver in
-# pyproject.toml (#849). Each check is count <= ceiling; any unlisted noqa rule code has a
-# ceiling of 0.
-DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
-    "src type: ignore": 51,
-    "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
-    "src noqa: E402": 2,
-    "src noqa: F401": 15,
-    "src noqa: SIM115": 1,
-    "src noqa: UP036": 1,
-    "src nosec": 13,
-    "src pragma: no cover": 1,
-    "src pragma: no mutate": 0,
-    "src file-level directive": 0,
-    "src ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
-    "tests type: ignore": 79,
-    "tests noqa: F401": 3,
-    "tests noqa: N803": 1,
-    "tests nosec": 17,
-    "tests pragma: no cover": 0,
-    "tests pragma: no mutate": 0,
-    "tests file-level directive": 0,
-    "tests ast-grep-ignore": DEFAULT_AST_GREP_SUPPRESSION_CEILING,
-    "per-file-ignores": 0,
-    "[[tool.mypy.overrides]]": 1,
-    "coverage omit": 0,
-}
 DEFAULT_MAX_NESTING_DEPTH: int = 5
 DEFAULT_QUANTIZATION_BITS: int = 16
 
-# ── Sandbox Defaults ────────────────────────────────────────────────────────
-DEFAULT_SANDBOX_TIMEOUT_SECONDS: int = 10
-DEFAULT_PROBE_TIMEOUT_SECONDS: float = 5.0
-DEFAULT_PROM_ENDPOINT: str = "/metrics"
-DEFAULT_MEMORY_THRESHOLD_PCT: float = 80.0
-DEFAULT_CPU_THRESHOLD_PCT: float = 85.0
-DEFAULT_SANDBOX_LOG_TAIL: int = 100
 DEFAULT_SANDBOX_NAME: str = "app-sandbox"
 DEFAULT_SANDBOX_IMAGE: str = "python:3.14-slim"
 DEFAULT_SANDBOX_MEMORY: str = "2g"
 DEFAULT_SANDBOX_CPUS: float = 2.0
 DEFAULT_SANDBOX_PIDS_LIMIT: int = 256
 DEFAULT_SANDBOX_NETWORK: str = "isolated"
-DEFAULT_LOG_STREAM: str = "stdout"
-DEFAULT_SANDBOX_INSTANCE_ID: str = "sandbox"
-DEFAULT_OPENAPI_SCHEMA_PATH: str = "/openapi.json"
-
 # ── Kubernetes & Argo Defaults ──────────────────────────────────────────────
 DEFAULT_CHAOS_DURATION_SECONDS: int = 30
 DEFAULT_ARGOCD_NAMESPACE: str = "argocd"
@@ -716,19 +622,8 @@ DEFAULT_LOG_MAX_LINE_CHARS: int = 65536
 DEFAULT_K8S_POLICY_ENGINE: str = "kyverno"
 DEFAULT_ARGO_FLEET_NAME: str = "default-fleet"
 DEFAULT_ARGO_FLEET_CONCURRENCY: int = 3
-DEFAULT_GIT_BRANCH: str = "main"
-DEFAULT_ARGO_SYNC_MODE: str = "api"
-
-# ── GitHub & PR Defaults ───────────────────────────────────────────────────
-DEFAULT_GH_STATE_ALL: str = "all"
-DEFAULT_ISSUE_STATE: str = "open"
-DEFAULT_GH_ISSUE_LIMIT: int = 30
 # `gh label list` stops at 30 unless asked for more; .github/labels.yml alone holds 31.
 DEFAULT_GH_LABEL_LIST_LIMIT: int = 1000
-DEFAULT_GH_PAGES_LIMIT: int = 5
-DEFAULT_PR_MONITOR_TIMEOUT_SECONDS: int = 300
-DEFAULT_PR_MONITOR_INTERVAL_SECONDS: int = 60
-DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
 DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
@@ -745,7 +640,6 @@ DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS: float = 5.0
 # gh calls look again every time, since they cannot run without one.
 DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS: float = 60.0
 DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
-DEFAULT_GH_GRAPHQL_MAX_COST_PER_QUERY: int = 100
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 # How long `gh api rate_limit` may run when the ledger refreshes a quota; past it the quota is
@@ -796,29 +690,6 @@ DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0
 # added to it. A server error is no rate limit, so it does not wait the secondary-limit floor.
 DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS: float = 1.0
 DEFAULT_GH_MAX_RATE_LIMIT_WAIT: float | None = None
-DEFAULT_VAULT_SECRET_PATH: str = "secret/devops"
-DEFAULT_SECRET_SOURCE: str = "keyring"
-
-# ── Telemetry & Docs Defaults ───────────────────────────────────────────────
-DEFAULT_PROFILER_ITERATIONS: int = 10
-DEFAULT_PROFILER_TOP_N: int = 10
-DEFAULT_PROFILER_MAX_PEAK_MB: float = 100.0
-DEFAULT_PROFILER_TARGET: str = "http-pool"
-DEFAULT_WATERFALL_SLOTS: int = 24
-DEFAULT_TEMPO_TIMEOUT_SECONDS: float = 5.0
-DEFAULT_PYROSCOPE_TIMEOUT_SECONDS: float = 5.0
-DEFAULT_LOGFIRE_TIMEOUT_MILLIS: int = 30000
-DEFAULT_DOCS_SERIES: str = "v0.2"
-
-# ── AI Retries, Review Pool & Hallucination Defaults ─────────────────────────
-DEFAULT_AI_MAX_ATTEMPTS: int = 3
-DEFAULT_AI_MIN_WAIT: float = 0.5
-DEFAULT_AI_MAX_WAIT: float = 60.0
-DEFAULT_REVIEW_POOL_RATE: float = 10.0
-DEFAULT_REVIEW_POOL_CAPACITY: float = 10.0
-DEFAULT_REVIEW_POOL_MAX_CONCURRENCY: int = 4
-DEFAULT_HALLUCINATION_SIMILARITY_THRESHOLD: float = 0.5
-
 # ── Kubernetes Falco Security Stream Defaults ─────────────────────────────────
 DEFAULT_FALCO_NAMESPACE: str = "falco"
 DEFAULT_FALCO_LABEL_SELECTOR: str = "app.kubernetes.io/name=falco"
@@ -920,9 +791,6 @@ DEFAULT_AI_FORAGE_MIN_SCORE: Final[float] = 0.1
 DEFAULT_AI_FORAGE_MAX_COMMITS: Final[int] = 50
 DEFAULT_AI_FORAGE_FILE_READ_CAP_BYTES: Final[int] = 65536
 
-# ── AI Research Marginalia Defaults ───────────────────────────────────────────
-DEFAULT_MARGINALIA_DIR: Final[str] = ".data/marginalia"
-
 # ── AI Research Socratic Inquiry Defaults ─────────────────────────────────────
 DEFAULT_AI_SOCRATIC_MAX_PROBES: Final[int] = 5
 
@@ -944,13 +812,3 @@ DEFAULT_ANALYSIS_ANCHOR_CONTEXT_LINES: Final[int] = 10
 DEFAULT_ANALYSIS_REFERENCE_BUDGET_CHARS: Final[int] = 16000
 DEFAULT_ANALYSIS_SAMPLING_SEED: Final[int] = 42
 DEFAULT_ANALYSIS_PYTHON_FLOOR: Final[str] = "py314"
-
-# ── CLI Startup Structural Import Budgets (#1687) ───────────────────────────
-# Maximum number of unique modules imported during devops --help or --version startup.
-DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION: Final[int] = 550
-# Maximum number of devops_cli modules imported during devops --help or --version startup.
-DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION: Final[int] = 75
-# Maximum number of unique modules imported during devops <command> --help startup.
-DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP: Final[int] = 1100
-# Maximum number of devops_cli modules imported during devops <command> --help startup.
-DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP: Final[int] = 250

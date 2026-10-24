@@ -115,17 +115,10 @@ def test_an_open_pull_request_that_closes_an_issue_leaves_the_issue_to_the_board
     assert result.planned == []
 
 
-def test_priority_is_set_from_its_label_only_when_unset() -> None:
-    labelled = _issue(labels=["priority/p1-high"])
-    assert (
-        _changes(labelled, {"status": "Ready"}),
-        _changes(labelled, {"status": "Ready", "priority": "P3-Low"}),
-        _changes(_issue(), {"status": "Ready"}),
-    ) == (
-        [("Priority", None, "P1-High", "label priority/p1-high")],
-        [],
-        [],
-    )
+def test_priority_is_never_set_from_labels() -> None:
+    """Reconcile stops reading priority labels: Priority is managed on the board (#880)."""
+    labelled = _issue(labels=["priority/stray"])
+    assert _changes(labelled, {"status": "Ready"}) == []
 
 
 def test_a_matching_value_is_not_rewritten_whatever_its_case() -> None:
@@ -134,7 +127,7 @@ def test_a_matching_value_is_not_rewritten_whatever_its_case() -> None:
 
 def test_value_and_effort_are_never_inferred() -> None:
     """An inferred field that keeps writing reads as decided; unset is honest."""
-    fields = [c[0] for c in _changes(_issue(labels=["type/feature", "priority/p0-critical"]))]
+    fields = [c[0] for c in _changes(_issue(labels=["type/feature", "scope/security"]))]
     assert {"Value", "Effort"} & set(fields) == set()
 
 
@@ -171,10 +164,9 @@ def _reconcile(
 
 
 def _five_changes() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Three cards needing five changes, and two open issues off the board."""
-    cards = [card(1), card(2), card(3, status="Ready")]
-    labelled = ("priority/p1-high",)
-    issues = [issue(n, labels=labelled) for n in (1, 2, 3)] + [issue(10), issue(11)]
+    """Five cards needing five changes, and two open issues off the board."""
+    cards = [card(n) for n in range(1, 6)]
+    issues = [issue(n, labels=["status/in-progress"]) for n in range(1, 6)] + [issue(10), issue(11)]
     return cards, issues
 
 
@@ -217,7 +209,7 @@ def test_reconcile_reads_an_unknown_quota_and_plans_the_board(ledger: str) -> No
         quota.is_valid(),
         (quota.remaining or 5000) <= fake.server.remaining,
         fake.edits,
-    ) == (5, "Would change 3 of 3 items on project #2 (5 field changes).", True, True, True, [])
+    ) == (5, "Would change 5 of 5 items on project #2 (5 field changes).", True, True, True, [])
 
 
 @pytest.mark.parametrize("mode", ["plan", "write"])
@@ -314,7 +306,7 @@ def test_a_failed_write_is_counted_among_the_changes_that_remain() -> None:
     ) == (
         1,
         True,
-        "Stopped early (the write of Priority on #1 failed: GraphQL: the write failed): "
+        "Stopped early (the write of Status on #2 failed: GraphQL: the write failed): "
         "4 planned changes remain.",
     )
 
@@ -333,7 +325,7 @@ def test_the_plan_matches_the_live_run(limit: int) -> None:
         plan.planned,
         live.applied + live.remaining,
         plan.remaining,
-    ) == (3, 3, live.planned, plan.planned, [])
+    ) == (5, 5, live.planned, plan.planned, [])
 
 
 def test_a_complete_run_applies_every_change_and_reports_no_stop() -> None:
@@ -342,7 +334,7 @@ def test_a_complete_run_applies_every_change_and_reports_no_stop() -> None:
     assert (result.stop_line(), result.remaining, result.summary()) == (
         None,
         [],
-        "Changed 3 of 3 items on project #2 (5 field changes).",
+        "Changed 5 of 5 items on project #2 (5 field changes).",
     )
 
 

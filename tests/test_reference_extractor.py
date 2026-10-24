@@ -728,7 +728,8 @@ def test_reference_extractor_extended_network_and_lockfiles() -> None:
     url_local = _extract_url_reference(
         "http://192.168.1.100:8080/api", "config.py", 5, include_local=True
     )
-    assert url_local is not None and url_local.is_local is True
+    assert url_local is not None
+    assert url_local.is_local is True
 
     url_local_skip = _extract_url_reference(
         "http://192.168.1.100:8080/api", "config.py", 5, include_local=False
@@ -736,7 +737,8 @@ def test_reference_extractor_extended_network_and_lockfiles() -> None:
     assert url_local_skip is None
 
     ip_pub = _extract_ip_reference("8.8.8.8", "config.py", 12, include_local=False)
-    assert ip_pub is not None and ip_pub.is_local is False
+    assert ip_pub is not None
+    assert ip_pub.is_local is False
 
     # 5. Structured string extraction
     json_strs = _extract_json_strings('{"server": "https://example.com", "port": 8080}')

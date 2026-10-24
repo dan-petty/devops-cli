@@ -40,7 +40,6 @@ from devops_cli.dry_run.state import in_dry_run_invocation
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import (
-    GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
@@ -258,7 +257,8 @@ def test_the_writes_follow_the_order_that_leaves_priority_last(roadmap: Roadmap)
         ("set_field", "Effort"),
         ("comment", None),
         ("set_field", "Priority"),
-    ] and {w.number for w in writes} == {number}
+    ]
+    assert {w.number for w in writes} == {number}
 
 
 def test_with_no_candidates_intake_embeds_nothing_and_asks_the_model_nothing(
@@ -359,12 +359,10 @@ def test_a_labels_read_github_fails_stays_a_github_error() -> None:
     model = FakeModel()
     with pytest.raises(GitHubOperationError) as raised:
         plan_intake(store, repo=REPO, model=model)
-    assert (
-        isinstance(raised.value, (ConfigurationError, GitHubFileNotFoundError)),
-        "HTTP 502" in str(raised.value),
-        model.embedded,
-        model.requests,
-    ) == (False, True, [], [])
+    assert type(raised.value) is GitHubOperationError
+    assert "HTTP 502" in str(raised.value)
+    assert model.embedded == []
+    assert model.requests == []
 
 
 def test_the_model_judges_only_the_five_nearest_items(roadmap: Roadmap) -> None:
@@ -451,7 +449,7 @@ def test_a_candidate_with_a_person_priority_is_held_as_possible_duplicate(
     duplicate, leaving it open and writing nothing (#1686)."""
     original = roadmap.issue("Feature A", on_board=True)
     roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
-    candidate = roadmap.issue("Feature A copy", labels=("priority/p1-high",))
+    candidate = roadmap.issue("Feature A copy", labels=("priority/legacy",))
     roadmap.run(FakeModel(duplicates={"Feature A copy": "Feature A"}))
     assert roadmap.store.closures(candidate) == []
     assert roadmap.comments(candidate) == []

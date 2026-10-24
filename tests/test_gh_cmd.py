@@ -280,7 +280,7 @@ def test_gh_issues_status() -> None:
     """devops gh issues status outputs category counts."""
     mock_summary = {
         "total_open": 3,
-        "by_priority": {"priority/p1-high": 1, "priority/p2-medium": 2},
+        "by_priority": {"P1-High": 1, "P2-Medium": 2},
         "by_type": {"type/feature": 3},
         "by_milestone": {"2026-11": 3},
     }
@@ -355,9 +355,10 @@ def _reconcile_cli(fake: ProjectGitHub, *args: str, limit: int = 25) -> Result:
 
 
 def _board_with_five_changes() -> ProjectGitHub:
-    cards = [card(1), card(2), card(3, status="Ready")]
-    labelled = ("priority/p1-high",)
-    return ProjectGitHub(cards, [issue(n, labels=labelled) for n in (1, 2, 3)] + [issue(10)])
+    cards = [card(n) for n in range(1, 6)]
+    return ProjectGitHub(
+        cards, [issue(n, labels=["status/in-progress"]) for n in range(1, 6)] + [issue(10)]
+    )
 
 
 def test_gh_project_reconcile_plan_lists_every_change_with_what_decided_it() -> None:
@@ -366,8 +367,8 @@ def test_gh_project_reconcile_plan_lists_every_change_with_what_decided_it() -> 
     result = _reconcile_cli(fake, "--plan")
     assert (
         result.exit_code,
-        "label priority/p1-high" in result.output,
-        "Would change 3 of 3 items on project #2 (5 field changes)." in _flat(result.output),
+        "label status/in-progress" in result.output,
+        "Would change 5 of 5 items on project #2 (5 field changes)." in _flat(result.output),
         "1 open issue is not on the board" in _flat(result.output),
         fake.edits,
     ) == (0, True, True, True, [])
@@ -378,7 +379,7 @@ def test_a_complete_live_run_prints_changed_and_exits_0() -> None:
     result = _reconcile_cli(fake)
     assert (
         result.exit_code,
-        "Changed 3 of 3 items on project #2 (5 field changes)." in _flat(result.output),
+        "Changed 5 of 5 items on project #2 (5 field changes)." in _flat(result.output),
         len(fake.edits),
     ) == (0, True, 5)
 

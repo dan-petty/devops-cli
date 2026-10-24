@@ -201,7 +201,8 @@ def test_a_commit_the_repository_lacks_fails_the_fetch(
 
     problems = fetch_sample(_sample(repo, "0" * 40), tmp_path / "samples")
 
-    assert len(problems) == 1 and problems[0].startswith("fetch failed: ")
+    assert len(problems) == 1
+    assert problems[0].startswith("fetch failed: ")
 
 
 def test_samples_live_under_the_data_directory(

@@ -10,7 +10,7 @@ import typer
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_zizmor_cmd
-from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE, CONST_SCAN_NO_RESULT_STATUSES
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SEMGREP_CONFIG,
@@ -104,10 +104,13 @@ def _handle_single_scanner_result(
     findings: Any,
     success_message: str,
 ) -> bool:
-    """Handle unrun or empty scanner findings. Return True if handled (table not rendered)."""
+    """Handle unrun or empty scanner findings. Return True if handled (table not rendered).
+
+    A scan that gave no result, such as one whose tool is not installed, is not run, never passed
+    (#1435)."""
     status = getattr(findings, "status", "ran")
     reason = getattr(findings, "reason", "")
-    if status in ("unavailable", "failed", "not_applicable"):
+    if status in CONST_SCAN_NO_RESULT_STATUSES:
         detail = f" ({reason})" if reason else ""
         print_warning(f"{tool_name} was not run{detail}.", safe=True)
         return True

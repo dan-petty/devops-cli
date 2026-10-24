@@ -855,8 +855,6 @@ def test_config_example_yaml_maps_to_settings_fields_and_validates() -> None:
     mutated["ai"]["nonexistent_setting_key"] = True
     unknown_mutated = _collect_unknown_settings_key_paths(mutated, Settings)
 
-    assert (
-        unknown,
-        isinstance(validated, Settings),
-        unknown_mutated,
-    ) == ([], True, ["ai.nonexistent_setting_key"])
+    assert unknown == []
+    assert isinstance(validated, Settings)
+    assert unknown_mutated == ["ai.nonexistent_setting_key"]

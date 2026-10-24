@@ -272,13 +272,13 @@ def test_fetch_docker_status_success(docker_engine: Any) -> None:
     with docker_engine(mock_client):
         summary = fetch_docker_status()
 
+    assert isinstance(summary, DockerSummary)
     assert (
-        isinstance(summary, DockerSummary),
         summary.connected,
         len(summary.containers),
         summary.containers[0]["name"],
         summary.containers[0]["status"],
-    ) == (True, True, 1, "valkey-cache", "running")
+    ) == (True, 1, "valkey-cache", "running")
 
 
 def test_fetch_docker_status_failure() -> None:
@@ -289,8 +289,8 @@ def test_fetch_docker_status_failure() -> None:
     ):
         summary = fetch_docker_status()
 
-    assert (isinstance(summary, DockerSummary), summary.connected, summary.containers) == (
-        True,
+    assert isinstance(summary, DockerSummary)
+    assert (summary.connected, summary.containers) == (
         False,
         [],
     )
@@ -304,13 +304,13 @@ def test_fetch_docker_status_refused_endpoint(
     with patch("docker.DockerClient") as mock_docker_client:
         summary = fetch_docker_status()
 
+    assert isinstance(summary, DockerSummary)
     assert (
-        isinstance(summary, DockerSummary),
         summary.connected,
         summary.containers,
         mock_docker_client.called,
         "DOCKER_HOST" in (summary.error_message or ""),
-    ) == (True, False, [], False, True)
+    ) == (False, [], False, True)
 
 
 def test_fetch_telemetry_status() -> None:
@@ -436,7 +436,7 @@ def test_fetch_valkey_status_reads_the_flat_info_the_client_returns(
     """The panel shows what a server reports: version, uptime, memory, clients, commands, hits."""
     replies = {"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode()), "DBSIZE": b":150\r\n"}
     with serving_valkey(replies) as (port, _received):
-        config(valkey={"host": "127.0.0.1", "port": port})
+        config(valkey={"url": f"valkey://127.0.0.1:{port}"})
         summary = fetch_valkey_status()
 
     assert summary == ValkeySummary(
@@ -488,9 +488,8 @@ def test_fetch_valkey_status_authenticates_with_the_keyring_password(
 ) -> None:
     """The panel sends the password `get_valkey_password` resolves, never the plaintext setting."""
     mock_keyring.values["valkey_password"] = "keyring-password"
-    valkey_settings = {"host": "127.0.0.1", "password": plaintext_password}
     with serving_valkey({"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode())}) as (port, received):
-        config(valkey={**valkey_settings, "port": port})
+        config(valkey={"url": f"valkey://127.0.0.1:{port}", "password": plaintext_password})
         fetch_valkey_status()
 
     assert received[0] == ["AUTH", "keyring-password"]

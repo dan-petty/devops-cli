@@ -598,7 +598,7 @@ def test_format_output_table_payload_and_pydantic_list() -> None:
 
     items = [DummyModel(name="test1", count=10), DummyModel(name="test2", count=20)]
     table_rendered = format_output(items, format_type="table", title="Dummy Items")
-    assert table_rendered is not None
+    assert table_rendered.title == "Dummy Items"
 
     class PayloadContainer:
         def to_table_payload(self) -> TablePayload:
@@ -610,10 +610,10 @@ def test_format_output_table_payload_and_pydantic_list() -> None:
 
     container = PayloadContainer()
     container_table = format_output(container, format_type="table")
-    assert container_table is not None
+    assert container_table.title == "Container Table"
 
     direct_table = render_table(container)
-    assert direct_table is not None
+    assert direct_table.title == "Container Table"
 
 
 def test_format_repo_map_text() -> None:
