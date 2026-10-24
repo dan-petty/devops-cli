@@ -634,6 +634,9 @@ CONST_LLM_CACHE_DIR_NAME = "llm"
 # The incremental mypy caches of reviews, below the data cache directory, one for each reviewed
 # tree, Python version and environment lock (#2034).
 CONST_MYPY_CACHE_DIR_NAME: Final[str] = "mypy"
+# The variable that names the cache directory of mypy. A review sets it in place of `--cache-dir`,
+# so the command of a mypy run names no path of the host but its config file and its targets.
+CONST_MYPY_CACHE_DIR_ENV: Final[str] = "MYPY_CACHE_DIR"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
@@ -3724,6 +3727,8 @@ CONST_STRUCTURAL_PATTERN_DEFINITIONS: Final[dict[str, dict[str, Any]]] = {
 }
 
 # ── Review Tool Canary Constants (#1143) ─────────────────────────────────────
+# The start of the name of the scratch directory where the canary of a tool runs on its fixtures.
+CONST_CANARY_WORKDIR_PREFIX: Final[str] = "devops-canary-"
 CONST_CANARY_TOOLS: Final[tuple[str, ...]] = (
     "semgrep",
     "ruff",

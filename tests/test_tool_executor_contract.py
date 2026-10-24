@@ -128,8 +128,17 @@ class Scenario:
         """The version `tools.lock` pins for the tool."""
         return load_tools_lock().tools()[_TOOL].version
 
-    def request(self, *arguments: str, limits: ToolLimits | None = None) -> ToolRequest:
-        """A request to run the stand-in over the tree's `src`, with the scenario's files."""
+    @property
+    def interpreter(self) -> Path:
+        """A copy of the stand-in that the host PATH does not name, as the interpreter of the
+        `.venv` of a reviewed repository is no program of the PATH."""
+        return self.tools_dir / "interpreter"
+
+    def request(
+        self, *arguments: str, limits: ToolLimits | None = None, program: Path | None = None
+    ) -> ToolRequest:
+        """A request to run the stand-in over the tree's `src`, with the scenario's files. With a
+        `program`, the request starts that program in place of the tool on PATH."""
         return ToolRequest(
             tool=_TOOL,
             arguments=arguments or ("scan", "{targets}"),
@@ -139,6 +148,7 @@ class Scenario:
             ruleset_files=(self.ruleset_file,),
             read_only_binds=(self.tools_dir,),
             limits=limits or ToolLimits(),
+            **({} if program is None else {"program": program}),
         )
 
 
@@ -160,6 +170,7 @@ def scenario(tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.Monke
     stand_in = tools_dir / _TOOL
     stand_in.write_text(_STAND_IN, encoding="utf-8")
     stand_in.chmod(0o755)
+    shutil.copy2(stand_in, tools_dir / "interpreter")
     monkeypatch.setenv("PATH", os.pathsep.join([str(tools_dir), os.environ["PATH"]]))
 
     rules = tmp_path / "rules"
@@ -218,6 +229,37 @@ def test_a_run_records_the_tool_the_files_it_read_and_the_commit(
         (_TOOL, "scan", "{targets}"),
         scenario.commit,
     )
+
+
+def test_a_request_that_names_a_program_starts_it_and_records_it_by_its_name(
+    executor: ToolExecutor, scenario: Scenario
+) -> None:
+    """Mypy runs from the interpreter of the `.venv` of the reviewed repository, which the PATH of
+    the host does not name. A request names that program. The record names the tool, and the
+    program by its file name, not by its path, so the same scan records the same template. With
+    no distribution of the tool beside the program, the version is the pin of `tools.lock` and the
+    digest is the digest of the program file."""
+    result = executor.run(scenario.request(program=scenario.interpreter))
+
+    assert (
+        result.stdout,
+        result.run.tool,
+        result.run.version,
+        result.run.binary_sha256,
+        result.run.argv_template,
+    ) == (
+        f"scanned: {scenario.target}\n",
+        _TOOL,
+        scenario.locked_version,
+        scenario.binary_sha256,
+        ("interpreter", "scan", "{targets}"),
+    )
+
+
+def test_a_request_names_its_program_by_an_absolute_path(scenario: Scenario) -> None:
+    """A relative program would start another program in each directory that a run starts in."""
+    with pytest.raises(ValidationError, match="program"):
+        scenario.request(program=Path("interpreter"))
 
 
 def test_a_run_records_a_digest_of_each_file_and_target_it_names(
@@ -623,6 +665,22 @@ def test_the_direct_executor_starts_the_tool_with_the_arguments_in_the_directory
     )
 
 
+def test_the_direct_executor_starts_the_program_of_a_request_in_place_of_the_tool_on_path(
+    scenario: Scenario,
+) -> None:
+    """The stand-in of the tool is first on PATH, and it prints nothing for `rev-parse`. A request
+    that names git as its program starts git, and the record names git as the program."""
+    git = Path(str(shutil.which("git")))
+
+    result = DirectToolExecutor().run(scenario.request("rev-parse", "--show-toplevel", program=git))
+
+    assert (result.stdout, result.run.tool, result.run.argv_template) == (
+        f"{scenario.tree.resolve()}\n",
+        _TOOL,
+        ("git", "rev-parse", "--show-toplevel"),
+    )
+
+
 def test_the_direct_executor_gives_the_tool_the_environment_of_the_request(
     scenario: Scenario,
 ) -> None:
@@ -806,6 +864,40 @@ def test_the_sandbox_starts_the_tool_under_a_cpu_and_an_address_space_limit(
         ],
         "1GiB",
     )
+
+
+def test_the_sandbox_starts_the_program_of_a_request_by_its_path_under_the_limits(
+    scenario: Scenario,
+) -> None:
+    """The sandbox starts the program that the request names, not the tool on PATH, and not the
+    file that a link of the program leads to: the `python` of a `.venv` is a link to the
+    interpreter it was made from, and only the path of the link finds the `.venv`. The directory
+    of the program is one of the read-only binds of the request."""
+    options, command = _sandbox_command(scenario, scenario.request(program=scenario.interpreter))
+
+    assert (
+        command,
+        ["--ro-bind", str(scenario.tools_dir), str(scenario.tools_dir)] in _binds(options),
+    ) == (
+        [
+            str(shutil.which("prlimit")),
+            "--cpu=600",
+            f"--as={2 * 1024**3}",
+            "--",
+            str(scenario.interpreter),
+            "scan",
+            str(scenario.target),
+        ],
+        True,
+    )
+
+
+def test_a_program_that_is_no_file_is_refused(scenario: Scenario, tmp_path: Path) -> None:
+    """A run of a program that the host does not have is refused before anything starts."""
+    request = scenario.request(program=tmp_path / "no-such-interpreter")
+
+    with pytest.raises(SandboxError, match="no-such-interpreter"):
+        SandboxToolExecutor(HostSandbox(bwrap_binary=Path("/usr/bin/bwrap"))).run(request)
 
 
 def test_the_environment_of_a_request_reaches_the_tool_but_cannot_lift_the_collector_limit(

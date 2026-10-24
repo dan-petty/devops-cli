@@ -2,7 +2,8 @@
 
 Runs each review tool at the project's declared language and platform versions and verifies
 that its output on a canary fixture matches the recorded expected `(rule, line)` set before
-its findings count in a review.
+its findings count in a review. A canary starts its tool through the `ToolExecutor` that it gets,
+as a scan does (#1978).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import functools
 import hashlib
 import importlib.metadata
 import json
+import os
 import re
 import shutil
 import sys
@@ -19,7 +21,7 @@ import tempfile
 import tomllib
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from devops_cli.config.commands import (
     BIN_BANDIT,
@@ -37,10 +39,13 @@ from devops_cli.config.constants import (
     CONST_CANARY_PYTHON_SOURCE,
     CONST_CANARY_SEMGREP_PROBES_YAML,
     CONST_CANARY_TOOLS,
+    CONST_CANARY_WORKDIR_PREFIX,
     CONST_REVIEW_CONFIG_FILE,
     CONST_TOOL_DIGEST_UNAVAILABLE,
 )
-from devops_cli.core.process import run_subprocess
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolExecutor, ToolRequest, ToolResult
 
 _PYTHON_VERSION_RE = re.compile(r"(?:py)?(\d+)\.?(\d+)")
 _MYPY_ERROR_LINE_RE = re.compile(
@@ -82,6 +87,7 @@ def clear_canary_cache() -> None:
     _load_locked_tool_versions.cache_clear()
     _hash_binary_path.cache_clear()
     _python_tool_identity.cache_clear()
+    _program_identity.cache_clear()
 
 
 def get_canary_cache() -> dict[CanaryCacheKey, CanaryResult]:
@@ -390,27 +396,32 @@ def _hash_binary_path(resolved_path: str) -> str:
         return CONST_TOOL_DIGEST_UNAVAILABLE
 
 
+def _site_directories(scripts: Path) -> list[str]:
+    """The site-packages directories of the environment whose scripts directory is `scripts`, as
+    `sysconfig` lays them out: a virtual environment of `devops install-tools`, a `uv tool` or
+    pipx environment, the `.venv` of a project, or a user or system prefix such as `/usr/local`."""
+    prefix = str(scripts.parent)
+    layout = {"base": prefix, "platbase": prefix}
+    return sorted({sysconfig.get_path(key, "venv", vars=layout) for key in ("purelib", "platlib")})
+
+
 def _launcher_distribution(launcher: Path) -> importlib.metadata.Distribution | None:
     """The installed distribution that wrote `launcher` from one of its console scripts, or None
     for a program that no console script wrote, such as a native binary.
 
     The launcher runs the interpreter of the environment whose scripts directory holds it, so the
-    distribution is found in the site-packages directories of that environment, as `sysconfig`
-    lays them out: a virtual environment of `devops install-tools`, a `uv tool` or pipx
-    environment, the `.venv` of a project, or a user or system prefix such as `/usr/local`.
+    distribution is found in the site-packages directories of that environment.
     """
-    prefix = str(launcher.parent.parent)
-    layout = {"base": prefix, "platbase": prefix}
-    site_dirs = {sysconfig.get_path(key, "venv", vars=layout) for key in ("purelib", "platlib")}
-    for dist in importlib.metadata.distributions(path=sorted(site_dirs)):
+    for dist in importlib.metadata.distributions(path=_site_directories(launcher.parent)):
         if dist.entry_points.select(group="console_scripts", name=launcher.name):
             return dist
     return None
 
 
-def _distribution_digest(dist: importlib.metadata.Distribution, launcher: Path) -> str:
+def _distribution_digest(dist: importlib.metadata.Distribution, scripts: Path) -> str:
     """The SHA-256 of the files that the `RECORD` of `dist` lists with their hashes, less the
-    launcher scripts that the installer wrote from its console scripts.
+    launcher scripts that the installer wrote from its console scripts into `scripts`, the
+    resolved scripts directory of the environment.
 
     A launcher holds the path of its interpreter, so it differs from one environment to the next
     while the package is the same. The digest uses the hashes that the installer wrote, sorted by
@@ -423,8 +434,7 @@ def _distribution_digest(dist: importlib.metadata.Distribution, launcher: Path) 
         for path in dist.files or ()
         if path.hash is not None
         and not (
-            path.name in launchers
-            and Path(str(dist.locate_file(path))).resolve().parent == launcher.parent
+            path.name in launchers and Path(str(dist.locate_file(path))).resolve().parent == scripts
         )
     )
     if not rows:
@@ -440,7 +450,27 @@ def _python_tool_identity(resolved_path: str) -> tuple[str, str] | None:
     dist = _launcher_distribution(launcher)
     if dist is None:
         return None
-    return dist.version, _distribution_digest(dist, launcher)
+    return dist.version, _distribution_digest(dist, launcher.parent)
+
+
+@functools.lru_cache(maxsize=32)
+def _program_identity(program: str, tool: str) -> tuple[str, str]:
+    """The version and the digest of what runs when the program at the absolute path `program`
+    starts `tool`, as an interpreter runs `python -m mypy`.
+
+    The tool is the distribution named `tool` in the environment whose scripts directory holds
+    the program, by the path of the program and not by the file that a link of it leads to. The
+    `python` of a `.venv` is a link to the interpreter it was made from, and only the path of the
+    link finds the `.venv`. With no such distribution, the program itself runs: its digest is the
+    digest of its file, at the version that `tools.lock` pins, else `unknown`.
+    """
+    scripts = Path(program).parent
+    found = importlib.metadata.distributions(name=tool, path=_site_directories(scripts))
+    dist = next(iter(found), None)
+    if dist is not None:
+        return dist.version, _distribution_digest(dist, scripts.resolve())
+    version = _load_locked_tool_versions().get(tool, "unknown")
+    return version, _hash_binary_path(os.path.realpath(program))
 
 
 def resolve_tool_binary(tool: str) -> Path | None:
@@ -455,7 +485,7 @@ def resolve_tool_binary(tool: str) -> Path | None:
     return Path(found).resolve() if found else None
 
 
-def resolve_tool_version_and_sha(tool: str) -> tuple[str, str]:
+def resolve_tool_version_and_sha(tool: str, program: Path | None = None) -> tuple[str, str]:
     """The version of `tool` and the SHA-256 of what runs when it starts.
 
     A Python tool, such as Bandit or Semgrep, starts from a launcher script that its installer
@@ -463,8 +493,14 @@ def resolve_tool_version_and_sha(tool: str) -> tuple[str, str]:
     the launcher (`_distribution_digest`). Any other program is named by the digest of its file,
     at the version that `tools.lock` pins, else the version of the distribution of that name in
     this environment. The digest is `unavailable` when the host has no such program.
+
+    A tool that starts from a `program` the PATH does not name, as mypy starts from the
+    interpreter of a `.venv`, is named by the distribution of the tool in the environment of the
+    program (`_program_identity`).
     """
     norm = tool.lower()
+    if program is not None:
+        return _program_identity(os.path.abspath(program), norm)
     binary = resolve_tool_binary(norm)
     if binary is not None and (identity := _python_tool_identity(str(binary))) is not None:
         return identity
@@ -485,19 +521,17 @@ def _default_ruleset_digest(tool: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def _build_semgrep_canary_cmd(_workdir: Path, _lang_ver: str) -> list[str]:
-    return build_semgrep_cmd(["canary.py"], ["semgrep_probes.yaml"])
+def _semgrep_canary_arguments(_workdir: Path, _lang_ver: str) -> list[str]:
+    return build_semgrep_cmd(["canary.py"], ["semgrep_probes.yaml"])[1:]
 
 
-def _build_ruff_canary_cmd(_workdir: Path, lang_ver: str) -> list[str]:
+def _ruff_canary_arguments(_workdir: Path, lang_ver: str) -> list[str]:
     target_ver = (
         lang_ver
         if lang_ver.startswith("py")
         else (parse_requires_python_target_version(lang_ver) or "py314")
     )
-    ruff_bin = shutil.which(BIN_RUFF) or str(Path(sys.executable).parent / BIN_RUFF)
     return [
-        ruff_bin,
         "check",
         "--isolated",
         "--output-format=sarif",
@@ -507,26 +541,15 @@ def _build_ruff_canary_cmd(_workdir: Path, lang_ver: str) -> list[str]:
     ]
 
 
-def _build_bandit_canary_cmd(_workdir: Path, _lang_ver: str) -> list[str]:
-    bandit_bin = shutil.which(BIN_BANDIT) or str(Path(sys.executable).parent / BIN_BANDIT)
-    return [
-        bandit_bin,
-        "--ignore-nosec",
-        "-q",
-        "--severity-level",
-        "medium",
-        "-f",
-        "json",
-        "canary.py",
-    ]
+def _bandit_canary_arguments(_workdir: Path, _lang_ver: str) -> list[str]:
+    return ["--ignore-nosec", "-q", "--severity-level", "medium", "-f", "json", "canary.py"]
 
 
-def _build_mypy_canary_cmd(workdir: Path, lang_ver: str) -> list[str]:
+def _mypy_canary_arguments(workdir: Path, lang_ver: str) -> list[str]:
     py_ver = lang_ver.removeprefix("py") if lang_ver else "3.14"
     if "." not in py_ver and len(py_ver) >= 2:
         py_ver = f"{py_ver[0]}.{py_ver[1:]}"
     return [
-        sys.executable,
         "-I",
         "-m",
         "mypy",
@@ -538,9 +561,8 @@ def _build_mypy_canary_cmd(workdir: Path, lang_ver: str) -> list[str]:
     ]
 
 
-def _build_kubelinter_canary_cmd(_workdir: Path, _lang_ver: str) -> list[str]:
+def _kubelinter_canary_arguments(_workdir: Path, _lang_ver: str) -> list[str]:
     return [
-        BIN_KUBELINTER,
         "lint",
         "manifest.yaml",
         "--format",
@@ -551,48 +573,61 @@ def _build_kubelinter_canary_cmd(_workdir: Path, _lang_ver: str) -> list[str]:
     ]
 
 
-def _build_pluto_canary_cmd(_workdir: Path, lang_ver: str) -> list[str]:
+def _pluto_canary_arguments(_workdir: Path, lang_ver: str) -> list[str]:
     k8s_ver = normalize_kubernetes_version(lang_ver) or "v1.37.1"
-    return [
-        BIN_PLUTO,
-        "detect",
-        "manifest.yaml",
-        "-o",
-        "json",
-        "--target-versions",
-        f"k8s={k8s_ver}",
-    ]
+    return ["detect", "manifest.yaml", "-o", "json", "--target-versions", f"k8s={k8s_ver}"]
 
 
-_CANARY_COMMAND_BUILDERS: dict[str, Callable[[Path, str], list[str]]] = {
-    "semgrep": _build_semgrep_canary_cmd,
-    "ruff": _build_ruff_canary_cmd,
-    "bandit": _build_bandit_canary_cmd,
-    "mypy": _build_mypy_canary_cmd,
-    "kube-linter": _build_kubelinter_canary_cmd,
-    "pluto": _build_pluto_canary_cmd,
+# The arguments of each tool on its canary fixture, and the fixture it reads, by its file name.
+_CANARY_ARGUMENT_BUILDERS: dict[str, tuple[Callable[[Path, str], list[str]], str]] = {
+    "semgrep": (_semgrep_canary_arguments, "canary.py"),
+    "ruff": (_ruff_canary_arguments, "canary.py"),
+    "bandit": (_bandit_canary_arguments, "canary.py"),
+    "mypy": (_mypy_canary_arguments, "canary.py"),
+    "kube-linter": (_kubelinter_canary_arguments, "manifest.yaml"),
+    "pluto": (_pluto_canary_arguments, "manifest.yaml"),
 }
 
 
-def build_canary_command(
+def _canary_program(tool: str) -> Path | None:
+    """The program that starts the canary of `tool`, when the PATH of the host does not name it:
+    the interpreter that runs devops-cli, for mypy, which runs as `python -I -m mypy`."""
+    return Path(sys.executable) if tool == BIN_MYPY else None
+
+
+def build_canary_request(
     tool: str,
     workdir: Path,
     *,
     language_version: str = "",
-) -> list[str]:
-    """Build the command line used to run `tool` on its canary fixture in `workdir`."""
-    builder = _CANARY_COMMAND_BUILDERS.get(tool.lower())
+) -> ToolRequest:
+    """The request that runs `tool` on its canary fixture in `workdir`.
+
+    The tool starts in `workdir` and names its fixture by its file name. The Semgrep probes are
+    the ruleset of the Semgrep canary.
+    """
+    from devops_cli.security.tool_executor import ToolRequest
+
+    norm = tool.lower()
+    builder = _CANARY_ARGUMENT_BUILDERS.get(norm)
     if builder is None:
         raise ValueError(f"Unsupported canary tool: {tool}")
-    return builder(workdir, language_version)
+    arguments, fixture = builder
+    return ToolRequest(
+        tool=norm,
+        program=_canary_program(norm),
+        arguments=tuple(arguments(workdir, language_version)),
+        workdir=workdir,
+        targets=(workdir / fixture,),
+        ruleset_files=(workdir / "semgrep_probes.yaml",) if norm == "semgrep" else (),
+    )
 
 
-def _run_live_canary_command(tool: str, cmd: list[str], workdir: Path) -> str:
-    """Execute a canary command in `workdir` and return its raw output string."""
-    proc = run_subprocess(cmd, cwd=workdir, check=False)
-    if tool.lower() == "mypy":
-        return (proc.stdout or "") + (proc.stderr or "")
-    return proc.stdout or ""
+def _canary_output(tool: str, result: ToolResult) -> str:
+    """What the canary of `tool` reads from its run: mypy prints its errors on both streams."""
+    if tool == BIN_MYPY:
+        return result.stdout + result.stderr
+    return result.stdout
 
 
 def evaluate_canary_gate(
@@ -629,12 +664,18 @@ def run_tool_canary(
     binary_sha: str | None = None,
     language_version: str = "",
     ruleset_digest: str | None = None,
-    runner: Callable[[str, list[str], Path], str | Mapping[str, Any]] | None = None,
+    tool_executor: ToolExecutor | None = None,
     use_cache: bool = True,
 ) -> CanaryResult:
-    """Run the canary for `tool` once per `(tool, version, binary_sha, language_version, ruleset_digest)`."""
+    """Run the canary for `tool` once per `(tool, version, binary_sha, language_version, ruleset_digest)`.
+
+    The canary starts its tool through `tool_executor`, and without one as a child process of
+    devops-cli, as a scan does. A review gives it the executor of its scans.
+    """
+    from devops_cli.security.tool_executor import DirectToolExecutor
+
     norm = tool.lower()
-    det_ver, det_sha = resolve_tool_version_and_sha(norm)
+    det_ver, det_sha = resolve_tool_version_and_sha(norm, _canary_program(norm))
     eff_ver = version if version is not None else det_ver
     eff_sha = binary_sha if binary_sha is not None else det_sha
     eff_lang = language_version or "default"
@@ -650,12 +691,12 @@ def run_tool_canary(
     if use_cache and key in _CANARY_CACHE:
         return _CANARY_CACHE[key]
 
-    with tempfile.TemporaryDirectory(prefix=f"devops-canary-{norm}-") as tmp_dir:
+    executor = tool_executor or DirectToolExecutor()
+    with tempfile.TemporaryDirectory(prefix=f"{CONST_CANARY_WORKDIR_PREFIX}{norm}-") as tmp_dir:
         workdir = Path(tmp_dir)
         materialize_canary_fixtures(workdir)
-        cmd = build_canary_command(norm, workdir, language_version=language_version)
-        eff_runner = runner or _run_live_canary_command
-        raw_output = eff_runner(norm, cmd, workdir)
+        request = build_canary_request(norm, workdir, language_version=language_version)
+        raw_output = _canary_output(norm, executor.run(request))
 
     result = evaluate_canary_gate(norm, raw_output, cache_key=key)
     if use_cache:
@@ -667,7 +708,7 @@ __all__ = [
     "CONST_CANARY_TOOLS",
     "CanaryCacheKey",
     "CanaryResult",
-    "build_canary_command",
+    "build_canary_request",
     "clear_canary_cache",
     "evaluate_canary_gate",
     "get_canary_cache",

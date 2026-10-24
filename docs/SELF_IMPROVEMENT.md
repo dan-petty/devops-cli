@@ -609,7 +609,7 @@ shows `{targets}`, `{config}` and `{ruleset}` where the command names those file
 same scan records the same template.
 
 The `binary_sha256` of a native binary, such as Gitleaks, Trivy or the Ruff binary, is the SHA-256
-of its file. A Python tool, such as Bandit, Semgrep or mypy, starts from a launcher script that its
+of its file. A Python tool, such as Bandit or Semgrep, starts from a launcher script that its
 installer writes from a console script, and the launcher holds the path of its interpreter. So its
 record names the installed distribution that wrote the launcher, in the environment that holds the
 launcher: `version` is the version of that distribution, and `binary_sha256` is the SHA-256 of the
@@ -617,6 +617,16 @@ file hashes that its `RECORD` lists, less the launcher scripts. Two environments
 installer made from the same package thus record the same digest, also when their paths differ.
 The digest does not cover the dependencies of the tool. It is `unavailable` for a distribution
 without a `RECORD`.
+
+Mypy runs as `python -I -m mypy` with the interpreter of the `.venv` of the checkout, else with the
+interpreter that runs devops-cli, so that it imports what the reviewed project imports. The PATH
+does not name that interpreter, so the request of the run names it as its program. The template
+starts with the file name of the program, such as `python`, and not with its path. The record
+names the mypy distribution in the environment of the interpreter, as the launcher of mypy in that
+environment names it. When that environment has no mypy, `binary_sha256` is the SHA-256 of the
+program file, and `version` is `unknown`. Mypy gets its cache directory through `MYPY_CACHE_DIR`, so
+the template holds no path of the cache. The canary of each tool runs on the executor of the
+review, as the tool does. A canary scans nothing of the review, so the review keeps no record of it.
 
 `review.md` lists the distinct records in the Tool Runs table, each with its number of runs.
 Gitleaks scans one file at a time, so one row can stand for hundreds of runs. The table leaves out
@@ -633,6 +643,7 @@ record in full. The two digests cover these files:
 | Pluto | none | none: the deprecated APIs are in the binary |
 | osv-scanner | the `osv-scanner.toml` in the directory of each lockfile | none: the database has no metadata file yet |
 | Ruff | each file named `.ruff.toml`, `ruff.toml` or `pyproject.toml` in the directory of each checked file and above it, up to the tree. Not a file above the tree, and not the user config file of Ruff | none: the rules are in the binary |
+| mypy | the `pyproject.toml` of the tree, else of the checkout, that `--config-file` names | none: the checks are in the package |
 
 Ruff does not stop its search at the tree. While the direct executor runs, Ruff also applies a
 config file above the tree, and the user config file in `$XDG_CONFIG_HOME/ruff` when no project
