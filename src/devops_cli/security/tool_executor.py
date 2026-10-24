@@ -117,6 +117,13 @@ class ToolRequest(_Frozen):
     arguments of the program. The element `{targets}` stands for `targets`, the paths of the tree
     that the tool scans.
 
+    `program` is the absolute path of the program that starts the tool, when the PATH of the host
+    does not name it. Mypy runs as `python -I -m mypy` with the interpreter of the `.venv` of the
+    reviewed repository, so its request names that interpreter. The executor starts `program` by
+    this path, and never by the file that a link of it leads to: the `python` of a `.venv` is a
+    link to the interpreter it was made from, and only the path of the link finds the `.venv`.
+    `tool` still names the tool in the record. The record names the program by its file name.
+
     `config_files` and `ruleset_files` are files outside the sandbox that the tool reads. One file
     names a ruleset, such as a rule pack or the metadata file of a database. The executor binds
     each of these files read-only and digests its content into the record. `read_only_binds` are
@@ -128,6 +135,7 @@ class ToolRequest(_Frozen):
     """
 
     tool: str = Field(min_length=1)
+    program: Path | None = None
     arguments: tuple[str, ...] = ()
     workdir: Path
     cwd: Path | None = None
@@ -137,6 +145,13 @@ class ToolRequest(_Frozen):
     read_only_binds: tuple[Path, ...] = ()
     env: dict[str, str] = Field(default_factory=dict)
     limits: ToolLimits = Field(default_factory=ToolLimits)
+
+    @model_validator(mode="after")
+    def _program_is_absolute(self) -> ToolRequest:
+        """A relative program would start another program in each directory a run starts in."""
+        if self.program is not None and not self.program.is_absolute():
+            raise ValueError(f"the program {self.program} of a tool is no absolute path")
+        return self
 
 
 class ToolRun(_Frozen):
@@ -150,7 +165,8 @@ class ToolRun(_Frozen):
     `executor` says how the tool ran: `direct` is a child process of devops-cli with no confinement
     and no limit but the wall clock, and `sandbox` is the bubblewrap sandbox with the limits of
     `ToolLimits`. `argv_template` is the command with a placeholder for each path that names a
-    target, a config file or a ruleset file, so the same scan records the same template.
+    target, a config file or a ruleset file, so the same scan records the same template. It starts
+    with the tool, or with the file name of the program of the request when it names one.
 
     `commit` is the commit of the checkout that holds the tree. It ends with `-dirty` when a target
     holds a change that the commit does not. A tree outside any git checkout has no commit, and
@@ -345,7 +361,7 @@ def _argv_template(request: ToolRequest, targets: Sequence[Path]) -> tuple[str, 
             template.append(argument)
         elif not template or template[-1] != placeholder:
             template.append(placeholder)
-    return (request.tool, *template)
+    return (request.program.name if request.program else request.tool, *template)
 
 
 def record_tool_run(
@@ -437,9 +453,10 @@ class DirectToolExecutor:
     def run(self, request: ToolRequest) -> ToolResult:
         """Start the tool of `request` and answer how it ended and what ran.
 
-        A target outside the tree raises `SandboxError` before anything starts.
+        A target outside the tree raises `SandboxError` before anything starts. The tool starts
+        from the program of the request, else by its name on the PATH of the host.
         """
-        version, binary_sha256 = resolve_tool_version_and_sha(request.tool)
+        version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
         run = record_tool_run(
             request,
             version=version,
@@ -448,7 +465,8 @@ class DirectToolExecutor:
             require_commit=False,
             require_files=False,
         )
-        command = [request.tool, *_expand_targets(request.arguments, _resolved_targets(request))]
+        program = str(request.program) if request.program else request.tool
+        command = [program, *_expand_targets(request.arguments, _resolved_targets(request))]
         return _start(
             run,
             command,
@@ -469,8 +487,18 @@ class SandboxToolExecutor:
         self._sandbox = sandbox or HostSandbox()
 
     def command(self, request: ToolRequest) -> list[str]:
-        """The whole command that runs `request`: bubblewrap, its options, `prlimit` and the tool."""
-        binary = resolve_tool_binary(request.tool)
+        """The whole command that runs `request`: bubblewrap, its options, `prlimit` and the tool.
+
+        The tool starts from the program of the request, by its path, else from the binary of the
+        tool on the PATH of the host. The sandbox binds the read-only binds of the request, so a
+        request names the directory of a program outside the tree there.
+        """
+        if request.program is not None and not request.program.is_file():
+            raise SandboxError(
+                f"The program {request.program} of the review tool {request.tool} is not a file "
+                "on this host"
+            )
+        binary = request.program or resolve_tool_binary(request.tool)
         if binary is None:
             raise SandboxError(f"The review tool {request.tool} is not installed on this host")
         # By its full path. The PATH of the sandbox leads with the `.venv/bin` of the reviewed
@@ -514,7 +542,7 @@ class SandboxToolExecutor:
                 f"bubblewrap ({self._sandbox.bwrap_binary}) is not installed, so a review tool "
                 "cannot run in its sandbox"
             )
-        version, binary_sha256 = resolve_tool_version_and_sha(request.tool)
+        version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
         run = record_tool_run(
             request,
             version=version,

@@ -1,0 +1,45 @@
+# Design
+
+## Context
+
+A review starts each scanner through one `ToolExecutor`, wrapped in a `RecordingToolExecutor` that keeps the `ToolRun` of each run (#772 Parts A, B and C). Mypy and the canary runner did not use this seam. Mypy runs as `python -I -m mypy` with the interpreter of the `.venv` of the reviewed checkout, so that it imports what the reviewed project imports. `-I` keeps the reviewed tree off `sys.path`, also when `PYTHONPATH` names it. A `ToolRequest` named only a tool that the PATH of the host finds. See proposal.md for the motivation.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- A request can name a program that the PATH does not name, with the least change to the `ToolExecutor` protocol.
+- Mypy and each canary start only through the executor that they get, and a review gives them its own.
+- The record of a mypy run reads the same for the same scan and names the mypy that ran.
+- No review test patches `run_mypy_scan`, and no test patches the process runner of the canary.
+
+**Non-Goals:**
+
+- The sandbox as the default executor of a review. That is #2096.
+- A mypy that runs in the sandbox. The section "Sandbox" below says what it needs.
+- A record of each canary run.
+
+## Decisions
+
+- **A request names its program in one optional field, `program`.** It is the absolute path of the program that starts the tool, and `tool` still names the tool in the record. The protocol (`run(request) -> ToolResult`), `ToolResult` and `ToolRun` do not change, and a request with no `program` runs as before. Rejected: a path in `tool`. `tool` is the `tool.driver.name` of SARIF, and the record would hold a path of the host. Rejected: the executor finds the interpreter of mypy from the tree. The executor would then know about one tool, and the request would not say what starts. Rejected: a second method on the protocol, such as one that runs a Python module. Every executor and the fake would need it for one tool. Rejected: the `.venv/bin` first on the PATH of the request. `DirectToolExecutor` starts a tool through the PATH of devops-cli, not through the PATH of the request. The sandbox puts only the `.venv/bin` of the tree first on its PATH, and the `.venv` of a linked worktree is in the main checkout. Rejected: the launcher `.venv/bin/mypy` as the tool. The launcher runs its interpreter without `-I`, and the PATH of the host does not name it either.
+- **The executor starts the program by its path, and never by the file that its link leads to.** The `python` of a `.venv` that uv or `venv` makes is a link to the interpreter that the `.venv` was made from. Python finds its `.venv` from the path that started it, so the resolved path would run without the packages of the `.venv`. A relative program would start another program in each directory where a run starts, so a request refuses it.
+- **The record names the program by its file name, and its version and digest by the distribution of the tool in the environment of the program.** The template starts with `python`, not with the path of the interpreter. The distribution is the one named `tool` in the site-packages directories that `sysconfig` gives for the environment whose scripts directory holds the program, by the path of the program. Its digest is the digest of #1984: the hashes of its `RECORD`, less its launchers. So mypy reached through the interpreter of a `.venv` gives the digest that its launcher in that `.venv` gives. Rejected: a `program` field on `ToolRun` that holds the path. A path of the host makes the same scan read differently on two hosts and in two worktrees, and it changes the shape of the profile and of the SARIF export that #1983 works on. Rejected: the digest of the interpreter file. It names CPython and not mypy, and two versions of mypy under one interpreter would give one digest. #1984 decided that the digest names the package that runs, not the program that loads it. With no distribution of the tool in that environment, the program itself is what runs: the digest is the digest of its file, at the version that `tools.lock` pins, else `unknown`.
+- **Mypy gets its cache directory through `MYPY_CACHE_DIR`.** The cache is below the data cache directory, in a directory for each tree (#2034). On the command line, its path would make the template of each tree differ. Rejected: a placeholder for the cache in the template. No field of the request names the cache, and a field for one tool would be one more input for every executor.
+- **The mypy request names the environment of its interpreter as a read-only bind.** That is the `.venv` that holds mypy and the packages that mypy reads. The direct executor does not use the bind. The sandbox binds it when it is outside the tree.
+- **A refused or timed out mypy run gives a failed outcome.** The executor answers a timeout as a result and a refusal as `SandboxError`. Mypy reports both as the other scans do: the time, or the reason of the refusal. Before, a refusal could not happen, and a timeout raised `subprocess.TimeoutExpired` out of the evidence stage of the review.
+- **The canaries run on the executor that the review wraps, with no record.** The review runs its scans in the executor that it was given, so its canaries must run there too. A canary checks a tool on a fixture of its own, in a scratch directory outside any checkout, and scans nothing of the review. Rejected: the recording executor. The Tool Runs table, `profile.json` and the SARIF export would show each canary run as a scan, with no commit. Rejected: a canary that keeps its own executor. A review in the sandbox would then run its canaries outside the sandbox.
+- **The canaries of Ruff and Bandit start the tool as their scans start it.** Before, the canary started the binary that `shutil.which` found, else the one beside the running interpreter, and the direct scan started the tool by its name on PATH. Now the canary checks the program that the scan runs. The canary of mypy runs `python -I -m mypy` with the interpreter that runs devops-cli, as before, and its cache key now names the mypy of that interpreter.
+- **The root conftest answers the canary runs at the executor.** The canary no longer calls `run_subprocess`, so the old patch has nothing to answer. A review that gets no executor runs its canaries on `DirectToolExecutor`. The conftest wraps `DirectToolExecutor.run`: a request in a canary scratch directory (`CONST_CANARY_WORKDIR_PREFIX`) gets the recorded output from `ToolExecutorFake`, and each other request starts as before. Rejected: give the fake to every review test. 34 test files build an orchestrator, most with no executor. That is far more than this item. #2098, which gives the orchestrator its workspace through its constructor, is a better place for it. Rejected: fill the canary cache before each test. It needs a writer of the cache that only tests use, and the floor clears the cache after each test. The conftest thus still patches a name of devops-cli, as the patch that it replaces did ("Until the migration ends" in `docs/TESTING.md`).
+
+## Sandbox
+
+The sandbox starts the program of a request by its path, under `prlimit`, and binds the read-only binds of the request. So the sandbox binds the `.venv` of the reviewed repository read-only when the `.venv` is outside the tree, as in a review of a linked worktree, whose `.venv` is in the main checkout. A `.venv` inside the tree is in the bind of the tree. Mypy still cannot run in the sandbox, for two reasons. The sandbox default (#2096) must settle both:
+
+- The `python` of a `.venv` is a link to the interpreter that the `.venv` was made from, often one that uv installed below the home directory. `HostSandbox` binds that installation only for the `.venv` of the tree, after its guard `_is_python_installation` refuses a prefix that holds the home directory, the tree or a credential directory. The interpreter of a `.venv` outside the tree needs the same bind behind the same guard. The request cannot name it: the reviewed repository can aim its link anywhere on the host.
+- Mypy writes its cache, and the sandbox gives a tool no writable directory but its temporary HOME. The canary of mypy writes its cache in its scratch directory, which the sandbox binds read-only.
+
+## Risks / Trade-offs
+
+- [A mypy target outside the reviewed tree] → The executor refuses the request, and the mypy scan fails with the reason. The review resolves each file inside the tree or inside the repository that holds the target, so this needs a target below a `pyproject.toml` and outside any git checkout. Ruff names its tree from its targets and is not refused.
+- [The conftest patch matches the canary by the name of its scratch directory] → A canary that ran elsewhere would reach `DirectToolExecutor`, and the floor refuses the real tool and fails the test. The fault shows at once.
+- [A review that gets the fake runs its canaries on the fake] → An unscripted canary gets an empty answer and fails, and the findings of that tool are withheld as `canary failed`. A test that reads those findings scripts the canary.

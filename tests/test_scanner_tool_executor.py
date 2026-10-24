@@ -10,6 +10,7 @@ runs over the default executor, which starts the tool as a scanner did before th
 from __future__ import annotations
 
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -18,15 +19,17 @@ import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator, resolve_stage_flags
 from devops_cli.config.commands import build_gitleaks_cmd
+from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
 from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.gitleaks import GitleaksScanner, run_gitleaks_scan
 from devops_cli.security.kubelinter import run_kubelinter_scan
+from devops_cli.security.mypy import run_mypy_scan
 from devops_cli.security.osv_scanner import run_osv_scan
 from devops_cli.security.pluto import run_pluto_scan
 from devops_cli.security.ruff import run_ruff_scan
 from devops_cli.security.semgrep import run_semgrep_scan
-from devops_cli.security.tool_executor import ToolExecutor
+from devops_cli.security.tool_executor import ToolExecutor, ToolLimits, ToolRequest
 from devops_cli.security.trivy import run_trivy_scan
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
@@ -66,7 +69,8 @@ def tree(tmp_path: Path) -> Path:
     (root / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
     (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     (root / "pyproject.toml").write_text(
-        '[project]\nrequires-python = ">=3.14"\n', encoding="utf-8"
+        '[project]\nrequires-python = ">=3.14"\n\n[tool.mypy]\npython_version = "3.14"\n',
+        encoding="utf-8",
     )
     (root / "rules.yaml").write_text(_RULES, encoding="utf-8")
     return root
@@ -117,6 +121,10 @@ _REVIEW_SCANS: list[tuple[str, ScanOver]] = [
         lambda t, x: run_ruff_scan(
             [t / "app.py"], isolated=True, tree=t, require_version=True, tool_executor=x
         ),
+    ),
+    (
+        "mypy",
+        lambda t, x: run_mypy_scan([t / "app.py"], tree=t, checkout_root=t, tool_executor=x),
     ),
 ]
 
@@ -228,6 +236,131 @@ def test_a_scan_whose_tool_runs_out_of_time_says_how_long_it_had(
     assert (outcome.status, outcome.reason) == ("failed", "timed out after 5 s")
 
 
+def test_mypy_starts_the_interpreter_of_the_venv_of_the_checkout_through_the_executor(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """Mypy must import what the reviewed project imports, so it runs as `python -I -m mypy` with
+    the interpreter of the `.venv` of the checkout, which the PATH of the host does not name. The
+    request names that interpreter as its program and its `.venv` as a read-only bind. It names the
+    config file of the tree, and the cache directory through `MYPY_CACHE_DIR`, outside the tree. So
+    the command names no path but the config file and the targets."""
+    venv = tree / ".venv"
+    python = venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+
+    run_mypy_scan(
+        [tree / "app.py"],
+        tree=tree,
+        checkout_root=tree,
+        timeout=7.0,
+        tool_executor=tool_executor_fake,
+    )
+
+    [request] = tool_executor_fake.requests
+    cache = Path(request.env.get("MYPY_CACHE_DIR", ""))
+    assert (request.model_copy(update={"env": {}}), list(request.env), cache.is_dir()) == (
+        ToolRequest(
+            tool="mypy",
+            program=python,
+            arguments=(
+                "-I",
+                "-m",
+                "mypy",
+                "--python-version=3.14",
+                "--config-file",
+                str(tree / "pyproject.toml"),
+                "--no-error-summary",
+                "{targets}",
+            ),
+            workdir=tree,
+            targets=(tree / "app.py",),
+            config_files=(tree / "pyproject.toml",),
+            read_only_binds=(venv,),
+            limits=ToolLimits(wall_seconds=7.0),
+        ),
+        ["MYPY_CACHE_DIR"],
+        True,
+    )
+    assert not cache.is_relative_to(tree)
+
+
+def test_mypy_of_a_checkout_with_no_venv_starts_the_interpreter_of_devops_cli(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """A checkout without a `.venv` has no interpreter of its own. Mypy runs with the interpreter
+    that runs devops-cli, and the request binds the environment of that interpreter."""
+    run_mypy_scan(
+        [tree / "app.py"], tree=tree, checkout_root=tree, tool_executor=tool_executor_fake
+    )
+
+    [request] = tool_executor_fake.requests
+    interpreter = Path(sys.executable)
+    assert (request.program, request.read_only_binds) == (
+        interpreter,
+        (interpreter.parent.parent,),
+    )
+
+
+def test_mypy_reads_its_findings_from_the_answer_of_the_executor(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """Mypy ends with exit code 1 when it finds an error. The scan reads the error lines that the
+    executor answers, from both output streams."""
+    error = f"{tree / 'app.py'}:1: error: Incompatible types in assignment  [assignment]"
+    tool_executor_fake.script("mypy", ToolAnswer(exit_code=1, stdout=f"{error}\n"))
+
+    outcome = run_mypy_scan(
+        [tree / "app.py"], tree=tree, checkout_root=tree, tool_executor=tool_executor_fake
+    )
+
+    assert (outcome.status, [finding.title for finding in outcome.findings]) == (
+        "ran",
+        ["[assignment] Incompatible types in assignment"],
+    )
+
+
+def test_a_mypy_scan_that_runs_out_of_time_says_how_long_it_had(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """The executor answers a timeout as a result. Mypy reports it as the other scans do: it names
+    the time, never the command."""
+    tool_executor_fake.script("mypy", ToolAnswer(exit_code=124, timed_out=True))
+
+    outcome = run_mypy_scan(
+        [tree / "app.py"],
+        tree=tree,
+        checkout_root=tree,
+        timeout=5.0,
+        tool_executor=tool_executor_fake,
+    )
+
+    assert (outcome.status, outcome.findings, outcome.reason) == (
+        "failed",
+        [],
+        "timed out after 5 s",
+    )
+
+
+def test_a_mypy_scan_that_the_executor_refuses_reports_the_refusal(
+    tree: Path, tmp_path: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """A file outside the tree starts no run. The scan fails with the reason, as a scanner does, so
+    the other evidence of the review stays."""
+    outside = tmp_path / "outside" / "app.py"
+    outside.parent.mkdir()
+    outside.write_text("x = 1\n", encoding="utf-8")
+
+    outcome = run_mypy_scan(
+        [outside], tree=tree, checkout_root=tree, tool_executor=tool_executor_fake
+    )
+
+    assert (outcome.status, outcome.reason.startswith("Scanner execution failed: The target")) == (
+        "failed",
+        True,
+    )
+
+
 def test_a_scan_of_a_checkout_that_git_cannot_read_still_runs(
     tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
@@ -297,21 +430,16 @@ def test_a_request_names_a_relative_target_by_its_absolute_path(
     assert (request.workdir, request.targets) == (tree, (tree / "sub" / "b.py",))
 
 
-@pytest.fixture
-def mypy_set_aside(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mypy starts the interpreter of the reviewed repository, which a request cannot name yet. It
-    stays outside this seam. A later part of #772 moves it onto the executor and removes this."""
-    monkeypatch.setattr(
-        "devops_cli.security.mypy.run_mypy_scan", lambda *args, **kwargs: ScanOutcome("ran")
-    )
+def _is_canary(request: ToolRequest) -> bool:
+    """Whether `request` runs the canary of a tool, on a fixture of its own, not on the review."""
+    return request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX)
 
 
-@pytest.mark.usefixtures("mypy_set_aside")
 def test_a_review_starts_every_analyzer_through_its_executor(
     tree: Path, tmp_path: Path, tool_executor_fake: ToolExecutorFake
 ) -> None:
     """The orchestrator hands its executor to each analyzer it starts for the files of a review,
-    and to the evidence scan of Ruff."""
+    and to the evidence scans of Ruff and mypy."""
     orchestrator = ReviewPipelineOrchestrator(
         session_id="s772",
         session_dir=tmp_path / "session",
@@ -321,10 +449,11 @@ def test_a_review_starts_every_analyzer_through_its_executor(
 
     orchestrator.init_per_file_payloads(["app.py", "deploy.yaml", "Dockerfile", "uv.lock"], {})
 
-    assert {request.tool for request in tool_executor_fake.requests} == {
+    assert {request.tool for request in tool_executor_fake.requests if not _is_canary(request)} == {
         "bandit",
         "gitleaks",
         "kube-linter",
+        "mypy",
         "osv-scanner",
         "pluto",
         "ruff",
@@ -340,7 +469,6 @@ class _Revision:
         return 'print("base")\n' if path == "app.py" else None
 
 
-@pytest.mark.usefixtures("mypy_set_aside")
 def test_the_scan_of_the_base_revision_starts_its_analyzers_through_the_same_executor(
     tree: Path, tmp_path: Path, tool_executor_fake: ToolExecutorFake
 ) -> None:
@@ -359,7 +487,7 @@ def test_the_scan_of_the_base_revision_starts_its_analyzers_through_the_same_exe
     assert {
         request.tool
         for request in tool_executor_fake.requests
-        if not request.workdir.is_relative_to(tree)
+        if not (request.workdir.is_relative_to(tree) or _is_canary(request))
     } == {"bandit", "gitleaks", "semgrep"}
 
 
@@ -374,12 +502,7 @@ def test_a_review_with_the_static_scan_off_starts_no_analyzer_and_no_evidence_to
     """`--pre-analysis-only` starts no tool after the pre-analysis (#2007). It turns off the
     static scan, as `--no-static-scan` and `--reporting-only` do. The static scan holds the
     analyzers and the Ruff, mypy and complexity evidence. The tree holds what Ruff and mypy need
-    to start. Ruff starts through the executor. Mypy starts outside it, where the floor refuses a
-    real program, so a start of mypy fails the test."""
-    (tree / "pyproject.toml").write_text(
-        '[project]\nrequires-python = ">=3.14"\n\n[tool.mypy]\npython_version = "3.14"\n',
-        encoding="utf-8",
-    )
+    to start, and both start through the executor, as the canaries of the tools do."""
     orchestrator = ReviewPipelineOrchestrator(
         session_id="s2007",
         session_dir=tmp_path / "session",

@@ -7,6 +7,9 @@ that wrote the launcher: the digest covers each file that the `RECORD` of the di
 with its hash, less the launcher scripts, and the version is the version of that distribution. A
 native binary keeps the digest of its file.
 
+Mypy runs from an interpreter, as `python -I -m mypy`, so its record names the mypy distribution
+in the environment of that interpreter.
+
 Each test installs a tool into an environment under `tmp_path` as an installer does, with the
 layout of `sysconfig`, and puts it on PATH. No test starts a tool.
 """
@@ -92,6 +95,26 @@ def _on_path(monkeypatch: pytest.MonkeyPatch, path_dir: Path, *programs: Path) -
     for program in programs:
         (path_dir / program.name).symlink_to(program)
     monkeypatch.setenv("PATH", str(path_dir))
+
+
+def _interpreter(prefix: Path, base: Path) -> Path:
+    """The `python` of the environment at `prefix`: a link to the interpreter `base` that made the
+    environment, as `venv` and uv make it."""
+    layout = {"base": str(prefix), "platbase": str(prefix)}
+    scripts = Path(sysconfig.get_path("scripts", "venv", vars=layout))
+    scripts.mkdir(parents=True, exist_ok=True)
+    python = scripts / "python"
+    python.symlink_to(base)
+    return python
+
+
+def _base_interpreter(tmp_path: Path) -> Path:
+    """An interpreter outside every environment, as uv installs one."""
+    base = tmp_path / "python" / "bin" / "python3.14"
+    base.parent.mkdir(parents=True)
+    base.write_bytes(b"\x7fELF python")
+    base.chmod(0o755)
+    return base
 
 
 def _resolve(tool: str) -> tuple[str, str]:
@@ -203,3 +226,44 @@ def test_a_native_binary_digest_is_the_digest_of_its_file(
         hashlib.sha256(b"\x7fELF kube-linter").hexdigest(),
     )
     assert _resolve("ruff")[1] == hashlib.sha256(b"\x7fELF ruff").hexdigest()
+
+
+def test_a_tool_that_an_interpreter_runs_names_the_distribution_of_the_tool_in_its_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mypy runs as `python -I -m mypy` with the interpreter of the `.venv` of the reviewed
+    repository. The record names the mypy distribution of that `.venv`, as the launcher of mypy
+    there names it. It does not name the interpreter that the `python` of the `.venv` links to."""
+    base = _base_interpreter(tmp_path)
+    prefix = tmp_path / "project" / ".venv"
+    launcher = _install(
+        prefix,
+        "mypy",
+        "2.3.1",
+        package={"mypy/__init__.py": b"", "mypy/cli.py": b"def main():\n    return 0\n"},
+        program=_launcher(str(prefix / "bin" / "python"), "mypy.cli"),
+    )
+    python = _interpreter(prefix, base)
+    _on_path(monkeypatch, tmp_path / "bin", launcher)
+
+    by_launcher = _resolve("mypy")
+    by_interpreter = resolve_tool_version_and_sha("mypy", python)
+
+    assert by_interpreter == by_launcher
+    assert by_interpreter[0] == "2.3.1"
+    assert by_interpreter[1] != hashlib.sha256(base.read_bytes()).hexdigest()
+
+
+def test_a_tool_that_an_interpreter_runs_without_its_distribution_names_the_program_file(
+    tmp_path: Path,
+) -> None:
+    """A `.venv` without mypy holds nothing that names mypy. The record then names the program
+    that ran, by the digest of its file, and `tools.lock` pins no mypy, so the version is not known."""
+    base = _base_interpreter(tmp_path)
+    python = _interpreter(tmp_path / "project" / ".venv", base)
+
+    clear_canary_cache()
+    assert resolve_tool_version_and_sha("mypy", python) == (
+        "unknown",
+        hashlib.sha256(base.read_bytes()).hexdigest(),
+    )
