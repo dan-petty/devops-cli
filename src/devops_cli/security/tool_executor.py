@@ -23,19 +23,34 @@ There is no limit on the number of processes. RLIMIT_NPROC counts every process 
 limit set inside the sandbox would starve the shells and servers of the host.
 `_run_sandbox_process` in `sandbox/host.py` gives the reason in full.
 
-The record uses the names of SARIF 2.1.0 where it has one:
+The SARIF export of a review (`devops_cli.security.sarif.to_sarif`) writes the records of a tool in
+the SARIF 2.1.0 run of that tool:
 
-- `tool` is `tool.driver.name`, and `version` is `tool.driver.version`.
-- `binary_sha256` is the `sha-256` hash of the artifact of the tool.
-- `argv_template` is the command line of an invocation.
-- `commit` is the `revisionId` of `versionControlProvenance`.
+- `tool` is `tool.driver.name`. The records of a tool go to the run whose driver has that name.
+- `version` is `tool.driver.version` when no result names the version and the records of the tool
+  name one version.
+- The property bag of the run holds each record under `tool_runs`, with the field names of
+  `ToolRun`.
 
-SARIF holds config, ruleset and target files as `run.artifacts`, each with `hashes` and `roles`.
-`ToolRun` keeps one digest for each group of files. `executor` has no SARIF name: it says whether
-the run was confined.
+SARIF has a name for three more fields. SARIF requires a value there that the record does not hold,
+so the export does not write these names:
+
+- `argv_template` is the `commandLine` of an `invocation`. An invocation must tell in
+  `executionSuccessful` if the tool succeeded (section 3.20.14). The record does not tell this, and
+  the exit code of a tool does not tell it either. Each placeholder of the template is then a
+  redaction token of the run (sections 3.5.2 and 3.14.28).
+- `binary_sha256` is the `sha-256` hash of an artifact with the role `driver`. A top-level artifact
+  must have a location (section 3.24.2), and the record holds no path of the binary.
+- `commit` is the `revisionId` of `versionControlProvenance`. This object must have a
+  `repositoryUri` (section 3.23.3), and the record holds no repository. A commit that ends with
+  `-dirty` identifies no revision of the files that the tool scanned.
+
+The config, ruleset and targets digests have no SARIF name. A SARIF hash is the hash of one artifact
+(section 3.24.11), and each of these digests covers a group of files. `executor` has no SARIF name:
+it says whether the run was confined.
 
 `RecordingToolExecutor` wraps another executor and keeps the `ToolRun` of every run. A review gives
-its scanners one, and shows the records in its profile and in `review.md`.
+its scanners one, and shows the records in its profile, in `review.md` and in `findings.sarif`.
 """
 
 from __future__ import annotations

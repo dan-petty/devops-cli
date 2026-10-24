@@ -3830,7 +3830,7 @@ class ReviewPipelineOrchestrator:
             )
             for af in getattr(self, "admitted_scanner_findings", [])
         ]
-        self.session.write_sarif(to_sarif(sarif_findings))
+        self.session.write_sarif(to_sarif(sarif_findings, tool_runs=self.tool_executor.runs))
         self.session.write_report(report_md)
 
     def generate_consolidated_report(

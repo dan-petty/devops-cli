@@ -10,21 +10,26 @@ real files and a real git tree, as the real executors do.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review.profile import ReviewProfile, profiling
 from devops_cli.ai.review.runner import _write_review_profile
 from devops_cli.ai.review.tool_runs import TOOL_RUNS_COLUMNS, tool_runs_section
+from devops_cli.ai.review_schema import ReviewSessionPayload
 from devops_cli.ai.run_store import digest, file_digest
-from devops_cli.config.constants import CONST_REVIEW_SCAN_BANDIT_INI
+from devops_cli.config.constants import CONST_REVIEW_SARIF_FILENAME, CONST_REVIEW_SCAN_BANDIT_INI
 from devops_cli.exceptions.sandbox import SandboxValidationError
+from devops_cli.review.anchors import ToolAnchor
+from devops_cli.review.finding import Finding
 from devops_cli.review.rules_pack import discover_pack_rules
 from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
@@ -43,6 +48,7 @@ from devops_cli.security.tool_executor import (
 )
 from devops_cli.security.trivy import run_trivy_scan
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
+from tests.support.paths import FIXTURES
 from tests.support.registry_cache import REPLACED_RULESET
 
 _MANIFEST = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n"
@@ -582,6 +588,44 @@ def test_the_report_shows_a_row_for_each_distinct_record_and_counts_its_runs(
         f"`{' '.join(bandit.argv_template)}` | 1 |",
     ]
     assert section[2].startswith("| gitleaks | ") and section[2].endswith(" | 2 |")
+
+
+def test_the_sarif_of_a_review_holds_the_records_of_each_tool_that_gave_a_result(
+    tree: Path, orchestrator: ReviewPipelineOrchestrator
+) -> None:
+    """`findings.sarif` holds the records of Gitleaks in the run of Gitleaks, each in full. Bandit
+    gave no result, and its records do not say that it succeeded, so it gets no run (#1983)."""
+    executor = orchestrator.tool_executor
+    run_gitleaks_scan([tree / "app.py", tree / "other.py"], isolated=True, tool_executor=executor)
+    run_bandit_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
+    orchestrator.admitted_scanner_findings = [
+        Finding(
+            anchor=ToolAnchor(run_id="r1", result_index=0, rule_id="aws-access-key-id"),
+            tool="gitleaks",
+            rule_id="aws-access-key-id",
+            path="app.py",
+            line=1,
+            message="AWS access key",
+            severity="HIGH",
+            severity_derivation="rule",
+            fingerprint_v2="fp-gitleaks-1",
+        )
+    ]
+
+    orchestrator._persist_session_artifacts(ReviewSessionPayload(), ReviewSessionPayload(), "")
+
+    sarif = orchestrator.session.staging / CONST_REVIEW_SARIF_FILENAME
+    document = json.loads(sarif.read_text(encoding="utf-8"))
+    [run] = document["runs"]
+    gitleaks = [record for record in executor.runs if record.tool == "gitleaks"]
+    assert (
+        run["tool"]["driver"]["name"],
+        run["tool"]["driver"]["version"],
+        [ToolRun.model_validate(record) for record in run["properties"]["tool_runs"]],
+        len(gitleaks),
+    ) == ("gitleaks", gitleaks[0].version, gitleaks, 2)
+    schema = json.loads((FIXTURES / "sarif-schema-2.1.0.json").read_text(encoding="utf-8"))
+    jsonschema.validators.validator_for(schema)(schema).validate(document)
 
 
 def test_a_report_of_a_review_that_ran_no_tool_has_no_tool_runs_section(tmp_path: Path) -> None:

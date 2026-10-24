@@ -9,13 +9,19 @@ SARIF needs no bespoke parser at all.
 Emission and ingestion are inverses over the normalized taxonomy, which is what the
 round-trip tests assert.
 
+A review keeps the `ToolRun` of each run of its tools. The run of a tool in the document holds
+each record of that tool in its property bag, under `tool_runs`, with the field names of
+`ToolRun`. The driver takes the version of the records when no result names one. The module
+docstring of `devops_cli.security.tool_executor` gives the SARIF name of each field, and the reason
+why the record cannot fill the other SARIF names.
+
 Reference: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +44,7 @@ from devops_cli.security.normalization import (
 
 if TYPE_CHECKING:
     from devops_cli.security.base import ScanOutcome
+    from devops_cli.security.tool_executor import ToolRun
 
 CONST_SARIF_TOOL_NAME = "devops-cli"
 CONST_SARIF_TOOL_URI = "https://github.com/dan-petty/devops-cli"
@@ -48,6 +55,8 @@ _NOTIFICATION_LEVELS: dict[str, str] = {"failed": "error", "unavailable": "warni
 # GitHub code scanning shows a rule with this property as a recommendation, not an alert.
 _PROBLEM_SEVERITY_PROPERTY = "problem.severity"
 _PROBLEM_SEVERITY_RECOMMENDATION = "recommendation"
+# The property of a run that holds the records of its tool: the name of the field of the profile.
+_TOOL_RUNS_PROPERTY = "tool_runs"
 
 
 class SarifError(ValueError):
@@ -132,12 +141,25 @@ def _result_for(finding: NormalizedFinding, rule_index: int) -> dict[str, Any]:
     return result
 
 
+def _driver_version_of(findings: list[NormalizedFinding], records: Sequence[ToolRun]) -> str | None:
+    """The version that a result names, else the one version that every record names.
+
+    Records that name two versions do not say which version gave the results.
+    """
+    for finding in findings:
+        if finding.tool_version:
+            return finding.tool_version
+    versions = {record.version for record in records}
+    return versions.pop() if len(versions) == 1 else None
+
+
 def _run_for(
     tool: str,
     findings: list[NormalizedFinding],
     invocation: dict[str, Any] | None = None,
+    records: Sequence[ToolRun] = (),
 ) -> dict[str, Any]:
-    """Build one SARIF run for a single tool.
+    """Build one SARIF run for a single tool, with the records of the runs of that tool.
 
     Each tool gets its own run because a run carries exactly one tool driver; merging them
     would attribute every finding to whichever driver was written first.
@@ -159,10 +181,9 @@ def _run_for(
         "informationUri": CONST_SARIF_TOOL_URI,
         "rules": rules,
     }
-    for f in findings:
-        if f.tool_version:
-            driver["version"] = f.tool_version
-            break
+    version = _driver_version_of(findings, records)
+    if version:
+        driver["version"] = version
 
     run: dict[str, Any] = {
         "tool": {"driver": driver},
@@ -170,6 +191,10 @@ def _run_for(
     }
     if invocation is not None:
         run["invocations"] = [invocation]
+    if records:
+        run["properties"] = {
+            _TOOL_RUNS_PROPERTY: [record.model_dump(mode="json") for record in records]
+        }
     return run
 
 
@@ -212,7 +237,9 @@ def _orchestrator_invocation(outcomes: Mapping[str, ScanOutcome]) -> dict[str, A
 
 
 def _runs_for_outcomes(
-    by_tool: dict[str, list[NormalizedFinding]], outcomes: Mapping[str, ScanOutcome]
+    by_tool: dict[str, list[NormalizedFinding]],
+    outcomes: Mapping[str, ScanOutcome],
+    records: Mapping[str, list[ToolRun]],
 ) -> list[dict[str, Any]]:
     """Build one run per scanner that ran, and devops-cli's run for everything else.
 
@@ -229,6 +256,7 @@ def _runs_for_outcomes(
                 "executionSuccessful": True,
                 **_execution_window(outcomes[tool].started_utc, outcomes[tool].ended_utc),
             },
+            records.get(tool, []),
         )
         for tool in sorted(ran)
     ]
@@ -241,6 +269,7 @@ def _runs_for_outcomes(
 def to_sarif(
     findings: list[NormalizedFinding],
     outcomes: Mapping[str, ScanOutcome] | None = None,
+    tool_runs: Iterable[ToolRun] = (),
 ) -> dict[str, Any]:
     """Render normalized findings as a SARIF 2.1.0 document.
 
@@ -251,15 +280,25 @@ def to_sarif(
     With the scanners' outcomes, only a scanner that ran gets a run, and every other outcome
     becomes a notification on devops-cli's own invocation. Without them, as for ingested
     SARIF, each tool named by a finding gets a run.
+
+    `tool_runs` are the records of the runs of the tools, in the order of the runs. The run of a
+    tool holds the records of that tool. A record gives no tool a run. A record does not say that
+    its tool succeeded, and a run with no results says that the tool looked and found nothing.
     """
     by_tool: dict[str, list[NormalizedFinding]] = {}
     for finding in findings:
         by_tool.setdefault(finding.tool or CONST_SARIF_TOOL_NAME, []).append(finding)
+    records: dict[str, list[ToolRun]] = {}
+    for record in tool_runs:
+        records.setdefault(record.tool, []).append(record)
 
     if outcomes is not None:
-        runs = _runs_for_outcomes(by_tool, outcomes)
+        runs = _runs_for_outcomes(by_tool, outcomes, records)
     else:
-        runs = [_run_for(tool, tool_findings) for tool, tool_findings in sorted(by_tool.items())]
+        runs = [
+            _run_for(tool, tool_findings, records=records.get(tool, []))
+            for tool, tool_findings in sorted(by_tool.items())
+        ]
     if not runs:
         runs = [_run_for(CONST_SARIF_TOOL_NAME, [])]
 
