@@ -32,6 +32,7 @@ from devops_cli.telemetry.tracer import (
     reset_tracer,
 )
 from tests.support.session_spawns import record_spawns
+from tests.support.telemetry_capture import Captured
 
 
 @pytest.fixture(autouse=True)
@@ -290,6 +291,92 @@ def test_a_person_who_turns_on_capture_gets_each_argument_through_the_secret_mas
         [PROCESS_COMMAND_ARGS],
         False,
     )
+
+
+# A command line with a usage error, the name of the command `_delegate` runs, the class of the
+# error, and the start of its message. Each message quotes the credential that the person typed.
+_USAGE_ERRORS = [
+    pytest.param(
+        (
+            ["config", "set", "cloudflare.tunnel_token", "placeholder", _TYPED_CREDENTIAL],
+            "config",
+            "UsageError",
+            "Got unexpected extra argument",
+        ),
+        id="extra-argument-found-by-the-parser",
+    ),
+    pytest.param(
+        (
+            ["ai", "gateway", "tune", "--concurrency", _TYPED_CREDENTIAL],
+            "ai",
+            "BadParameter",
+            "is not a comma-separated list of integers",
+        ),
+        id="bad-parameter-raised-by-the-command",
+    ),
+]
+
+
+@pytest.fixture(params=_USAGE_ERRORS)
+def usage_error(
+    request: pytest.FixtureRequest,
+    cli: Any,
+    clean_tracer: list[tuple[str, dict[str, Any]]],
+) -> SimpleNamespace:
+    """Run `devops <argv>` with a usage error, and return the result, the expected error and each
+    payload that the tracer exported."""
+    argv, command, error_type, shown = request.param
+    result = cli(argv)
+    return SimpleNamespace(
+        result=result,
+        command=command,
+        error_type=error_type,
+        shown=shown,
+        payloads=[payload for _path, payload in clean_tracer],
+    )
+
+
+def test_a_usage_error_shows_the_error_box_of_typer(usage_error: SimpleNamespace) -> None:
+    """The person sees the error box of Typer, with the message, and the exit code of a usage
+    error (#2024)."""
+    output = usage_error.result.output
+    assert (usage_error.result.exit_code, "╭─ Error" in output, usage_error.shown in output) == (
+        2,
+        True,
+        True,
+    )
+
+
+def test_a_usage_error_records_its_class_and_exit_code_and_no_argument_text(
+    usage_error: SimpleNamespace,
+) -> None:
+    """The message of a usage error quotes what the person typed, so no span records it. The
+    command span records the class of the error and the exit code (#2024)."""
+    spans = {
+        span["name"]: {a["key"]: next(iter(a["value"].values())) for a in span["attributes"]}
+        for payload in usage_error.payloads
+        if "resourceSpans" in payload
+        for span in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    }
+    command_span = spans[f"cli.{usage_error.command}"]
+    assert (
+        _TYPED_CREDENTIAL in json.dumps(usage_error.payloads, default=str),
+        command_span.get("error.type"),
+        command_span.get("cli.exit_code"),
+        command_span.get("cli.status"),
+        "error.message" in command_span,
+    ) == (False, usage_error.error_type, "2", "error", False)
+
+
+def test_a_usage_error_counts_as_a_failed_command(usage_error: SimpleNamespace) -> None:
+    """`devops_cli_command_total` counts a command that stops on a usage error with the status
+    `error` (#2024)."""
+    sink = Captured()
+    for payload in usage_error.payloads:
+        sink("/v1/metrics", payload)
+    assert sink.points("devops_cli_command_total") == [
+        ({"command": usage_error.command, "status": "error"}, 1.0)
+    ]
 
 
 def test_subprocess_span_and_metrics(

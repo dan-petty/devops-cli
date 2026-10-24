@@ -1108,24 +1108,32 @@ class OTelTelemetryClient:
         attrs: dict[str, Any],
         exit_code: int | None,
     ) -> str:
-        """Populate span attributes for an exception and return a descriptive error message."""
+        """Populate span attributes for an exception and return a descriptive error message.
+
+        A usage error of Typer records its class and its exit code and no message: the message
+        quotes what the person typed, such as "Got unexpected extra argument (<value>)", and an
+        argument can be a credential (#2024).
+        """
+        import typer
+
         from devops_cli.security.sanitizer import mask_secrets
 
-        clean_msg = mask_secrets(str(exc))
-        error_msg = clean_msg or exc.__class__.__name__
         if isinstance(exc, KeyboardInterrupt):
             attrs["error.type"] = "KeyboardInterrupt"
             attrs["cli.interrupted"] = True
             return "Command cancelled by user (SIGINT / KeyboardInterrupt)"
 
         attrs["error.type"] = exc.__class__.__name__
-        attrs["error.message"] = clean_msg
         if exit_code is not None:
             attrs["cli.exit_code"] = exit_code
             attrs["process.exit.code"] = exit_code
-            if str(exc) == str(exit_code) or not str(exc):
-                error_msg = f"{exc.__class__.__name__}(exit_code={exit_code})"
-        return error_msg
+        if isinstance(exc, typer.TyperException):
+            return f"{exc.__class__.__name__}(exit_code={exit_code})"
+        clean_msg = mask_secrets(str(exc))
+        attrs["error.message"] = clean_msg
+        if exit_code is not None and (str(exc) == str(exit_code) or not str(exc)):
+            return f"{exc.__class__.__name__}(exit_code={exit_code})"
+        return clean_msg or exc.__class__.__name__
 
     def _resolve_parent(
         self,
