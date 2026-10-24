@@ -2,7 +2,7 @@
 (#1666, #1982, ADR 0007).
 
 Each run in `tests/fixtures/scanner_runs/recorded_runs.json` is the real tool's, at the version
-`tools.lock` pins, started through its adapter as a review starts it (Semgrep's on 2026-10-22,
+`tools.lock` pins, started through its adapter as a review starts it (Semgrep's on 2026-10-24,
 the others' on 2026-10-20), over one file holding `print("hello")`. Semgrep's recording ran
 offline, with the rule file `_SEMGREP_RULES` in place of the registry's `p/default`, which a
 recording cannot fetch. Each case starts the adapter that way again, through the default tool

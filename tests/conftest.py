@@ -193,6 +193,8 @@ def _is_numeric_host(host: Any, resolve: Callable[..., Any] = _ORIG_GETADDRINFO)
 _UNEXPECTED_LOOPBACK_CONNECTS: list[str] = []
 _ALLOWED_LIVE_BINARIES: set[str] = set()
 _UNREACHABLE_TARGETS: set[str] = set()
+# Whether the running test carries the `bwrap` mark, so it may start bubblewrap (#2096).
+_BWRAP_TEST: list[bool] = [False]
 
 
 def _matches_unreachable(host: str, port: int | None, unreachable: set[str]) -> bool:
@@ -421,13 +423,20 @@ def _is_allowed_kubectl_renderer(words: list[str]) -> bool:
 
 
 def _is_allowed_process(words: list[str]) -> bool:
-    """Report whether `words` names an allowed process (`git`, `bwrap`, offline kubectl, or `@pytest.mark.live`)."""
+    """Report whether `words` names an allowed process (`git`, `bwrap` in a `bwrap` test, offline kubectl, or `@pytest.mark.live`).
+
+    A review runs its tools in the sandbox by default (#2096), so a real tool would start as the
+    program that bubblewrap confines, where a refusal by its name does not see it. Bubblewrap
+    therefore starts only in a test with the `bwrap` mark, which runs the real sandbox.
+    """
     if not words:
         return True
     raw_program = words[0]
     program = Path(raw_program).name
-    if program in {"git", "bwrap"}:
+    if program == "git":
         return True
+    if program == "bwrap":
+        return _BWRAP_TEST[0]
     if program in _ALLOWED_LIVE_BINARIES or raw_program in _ALLOWED_LIVE_BINARIES:
         return True
     return program == "kubectl" and _is_allowed_kubectl_renderer(words)
@@ -525,6 +534,7 @@ def configure_edge_markers(request: pytest.FixtureRequest) -> Iterator[None]:
     """Populate `_ALLOWED_LIVE_BINARIES` and `_UNREACHABLE_TARGETS` from the test's markers (#1310)."""
     _ALLOWED_LIVE_BINARIES.clear()
     _UNREACHABLE_TARGETS.clear()
+    _BWRAP_TEST[0] = request.node.get_closest_marker("bwrap") is not None
     for marker in request.node.iter_markers("live"):
         for binary in marker.args:
             _register_live_binary(binary)
@@ -534,6 +544,7 @@ def configure_edge_markers(request: pytest.FixtureRequest) -> Iterator[None]:
     yield
     _ALLOWED_LIVE_BINARIES.clear()
     _UNREACHABLE_TARGETS.clear()
+    _BWRAP_TEST[0] = False
 
 
 @pytest.fixture(autouse=True)

@@ -40,6 +40,8 @@ from devops_cli.config.constants import (
     CONST_CANARY_SEMGREP_PROBES_YAML,
     CONST_CANARY_TOOLS,
     CONST_CANARY_WORKDIR_PREFIX,
+    CONST_MYPY_CACHE_DIR_ENV,
+    CONST_MYPY_CANARY_CACHE_DIR_NAME,
     CONST_REVIEW_CONFIG_FILE,
     CONST_TOOL_DIGEST_UNAVAILABLE,
 )
@@ -531,9 +533,12 @@ def _ruff_canary_arguments(_workdir: Path, lang_ver: str) -> list[str]:
         if lang_ver.startswith("py")
         else (parse_requires_python_target_version(lang_ver) or "py314")
     )
+    # No cache: Ruff keys its entries by the package of each file, and the canary file is in a
+    # new scratch directory in each run, so an entry would never be read again (#2096).
     return [
         "check",
         "--isolated",
+        "--no-cache",
         "--output-format=sarif",
         f"--target-version={target_ver}",
         "--select=B006",
@@ -545,20 +550,11 @@ def _bandit_canary_arguments(_workdir: Path, _lang_ver: str) -> list[str]:
     return ["--ignore-nosec", "-q", "--severity-level", "medium", "-f", "json", "canary.py"]
 
 
-def _mypy_canary_arguments(workdir: Path, lang_ver: str) -> list[str]:
+def _mypy_canary_arguments(_workdir: Path, lang_ver: str) -> list[str]:
     py_ver = lang_ver.removeprefix("py") if lang_ver else "3.14"
     if "." not in py_ver and len(py_ver) >= 2:
         py_ver = f"{py_ver[0]}.{py_ver[1:]}"
-    return [
-        "-I",
-        "-m",
-        "mypy",
-        f"--python-version={py_ver}",
-        "--no-error-summary",
-        "--cache-dir",
-        str(workdir / "mypy_cache"),
-        "canary.py",
-    ]
+    return ["-I", "-m", "mypy", f"--python-version={py_ver}", "--no-error-summary", "canary.py"]
 
 
 def _kubelinter_canary_arguments(_workdir: Path, _lang_ver: str) -> list[str]:
@@ -604,15 +600,20 @@ def build_canary_request(
     """The request that runs `tool` on its canary fixture in `workdir`.
 
     The tool starts in `workdir` and names its fixture by its file name. The Semgrep probes are
-    the ruleset of the Semgrep canary.
+    the ruleset of the Semgrep canary. The tool gets the limits of its scans. Mypy writes its cache
+    in a directory of `workdir`, which this makes. The sandbox binds `workdir` read-only, so the
+    request names that directory through `MYPY_CACHE_DIR` and as writable (#2096).
     """
-    from devops_cli.security.tool_executor import ToolRequest
+    from devops_cli.security.tool_executor import ToolLimits, ToolRequest
 
     norm = tool.lower()
     builder = _CANARY_ARGUMENT_BUILDERS.get(norm)
     if builder is None:
         raise ValueError(f"Unsupported canary tool: {tool}")
     arguments, fixture = builder
+    cache = workdir / CONST_MYPY_CANARY_CACHE_DIR_NAME
+    if norm == BIN_MYPY:
+        cache.mkdir(exist_ok=True)
     return ToolRequest(
         tool=norm,
         program=_canary_program(norm),
@@ -620,6 +621,9 @@ def build_canary_request(
         workdir=workdir,
         targets=(workdir / fixture,),
         ruleset_files=(workdir / "semgrep_probes.yaml",) if norm == "semgrep" else (),
+        writable_dirs=(cache,) if norm == BIN_MYPY else (),
+        env={CONST_MYPY_CACHE_DIR_ENV: str(cache)} if norm == BIN_MYPY else {},
+        limits=ToolLimits.for_tool(norm),
     )
 
 
@@ -669,10 +673,10 @@ def run_tool_canary(
 ) -> CanaryResult:
     """Run the canary for `tool` once per `(tool, version, binary_sha, language_version, ruleset_digest)`.
 
-    The canary starts its tool through `tool_executor`, and without one as a child process of
-    devops-cli, as a scan does. A review gives it the executor of its scans.
+    The canary starts its tool through `tool_executor`, and without one in the sandbox, as a scan
+    of a review does. A review gives it the executor of its scans.
     """
-    from devops_cli.security.tool_executor import DirectToolExecutor
+    from devops_cli.security.tool_executor import SandboxToolExecutor
 
     norm = tool.lower()
     det_ver, det_sha = resolve_tool_version_and_sha(norm, _canary_program(norm))
@@ -691,7 +695,7 @@ def run_tool_canary(
     if use_cache and key in _CANARY_CACHE:
         return _CANARY_CACHE[key]
 
-    executor = tool_executor or DirectToolExecutor()
+    executor = tool_executor or SandboxToolExecutor()
     with tempfile.TemporaryDirectory(prefix=f"{CONST_CANARY_WORKDIR_PREFIX}{norm}-") as tmp_dir:
         workdir = Path(tmp_dir)
         materialize_canary_fixtures(workdir)

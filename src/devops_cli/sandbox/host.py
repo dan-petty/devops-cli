@@ -362,21 +362,55 @@ def _repo_virtualenv_bin(root: Path) -> Path | None:
     return venv_bin if resolved.is_dir() and resolved.is_relative_to(root) else None
 
 
+def _is_safe_bind(path: Path, root: Path) -> bool:
+    """Whether the sandbox may show `path` to a tool: what it leads to holds neither the home
+    directory nor the repository, and passes through no credential directory.
+
+    A link can lead anywhere on the host, as the `.venv` of a reviewed repository can, so the
+    path is read as resolved.
+    """
+    try:
+        resolved = path.resolve()
+    except OSError, RuntimeError:
+        return False
+    guarded = [root]
+    with contextlib.suppress(RuntimeError):
+        guarded.append(Path.home().resolve())
+    if any(guard.is_relative_to(resolved) for guard in guarded):
+        return False
+    return not any(part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in resolved.parts)
+
+
 def _is_python_installation(prefix: Path, root: Path) -> bool:
     """Whether `prefix` is a Python installation the sandbox may bind, and nothing more.
 
     The reviewed repository can aim its virtualenv's `python` link anywhere on the host, so a
-    prefix qualifies only when it holds CPython's standard library, contains neither the home
-    directory nor the repository, and passes through no credential directory.
+    prefix qualifies only when it holds CPython's standard library and the sandbox may show it
+    (`_is_safe_bind`).
     """
-    guarded = [root]
-    with contextlib.suppress(RuntimeError):
-        guarded.append(Path.home().resolve())
-    if any(path.is_relative_to(prefix) for path in guarded):
-        return False
-    if any(part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in prefix.parts):
-        return False
-    return any(prefix.glob(CONST_PYTHON_STDLIB_LANDMARK_GLOB))
+    return _is_safe_bind(prefix, root) and any(prefix.glob(CONST_PYTHON_STDLIB_LANDMARK_GLOB))
+
+
+def _is_shown(path: Path, shown: Sequence[Path]) -> bool:
+    """Whether `path` is in one of the directories that the sandbox shows already."""
+    return any(path.is_relative_to(directory) for directory in shown)
+
+
+def _named_installation(link: Path, installation: Path) -> Path | None:
+    """The path at which the `python` link of a virtualenv names `installation` through another
+    link, or None when it names the installation by its own path.
+
+    uv links the `python` of an environment to the link of the minor version of its interpreter,
+    such as `cpython-3.14`, and that link leads to `cpython-3.14.7`. The `home` of `pyvenv.cfg`
+    names the same path. Python finds its standard library from that path, so the sandbox binds
+    the installation there too.
+    """
+    try:
+        named = Path(os.path.normpath(link.parent / os.readlink(link))).parent.parent
+        leads_there = named.resolve(strict=True) == installation
+    except OSError, RuntimeError:
+        return None
+    return named if leads_there and named != installation else None
 
 
 def _virtualenv_interpreter_binds(
@@ -386,18 +420,37 @@ def _virtualenv_interpreter_binds(
 
     A virtualenv's `python` links to the interpreter it was made from: one under `/usr`, or one
     uv or pyenv installed elsewhere, such as below the home directory. Outside the mounts the
-    link would dangle, so that installation is bound, if it is one.
+    link would dangle, so that installation is bound, if it is one: at its own path, and at the
+    path that the link names when the link names it through another link.
     """
+    link = venv_bin / "python"
     try:
-        interpreter = (venv_bin / "python").resolve(strict=True)
+        interpreter = link.resolve(strict=True)
     except OSError, RuntimeError:
         return None
-    if any(interpreter.is_relative_to(path) for path in visible):
+    if _is_shown(interpreter, visible):
         return []
     prefix = interpreter.parent.parent
     if not _is_python_installation(prefix, root):
         return None
-    return ["--ro-bind", str(prefix), str(prefix)]
+    named = _named_installation(link, prefix)
+    destinations = [prefix, *([named] if named and not _is_shown(named, visible) else [])]
+    return [arg for path in destinations for arg in ("--ro-bind", str(prefix), str(path))]
+
+
+def _checked_bind(path: Path, root: Path) -> Path:
+    """`path`, when the sandbox may show it to a tool (`_is_safe_bind`).
+
+    A bind that would show the home directory, the directories beside the repository or a
+    credential directory raises `SandboxValidationError`, so the tool does not start.
+    """
+    if not _is_safe_bind(path, root):
+        raise SandboxValidationError(
+            f"The sandbox does not bind {path}: it holds the home directory or the tree, or it "
+            "passes through a credential directory",
+            path=str(path),
+        )
+    return path
 
 
 class HostSandbox:
@@ -489,6 +542,30 @@ class HostSandbox:
             env_args.extend(["--setenv", k, v])
         return env_args
 
+    def _bind_args(
+        self, root: Path, read_only_binds: Sequence[Path], writable_binds: Sequence[Path]
+    ) -> list[str]:
+        """The bind options of the paths outside the repository that a command needs.
+
+        Each read-only bind that the system directories, the repository or an earlier bind do not
+        show is bound read-only at its own path. A read-only bind that is a virtualenv also binds
+        the Python installation that its `python` links to, behind the guard of the `.venv` of
+        the repository. Each writable bind is bound read-write at its own path, last, so a
+        read-only bind above it does not hide it. Every bind passes `_checked_bind` first.
+        """
+        visible = (*map(Path, self.policy.system_dirs), root)
+        args: list[str] = []
+        shown: list[Path] = list(visible)
+        for path in read_only_binds:
+            if not _is_shown(path, shown):
+                args.extend(["--ro-bind", str(_checked_bind(path, root)), str(path)])
+                shown.append(path)
+            if (path / "pyvenv.cfg").is_file():
+                args.extend(_virtualenv_interpreter_binds(path / "bin", root, visible) or [])
+        for path in writable_binds:
+            args.extend(["--bind", str(_checked_bind(path, root)), str(path)])
+        return args
+
     def build_bwrap_args(
         self,
         command_args: list[str],
@@ -496,12 +573,13 @@ class HostSandbox:
         repo_root: Path | None = None,
         env: dict[str, str] | None = None,
         read_only_binds: Sequence[Path] = (),
+        writable_binds: Sequence[Path] = (),
     ) -> list[str]:
         """Compile complete bubblewrap argument list.
 
         The caller's `env` wins over the repository's environment, which wins over the policy's.
-        Each of `read_only_binds` is bound read-only at its own path, after the mounts of the
-        repository, so a path below the tmpfs is not hidden by it.
+        `read_only_binds` and `writable_binds` are bound after the mounts of the repository, so a
+        path below the tmpfs is not hidden by it (`_bind_args`).
         """
         mount_args, resolved_cwd = self._resolve_repo_mounts(cwd, repo_root)
         root = _effective_repo_root(resolved_cwd, repo_root)
@@ -521,7 +599,7 @@ class HostSandbox:
             + self._resolve_system_mounts()
             + mount_args
             + env_mounts
-            + [arg for path in read_only_binds for arg in ("--ro-bind", str(path), str(path))]
+            + self._bind_args(root, read_only_binds, writable_binds)
             + self._build_env_args(repo_env | (env or {}))
             + ["--chdir", str(resolved_cwd), "--"]
             + command_args

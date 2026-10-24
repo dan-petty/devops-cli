@@ -37,13 +37,18 @@ from pydantic import ValidationError
 from devops_cli.ai.run_store import digest, file_digest
 from devops_cli.config.constants import (
     CONST_ERROR_CODE_SANDBOX,
+    CONST_ERROR_CODE_SANDBOX_UNAVAILABLE,
     CONST_ERROR_CODE_SANDBOX_VALIDATION,
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
     CONST_TOOL_DIGEST_UNAVAILABLE,
     CONST_TOOL_EXECUTOR_DIRECT,
 )
 from devops_cli.config.defaults import DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
-from devops_cli.exceptions.sandbox import SandboxError, SandboxValidationError
+from devops_cli.exceptions.sandbox import (
+    SandboxError,
+    SandboxUnavailableError,
+    SandboxValidationError,
+)
 from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
 from devops_cli.security.tool_executor import (
     DirectToolExecutor,
@@ -939,13 +944,14 @@ def test_a_limit_under_two_gibibytes_of_address_space_is_refused() -> None:
 
 
 def test_a_host_without_bubblewrap_is_refused(scenario: Scenario, tmp_path: Path) -> None:
-    """The executor fails closed: it never runs a tool outside the sandbox."""
+    """The executor fails closed: it never runs a tool outside the sandbox. The refusal says that
+    the host cannot start the sandbox, so a scan reports a coverage gap (#2096)."""
     executor = SandboxToolExecutor(HostSandbox(bwrap_binary=tmp_path / "no-bwrap"))
 
-    with pytest.raises(SandboxError, match="bubblewrap") as refused:
+    with pytest.raises(SandboxUnavailableError, match="bubblewrap") as refused:
         executor.run(scenario.request())
 
-    assert refused.value.error_code == CONST_ERROR_CODE_SANDBOX
+    assert refused.value.error_code == CONST_ERROR_CODE_SANDBOX_UNAVAILABLE
 
 
 def test_a_host_without_prlimit_is_refused(

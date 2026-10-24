@@ -93,6 +93,28 @@ def test_live_marker_allows_installed_binary_and_skips_missing_binary(
     result.assert_outcomes(passed=1, skipped=1)
 
 
+def test_the_floor_refuses_bubblewrap_in_a_test_without_the_bwrap_mark(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A review runs its tools in the sandbox by default (#2096). There a real tool starts as the
+    program that bubblewrap confines, and a refusal of the tool by its name does not see it. So
+    bubblewrap starts only in a test with the `bwrap` mark. The floor refuses the start before
+    the program runs, so the case is the same on a host with bubblewrap and on one without it.
+    The `bwrap` tests themselves show that the mark lets bubblewrap start."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import subprocess
+
+        def test_unmarked():
+            subprocess.run(["bwrap", "--version"])
+        """,
+    )
+    assert "process edge reached without a fake: bwrap --version" in result.stdout.str()
+    assert result.parseoutcomes().get("passed", 0) == 0
+
+
 def test_uncaught_and_caught_network_reaches_fail_with_edge_name(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:

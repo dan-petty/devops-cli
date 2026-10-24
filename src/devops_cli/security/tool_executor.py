@@ -5,19 +5,35 @@ tree. Code that runs a tool builds a `ToolRequest` and calls `ToolExecutor.run`.
 `ToolResult`. It holds the output of the tool and a `ToolRun`, the record of what ran. A test
 installs `ToolExecutorFake` in its place (`tests/support/fakes/tool_executor.py`).
 
-`DirectToolExecutor` starts the tool as a child process of devops-cli, with no sandbox and no
-limit but the wall clock. It is how every scanner ran before this seam, and it is the executor that
-a scanner gets when nobody gives it another. `SandboxToolExecutor` is the executor that confines.
-It does not confine or limit a process itself. It builds one command from three programs that
-already do this work:
+A review runs its tools in `SandboxToolExecutor` (#2096). The command layer makes one for each
+review and gives it to the orchestrator, which gives it to every analyzer, evidence tool and canary.
+A review has no way to run its tools outside the sandbox (decision 1 of #772).
+`DirectToolExecutor` starts the tool as a child process of devops-cli, with no sandbox and no limit
+but the wall clock. It is the executor that a scanner gets when nobody gives it another, as the
+scans of `devops scan`, `devops k8s audit` and the agent tools do. Those are not reviews.
+
+`SandboxToolExecutor` does not confine or limit a process itself. It builds one command from three
+programs that already do this work:
 
 - bubblewrap, through `HostSandbox`. It gives no network, a cleared environment, a read-only tree,
   read-only inputs and a private temporary HOME. When the sandbox process ends, the process tree
   in it ends (`--die-with-parent` and the process namespace of the sandbox). No code here ends a
   process.
 - `prlimit` from util-linux. It sets the CPU limit and the address space limit of the tool. No code
-  of devops-cli calls `setrlimit` or `preexec_fn`.
+  of devops-cli calls `setrlimit` or `preexec_fn`. Gitleaks and Semgrep reserve more address space
+  than the least, so they get the value that `ToolLimits.for_tool` names.
 - `run_subprocess` of `core.process`. It starts the command and ends it at the wall-clock limit.
+
+The sandbox shows the tool only the system directories, the tree and what the request names. So it
+binds the program of the tool: the virtualenv that holds it in its `bin`, else the program file. A
+read-only bind that is a virtualenv also binds the Python installation that its `python` links to,
+behind the guard of `HostSandbox`. A request names the directories that its tool writes, such as
+the caches of mypy and Ruff, in `writable_dirs`, and the sandbox binds them read-write.
+
+Before its first run, the executor checks that the host can start the sandbox. A host without
+bubblewrap or prlimit, or one whose kernel refuses bubblewrap a user namespace, fails closed: each
+run raises `SandboxUnavailableError`, and no tool runs, in the sandbox or outside it. A scan
+reports the cause as a coverage gap, and the review says the cause one time.
 
 There is no limit on the number of processes. RLIMIT_NPROC counts every process of the user, so a
 limit set inside the sandbox would starve the shells and servers of the host.
@@ -59,6 +75,7 @@ import os
 import shutil
 import stat
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -68,15 +85,18 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from devops_cli.ai.run_store import digest, file_digest
 from devops_cli.config.constants import (
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
+    CONST_TOOL_ADDRESS_SPACE_BYTES,
     CONST_TOOL_CONFIG_PLACEHOLDER,
     CONST_TOOL_CPU_LIMIT_SECONDS,
     CONST_TOOL_DIGEST_UNAVAILABLE,
     CONST_TOOL_EXECUTOR_DIRECT,
     CONST_TOOL_EXECUTOR_SANDBOX,
     CONST_TOOL_GO_MEMORY_LIMIT,
+    CONST_TOOL_HOST_READ_ONLY_PATHS,
     CONST_TOOL_MIN_ADDRESS_SPACE_BYTES,
     CONST_TOOL_PRLIMIT_BINARY,
     CONST_TOOL_RULESET_PLACEHOLDER,
+    CONST_TOOL_SANDBOX_CHECK_TIMEOUT_SECONDS,
     CONST_TOOL_TARGETS_PLACEHOLDER,
 )
 from devops_cli.config.defaults import (
@@ -86,7 +106,11 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import is_safe_subpath, nearest_checkout
-from devops_cli.exceptions.sandbox import SandboxError, SandboxValidationError
+from devops_cli.exceptions.sandbox import (
+    SandboxError,
+    SandboxUnavailableError,
+    SandboxValidationError,
+)
 from devops_cli.review.canary import resolve_tool_binary, resolve_tool_version_and_sha
 
 if TYPE_CHECKING:
@@ -109,6 +133,19 @@ class ToolLimits(_Frozen):
     )
     wall_seconds: float = Field(default=DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS, gt=0)
 
+    @classmethod
+    def for_tool(
+        cls, tool: str, *, wall_seconds: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
+    ) -> ToolLimits:
+        """The limits of `tool`: the address space that it was measured to need
+        (`CONST_TOOL_ADDRESS_SPACE_BYTES`), else the least, and `wall_seconds`."""
+        return cls(
+            address_space_bytes=CONST_TOOL_ADDRESS_SPACE_BYTES.get(
+                tool, CONST_TOOL_MIN_ADDRESS_SPACE_BYTES
+            ),
+            wall_seconds=wall_seconds,
+        )
+
 
 class ToolRequest(_Frozen):
     """One run of a review tool.
@@ -128,6 +165,8 @@ class ToolRequest(_Frozen):
     names a ruleset, such as a rule pack or the metadata file of a database. The executor binds
     each of these files read-only and digests its content into the record. `read_only_binds` are
     the other paths that the tool needs read-only, such as its install directory and a database.
+    `writable_dirs` are the directories that the tool writes and that stay after the run, such as
+    the cache of mypy. The sandbox binds each one read-write. The direct executor needs neither.
 
     `workdir` is the tree. The tool starts in `cwd`, and in the tree when `cwd` is none. A scan that
     must not read the config files of the tree starts in a scratch directory of its own. The
@@ -143,6 +182,7 @@ class ToolRequest(_Frozen):
     config_files: tuple[Path, ...] = ()
     ruleset_files: tuple[Path, ...] = ()
     read_only_binds: tuple[Path, ...] = ()
+    writable_dirs: tuple[Path, ...] = ()
     env: dict[str, str] = Field(default_factory=dict)
     limits: ToolLimits = Field(default_factory=ToolLimits)
 
@@ -440,14 +480,29 @@ def _start(
     return ToolResult(run=run, exit_code=ended.returncode, stdout=ended.stdout, stderr=ended.stderr)
 
 
+def _program_binds(program: Path) -> tuple[Path, ...]:
+    """What the sandbox binds so that `program` starts: the virtualenv that holds the program in
+    its `bin`, with its interpreter link and its packages, else the program file."""
+    environment = program.parent.parent
+    return (environment,) if (environment / "pyvenv.cfg").is_file() else (program,)
+
+
+def _host_paths(tool: str) -> tuple[Path, ...]:
+    """The paths of the host that `tool` reads when it starts and that exist
+    (`CONST_TOOL_HOST_READ_ONLY_PATHS`)."""
+    paths = (Path(path) for path in CONST_TOOL_HOST_READ_ONLY_PATHS.get(tool, ()))
+    return tuple(path for path in paths if path.exists())
+
+
 class DirectToolExecutor:
     """Starts each tool as a child process of devops-cli, through `run_subprocess`.
 
-    There is no sandbox, and the only limit is the wall clock of the request. This is how a
-    scanner started its tool before the seam existed, and it is the executor of a scanner that
-    nobody gave another, until a later part of #772 switches the review to the sandbox. A scan
-    must end as it ended before, so a checkout that git cannot read does not stop it: the record
-    of the run holds no commit. Otherwise the record is built as the sandbox executor builds it.
+    There is no sandbox, and the only limit is the wall clock of the request. It is the executor
+    of a scanner that nobody gave another: the scans of `devops scan`, `devops k8s audit` and the
+    agent tools, which are not reviews. A review never runs its tools here. A scan must end as it
+    ended before the seam existed, so a checkout that git cannot read does not stop it: the
+    record of the run holds no commit. Otherwise the record is built as the sandbox executor
+    builds it.
     """
 
     def run(self, request: ToolRequest) -> ToolResult:
@@ -477,21 +532,97 @@ class DirectToolExecutor:
 
 
 class SandboxToolExecutor:
-    """Runs each tool in a bubblewrap sandbox, under `prlimit`, through `run_subprocess`."""
+    """Runs each tool in a bubblewrap sandbox, under `prlimit`, through `run_subprocess`.
+
+    Before its first run, the executor checks that the host can start the sandbox: bubblewrap and
+    prlimit are installed, and bubblewrap can make a sandbox with `prlimit -- true` in it. The
+    check runs one time. On a host that fails it, each run raises `SandboxUnavailableError` with
+    the cause, and `refusal` keeps the cause. No tool then runs, in the sandbox or outside it.
+    """
 
     def __init__(self, sandbox: HostSandbox | None = None) -> None:
-        # Imported here. The sandbox pulls in the container engine, which a scanner that runs
-        # directly never needs.
-        from devops_cli.sandbox.host import HostSandbox
+        self._given_sandbox = sandbox
+        self._built_sandbox: HostSandbox | None = None
+        self._checked = False
+        self._refusal: str | None = None
 
-        self._sandbox = sandbox or HostSandbox()
+    @property
+    def _sandbox(self) -> HostSandbox:
+        """The bubblewrap sandbox, made at its first use. It pulls in the library of the container
+        engine, which a review that starts no tool, such as a dry run, never needs."""
+        if self._given_sandbox is not None:
+            return self._given_sandbox
+        if self._built_sandbox is None:
+            from devops_cli.sandbox.host import HostSandbox
+
+            self._built_sandbox = HostSandbox()
+        return self._built_sandbox
+
+    @property
+    def refusal(self) -> str | None:
+        """Why this executor ran no tool: the cause that it found on the host, or None."""
+        return self._refusal
+
+    def _prlimit(self) -> str:
+        """The full path of `prlimit`. The PATH of the sandbox leads with the `.venv/bin` of the
+        reviewed tree, and the tree could put a `prlimit` there that sets no limit."""
+        prlimit = shutil.which(CONST_TOOL_PRLIMIT_BINARY)
+        if prlimit is None:
+            raise SandboxUnavailableError(
+                f"{CONST_TOOL_PRLIMIT_BINARY} (util-linux) is not installed"
+            )
+        return prlimit
+
+    def _host_cause(self) -> str | None:
+        """Why this host cannot start the sandbox, or None when it can.
+
+        The kernel can refuse bubblewrap a user namespace, as AppArmor does on Ubuntu 24.04 for a
+        program with no profile that allows it. Only a start shows that, so the check starts
+        `prlimit -- true` in a sandbox of an empty directory.
+        """
+        if not self._sandbox.is_available():
+            return f"bubblewrap ({self._sandbox.bwrap_binary}) is not installed"
+        try:
+            prlimit = self._prlimit()
+        except SandboxUnavailableError as missing:
+            return missing.message
+        with tempfile.TemporaryDirectory(prefix="devops-sandbox-check-") as scratch:
+            empty = Path(scratch)
+            command = self._sandbox.build_bwrap_args([prlimit, "--", "true"], empty, empty)
+            try:
+                done = run_subprocess(
+                    command,
+                    quiet=True,
+                    check=False,
+                    input="",
+                    timeout=CONST_TOOL_SANDBOX_CHECK_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                return (
+                    "bubblewrap did not start a sandbox in "
+                    f"{CONST_TOOL_SANDBOX_CHECK_TIMEOUT_SECONDS:g} s"
+                )
+        if done.returncode == 0:
+            return None
+        detail = next(iter(done.stderr.strip().splitlines()), f"exit code {done.returncode}")
+        return f"bubblewrap cannot make a sandbox on this host: {detail}"
+
+    def _check_host(self) -> None:
+        """Raise `SandboxUnavailableError` when this host cannot start the sandbox. The host is
+        checked one time."""
+        if not self._checked:
+            self._refusal = self._host_cause()
+            self._checked = True
+        if self._refusal is not None:
+            raise SandboxUnavailableError(self._refusal)
 
     def command(self, request: ToolRequest) -> list[str]:
         """The whole command that runs `request`: bubblewrap, its options, `prlimit` and the tool.
 
         The tool starts from the program of the request, by its path, else from the binary of the
-        tool on the PATH of the host. The sandbox binds the read-only binds of the request, so a
-        request names the directory of a program outside the tree there.
+        tool on the PATH of the host. The sandbox binds the program (`_program_binds`), the paths
+        of the host that the tool reads when it starts (`_host_paths`), the read-only binds of the
+        request, its config and ruleset files, and its writable directories read-write.
         """
         if request.program is not None and not request.program.is_file():
             raise SandboxError(
@@ -501,47 +632,46 @@ class SandboxToolExecutor:
         binary = request.program or resolve_tool_binary(request.tool)
         if binary is None:
             raise SandboxError(f"The review tool {request.tool} is not installed on this host")
-        # By its full path. The PATH of the sandbox leads with the `.venv/bin` of the reviewed
-        # tree. The tree could put a `prlimit` there that sets no limit.
-        prlimit = shutil.which(CONST_TOOL_PRLIMIT_BINARY)
-        if prlimit is None:
-            raise SandboxError(
-                f"{CONST_TOOL_PRLIMIT_BINARY} (util-linux) is not installed, so a review tool "
-                "cannot run under its limits"
-            )
         root = request.workdir.resolve()
-        inputs = (*request.read_only_binds, *request.config_files, *request.ruleset_files)
-        outside = dict.fromkeys(path for path in inputs if not path.resolve().is_relative_to(root))
         limits = request.limits
         tool_command = [
-            prlimit,
+            self._prlimit(),
             f"--cpu={limits.cpu_seconds}",
             f"--as={limits.address_space_bytes}",
             "--",
             str(binary),
             *_expand_targets(request.arguments, _resolved_targets(request)),
         ]
+        inputs = (
+            *request.read_only_binds,
+            *_program_binds(binary),
+            *_host_paths(request.tool),
+            *request.config_files,
+            *request.ruleset_files,
+        )
         return self._sandbox.build_bwrap_args(
             tool_command,
             request.cwd or root,
             repo_root=root,
             env={**request.env, "GOMEMLIMIT": CONST_TOOL_GO_MEMORY_LIMIT},
-            read_only_binds=list(outside),
+            read_only_binds=list(dict.fromkeys(inputs)),
+            writable_binds=request.writable_dirs,
         )
 
     def run(self, request: ToolRequest) -> ToolResult:
         """Run the tool of `request` in the sandbox and answer how it ended and what ran.
 
-        A tool, a sandbox or a limit program that the host lacks raises `SandboxError` before
-        anything starts. So does a target outside the tree. A host without bubblewrap runs no tool.
-        A later change decides the policy for such hosts.
+        A request that cannot run raises `SandboxError` before anything starts: a tool that the
+        host lacks, a target outside the tree, or a bind that the sandbox refuses. A host that
+        cannot start the sandbox raises `SandboxUnavailableError` with the cause, and runs no
+        tool.
         """
-        command = self.command(request)
-        if not self._sandbox.is_available():
-            raise SandboxError(
-                f"bubblewrap ({self._sandbox.bwrap_binary}) is not installed, so a review tool "
-                "cannot run in its sandbox"
-            )
+        try:
+            command = self.command(request)
+            self._check_host()
+        except SandboxUnavailableError as refused:
+            self._refusal = refused.message
+            raise
         version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
         run = record_tool_run(
             request,

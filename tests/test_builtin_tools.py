@@ -505,6 +505,8 @@ def _semgrep_directory_scan(target: Path, *configs: str) -> list[str]:
         "--metrics",
         "off",
         "--disable-version-check",
+        "--jobs",
+        "4",
         *(arg for config in (*configs, str(RULE_PACK_DIR)) for arg in ("--config", config)),
         "--disable-nosem",
         *("--exclude", ".venv", "--exclude", "venv", "--exclude", "node_modules"),

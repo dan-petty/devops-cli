@@ -500,6 +500,131 @@ def test_sandbox_ignores_a_virtualenv_linked_from_outside_the_repository(
     )
 
 
+def _virtualenv(venv: Path, interpreter: Path) -> Path:
+    """A virtualenv whose `bin/python` links to `interpreter`, with the `pyvenv.cfg` of one."""
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(f"home = {interpreter.parent}\n", encoding="utf-8")
+    (venv / "bin" / "python").symlink_to(interpreter)
+    return venv
+
+
+def _tree(path: Path) -> Path:
+    """A checkout to bind as the tree."""
+    (path / ".git").mkdir(parents=True)
+    return path
+
+
+def test_sandbox_binds_the_python_installation_of_a_virtualenv_outside_the_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read-only bind that is a virtualenv also binds the Python installation that its `python`
+    links to (#2096). uv links that `python` through the link of the minor version, such as
+    `cpython-3.14` to `cpython-3.14.7`. So the installation is bound at that path too, and the
+    link of the virtualenv resolves in the sandbox."""
+    root = tmp_path.resolve()
+    monkeypatch.setenv("HOME", str(root / "home"))
+    pythons = root / "home" / ".local" / "share" / "uv" / "python"
+    installation = pythons / "cpython-3.14.7"
+    _python_installation(installation)
+    (pythons / "cpython-3.14").symlink_to(installation)
+    venv = _virtualenv(root / "checkout" / ".venv", pythons / "cpython-3.14" / "bin" / "python3.14")
+    tree = _tree(root / "tree")
+
+    args = HostSandbox().build_bwrap_args(
+        ["true"], cwd=tree, repo_root=tree, read_only_binds=[venv]
+    )
+
+    assert _repo_binds(args) == [
+        ["--ro-bind", str(tree), str(tree)],
+        ["--ro-bind", str(venv), str(venv)],
+        ["--ro-bind", str(installation), str(installation)],
+        ["--ro-bind", str(installation), str(pythons / "cpython-3.14")],
+    ]
+
+
+@pytest.mark.parametrize("case", ["no stdlib landmark", "home directory", "credential directory"])
+def test_sandbox_never_binds_an_installation_that_a_virtualenv_outside_the_tree_aims_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    """The reviewed repository sets where the `python` of its `.venv` links. The guard of the
+    `.venv` of the tree holds for a `.venv` outside the tree too: only a Python installation that
+    holds neither the home directory nor the tree, and passes through no credential directory, is
+    bound."""
+    root = tmp_path.resolve()
+    home = root / "home"
+    monkeypatch.setenv("HOME", str(home))
+    prefix = {
+        "no stdlib landmark": root / "opt" / "tool",
+        "home directory": home,
+        "credential directory": home / ".ssh" / "python",
+    }[case]
+    interpreter = _python_installation(prefix)
+    if case == "no stdlib landmark":
+        (prefix / "lib" / "python3.14" / "os.py").unlink()
+    venv = _virtualenv(root / "checkout" / ".venv", interpreter)
+    tree = _tree(root / "tree")
+
+    args = HostSandbox().build_bwrap_args(
+        ["true"], cwd=tree, repo_root=tree, read_only_binds=[venv]
+    )
+
+    assert _repo_binds(args) == [
+        ["--ro-bind", str(tree), str(tree)],
+        ["--ro-bind", str(venv), str(venv)],
+    ]
+
+
+@pytest.mark.parametrize("case", ["home directory", "above the tree", "credential directory"])
+@pytest.mark.parametrize("kind", ["read_only_binds", "writable_binds"])
+def test_sandbox_refuses_a_bind_that_holds_the_home_directory_the_tree_or_a_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str, kind: str
+) -> None:
+    """A bind outside the tree comes from a path that a tool reads or writes, and the `.venv` of a
+    reviewed repository can link anywhere. A bind that would show the home directory, the
+    directories beside the tree or a credential directory to the tool is refused, so nothing
+    starts."""
+    root = tmp_path.resolve()
+    home = root / "home"
+    (home / ".ssh" / "keys").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    tree = _tree(root / "workspace" / "tree")
+    bind = {
+        "home directory": home,
+        "above the tree": root / "workspace",
+        "credential directory": home / ".ssh" / "keys",
+    }[case]
+
+    with pytest.raises(SandboxValidationError):
+        HostSandbox().build_bwrap_args(["true"], cwd=tree, repo_root=tree, **{kind: [bind]})
+
+
+def test_sandbox_binds_each_writable_directory_read_write_after_the_read_only_binds(
+    tmp_path: Path,
+) -> None:
+    """A writable directory, such as the cache of mypy, is bound read-write at its own path, last,
+    so a read-only bind above it does not hide it. A read-only bind that the system directories or
+    the tree show already is not bound again."""
+    root = tmp_path.resolve()
+    tree = _tree(root / "tree")
+    tools = root / "tools"
+    cache = tools / "cache"
+    cache.mkdir(parents=True)
+
+    args = HostSandbox().build_bwrap_args(
+        ["true"],
+        cwd=tree,
+        repo_root=tree,
+        read_only_binds=[tools, tree / "src", Path("/usr/bin")],
+        writable_binds=[cache],
+    )
+
+    assert _repo_binds(args) == [
+        ["--ro-bind", str(tree), str(tree)],
+        ["--ro-bind", str(tools), str(tools)],
+        ["--bind", str(cache), str(cache)],
+    ]
+
+
 def test_host_sandbox_reports_a_timeout_apart_from_a_failure(tmp_path: Path) -> None:
     """A command stopped at its time limit is marked timed out; one that exits non-zero is not (#847)."""
     stub_bwrap = tmp_path / "bwrap"

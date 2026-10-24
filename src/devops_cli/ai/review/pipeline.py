@@ -2032,7 +2032,8 @@ class ReviewPipelineOrchestrator:
     `target_dir` is the absolute path of the reviewed directory: the orchestrator finds the
     reviewed tree, the files and their siblings, the manifests and the review config from it.
     `tool_executor` starts every analyzer, evidence tool and canary of the review. The command
-    layer reads the working directory one time and gives these down, so no stage reads it.
+    layer reads the working directory one time and gives these down, so no stage reads it. A
+    review that gets no executor runs its tools in the sandbox (`SandboxToolExecutor`, #2096).
     """
 
     def __init__(
@@ -2056,13 +2057,13 @@ class ReviewPipelineOrchestrator:
     ) -> None:
         # Imported here: the executor pulls in the sandbox, which a review that does not start a
         # tool does not need.
-        from devops_cli.security.tool_executor import DirectToolExecutor, RecordingToolExecutor
+        from devops_cli.security.tool_executor import RecordingToolExecutor, SandboxToolExecutor
 
         # One executor for the whole review, so every analyzer starts its tool the same way. It
         # keeps the record of every run, for the report and the profile (#772). The canaries of
         # the tools run on the same executor with no record: a canary checks a tool on a fixture
         # of its own and scans nothing of the review (#1978).
-        executor = tool_executor or DirectToolExecutor()
+        executor = tool_executor or SandboxToolExecutor()
         self.tool_executor = RecordingToolExecutor(executor)
         self._canary_executor: ToolExecutor = executor
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -2136,8 +2137,13 @@ class ReviewPipelineOrchestrator:
         )
 
     def _ensure_tool_canaries(self, tools: Sequence[str]) -> None:
-        """Run or read cached canary results for active review tools (#1143)."""
+        """Run or read cached canary results for active review tools (#1143).
+
+        A canary that the host cannot sandbox did not run, so it has no result and withholds no
+        finding. The scan of its tool runs no tool either, and reports the coverage gap (#2096).
+        """
         from devops_cli.dry_run.state import is_dry_run
+        from devops_cli.exceptions.sandbox import SandboxUnavailableError
         from devops_cli.review.canary import get_canary_cache, run_tool_canary
 
         tree = reviewed_tree(self.target_dir)
@@ -2153,9 +2159,12 @@ class ReviewPipelineOrchestrator:
                 self.canary_results[norm] = True
                 continue
             lang_ver = _tool_language_version(norm, tree, self.kubernetes_version)
-            res = run_tool_canary(
-                norm, language_version=lang_ver, tool_executor=self._canary_executor
-            )
+            try:
+                res = run_tool_canary(
+                    norm, language_version=lang_ver, tool_executor=self._canary_executor
+                )
+            except SandboxUnavailableError:
+                continue
             self.canary_results[norm] = res.passed
 
     def _resolve_file_path(self, fpath: str) -> Path:

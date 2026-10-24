@@ -79,6 +79,7 @@ from devops_cli.telemetry import trace_span
 if TYPE_CHECKING:
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
     from devops_cli.github.client import GitHubClient, PullRequest, PullRequestFile
+    from devops_cli.security.tool_executor import SandboxToolExecutor, ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -1281,6 +1282,17 @@ def _session_start(orchestrator: ReviewPipelineOrchestrator, count: int) -> str:
     )
 
 
+def _report_sandbox_refusal(executor: SandboxToolExecutor) -> None:
+    """Say one time why the tools of the review did not run, when the host could not start the
+    sandbox, and what a person can do on the host (#2096)."""
+    from devops_cli.lang import MESSAGES
+
+    if executor.refusal is not None:
+        print_warning(
+            MESSAGES.review.tools_not_sandboxed.format(cause=executor.refusal), prefix=False
+        )
+
+
 def _execute_review_workflow(
     pages: list[str],
     title: str,
@@ -1309,9 +1321,10 @@ def _execute_review_workflow(
     The files kept off the pages still reach the secret scan: a path review names them in
     `routed_files`, and a branch or PR's are the changes in `base_revision` they match (#948).
     When no page is left, no model is called.
+
+    The review runs its tools in the sandbox, and in no other place. When the host cannot start
+    the sandbox, no tool runs, and the review says why when it ends (#2096, decision 1 of #772).
     """
-    from devops_cli.ai.review.history import review_subject
-    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
     from devops_cli.lang import MESSAGES
 
     all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
@@ -1329,6 +1342,53 @@ def _execute_review_workflow(
     _check_and_warn_perimeter_changes(
         target_type, all_files, base_revision=base_revision, target_dir=target_dir
     )
+    from devops_cli.security.tool_executor import SandboxToolExecutor
+
+    executor = SandboxToolExecutor()
+    try:
+        return _run_review_with_executor(
+            pages,
+            all_files,
+            clients,
+            executor,
+            target_dir=target_dir,
+            target_type=target_type,
+            target_ref=target_ref,
+            stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
+            base_revision=base_revision,
+            full_output=full_output,
+            routed_files=routed_files,
+            session_id=session_id,
+            partial_context=partial_context,
+        )
+    finally:
+        _report_sandbox_refusal(executor)
+
+
+def _run_review_with_executor(
+    pages: list[str],
+    all_files: list[str],
+    clients: ReviewClients,
+    executor: ToolExecutor,
+    *,
+    target_dir: Path,
+    target_type: Literal["branch", "pr", "path"],
+    target_ref: str,
+    stage_flags: ReviewStageFlags | None,
+    concurrency: int | None,
+    parallel: bool,
+    base_revision: BaseRevision | None,
+    full_output: bool,
+    routed_files: Sequence[str],
+    session_id: str | None,
+    partial_context: bool,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """Build the orchestrator of the review with `executor` and run the review of `all_files`."""
+    from devops_cli.ai.review.history import review_subject
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
     subject = review_subject(target_type, target_ref, pages)
     orchestrator = ReviewPipelineOrchestrator(
         session_id=session_id,
@@ -1346,6 +1406,7 @@ def _execute_review_workflow(
         ),
         base_revision=base_revision,
         partial_context=partial_context,
+        tool_executor=executor,
     )
     if not all_files:
         return _review_routed_files_only(orchestrator, stage_flags)

@@ -134,6 +134,8 @@ def test_command_builders(tmp_path: Path) -> None:
         "--metrics",
         "off",
         "--disable-version-check",
+        "--jobs",
+        "4",
         "--config",
         "p/default",
         "--config",
