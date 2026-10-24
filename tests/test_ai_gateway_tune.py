@@ -28,6 +28,8 @@ from devops_cli.ai.gateway_tune import (
     recommend_weights,
     tune_pool,
 )
+from devops_cli.ai.run_store import Mechanism, new_run
+from devops_cli.ai.spend.models import BackendSpendSummary
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.defaults import DEFAULT_GATEWAY_TUNE_IMAGE
 from devops_cli.config.settings import AIConfig
@@ -729,6 +731,246 @@ def _tune_both_deployments(
     )
 
 
+def test_tune_pool_uses_spend_ledger_cost_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify cost tokens per request is taken from the spend ledger when recorded."""
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 3090", memory_mib=24576, bandwidth_gbps=936.0)
+        ],
+    )
+
+    fake_ledger = MagicMock()
+    fake_report = MagicMock()
+    fake_report.backends = [
+        BackendSpendSummary(
+            served_by=REMOTE_OPENAI,
+            models=["devops-review"],
+            request_count=50,
+            prompt_tokens=10000,
+            completion_tokens=7500,
+            total_tokens=17500,
+            completion_tokens_per_request=150.0,
+            mean_duration_seconds=1.2,
+        )
+    ]
+    fake_ledger.get_lifetime_report.return_value = fake_report
+
+    measured_specs: list[dict[str, Any]] = []
+
+    def fake_measure(spec: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+        measured_specs.append(spec)
+        dep_id = spec["deployments"][0]["deployment_id"]
+        return [
+            {
+                "deployment_id": dep_id,
+                "engine": {"engine": "vllm"},
+                "capacity": [_level(1, 100)],
+                "cost": None,
+            }
+        ]
+
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
+
+    report = tune_pool(
+        gateway_url=REMOTE_OPENAI,
+        allow_private=True,
+        api_key=None,
+        model_group="devops-review",
+        levels=[1],
+        rounds=1,
+        prompt_tokens=100,
+        max_tokens=50,
+        request_timeout=10.0,
+        namespace="llm",
+        deployment="llm-gateway",
+        spend_ledger=fake_ledger,
+    )
+
+    dep = report.deployments[0]
+    assert dep.cost_tokens_per_request == 150.0
+    assert measured_specs[0].get("include_cost") is False
+
+
+def test_tune_pool_falls_back_to_synthetic_probe_when_spend_ledger_has_no_backend_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify cost falls back to probe when spend ledger has no records for the backend."""
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 3090", memory_mib=24576, bandwidth_gbps=936.0)
+        ],
+    )
+
+    fake_ledger = MagicMock()
+    fake_report = MagicMock()
+    fake_report.backends = []
+    fake_ledger.get_lifetime_report.return_value = fake_report
+
+    measured_specs: list[dict[str, Any]] = []
+
+    def fake_measure(spec: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+        measured_specs.append(spec)
+        dep_id = spec["deployments"][0]["deployment_id"]
+        return [
+            {
+                "deployment_id": dep_id,
+                "engine": {"engine": "vllm"},
+                "capacity": [_level(1, 100)],
+                "cost": _level(1, 200),
+            }
+        ]
+
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
+
+    report = tune_pool(
+        gateway_url=REMOTE_OPENAI,
+        allow_private=True,
+        api_key=None,
+        model_group="devops-review",
+        levels=[1],
+        rounds=1,
+        prompt_tokens=100,
+        max_tokens=50,
+        request_timeout=10.0,
+        namespace="llm",
+        deployment="llm-gateway",
+        spend_ledger=fake_ledger,
+    )
+
+    dep = report.deployments[0]
+    assert dep.cost_tokens_per_request == 100.0
+    assert measured_specs[0].get("include_cost") is True
+
+
+def test_tune_pool_estimate_scales_capacity_by_gpu_bandwidth_without_sending_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify capacity estimation scales by GPU memory bandwidth from measured deployment without sending load."""
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: [MODEL_INFO[1]],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 3090", memory_mib=24576, bandwidth_gbps=936.0),
+            GpuInfo(name="RTX 3090", memory_mib=24576, bandwidth_gbps=936.0),
+        ],
+    )
+
+    prior_run = new_run(
+        Mechanism.GATEWAY_TUNE,
+        setup={"levels": [1, 2], "rounds": 1, "prompt_tokens": 512, "max_tokens": 100},
+        subject={"model_group": "devops-review"},
+        results={
+            "model_group": "devops-review",
+            "prompt_tokens": 512,
+            "max_tokens": 100,
+            "deployments": [
+                {
+                    "deployment_id": "b-old",
+                    "backend": "ollama-0",
+                    "model": "ollama_chat/gpt-oss:20b",
+                    "api_base": OLLAMA_0,
+                    "engine": "ollama",
+                    "gpus": [{"name": "RTX 3090", "memory_mib": 24576, "bandwidth_gbps": 936.0}],
+                    "capacity_tokens_per_second": 60.0,
+                    "cost_tokens_per_request": 300.0,
+                    "best_concurrency": 2,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.load_runs", lambda mechanism=None: [prior_run])
+
+    fake_ledger = MagicMock()
+    fake_report = MagicMock()
+    fake_report.backends = [
+        BackendSpendSummary(
+            served_by=OLLAMA_0,
+            models=["devops-review"],
+            request_count=100,
+            prompt_tokens=20000,
+            completion_tokens=24000,
+            total_tokens=44000,
+            completion_tokens_per_request=240.0,
+            mean_duration_seconds=2.0,
+        )
+    ]
+    fake_ledger.get_lifetime_report.return_value = fake_report
+
+    measure_mock = MagicMock()
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", measure_mock)
+
+    report = tune_pool(
+        gateway_url=REMOTE_OPENAI,
+        allow_private=True,
+        api_key=None,
+        model_group="devops-review",
+        levels=[1],
+        rounds=1,
+        prompt_tokens=100,
+        max_tokens=50,
+        request_timeout=10.0,
+        namespace="llm",
+        deployment="llm-gateway",
+        spend_ledger=fake_ledger,
+        estimate=True,
+    )
+
+    assert measure_mock.call_count == 0
+    dep = report.deployments[0]
+    assert dep.capacity_tokens_per_second == 120.0
+    assert dep.cost_tokens_per_request == 240.0
+    assert dep.requests_per_second == 0.5
+    assert dep.best_concurrency == 2
+
+
+def test_tune_pool_estimate_fails_when_no_prior_measured_deployment_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify estimate raises GatewayTuneError when no matching prior measurement exists."""
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: [MODEL_INFO[0]],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 3090", memory_mib=24576, bandwidth_gbps=936.0)
+        ],
+    )
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.load_runs", lambda mechanism=None: [])
+
+    with pytest.raises(GatewayTuneError, match="No prior measurements found"):
+        tune_pool(
+            gateway_url=REMOTE_OPENAI,
+            allow_private=True,
+            api_key=None,
+            model_group="devops-review",
+            levels=[1],
+            rounds=1,
+            prompt_tokens=100,
+            max_tokens=50,
+            request_timeout=10.0,
+            namespace="llm",
+            deployment="llm-gateway",
+            estimate=True,
+        )
+
+
 def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify weights follow capacity (tokens/s) divided by cost (tokens per request)."""
     settings = MagicMock()
@@ -798,4 +1040,68 @@ def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPat
             ("remote", "vllm", 4, 800.0, 100.0, 8.0, 16, 936.0),
             ("ollama-0", "ollama", 1, 100.0, 200.0, 0.5, 1, 936.0),
         ],
+    )
+
+
+def test_tune_command_estimate_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify tune command with --estimate runs without sweep container and records run."""
+    settings = MagicMock()
+    settings.ai = AIConfig(gateway_url=REMOTE_OPENAI)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: "sk-gw")
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 4090", memory_mib=24576, bandwidth_gbps=1008.0)
+        ],
+    )
+
+    prior_run = new_run(
+        Mechanism.GATEWAY_TUNE,
+        setup={"levels": [1], "rounds": 1, "prompt_tokens": 512, "max_tokens": 100},
+        subject={"model_group": "devops-review"},
+        results={
+            "model_group": "devops-review",
+            "prompt_tokens": 512,
+            "max_tokens": 100,
+            "deployments": [
+                {
+                    "deployment_id": "a-baseline",
+                    "backend": "remote",
+                    "model": "openai/qwen2.5-coder-32b-instruct",
+                    "api_base": REMOTE_OPENAI,
+                    "engine": "vllm",
+                    "gpus": [{"name": "RTX 3090", "memory_mib": 24576, "bandwidth_gbps": 936.0}],
+                    "capacity_tokens_per_second": 468.0,
+                    "cost_tokens_per_request": 100.0,
+                    "best_concurrency": 4,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.load_runs", lambda mechanism=None: [prior_run])
+
+    recorded_runs: list[Any] = []
+    monkeypatch.setattr(
+        "devops_cli.commands.ai_gateway.record_run",
+        lambda *args, **kwargs: (
+            recorded_runs.append((args, kwargs)) or MagicMock(run_id="run-123", path=Path("p"))
+        ),
+    )
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.announce_run", lambda *args, **kwargs: None)
+
+    measure_mock = MagicMock()
+    monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", measure_mock)
+
+    result = runner.invoke(gateway_cli_app, ["tune", "--estimate", "--format", "json"])
+    assert result.exit_code == 0
+    assert measure_mock.call_count == 0
+    assert len(recorded_runs) == 1
+    report = json.loads(result.stdout)
+    assert report["deployments"][0]["capacity_tokens_per_second"] == round(
+        468.0 * (1008.0 / 936.0), 2
     )

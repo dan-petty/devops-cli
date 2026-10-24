@@ -29,6 +29,8 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai import gateway, gateway_bench
 from devops_cli.ai.gateway import fetch_model_info
+from devops_cli.ai.run_store import Mechanism, RunRecord, load_runs
+from devops_cli.ai.spend.ledger import SpendLedger, get_spend_ledger
 from devops_cli.config.constants import (
     CONST_CONTINUOUS_BATCHING_ENGINES,
     CONST_DEFAULT_CONTINUOUS_CONCURRENCY,
@@ -613,7 +615,115 @@ def measure_in_gateway_pod(
     return results
 
 
-def _tuned(dep: dict[str, Any], result: dict[str, Any], gpus: list[GpuInfo]) -> DeploymentTune:
+def infer_engine(dep: dict[str, Any], prior_runs: list[RunRecord]) -> str:
+    """Infer the serving engine from api_base, backend, or prior recorded runs."""
+    if dep.get("engine") and dep["engine"] != "unknown":
+        return str(dep["engine"])
+    api_base = str(dep.get("api_base") or "").lower()
+    backend = str(backend_label(api_base)).lower()
+    if "ollama" in api_base or "ollama" in backend:
+        return "ollama"
+    if "vllm" in api_base or "vllm" in backend:
+        return "vllm"
+    dep_id = str(dep.get("deployment_id") or "")
+    model = str(dep.get("model") or "")
+    for run in reversed(prior_runs):
+        for d in run.results.get("deployments", []):
+            if (
+                d.get("deployment_id") == dep_id
+                or d.get("backend") == backend
+                or d.get("model") == model
+            ):
+                if d.get("engine") and d.get("engine") != "unknown":
+                    return str(d["engine"])
+    return "unknown"
+
+
+def find_measured_deployment(
+    runs: list[RunRecord],
+    model: str,
+    engine: str,
+) -> DeploymentTune | None:
+    """Find the most recent measured deployment with matching model and engine."""
+    for run in reversed(runs):
+        deployments = run.results.get("deployments") or []
+        for d in deployments:
+            if (
+                d.get("model") == model
+                and d.get("engine") == engine
+                and float(d.get("capacity_tokens_per_second") or 0.0) > 0.0
+            ):
+                return DeploymentTune.model_validate(d)
+    return None
+
+
+def get_spend_costs(ledger: SpendLedger | None) -> dict[str, float]:
+    """Map backend labels and API bases to completion tokens per request from the spend ledger."""
+    if ledger is None:
+        return {}
+    report = ledger.get_lifetime_report()
+    costs: dict[str, float] = {}
+    for b in report.backends:
+        if b.completion_tokens_per_request > 0:
+            costs[b.served_by] = b.completion_tokens_per_request
+            label = backend_label(b.served_by)
+            if label:
+                costs[label] = b.completion_tokens_per_request
+    return costs
+
+
+def estimate_deployment(
+    dep: dict[str, Any],
+    gpus: list[GpuInfo],
+    engine: str,
+    prior_runs: list[RunRecord],
+    spend_costs: dict[str, float],
+    prompt_tokens: int,
+) -> DeploymentTune:
+    """Estimate a deployment's capacity and cost without sending load."""
+    measured = find_measured_deployment(prior_runs, dep["model"], engine)
+    if not measured:
+        raise GatewayTuneError(
+            f"No prior measurements found for model '{dep['model']}' and engine '{engine}'. "
+            "Run without --estimate first to measure baseline."
+        )
+    target_bw = _deployment_bandwidth_sum({"gpus": gpus})
+    measured_bw = _deployment_bandwidth_sum(measured)
+    scale = (target_bw / measured_bw) if measured_bw > 0 else 1.0
+    cap_tps = round(measured.capacity_tokens_per_second * scale, 2)
+    b_label = backend_label(dep["api_base"])
+    cost_toks = (
+        spend_costs.get(b_label)
+        or spend_costs.get(dep["api_base"])
+        or measured.cost_tokens_per_request
+    )
+    rps = round(cap_tps / cost_toks, 4) if cost_toks else 0.0
+    tokens = deployment_prompt_tokens(prompt_tokens, dep.get("max_input_tokens"))
+    return DeploymentTune(
+        deployment_id=dep["deployment_id"],
+        backend=b_label,
+        model=dep["model"],
+        api_base=dep["api_base"],
+        current_weight=dep.get("weight"),
+        prompt_tokens=tokens,
+        engine=engine,
+        kv_cache_tokens=measured.kv_cache_tokens,
+        gpus=gpus,
+        capacity=[],
+        cost=None,
+        best_concurrency=measured.best_concurrency,
+        capacity_tokens_per_second=cap_tps,
+        cost_tokens_per_request=round(cost_toks, 2) if cost_toks else None,
+        requests_per_second=rps,
+    )
+
+
+def _tuned(
+    dep: dict[str, Any],
+    result: dict[str, Any],
+    gpus: list[GpuInfo],
+    cost_tokens_per_request: float | None = None,
+) -> DeploymentTune:
     capacity = [LevelResult(**lvl) for lvl in result.get("capacity") or []]
     cost = LevelResult(**result["cost"]) if result.get("cost") else None
     best = max(
@@ -621,7 +731,11 @@ def _tuned(dep: dict[str, Any], result: dict[str, Any], gpus: list[GpuInfo]) -> 
         key=lambda lvl: lvl.tokens_per_second,
         default=None,
     )
-    tokens_per_request = cost.tokens_per_request if cost else None
+    tokens_per_request = (
+        cost_tokens_per_request
+        if cost_tokens_per_request is not None
+        else (cost.tokens_per_request if cost else None)
+    )
     capacity_tps = best.tokens_per_second if best else 0.0
     engine = result.get("engine") or {}
     return DeploymentTune(
@@ -662,6 +776,8 @@ def tune_pool(
     on_deployment: Callable[[dict[str, Any]], None] | None = None,
     overrides: dict[str, int] | None = None,
     concurrency_overrides: dict[str, int] | None = None,
+    spend_ledger: SpendLedger | None = None,
+    estimate: bool = False,
 ) -> TuneReport:
     """Measure each deployment of ``model_group``, one at a time, and recommend weights."""
     model_info = fetch_model_info(gateway_url, allow_private, api_key)
@@ -671,38 +787,67 @@ def tune_pool(
     if not pool:
         raise GatewayTuneError(f"The gateway has no deployments for '{model_group}'.")
 
-    # Each capacity level's workers, and then the cost pass, send `rounds` requests in turn.
-    exec_timeout = request_timeout * rounds * (len(levels) + 1) + 60
-    # One container serves every deployment, so it must outlive all of their sweeps.
-    run_container = f"gateway-tune-{uuid.uuid4().hex[:6]}"
+    if spend_ledger is None:
+        spend_ledger = get_spend_ledger()
+    spend_costs = get_spend_costs(spend_ledger)
+
     tuned: list[DeploymentTune] = []
-    for dep in pool:
-        if on_deployment:
-            on_deployment(dep)
-        tokens = deployment_prompt_tokens(prompt_tokens, dep["max_input_tokens"])
-        spec = {
-            "deployments": [{k: dep[k] for k in ("deployment_id", "model", "api_base")}],
-            "levels": levels,
-            "rounds": rounds,
-            "prompt": review_prompt(tokens),
-            "max_tokens": max_tokens,
-            "timeout": request_timeout,
-        }
-        result = measure_in_gateway_pod(
-            spec,
-            namespace=namespace,
-            deployment=deployment,
-            context=context,
-            timeout=exec_timeout,
-            image=image,
-            container=run_container,
-            lifetime_seconds=exec_timeout * len(pool),
-        )
-        tuned.append(
-            _tuned(dep, result[0], deployment_gpus(dep["api_base"], context)).model_copy(
-                update={"prompt_tokens": tokens}
+    if estimate:
+        prior_runs = load_runs(Mechanism.GATEWAY_TUNE)
+        for dep in pool:
+            if on_deployment:
+                on_deployment(dep)
+            gpus = deployment_gpus(dep["api_base"], context)
+            engine = infer_engine(dep, prior_runs)
+            tuned.append(
+                estimate_deployment(
+                    dep=dep,
+                    gpus=gpus,
+                    engine=engine,
+                    prior_runs=prior_runs,
+                    spend_costs=spend_costs,
+                    prompt_tokens=prompt_tokens,
+                )
             )
-        )
+    else:
+        # Each capacity level's workers, and then the cost pass, send `rounds` requests in turn.
+        exec_timeout = request_timeout * rounds * (len(levels) + 1) + 60
+        # One container serves every deployment, so it must outlive all of their sweeps.
+        run_container = f"gateway-tune-{uuid.uuid4().hex[:6]}"
+        for dep in pool:
+            if on_deployment:
+                on_deployment(dep)
+            tokens = deployment_prompt_tokens(prompt_tokens, dep["max_input_tokens"])
+            b_label = backend_label(dep["api_base"])
+            spend_cost = spend_costs.get(b_label) or spend_costs.get(dep["api_base"])
+            include_cost = spend_cost is None
+            spec = {
+                "deployments": [{k: dep[k] for k in ("deployment_id", "model", "api_base")}],
+                "levels": levels,
+                "rounds": rounds,
+                "prompt": review_prompt(tokens),
+                "max_tokens": max_tokens,
+                "timeout": request_timeout,
+                "include_cost": include_cost,
+            }
+            result = measure_in_gateway_pod(
+                spec,
+                namespace=namespace,
+                deployment=deployment,
+                context=context,
+                timeout=exec_timeout,
+                image=image,
+                container=run_container,
+                lifetime_seconds=exec_timeout * len(pool),
+            )
+            tuned.append(
+                _tuned(
+                    dep,
+                    result[0],
+                    deployment_gpus(dep["api_base"], context),
+                    cost_tokens_per_request=spend_cost,
+                ).model_copy(update={"prompt_tokens": tokens})
+            )
 
     measured_rates = {t.deployment_id: t.requests_per_second for t in tuned}
     if any(rate > 0 for rate in measured_rates.values()):
@@ -740,8 +885,13 @@ __all__ = [
     "deployment_gpus",
     "deployment_prompt_tokens",
     "discover_pool",
+    "estimate_deployment",
+    "find_measured_deployment",
+    "get_spend_costs",
     "gpu_bandwidth_gbps",
     "gpu_inventory",
+    "infer_engine",
+    "load_runs",
     "measure_in_gateway_pod",
     "recommend_weights",
     "review_prompt",

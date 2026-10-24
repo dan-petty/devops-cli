@@ -1662,6 +1662,7 @@ devops ai gateway tune [OPTIONS]
 | `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
 | `--context` | `string` | - | Kubernetes context override. |
 | `--image` | `string` | `python:3.14-slim` | Python image for the sweep container. |
+| `--estimate` | `boolean` | - | Estimate capacity from prior measurements and GPU memory bandwidth without sending load. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai gateway load`

@@ -354,7 +354,9 @@ def _render_tune_report(report: TuneReport) -> None:
             f"{dep.prompt_tokens:,}",
             f"{dep.capacity_tokens_per_second:.0f} @ {dep.best_concurrency}"
             if dep.best_concurrency
-            else "-",
+            else (
+                f"{dep.capacity_tokens_per_second:.0f}" if dep.capacity_tokens_per_second else "-"
+            ),
             "-" if dep.cost_tokens_per_request is None else f"{dep.cost_tokens_per_request:.0f}",
             f"{dep.requests_per_second:.2f}",
             "-" if dep.current_weight is None else f"{dep.current_weight:g}",
@@ -418,6 +420,13 @@ def tune_cmd(
     image: Annotated[
         str, typer.Option("--image", help="Python image for the sweep container.")
     ] = DEFAULT_GATEWAY_TUNE_IMAGE,
+    estimate: Annotated[
+        bool,
+        typer.Option(
+            "--estimate",
+            help="Estimate capacity from prior measurements and GPU memory bandwidth without sending load.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
@@ -460,6 +469,7 @@ def tune_cmd(
             on_deployment=announce,
             overrides=settings.ai.gateway_weights,
             concurrency_overrides=settings.ai.gateway_concurrency,
+            estimate=estimate,
         )
     except (AICredentialsError, GatewayTuneError) as exc:
         print_error(str(exc))
@@ -472,6 +482,7 @@ def tune_cmd(
             "rounds": max(1, rounds),
             "prompt_tokens": report.prompt_tokens,
             "max_tokens": report.max_tokens,
+            "estimate": estimate,
             "pool": sorted(
                 (
                     {
