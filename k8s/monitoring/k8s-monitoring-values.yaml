@@ -312,8 +312,39 @@ collectors:
     presets:
       - clustered
       - statefulset
+    # The write-ahead log is on the claim `alloy-wal`, so a pod restart keeps the samples that
+    # Alloy buffered and did not send, for example while Prometheus is down (#1967). The Alloy chart
+    # mounts no claim by itself, so `mounts.extra` mounts it at `storagePath`. Alloy keeps unsent
+    # samples for up to 8h (`max_keepalive_time`) and truncates the log every 2h; at the 14 MB/h it
+    # writes, that is about 140 MB. local-path binds the volume on the node where the pod first
+    # runs, and the affinity keeps the pod off the control-plane node, whose root disk has the least
+    # free space (#1634). Kubernetes does not let an upgrade change `volumeClaimTemplates`: see
+    # k8s/README.md, Alloy Metrics Write-Ahead Log.
+    controller:
+      volumeClaimTemplates:
+        - metadata:
+            name: alloy-wal
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: local-path
+            resources:
+              requests:
+                storage: 1Gi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
     alloy:
       enableReporting: false
+      storagePath: /var/lib/alloy
+      mounts:
+        extra:
+          - name: alloy-wal
+            mountPath: /var/lib/alloy
       resources:
         requests:
           cpu: 100m

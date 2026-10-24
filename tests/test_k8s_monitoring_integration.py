@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -29,6 +29,9 @@ HOST_UNIT_PATTERN = f"({'|'.join(HOST_UNITS)})\\.service"
 
 # The k8s-monitoring chart's presets that set an Alloy collector's controller (`collectors/presets/`).
 CONTROLLER_PRESETS = {"singleton", "daemonset", "statefulset", "deployment"}
+
+# The well-known label that Kubernetes puts on each control-plane node.
+CONTROL_PLANE_LABEL = "node-role.kubernetes.io/control-plane"
 
 # The scrape jobs prometheus 29.35.0's values.yaml defines. The chart renders each one unless its
 # `scrapeConfigs` entry sets `enabled: false`, so a job the values leave out is on.
@@ -408,6 +411,57 @@ def test_alloy_writes_the_cluster_name_once() -> None:
     values = _k8s_monitoring_values()
 
     assert values["destinations"]["localPrometheus"]["clusterLabels"] == ["cluster"]
+
+
+def test_alloy_metrics_keeps_its_write_ahead_log_on_a_volume_off_the_control_plane_node() -> None:
+    """The alloy-metrics StatefulSet keeps its write-ahead log on a volume from its own claim
+    template, so a pod restart keeps the samples that Alloy buffered and did not send (#1967).
+    The Alloy chart mounts no claim by itself: `alloy.storagePath` must sit under a writable
+    `alloy.mounts.extra` entry that names the claim. Without the value, the chart writes the log in
+    the container's own filesystem. local-path binds the volume on
+    the node where the pod first runs, and the control-plane node's root disk has the least free
+    space (#1634), so the pod's node affinity keeps it off that node."""
+    collector = _k8s_monitoring_values()["collectors"]["alloy-metrics"]
+    controller = collector.get("controller", {})
+    alloy = collector["alloy"]
+    storage_path = alloy.get("storagePath")
+
+    assert {
+        "mounts holding the storage path": [
+            mount["name"]
+            for mount in alloy.get("mounts", {}).get("extra", [])
+            if storage_path
+            and PurePosixPath(storage_path).is_relative_to(mount["mountPath"])
+            and not mount.get("readOnly")
+        ],
+        "claim templates": {
+            claim["metadata"]["name"]: claim["spec"]
+            for claim in controller.get("volumeClaimTemplates", [])
+        },
+        "affinity": controller.get("affinity"),
+    } == {
+        "mounts holding the storage path": ["alloy-wal"],
+        "claim templates": {
+            "alloy-wal": {
+                "accessModes": ["ReadWriteOnce"],
+                "storageClassName": "local-path",
+                "resources": {"requests": {"storage": "1Gi"}},
+            }
+        },
+        "affinity": {
+            "nodeAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": {
+                    "nodeSelectorTerms": [
+                        {
+                            "matchExpressions": [
+                                {"key": CONTROL_PLANE_LABEL, "operator": "DoesNotExist"}
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+    }
 
 
 def test_k8s_monitoring_ksm_telemetry_service_config() -> None:
