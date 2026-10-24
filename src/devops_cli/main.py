@@ -133,8 +133,10 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
         if _runs_a_review(command_name, args)
         else contextlib.nullcontext()
     )
-    args_summary = " ".join(effective_args) if effective_args else ""
     start_time = time.perf_counter()
+    # The span holds the number of arguments and no argument value: an argument can be a
+    # credential (`devops config set <key> <value>`), and the span goes to the trace backend.
+    # OpenTelemetry gives `process.command_args` as Opt-In for this reason (#1996).
     with (
         rule,
         trace_span(
@@ -143,7 +145,6 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 "cli.command": command_name,
                 "code.function": command_name,
                 "code.namespace": module_path,
-                "cli.args": args_summary,
                 "cli.args_count": len(effective_args),
                 "cli.module": module_path,
                 "cli.version": __version__,
