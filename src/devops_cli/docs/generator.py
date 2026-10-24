@@ -1138,6 +1138,12 @@ class DocGenerator:
             "`telemetry.capture_command_args` is `true`. The profiled command runs as a program "
             "of devops-cli, so with that option on, its `subprocess.<program>` span under the "
             "profile span holds the arguments in `process.command_args`.",
+            "- **LLM Content Gating**: Native AI inference spans (`ai.llm.dispatch`) omit "
+            "`llm.prompt_preview` and `llm.response_preview` by default, and Logfire "
+            "configures `instrument_pydantic_ai(include_content=False)` and scrubs private "
+            "host patterns. To record prompt and response previews for debugging, set "
+            "`telemetry.capture_llm_content` to `true` "
+            "(`devops config set telemetry.capture_llm_content true`).",
             "- **Usage Errors**: The message of a usage error quotes the arguments, such as "
             "`Got unexpected extra argument (<value>)` from the parser or a `typer.BadParameter` "
             "that a command raises. Thus the command spans record the class of the error "

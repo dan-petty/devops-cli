@@ -349,6 +349,11 @@ class TelemetryConfig(BaseModel):
         "`process.command_args` on its subprocess span, each argument through the secret mask. "
         "Off by default: an argument can be a credential that the mask does not find",
     )
+    capture_llm_content: bool = Field(
+        default=False,
+        description="Record LLM prompt and reply text in OpenTelemetry and Logfire telemetry spans. "
+        "Off by default to prevent exposure of sensitive data",
+    )
     logfire: bool = False
     logfire_token: str | None = None
     logfire_send_to_logfire: bool | str = "if-token-present"

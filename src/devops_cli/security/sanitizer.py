@@ -296,6 +296,16 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
     ),
 )
 
+PRIVATE_HOST_PATTERNS: tuple[str, ...] = (
+    r"\b[a-zA-Z0-9_.-]+\.(?:internal|local|lan|corp|home\.arpa)\b",
+    r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+    r"\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b",
+    r"\b192\.168\.\d{1,3}\.\d{1,3}\b",
+    r"\b169\.254\.\d{1,3}\.\d{1,3}\b",
+    r"\b127\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+    r"\blocalhost\b",
+)
+
 
 def redact_text(text: str) -> str:
     """Sanitize and redact known credential and secret patterns in the input text."""

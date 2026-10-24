@@ -817,6 +817,7 @@ class OTelTelemetryClient:
         service_version: str | None = None,
         enabled: bool = True,
         capture_command_args: bool = False,
+        capture_llm_content: bool = False,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         env_protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
@@ -840,6 +841,9 @@ class OTelTelemetryClient:
         # Whether a subprocess span records the arguments of its program (`process.command_args`,
         # Opt-In in the semantic conventions): `telemetry.capture_command_args` (#2025).
         self.capture_command_args = capture_command_args
+        # Whether an AI inference span records prompt and response preview text:
+        # `telemetry.capture_llm_content` (#606).
+        self.capture_llm_content = capture_llm_content
         self._http_client: httpx2.Client | None = None
         self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
@@ -1489,6 +1493,7 @@ def get_tracer() -> OTelTelemetryClient:
                 protocol=protocol,
                 enabled=telemetry.enabled,
                 capture_command_args=telemetry.capture_command_args,
+                capture_llm_content=telemetry.capture_llm_content,
             )
         return _GLOBAL_TRACER
 

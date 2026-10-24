@@ -49,7 +49,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import LLMInferenceError
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import get_tracer, record_metric, trace_span
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -157,7 +157,8 @@ def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) ->
         span_handle.set_attribute("gen_ai.usage.reasoning.output_tokens", res.reasoning_tokens)
     _set_timing_span_attributes(span_handle, res)
     _set_finish_reason_attribute(span_handle, res.finish_reason)
-    span_handle.set_attribute("llm.response_preview", res.text[:200].replace("\n", " ").strip())
+    if get_tracer().capture_llm_content:
+        span_handle.set_attribute("llm.response_preview", res.text[:200].replace("\n", " ").strip())
     span_handle.set_attribute("llm.response.thinking", bool(res.thinking))
     span_handle.add_event("llm_response_received", _response_event_payload(res, p))
 
@@ -392,10 +393,11 @@ class LLMClient(
             "llm.request.system_prompt_length": len(system),
             "llm.request.enable_thinking": enable_thinking,
             "llm.request.priority": resolved_priority.value,
-            "llm.prompt_preview": prompt_preview,
             "provider": p,
             "model": self._config.model,
         }
+        if get_tracer().capture_llm_content:
+            dispatch_attrs["llm.prompt_preview"] = prompt_preview
         if getattr(self._config, "temperature", None) is not None:
             dispatch_attrs["gen_ai.request.temperature"] = self._config.temperature
         if getattr(self._config, "top_p", None) is not None:
