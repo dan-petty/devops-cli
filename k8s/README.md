@@ -393,6 +393,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `ArgoCdApplicationUnhealthy` | An Argo CD Application's `health_status` is neither `Healthy` nor `Progressing` | 15m | warning |
 | `ArgoCdAutoSyncDisabled` | An Argo CD Application's `autosync_enabled` is `false` | 15m | warning |
 | `ArgoCdSyncOperationStuck` | An Argo CD Application has a sync operation running | 1h | warning |
+| `IngressServesPlaceholderHost` | An Ingress routes a host under the placeholder domain of git (`kube_ingress_path`), so Traefik returns 404 for its real host; see Homelab Values at Deploy Time | 5m | critical |
 | `CloudflareTunnelDegraded` | Total Cloudflare Tunnel HA connections across `cloudflared` replicas are under 2 | 5m | warning |
 | `CoreDnsServfailResponses` | Over 5% of CoreDNS responses return `SERVFAIL` | 5m | warning |
 | `ValkeyCacheErrors` | A Valkey exporter reports `redis_up == 0` or rejected client connections | 5m | warning |
@@ -689,11 +690,25 @@ This repository is public, so it holds no homelab value. Ingress hosts sit under
 
 The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `k8s/devops/configmap.example.yaml` in the checkout deploy-stack runs from (`--k8s-dir`, default `./k8s`), so run it from a checkout of `main`, the revision the cluster runs.
 
-Unlike the ConfigMap, the host patches do not depend on the checkout. deploy-stack derives them from what each Application renders at the revision Argo CD builds: it fetches the Application's `targetRevision` from its `repoURL` into a temporary directory and builds its path with Kustomize, whichever branch is checked out locally. `--argocd-revision <ref>` builds another revision instead, to stage hosts before a pull request merges. The `cluster` Application ignores `spec.source.kustomize` on the two Applications and syncs with `RespectIgnoreDifferences=true`, so its self-heal keeps the patches.
+Unlike the ConfigMap, the host patches do not depend on the checkout. deploy-stack derives them from what each Application renders at the revision Argo CD builds: it fetches the Application's `targetRevision` from its `repoURL` into a temporary directory and builds its path with Kustomize, whichever branch is checked out locally. `--argocd-revision <ref>` builds another revision instead, to stage hosts before a pull request merges.
+
+The `cluster` Application ignores `spec.source.kustomize` on the two Applications in its diff. It applies the two Applications server-side, because each has the annotation `argocd.argoproj.io/sync-options: ServerSideApply=true`. Argo CD reads that annotation in every sync, automated or by hand, with any sync options. Server-side apply deletes only the fields that its own field manager, `argocd-controller`, set. The host patches belong to the field manager of deploy-stack's `kubectl patch`, and the image digest on `devops` belongs to Image Updater, so a sync of `cluster` keeps them. Do not remove the annotation. Client-side apply deletes each field that the `last-applied-configuration` annotation holds and git does not. The `RespectIgnoreDifferences=true` option of `cluster` writes the patches into that annotation, so a sync by hand without that option deletes them (#1817). The annotation `argocd.argoproj.io/client-side-apply-migration-manager: argocd-controller` on `cluster` moves the fields of the old client-side apply entry to the server-side apply entry in the first server-side sync. Thus a field that git removes from the two Applications also leaves the cluster.
 
 Each patch names one Ingress or IngressRoute and tests the placeholder host at each position before replacing it, so a host that git reorders or removes within that object fails the Application's manifest generation instead of routing to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers an object or host that git adds: run `devops k8s deploy-stack --stack devops` again once such a change reaches the Applications' revision. deploy-stack renders everything before it writes anything, so an unset setting stops it with an error naming the setting and changes nothing in the cluster. An unset service setting stops the dry run too; an unset domain stops only an Argo CD-managed deploy, and the dry run says so. A revision whose Application renders no host under the placeholder is refused rather than given an empty patch list.
 
-These values exist only in the cluster and in `config.yaml`. Once `cluster` has recreated the Applications `devops` and `ingress` (after `bootstrap-gitops`, for example), run `devops k8s deploy-stack --stack devops` to set them again; until then they sync the placeholder hosts.
+These values exist only in the cluster and in `config.yaml`, until Argo CD reads the homelab's private configuration from a repository on the in-cluster Gitea (#1291). A sync keeps the host patches, but these actions remove them:
+
+- The Application `devops` or `ingress` is deleted, and `cluster` creates it again (after `bootstrap-gitops`, for example).
+- A sync of `cluster` with the Replace option and without the Respect Ignore Differences option. Argo CD then replaces each Application with its manifest from git.
+
+The Applications then sync the placeholder hosts. When a live Ingress routes a host under the placeholder domain for 5 minutes, `IngressServesPlaceholderHost` fires (Alerting). It fires also for a host that git adds before deploy-stack sets its patch. Set the hosts again from a checkout of `main`:
+
+```bash
+# The hosts of Application ingress only. It pushes no Secret and writes no ConfigMap.
+devops k8s deploy-stack --stack infra --no-push-secrets --no-wait --no-configure-urls
+# The hosts of the Applications devops and ingress, and ConfigMap devops-cli-config
+devops k8s deploy-stack --stack devops
+```
 
 #### When a pull request merges into `main`
 

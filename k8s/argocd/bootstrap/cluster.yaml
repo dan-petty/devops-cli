@@ -3,6 +3,13 @@ kind: Application
 metadata:
   name: cluster
   namespace: argocd
+  # The Applications `devops` and `ingress` are applied server-side (their sync-options
+  # annotation). Before that, this Application applied them client-side as `argocd-controller`.
+  # The first server-side sync moves the fields of that entry to the server-side apply entry,
+  # so a field that git removes from them also leaves the cluster
+  # (https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/#client-side-apply-migration).
+  annotations:
+    argocd.argoproj.io/client-side-apply-migration-manager: argocd-controller
 spec:
   project: default
   source:
@@ -17,6 +24,8 @@ spec:
   # Service image's digest on `devops` (k8s/argocd/image-updater-values.yaml); this app-of-apps
   # leaves that field to them
   # (https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/#ignoring-differences-in-child-applications).
+  # The diff ignores the field. A sync keeps it because the two Applications are applied
+  # server-side, not because of RespectIgnoreDifferences: a manual sync can omit that option (#1817).
   ignoreDifferences:
   - group: argoproj.io
     kind: Application

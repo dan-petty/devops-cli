@@ -3,6 +3,11 @@ kind: Application
 metadata:
   name: ingress
   namespace: argocd
+  # `cluster` applies this Application server-side in every sync, automated or by hand, so a
+  # sync deletes only the fields of its own field manager and keeps the host overrides that
+  # deploy-stack sets in spec.source.kustomize (#1817, k8s/README.md, GitOps).
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:

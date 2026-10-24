@@ -12,6 +12,7 @@ The checks read files only.
 
 from __future__ import annotations
 
+import re
 from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -19,6 +20,7 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.config.constants import CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER
 from devops_cli.prometheus.promql import selectors
 from tests.support.paths import FIXTURES, REPO_ROOT
 
@@ -41,6 +43,8 @@ SERVED_SERIES = frozenset(
         "kube_pod_info",
         "kube_pod_spec_volumes_persistentvolumeclaims_info",
         "kube_secret_info",
+        # Not in the chart's default allow list: `metricsTuning.includeMetrics` keeps it (#1817).
+        "kube_ingress_path",
         # The kubelet, scraped by k8s-monitoring (its default allow list), reports these only for
         # volumes whose plugin measures them. No claim on this cluster does (local-path volumes
         # are host directories), so the rule over them stays silent until one does.
@@ -91,6 +95,14 @@ SERVED_SERIES = frozenset(
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
+# Git names every Ingress host under the placeholder domain, and deploy-stack replaces it with
+# the configured domain on the Argo CD Applications (k8s/README.md, GitOps).
+PLACEHOLDER_HOST_REGEX = rf"(.+\.)?{re.escape(CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER)}"
+PLACEHOLDER_HOST_EXPRESSION = (
+    'count by (namespace, ingress) (kube_ingress_path{host=~"'
+    + PLACEHOLDER_HOST_REGEX.replace("\\", "\\\\")
+    + '"}) > 0'
+)
 
 
 @cache
@@ -162,6 +174,7 @@ def test_the_baseline_rule_set() -> None:
         ("GpuTemperatureHigh", "warning"),
         ("HostFilesystemSpaceLow", "critical"),
         ("HostFilesystemSpaceLow", "warning"),
+        ("IngressServesPlaceholderHost", "critical"),
         ("K3sServiceNotActive", "critical"),
         ("LocalPathNodeDiskHigh", "warning"),
         ("LogOrMetricVolumeDiskLow", "warning"),
@@ -584,6 +597,12 @@ def test_homelab_services_rules_cover_argocd_tunnel_coredns_and_valkey_health() 
             "warning",
         ),
         (
+            "IngressServesPlaceholderHost",
+            PLACEHOLDER_HOST_EXPRESSION,
+            "5m",
+            "critical",
+        ),
+        (
             "CloudflareTunnelDegraded",
             "sum(cloudflared_tunnel_ha_connections) < 2",
             "5m",
@@ -602,3 +621,40 @@ def test_homelab_services_rules_cover_argocd_tunnel_coredns_and_valkey_health() 
             "warning",
         ),
     ]
+
+
+def _committed_ingress_hosts() -> list[str]:
+    """Every host that an Ingress in a YAML file under `k8s/` routes, as git holds it."""
+    return sorted(
+        rule["host"]
+        for path in K8S.rglob("*.yaml")
+        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "Ingress"
+        for rule in (doc.get("spec") or {}).get("rules") or []
+        if "host" in rule
+    )
+
+
+def test_an_ingress_that_routes_a_placeholder_host_alerts() -> None:
+    """`IngressServesPlaceholderHost` fires for each Ingress with a host under the placeholder
+    domain (#1817).
+
+    Traefik matches hosts exactly, so such an Ingress answers 404 for the real host. The cluster
+    serves these hosts when the host overrides are lost and Argo CD renders git as it is. The
+    rule matches every host that git holds and no host under another domain. kube-state-metrics
+    serves `kube_ingress_path` with its host, and `includeMetrics` keeps the series, because the
+    chart's default allow list does not.
+    """
+    placeholder = re.compile(PLACEHOLDER_HOST_REGEX)
+    hosts = _committed_ingress_hosts()
+    other_domains = ("argocd.example.org", "example.com.example.net", "notexample.com")
+    tuning = _yaml(K8S_MONITORING_VALUES)["clusterMetrics"]["kube-state-metrics"]["metricsTuning"]
+    capture = _yaml(FIXTURES / "metrics" / "kube-state-metrics.yaml")["families"]
+
+    assert (
+        len(hosts) > 0,
+        [host for host in hosts if not placeholder.fullmatch(host)],
+        [host for host in other_domains if placeholder.fullmatch(host)],
+        "kube_ingress_path" in tuning["includeMetrics"],
+        {"host", "ingress", "namespace"} <= set(capture["kube_ingress_path"]["labels"]),
+    ) == (True, [], [], True, True)

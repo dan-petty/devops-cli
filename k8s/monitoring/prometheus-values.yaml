@@ -574,6 +574,17 @@ serverFiles:
             annotations:
               summary: "Argo CD application {{ $labels.name }} has a {{ $labels.operation }} operation running for over an hour"
               description: "Argo CD application {{ $labels.name }} in {{ $labels.dest_namespace }} has been running a {{ $labels.operation }} operation for over an hour."
+          # Git names every host under the placeholder domain, and deploy-stack sets the real hosts
+          # on the Argo CD Applications `devops` and `ingress`. A placeholder host on a live Ingress
+          # means those overrides are lost or do not cover a host that git added (#1817).
+          - alert: IngressServesPlaceholderHost
+            expr: count by (namespace, ingress) (kube_ingress_path{host=~"(.+\\.)?example\\.com"}) > 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Ingress {{ $labels.namespace }}/{{ $labels.ingress }} routes {{ $value }} host(s) under the placeholder domain of git"
+              description: "Traefik matches hosts exactly, so the real hosts of Ingress {{ $labels.namespace }}/{{ $labels.ingress }} return 404. The host overrides that devops k8s deploy-stack sets on the Argo CD Applications devops and ingress are lost, or do not cover a host that git added. Set them again with devops k8s deploy-stack (k8s/README.md, GitOps)."
           - alert: CloudflareTunnelDegraded
             expr: sum(cloudflared_tunnel_ha_connections) < 2
             for: 5m
