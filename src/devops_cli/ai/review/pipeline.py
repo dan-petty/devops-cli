@@ -67,6 +67,7 @@ from devops_cli.ai.review_schema import (
 from devops_cli.config.commands import (
     BIN_BANDIT,
     BIN_GITLEAKS,
+    BIN_GOLANGCI_LINT,
     BIN_KUBELINTER,
     BIN_OSV_SCANNER,
     BIN_PLUTO,
@@ -988,6 +989,7 @@ _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
     # Gitleaks also reads the files kept off persona pages (#948).
     ("Gitleaks", BIN_GITLEAKS, "secrets"),
     ("osv-scanner", BIN_OSV_SCANNER, "lockfiles"),
+    ("golangci-lint", BIN_GOLANGCI_LINT, "go"),
 )
 _ANALYZERS_WITH_BUILTIN_PATTERNS: frozenset[str] = frozenset()
 
@@ -1583,6 +1585,7 @@ class ScannerFileBuckets:
     lockfiles: list[Path] = field(default_factory=list)
     any_files: list[Path] = field(default_factory=list)
     leak_targets: list[Path] = field(default_factory=list)
+    go: list[Path] = field(default_factory=list)
 
     def as_kind_map(self) -> dict[str, list[Path]]:
         """Map scanner domain kinds for reporting without coupling tool collections."""
@@ -1593,6 +1596,7 @@ class ScannerFileBuckets:
             "lockfiles": self.lockfiles,
             "any": self.any_files,
             "secrets": self.leak_targets,
+            "go": self.go,
         }
 
 
@@ -1634,6 +1638,9 @@ def _classify_scanner_files(
         | {p for p in lockfiles if not is_fixture_path(p, path_classes)}
     )
     semgrep_paths = [p for p in all_resolved if not is_fixture_path(p, path_classes)]
+    go_paths = [
+        p for p in all_resolved if p.suffix == ".go" and not is_fixture_path(p, path_classes)
+    ]
     return ScannerFileBuckets(
         python=py_paths,
         yaml=yaml_paths,
@@ -1641,6 +1648,7 @@ def _classify_scanner_files(
         lockfiles=lock_paths,
         any_files=semgrep_paths,
         leak_targets=list(all_resolved) + list(extra_scan_paths),
+        go=go_paths,
     )
 
 
@@ -1659,6 +1667,52 @@ def _tool_language_version(tool: str, tree: Path, kubernetes_version: str | None
     if norm == "pluto":
         return kubernetes_version or ""
     return ""
+
+
+def _find_nearest_gomod_root(target: Path, tree: Path | None = None) -> Path:
+    """Find directory containing the nearest go.mod for target, bounded by tree (#603)."""
+    start_dir = target if target.is_dir() else target.parent
+    limit = Path(tree).resolve() if tree is not None else None
+    for candidate in (start_dir, *start_dir.parents):
+        if (candidate / "go.mod").is_file():
+            return candidate
+        if limit is not None and candidate == limit:
+            break
+    return limit if limit is not None else start_dir
+
+
+def _scan_golangci_lint(
+    go_paths: Sequence[Path],
+    observed_outcomes: dict[str, Any],
+    *,
+    tree: Path | None = None,
+    tool_executor: ToolExecutor | None = None,
+) -> list[SavedFinding]:
+    """Execute golangci-lint once per nearest go.mod root and return wrapped findings (#603)."""
+    if not go_paths:
+        return []
+    from devops_cli.security.base import ScanOutcome, merge_outcomes
+    from devops_cli.security.golangci_lint import GolangciLintScanner
+
+    roots: dict[Path, list[Path]] = {}
+    for p in go_paths:
+        root = _find_nearest_gomod_root(p, tree=tree)
+        roots.setdefault(root, []).append(p)
+
+    scanner = GolangciLintScanner(tool_executor=tool_executor)
+    outcomes: list[ScanOutcome] = []
+    all_findings: list[Finding] = []
+
+    for root_dir in sorted(roots.keys()):
+        outcome = scanner.scan(root_dir)
+        outcomes.append(outcome)
+        all_findings.extend(outcome.findings)
+
+    if outcomes:
+        combined = merge_outcomes(outcomes) if len(outcomes) > 1 else outcomes[0]
+        _observe_outcome(observed_outcomes, "golangci-lint", combined)
+
+    return _wrap_static_findings(all_findings, tool="golangci-lint")
 
 
 def _run_scanners_for_buckets(
@@ -1723,6 +1777,13 @@ def _run_scanners_for_buckets(
             _scan_semgrep(buckets.any_files, outcomes, tree=tree, tool_executor=tool_executor)
         )
 
+    if buckets.go and "golangci-lint" not in outcomes:
+        go_findings = _scan_golangci_lint(
+            buckets.go, outcomes, tree=tree, tool_executor=tool_executor
+        )
+        matched_go = _match_static_findings_to_files(go_findings, [str(p) for p in buckets.go])
+        findings.extend([f for flist in matched_go.values() for f in flist])
+
     return findings
 
 
@@ -1749,6 +1810,34 @@ def _write_base_revision_files(
     return written
 
 
+def _populate_gomod_for_dir(
+    base_revision: Any,
+    tmp_root: Path,
+    dir_path: Path,
+    written_paths: Sequence[str],
+    extra_lockfiles: list[str],
+) -> None:
+    """Populate nearest go.mod from base revision for a directory containing Go files (#603)."""
+    curr: Path | None = dir_path
+    while curr is not None:
+        mod_rel = (curr / "go.mod").as_posix().lstrip("./") or "go.mod"
+        if mod_rel in written_paths or mod_rel in extra_lockfiles:
+            break
+        try:
+            mod_content = base_revision.read(mod_rel)
+            if mod_content is not None:
+                dest = tmp_root / mod_rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(mod_content, encoding="utf-8", errors="replace")
+                extra_lockfiles.append(mod_rel)
+                break
+        except (OSError, UnicodeDecodeError, KeyError) as exc:
+            logger.debug("Failed reading base revision %s: %s", mod_rel, exc)
+        if curr == Path(".") or not curr.parts:
+            break
+        curr = curr.parent if curr.parent != curr else None
+
+
 def _write_base_revision_lockfiles(
     base_revision: Any,
     tmp_root: Path,
@@ -1771,6 +1860,15 @@ def _write_base_revision_lockfiles(
                     extra_lockfiles.append(lf_rel)
             except Exception:
                 continue
+    if any(p.endswith(".go") for p in written_paths):
+        for d in dirs:
+            _populate_gomod_for_dir(
+                base_revision,
+                tmp_root,
+                d,
+                written_paths,
+                extra_lockfiles,
+            )
     return extra_lockfiles
 
 
@@ -2309,6 +2407,7 @@ class ReviewPipelineOrchestrator:
                     "python_files": len(py_paths),
                     "yaml_files": len(yaml_paths),
                     "docker_files": len(docker_lock_paths),
+                    "go_files": len(buckets.go),
                 }
                 sc_span.set_attributes(sc_attrs)
 

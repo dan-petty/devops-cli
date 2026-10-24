@@ -40,6 +40,7 @@ _ONLY_BANDIT = {
     "Semgrep": "not installed",
     "Gitleaks": "not installed",
     "osv-scanner": "no files",
+    "golangci-lint": "no files",
 }
 
 
@@ -70,6 +71,7 @@ def test_each_analyzer_is_marked_ran_missing_fallback_or_without_files() -> None
         "Semgrep": "not installed",
         "Gitleaks": "not installed",
         "osv-scanner": "no files",
+        "golangci-lint": "no files",
     }
 
 
@@ -155,6 +157,7 @@ def test_the_session_report_lists_each_analyzer_result(tmp_path: Path) -> None:
         "| Semgrep | not installed |",
         "| Gitleaks | not installed |",
         "| osv-scanner | no files |",
+        "| golangci-lint | no files |",
     ]
 
 

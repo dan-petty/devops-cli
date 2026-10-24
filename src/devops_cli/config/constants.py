@@ -923,6 +923,18 @@ CONST_REVIEW_SCAN_KUBELINTER_CONFIG = "checks: {}\n"
 CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
 CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
+CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG: Final[str] = (
+    "linters:\n"
+    "  disable-all: true\n"
+    "  enable:\n"
+    "    - errcheck\n"
+    "    - govet\n"
+    "    - staticcheck\n"
+    "linters-settings:\n"
+    "  govet:\n"
+    "    enable:\n"
+    "      - lostcancel\n"
+)
 # Bandit's project file. This repository's names the targets `devops ci security` and an
 # unisolated `devops scan report` of the tree both scan; a review hands Bandit an empty one in
 # its place (#972).
