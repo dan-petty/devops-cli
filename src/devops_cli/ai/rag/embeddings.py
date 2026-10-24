@@ -466,7 +466,7 @@ class EmbeddingsEngine:
             cfg = settings.valkey
             connect = partial(
                 ValkeyClient,
-                host=cfg.host,
+                host=cfg.endpoint,
                 port=cfg.port,
                 password=get_valkey_password(settings),
                 db=cfg.db,
