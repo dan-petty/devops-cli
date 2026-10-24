@@ -241,3 +241,32 @@ def test_a_finding_describes_itself() -> None:
 def test_a_placeholder_renders_as_its_expression() -> None:
     """Verify a placeholder token reads as the source expression it replaced."""
     assert str(ArgvPlaceholder(expression="str(limit)")) == "<str(limit)>"
+
+
+@pytest.mark.parametrize(
+    ("words", "expected"),
+    [
+        (["config", "set", "cloudflare.tunnel_token", "<value>"], ("devops config set", 2)),
+        (["ai", "gateway", "tune", "--concurrency", "<value>"], ("devops ai gateway tune", 2)),
+        (["config", "set", "--", "<key>", "<value>"], ("devops config set", 3)),
+        (["config", "stray", "<value>"], ("devops config", 2)),
+        (["format", "--check"], ("devops format", 1)),
+        (["scan", "sast", "--help"], ("devops scan sast", 1)),
+        (["scan", "--show-completion", "bash"], ("devops scan", 2)),
+        (["--version"], ("devops", 1)),
+        (["--dry-run", "config", "show"], ("devops", 3)),
+        ([], ("devops", 0)),
+    ],
+)
+def test_a_command_path_names_only_the_commands_and_counts_the_other_words(
+    words: list[str], expected: tuple[str, int], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify the command path of `devops <words>` holds the command names at every depth and
+    no other word, and the count is the number of the other words (#2058).
+
+    A word that names no command ends the path at the group above it. The walk parses
+    resiliently, so a help, version or completion option prints nothing.
+    """
+    from devops_cli.core.command_resolver import resolve_command_path
+
+    assert (resolve_command_path(words), capsys.readouterr().out) == (expected, "")

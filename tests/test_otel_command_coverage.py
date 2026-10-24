@@ -31,6 +31,7 @@ from devops_cli.telemetry.tracer import (
     get_tracer,
     reset_tracer,
 )
+from tests.support.paths import FIXTURES
 from tests.support.session_spawns import record_spawns
 from tests.support.telemetry_capture import Captured
 
@@ -308,6 +309,91 @@ def test_a_person_who_turns_on_capture_gets_each_argument_through_the_secret_mas
         "9",
         [PROCESS_COMMAND_ARGS],
         False,
+    )
+
+
+# `devops telemetry profile` runs the command line that a person gives it: here one that sets a
+# credential that no secret pattern finds (#2058).
+_PROFILED_WORDS = ["config", "set", "cloudflare.tunnel_token", _TYPED_CREDENTIAL]
+_PROFILED_LINE = " ".join(["devops", *_PROFILED_WORDS])
+# The trace of the recorded Tempo answer. The profile runs under it through TRACEPARENT, so that
+# Tempo answers the trace that the profile reads back.
+_RECORDED_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+_TEMPO = "https://tempo.example.com"
+
+
+@pytest.fixture
+def profile_export(
+    monkeypatch: pytest.MonkeyPatch, config: Any, cli: Any, stub_web: Any
+) -> Callable[..., tuple[list[dict[str, Any]], str]]:
+    """Run `devops telemetry profile <command line>` with the given telemetry settings and the
+    export captured. The profiled process is doubled at `subprocess.run`, and Tempo answers with
+    its recorded trace. Return each exported span, as its name, id, parent and attributes, and
+    the text of every payload that the tracer exported."""
+    recorded = (FIXTURES / "traces" / "tempo-otlp-trace.json").read_bytes()
+
+    def run(command_line: str, **telemetry: Any) -> tuple[list[dict[str, Any]], str]:
+        config(telemetry={"enabled": True, **telemetry}, tempo={"url": _TEMPO})
+        exported: list[dict[str, Any]] = []
+        monkeypatch.setattr(get_tracer(), "_send_payload", lambda _path, p: exported.append(p))
+        monkeypatch.setattr(
+            subprocess, "run", lambda argv, **_: subprocess.CompletedProcess(argv, 0, "", "")
+        )
+        stub_web.content(f"{_TEMPO}/api/v2/traces/{_RECORDED_TRACE_ID}", recorded)
+        result = cli(
+            ["telemetry", "profile", command_line],
+            env={"TRACEPARENT": f"00-{_RECORDED_TRACE_ID}-00f067aa0ba902b7-01"},
+        )
+        get_tracer().flush()
+        spans = [
+            {
+                "name": span["name"],
+                "id": span["spanId"],
+                "parent": span.get("parentSpanId"),
+                "attributes": {a["key"]: _attribute_value(a["value"]) for a in span["attributes"]},
+            }
+            for payload in exported
+            if "resourceSpans" in payload
+            for span in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        ]
+        assert result.exit_code == 0, result.output
+        return spans, json.dumps(exported, default=str)
+
+    return run
+
+
+def test_the_profile_span_holds_the_command_path_and_the_argument_count_and_no_argument(
+    profile_export: Callable[..., tuple[list[dict[str, Any]], str]],
+) -> None:
+    """The `telemetry.profile` span names the profiled command and counts its other words, and
+    no exported payload holds an argument value of the profiled command line (#2058)."""
+    spans, exported = profile_export(_PROFILED_LINE)
+    [profile] = [span["attributes"] for span in spans if span["name"] == "telemetry.profile"]
+    assert (
+        profile.get("cli.command_path"),
+        profile.get("cli.args_count"),
+        "command.line" in profile,
+        _TYPED_CREDENTIAL in exported,
+    ) == ("devops config set", "2", False, False)
+
+
+def test_a_person_who_turns_on_capture_gets_the_profiled_arguments_on_the_subprocess_span_only(
+    profile_export: Callable[..., tuple[list[dict[str, Any]], str]],
+) -> None:
+    """With `telemetry.capture_command_args` on, the subprocess span that runs the profiled
+    command, under the profile span, holds its arguments in `process.command_args`. The profile
+    span still holds no argument value: one setting and one span record the arguments."""
+    from devops_cli.config.constants import CONST_DEVOPS_CLI_ENTRY_MODULE
+
+    spans, _ = profile_export(_PROFILED_LINE, capture_command_args=True)
+    [profile] = [span for span in spans if span["name"] == "telemetry.profile"]
+    [child] = [span for span in spans if span["parent"] == profile["id"]]
+    assert (
+        _TYPED_CREDENTIAL in json.dumps(profile["attributes"]),
+        child["attributes"].get(PROCESS_COMMAND_ARGS),
+    ) == (
+        False,
+        [sys.executable, "-P", "-m", CONST_DEVOPS_CLI_ENTRY_MODULE, *_PROFILED_WORDS],
     )
 
 
