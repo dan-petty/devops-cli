@@ -67,7 +67,10 @@ AI_TOKENS_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), "
-    "provider, model, server and backend",
+    "provider, model, server, backend and local: true when a local model ran them. The AI spend "
+    "dashboard prices local tokens as savings at the reference price that the Prometheus "
+    "recording rule devops_cli:ai_reference_price_usd_per_token holds for their operation and "
+    "type",
 )
 AI_SPEND_USD_TOTAL = Instrument(
     "devops_cli_ai_spend_usd_total",
@@ -75,13 +78,6 @@ AI_SPEND_USD_TOTAL = Instrument(
     "USD",
     "Approximate LLM and embedding spend, by operation, provider, model, server and backend. "
     "Each request that a model answers adds to it, and a local request adds 0",
-)
-AI_LOCAL_COST_EQUIVALENT_USD_TOTAL = Instrument(
-    "devops_cli_ai_local_cost_equivalent_usd_total",
-    InstrumentKind.COUNTER,
-    "USD",
-    "Equivalent hosted cloud spend avoided by local model execution, by operation, at the "
-    "reference model of the operation",
 )
 AI_JSON_REPAIRS_TOTAL = Instrument(
     "devops_cli_ai_json_repairs_total",
@@ -220,7 +216,6 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_REQUESTS_TOTAL,
     AI_TOKENS_TOTAL,
     AI_SPEND_USD_TOTAL,
-    AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
     AI_JSON_REPAIRS_TOTAL,
     AI_GATEWAY_SLOT_WAIT,
     RAG_QUERY_DURATION,
@@ -278,7 +273,6 @@ def backend_name(served_by: str | None) -> str:
 __all__ = [
     "AI_GATEWAY_SLOT_WAIT",
     "AI_JSON_REPAIRS_TOTAL",
-    "AI_LOCAL_COST_EQUIVALENT_USD_TOTAL",
     "AI_REQUESTS_TOTAL",
     "AI_SPEND_USD_TOTAL",
     "AI_TOKENS_TOTAL",

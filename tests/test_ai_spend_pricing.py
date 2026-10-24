@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,7 +12,13 @@ import pytest
 from genai_prices.data_snapshot import set_custom_snapshot
 
 from devops_cli.ai.spend.models import ModelPricing
-from devops_cli.ai.spend.pricing import PricingRegistry, _get_installed_genai_prices_version
+from devops_cli.ai.spend.pricing import (
+    PricingRegistry,
+    RequestCost,
+    _get_installed_genai_prices_version,
+)
+from devops_cli.config.defaults import DEFAULT_AI_REFERENCE_MODEL
+from tests.support.paths import REPO_ROOT
 
 
 @pytest.fixture(autouse=True)
@@ -159,7 +166,12 @@ def test_a_custom_price_leaves_a_local_call_at_no_cost(tmp_path: Path) -> None:
         registry.calculate_request_cost(
             "other-model", 1_000_000, 0, server="http://localhost:11434"
         ),
-    ) == ((0.0, 0.0, "local"), (0.0, 0.0, "local"), 0.0, 0.0)
+    ) == (
+        (0.0, 0.0, "local"),
+        (0.0, 0.0, "local"),
+        RequestCost(0.0, "local"),
+        RequestCost(0.0, "local"),
+    )
 
 
 def test_a_gateway_call_is_priced_by_the_backend_that_served_it(tmp_path: Path) -> None:
@@ -191,7 +203,11 @@ def test_a_gateway_call_is_priced_by_the_backend_that_served_it(tmp_path: Path) 
         served_by="http://ollama-16gib.llm.svc.cluster.local:11434",
     )
 
-    assert (hosted, hosted_rate.prompt_usd_per_million, local) == (2.5, 2.5, 0.0)
+    assert (hosted, hosted_rate.prompt_usd_per_million, local) == (
+        RequestCost(2.5, "genai_prices:openai"),
+        2.5,
+        RequestCost(0.0, "local"),
+    )
 
 
 def test_pricing_registry_cost_calculation(tmp_path: Path) -> None:
@@ -278,7 +294,7 @@ def test_pricing_registry_tiered_models_rates_and_costs(tmp_path: Path) -> None:
         prompt_tokens=20_000,
         completion_tokens=2_000,
     )
-    assert exact_cost == 0.09
+    assert exact_cost == RequestCost(0.09, "genai_prices:anthropic")
 
 
 def test_pricing_registry_update_from_file_and_persistence(tmp_path: Path) -> None:
@@ -368,7 +384,7 @@ def test_partial_snapshot_merges_onto_bundled_data_and_keeps_prices(tmp_path: Pa
         (p_bundled.prompt_usd_per_million, p_bundled.completion_usd_per_million, p_bundled.source),
         (p_custom.prompt_usd_per_million, p_custom.completion_usd_per_million, p_custom.source),
     ) == (
-        0.07,
+        RequestCost(0.07, "genai_prices:openai"),
         (2.5, 10.0, "genai_prices:openai"),
         (11.0, 22.0, "genai_prices:custom-unbundled-provider"),
     )
@@ -736,3 +752,51 @@ def test_pricing_local_vs_remote_and_configured_domain_table(
         (True, True, True, True, True, False, False),
         (True, False),
     )
+
+
+def test_an_unknown_hosted_model_is_priced_unknown_and_warns_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """genai-prices raises LookupError for a model it does not know. A hosted request for such a
+    model costs $0 with the pricing source `unknown`, and the registry logs one warning that names
+    the model, however many requests ask for it (#1672). A known model names the genai-prices
+    provider that priced it, and a local call is `local`."""
+    registry = PricingRegistry(data_dir=tmp_path)
+    peak_ts = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    caplog.set_level(logging.WARNING, logger="devops_cli.ai.spend.pricing")
+
+    def price(model: str, server: str, provider: str) -> RequestCost:
+        return registry.calculate_request_cost(
+            model, 1_000_000, 0, server=server, provider=provider, request_timestamp=peak_ts
+        )
+
+    unknown = [price("gpt-9-preview", "example.com", "openai") for _ in range(2)]
+    known = price("gpt-4o", "example.com", "openai")
+    local = price("qwen3:8b", "localhost:11434", "ollama")
+
+    assert (
+        unknown,
+        known,
+        local,
+        [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING],
+    ) == (
+        [RequestCost(0.0, "unknown")] * 2,
+        RequestCost(2.5, "genai_prices:openai"),
+        RequestCost(0.0, "local"),
+        [
+            "genai-prices and the price overrides hold no price for model gpt-9-preview under provider openai. Its requests are recorded at $0 with the pricing source unknown."
+        ],
+    )
+
+
+def test_only_the_defaults_name_the_default_reference_model() -> None:
+    """The default reference model is named in `config/defaults.py` alone, and other code reads
+    `DEFAULT_AI_REFERENCE_MODEL`, so a changed default changes every use (#1672)."""
+    source = REPO_ROOT / "src" / "devops_cli"
+    defaults = source / "config" / "defaults.py"
+
+    assert [
+        str(path.relative_to(source))
+        for path in sorted(source.rglob("*.py"))
+        if path != defaults and DEFAULT_AI_REFERENCE_MODEL in path.read_text(encoding="utf-8")
+    ] == []

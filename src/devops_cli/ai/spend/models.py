@@ -57,6 +57,9 @@ class SpendRecord(BaseModel):
     stage: str | None = None
     # Why the provider says the reply ended; None when it did not say.
     finish_reason: FinishReason | None = None
+    # Where the price came from: `local`, `unknown`, the source of a price override or
+    # `genai_prices:<provider>`. None when the response cache answered and no model ran (#1672).
+    pricing_source: str | None = None
 
 
 class ServerSpendSummary(BaseModel):
@@ -77,7 +80,9 @@ class ServerSpendSummary(BaseModel):
     first_seen: str | None = None
     last_seen: str | None = None
     is_local: bool = False
-    cost_equivalent_usd: float = 0.0
+    # The hosted cost of the tokens at the reference models; None when a reference model that
+    # prices them has no price (#1672).
+    cost_equivalent_usd: float | None = 0.0
 
 
 class ModelSpendSummary(BaseModel):
@@ -98,7 +103,8 @@ class ModelSpendSummary(BaseModel):
     approx_spend_usd: float = 0.0
     prompt_usd_per_million: float = 0.0
     completion_usd_per_million: float = 0.0
-    cost_equivalent_usd: float = 0.0
+    # None when a reference model that prices the tokens has no price (#1672).
+    cost_equivalent_usd: float | None = 0.0
 
 
 class ProviderSpendSummary(BaseModel):
@@ -139,7 +145,8 @@ class StageSpendSummary(BaseModel):
     # The input tokens of embedding requests, counted in `prompt_tokens` too (#1623).
     embedding_tokens: int = 0
     approx_spend_usd: float = 0.0
-    cost_equivalent_usd: float = 0.0
+    # None when a reference model that prices the tokens has no price (#1672).
+    cost_equivalent_usd: float | None = 0.0
 
 
 class LifetimeSpendReport(BaseModel):
@@ -167,15 +174,19 @@ class LifetimeSpendReport(BaseModel):
     reference_model: str = DEFAULT_AI_REFERENCE_MODEL
     # The model that prices embedding tokens, which `reference_model` does not (#1623).
     reference_embedding_model: str = DEFAULT_AI_REFERENCE_EMBEDDING_MODEL
+    # The reference models that neither genai-prices nor a price override prices (#1672).
+    unpriced_reference_models: list[str] = Field(default_factory=list)
     local_requests: int = 0
     local_prompt_tokens: int = 0
     local_completion_tokens: int = 0
     local_tokens: int = 0
     # The input tokens of local embedding requests, counted in `local_prompt_tokens` too.
     local_embedding_tokens: int = 0
-    local_cost_equivalent_usd: float = 0.0
-    counterfactual_spend_usd: float = 0.0
-    counterfactual_savings_usd: float = 0.0
+    # The three savings values are None when a reference model that prices the tokens has no
+    # price, so a report never shows unpriced savings as $0 (#1672).
+    local_cost_equivalent_usd: float | None = 0.0
+    counterfactual_spend_usd: float | None = 0.0
+    counterfactual_savings_usd: float | None = 0.0
     hardware_cost_usd: float = 0.0
     hardware_payoff: HardwarePayoffSummary | None = None
 

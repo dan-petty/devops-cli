@@ -10,11 +10,22 @@ kustomizations in Python; they never run kustomize or kubectl.
 from __future__ import annotations
 
 import json
+import re
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import genai_prices
 import yaml
+from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
+    GenAiOperationNameValues,
+)
 
+from devops_cli.config.defaults import (
+    DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
+    DEFAULT_AI_REFERENCE_MODEL,
+    DEFAULT_AI_REFERENCE_PROVIDER,
+)
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -46,6 +57,15 @@ SIDECAR_LABELS = {
 }
 # kubectl's client-side apply stores the object in an annotation, and annotations are capped.
 LAST_APPLIED_ANNOTATION_LIMIT_BYTES = 262_144
+# The recording rule that holds the hosted price of a local token, by operation and token type,
+# and the series of the tokens that a local model ran (#1672).
+REFERENCE_PRICE_RULE = "devops_cli:ai_reference_price_usd_per_token"
+LOCAL_TOKENS = 'devops_cli_ai_tokens_total{local="true"}'
+PRICED_BY_THE_RULE = (
+    f"* on (operation, type) group_left max by (operation, type) ({REFERENCE_PRICE_RULE})"
+)
+# A rule's price, written as USD per million tokens.
+PRICE_PER_MILLION = re.compile(r"^vector\(([0-9.]+) / 1e6\)$")
 
 
 def _kustomization(directory: Path) -> dict[str, Any]:
@@ -207,3 +227,74 @@ def test_no_query_selects_the_container_series_the_chart_drops() -> None:
         if any('image=""' in expr for expr in _expressions(json.loads(path.read_text("utf-8"))))
     )
     assert (tuning.get("dropEmptyImageLabels", True), selecting) == (True, [])
+
+
+def _reference_price_rules() -> dict[tuple[str, str], tuple[str, Decimal]]:
+    """The reference model and USD price per million tokens of each (operation, token type) that
+    the recording rules hold."""
+    values = yaml.safe_load((MONITORING_DIR / "prometheus-values.yaml").read_text("utf-8"))
+    rules = [
+        rule
+        for group in values["serverFiles"]["recording_rules.yml"]["groups"]
+        for rule in group["rules"]
+        if rule.get("record") == REFERENCE_PRICE_RULE
+    ]
+    prices: dict[tuple[str, str], tuple[str, Decimal]] = {}
+    for rule in rules:
+        price = PRICE_PER_MILLION.match(rule["expr"])
+        labels = rule["labels"]
+        prices[(labels["operation"], labels["type"])] = (
+            labels["reference_model"],
+            Decimal(price.group(1)) if price else Decimal(-1),
+        )
+    return prices
+
+
+def _genai_prices_per_million(model: str) -> dict[str, Decimal]:
+    """genai-prices' bundled USD price per million prompt and completion tokens of a model."""
+    usage = genai_prices.Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+    price = genai_prices.calc_price(usage, model, provider_id=DEFAULT_AI_REFERENCE_PROVIDER)
+    return {"prompt": price.input_price, "completion": price.output_price}
+
+
+def test_the_reference_price_rule_holds_the_genai_prices_price_of_each_default_reference() -> None:
+    """The recording rule holds, for each operation and token type that devops-cli sends, the
+    price that genai-prices gives the default reference model of that operation, so the committed
+    prices cannot drift from the pricing library (#1672)."""
+    references = {
+        GenAiOperationNameValues.CHAT.value: DEFAULT_AI_REFERENCE_MODEL,
+        GenAiOperationNameValues.EMBEDDINGS.value: DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
+    }
+    expected = {
+        (operation, token_type): (model, price)
+        for operation, model in references.items()
+        for token_type, price in _genai_prices_per_million(model).items()
+    }
+
+    assert _reference_price_rules() == expected
+
+
+def _savings_targets(dashboard: dict[str, Any]) -> list[str]:
+    """The query of each target that charts local savings: in a panel about savings, or with a
+    savings legend."""
+    return [
+        target["expr"]
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+        if "Savings" in panel.get("title", "") or "Savings" in target.get("legendFormat", "")
+    ]
+
+
+def test_every_savings_query_prices_local_tokens_at_the_reference_price_rule() -> None:
+    """Each savings query multiplies the tokens that a local model ran by the reference price of
+    their operation and token type, so the workstation and the Service are priced at one
+    reference whatever their `ai.reference_model` (#1672). No query reads a price that a process
+    computed."""
+    dashboard = json.loads((DASHBOARDS_DIR / "ai-spend.json").read_text(encoding="utf-8"))
+    targets = _savings_targets(dashboard)
+
+    assert (
+        len(targets),
+        [expr for expr in targets if LOCAL_TOKENS not in expr or PRICED_BY_THE_RULE not in expr],
+        [expr for expr in _expressions(dashboard) if "cost_equivalent" in expr],
+    ) == (8, [], [])

@@ -5105,7 +5105,7 @@ devops ai cost [OPTIONS] COMMAND [ARGS]...
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -5124,7 +5124,7 @@ devops ai cost report [OPTIONS]
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -5142,7 +5142,7 @@ devops ai cost roi [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -5235,7 +5235,7 @@ devops ai spend [OPTIONS] COMMAND [ARGS]...
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -5254,7 +5254,7 @@ devops ai spend report [OPTIONS]
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -5272,7 +5272,7 @@ devops ai spend roi [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |

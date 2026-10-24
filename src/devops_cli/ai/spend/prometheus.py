@@ -31,21 +31,27 @@ def _yield_overview_gauges(report: LifetimeSpendReport) -> Iterator[GaugeMetricF
         "Number of unique AI models used",
         value=report.active_models_count,
     )
-    yield GaugeMetricFamily(
-        "devops_cli_ai_ledger_local_cost_equivalent_usd",
-        "Cost equivalent in USD of local model calls under reference model",
-        value=round(report.local_cost_equivalent_usd, 6),
-    )
-    yield GaugeMetricFamily(
-        "devops_cli_ai_ledger_counterfactual_spend_usd",
-        "Counterfactual hosted spend in USD under reference model",
-        value=round(report.counterfactual_spend_usd, 6),
-    )
-    yield GaugeMetricFamily(
-        "devops_cli_ai_ledger_counterfactual_savings_usd",
-        "Estimated cloud spend avoided in USD",
-        value=round(report.counterfactual_savings_usd, 6),
-    )
+    # A savings value is None when a reference model has no price, and its gauge is left out,
+    # so a scrape reads no savings rather than $0 (#1672).
+    for name, documentation, value in (
+        (
+            "devops_cli_ai_ledger_local_cost_equivalent_usd",
+            "Cost equivalent in USD of local model calls under reference model",
+            report.local_cost_equivalent_usd,
+        ),
+        (
+            "devops_cli_ai_ledger_counterfactual_spend_usd",
+            "Counterfactual hosted spend in USD under reference model",
+            report.counterfactual_spend_usd,
+        ),
+        (
+            "devops_cli_ai_ledger_counterfactual_savings_usd",
+            "Estimated cloud spend avoided in USD",
+            report.counterfactual_savings_usd,
+        ),
+    ):
+        if value is not None:
+            yield GaugeMetricFamily(name, documentation, value=round(value, 6))
     if report.hardware_payoff:
         payoff = report.hardware_payoff
         yield GaugeMetricFamily(

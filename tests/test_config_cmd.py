@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from unittest.mock import patch
@@ -170,6 +171,29 @@ def test_config_show_includes_the_reference_models_and_their_provider(
         rows.get("ai.reference_embedding_model"),
         rows.get("ai.reference_provider"),
     ) == (0, "gpt-4o", "text-embedding-3-large", "openai")
+
+
+def test_config_show_warns_about_a_reference_model_that_genai_prices_does_not_know(
+    config: Callable[..., Path], caplog: pytest.LogCaptureFixture
+) -> None:
+    """`devops config show` checks both reference models against the pricing registry and logs a
+    warning for each one that genai-prices does not know. It is a warning, not a load error, so
+    a registry update cannot break config loading (#1672)."""
+    config(ai={"reference_model": "gpt-4o-mni", "reference_embedding_model": "embed-9"})
+    caplog.set_level(logging.WARNING)
+
+    result = runner.invoke(app, ["show"])
+
+    assert (
+        result.exit_code,
+        [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING],
+    ) == (
+        0,
+        [
+            "genai-prices and the price overrides hold no price for gpt-4o-mni (ai.reference_model) under provider openai, so the local savings of chat tokens are unpriced.",
+            "genai-prices and the price overrides hold no price for embed-9 (ai.reference_embedding_model) under provider openai, so the local savings of embedding tokens are unpriced.",
+        ],
+    )
 
 
 def test_dotted_set_rejects_top_level_section_overwrite() -> None:

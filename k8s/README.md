@@ -218,6 +218,8 @@ Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates 
 
 On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the `monitoring` kustomization, which lists the namespace's perimeter and `dashboards`, right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
 
+The AI spend dashboard (`ai-spend.json`) prices local savings in Prometheus. It multiplies the tokens that a local model ran (`devops_cli_ai_tokens_total{local="true"}`) by the recording rule `devops_cli:ai_reference_price_usd_per_token` under `serverFiles.recording_rules.yml` in `monitoring/prometheus-values.yaml`. The rule holds genai-prices' price of the default reference model for each operation and token type, so every process that sends tokens is priced at one reference. `tests/test_k8s_monitoring_dashboards.py` fails when a committed price differs from genai-prices.
+
 The stack dashboards chart the cluster workloads and infrastructure services:
 
 | Dashboard | Exporter / Sources | How Prometheus / Loki gets its series |

@@ -11,6 +11,7 @@ import yaml
 from devops_cli.ai.spend import get_pricing_registry, get_spend_ledger
 from devops_cli.ai.spend.models import HardwarePayoffSummary, LifetimeSpendReport
 from devops_cli.core.cli import new_typer
+from devops_cli.lang import MESSAGES
 from devops_cli.output import (
     format_json,
     format_yaml,
@@ -18,6 +19,7 @@ from devops_cli.output import (
     print_info,
     print_success,
     print_table,
+    print_warning,
     write_stdout,
 )
 
@@ -25,6 +27,12 @@ app = new_typer(
     help="Track approximate lifetime spend and manage open-source model pricing.",
     no_args_is_help=False,
 )
+
+
+def _usd(value: float | None, unit: str = "") -> str:
+    """A hosted cost equivalent as dollars, or `unpriced` when its reference model has no price
+    (#1672)."""
+    return MESSAGES.ai.savings_unpriced if value is None else f"${value:,.4f}{unit}"
 
 
 def _render_report_summary_table(report: LifetimeSpendReport) -> None:
@@ -41,16 +49,13 @@ def _render_report_summary_table(report: LifetimeSpendReport) -> None:
         ["Active Models Evaluated", str(report.active_models_count)],
         [
             "Local Calls Hosted Equivalent",
-            f"${report.local_cost_equivalent_usd:,.4f} USD ({references})",
+            f"{_usd(report.local_cost_equivalent_usd, ' USD')} ({references})",
         ],
         [
             "All-Hosted Counterfactual Spend",
-            f"${report.counterfactual_spend_usd:,.4f} USD ({references})",
+            f"{_usd(report.counterfactual_spend_usd, ' USD')} ({references})",
         ],
-        [
-            "Estimated Cloud Spend Avoided",
-            f"${report.counterfactual_savings_usd:,.4f} USD",
-        ],
+        ["Estimated Cloud Spend Avoided", _usd(report.counterfactual_savings_usd, " USD")],
     ]
     if report.first_recorded_at:
         rows.append(["First Recorded Request", str(report.first_recorded_at)])
@@ -133,7 +138,7 @@ def _render_servers_table(report: LifetimeSpendReport) -> None:
             f"{s.completion_tokens:,}",
             f"{s.total_tokens:,}",
             f"${s.approx_spend_usd:,.4f}",
-            f"${s.cost_equivalent_usd:,.4f}",
+            _usd(s.cost_equivalent_usd),
         ]
         for s in report.servers
     ]
@@ -161,7 +166,7 @@ def _render_models_table(report: LifetimeSpendReport) -> None:
             f"{m.request_count:,}",
             f"{m.total_tokens:,}",
             f"${m.approx_spend_usd:,.4f}",
-            f"${m.cost_equivalent_usd:,.4f}",
+            _usd(m.cost_equivalent_usd),
         ]
         for m in report.models
     ]
@@ -243,7 +248,7 @@ def _render_stages_table(report: LifetimeSpendReport) -> None:
             f"{s.request_count:,}",
             f"{s.total_tokens:,}",
             f"${s.approx_spend_usd:,.4f}",
-            f"${s.cost_equivalent_usd:,.4f}",
+            _usd(s.cost_equivalent_usd),
         ]
         for s in report.stages
     ]
@@ -254,7 +259,7 @@ def _render_report_tables(report: LifetimeSpendReport, by: str) -> None:
     """Dispatch table rendering based on grouping selection."""
     _render_report_summary_table(report)
     if report.hardware_payoff and (
-        report.hardware_cost_usd > 0 or report.local_cost_equivalent_usd > 0
+        report.hardware_cost_usd > 0 or (report.local_cost_equivalent_usd or 0.0) > 0
     ):
         _render_hardware_payoff_table(report.hardware_payoff)
     if by in ("server", "all"):
@@ -293,7 +298,7 @@ def cost_default(
         typer.Option(
             "--reference-model",
             "-m",
-            help="Reference model for counterfactual pricing (default: gpt-4o-mini).",
+            help="Reference model for counterfactual pricing (default: the ai.reference_model setting).",
         ),
     ] = None,
     hardware_cost: Annotated[
@@ -371,7 +376,7 @@ def cost_report(
         typer.Option(
             "--reference-model",
             "-m",
-            help="Reference model for counterfactual pricing (default: gpt-4o-mini).",
+            help="Reference model for counterfactual pricing (default: the ai.reference_model setting).",
         ),
     ] = None,
     hardware_cost: Annotated[
@@ -438,7 +443,7 @@ def cost_roi(
         typer.Option(
             "--reference-model",
             "-m",
-            help="Reference model for counterfactual pricing (default: gpt-4o-mini).",
+            help="Reference model for counterfactual pricing (default: the ai.reference_model setting).",
         ),
     ] = None,
     days: Annotated[
@@ -486,6 +491,10 @@ def cost_roi(
 
     if report.hardware_payoff:
         _render_hardware_payoff_table(report.hardware_payoff)
+    elif report.local_cost_equivalent_usd is None:
+        print_warning(
+            MESSAGES.ai.payoff_unpriced.format(models=", ".join(report.unpriced_reference_models))
+        )
     else:
         print_info("No local LLM inference records found to calculate hardware payoff.")
 

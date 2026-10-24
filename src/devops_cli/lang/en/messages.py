@@ -201,6 +201,19 @@ class AIMessages:
     constellation_flag_only: str = (
         "[dim]This flag records intent only: no running task reads it.[/dim]"
     )
+    hosted_model_unpriced: str = (
+        "genai-prices and the price overrides hold no price for model {model} under provider "
+        "{provider}. Its requests are recorded at $0 with the pricing source unknown."
+    )
+    reference_model_unpriced: str = (
+        "genai-prices and the price overrides hold no price for {model} ({setting}) under "
+        "provider {provider}, so the local savings of {kind} tokens are unpriced."
+    )
+    savings_unpriced: str = "unpriced"
+    payoff_unpriced: str = (
+        "The hardware pay-off is not calculated: the local savings are unpriced, because "
+        "genai-prices has no price for {models}."
+    )
 
 
 @dataclass(frozen=True)

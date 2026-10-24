@@ -45,7 +45,7 @@
   "src/devops_cli/ai/review/template_sweep.py": 5,
   "src/devops_cli/ai/review_schema.py": 8,
   "src/devops_cli/ai/spend/ledger.py": 5,
-  "src/devops_cli/ai/spend/pricing.py": 15,
+  "src/devops_cli/ai/spend/pricing.py": 7,
   "src/devops_cli/ai/spend/prometheus.py": 1,
   "src/devops_cli/ai/test_gen.py": 2,
   "src/devops_cli/ai/tools/__init__.py": 1,

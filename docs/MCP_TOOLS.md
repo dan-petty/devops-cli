@@ -250,7 +250,7 @@ Generate detailed spend and token report across backend services and servers.
 |---|---|---|---|---|
 | `by` | `string` | No | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `days` | `integer` | No | - | Filter usage to the last N days (default: all lifetime). |
-| `reference_model` | `string` | No | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
+| `reference_model` | `string` | No | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `hardware_cost` | `number` | No | - | Hardware purchase cost in USD to track pay-off against. |
 | `format_opt` | `string` | No | `table` | Output format: table, json, yaml, prometheus. |
 | `json_flag` | `boolean` | No | `False` | First-class alias for --format json. |

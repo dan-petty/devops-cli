@@ -467,11 +467,11 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
 
     assert (
         [(a["backend"], a["cached"], v) for a, v in requests],
-        sorted((a["type"], v) for a, v in tokens),
+        sorted((a["type"], a["local"], v) for a, v in tokens),
         (len(spend), spend[0][1] > 0, spend[0][0]["backend"]),
     ) == (
         [("api", "false", 1.0), ("api", "true", 1.0)],
-        [("completion", 400.0), ("prompt", 2000.0)],
+        [("completion", "false", 400.0), ("prompt", "false", 2000.0)],
         (1, True, "api"),
     )
 
@@ -496,7 +496,8 @@ def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
 ) -> None:
     """Verify the backend a gateway reply names decides whether a call is spend or local
     savings, whatever host the gateway has; with no backend named, the host decides. Each
-    call adds one spend point, 0 when the call ran locally (#1631)."""
+    call adds one spend point, 0 when the call ran locally (#1631), and its tokens say whether a
+    local model ran them (#1672)."""
     track_request_spend(
         provider="gateway",
         model="gpt-4o",
@@ -508,15 +509,15 @@ def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
 
     assert (
         [v > 0 for _, v in captured.points("devops_cli_ai_spend_usd_total")],
-        [v > 0 for _, v in captured.points("devops_cli_ai_local_cost_equivalent_usd_total")],
-    ) == ([spent], [True] if saved else [])
+        {a["local"] for a, _ in captured.points("devops_cli_ai_tokens_total")},
+    ) == ([spent], {str(saved).lower()})
 
 
 def test_a_price_override_leaves_a_local_call_in_local_savings(
     captured: Captured, spend_ledger: SpendLedger
 ) -> None:
     """Verify a custom price for a local model or server books no spend: the call adds a spend
-    point of 0 and its savings at the reference model (#1631)."""
+    point of 0, and its tokens count as local, so the dashboard prices them as savings (#1631)."""
     registry = get_pricing_registry()
     registry.set_custom_pricing("qwen3:8b", prompt_rate=1.0, completion_rate=2.0)
     registry.set_custom_pricing("localhost:11434", prompt_rate=1.0, completion_rate=2.0)
@@ -531,8 +532,8 @@ def test_a_price_override_leaves_a_local_call_in_local_savings(
 
     assert (
         [v for _, v in captured.points("devops_cli_ai_spend_usd_total")],
-        [v > 0 for _, v in captured.points("devops_cli_ai_local_cost_equivalent_usd_total")],
-    ) == ([0.0], [True])
+        sorted((a["type"], a["local"]) for a, _ in captured.points("devops_cli_ai_tokens_total")),
+    ) == ([0.0], [("completion", "true"), ("prompt", "true")])
 
 
 def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
@@ -589,11 +590,12 @@ def test_response_cache_lookups_and_writes_send_no_metric_of_their_own(
     assert (lookups, captured.metrics) == ((True, True), [])
 
 
-def test_local_ai_calls_emit_equivalent_spend_instrument(
+def test_a_local_call_sends_its_tokens_as_local_and_no_price_of_its_own(
     captured: Captured, tmp_path: Path
 ) -> None:
-    """Verify a local AI call emits devops_cli_ai_local_cost_equivalent_usd_total and one spend
-    point of 0, so the spend series exists before the first hosted call (#1631)."""
+    """Verify a local AI call sends its tokens with `local="true"` and one spend point of 0, so the
+    spend series exists before the first hosted call (#1631). It sends no savings in USD: the
+    dashboard prices local tokens at the reference prices of the cluster (#1672)."""
     ledger = SpendLedger(db_path=tmp_path / "spend.db")
     track_request_spend(
         provider="ollama",
@@ -606,21 +608,24 @@ def test_local_ai_calls_emit_equivalent_spend_instrument(
         ledger=ledger,
     )
 
-    equiv = captured.points("devops_cli_ai_local_cost_equivalent_usd_total")
+    tokens = captured.points("devops_cli_ai_tokens_total")
     spend = captured.points("devops_cli_ai_spend_usd_total")
 
     assert (
-        len(equiv),
-        equiv[0][1] > 0,
-        equiv[0][0]["backend"],
-        equiv[0][0]["provider"],
+        sorted((a["backend"], a["provider"], a["type"], a["local"], v) for a, v in tokens),
         [(a["backend"], a["provider"], v) for a, v in spend],
+        sorted({metric["name"] for metric in captured.metrics}),
     ) == (
-        1,
-        True,
-        "ollama-0",
-        "ollama",
+        [
+            ("ollama-0", "ollama", "completion", "true", 200.0),
+            ("ollama-0", "ollama", "prompt", "true", 1000.0),
+        ],
         [("ollama-0", "ollama", 0.0)],
+        [
+            "devops_cli_ai_requests_total",
+            "devops_cli_ai_spend_usd_total",
+            "devops_cli_ai_tokens_total",
+        ],
     )
 
 
@@ -661,24 +666,41 @@ def test_ai_calls_count_requests_and_tokens_by_operation(
     )
 
 
-def test_local_embedding_savings_are_priced_at_the_embedding_reference(
+def _local_call_points(captured: Captured) -> list[tuple[str, list[tuple[str, Any]], float]]:
+    """The points that one local chat call and one local embedding request send."""
+    for model, request_type in (("qwen3:8b", "chat"), ("bge-m3:latest", "embedding")):
+        track_request_spend(
+            provider="ollama",
+            model=model,
+            server="localhost:11434",
+            prompt_tokens=1_000_000,
+            completion_tokens=0 if request_type == "embedding" else 1_000,
+            request_type=request_type,
+        )
+    points = [
+        (name, sorted(attributes.items()), value)
+        for name in sorted({metric["name"] for metric in captured.metrics})
+        for attributes, value in captured.points(name)
+    ]
+    captured.payloads.clear()
+    return points
+
+
+def test_two_processes_with_different_references_send_the_same_local_series(
     captured: Captured, spend_ledger: SpendLedger, config: Callable[..., Path]
 ) -> None:
-    """Verify a local embedding request's savings price its tokens at text-embedding-3-small's
-    $0.02/M input, not at the chat reference gpt-4o's $2.50/M (#1623)."""
-    config(ai={"reference_model": "gpt-4o"})
-    track_request_spend(
-        provider="ollama",
-        model="bge-m3:latest",
-        server="localhost:11434",
-        prompt_tokens=1_000_000,
-        request_type="embedding",
+    """Verify the points of a local call do not depend on `ai.reference_model` or
+    `ai.reference_embedding_model`. The workstation priced its savings at gpt-4o and the Service
+    at gpt-4o-mini, and the dashboard added the two; now each process sends the same tokens and
+    no price, and one recording rule prices them (#1672)."""
+    config(ai={"reference_model": "gpt-4o", "reference_embedding_model": "text-embedding-3-large"})
+    workstation = _local_call_points(captured)
+    config(
+        ai={"reference_model": "gpt-4o-mini", "reference_embedding_model": "text-embedding-3-small"}
     )
+    service = _local_call_points(captured)
 
-    assert [
-        (a["operation"], v)
-        for a, v in captured.points("devops_cli_ai_local_cost_equivalent_usd_total")
-    ] == [("embeddings", 0.02)]
+    assert (len(workstation) > 0, workstation) == (True, service)
 
 
 def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status(
