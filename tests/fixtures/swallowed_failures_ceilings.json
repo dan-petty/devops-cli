@@ -29,7 +29,7 @@
   "src/devops_cli/ai/output/__init__.py": 2,
   "src/devops_cli/ai/personas/__init__.py": 1,
   "src/devops_cli/ai/rag/drift.py": 4,
-  "src/devops_cli/ai/rag/embeddings.py": 12,
+  "src/devops_cli/ai/rag/embeddings.py": 10,
   "src/devops_cli/ai/rag/indexer.py": 8,
   "src/devops_cli/ai/rag/investigator.py": 2,
   "src/devops_cli/ai/rag/library_store.py": 4,

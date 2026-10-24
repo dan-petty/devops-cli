@@ -46,7 +46,7 @@ data:
       # The 48gib-fast and 64gib-standard tiers embed a 32-chunk RAG batch in under 5 s, beside
       # their chat model. The 16gib-fast tier is faster, but its chat model leaves no VRAM for
       # the embedder, so each embedding evicts it. The background tier ollama-48gib-slow takes
-      # 12 to 30 s, past the RAG client's 15 s timeout.
+      # 12 to 30 s.
       # num_ctx is CONST_RAG_MAX_CHUNK_TOKENS, so the largest RAG chunk fits. Without it, Ollama
       # loads the embedder with 32,768 tokens: 5.2 GB, not 2.9 GB, on the 64gib-standard tier.
       # mode: embedding makes health checks embed rather than generate.

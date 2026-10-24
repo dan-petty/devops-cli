@@ -51,6 +51,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
     DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
+    DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT,
     DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
     DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS,
     DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS,
@@ -399,10 +400,13 @@ class EmbeddingsEngine:
             getattr(getattr(base_config.tasks, "embedding", None), "timeout", None)
             or self.ai_config.timeout
         )
-        effective_timeout = (
-            timeout if timeout is not None else (task_timeout or DEFAULT_RAG_EMBEDDING_TIMEOUT)
+        configured_timeout = timeout if timeout is not None else task_timeout
+        # The read timeout of one direct Ollama node, and of one batch at the gateway or an
+        # OpenAI-compatible API. A configured timeout sets both.
+        self.timeout = min(float(configured_timeout or DEFAULT_RAG_EMBEDDING_TIMEOUT), 120.0)
+        self.batch_timeout = min(
+            float(configured_timeout or DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT), 120.0
         )
-        self.timeout = min(float(effective_timeout), 120.0)
         task_model = getattr(getattr(base_config.tasks, "embedding", None), "model", None)
         self.model = task_model or DEFAULT_RAG_EMBEDDING_MODEL
         self._dimension: int | None = None
@@ -416,26 +420,24 @@ class EmbeddingsEngine:
         self._http_lock = threading.Lock()
 
     def _get_http_client(self) -> httpx2.Client:
-        """Return or create a thread-safe persistent HTTP client with connection pooling."""
+        """The one HTTP client of the engine's batches, made at the first request.
+
+        Batches in parallel threads send through the same connection pool. When a request fails,
+        the pool closes the connection of that request, and a retry gets a new connection. Thus
+        no batch closes the client while other batches use it: only `close` closes it.
+        """
         with self._http_lock:
-            if self._http_client is None or self._http_client.is_closed:
-                client_timeout = httpx2.Timeout(max(self.timeout, 30.0), connect=2.0)
+            if self._http_client is None:
+                client_timeout = httpx2.Timeout(self.batch_timeout, connect=2.0)
                 self._http_client = httpx2.Client(timeout=client_timeout)
             return self._http_client
 
-    def _reset_http_client(self) -> None:
-        """Reset HTTP client so stale sockets are discarded on connection failures."""
-        with self._http_lock:
-            if self._http_client is not None:
-                try:
-                    self._http_client.close()
-                except Exception:
-                    pass
-                self._http_client = None
-
     def close(self) -> None:
-        """Close persistent HTTP client connection pool."""
-        self._reset_http_client()
+        """Close the HTTP client of the engine's batches, after the last batch."""
+        with self._http_lock:
+            client, self._http_client = self._http_client, None
+        if client is not None:
+            client.close()
 
     def __del__(self) -> None:
         try:
@@ -1035,7 +1037,8 @@ class EmbeddingsEngine:
                 last_exc = exc
                 if not _is_transient_embedding_error(exc) or attempt >= max_retries:
                     raise
-                self._reset_http_client()
+                # The pool closed the connection that failed, and the retry gets a new one. The
+                # client stays open for the batches in parallel with this one.
                 if isinstance(exc, (httpx2.TimeoutException, TimeoutError)):
                     self._apply_aimd_decrease()
                 delay = _compute_retry_delay(attempt)
