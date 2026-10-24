@@ -2903,6 +2903,9 @@ CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama",)
 # on Ollama itself.
 CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
 CONST_AI_GATEWAY_DEFAULT_ROUTE: Final[str] = "devops-chat"
+CONST_THINKING_INITIAL_STATES: Final[tuple[str, ...]] = ("emitting", "thinking")
+CONST_THINKING_STATE_EMITTING: Final[str] = "emitting"
+CONST_THINKING_STATE_THINKING: Final[str] = "thinking"
 # The pydantic-ai model prefix a bare model name takes from `ai.provider`. OpenAI and Copilot
 # models use the chat completions API, as `LLMClient` does, which OpenAI-compatible servers at
 # `ai.api_base_url` serve. Provider `gateway` takes its gateway's prefix (`ai.gateway_provider`);

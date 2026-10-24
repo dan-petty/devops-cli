@@ -31,7 +31,6 @@ from devops_cli.ai.client.network import (
     validate_base_url,
 )
 from devops_cli.ai.client.streaming import (
-    StreamingReasoningSanitizer,
     StreamingTokenProcessor,
 )
 from devops_cli.ai.client.structured import StructuredOutputMixin
@@ -45,7 +44,6 @@ __all__ = [
     "LLMResponse",
     "ReplyRejectedError",
     "RequestPriority",
-    "StreamingReasoningSanitizer",
     "StreamingTokenProcessor",
     "StructuredOutputMixin",
     "StructuredOutputValidationError",

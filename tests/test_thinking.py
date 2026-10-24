@@ -95,3 +95,70 @@ def test_thinking_stream_processor_consolidates_header_and_footer() -> None:
     assert events == ["think_start", "think_end"]
     assert proc.clean_content == "Final response content"
     assert proc.thinking_content == "Part 1 Part 2"
+
+
+def test_unopened_closing_tag_counted_and_stripped() -> None:
+    """Unopened closing tags are stripped from output and increment unopened_close_tags."""
+    # Closing tag only through strip_think_blocks
+    assert strip_think_blocks("</think>") == ""
+    assert getattr(strip_think_blocks, "unopened_close_tags", 0) == 1
+
+    # Mixed content with unopened closing tag
+    chunks = ["Deciding what to commit.", "</think>", "git commit -m x"]
+    assert strip_think_blocks("".join(chunks)) == "Deciding what to commit.git commit -m x"
+    assert getattr(strip_think_blocks, "unopened_close_tags", 0) == 1
+
+    proc = ThinkingStreamProcessor(show_thinking=False)
+    for chunk in chunks:
+        proc.feed(chunk)
+    proc.flush()
+
+    assert proc.clean_content == "Deciding what to commit.git commit -m x"
+    assert getattr(proc, "unopened_close_tags", 0) == 1
+    assert proc.to_dict()["unopened_close_tags"] == 1
+
+
+def test_unclosed_thinking_stream_at_eof() -> None:
+    """ThinkingStreamProcessor reports unclosed streams at EOF in to_dict() without leaking content."""
+    proc = ThinkingStreamProcessor(show_thinking=False)
+    proc.feed("Prefix <think>Unfinished thoughts cut off...")
+    proc.flush()
+
+    assert proc.clean_content == "Prefix "
+    assert proc.thinking_content == "Unfinished thoughts cut off..."
+    assert getattr(proc, "unclosed_stream", None) is True
+    summary = proc.to_dict()
+    assert summary["unclosed_stream"] is True
+
+
+def test_thought_buffer_cap_and_discard() -> None:
+    """Thought buffers cap at 65,536 chars and track discarded characters."""
+    raw = "<think>" + "a" * 70_000 + "</think>Answer"
+    cleaned = strip_think_blocks(raw)
+
+    assert cleaned == "Answer"
+    assert len(getattr(strip_think_blocks, "thinking_content", "")) == 65_536
+    assert getattr(strip_think_blocks, "discarded_thought_chars", 0) == 4_464
+
+
+def test_thinking_stream_processor_initial_state_profile() -> None:
+    """ThinkingStreamProcessor accepts initial_state and model_profile to start in THINKING."""
+    proc = ThinkingStreamProcessor(show_thinking=False, initial_state="thinking")
+    assert proc.in_think is True
+    proc.feed("Initial reasoning chunk")
+    assert proc.in_think is True
+    assert proc.thinking_content == "Initial reasoning chunk"
+    assert proc.clean_content == ""
+
+    proc.feed("</think>Final clean content")
+    proc.flush()
+    assert proc.in_think is False
+    assert proc.clean_content == "Final clean content"
+
+    proc_profile = ThinkingStreamProcessor(
+        show_thinking=False, model_profile={"initial_state": "thinking"}
+    )
+    assert proc_profile.in_think is True
+    proc_profile.feed("Single chunk")
+    assert proc_profile.in_think is True
+    assert proc_profile.thinking_content == "Single chunk"

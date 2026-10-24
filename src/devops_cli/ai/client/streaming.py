@@ -12,16 +12,23 @@ import httpx2
 
 from devops_cli.ai.client.models import MAX_STREAM_BYTES, AIClientError, provider_finish_reason
 from devops_cli.ai.client.network import size_limit_text, stream_finish_reason
+from devops_cli.ai.thinking_stream import ThinkingFSM
 from devops_cli.config.constants import (
     CONST_ANTHROPIC_STOP_REASONS,
     CONST_OLLAMA_DONE_REASONS,
     CONST_OPENAI_FINISH_REASONS,
 )
-from devops_cli.config.defaults import DEFAULT_AI_STREAM_MAX_EVENT_BYTES
+from devops_cli.config.defaults import (
+    DEFAULT_AI_STREAM_MAX_EVENT_BYTES,
+    DEFAULT_THINKING_INITIAL_STATE,
+    DEFAULT_THINKING_MAX_THOUGHT_CHARS,
+    DEFAULT_THINKING_TAGS,
+)
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
+    from pydantic_ai.profiles import ModelProfileSpec
 
 
 def _find_suffix_overlap(text: str, target: str) -> int:
@@ -36,43 +43,121 @@ def _find_suffix_overlap(text: str, target: str) -> int:
 class StreamingTokenProcessor:
     """Standardized streaming token processor and reasoning scratchpad extractor.
 
-    Parses streaming SSE tokens in real-time, extracts <think>...</think> reasoning
-    blocks into an isolated reasoning scratchpad, yields sanitized markdown content,
-    and enforces strict MAX_STREAM_BYTES (50MB) boundary limits.
+    Parses streaming SSE tokens in real-time, extracts reasoning blocks into an
+    isolated reasoning scratchpad, yields sanitized markdown content, and enforces
+    strict MAX_STREAM_BYTES boundary limits.
     """
 
     def __init__(
         self,
         *,
         max_stream_bytes: int = MAX_STREAM_BYTES,
-        thinking_tags: tuple[str, str] = ("<think>", "</think>"),
+        thinking_tags: tuple[str, str] = DEFAULT_THINKING_TAGS,
+        initial_state: str = DEFAULT_THINKING_INITIAL_STATE,
+        max_thought_chars: int = DEFAULT_THINKING_MAX_THOUGHT_CHARS,
+        model_profile: ModelProfileSpec | None = None,
         on_token: Callable[[str], None] | None = None,
         on_reasoning: Callable[[str], None] | None = None,
         on_reasoning_start: Callable[[], None] | None = None,
         on_reasoning_end: Callable[[], None] | None = None,
     ) -> None:
-        if len(thinking_tags) != 2 or not thinking_tags[0] or not thinking_tags[1]:
-            raise ValueError(
-                "thinking_tags must be a tuple of two non-empty strings (open_tag, close_tag)."
-            )
         self.max_stream_bytes = max_stream_bytes
-        self.thinking_tags = thinking_tags
-        self.open_tag = thinking_tags[0]
-        self.close_tag = thinking_tags[1]
         self.on_token = on_token
         self.on_reasoning = on_reasoning
         self.on_reasoning_start = on_reasoning_start
         self.on_reasoning_end = on_reasoning_end
 
-        self._buffer: str = ""
         self._total_bytes: int = 0
-        self._clean_chunks: list[str] = []
-        self._reasoning_chunks: list[str] = []
-        self.in_think: bool = False
-        self.thinking_detected: bool = False
-        self._explicit_thinking_active: bool = False
-        self._reasoning_started: bool = False
-        self._reasoning_ended: bool = False
+        self._fsm = ThinkingFSM(
+            thinking_tags=thinking_tags,
+            initial_state=initial_state,
+            max_thought_chars=max_thought_chars,
+            model_profile=model_profile,
+            on_think_start=self._handle_reasoning_start,
+            on_think_chunk=self._handle_reasoning,
+            on_think_end=self._handle_reasoning_end,
+            on_content_chunk=self._handle_token,
+        )
+
+    def _handle_reasoning_start(self) -> None:
+        if self.on_reasoning_start:
+            self.on_reasoning_start()
+
+    def _handle_reasoning(self, chunk: str) -> None:
+        if self.on_reasoning:
+            self.on_reasoning(chunk)
+
+    def _handle_reasoning_end(self) -> None:
+        if self.on_reasoning_end:
+            self.on_reasoning_end()
+
+    def _handle_token(self, token: str) -> None:
+        if self.on_token:
+            self.on_token(token)
+
+    @property
+    def thinking_tags(self) -> tuple[str, str]:
+        """Return effective thinking tags (open_tag, close_tag)."""
+        return self._fsm.thinking_tags
+
+    @property
+    def open_tag(self) -> str:
+        """Return opening tag for reasoning blocks."""
+        return self._fsm.open_tag
+
+    @property
+    def close_tag(self) -> str:
+        """Return closing tag for reasoning blocks."""
+        return self._fsm.close_tag
+
+    @property
+    def in_think(self) -> bool:
+        """Return True if currently inside a reasoning block."""
+        return self._fsm.in_think
+
+    @property
+    def unopened_close_tags(self) -> int:
+        """Return count of unopened closing tags encountered while emitting."""
+        return self._fsm.unopened_close_tags
+
+    @property
+    def unclosed_stream(self) -> bool:
+        """Return True if stream terminated while inside a thinking block."""
+        return self._fsm.unclosed_stream
+
+    @property
+    def discarded_thought_chars(self) -> int:
+        """Return count of thought characters discarded due to buffer cap."""
+        return self._fsm.discarded_thought_chars
+
+    @property
+    def clean_content(self) -> str:
+        """Return accumulated clean content without reasoning tags."""
+        return self._fsm.clean_content
+
+    @property
+    def reasoning_scratchpad(self) -> str:
+        """Return accumulated reasoning scratchpad."""
+        return self._fsm.thinking_content
+
+    @property
+    def total_bytes(self) -> int:
+        """Return total bytes processed across all chunks."""
+        return self._total_bytes
+
+    @property
+    def has_reasoning(self) -> bool:
+        """Return True if any reasoning content or think block was encountered."""
+        return bool(
+            self._fsm.thinking_content
+            or self._fsm.think_started
+            or self._fsm.discarded_thought_chars
+        )
+
+    @property
+    def thinking_detected(self) -> bool:
+        """Return True if reasoning was detected."""
+        return self.has_reasoning
 
     def _record_bytes(self, chunk: str) -> None:
         self._total_bytes += len(chunk.encode("utf-8"))
@@ -81,127 +166,16 @@ class StreamingTokenProcessor:
                 f"Stream exceeded maximum size limit of {size_limit_text(self.max_stream_bytes)}."
             )
 
-    def _trigger_reasoning_start(self) -> None:
-        if not self._reasoning_started:
-            self._reasoning_started = True
-            self._reasoning_ended = False
-            if self.on_reasoning_start:
-                self.on_reasoning_start()
-
-    def _trigger_reasoning_end(self) -> None:
-        if self._reasoning_started and not self._reasoning_ended:
-            self._reasoning_ended = True
-            self._reasoning_started = False
-            if self.on_reasoning_end:
-                self.on_reasoning_end()
-
-    def _handle_explicit_thinking(self, chunk: str) -> list[str]:
-        self.thinking_detected = True
-        self._explicit_thinking_active = True
-        self._trigger_reasoning_start()
-        self._reasoning_chunks.append(chunk)
-        if self.on_reasoning:
-            self.on_reasoning(chunk)
-        return []
-
-    def _emit_safe_tokens(self, text: str) -> list[str]:
-        if not text:
-            return []
-        self._clean_chunks.append(text)
-        if self.on_token:
-            self.on_token(text)
-        return [text]
-
-    def _append_reasoning(self, text: str) -> None:
-        if not text:
-            return
-        self._reasoning_chunks.append(text)
-        if self.on_reasoning:
-            self.on_reasoning(text)
-
-    def _process_outside_think(self) -> tuple[bool, list[str]]:
-        pos = self._buffer.find(self.open_tag)
-        if pos != -1:
-            content = self._buffer[:pos]
-            self.in_think = True
-            self.thinking_detected = True
-            self._trigger_reasoning_start()
-            self._buffer = self._buffer[pos + len(self.open_tag) :]
-            tokens = self._emit_safe_tokens(content) if content else []
-            return True, tokens
-
-        match_len = _find_suffix_overlap(self._buffer, self.open_tag)
-        if match_len > 0:
-            safe = self._buffer[:-match_len]
-            self._buffer = self._buffer[-match_len:]
-            tokens = self._emit_safe_tokens(safe) if safe else []
-            return False, tokens
-
-        tokens = self._emit_safe_tokens(self._buffer)
-        self._buffer = ""
-        return True, tokens
-
-    def _process_inside_think(self) -> tuple[bool, list[str]]:
-        pos = self._buffer.find(self.close_tag)
-        if pos != -1:
-            reasoning = self._buffer[:pos]
-            self.in_think = False
-            self._buffer = self._buffer[pos + len(self.close_tag) :]
-            self._append_reasoning(reasoning)
-            self._trigger_reasoning_end()
-            return True, []
-
-        match_len = _find_suffix_overlap(self._buffer, self.close_tag)
-        if match_len > 0:
-            safe_think = self._buffer[:-match_len]
-            self._buffer = self._buffer[-match_len:]
-            self._append_reasoning(safe_think)
-            return False, []
-
-        self._append_reasoning(self._buffer)
-        self._buffer = ""
-        return True, []
-
-    def _process_buffer(self) -> list[str]:
-        emitted: list[str] = []
-        while self._buffer:
-            advanced, tokens = (
-                self._process_inside_think() if self.in_think else self._process_outside_think()
-            )
-            emitted.extend(tokens)
-            if not advanced:
-                break
-        return emitted
-
     def feed(self, chunk: str, *, is_thinking: bool = False) -> list[str]:
         """Feed a streaming chunk into the processor and return newly safe clean tokens."""
         if not chunk:
             return []
         self._record_bytes(chunk)
-        if is_thinking:
-            return self._handle_explicit_thinking(chunk)
-        if self._explicit_thinking_active:
-            self._explicit_thinking_active = False
-            self._trigger_reasoning_end()
-        self._buffer += chunk
-        return self._process_buffer()
+        return self._fsm.feed(chunk, is_thinking=is_thinking)
 
     def flush(self) -> list[str]:
         """Flush remaining buffered tokens and finalize reasoning states."""
-        emitted: list[str] = []
-        if self._explicit_thinking_active:
-            self._explicit_thinking_active = False
-            self._trigger_reasoning_end()
-        if self.in_think:
-            if self._buffer:
-                self._append_reasoning(self._buffer)
-            self.in_think = False
-            self._trigger_reasoning_end()
-        elif self._buffer:
-            emitted = self._emit_safe_tokens(self._buffer)
-
-        self._buffer = ""
-        return emitted
+        return self._fsm.flush()
 
     def sanitize_stream(self, stream: Iterable[str]) -> Generator[str]:
         """Consume an input stream and yield only clean markdown content tokens."""
@@ -217,26 +191,6 @@ class StreamingTokenProcessor:
         for final_token in self.flush():
             yield final_token
 
-    @property
-    def clean_content(self) -> str:
-        """Return the accumulated clean content without reasoning tags."""
-        return "".join(self._clean_chunks)
-
-    @property
-    def reasoning_scratchpad(self) -> str:
-        """Return the accumulated reasoning scratchpad."""
-        return "".join(self._reasoning_chunks)
-
-    @property
-    def total_bytes(self) -> int:
-        """Return total bytes processed across all chunks."""
-        return self._total_bytes
-
-    @property
-    def has_reasoning(self) -> bool:
-        """Return True if any reasoning content or think block was encountered."""
-        return bool(self._reasoning_chunks or self.thinking_detected)
-
     def to_dict(self) -> dict[str, Any]:
         """Return structured summary dictionary of processed stream."""
         return {
@@ -244,10 +198,10 @@ class StreamingTokenProcessor:
             "reasoning_scratchpad": self.reasoning_scratchpad,
             "has_reasoning": self.has_reasoning,
             "total_bytes": self._total_bytes,
+            "unopened_close_tags": self.unopened_close_tags,
+            "unclosed_stream": self.unclosed_stream,
+            "discarded_thought_chars": self.discarded_thought_chars,
         }
-
-
-StreamingReasoningSanitizer = StreamingTokenProcessor
 
 
 @dataclass(frozen=True, slots=True)
