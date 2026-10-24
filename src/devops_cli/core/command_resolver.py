@@ -92,6 +92,38 @@ def resolve_devops_argv(tokens: Sequence[ArgvToken]) -> CommandReferenceFinding 
     return finding if subcommand is None else _walk_delegated(*subcommand)
 
 
+def resolve_command_path(words: Sequence[str]) -> tuple[str, int]:
+    """The command path of the command line `devops <words>`, and the number of its other words.
+
+    The path holds the command names only, such as `devops config set`, as the `cli.command_path`
+    of a command span does. The count is the number of words that are not command names. A span
+    can hold both, and no argument value: an argument can be a credential (#2058). The walk
+    starts where `main._delegate` does, at the module app that the first word names, and follows
+    the subcommands with the walk of Typer's own shell completion. That walk parses resiliently,
+    so no prompt and no command callback starts, and a help or completion option does nothing.
+    A word that names no command ends the path at the group above it, and a first word that names
+    no command, such as an option of `devops` itself, gives the path `devops`.
+    """
+    from typer._click.shell_completion import _resolve_context
+
+    name = words[0] if words else ""
+    command = _module_command(name)
+    if command is None:
+        return _ROOT, len(words)
+    if name in CONST_CLI_ROOT_LEVEL_COMMANDS:
+        context = _resolve_context(command, {}, _ROOT, list(words))
+    else:
+        context = _resolve_context(command, {}, f"{_ROOT} {name}", list(words[1:]))
+    # Each context of the chain took one command name from the words, except a root named
+    # `devops` alone: the module app of a root-level command takes its name as a subcommand.
+    names = 0
+    node: Any = context
+    while node is not None:
+        names += 0 if node.info_name == _ROOT else 1
+        node = node.parent
+    return context.command_path, len(words) - names
+
+
 def _walk_delegated(command_name: str, args: Sequence[ArgvToken]) -> CommandReferenceFinding | None:
     """Walk a top-level command as `main._delegate` runs it: its module app, from the top."""
     command = _module_command(command_name)

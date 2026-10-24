@@ -1131,6 +1131,13 @@ class DocGenerator:
             "arguments in `process.command_args`, each argument through the secret mask. The "
             "mask does not find all credentials, so set the option back to `false` after the "
             "session. A subprocess span never holds `process.command_line`.",
+            "- **Profile Span**: `devops telemetry profile` runs the command line that it gets "
+            "under a `telemetry.profile` span. The span holds the command path of the profiled "
+            "command (`cli.command_path`, such as `devops config set`) and the number of its "
+            "other words (`cli.args_count`). It does not record the argument values, also when "
+            "`telemetry.capture_command_args` is `true`. The profiled command runs as a program "
+            "of devops-cli, so with that option on, its `subprocess.<program>` span under the "
+            "profile span holds the arguments in `process.command_args`.",
             "- **Usage Errors**: The message of a usage error quotes the arguments, such as "
             "`Got unexpected extra argument (<value>)` from the parser or a `typer.BadParameter` "
             "that a command raises. Thus the command spans record the class of the error "

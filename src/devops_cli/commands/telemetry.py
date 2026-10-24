@@ -347,15 +347,26 @@ def _devops_entry_argv(command: str) -> list[str]:
 def _run_profiled_command(command: str, argv: list[str], tracer: OTelTelemetryClient) -> str:
     """Run a devops-cli command inside a profile span and return the trace it ran under.
 
+    The profile span holds the command path of the command and the number of its other words,
+    and no argument value: the command line can hold a credential (#2058). The child runs
+    through `run_subprocess`, so its subprocess span under the profile span records the
+    arguments only when `telemetry.capture_command_args` turns them on, as for every program
+    that devops-cli runs.
+
     `run_subprocess` hands the child that trace through TRACEPARENT. The child keeps the
     caller's full environment, as if run directly, so its own telemetry settings and the
     credentials it would read reach it. That is safe only because `argv` always comes from
     `_devops_entry_argv`: the environment goes to devops-cli itself, imported from where this
     interpreter installed it and not from the working directory, and to no other program.
     """
+    import shlex
+
+    from devops_cli.core.command_resolver import resolve_command_path
     from devops_cli.core.process import run_subprocess
 
-    with trace_span("telemetry.profile", attributes={"command.line": command}) as span_h:
+    command_path, args_count = resolve_command_path(shlex.split(command)[1:])
+    attributes = {"cli.command_path": command_path, "cli.args_count": args_count}
+    with trace_span("telemetry.profile", attributes=attributes) as span_h:
         trace_id = tracer.current_trace_id or ""
         print_info(f"Profiling command: [bold]{command}[/bold] (Trace: {trace_id})", prefix=False)
         start_time = time.perf_counter()

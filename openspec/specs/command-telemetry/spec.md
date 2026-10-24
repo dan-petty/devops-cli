@@ -40,3 +40,17 @@ Each command span SHALL hold the name of its command in `cli.command`, and SHALL
 - **WHEN** a person runs `devops <group> set <key> <value>` with telemetry export on
 - **THEN** the span `cli.<group>` holds the `cli.command` `<group>`, and the span `cli.set` holds the `cli.command` `set` and the `cli.command_path` `devops <group> set`
 - **AND** neither span holds `process.command_line`
+
+### Requirement: The profile span names the profiled command and holds no argument value
+The `telemetry.profile` span of `devops telemetry profile` SHALL hold the command path of the profiled command in `cli.command_path` and the number of its words that are not command names in `cli.args_count`. The span SHALL hold no `command.line` and no argument value, also while `telemetry.capture_command_args` is on. While the setting is on, the subprocess span under the profile span SHALL hold the arguments of the profiled command in `process.command_args`.
+
+#### Scenario: A credential in the profiled command line
+- **WHEN** a person runs `devops telemetry profile "devops config set cloudflare.tunnel_token <credential>"` with telemetry export on and the default settings
+- **THEN** the `telemetry.profile` span holds `cli.command_path` `devops config set` and `cli.args_count` 2
+- **AND** the span holds no `command.line`
+- **AND** no exported payload holds the credential
+
+#### Scenario: The person turns on the arguments
+- **WHEN** `telemetry.capture_command_args` is true and a person profiles the same command line
+- **THEN** the `telemetry.profile` span holds no argument value
+- **AND** the subprocess span under the profile span holds the arguments of the profiled command in `process.command_args`
