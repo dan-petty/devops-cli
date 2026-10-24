@@ -680,7 +680,6 @@ defect into each, recording where. It never writes into the sources. The templat
 | `enable-host-network` | Adds `hostNetwork: true` to a pod spec. | YAML |
 | `mount-host-path` | Replaces an `emptyDir: {}` volume with the node's root (`hostPath`). | YAML |
 | `drop-resource-limits` | Removes a container's `resources.limits`. | YAML |
-| `contradict-documented-default` | Changes a documented default (`true`/`false`, a number), so the page contradicts the code. | docs |
 
 Docs templates change example commands only inside fenced code blocks (and Hugo `highlight` or
 `codeFromInline` shortcodes); prose is left alone. A removed checksum in a Dockerfile must be a

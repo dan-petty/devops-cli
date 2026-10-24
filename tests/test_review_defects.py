@@ -218,6 +218,12 @@ def test_unknown_templates_are_rejected_by_name() -> None:
         select_templates(["no-such-template"])
 
 
+def test_select_templates_rejects_removed_contradict_documented_default() -> None:
+    """Verify the system rejects contradict-documented-default as an unknown template."""
+    with pytest.raises(ValueError, match="contradict-documented-default"):
+        select_templates(["contradict-documented-default"])
+
+
 def _source_tree(root: Path) -> Path:
     source = root / "src"
     (source / "roles").mkdir(parents=True)
