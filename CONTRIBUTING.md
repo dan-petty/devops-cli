@@ -62,12 +62,12 @@ uv run pre-commit install
    uv run mypy path/to/modified.py
    uv run devops ci test tests/test_architectural_invariants.py
    ```
-4. **Run the Gate Before a Push**:
-   The pre-push hook runs the full gate, and a push goes only when every check passes:
+4. **Push Through the Fast Checks, and Merge Through CI**:
+   The pre-push hook runs only the fast static checks: `uv run devops ci --check --only lint,format,actionlint,zizmor`. A push goes only when they pass. Never use `--no-verify`. The required checks of CI, `Static Analysis`, `Tests & Coverage` and `Semantic PR title`, must pass on the pull request before it merges (#1752). The release pull request runs the same checks on each new `main`, so its status shows a defect that two pull requests make together. To run every check before a push, run the full gate by hand:
    ```bash
    uv run devops ci
    ```
-   Validates every check `devops ci` runs concurrently: Python runtime, tests, 90% coverage, linting, formatting, strict typing, dependency audit, security scanning, the wheel and sdist build, workflow actionlint, and documentation freshness.
+   Validates every check `devops ci` runs concurrently: Python runtime, tests, 90% coverage, linting, formatting, strict typing, dependency audit, security scanning, the wheel and sdist build, workflow actionlint and zizmor, and documentation freshness.
 
 ---
 

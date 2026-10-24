@@ -520,7 +520,7 @@ Before altering implementation code in `src/`:
 ### Step 5: Verify
 
 - Run the targeted tests: `uv run devops ci test <test-file>`.
-- Run the Gated CI quality gate: `uv run devops ci`.
+- Push through the pre-push hook, which runs the fast static checks. The required checks of CI run the full suite before the merge. Run `uv run devops ci` by hand if you want every check before the push.
 
 ### Step 6: Leave the Verdict to a Person and Prevent a Recurrence
 

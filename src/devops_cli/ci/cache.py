@@ -252,8 +252,8 @@ def compute_workspace_fingerprint(
     The fingerprint describes **content**, not git state. It previously hashed `HEAD`, the
     written tree, and the staged and unstaged diffs separately, which meant staging a file
     changed it and committing changed it again -- even though no file content differed.
-    Since committing is precisely what happens between running `devops ci` and pushing, the
-    pre-push hook could never hit the cache and re-ran the whole suite on every push.
+    A commit often comes between two runs of `devops ci`, so the second run could never hit
+    the cache and ran the whole suite again (#375).
 
     Content addressing makes the fingerprint invariant across `git add` and `git commit`,
     so a verified tree stays verified until something in it actually changes.
