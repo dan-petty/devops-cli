@@ -14,6 +14,7 @@ import json
 import re
 import shutil
 import sys
+import sysconfig
 import tempfile
 import tomllib
 from collections.abc import Callable, Mapping
@@ -37,6 +38,7 @@ from devops_cli.config.constants import (
     CONST_CANARY_SEMGREP_PROBES_YAML,
     CONST_CANARY_TOOLS,
     CONST_REVIEW_CONFIG_FILE,
+    CONST_TOOL_DIGEST_UNAVAILABLE,
 )
 from devops_cli.core.process import run_subprocess
 
@@ -79,6 +81,7 @@ def clear_canary_cache() -> None:
     _CANARY_CACHE.clear()
     _load_locked_tool_versions.cache_clear()
     _hash_binary_path.cache_clear()
+    _python_tool_identity.cache_clear()
 
 
 def get_canary_cache() -> dict[CanaryCacheKey, CanaryResult]:
@@ -384,7 +387,60 @@ def _hash_binary_path(resolved_path: str) -> str:
     try:
         return hashlib.sha256(Path(resolved_path).read_bytes()).hexdigest()
     except OSError:
-        return "unavailable"
+        return CONST_TOOL_DIGEST_UNAVAILABLE
+
+
+def _launcher_distribution(launcher: Path) -> importlib.metadata.Distribution | None:
+    """The installed distribution that wrote `launcher` from one of its console scripts, or None
+    for a program that no console script wrote, such as a native binary.
+
+    The launcher runs the interpreter of the environment whose scripts directory holds it, so the
+    distribution is found in the site-packages directories of that environment, as `sysconfig`
+    lays them out: a virtual environment of `devops install-tools`, a `uv tool` or pipx
+    environment, the `.venv` of a project, or a user or system prefix such as `/usr/local`.
+    """
+    prefix = str(launcher.parent.parent)
+    layout = {"base": prefix, "platbase": prefix}
+    site_dirs = {sysconfig.get_path(key, "venv", vars=layout) for key in ("purelib", "platlib")}
+    for dist in importlib.metadata.distributions(path=sorted(site_dirs)):
+        if dist.entry_points.select(group="console_scripts", name=launcher.name):
+            return dist
+    return None
+
+
+def _distribution_digest(dist: importlib.metadata.Distribution, launcher: Path) -> str:
+    """The SHA-256 of the files that the `RECORD` of `dist` lists with their hashes, less the
+    launcher scripts that the installer wrote from its console scripts.
+
+    A launcher holds the path of its interpreter, so it differs from one environment to the next
+    while the package is the same. The digest uses the hashes that the installer wrote, sorted by
+    path. It reads the metadata of the distribution and no file of the package. It is
+    `unavailable` when `dist` has no `RECORD`.
+    """
+    launchers = {entry.name for entry in dist.entry_points.select(group="console_scripts")}
+    rows = sorted(
+        f"{path},{path.hash.mode}={path.hash.value}"
+        for path in dist.files or ()
+        if path.hash is not None
+        and not (
+            path.name in launchers
+            and Path(str(dist.locate_file(path))).resolve().parent == launcher.parent
+        )
+    )
+    if not rows:
+        return CONST_TOOL_DIGEST_UNAVAILABLE
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+
+
+@functools.lru_cache(maxsize=32)
+def _python_tool_identity(resolved_path: str) -> tuple[str, str] | None:
+    """The version and the digest of the distribution that wrote the launcher at
+    `resolved_path`, or None for a program that no console script wrote."""
+    launcher = Path(resolved_path)
+    dist = _launcher_distribution(launcher)
+    if dist is None:
+        return None
+    return dist.version, _distribution_digest(dist, launcher)
 
 
 def resolve_tool_binary(tool: str) -> Path | None:
@@ -400,8 +456,18 @@ def resolve_tool_binary(tool: str) -> Path | None:
 
 
 def resolve_tool_version_and_sha(tool: str) -> tuple[str, str]:
-    """Resolve installed version and binary SHA-256 for `tool`."""
+    """The version of `tool` and the SHA-256 of what runs when it starts.
+
+    A Python tool, such as Bandit or Semgrep, starts from a launcher script that its installer
+    wrote from a console script. Its version and digest name the installed distribution that wrote
+    the launcher (`_distribution_digest`). Any other program is named by the digest of its file,
+    at the version that `tools.lock` pins, else the version of the distribution of that name in
+    this environment. The digest is `unavailable` when the host has no such program.
+    """
     norm = tool.lower()
+    binary = resolve_tool_binary(norm)
+    if binary is not None and (identity := _python_tool_identity(str(binary))) is not None:
+        return identity
     locked = _load_locked_tool_versions()
     version = locked.get(norm, "")
     if not version:
@@ -409,9 +475,7 @@ def resolve_tool_version_and_sha(tool: str) -> tuple[str, str]:
             version = importlib.metadata.version(norm)
         except importlib.metadata.PackageNotFoundError:
             version = "unknown"
-
-    binary = resolve_tool_binary(norm)
-    return version, _hash_binary_path(str(binary)) if binary else "unavailable"
+    return version, _hash_binary_path(str(binary)) if binary else CONST_TOOL_DIGEST_UNAVAILABLE
 
 
 def _default_ruleset_digest(tool: str) -> str:

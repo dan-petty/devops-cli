@@ -608,6 +608,16 @@ executor could not read one of the files, because a scan must not fail for its r
 shows `{targets}`, `{config}` and `{ruleset}` where the command names those files by path, so the
 same scan records the same template.
 
+The `binary_sha256` of a native binary, such as Gitleaks, Trivy or the Ruff binary, is the SHA-256
+of its file. A Python tool, such as Bandit, Semgrep or mypy, starts from a launcher script that its
+installer writes from a console script, and the launcher holds the path of its interpreter. So its
+record names the installed distribution that wrote the launcher, in the environment that holds the
+launcher: `version` is the version of that distribution, and `binary_sha256` is the SHA-256 of the
+file hashes that its `RECORD` lists, less the launcher scripts. Two environments that one
+installer made from the same package thus record the same digest, also when their paths differ.
+The digest does not cover the dependencies of the tool. It is `unavailable` for a distribution
+without a `RECORD`.
+
 `review.md` lists the distinct records in the Tool Runs table, each with its number of runs.
 Gitleaks scans one file at a time, so one row can stand for hundreds of runs. The table leaves out
 the targets digest and shows the first 16 digits of the binary digest. `profile.json` keeps every
