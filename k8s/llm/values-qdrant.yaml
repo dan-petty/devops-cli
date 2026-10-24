@@ -37,6 +37,16 @@ persistence:
   accessModes:
     - ReadWriteOnce
 
+# local-path binds the volume on the node where the pod first runs, and the root disk of the
+# control-plane node has the least free space (#1634; k8s/README.md, Local-Path Volume Placement).
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role.kubernetes.io/control-plane
+              operator: DoesNotExist
+
 resources:
   requests:
     cpu: 250m

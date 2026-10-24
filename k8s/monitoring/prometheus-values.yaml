@@ -47,6 +47,15 @@ alertmanager:
   enabled: true
   persistence:
     storageClass: local-path
+  # local-path binds the volume on the node where the pod first runs, and the root disk of the
+  # control-plane node has the least free space (#1634; k8s/README.md, Local-Path Volume Placement).
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
   resources:
     requests:
       cpu: 10m
@@ -265,6 +274,37 @@ serverFiles:
             annotations:
               summary: "{{ $labels.mountpoint }} on node {{ $labels.instance }} is {{ $value | humanizePercentage }} free"
               description: "{{ $labels.mountpoint }} on node {{ $labels.instance }} has had under 5% free for 5 minutes. local-path volumes on that node fill with it."
+          # At 85% used the kubelet starts to delete unused images (imageGCHighThresholdPercent), and
+          # a node under DiskPressure evicts its pods. A pod on a local-path volume cannot start on
+          # another node, so this warns at 85% on the root filesystem of each node that runs a pod
+          # on a local-path claim (#1634): the claim gives the storage class, the pod's volumes give
+          # the claim, and kube_pod_info gives the node. The joins are `and`, which accepts many
+          # series on each side: for a few minutes after a pod moves, kube_pod_info holds a series
+          # for each node, and a `group_left` join on the pod would stop the rule.
+          # HostFilesystemSpaceLow fires later, at 10% free, on every node.
+          - alert: LocalPathNodeDiskHigh
+            expr: |
+              (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) > 0.85
+              and on (instance)
+              label_replace(
+                max by (node) (
+                  kube_pod_info
+                  and on (namespace, pod)
+                  (
+                    kube_pod_spec_volumes_persistentvolumeclaims_info
+                    and on (namespace, persistentvolumeclaim)
+                    kube_persistentvolumeclaim_info{storageclass="local-path"}
+                  )
+                ),
+                "instance", "$1", "node", "(.+)"
+              )
+            for: 15m
+            labels:
+              severity: warning
+              node: "{{ $labels.instance }}"
+            annotations:
+              summary: "The root filesystem of node {{ $labels.instance }}, which holds local-path volumes, is {{ $value | humanizePercentage }} used"
+              description: "The root filesystem of node {{ $labels.instance }} has been over 85% used for 15 minutes. At 85% the kubelet starts to delete unused images, and under DiskPressure it evicts pods. The pods on its local-path volumes cannot start on another node: free the disk, or move a volume (k8s/README.md, Local-Path Volume Placement)."
           # Silent on this cluster for now: the kubelet reports volume stats only for volumes
           # whose plugin measures them, and no claim here uses one. It fires once a claim on such
           # a storage class exists.
