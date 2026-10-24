@@ -2,16 +2,18 @@
 `scanner_fake` fixture that installs the fake (#1666, #1982, ADR 0007).
 
 A scanner starts its tool through a `ToolExecutor` (`devops_cli.security.tool_executor`). A
-scanner that nobody gives an executor gets a `DirectToolExecutor`. `ScannerFake` is the shared fake
-of that seam, `ToolExecutorFake`, scripted with the recorded run of each scanner. It answers a
-request for a scanner it holds with the exit code, the standard output and the standard error of
-that run, and starts nothing. A test that needs another answer, such as a failed scan, scripts it
-with `script`. For the whole test, the fixture makes every `DirectToolExecutor` answer through the
-fake, also an executor made before the test, such as that of each scanner of the global registry.
-So every scan that gets no executor of its own reaches the fake. A request for any other tool goes
-on to the `run` that the fixture replaced: git runs, and the floor of the suite refuses a real
-scanner. The fake records each run as the direct executor does: a checkout that git cannot read
-has no commit, and a file that it cannot digest has the digest `unavailable`.
+scanner that nobody gives an executor gets a `DirectToolExecutor`, and a review that gets no
+executor runs its tools in a `SandboxToolExecutor` (#2096). `ScannerFake` is the shared fake of
+that seam, `ToolExecutorFake`, scripted with the recorded run of each scanner. It answers a request
+for a scanner it holds with the exit code, the standard output and the standard error of that run,
+and starts nothing. A test that needs another answer, such as a failed scan, scripts it with
+`script`. For the whole test, the fixture makes every `DirectToolExecutor` and every
+`SandboxToolExecutor` answer through the fake, also an executor made before the test, such as that
+of each scanner of the global registry. So every scan that gets no executor of its own reaches the
+fake, and no sandbox starts. A request for any other tool goes on to the `run` that the fixture
+replaced: git runs, and the floor of the suite refuses a real scanner and a real sandbox. The fake
+records each run as the direct executor does: a checkout that git cannot read has no commit, and a
+file that it cannot digest has the digest `unavailable`.
 
 A review runs the canary of each tool before its scans, in a working directory named with
 `CONST_CANARY_WORKDIR_PREFIX`, on the tool executor of the review (#1978). The fake answers each
@@ -32,7 +34,7 @@ directories, the bytes of each file in that directory as the run started.
 
 Each recorded run is the real tool's, at the version `tools.lock` pins, started through its
 adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
-that finds nothing. Semgrep's was recorded again on 2026-10-22, offline, with a rule file in
+that finds nothing. Semgrep's was recorded again on 2026-10-24, offline, with a rule file in
 place of the registry's `p/default`, which a recording cannot fetch. They are kept in
 `tests/fixtures/scanner_runs/recorded_runs.json`, each with its command, in which `{tree}` stands
 for the scanned tree, `{workdir}` for the directory the scanner ran in and `{rule_pack}` for
@@ -47,6 +49,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
@@ -185,17 +188,25 @@ class ScannerFake(ToolExecutorFake):
 @pytest.fixture
 def scanner_fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ScannerFake:
     """The recorded security scanners and tool canaries, on PATH and answered for the whole test."""
-    from devops_cli.security.tool_executor import DirectToolExecutor
+    from devops_cli.security.tool_executor import DirectToolExecutor, SandboxToolExecutor
 
     fake = ScannerFake(recorded_scanner_runs(), tmp_path / "scanner-bin")
     monkeypatch.setenv("PATH", os.pathsep.join([str(fake.bin_dir), os.environ.get("PATH", "")]))
-    direct_run = DirectToolExecutor.run
+    for executor_class in (DirectToolExecutor, SandboxToolExecutor):
+        # On the class, so that the fake also answers an executor made before the test.
+        monkeypatch.setattr(executor_class, "run", _answering(fake, executor_class.run))
+    return fake
 
-    def run(executor: DirectToolExecutor, request: ToolRequest) -> ToolResult:
+
+def _answering(
+    fake: ScannerFake, replaced: Callable[[Any, ToolRequest], ToolResult]
+) -> Callable[[Any, ToolRequest], ToolResult]:
+    """A `run` that answers the scanners and the canaries of `fake`, and hands any other request
+    to the `run` that it replaces."""
+
+    def run(executor: Any, request: ToolRequest) -> ToolResult:
         if request.tool in fake.programs or is_canary_run(request):
             return fake.run(request)
-        return direct_run(executor, request)
+        return replaced(executor, request)
 
-    # On the class, so that the fake also answers an executor made before the test.
-    monkeypatch.setattr(DirectToolExecutor, "run", run)
-    return fake
+    return run

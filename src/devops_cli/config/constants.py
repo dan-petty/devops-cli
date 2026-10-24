@@ -638,6 +638,14 @@ CONST_MYPY_CACHE_DIR_NAME: Final[str] = "mypy"
 # The variable that names the cache directory of mypy. A review sets it in place of `--cache-dir`,
 # so the command of a mypy run names no path of the host but its config file and its targets.
 CONST_MYPY_CACHE_DIR_ENV: Final[str] = "MYPY_CACHE_DIR"
+# The directory of a canary scratch directory where the mypy canary writes its cache.
+CONST_MYPY_CANARY_CACHE_DIR_NAME: Final[str] = "mypy_cache"
+# The directory of the data cache that holds the Ruff cache of each reviewed tree, and the variable
+# that names the cache directory to Ruff. The variable wins over a `cache-dir` of the config of the
+# tree, and Ruff keys its entries by the package of each file, not by the directory it starts in
+# (Ruff 0.16.8, measured 2026-10-24, #2096).
+CONST_RUFF_CACHE_DIR_NAME: Final[str] = "ruff"
+CONST_RUFF_CACHE_DIR_ENV: Final[str] = "RUFF_CACHE_DIR"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
@@ -1444,6 +1452,7 @@ CONST_ERROR_CODE_SANDBOX = "SANDBOX_ERROR"
 CONST_ERROR_CODE_SANDBOX_VALIDATION = "SANDBOX_VALIDATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_PORT_ALLOCATION = "SANDBOX_PORT_ALLOCATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_NOT_FOUND = "SANDBOX_NOT_FOUND_ERROR"
+CONST_ERROR_CODE_SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE_ERROR"
 CONST_ERROR_CODE_COSIGN = "COSIGN_ERROR"
 CONST_ERROR_CODE_COSIGN_VERIFY = "COSIGN_VERIFICATION_FAILED"
 CONST_ERROR_CODE_STRUCTURED_VALIDATION = "STRUCTURED_VALIDATION_ERROR"
@@ -2781,6 +2790,11 @@ CONST_SEMGREP_EXCLUDED_EXTENSIONS: Final[frozenset[str]] = (
     CONST_DOC_EXTENSIONS | CONST_BINARY_EXTENSIONS | CONST_LOCKFILE_EXTENSIONS
 )
 
+# The number of jobs of each Semgrep scan. Semgrep runs one job for each processor by default,
+# and each job reserves address space, so the limit of a scan would grow with the host. Four jobs
+# scan 100 files of devops-cli in the time that the default 16 jobs take (#2096).
+CONST_SEMGREP_JOBS: Final[int] = 4
+
 # Directories of a checkout that hold dependencies, devops-cli's own data or cloned repositories,
 # not the code Semgrep scans.
 CONST_SEMGREP_EXCLUDED_DIRECTORIES: Final[tuple[str, ...]] = (
@@ -3563,8 +3577,29 @@ CONST_PYTHON_STDLIB_LANDMARK_GLOB: str = "lib/python3.*/os.py"
 # CPU seconds one process of a tool may use before the kernel ends it.
 CONST_TOOL_CPU_LIMIT_SECONDS: Final[int] = 600
 # The least address space, in bytes, a tool may be given. It is the default too. Go tools reserve
-# more address space than they use. No run of the pinned tools has measured this value yet.
+# more address space than they use. Measured on 2026-10-24 (#2096): Bandit, Ruff, Trivy,
+# kube-linter, Pluto and osv-scanner run under it on a small tree, and mypy runs under it on two
+# modules of devops-cli and all that they import, with no cache.
 CONST_TOOL_MIN_ADDRESS_SPACE_BYTES: Final[int] = 2 * 1024**3
+# The tools that need more address space than the least, by name, with the value they get.
+# Measured with `prlimit --as` on 2026-10-24 (#2096). Gitleaks 8.30.1 runs RE2 as WebAssembly in
+# wazero, which reserves 4 GiB for the memory of the module: it stops at 5 GiB and runs at 6 GiB,
+# on one file and on the source tree of devops-cli. Semgrep 1.179.0 reserves memory for each job:
+# with `CONST_SEMGREP_JOBS` jobs it stops at 4 GiB and runs at 8 GiB on 100 files of devops-cli.
+# Each value is about twice what the tool needed.
+CONST_TOOL_ADDRESS_SPACE_BYTES: Final[dict[str, int]] = {
+    "gitleaks": 8 * 1024**3,
+    "semgrep": 16 * 1024**3,
+}
+# The paths of the host that a tool reads when it starts, by tool, which the sandbox binds
+# read-only when they exist. The engine of Semgrep 1.179.0 loads the CA bundle when it starts, and
+# stops with "ca-certs: no trust anchor file found" without it, though a scan uses no network
+# (measured 2026-10-24, #2096). The directory holds public certificates only.
+CONST_TOOL_HOST_READ_ONLY_PATHS: Final[dict[str, tuple[str, ...]]] = {
+    "semgrep": ("/etc/ssl/certs",),
+}
+# How long the check that the host can start the sandbox may take, in seconds.
+CONST_TOOL_SANDBOX_CHECK_TIMEOUT_SECONDS: Final[float] = 30.0
 # The soft memory limit of a Go tool's collector. Programs that are not written in Go ignore it.
 CONST_TOOL_GO_MEMORY_LIMIT: Final[str] = "1GiB"
 # The program that sets a tool's limits (util-linux).
@@ -3860,6 +3895,11 @@ CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = "reply-truncated"
 CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED: Final[str] = "schema-validation-failed"
 CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR: Final[str] = "model-call-error"
 CONST_OSV_OFFLINE_DB_TTL_SECONDS: Final[float] = 86400.0  # 24 hours TTL
+# Where osv-scanner 2.6.0 keeps its offline database: `osv-scalibr` below the directory that this
+# variable names, else below the user cache directory of the platform. `--download-offline-
+# databases` wrote `osv-scalibr/PyPI/all.zip` there on 2026-10-24 (#2096).
+CONST_OSV_DB_DIR_ENV: Final[str] = "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY"
+CONST_OSV_DB_DIR_NAME: Final[str] = "osv-scalibr"
 CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
     "uv.lock",
     "poetry.lock",

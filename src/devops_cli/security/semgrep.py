@@ -201,13 +201,16 @@ def _build_dry_run_finding(target_str: str) -> Finding:
 def _registry_rules_missing(outcome: ScanOutcome, config: str) -> ScanOutcome:
     """The outcome of a scan that ran on the rule pack alone for want of the cached registry
     ruleset `config`: a coverage gap that names the fetch command and keeps the files the scan
-    left out. A scan that did not run, as in a dry run, keeps its outcome."""
+    left out. A gap that has a reason of its own keeps it before the fetch command, as when the
+    host could not start the sandbox (#2096). A scan that did not run, as in a dry run, keeps its
+    outcome."""
     if outcome.status not in ("ran", "coverage_gap"):
         return outcome
+    missing = MESSAGES.review.registry_not_cached.format(ruleset=config)
     gap = ScanOutcome(
         "coverage_gap",
         outcome.findings,
-        MESSAGES.review.registry_not_cached.format(ruleset=config),
+        "; ".join(dict.fromkeys(reason for reason in (outcome.reason, missing) if reason)),
         outcome.unscanned,
     )
     gap.started_utc, gap.ended_utc = outcome.started_utc, outcome.ended_utc

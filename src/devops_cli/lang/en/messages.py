@@ -46,6 +46,12 @@ class ReviewMessages:
         "Nothing is left for the personas: every file under review is a lockfile, a planning "
         "document or a generated reference. The secret scan still reads {count} of them."
     )
+    tools_not_sandboxed: str = (
+        "The review tools did not run: {cause}. No tool runs outside the sandbox, so the report "
+        "shows a coverage gap for each tool. To run the tools, install bubblewrap and util-linux "
+        "on this host, or let bubblewrap make user namespaces (on Ubuntu, an AppArmor profile "
+        "with the userns rule)."
+    )
     nothing_for_personas_unscanned: str = (
         "Nothing is left for the personas: every file under review is a lockfile, a planning "
         "document or a generated reference. The static scan is off, so none of the {count} "

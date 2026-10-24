@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import tempfile
 import time
 from collections.abc import Sequence
@@ -16,19 +17,23 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from platformdirs import user_cache_dir
+
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_OSV_SCANNER, build_osv_scan_cmd
 from devops_cli.config.constants import (
     CONST_LOCKFILE_NAMES,
     CONST_MANIFEST_TO_LOCKFILES,
     CONST_OSV_CONFIG_FILE_NAMES,
+    CONST_OSV_DB_DIR_ENV,
+    CONST_OSV_DB_DIR_NAME,
     CONST_OSV_OFFLINE_DB_TTL_SECONDS,
     CONST_SEVERITY_ALIASES,
 )
 from devops_cli.config.defaults import DEFAULT_CACHE_DATA_DIR
 from devops_cli.core.repo import list_repo_files
 from devops_cli.review.anchors import AdvisoryAnchor
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, ToolDataDir
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolExecutor
@@ -235,6 +240,14 @@ def detect_manifest_coverage_gaps(
     ]
 
 
+def _osv_db_base() -> Path:
+    """The directory below which osv-scanner keeps its offline database:
+    `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY`, else the user cache directory of the platform, which
+    `platformdirs` names as the Go standard library does for osv-scanner."""
+    configured = os.environ.get(CONST_OSV_DB_DIR_ENV)
+    return Path(os.path.expanduser(configured) if configured else user_cache_dir())
+
+
 class OsvScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Google OSV-Scanner (#1146)."""
 
@@ -252,6 +265,13 @@ class OsvScanner(BaseSecurityScanner):
         self.snapshot_digest = snapshot_digest or get_or_compute_snapshot_digest()
         self.last_cyclonedx: dict[str, Any] = {}
         self.last_locked_packages: dict[str, list[str]] = {}
+
+    def data_dirs(self) -> tuple[ToolDataDir, ...]:
+        """The offline database of osv-scanner (#2096). The scan runs with
+        `--offline-vulnerabilities`, so it reads only a database that was fetched before. The
+        sandbox binds the database alone, and not the user cache directory that holds it."""
+        base = _osv_db_base()
+        return (ToolDataDir(CONST_OSV_DB_DIR_ENV, base, base / CONST_OSV_DB_DIR_NAME),)
 
     def build_command(
         self,
@@ -288,8 +308,15 @@ class OsvScanner(BaseSecurityScanner):
         isolated: bool = False,
         **kwargs: Any,
     ) -> ScanOutcome:
-        """Run osv-scanner over lockfiles with missing-lock coverage gap detection (#1146)."""
+        """Run osv-scanner over lockfiles with missing-lock coverage gap detection (#1146).
+
+        A dry run starts no tool and gives the simulated outcome, as every other scan does.
+        """
         scan_target = Path(target_path)
+        if self._is_dry_run():
+            return ScanOutcome(
+                "dry-run", self.dry_run_scan(scan_target), "Dry-run simulation mode active"
+            )
         scan_tree = tree or (scan_target if scan_target.is_dir() else scan_target.parent)
         effective_lockfiles = list(lockfiles or ())
         if not effective_lockfiles:

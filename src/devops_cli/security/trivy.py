@@ -24,7 +24,12 @@ from devops_cli.config.defaults import (
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
 )
-from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
+from devops_cli.security.base import (
+    BaseSecurityScanner,
+    ScannerConfigFile,
+    ScanOutcome,
+    ToolDataDir,
+)
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolExecutor
@@ -134,6 +139,13 @@ class TrivyScanner(BaseSecurityScanner):
         ScannerConfigFile("--config", "trivy.yaml", CONST_REVIEW_SCAN_TRIVY_CONFIG),
         ScannerConfigFile("--ignorefile", ".trivyignore", ""),
     )
+
+    def data_dirs(self) -> tuple[ToolDataDir, ...]:
+        """The cache of Trivy, which holds the checks bundle and the vulnerability database that
+        Trivy fetched before (#2096). In the sandbox Trivy has no network to fetch them. With no
+        bundle in its cache, a `config` scan uses the checks that the binary holds."""
+        cache = _trivy_cache_dir()
+        return (ToolDataDir(CONST_TRIVY_CACHE_DIR_ENV, cache, cache),)
 
     def ruleset_files(
         self,

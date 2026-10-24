@@ -51,6 +51,7 @@ from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
     SandboxPortAllocationError,
+    SandboxUnavailableError,
     SandboxValidationError,
 )
 from devops_cli.exceptions.security import (
@@ -140,6 +141,7 @@ __all__ = [
     "SandboxError",
     "SandboxNotFoundError",
     "SandboxPortAllocationError",
+    "SandboxUnavailableError",
     "SandboxValidationError",
     "SecretExposureError",
     "SecurityError",

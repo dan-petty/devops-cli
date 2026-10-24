@@ -28,6 +28,7 @@ from devops_cli.core.binaries import check_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import nearest_checkout
 from devops_cli.dry_run import state as dry_run_state
+from devops_cli.exceptions.sandbox import SandboxUnavailableError
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
@@ -471,6 +472,25 @@ def _patched_run_subprocess(scanner_module: str) -> Any:
     return next((c for c in (run_subprocess, own) if isinstance(c, NonCallableMock)), None)
 
 
+class ToolDataDir(NamedTuple):
+    """A directory of data that a tool reads, such as a database: the environment variable that
+    names it to the tool, the directory that the variable names, and the directory that the tool
+    reads, at or below it, which the sandbox binds read-only (#2096)."""
+
+    variable: str
+    directory: Path
+    read: Path
+
+
+class ToolCacheDir(NamedTuple):
+    """A directory that a tool keeps its cache in, outside the tree, and the environment variable
+    that names it to the tool. The directory stays after the run, and the sandbox binds it
+    read-write (#2096)."""
+
+    variable: str
+    directory: Path
+
+
 class ScannerConfigFile(NamedTuple):
     """A config or ignore file devops-cli hands a scanner, and the flag that names it."""
 
@@ -496,7 +516,11 @@ class BaseSecurityScanner(ABC):
     config_search_upward: ClassVar[bool] = False
 
     def __init__(self, tool_executor: ToolExecutor | None = None) -> None:
-        """Start the scanner's tool through `tool_executor`; without one, as a child process."""
+        """Start the scanner's tool through `tool_executor`; without one, as a child process.
+
+        A review gives each scanner the sandbox executor of the review. A scan outside a review,
+        as `devops scan` starts one, gets no executor and runs its tool as a child process.
+        """
         if tool_executor is None:
             from devops_cli.security.tool_executor import DirectToolExecutor
 
@@ -549,6 +573,22 @@ class BaseSecurityScanner(ABC):
             ),
             ruleset=self.ruleset_files(target_path, cwd, **scan_kwargs),
         )
+
+    def data_dirs(self) -> tuple[ToolDataDir, ...]:
+        """The directories of data that the tool reads besides its targets and its rules, such as
+        a database that a fetch step got before the scan: none by default.
+
+        The sandbox has no network and a new HOME, so a tool there finds only the data that the
+        request names. For each directory that the tool reads and that exists, the request names
+        its directory to the tool by its variable, and binds what the tool reads read-only.
+        """
+        return ()
+
+    def cache_dirs(self, tree: Path) -> tuple[ToolCacheDir, ...]:
+        """The directories, outside `tree`, that the tool keeps its cache of `tree` in: none by
+        default. Each directory is made before the run, named to the tool by its variable, and
+        named in the request as writable."""
+        return ()
 
     def fallback_scan(self, target_path: Any) -> list[Finding]:
         """Execute fallback scan logic when primary binary is unavailable."""
@@ -609,16 +649,27 @@ class BaseSecurityScanner(ABC):
         from devops_cli.security.tool_executor import ToolLimits, ToolRequest
 
         targets = _scan_targets(target_path)
+        tree = _scan_tree(targets)
         read = files()
+        data = [directory for directory in self.data_dirs() if directory.read.is_dir()]
+        caches = self.cache_dirs(tree)
+        for cache in caches:
+            cache.directory.mkdir(parents=True, exist_ok=True)
         request = ToolRequest(
             tool=cmd[0],
             arguments=tuple(cmd[1:]),
-            workdir=_scan_tree(targets),
+            workdir=tree,
             cwd=cwd_dir,
             targets=targets,
             config_files=read.config,
             ruleset_files=read.ruleset,
-            limits=ToolLimits(wall_seconds=timeout),
+            read_only_binds=tuple(directory.read for directory in data),
+            writable_dirs=tuple(cache.directory for cache in caches),
+            env={
+                **{directory.variable: str(directory.directory) for directory in data},
+                **{cache.variable: str(cache.directory) for cache in caches},
+            },
+            limits=ToolLimits.for_tool(cmd[0], wall_seconds=timeout),
         )
         result = self._tool_executor.run(request)
         if result.timed_out:
@@ -671,6 +722,9 @@ class BaseSecurityScanner(ABC):
                 return self._failed_run(
                     target_path, timed_out, f"{timed_out}; used built-in patterns"
                 )
+            except SandboxUnavailableError as refused:
+                # The tool did not run, in the sandbox or outside it (#2096).
+                return ScanOutcome("coverage_gap", [], refused.message)
             except Exception as exc:
                 return self._failed_run(
                     target_path,

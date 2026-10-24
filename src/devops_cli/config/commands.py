@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from devops_cli.config.constants import CONST_K8S_MANIFEST_EXTENSIONS
+from devops_cli.config.constants import CONST_K8S_MANIFEST_EXTENSIONS, CONST_SEMGREP_JOBS
 from devops_cli.config.defaults import (
     DEFAULT_FIND_MAXDEPTH,
     DEFAULT_GIT_LOG_COUNT,
@@ -283,10 +283,20 @@ def build_semgrep_cmd(
     configs: Sequence[str],
     exclude_paths: Sequence[str] = (),
 ) -> list[str]:
-    """Build a Semgrep scan: JSON on stdout, no metrics sent, no version check, and every
-    finding reported whatever inline `nosemgrep` marker it carries. Every `semgrep scan`
-    devops-cli starts is built here (#1144)."""
-    cmd = [BIN_SEMGREP, "scan", "--json", "--metrics", "off", "--disable-version-check"]
+    """Build a Semgrep scan: JSON on stdout, no metrics sent, no version check, a fixed number
+    of jobs, and every finding reported whatever inline `nosemgrep` marker it carries. Every
+    `semgrep scan` devops-cli starts is built here (#1144). The fixed jobs keep the address space
+    of a scan the same on each host (`CONST_SEMGREP_JOBS`, #2096)."""
+    cmd = [
+        BIN_SEMGREP,
+        "scan",
+        "--json",
+        "--metrics",
+        "off",
+        "--disable-version-check",
+        "--jobs",
+        str(CONST_SEMGREP_JOBS),
+    ]
     for config in configs:
         cmd.extend(["--config", config])
     cmd.append("--disable-nosem")

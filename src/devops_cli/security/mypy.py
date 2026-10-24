@@ -23,13 +23,15 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.repo import main_worktree_root, resolve_data_path
-from devops_cli.exceptions.sandbox import SandboxError
+from devops_cli.exceptions.sandbox import SandboxError, SandboxUnavailableError
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.normalization import normalize_severity
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolExecutor
 
+# The exit codes of a mypy run that checked its files: 0 with no error, 1 with an error.
+_MYPY_CHECKED_EXIT_CODES: frozenset[int] = frozenset({0, 1})
 _MYPY_LINE_RE = re.compile(
     r"^(?P<path>[^:\n]+):(?P<line>\d+)(?::(?P<col>\d+))?: (?P<sev>[^:\n]+): (?P<msg>.+?)(?:  \[(?P<code>[^\]]+)\])?$"
 )
@@ -223,16 +225,21 @@ def run_mypy_scan(
 ) -> ScanOutcome:
     """Run mypy on changed modules with project config and uv.lock environment validation.
 
-    Mypy starts through `tool_executor`, and without one as a child process of devops-cli, as a
-    scanner starts its tool. The request names the interpreter as its program, and the
-    environment of the interpreter as a read-only bind. The cache directory goes to mypy through
-    `MYPY_CACHE_DIR`, so the command names no path but the config file and the targets.
+    Mypy starts through `tool_executor`, and without one in the sandbox, as the tools of a review
+    do. The request names the interpreter as its program, and the environment of the interpreter
+    as a read-only bind. The cache directory goes to mypy through `MYPY_CACHE_DIR`, so the command
+    names no path but the config file and the targets. The request names the cache directory as
+    writable, so the sandbox binds it read-write (#2096).
+
+    Mypy ends with 0 when it finds no error and with 1 when it finds one. Any other exit code is a
+    crash, a bad option or a program that did not start, so the scan fails with the code. A host
+    that cannot start the sandbox runs no mypy, and the scan is a coverage gap with the cause.
 
     `tree` is the reviewed tree that the caller gives: mypy starts there and reads its config from
     there. Without `checkout_root`, the checkout is the main worktree of `tree` (#2098).
     """
     from devops_cli.dry_run.state import is_dry_run
-    from devops_cli.security.tool_executor import DirectToolExecutor, ToolLimits, ToolRequest
+    from devops_cli.security.tool_executor import SandboxToolExecutor, ToolLimits, ToolRequest
 
     if is_dry_run():
         return ScanOutcome(status="dry_run", findings=MypyScanner().dry_run_scan(target))
@@ -274,16 +281,20 @@ def run_mypy_scan(
         targets=tuple(f.resolve() for f in files),
         config_files=config_files,
         read_only_binds=(interpreter.parent.parent,),
+        writable_dirs=(cache_dir,),
         env={CONST_MYPY_CACHE_DIR_ENV: str(cache_dir)},
-        limits=ToolLimits(wall_seconds=timeout),
+        limits=ToolLimits.for_tool(BIN_MYPY, wall_seconds=timeout),
     )
-    executor = tool_executor or DirectToolExecutor()
+    executor = tool_executor or SandboxToolExecutor()
     with cache_dir.with_suffix(".lock").open("a", encoding="utf-8") as lock:
         # mypy keeps its cache in SQLite, which lets one process write at a time, so runs over
         # one tree take turns. Closing the lock file releases the lock.
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             result = executor.run(request)
+        except SandboxUnavailableError as refused:
+            # The host cannot start the sandbox, so mypy did not run (#2096).
+            return ScanOutcome(status="coverage_gap", findings=[], reason=refused.message)
         except SandboxError as exc:
             # A request that the executor refuses starts nothing. The scan reports the refusal,
             # as a scanner does, and the other evidence of the review stays.
@@ -292,5 +303,12 @@ def run_mypy_scan(
             )
     if result.timed_out:
         return ScanOutcome(status="failed", findings=[], reason=f"timed out after {timeout:g} s")
+    if result.exit_code not in _MYPY_CHECKED_EXIT_CODES:
+        error = (result.stderr or result.stdout).strip()
+        return ScanOutcome(
+            status="failed",
+            findings=[],
+            reason=f"mypy exited with code {result.exit_code}: {error}",
+        )
     findings = parse_mypy_output(result.stdout + result.stderr, default_path=str(tree))
     return ScanOutcome(status="ran", findings=findings)

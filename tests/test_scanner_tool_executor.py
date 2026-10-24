@@ -19,7 +19,9 @@ import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator, resolve_stage_flags
 from devops_cli.config.commands import build_gitleaks_cmd
-from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
+from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX, CONST_SEMGREP_JOBS
+from devops_cli.dry_run import set_dry_run
+from devops_cli.sandbox.host import HostSandbox
 from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.gitleaks import GitleaksScanner, run_gitleaks_scan
@@ -29,7 +31,12 @@ from devops_cli.security.osv_scanner import run_osv_scan
 from devops_cli.security.pluto import run_pluto_scan
 from devops_cli.security.ruff import run_ruff_scan
 from devops_cli.security.semgrep import run_semgrep_scan
-from devops_cli.security.tool_executor import ToolExecutor, ToolLimits, ToolRequest
+from devops_cli.security.tool_executor import (
+    SandboxToolExecutor,
+    ToolExecutor,
+    ToolLimits,
+    ToolRequest,
+)
 from devops_cli.security.trivy import run_trivy_scan
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
@@ -243,7 +250,8 @@ def test_mypy_starts_the_interpreter_of_the_venv_of_the_checkout_through_the_exe
     the interpreter of the `.venv` of the checkout, which the PATH of the host does not name. The
     request names that interpreter as its program and its `.venv` as a read-only bind. It names the
     config file of the tree, and the cache directory through `MYPY_CACHE_DIR`, outside the tree. So
-    the command names no path but the config file and the targets."""
+    the command names no path but the config file and the targets. Mypy writes its cache, so the
+    request names the cache as a writable directory, which the sandbox binds read-write (#2096)."""
     venv = tree / ".venv"
     python = venv / "bin" / "python"
     python.parent.mkdir(parents=True)
@@ -277,6 +285,7 @@ def test_mypy_starts_the_interpreter_of_the_venv_of_the_checkout_through_the_exe
             targets=(tree / "app.py",),
             config_files=(tree / "pyproject.toml",),
             read_only_binds=(venv,),
+            writable_dirs=(cache,),
             limits=ToolLimits(wall_seconds=7.0),
         ),
         ["MYPY_CACHE_DIR"],
@@ -359,6 +368,136 @@ def test_a_mypy_scan_that_the_executor_refuses_reports_the_refusal(
         "failed",
         True,
     )
+
+
+def _refusing_executor(tmp_path: Path) -> SandboxToolExecutor:
+    """A sandbox executor on a host with no bubblewrap: it refuses each run and starts nothing."""
+    return SandboxToolExecutor(HostSandbox(bwrap_binary=tmp_path / "missing" / "bwrap"))
+
+
+@pytest.mark.parametrize(("tool", "scan"), _REVIEW_SCANS, ids=[tool for tool, _ in _REVIEW_SCANS])
+def test_a_scan_that_the_host_cannot_sandbox_reports_a_coverage_gap_that_names_the_cause(
+    tool: str, scan: ScanOver, tree: Path, tmp_path: Path
+) -> None:
+    """The tool did not run, in the sandbox or outside it (#2096). So the scan found nothing and
+    says why: it is a coverage gap, not a clean scan and not a failure of the tool."""
+    cause = f"bubblewrap ({tmp_path / 'missing' / 'bwrap'}) is not installed"
+
+    outcome = scan(tree, _refusing_executor(tmp_path))
+
+    assert (outcome.status, outcome.findings, cause in outcome.reason) == ("coverage_gap", [], True)
+
+
+@pytest.mark.parametrize("exit_code", [2, 127])
+def test_a_mypy_run_that_ends_with_an_exit_code_of_no_check_fails_with_its_error(
+    exit_code: int, tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """Mypy ends with 0 when it finds no error and with 1 when it finds one. Any other code is a
+    crash, a bad option or a program that did not start, so the scan fails with the code and the
+    error, and is no clean scan."""
+    tool_executor_fake.script("mypy", ToolAnswer(exit_code=exit_code, stderr="no such file\n"))
+
+    outcome = run_mypy_scan(
+        [tree / "app.py"], tree=tree, checkout_root=tree, tool_executor=tool_executor_fake
+    )
+
+    assert (outcome.status, outcome.reason) == (
+        "failed",
+        f"mypy exited with code {exit_code}: no such file",
+    )
+
+
+def test_gitleaks_and_semgrep_get_the_address_space_that_they_need(
+    tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """Gitleaks runs RE2 as WebAssembly, and Semgrep reserves memory for each job. Semgrep runs a
+    fixed number of jobs, so its need does not grow with the processors of the host."""
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tool_executor=tool_executor_fake)
+    _semgrep(tree, tool_executor_fake)
+
+    gitleaks, semgrep = tool_executor_fake.requests
+    jobs = semgrep.arguments[semgrep.arguments.index("--jobs") + 1]
+    assert (gitleaks.limits, semgrep.limits, jobs) == (
+        ToolLimits.for_tool("gitleaks"),
+        ToolLimits.for_tool("semgrep"),
+        str(CONST_SEMGREP_JOBS),
+    )
+
+
+@pytest.mark.parametrize(
+    ("tool", "variable", "read"),
+    [
+        ("trivy", "TRIVY_CACHE_DIR", ""),
+        ("osv-scanner", "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY", "osv-scalibr"),
+    ],
+)
+def test_a_tool_that_reads_a_fetched_database_gets_it_read_only_by_its_variable(
+    tool: str,
+    variable: str,
+    read: str,
+    tree: Path,
+    tmp_path: Path,
+    tool_executor_fake: ToolExecutorFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sandbox has no network and a new HOME, so Trivy and osv-scanner cannot fetch their
+    checks or their database there. The request names the directory that holds what was fetched
+    before, by the variable that the tool reads. It binds read-only what the tool reads there:
+    the cache of Trivy, and the `osv-scalibr` database of osv-scanner alone."""
+    data = tmp_path / "data" / tool
+    (data / read).mkdir(parents=True)
+    monkeypatch.setenv(variable, str(data))
+    scan = dict(_REVIEW_SCANS)[tool]
+
+    scan(tree, tool_executor_fake)
+
+    [request] = tool_executor_fake.requests
+    assert (request.env, request.read_only_binds) == ({variable: str(data)}, (data / read,))
+
+
+@pytest.mark.parametrize(("tool", "scan"), _REVIEW_SCANS, ids=[tool for tool, _ in _REVIEW_SCANS])
+def test_a_scan_in_a_dry_run_starts_no_tool(
+    tool: str, scan: ScanOver, tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """A dry run makes no request, so no scan starts its tool: osv-scanner too, which skipped the
+    dry run of the other scans and built its sandbox command (#2096)."""
+    set_dry_run(True)
+
+    outcome = scan(tree, tool_executor_fake)
+
+    assert (tool_executor_fake.requests, outcome.status) == (
+        [],
+        "dry-run" if tool != "mypy" else "dry_run",
+    )
+
+
+def test_a_ruff_scan_keeps_its_cache_of_the_tree_outside_the_tree(
+    tree: Path, tmp_path: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """Ruff starts in a new scratch directory, which the sandbox binds read-only, so it keeps its
+    cache in a directory of the tree outside the tree (#772 Part D). The request names it through
+    `RUFF_CACHE_DIR`, which wins over a `cache-dir` of the tree, and as writable. Two scans of the
+    tree share it, and another tree has its own."""
+    other = tmp_path / "other"
+    other.mkdir()
+    for name in ("app.py", "pyproject.toml"):
+        (other / name).write_text((tree / name).read_text(encoding="utf-8"), encoding="utf-8")
+    scan = dict(_REVIEW_SCANS)["ruff"]
+
+    scan(tree, tool_executor_fake)
+    scan(tree, tool_executor_fake)
+    scan(other, tool_executor_fake)
+
+    first, second, third = tool_executor_fake.requests
+    cache = Path(first.env["RUFF_CACHE_DIR"])
+    assert (
+        first.writable_dirs,
+        cache.is_dir(),
+        cache.is_relative_to(tree),
+        second.env == first.env,
+        Path(third.env["RUFF_CACHE_DIR"]) == cache,
+        "--no-cache" in first.arguments,
+    ) == ((cache,), True, False, True, False, False)
 
 
 def test_a_scan_of_a_checkout_that_git_cannot_read_still_runs(

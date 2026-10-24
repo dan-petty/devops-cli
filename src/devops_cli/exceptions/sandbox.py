@@ -8,6 +8,7 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_SANDBOX,
     CONST_ERROR_CODE_SANDBOX_NOT_FOUND,
     CONST_ERROR_CODE_SANDBOX_PORT_ALLOCATION,
+    CONST_ERROR_CODE_SANDBOX_UNAVAILABLE,
     CONST_ERROR_CODE_SANDBOX_VALIDATION,
     CONST_EXIT_FAILURE,
 )
@@ -72,6 +73,17 @@ class SandboxValidationError(SandboxError, ValueError):
         )
 
 
+class SandboxUnavailableError(SandboxError):
+    """Raised when this host cannot start the sandbox of a review tool, so the tool does not run.
+
+    The message is the cause: bubblewrap or prlimit is not installed, or the kernel refuses
+    bubblewrap a user namespace. A scan reports the cause as a coverage gap.
+    """
+
+    def __init__(self, cause: str) -> None:
+        super().__init__(cause, error_code=CONST_ERROR_CODE_SANDBOX_UNAVAILABLE)
+
+
 class SandboxPortAllocationError(SandboxError, RuntimeError):
     """Raised when host port allocation encounters collisions or range exhaustion."""
 
@@ -116,5 +128,6 @@ __all__ = [
     "SandboxError",
     "SandboxNotFoundError",
     "SandboxPortAllocationError",
+    "SandboxUnavailableError",
     "SandboxValidationError",
 ]

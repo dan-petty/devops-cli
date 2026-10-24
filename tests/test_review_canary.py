@@ -16,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_CANARY_EXPECTED_RESULTS,
     CONST_CANARY_TOOLS,
     CONST_CANARY_WORKDIR_PREFIX,
+    CONST_SEMGREP_JOBS,
 )
 from devops_cli.review.canary import (
     CanaryCacheKey,
@@ -32,6 +33,7 @@ from devops_cli.security.base import ScanOutcome
 from devops_cli.security.mypy import MypyScanner, run_mypy_scan
 from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
 from devops_cli.security.ruff import RuffScanner, run_ruff_scan
+from devops_cli.security.tool_executor import ToolLimits
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
 from tests.support.paths import FIXTURES
 
@@ -368,51 +370,64 @@ def test_the_mypy_canary_starts_the_interpreter_of_devops_cli_through_the_execut
 ) -> None:
     """The canary of mypy runs `python -I -m mypy` with the interpreter that runs devops-cli, which
     the PATH of the host does not name. The request names that interpreter as its program, and
-    the canary reads what mypy printed to both of its output streams."""
+    the canary reads what mypy printed to both of its output streams. The sandbox binds the
+    scratch directory of the canary read-only, so mypy gets a cache directory in it through
+    `MYPY_CACHE_DIR`, and the request names that directory as writable (#2096)."""
     output = recorded_outputs["mypy"]["output"]
     tool_executor_fake.script("mypy", ToolAnswer(exit_code=1, stdout="", stderr=output))
 
     result = run_tool_canary("mypy", language_version="3.14", tool_executor=tool_executor_fake)
 
     [request] = tool_executor_fake.requests
+    cache = request.workdir / "mypy_cache"
     assert (
         result.passed,
         request.tool,
         request.program,
         request.arguments,
         request.targets,
+        request.env,
+        request.writable_dirs,
     ) == (
         True,
         "mypy",
         Path(sys.executable),
-        (
-            "-I",
-            "-m",
-            "mypy",
-            "--python-version=3.14",
-            "--no-error-summary",
-            "--cache-dir",
-            str(request.workdir / "mypy_cache"),
-            "canary.py",
-        ),
+        ("-I", "-m", "mypy", "--python-version=3.14", "--no-error-summary", "canary.py"),
         (request.workdir / "canary.py",),
+        {"MYPY_CACHE_DIR": str(cache)},
+        (cache,),
     )
 
 
 def test_the_semgrep_canary_sends_no_metrics_and_checks_no_version(tmp_path: Path) -> None:
-    """The canary runs Semgrep as every other scan does, on its probe rules alone (#1144)."""
+    """The canary runs Semgrep as every other scan does, on its probe rules alone (#1144), with
+    the jobs and the address space of a scan (#2096)."""
     request = build_canary_request("semgrep", tmp_path)
 
-    assert [request.tool, *request.arguments] == [
-        "semgrep",
-        "scan",
-        "--json",
-        "--metrics",
-        "off",
-        "--disable-version-check",
-        "--config",
-        "semgrep_probes.yaml",
-        "--disable-nosem",
-        "--quiet",
-        "canary.py",
-    ]
+    assert ([request.tool, *request.arguments], request.limits) == (
+        [
+            "semgrep",
+            "scan",
+            "--json",
+            "--metrics",
+            "off",
+            "--disable-version-check",
+            "--jobs",
+            str(CONST_SEMGREP_JOBS),
+            "--config",
+            "semgrep_probes.yaml",
+            "--disable-nosem",
+            "--quiet",
+            "canary.py",
+        ],
+        ToolLimits.for_tool("semgrep"),
+    )
+
+
+def test_the_ruff_canary_keeps_no_cache(tmp_path: Path) -> None:
+    """Ruff keys its cache entries by the package of each file, and the canary file is in a new
+    scratch directory in each run, so a cache entry of the canary would never be read again: three
+    runs left three entries on 2026-10-24 (#2096). The scans of a tree keep a cache."""
+    request = build_canary_request("ruff", tmp_path, language_version="py314")
+
+    assert "--no-cache" in request.arguments
