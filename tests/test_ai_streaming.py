@@ -16,7 +16,6 @@ from devops_cli.ai.client.models import AIClientError
 from devops_cli.ai.client.network import stream_finish_reason
 from devops_cli.ai.client.streaming import (
     StreamFrame,
-    StreamingReasoningSanitizer,
     StreamingTokenProcessor,
     _claude_stream_frame,
     _find_suffix_overlap,
@@ -72,10 +71,6 @@ class TestStreamingTokenProcessorBasic:
             True,
         )
 
-    def test_alias_streaming_reasoning_sanitizer(self) -> None:
-        """Verify StreamingReasoningSanitizer is identical alias to StreamingTokenProcessor."""
-        assert StreamingReasoningSanitizer is StreamingTokenProcessor
-
     def test_to_dict_summary(self) -> None:
         """Verify to_dict produces structured metadata summary."""
         proc = StreamingTokenProcessor()
@@ -88,7 +83,10 @@ class TestStreamingTokenProcessorBasic:
             summary["reasoning_scratchpad"],
             summary["has_reasoning"],
             summary["total_bytes"] > 0,
-        ) == ("Summary output", "Quick thought", True, True)
+            summary["unopened_close_tags"],
+            summary["unclosed_stream"],
+            summary["discarded_thought_chars"],
+        ) == ("Summary output", "Quick thought", True, True, 0, False, 0)
 
     def test_invalid_thinking_tags_raises_value_error(self) -> None:
         """Verify empty or malformed thinking_tags raise ValueError."""
@@ -150,11 +148,36 @@ class TestTokenChunkBoundaries:
         proc.feed("Safe prefix.<think>Unfinished thoughts cut off...")
         proc.flush()
 
-        assert (proc.clean_content, proc.reasoning_scratchpad, proc.in_think) == (
+        assert (proc.clean_content, proc.reasoning_scratchpad, proc.unclosed_stream) == (
             "Safe prefix.",
             "Unfinished thoughts cut off...",
-            False,
+            True,
         )
+        assert proc.to_dict()["unclosed_stream"] is True
+
+    def test_unopened_close_tags_counting_and_stripping(self) -> None:
+        """Verify unopened closing tags are stripped and increment unopened_close_tags counter."""
+        proc = StreamingTokenProcessor()
+        tokens = proc.feed("Prefix</think>Suffix")
+        proc.flush()
+
+        assert ("".join(tokens), proc.clean_content, proc.unopened_close_tags) == (
+            "PrefixSuffix",
+            "PrefixSuffix",
+            1,
+        )
+        assert proc.to_dict()["unopened_close_tags"] == 1
+
+    def test_thought_buffer_capping_and_discard(self) -> None:
+        """Verify StreamingTokenProcessor bounds reasoning scratchpad and tracks discarded chars."""
+        proc = StreamingTokenProcessor(max_thought_chars=100)
+        proc.feed("<think>" + "x" * 250 + "</think>Clean answer")
+        proc.flush()
+
+        assert len(proc.reasoning_scratchpad) == 100
+        assert proc.discarded_thought_chars == 150
+        assert proc.clean_content == "Clean answer"
+        assert proc.to_dict()["discarded_thought_chars"] == 150
 
     def test_multiple_sequential_thinking_blocks(self) -> None:
         """Verify multiple think blocks in succession are consolidated into scratchpad."""

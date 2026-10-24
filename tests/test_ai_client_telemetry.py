@@ -303,6 +303,38 @@ def test_a_complete_stream_names_the_reason_on_the_stream_span(
     )
 
 
+def test_stream_span_records_sanitizer_attributes_when_sanitize_is_enabled(
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+) -> None:
+    """Stream trace span ai.llm.stream records unopened_close_tags, unclosed_stream, and discarded_thought_chars when sanitize=True."""
+    monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+    config = AIConfig(
+        provider="openai",
+        model="gpt-test",
+        api_base_url="http://example.com/v1",
+        allow_private_network=True,
+    )
+    client = LLMClient(config, api_key="sk-test")
+    frames = [
+        openai_chunk("Clean prefix</think>"),
+        openai_chunk("<think>unclosed thought"),
+        OPENAI_DONE,
+    ]
+    route_client(client, monkeypatch, lambda request: reply(frames))
+
+    chunks = list(
+        client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")], sanitize=True)
+    )
+
+    (stream,) = _spans(sent_spans, "ai.llm.stream")
+    attrs = _attributes(stream)
+    assert "".join(chunks) == "Clean prefix"
+    assert attrs.get("llm.stream.unopened_close_tags") == 1
+    assert attrs.get("llm.stream.unclosed_stream") is True
+    assert attrs.get("llm.stream.discarded_thought_chars") == 0
+
+
 class _Clock:
     """A clock that moves only when told to, read as monotonic and as perf_counter time."""
 

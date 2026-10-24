@@ -113,6 +113,15 @@ def _set_finish_reason_attribute(span_handle: Any, reason: FinishReason | None) 
         span_handle.set_attribute("gen_ai.response.finish_reasons", [reason])
 
 
+def _set_stream_sanitizer_attributes(span_handle: Any, processor: Any) -> None:
+    """Record sanitizer telemetry metrics on the active stream trace span."""
+    span_handle.set_attribute("llm.stream.unopened_close_tags", processor.unopened_close_tags)
+    span_handle.set_attribute("llm.stream.unclosed_stream", processor.unclosed_stream)
+    span_handle.set_attribute(
+        "llm.stream.discarded_thought_chars", processor.discarded_thought_chars
+    )
+
+
 def _response_event_payload(res: LLMResponse, p: str) -> dict[str, Any]:
     """The `llm_response_received` event's summary of a reply."""
     event_payload: dict[str, Any] = {
@@ -890,19 +899,25 @@ class LLMClient(
             network.stream_finish_reason.set(None)
             network.stream_slot_wait.set(0.0)
             accumulated_chunks: list[str] = []
+            processor: Any = None
             try:
                 gen = self._dispatch_stream(
                     system, messages, enable_thinking=enable_thinking, priority=resolved_p
                 )
                 if sanitize:
                     from devops_cli.ai.client.streaming import StreamingTokenProcessor
+                    from devops_cli.ai.profiles import get_model_thinking_tags
 
-                    gen = StreamingTokenProcessor().sanitize_stream(gen)
+                    tags = get_model_thinking_tags(self._config.model)
+                    processor = StreamingTokenProcessor(thinking_tags=tags)
+                    gen = processor.sanitize_stream(gen)
                 for chunk in gen:
                     first_token_time = self._record_first_token(span_h, t_start, first_token_time)
                     accumulated_chunks.append(chunk)
                     yield chunk
             except Exception as exc:
+                if processor is not None:
+                    _set_stream_sanitizer_attributes(span_h, processor)
                 span_h.record_exception(exc)
                 if accumulated_chunks:
                     # The provider produced tokens before failing, so they were spent.
@@ -922,6 +937,8 @@ class LLMClient(
             _set_finish_reason_attribute(span_h, finish_reason)
             span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))
             span_h.set_attribute("llm.wall_seconds", total_dur)
+            if processor is not None:
+                _set_stream_sanitizer_attributes(span_h, processor)
             self._record_stream_spend(
                 span_h, p, messages, system, "".join(accumulated_chunks), total_dur, finish_reason
             )
