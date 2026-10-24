@@ -162,6 +162,7 @@ def measure(
     timeout: float = 300.0,
     post: Post = _post_json,
     get: Get = _get_text,
+    include_cost: bool = True,
 ) -> list[dict[str, Any]]:
     """Measure each deployment in turn: its engine, capacity at every level, then its cost."""
     results: list[dict[str, Any]] = []
@@ -182,8 +183,19 @@ def measure(
             )
             for level in levels
         ]
-        cost = run_level(
-            url, name, prompt, max_tokens, concurrency=1, total=rounds, timeout=timeout, post=post
+        cost = (
+            run_level(
+                url,
+                name,
+                prompt,
+                max_tokens,
+                concurrency=1,
+                total=rounds,
+                timeout=timeout,
+                post=post,
+            )
+            if include_cost
+            else None
         )
         results.append(
             {
