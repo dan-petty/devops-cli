@@ -28,7 +28,7 @@ eviction window in `k8s/otel/values.yaml` are tracked separately under #1132.
 | `devops_cli_findings_total` | Counter | `1` | Review findings, by producer, severity and status. |
 | `devops_cli_ai_requests_total` | Counter | `1` | LLM calls and embedding requests, by operation (chat or embeddings), provider, model, server, serving backend and whether the cache answered. |
 | `devops_cli_ai_tokens_total` | Counter | `1` | LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), provider, model, server and backend. |
-| `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM and embedding spend, by operation, provider, model, server and backend. |
+| `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM and embedding spend, by operation, provider, model, server and backend. Each request that a model answers adds to it, and a local request adds 0. |
 | `devops_cli_ai_local_cost_equivalent_usd_total` | Counter | `USD` | Equivalent hosted cloud spend avoided by local model execution, by operation, at the reference model of the operation. |
 | `devops_cli_ai_json_repairs_total` | Counter | `1` | LLM JSON replies repaired after strict parsing failed, by entry point source. |
 | `devops_cli_ai_gateway_slot_wait_seconds` | Histogram | `s` | Time a chat call to the LLM gateway waited in this process for one of the gateway's backend slots, by outcome: ok once it held one, or timeout. |

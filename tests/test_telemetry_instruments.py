@@ -25,6 +25,7 @@ from devops_cli.ai.response_cache import get_llm_response_cache
 from devops_cli.ai.review.runner import _record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
+from devops_cli.ai.spend.pricing import get_pricing_registry
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import tracer as tracer_module
@@ -245,6 +246,33 @@ def test_a_grouped_query_adds_no_unlabelled_zero_series() -> None:
     ] == []
 
 
+def _zero_fallback(query: str) -> str:
+    """A spend query as it reads with its fallback to 0.
+
+    An ungrouped result falls back to `vector(0)`. A grouped one falls back to the requests a
+    model answered, grouped the same and times 0, so each backend that served requests shows
+    $0 with its labels.
+    """
+    spend, _, _ = query.partition(" or ")
+    if not re.search(r"\bby\b", _outermost(spend)):
+        return f"{spend} or vector(0)"
+    requests = re.sub(r"\s*\*\s*\d+$", "", spend).replace(
+        "devops_cli_ai_spend_usd_total", 'devops_cli_ai_requests_total{cached="false"}'
+    )
+    return f"{spend} or {requests} * 0"
+
+
+def test_every_spend_query_shows_zero_when_no_spend_series_matches() -> None:
+    """Verify each query of the spend counter falls back to 0, so a dashboard shows $0, not
+    "No data", which a broken pipeline also shows (#1631)."""
+    spend_queries = [q for q in _all_queries() if "devops_cli_ai_spend_usd_total" in q]
+
+    assert (
+        len(spend_queries) > 0,
+        [q for q in spend_queries if q != _zero_fallback(q)],
+    ) == (True, [])
+
+
 def _skew(queries: str) -> str:
     """How the samples `increase()` drops skew a panel's values.
 
@@ -361,14 +389,15 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
     captured: Captured, tmp_path: Path
 ) -> None:
     """Verify each call counts a request, its prompt and completion tokens, and its spend, by
-    serving backend; a cached reply counts as cached and costs nothing."""
+    serving backend; a cached reply counts as cached and costs nothing. The gateway names
+    OpenAI's API base `https://api.openai.com` as the backend of an OpenAI route (#1631)."""
     ledger = SpendLedger(db_path=tmp_path / "spend.db")
     for cached in (False, True):
         track_request_spend(
             provider="gateway",
             model="gpt-4o",
             server="example.com:4000",
-            served_by="http://ollama-16gib.llm.svc.cluster.local:11434",
+            served_by="https://api.openai.com",
             prompt_tokens=1000,
             completion_tokens=200,
             cached=cached,
@@ -384,10 +413,69 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
         sorted((a["type"], v) for a, v in tokens),
         (len(spend), spend[0][1] > 0, spend[0][0]["backend"]),
     ) == (
-        [("ollama-16gib", "false", 1.0), ("ollama-16gib", "true", 1.0)],
+        [("api", "false", 1.0), ("api", "true", 1.0)],
         [("completion", 400.0), ("prompt", 2000.0)],
-        (1, True, "ollama-16gib"),
+        (1, True, "api"),
     )
+
+
+@pytest.mark.parametrize(
+    ("server", "served_by", "spent", "saved"),
+    [
+        ("example.com:4000", "http://ollama-16gib.llm.svc.cluster.local:11434", False, True),
+        ("localhost:4000", "https://api.openai.com", True, False),
+        ("localhost:4000", None, False, True),
+        ("example.com:4000", None, True, False),
+    ],
+    ids=["local-backend", "hosted-backend", "local-host", "hosted-host"],
+)
+def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
+    captured: Captured,
+    spend_ledger: SpendLedger,
+    server: str,
+    served_by: str | None,
+    spent: bool,
+    saved: bool,
+) -> None:
+    """Verify the backend a gateway reply names decides whether a call is spend or local
+    savings, whatever host the gateway has; with no backend named, the host decides. Each
+    call adds one spend point, 0 when the call ran locally (#1631)."""
+    track_request_spend(
+        provider="gateway",
+        model="gpt-4o",
+        server=server,
+        served_by=served_by,
+        prompt_tokens=1000,
+        completion_tokens=200,
+    )
+
+    assert (
+        [v > 0 for _, v in captured.points("devops_cli_ai_spend_usd_total")],
+        [v > 0 for _, v in captured.points("devops_cli_ai_local_cost_equivalent_usd_total")],
+    ) == ([spent], [True] if saved else [])
+
+
+def test_a_price_override_leaves_a_local_call_in_local_savings(
+    captured: Captured, spend_ledger: SpendLedger
+) -> None:
+    """Verify a custom price for a local model or server books no spend: the call adds a spend
+    point of 0 and its savings at the reference model (#1631)."""
+    registry = get_pricing_registry()
+    registry.set_custom_pricing("qwen3:8b", prompt_rate=1.0, completion_rate=2.0)
+    registry.set_custom_pricing("localhost:11434", prompt_rate=1.0, completion_rate=2.0)
+
+    track_request_spend(
+        provider="ollama",
+        model="qwen3:8b",
+        server="localhost:11434",
+        prompt_tokens=1000,
+        completion_tokens=200,
+    )
+
+    assert (
+        [v for _, v in captured.points("devops_cli_ai_spend_usd_total")],
+        [v > 0 for _, v in captured.points("devops_cli_ai_local_cost_equivalent_usd_total")],
+    ) == ([0.0], [True])
 
 
 def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
@@ -447,7 +535,8 @@ def test_response_cache_lookups_and_writes_send_no_metric_of_their_own(
 def test_local_ai_calls_emit_equivalent_spend_instrument(
     captured: Captured, tmp_path: Path
 ) -> None:
-    """Verify local AI calls emit devops_cli_ai_local_cost_equivalent_usd_total and zero direct spend."""
+    """Verify a local AI call emits devops_cli_ai_local_cost_equivalent_usd_total and one spend
+    point of 0, so the spend series exists before the first hosted call (#1631)."""
     ledger = SpendLedger(db_path=tmp_path / "spend.db")
     track_request_spend(
         provider="ollama",
@@ -468,13 +557,13 @@ def test_local_ai_calls_emit_equivalent_spend_instrument(
         equiv[0][1] > 0,
         equiv[0][0]["backend"],
         equiv[0][0]["provider"],
-        len(spend),
+        [(a["backend"], a["provider"], v) for a, v in spend],
     ) == (
         1,
         True,
         "ollama-0",
         "ollama",
-        0,
+        [("ollama-0", "ollama", 0.0)],
     )
 
 

@@ -540,7 +540,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM spend per hour, by backend, server and provider. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "LLM spend per hour, by backend, server and provider. A backend that served requests at no cost shows $0. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -574,7 +574,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_spend_usd_total[1h]))",
+          "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_spend_usd_total[1h])) or sum by (server, backend, provider) (increase(devops_cli_ai_requests_total{cached=\"false\"}[1h])) * 0",
           "legendFormat": "{{backend}} via {{server}} ({{provider}})",
           "refId": "A"
         },
@@ -583,7 +583,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[6h])) * 3600",
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[6h])) * 3600 or vector(0)",
           "legendFormat": "Total Rolling Avg (6h)",
           "refId": "B"
         }

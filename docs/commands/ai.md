@@ -1942,7 +1942,7 @@ devops ai cost roi [OPTIONS]
 
 ### `devops ai cost prometheus`
 
-**Export AI spend and usage metrics in Prometheus exposition format.**
+**Export the totals of the spend ledger as Prometheus gauges.**
 
 ```bash
 devops ai cost prometheus
@@ -1986,7 +1986,7 @@ devops ai cost list-pricing [OPTIONS]
 
 ### `devops ai cost set-price`
 
-**Set custom token pricing override for a model or backend server.**
+**Set a custom token price for the hosted calls of a model or backend server.**
 
 ```bash
 devops ai cost set-price <target> <prompt_rate> <completion_rate>
@@ -1996,7 +1996,7 @@ devops ai cost set-price <target> <prompt_rate> <completion_rate>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | Yes | Target model identifier or backend server address (e.g. 'qwen2.5-coder:14b', 'localhost:11434'). |
+| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
 
@@ -2074,7 +2074,7 @@ devops ai spend roi [OPTIONS]
 
 ### `devops ai spend prometheus`
 
-**Export AI spend and usage metrics in Prometheus exposition format.**
+**Export the totals of the spend ledger as Prometheus gauges.**
 
 ```bash
 devops ai spend prometheus
@@ -2118,7 +2118,7 @@ devops ai spend list-pricing [OPTIONS]
 
 ### `devops ai spend set-price`
 
-**Set custom token pricing override for a model or backend server.**
+**Set a custom token price for the hosted calls of a model or backend server.**
 
 ```bash
 devops ai spend set-price <target> <prompt_rate> <completion_rate>
@@ -2128,7 +2128,7 @@ devops ai spend set-price <target> <prompt_rate> <completion_rate>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | Yes | Target model identifier or backend server address (e.g. 'qwen2.5-coder:14b', 'localhost:11434'). |
+| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
 
