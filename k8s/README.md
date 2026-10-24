@@ -264,6 +264,26 @@ They route like every other rule (Alerting, below), and are listed there with th
 
 Loki's compactor retention takes effect once #550's Loki migration has been applied, a step a person runs: the volume rebind above, then the Loki upgrade. Until then Loki deletes no logs by age. k8s-monitoring's Loki integration scrapes Loki wherever the logging stack runs (Scrape Ownership, above), and the migration only turns retention on; `LokiRetentionNotRunning` fires if the compactor stops applying it.
 
+## Alloy Metrics Write-Ahead Log
+
+The `alloy-metrics` collector (`collectors.alloy-metrics` in `monitoring/k8s-monitoring-values.yaml`) keeps its write-ahead log at `alloy.storagePath`, `/var/lib/alloy`, on the volume of the claim template `alloy-wal`. A pod restart keeps the samples that Alloy buffered and did not send, for example while Prometheus is down. Alloy keeps unsent samples for up to 8 hours (`max_keepalive_time`) and truncates the log every 2 hours. At the 14 MB an hour that it writes, the log holds about 140 MB at most, and the claim asks for 1Gi. The claim uses the `local-path` class, which binds the volume on the node where the pod first runs. The pod's node affinity (`node-role.kubernetes.io/control-plane` `DoesNotExist`) keeps the pod and its volume off the control-plane node, whose root disk has the least free space.
+
+The Alloy Operator, not Argo CD, makes the StatefulSet from the `Alloy` resource `k8s-monitoring-alloy-metrics` that Argo CD syncs. Kubernetes does not let an upgrade change `volumeClaimTemplates`, so after a change to the claim template the operator cannot upgrade the StatefulSet until the old StatefulSet is gone. When Argo CD has synced the change, a person runs these commands:
+
+```bash
+# The Alloy resource holds the new claim template.
+kubectl -n monitoring get alloys.collectors.grafana.com k8s-monitoring-alloy-metrics \
+  -o jsonpath='{.spec.controller.volumeClaimTemplates[*].metadata.name}'
+# Delete the old StatefulSet and keep its pod.
+kubectl -n monitoring delete statefulset k8s-monitoring-alloy-metrics --cascade=orphan
+# The operator makes the StatefulSet again with the claim template, and its pod mounts the volume.
+kubectl -n monitoring get statefulset k8s-monitoring-alloy-metrics \
+  -o jsonpath='{.spec.volumeClaimTemplates[*].metadata.name}'
+kubectl -n monitoring get pvc alloy-wal-k8s-monitoring-alloy-metrics-0
+```
+
+`--cascade=orphan` keeps the pod while the StatefulSet is gone. The new StatefulSet adopts the pod and replaces it with a pod that mounts the volume of `alloy-wal-k8s-monitoring-alloy-metrics-0`. The StatefulSet keeps its claims when it is deleted or scaled down, so the volume and its log stay.
+
 ## Host Journals and Health Metrics
 
 Each node sends its journal to Loki and its health series to Prometheus through the k8s-monitoring chart (`monitoring/k8s-monitoring-values.yaml`), with no agent installed on the host:
@@ -344,7 +364,7 @@ kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -
 kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
 ```
 
-The drain matters because a few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter, and scrapes the annotated pods, the Alloy collectors, Grafana, Loki, Tempo, Pyroscope and CoreDNS. Drained, it starts again on another node. Left on a node that powers off, it stays bound there until the node returns. Those series stop: the `up` series of the targets it scrapes go stale instead of reporting 0, so no `TargetDown` fires for them, and no other node's `NodeNotReady` can fire. After about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope and Alertmanager) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
+The drain moves the pods that can move to other nodes. A few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter, and scrapes the annotated pods, the Alloy collectors, Grafana, Loki, Tempo, Pyroscope and CoreDNS. Its write-ahead log is on a `local-path` volume (Alloy Metrics Write-Ahead Log, above), so it cannot move to another node. Drained, or on a node that powers off, it waits for its node. While it waits, those series stop: the `up` series of the targets it scrapes go stale instead of reporting 0, so no `TargetDown` fires for them, and no other node's `NodeNotReady` can fire. After about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope, Alertmanager and `alloy-metrics`) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
 
 After the work, let pods back onto the node, and expire the silence if the work ended early:
 
