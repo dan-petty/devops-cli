@@ -17,6 +17,7 @@ from devops_cli.security.gitleaks import (
     parse_gitleaks_json,
     run_gitleaks_scan,
 )
+from devops_cli.security.sarif import to_sarif
 
 runner = CliRunner()
 
@@ -245,3 +246,32 @@ def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(tmp_path: Path)
     assert sources == [str(first), str(second)]
     assert outcome.status == "ran"
     assert [f.location for f in outcome.findings] == [f"{second}:1"]
+
+
+def test_run_gitleaks_scan_list_target_keeps_start_and_end_times_in_sarif(tmp_path: Path) -> None:
+    """A two-file list scan records execution window and propagates times to SARIF invocation."""
+    first = tmp_path / "first.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second = tmp_path / "second.py"
+    second.write_text("y = 2\n", encoding="utf-8")
+
+    def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+
+    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=fake_gitleaks):
+        outcome = run_gitleaks_scan([first, second])
+
+    assert outcome.status == "ran"
+    assert outcome.started_utc is not None
+    assert outcome.ended_utc is not None
+    assert outcome.started_utc <= outcome.ended_utc
+
+    document = to_sarif([], {"gitleaks": outcome})
+    run = next(r for r in document["runs"] if r["tool"]["driver"]["name"] == "gitleaks")
+    invocation = run["invocations"][0]
+    assert invocation["executionSuccessful"] is True
+    assert "startTimeUtc" in invocation
+    assert "endTimeUtc" in invocation
+    assert invocation["startTimeUtc"] == outcome.started_utc
+    assert invocation["endTimeUtc"] == outcome.ended_utc
+    assert invocation["startTimeUtc"] <= invocation["endTimeUtc"]
