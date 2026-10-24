@@ -1,8 +1,8 @@
 """Unit tests for Minikube GPU detection, cluster bootstrap, and NodePort reachability fallback.
 
 Validates:
-- Automated GPU detection via nvidia-smi with --driver=docker --gpus=all
-- Clean fallback to CPU-only mode (--driver=docker)
+- Automated GPU detection via nvidia-smi with --driver=docker --cni=calico --gpus=all
+- Clean fallback to CPU-only mode (--driver=docker --cni=calico)
 - Dynamic NodePort socket reachability verification and localhost fallback
 - Endpoint persistence for ArgoCD, Grafana, Tempo, Ollama, Open-WebUI, Qdrant, and Valkey
 - Bootstrap command execution and automated configure-urls integration
@@ -56,15 +56,17 @@ def _mock_completed(
 def test_start_minikube_with_gpu(
     mock_running: MagicMock, mock_cmd: MagicMock, mock_which: MagicMock
 ) -> None:
-    """When nvidia-smi is present, start Minikube with --driver=docker --gpus=all."""
+    """When nvidia-smi is present, start Minikube with --driver=docker --cni=calico --gpus=all."""
     mock_cmd.return_value = _mock_completed(returncode=0)
     success, msg = _start_minikube(dry_run=False)
 
     assert (success, msg) == (
         True,
-        "Started Minikube cluster (--driver=docker --gpus=all)",
+        "Started Minikube cluster (--driver=docker --cni=calico --gpus=all)",
     )
-    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
+    mock_cmd.assert_any_call(
+        ["minikube", "start", "--driver=docker", "--cni=calico", "--gpus=all"], check=False
+    )
 
 
 @patch("shutil.which", return_value="/usr/bin/nvidia-smi")
@@ -73,7 +75,7 @@ def test_start_minikube_with_gpu(
 def test_start_minikube_gpu_fallback_to_cpu(
     mock_running: MagicMock, mock_cmd: MagicMock, mock_which: MagicMock
 ) -> None:
-    """When GPU start fails, fall back cleanly to CPU mode (--driver=docker)."""
+    """When GPU start fails, fall back cleanly to CPU mode (--driver=docker --cni=calico)."""
     mock_cmd.side_effect = [
         _mock_completed(returncode=1, stderr="NVIDIA runtime error"),
         _mock_completed(returncode=0),
@@ -83,8 +85,8 @@ def test_start_minikube_gpu_fallback_to_cpu(
 
     success, msg = _start_minikube(dry_run=False)
 
-    assert (success, msg) == (True, "Started Minikube cluster (--driver=docker)")
-    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker"], check=False)
+    assert (success, msg) == (True, "Started Minikube cluster (--driver=docker --cni=calico)")
+    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker", "--cni=calico"], check=False)
 
 
 @patch("shutil.which", return_value=None)
@@ -93,12 +95,12 @@ def test_start_minikube_gpu_fallback_to_cpu(
 def test_start_minikube_cpu_only(
     mock_running: MagicMock, mock_cmd: MagicMock, mock_which: MagicMock
 ) -> None:
-    """When nvidia-smi is absent, start Minikube directly with --driver=docker."""
+    """When nvidia-smi is absent, start Minikube directly with --driver=docker --cni=calico."""
     mock_cmd.return_value = _mock_completed(returncode=0)
     success, msg = _start_minikube(dry_run=False)
 
-    assert (success, msg) == (True, "Started Minikube cluster (--driver=docker)")
-    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker"], check=False)
+    assert (success, msg) == (True, "Started Minikube cluster (--driver=docker --cni=calico)")
+    mock_cmd.assert_any_call(["minikube", "start", "--driver=docker", "--cni=calico"], check=False)
 
 
 @patch("shutil.which", return_value="/usr/bin/nvidia-smi")
@@ -107,7 +109,7 @@ def test_start_minikube_dry_run_with_gpu(mock_which: MagicMock) -> None:
     success, msg = _start_minikube(dry_run=True)
     assert (success, msg) == (
         True,
-        "Started Minikube cluster (--driver=docker --gpus=all)",
+        "Started Minikube cluster (--driver=docker --cni=calico --gpus=all)",
     )
 
 
@@ -117,7 +119,7 @@ def test_start_minikube_dry_run_without_gpu(mock_which: MagicMock) -> None:
     success, msg = _start_minikube(dry_run=True)
     assert (success, msg) == (
         True,
-        "Started Minikube cluster (--driver=docker)",
+        "Started Minikube cluster (--driver=docker --cni=calico)",
     )
 
 
@@ -133,6 +135,34 @@ def test_start_minikube_total_failure(
     assert (success, msg) == (False, "Failed to start Minikube cluster")
 
 
+def test_start_minikube_pins_calico_cni_argv_and_help_text_matches() -> None:
+    """Offline test pins minikube start argv to include --cni=calico and help text documents Calico."""
+    from devops_cli.commands.k8s import app
+    from devops_cli.lang import HELP
+
+    # Verify HELP.k8s.bootstrap documents Calico
+    assert "Calico" in HELP.k8s.bootstrap
+
+    # Verify devops k8s bootstrap command help documents Calico
+    help_res = runner.invoke(app, ["bootstrap", "--help"])
+    assert help_res.exit_code == 0
+    assert "Calico" in help_res.output
+
+    # Verify minikube start argv contains --cni=calico
+    with (
+        patch("shutil.which", return_value=None),
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.cluster_runtime._minikube_running", return_value=True),
+    ):
+        mock_cmd.return_value = _mock_completed(returncode=0)
+        success, msg = _start_minikube(dry_run=False)
+        assert success is True
+        assert "--cni=calico" in msg
+        mock_cmd.assert_any_call(
+            ["minikube", "start", "--driver=docker", "--cni=calico"], check=False
+        )
+
+
 # =============================================================================
 # 2. Bootstrap Command & Lifecycle Tests
 # =============================================================================
@@ -142,7 +172,7 @@ def test_start_minikube_total_failure(
 @patch("devops_cli.commands.k8s.bootstrap.stack_life.deploy_stack")
 @patch(
     "devops_cli.commands.k8s.bootstrap.runtime._start_minikube",
-    return_value=(True, "Started Minikube cluster (--driver=docker --gpus=all)"),
+    return_value=(True, "Started Minikube cluster (--driver=docker --cni=calico --gpus=all)"),
 )
 @patch("devops_cli.commands.k8s.bootstrap.runtime._minikube_running", return_value=False)
 def test_k8s_bootstrap_autostarts_and_configures_urls(

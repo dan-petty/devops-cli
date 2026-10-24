@@ -89,20 +89,26 @@ def _start_minikube(dry_run: bool = False) -> tuple[bool, str]:
     import shutil
 
     has_gpu = bool(shutil.which("nvidia-smi"))
-    gpu_suffix = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
+    gpu_suffix = (
+        " (--driver=docker --cni=calico --gpus=all)"
+        if has_gpu
+        else " (--driver=docker --cni=calico)"
+    )
     if dry_run:
         return True, f"Started Minikube cluster{gpu_suffix}"
 
     if has_gpu:
-        start_res = _run_cmd(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
+        start_res = _run_cmd(
+            ["minikube", "start", "--driver=docker", "--cni=calico", "--gpus=all"], check=False
+        )
         if start_res.returncode == 0 and _minikube_running():
             _run_cmd(["minikube", "update-context"], check=False)
             return True, f"Started Minikube cluster{gpu_suffix}"
 
-    fallback_res = _run_cmd(["minikube", "start", "--driver=docker"], check=False)
+    fallback_res = _run_cmd(["minikube", "start", "--driver=docker", "--cni=calico"], check=False)
     if fallback_res.returncode == 0 and _minikube_running():
         _run_cmd(["minikube", "update-context"], check=False)
-        return True, "Started Minikube cluster (--driver=docker)"
+        return True, "Started Minikube cluster (--driver=docker --cni=calico)"
 
     return False, "Failed to start Minikube cluster"
 
