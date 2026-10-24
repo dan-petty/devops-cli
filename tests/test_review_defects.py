@@ -430,6 +430,41 @@ def test_an_arm_refuses_sessions_that_ran_different_prompts() -> None:
         score_corpus_runs([], [])
 
 
+def test_an_arm_refuses_sessions_whose_code_or_prompts_changed(
+    tmp_path: Path, review_store: type[ReviewSessionStore]
+) -> None:
+    """Verify sessions flagged code_changed_during_run are not scored as an arm (#1050)."""
+    corpus, candidates, reported = _matching_fixture()
+    scores = [score_corpus(corpus, candidates, reported, session_id=s) for s in ("s1", "s2")]
+    profiles = [
+        ReviewProfile(
+            session_id="s1",
+            target="t",
+            prompt_digest="d" * 16,
+            code_changed_during_run=True,
+        ),
+        ReviewProfile(session_id="s2", target="t", prompt_digest="d" * 16),
+    ]
+
+    with pytest.raises(ValidationError, match="s1"):
+        score_corpus_runs(scores, profiles)
+
+    reviews = review_store.root()
+    source = _source_tree(tmp_path)
+    corpus_dir = reviews / "corpora" / "src-7"
+    generate_corpus(_sources(source), corpus_dir, sources=[str(source)], seed=7)
+    _session(
+        reviews,
+        "20260924-100000",
+        corpus_dir / CORPUS_FILES_DIR,
+        [],
+        code_changed_during_run=True,
+    )
+    scored = cli.invoke(app, ["review", "corpus", "score", str(corpus_dir)])
+    assert scored.exit_code == 1
+    assert "20260924-100000" in scored.output
+
+
 def _session(
     reviews: Path, name: str, target: Path, findings: list[SavedFinding], **profile: Any
 ) -> None:

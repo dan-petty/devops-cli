@@ -1614,14 +1614,27 @@ def score_corpus_runs(
 ) -> CorpusRunsScore:
     """Combine k scores of one corpus, each with its session's profile or None, into one arm.
 
-    Raises ValidationError when there are no scores, when the profiles do not pair with them, or
-    when the sessions' prompt digests differ: one score measures one arm.
+    Raises ValidationError when there are no scores, when the profiles do not pair with them,
+    when a session's code or prompts changed during its run, or when the sessions' prompt digests
+    differ: one score measures one arm.
     """
     if not scores or len(scores) != len(profiles):
         raise ValidationError(
             f"An arm needs one profile or None per score; got {len(scores)} score(s) and "
             f"{len(profiles)} profile(s).",
             field="profiles",
+        )
+    changed = [
+        score.session_id
+        for score, profile in zip(scores, profiles, strict=True)
+        if profile and profile.code_changed_during_run
+    ]
+    if changed:
+        listed = ", ".join(changed)
+        raise ValidationError(
+            f"The code or prompts changed while these sessions ran, so they are not one arm: "
+            f"{listed}. Re-run them from a checkout that stays put.",
+            field="code_changed_during_run",
         )
     prompt_digest = _shared_prompt_digest(scores, profiles)
     rows = [_run_row(score, profile) for score, profile in zip(scores, profiles, strict=True)]
