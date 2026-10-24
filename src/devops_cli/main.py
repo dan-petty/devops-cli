@@ -77,6 +77,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
         "devops_cli.commands.status_cmd",
         "Inspect published operational status of upstream platforms (GitHub, Cloudflare)",
     ),
+    "survey": ("devops_cli.commands.survey", HELP.survey.app),
     "format": ("devops_cli.commands.ci", HELP.ci.format_cmd),
     "lint": ("devops_cli.commands.ci", HELP.ci.lint),
 }

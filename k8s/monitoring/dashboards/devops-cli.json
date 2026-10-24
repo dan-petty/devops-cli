@@ -1072,6 +1072,11 @@
           },
           {
             "selected": false,
+            "text": "survey",
+            "value": "survey"
+          },
+          {
+            "selected": false,
             "text": "telemetry",
             "value": "telemetry"
           },
@@ -1116,7 +1121,7 @@
             "value": "workspace"
           }
         ],
-        "query": "ai, argo, branches, ci, cloudflare, config, dashboard, devcontainer, docker, docs, format, gh, grafana, install-tools, k8s, kustomize, lint, mcp, openspec, pipeline, pr, prometheus, release, repos, review, roadmap, sandbox, scan, serve, ssh, status, telemetry, test, tf, tls, tui, uv, valkey, vault, workspace",
+        "query": "ai, argo, branches, ci, cloudflare, config, dashboard, devcontainer, docker, docs, format, gh, grafana, install-tools, k8s, kustomize, lint, mcp, openspec, pipeline, pr, prometheus, release, repos, review, roadmap, sandbox, scan, serve, ssh, status, survey, telemetry, test, tf, tls, tui, uv, valkey, vault, workspace",
         "type": "custom"
       }
     ]

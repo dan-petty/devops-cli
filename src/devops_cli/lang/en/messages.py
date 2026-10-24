@@ -1716,6 +1716,17 @@ class ProjectMessages:
     sync_dry_run_reconcile: str = ", and reconciles Status and Priority on the cards already on it"
 
 
+class SurveyMessages:
+    survey_dependencies_title: str = "Pinned Runtime Dependencies Upstream Maintenance"
+    survey_capabilities_title: str = "Outward Capability Comparison"
+    candidate_emitted: str = (
+        "Emitted capability gap candidate for {capability} (present in {tool})."
+    )
+    candidate_filed: str = "Filed roadmap candidate #{number} for {capability}."
+    no_gaps_found: str = "No capability gaps detected."
+    gaps_found: str = "Detected {count} capability gap(s) compared to external tools."
+
+
 @dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
@@ -1724,6 +1735,7 @@ class LanguageCatalog:
     output: OutputMessages = field(default_factory=OutputMessages)
     review: ReviewMessages = field(default_factory=ReviewMessages)
     ai: AIMessages = field(default_factory=AIMessages)
+    survey: SurveyMessages = field(default_factory=SurveyMessages)
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)
