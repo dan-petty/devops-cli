@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 import httpx2
@@ -22,6 +23,8 @@ from tests.llm_stream_fakes import (
     openai_chunk,
     reply,
     route_client,
+    route_retrying_client,
+    sse_data,
 )
 
 
@@ -279,14 +282,184 @@ def _server_error(request: httpx2.Request) -> httpx2.Response:
     return httpx2.Response(500, json={"error": {"message": "internal error"}})
 
 
-@pytest.mark.parametrize(
-    "handler", [_refuse_connection, _server_error], ids=["connect", "http-500"]
-)
-def test_a_stream_failing_before_its_first_chunk_records_nothing(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, handler: Any
+def test_a_stream_refused_before_its_first_chunk_records_nothing(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
 ) -> None:
-    """Verify a stream no provider served writes no row and notifies no observer."""
+    """Verify a stream that cannot open a connection writes no row and notifies no observer."""
     client = _stream_client(monkeypatch)
-    route_client(client, monkeypatch, handler)
+    route_retrying_client(client, monkeypatch, _refuse_connection)
 
     assert (_stream_reply(client), _ledger_rows(spend_ledger)) == (([], [], "AIClientError"), [])
+
+
+def test_a_stream_failing_before_its_first_chunk_with_server_error_records_each_attempt(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Verify a stream that the server answers with 500 writes one error row per attempt."""
+    client = _stream_client(monkeypatch)
+    route_retrying_client(client, monkeypatch, _server_error)
+
+    chunks, seen, error = _stream_reply(client)
+
+    assert (chunks, [c["finish_reason"] for c in seen], error, _ledger_rows(spend_ledger)) == (
+        [],
+        ["error"] * 5,
+        "AIClientError",
+        [("stream", "error")] * 5,
+    )
+
+
+def _chat_client(monkeypatch: pytest.MonkeyPatch, model: str = "devops-review") -> LLMClient:
+    monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
+    config = AIConfig(
+        provider="openai",
+        model=model,
+        api_base_url="http://example.com/v1",
+        allow_private_network=True,
+    )
+    return LLMClient(config, api_key="sk-test", cache_enabled=False)
+
+
+def _ok_reply(model: str = "gpt-test") -> httpx2.Response:
+    return httpx2.Response(
+        200,
+        json={
+            "model": model,
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        },
+    )
+
+
+def test_failed_chat_dispatch_attempts_are_recorded_in_spend_ledger(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Verify each attempt reaching the gateway and failing writes an error row in the ledger."""
+    client = _chat_client(monkeypatch)
+
+    def _ok(_request: httpx2.Request) -> httpx2.Response:
+        return _ok_reply()
+
+    # 1. 500 once then reply -> 2 rows: ("chat_dispatch", "error") and ("chat_dispatch", "stop")
+    responses_500: list[Callable[[httpx2.Request], httpx2.Response]] = [_server_error, _ok]
+    route_retrying_client(client, monkeypatch, lambda req: responses_500.pop(0)(req))
+    reply_res = client.chat("system", "user", use_cache=False)
+    assert reply_res.content == "ok"
+    assert _ledger_rows(spend_ledger) == [("chat_dispatch", "error"), ("chat_dispatch", "stop")]
+
+    # 2. Read timeout then reply -> 2 rows
+    spend_ledger.reset()
+
+    def _read_timeout(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("timed out", request=request)
+
+    responses_timeout: list[Callable[[httpx2.Request], httpx2.Response]] = [_read_timeout, _ok]
+    route_retrying_client(client, monkeypatch, lambda req: responses_timeout.pop(0)(req))
+    reply_res = client.chat("system", "user", use_cache=False)
+    assert reply_res.content == "ok"
+    assert _ledger_rows(spend_ledger) == [("chat_dispatch", "error"), ("chat_dispatch", "stop")]
+
+    # 3. Connection refused then reply -> 1 row (ConnectError writes no row)
+    spend_ledger.reset()
+    responses_connect: list[Callable[[httpx2.Request], httpx2.Response]] = [_refuse_connection, _ok]
+    route_retrying_client(client, monkeypatch, lambda req: responses_connect.pop(0)(req))
+    reply_res = client.chat("system", "user", use_cache=False)
+    assert reply_res.content == "ok"
+    assert _ledger_rows(spend_ledger) == [("chat_dispatch", "stop")]
+
+    # 4. 500 five times -> 5 error rows, call raises
+    spend_ledger.reset()
+    route_retrying_client(client, monkeypatch, _server_error)
+    with pytest.raises(AIClientError):
+        client.chat("system", "user", use_cache=False)
+    assert _ledger_rows(spend_ledger) == [("chat_dispatch", "error")] * 5
+
+
+def test_chat_dispatch_records_served_by_and_resolved_model(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Verify chat dispatch records both served_by header and resolved model from reply body."""
+    client = _chat_client(monkeypatch, model="devops-review")
+    backend_header = {"x-litellm-model-api-base": "http://ollama-16gib:11434"}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            headers=backend_header,
+            json={
+                "model": "gpt-oss:20b",
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
+        )
+
+    route_retrying_client(client, monkeypatch, handler)
+    client.chat("sys", "user", use_cache=False)
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute(
+            "SELECT model, served_by, served_model FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+    assert rows == [("devops-review", "http://ollama-16gib:11434", "gpt-oss:20b")]
+
+
+def test_stream_dispatch_records_served_by_and_resolved_model(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Verify stream dispatch records both served_by header and resolved model from stream frames."""
+    client = _stream_client(monkeypatch)
+    backend_header = {"x-litellm-model-api-base": "http://ollama-16gib:11434"}
+    frames = [
+        sse_data({"model": "gpt-oss:20b", "choices": [{"index": 0, "delta": {"content": "Hel"}}]}),
+        sse_data(
+            {
+                "model": "gpt-oss:20b",
+                "choices": [{"index": 0, "delta": {"content": "lo"}, "finish_reason": "stop"}],
+            }
+        ),
+        OPENAI_DONE,
+    ]
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            headers={**backend_header, "content-type": "text/event-stream"},
+            content=iter(frames),
+        )
+
+    route_retrying_client(client, monkeypatch, handler)
+    list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute(
+            "SELECT model, served_by, served_model FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+    assert rows == [("gpt-test", "http://ollama-16gib:11434", "gpt-oss:20b")]
+
+
+def test_failed_attempt_records_served_by_and_served_model_when_error_names_them(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Verify a failed attempt records backend and model when the error response names them."""
+    client = _chat_client(monkeypatch, model="devops-review")
+    error_headers = {
+        "x-litellm-model-api-base": "http://ollama-16gib:11434",
+        "x-litellm-model-name": "gpt-oss:20b",
+    }
+    calls = [
+        lambda req: httpx2.Response(
+            500, headers=error_headers, json={"error": {"message": "failed"}}
+        ),
+        lambda req: _ok_reply(model="devops-review"),
+    ]
+    route_retrying_client(client, monkeypatch, lambda req: calls.pop(0)(req))
+    client.chat("system", "user", use_cache=False)
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute(
+            "SELECT finish_reason, served_by, served_model FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+    assert rows == [
+        ("error", "http://ollama-16gib:11434", "gpt-oss:20b"),
+        ("stop", None, None),
+    ]

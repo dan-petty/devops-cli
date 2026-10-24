@@ -87,6 +87,52 @@ def extract_served_by(headers: Mapping[str, str] | None) -> str | None:
 # The deployment model a gateway named in a streamed response's headers, read with the backend.
 stream_served_model: ContextVar[str | None] = ContextVar("stream_served_model", default=None)
 
+# The model name reported in stream chunks/payloads.
+stream_model: ContextVar[str | None] = ContextVar("stream_model", default=None)
+
+
+@dataclass(frozen=True)
+class DispatchContext:
+    """Active dispatch call metadata for attempt recording."""
+
+    provider: str
+    model: str
+    request_type: str = "chat_dispatch"
+    task_name: str | None = None
+    server: str | None = None
+    backend_info: str | None = None
+
+
+active_dispatch_context: ContextVar[DispatchContext | None] = ContextVar(
+    "active_dispatch_context", default=None
+)
+
+
+@contextmanager
+def bind_dispatch_context(
+    provider: str,
+    model: str,
+    request_type: str = "chat_dispatch",
+    task_name: str | None = None,
+    server: str | None = None,
+    backend_info: str | None = None,
+) -> Generator[None]:
+    """Bind dispatch metadata for the duration of a call so transports can record attempts."""
+    token = active_dispatch_context.set(
+        DispatchContext(
+            provider=provider,
+            model=model,
+            request_type=request_type,
+            task_name=task_name,
+            server=server,
+            backend_info=backend_info,
+        )
+    )
+    try:
+        yield
+    finally:
+        active_dispatch_context.reset(token)
+
 
 def extract_served_model(headers: Mapping[str, str] | None) -> str | None:
     """The deployment model that a gateway reply names as the model that served the call, such as

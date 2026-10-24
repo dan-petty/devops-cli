@@ -15,6 +15,7 @@ from devops_cli.ai.client.network import (
     StreamUsage,
     size_limit_text,
     stream_finish_reason,
+    stream_model,
     stream_usage,
 )
 from devops_cli.ai.thinking_stream import ThinkingFSM
@@ -379,6 +380,9 @@ def _openai_stream_frame(event: httpx2.ServerSentEvent) -> StreamFrame:
     payload = _json_object(event.data)
     if payload.get("error") is not None:
         return StreamFrame(error=_error_text(payload["error"]))
+    model = payload.get("model")
+    if model and stream_model.get() is None:
+        stream_model.set(str(model))
     usage = payload.get("usage")
     if isinstance(usage, dict):
         details = usage.get("completion_tokens_details") or {}
