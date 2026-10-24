@@ -413,6 +413,12 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
         ),
         (opt.RUNS_INDEX_PASSWORD, "runs_index_password", ("DEVOPS_CLI_RUNS_INDEX_PASSWORD",), None),
         (
+            opt.GITEA_ADMIN_PASSWORD,
+            "gitea_admin_password",
+            ("DEVOPS_CLI_GITEA_ADMIN_PASSWORD",),
+            None,
+        ),
+        (
             opt.TELEMETRY_LOGFIRE_TOKEN,
             "logfire_token",
             ("DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN", "LOGFIRE_TOKEN"),

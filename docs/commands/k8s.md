@@ -243,7 +243,7 @@ devops k8s push-secrets [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--stack`, `-s` | `string` | `all` | Push the Secrets of one stack: base, infra, llm, logging, devops, or all (default). |
+| `--stack`, `-s` | `string` | `all` | Push the Secrets of one stack: base, infra, llm, logging, devops, gitea, or all (default). |
 | `--only` | `string` | - | Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack. |
 | `--github-account` | `string` | - | Machine account whose gh token becomes GH_TOKEN (default: k8s.github_account). |
 | `--rotate` | `boolean` | - | Replace live values that differ from the keyring's. |

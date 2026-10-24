@@ -215,6 +215,8 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "monitoring/grafana admin-password",
             ("deployment/grafana",),
         ),
+        ("gitea/gitea-admin", "username", "gitea", True, None, None, ("deployment/gitea",)),
+        ("gitea/gitea-admin", "password", "gitea", True, None, None, ("deployment/gitea",)),
     ]
 
 
@@ -358,6 +360,54 @@ def test_tunnel_token_is_a_managed_credential() -> None:
         opt.CLOUDFLARE_TUNNEL_TOKEN in specs,
         registry[opt.CLOUDFLARE_TUNNEL_TOKEN].env_vars,
     ) == (True, "cloudflare_tunnel_token", True, ("DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN",))
+
+
+def test_the_gitea_admin_password_is_a_typed_managed_credential_and_its_user_a_literal() -> None:
+    """A person stores the password at a hidden prompt (`devops config set
+    gitea.admin_password`), and the push never makes one (#1081). The user is the chart's
+    default, which Gitea does not reserve."""
+    from devops_cli.k8s.cluster_secrets import LiteralSource
+
+    gitea = next(s for s in CLUSTER_SECRETS if s.ref == "gitea/gitea-admin")
+    username, password = gitea.entries
+    specs = {spec.option_key for spec in get_all_env_var_specs() if spec.is_secret}
+    registry = build_secret_registry(opt.KEYRING_KEYS)
+    assert (
+        (username.key, username.source),
+        (password.key, password.source, password.required, password.generator),
+        opt.GITEA_ADMIN_PASSWORD in opt.SECRET_CONFIG_OPTIONS,
+        OPTION_TO_ENV_VAR[opt.GITEA_ADMIN_PASSWORD],
+        opt.GITEA_ADMIN_PASSWORD in specs,
+        registry[opt.GITEA_ADMIN_PASSWORD].env_vars,
+    ) == (
+        ("username", LiteralSource("gitea_admin")),
+        ("password", KeyringSource("gitea_admin_password", "gitea.admin_password"), True, None),
+        True,
+        "DEVOPS_CLI_GITEA_ADMIN_PASSWORD",
+        True,
+        ("DEVOPS_CLI_GITEA_ADMIN_PASSWORD",),
+    )
+
+
+def test_the_gitea_dry_run_lists_its_secret_and_restart_with_no_value() -> None:
+    result = _push("--stack", "gitea", "--dry-run")
+    output = result.output
+    order = [
+        "kubectl get namespace gitea --ignore-not-found -o name --context test-ctx",
+        "kubectl get secret/gitea-admin -n gitea --ignore-not-found -o json",
+        "keyring read devops-cli/gitea_admin_password",
+        "kubectl apply --server-side --field-manager=devops-cli --force-conflicts -f -",
+        "kubectl get deployment/gitea -n gitea --ignore-not-found -o name",
+        "kubectl rollout restart deployment/gitea -n gitea",
+    ]
+    positions = [output.find(text) for text in order]
+    assert (
+        result.exit_code,
+        -1 in positions,
+        positions == sorted(positions),
+        '"password": "<base64 of keyring gitea_admin_password>"' in output,
+        "no request was made" in output,
+    ) == (0, False, True, True, True), output
 
 
 @pytest.mark.usefixtures("mock_keyring")

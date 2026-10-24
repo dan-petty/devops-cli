@@ -322,7 +322,7 @@ class K8sCommandHelp:
         "nobody types, and never replaces a live value without --rotate."
     )
     push_stack: str = (
-        "Push the Secrets of one stack: base, infra, llm, logging, devops, or all (default)."
+        "Push the Secrets of one stack: base, infra, llm, logging, devops, gitea, or all (default)."
     )
     push_only: str = "Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack."
     push_github_account: str = (

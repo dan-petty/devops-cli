@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gitea-default-perimeter
+  namespace: gitea
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. Gitea's HTTP port only, from Traefik (the path from the Cloudflare tunnel), Argo CD's
+    #    repo server (#1082) and the namespace's own pods. No peer is an address range: the
+    #    cluster's policy engine, kube-router, matches an ingress range against pod addresses,
+    #    so a range would admit every pod. SSH is off, so no rule admits 22 or 2222.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-repo-server
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # 1. CoreDNS. With mirrors, migrations and the update checker off, Gitea calls nothing
+    #    outside its namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. The namespace's own pods
+    - to:
+        - podSelector: {}

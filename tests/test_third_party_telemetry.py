@@ -96,6 +96,13 @@ def test_traefik_values_disables_telemetry_and_version_check() -> None:
     assert "--global.checknewversion=false" in args
 
 
+def test_gitea_values_disables_the_update_checker() -> None:
+    """Gitea's `update_checker` cron job asks dl.gitea.com for a newer release each day (#1081)."""
+    data = yaml.safe_load((K8S_DIR / "gitea" / "values.yaml").read_text(encoding="utf-8"))
+
+    assert data["gitea"]["config"]["cron.update_checker"] == {"ENABLED": False}
+
+
 def test_open_webui_values_disables_telemetry_and_version_check() -> None:
     """Verify Open-WebUI Helm values disables version update check and analytics."""
     values_path = K8S_DIR / "llm" / "values-open-webui.yaml"

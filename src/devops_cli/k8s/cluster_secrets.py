@@ -279,6 +279,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "grafana"),),
         labels={"app.kubernetes.io/name": "grafana"},
     ),
+    # Gitea's admin (#1081). A person types the password, so the push never makes one. The user
+    # is the chart's default, which Gitea does not reserve. Each start of Gitea sets the
+    # admin's password to this Secret's (`gitea.admin.passwordMode: keepUpdated`).
+    ClusterSecret(
+        namespace="gitea",
+        name="gitea-admin",
+        stack="gitea",
+        entries=(
+            SecretEntry("username", LiteralSource("gitea_admin")),
+            SecretEntry(
+                "password", KeyringSource("gitea_admin_password", opt.GITEA_ADMIN_PASSWORD)
+            ),
+        ),
+        restarts=(Workload("deployment", "gitea"),),
+        labels={"app.kubernetes.io/name": "gitea"},
+    ),
 )
 
 

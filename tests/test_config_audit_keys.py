@@ -41,7 +41,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 13)
+    ) == (True, True, True, 14)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -54,11 +54,12 @@ def test_config_audit_keys_json_output() -> None:
         "qdrant.api_key" in keys,
         "valkey.password" in keys,
         "runs.index_password" in keys,
+        "gitea.admin_password" in keys,
         "telemetry.logfire_token" in keys,
         "cloudflare.api_token" in keys,
         "service.webhook_secrets" in keys,
         "tavily.api_key" in keys,
-    ) == (True, True, True, True, True, True, True, True, True, True, True, True, True)
+    ) == (True, True, True, True, True, True, True, True, True, True, True, True, True, True)
 
 
 def test_config_audit_keys_table_rendering() -> None:

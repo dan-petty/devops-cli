@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Argo CD's Application `gitea` installs the chart with values.yaml; this kustomization is
+# Application `gitea-manifests`. The namespace is in the root kustomization (namespaces.yaml).
+resources:
+  - networkpolicy.yaml

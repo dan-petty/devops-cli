@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitea
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  sources:
+  - repoURL: https://dl.gitea.com/charts/
+    chart: gitea
+    targetRevision: 12.7.0
+    helm:
+      valueFiles:
+      - $values/k8s/gitea/values.yaml
+  - repoURL: https://github.com/dan-petty/devops-cli
+    targetRevision: main
+    ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitea
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

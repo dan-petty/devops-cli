@@ -411,6 +411,31 @@ spec:
                 port:
                   number: 80
 ---
+# Gitea (#1081): git over HTTPS, the API and the container registry. TLS ends at Cloudflare.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitea-ingress
+  namespace: gitea
+  labels:
+    app.kubernetes.io/name: gitea
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: git.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gitea-http
+                port:
+                  number: 3000
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

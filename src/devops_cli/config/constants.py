@@ -960,6 +960,8 @@ CONST_K8S_ARGOCD_APPLICATION_DIRS: Final[tuple[Path, ...]] = (
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
     "infra": ("ingress",),
     "devops": ("devops", "ingress"),
+    # Application `ingress` renders the Ingress of the git host (k8s/ingress/ingress-routes.yaml).
+    "gitea": ("ingress",),
 }
 """The homelab Applications whose hosts a stack's deploy sets."""
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0

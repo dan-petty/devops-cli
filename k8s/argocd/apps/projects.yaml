@@ -19,6 +19,7 @@ spec:
     - https://open-webui.github.io/helm-charts
     - https://qdrant.github.io/qdrant-helm
     - https://traefik.github.io/charts
+    - https://dl.gitea.com/charts/
   destinations:
     - server: https://kubernetes.default.svc
       namespace: agents
@@ -38,6 +39,8 @@ spec:
       namespace: monitoring
     - server: https://kubernetes.default.svc
       namespace: otel
+    - server: https://kubernetes.default.svc
+      namespace: gitea
     - server: https://kubernetes.default.svc
       namespace: registry
   orphanedResources:
@@ -67,6 +70,9 @@ spec:
       - group: ''
         kind: Secret
         name: grafana-admin
+      - group: ''
+        kind: Secret
+        name: gitea-admin
       - group: ''
         kind: Secret
         name: argocd-initial-admin-secret
@@ -131,5 +137,7 @@ spec:
       namespace: monitoring
     - server: https://kubernetes.default.svc
       namespace: otel
+    - server: https://kubernetes.default.svc
+      namespace: gitea
     - server: https://kubernetes.default.svc
       namespace: registry

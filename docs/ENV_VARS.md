@@ -49,6 +49,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_DATA_RUNS_DIR` | `data.runs_dir` | No | Storage directory for benchmark and evaluation run records, the run store's source of truth |
 | `DEVOPS_CLI_DATA_SAMPLES_DIR` | `data.samples_dir` | No | Storage directory for open-source sample repositories fetched at their pinned commits |
 | `DEVOPS_CLI_DATA_TLS_DIR` | `data.tls_dir` | No | Storage directory for generated local CA and TLS certificates |
+| `DEVOPS_CLI_GITEA_ADMIN_PASSWORD` | `gitea.admin_password` | 🔒 Yes | Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret gitea/gitea-admin (stored in OS keyring) |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_URL` | `grafana.url` | No | Grafana service URL |

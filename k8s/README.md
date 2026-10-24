@@ -9,9 +9,10 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo | `argocd`, `argo-workflows`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM), Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki, Fluent Bit (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
-| **`all`** | All components from the three stacks | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
+| **`gitea`** | Gitea: the internal forge and container registry ([Gitea](#gitea)) | `gitea` | `3000` (Gitea HTTP, in the cluster) |
+| **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops` | All ports above |
 
-Register each manifest, Helm release and post-Helm step that runs in the cluster in `_MANIFESTS_BY_STACK`, `_HELM_RELEASES_BY_STACK` or `_POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging` and `devops` stacks. deploy-stack applies a file of `_MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
+Register each manifest, Helm release and post-Helm step that runs in the cluster in `_MANIFESTS_BY_STACK`, `_HELM_RELEASES_BY_STACK` or `_POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops` and `gitea` stacks. deploy-stack applies a file of `_MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
 
 ## Prerequisites
 
@@ -397,12 +398,15 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/devops-cli` | `DEVOPS_CLI_TAVILY_API_KEY` | keyring `tavily_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
+| `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |
+| `gitea/gitea-admin` | `password` | keyring `gitea_admin_password` | yes | adopt the live value; else fail | gitea | `deployment/gitea` |
 
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
-- Typed values are stored at a hidden prompt: `devops config set cloudflare.tunnel_token`.
+- Typed values are stored at a hidden prompt: `devops config set cloudflare.tunnel_token` or `devops config set gitea.admin_password`.
 - `GH_TOKEN` is the token gh keeps in the OS keyring for the machine account named by `--github-account` or `devops config set k8s.github_account <login>`. The push takes gh's word for it: `gh auth status` must list the login with its token in the keyring and its own check of the token passing, then `gh auth token --user <login>` reads it. devops-cli never calls GitHub with the machine token itself, so a run keeps the one GitHub identity it has (#767).
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
+- `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
 - Secrets are server-side applied from stdin under field manager `devops-cli`, labelled `app.kubernetes.io/managed-by: devops-cli`, with values in `data`: never in argv, a file, an annotation or the output. A Secret still carrying a client-side apply's `kubectl.kubernetes.io/last-applied-configuration` loses it.
 - `--plan` reads the keyring, the live Secrets and, for `devops/devops-cli`, the machine account's token from gh (`gh auth status`, which checks the token on github.com, then `gh auth token`), says so, and prints each key's state (`would adopt`, `unchanged`, `differs`, ...) and the workloads a change would restart, writing nothing. `--dry-run` makes no request at all, not even those reads: it prints the requests a push would make, in order, with `<placeholders>` for every value and the condition under which each later request runs.
 - A Secret whose data changed has its workloads restarted (`kubectl rollout restart`); `--no-restart` prints the commands instead. Open WebUI keeps the gateway connection in its database, so a changed gateway key is also updated under Admin Panel > Settings > Connections.
@@ -530,6 +534,63 @@ Record these, each batch apart:
 
 Go when the warm p95 is at most 30 seconds and the burst finished with no 429 or 5xx. Post the numbers and the verdict as a comment on [#1535](https://github.com/dan-petty/devops-cli/issues/1535). After a go, file the later steps with `devops roadmap intake`; after a no-go, the owner chooses between re-scoping the engine and the runner-up in ADR 0008.
 
+## Gitea
+
+Gitea is the internal forge of the homelab (#1081). It holds the iteration branches that the owner and the agents push without GitHub, and its container registry holds the pull-request images (#1082, [Internal Image Registry](#internal-image-registry)). GitHub stays the source of truth for `main`, tags, pull requests, CI and releases. #1090 adds the Gitea remote to each repository under `repos/`.
+
+Argo CD's Application `gitea` installs chart `gitea` 12.7.0 from `https://dl.gitea.com/charts/` with `gitea/values.yaml` (Gitea 1.27.3, rootless image), and Application `gitea-manifests` applies the perimeter `gitea/networkpolicy.yaml`. Without Argo CD, `devops k8s deploy-stack --stack gitea` (or `all`) applies the perimeter and installs the same release. The root kustomization creates namespace `gitea`, with Pod Security `restricted`.
+
+| Client | Address | Path |
+| :--- | :--- | :--- |
+| Pods and Argo CD | `http://gitea-http.gitea.svc.cluster.local:3000` | the chart's Service, over plain HTTP |
+| Workstations | `https://git.<domain>` | the tunnel's wildcard route, Traefik and Ingress `gitea/gitea-ingress` in `ingress/ingress-routes.yaml` |
+
+- TLS ends at Cloudflare. From cloudflared on, a request is plain HTTP on the pod network. Flannel's `vxlan` backend carries traffic between nodes with no encryption, as it does for every host behind the tunnel.
+- No value names a domain (#1290). `ROOT_URL` is the in-cluster address. Gitea builds the URLs of a request from its `Host` header and its `X-Forwarded-Proto` (`PUBLIC_URL_DETECTION = auto`). Cloudflare sets `X-Forwarded-Proto: https`, cloudflared forwards it, and Traefik's `web` entrypoint keeps it (`ingress/traefik-values.yaml`). Thus the clone URLs and the container registry's token realm of a request to `https://git.<domain>` start with `https://git.<domain>/`. Text that Gitea writes outside a request, such as the links that a push prints, uses the in-cluster address.
+- deploy-stack sets the configured domain on the host of `gitea-ingress` ([Homelab Values at Deploy Time](#homelab-values-at-deploy-time)).
+- Gitea has no SSH: `DISABLE_SSH` is true and `START_SSH_SERVER` is false. The chart's SSH Service stays, but nothing answers on it, and the perimeter admits only TCP 3000.
+- Registration is off, every page needs a sign-in, a new repository is private, and only the API creates a repository: a push to a mistyped remote fails. Mirrors, migrations, Actions and the update checker are off, so Gitea calls nothing outside its namespace.
+- Cloudflare refuses a request body over the limit of its plan (100 MB on the Free and Pro plans) with `413`. Thus a push of a larger image layer through `https://git.<domain>` fails.
+
+### Cloudflare
+
+Nothing new is configured in Cloudflare when the wildcard route and the wildcard Access application are in place:
+
+- The tunnel's wildcard public hostname goes to Traefik, and the wildcard DNS record exists. `devops cloudflare tunnel routes` and `devops cloudflare dns list` show them, and `devops cloudflare tunnel sync` and `devops cloudflare dns sync` make them.
+- The Access application of the wildcard has the policy `homelab-public-ip-bypass` with the current public address of the workstation. `devops cloudflare access status --json` gives the ID of the application, and `devops cloudflare access policies <app-id>` lists its policies.
+
+Git over HTTPS cannot follow the Access login redirect, and a git credential helper gives only a user name and a password, not headers. Thus git gets through Access by the bypass policy, and then Gitea's own token authenticates the request. No Access service token goes into git config. A browser on another network signs in through Access first, and then through Gitea.
+
+When the public address changes, git and the API get a redirect to the Access login. Set `cloudflare.access.allowed_emails` and `cloudflare.access.bypass_ips` (the new address), then run:
+
+```bash
+devops cloudflare access sync --domain '*.<domain>' --dry-run   # it must name the wildcard application and both lists
+devops cloudflare access sync --domain '*.<domain>'
+```
+
+Without `--domain`, the command updates the apex application. Without the emails, it empties the allow policy. If git gets a Cloudflare challenge page instead of the reply of Gitea, the bot or WAF settings of the zone challenge the git client: exempt host `git.<domain>` from that challenge.
+
+### Rollout
+
+1. Store the admin password at a hidden prompt: `uv run devops config set gitea.admin_password`. The admin user is `gitea_admin`.
+2. Merge. Application `base` creates namespace `gitea`, and the Applications `gitea` and `gitea-manifests` sync. The Gitea pod waits in `CreateContainerConfigError` until Secret `gitea-admin` exists.
+3. Run `uv run devops k8s deploy-stack --stack gitea --context <context>`. It pushes Secret `gitea/gitea-admin` and sets the git host on Application `ingress`. Then the pod starts with no other step.
+4. Set the reclaim policy of the bound volume to `Retain`, because `local-path` deletes the data with a deleted claim:
+   ```bash
+   kubectl patch pv "$(kubectl -n gitea get pvc gitea-shared-storage -o jsonpath='{.spec.volumeName}')" \
+     -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+   ```
+
+To change the admin password, store the new one with `uv run devops config set gitea.admin_password`, then run `uv run devops k8s push-secrets --only gitea/gitea-admin --rotate`. The push restarts Gitea, and Gitea sets the admin's password to the Secret's when it starts (`passwordMode: keepUpdated`).
+
+### Data
+
+Gitea keeps its repositories, its packages and its SQLite database (WAL mode) on the `local-path` claim `gitea-shared-storage` on one worker node. `local-path` does not enforce the claim's 10Gi. The pod never runs on the control-plane node, and one pod runs at a time (`Recreate`). The namespace and the claim have `Prune=false,Delete=false`, and the claim has `helm.sh/resource-policy: keep`, so neither Argo CD nor `teardown-stack --stack gitea` deletes them. `teardown-stack --stack all` deletes namespace `gitea` with the root kustomization, and the data with it.
+
+There are no backups yet. A branch that a clone pushed is also in that clone, but an issue or a pull request made in Gitea is lost with the node.
+
+The next major version of the chart (its main branch, with Gitea 28) replaces `gitea.admin` with `secrets.admin`, turns persistence off by default and moves `strategy` under `deployment`. Change those keys in `gitea/values.yaml` in the pull request that changes the pinned version in `argocd/apps/gitea.yaml` and `_HELM_RELEASES_BY_STACK`.
+
 ## Teardown
 
 ```bash
@@ -550,7 +611,7 @@ Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. De
 Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
 
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 25 leaf Applications (10 raw leaf applications and 15 multi-source Helm applications).
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 27 leaf Applications (11 raw leaf applications and 16 multi-source Helm applications).
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
@@ -562,7 +623,7 @@ This repository is public, so it holds no homelab value. Ingress hosts sit under
 | :--- | :--- | :--- | :--- |
 | Secrets | the OS keyring (`devops k8s push-secrets`) | Secrets in the cluster | every stack's deploy, for its Secrets |
 | `service.repos`, `service.machine_account` (or `k8s.github_account`), `service.poll_interval_seconds`, `service.drain_timeout_seconds` | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
-| Hosts under the configured domain | `--domain`, else `k8s.domain`, `cloudflare.domain`, `DEVOPS_CLI_K8S_DOMAIN` or `DEVOPS_CLI_DOMAIN` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` | `--stack devops` or `all` (both Applications), `--stack infra` (`ingress` only) |
+| Hosts under the configured domain | `--domain`, else `k8s.domain`, `cloudflare.domain`, `DEVOPS_CLI_K8S_DOMAIN` or `DEVOPS_CLI_DOMAIN` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` | `--stack devops` or `all` (both Applications), `--stack infra` or `gitea` (`ingress` only) |
 
 The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `k8s/devops/configmap.example.yaml` in the checkout deploy-stack runs from (`--k8s-dir`, default `./k8s`), so run it from a checkout of `main`, the revision the cluster runs.
 
@@ -603,7 +664,7 @@ kubectl -n argocd logs deploy/argocd-image-updater-controller --tail=50
 
 ### Internal Image Registry
 
-Gitea's container registry is the internal registry of the cluster (#1081). Pull-request images go to it, and the nodes pull them from it (#1082). Release images stay on GHCR. Until #1081 deploys Gitea, the cluster has no internal registry, and every workload pulls its image from a public registry.
+Gitea's container registry is the internal registry of the cluster ([Gitea](#gitea)). Pull-request images go to it, and the nodes pull them from it (#1082). Release images stay on GHCR. Until #1082, no workload pulls from it, and every workload pulls its image from a public registry.
 
 The cluster has no `registry:2` Deployment (#1630). That registry accepted pushes and deletes over plain HTTP with no authentication, and no workload pulled from it. Application `base` prunes its Deployment and its Service. Namespace `registry` and PersistentVolumeClaim `registry-data` have `Prune=false,Delete=false`, so Argo CD keeps them. `base` shows them OutOfSync, and `ArgoCdApplicationOutOfSync` fires, until a person deletes them:
 
@@ -701,9 +762,10 @@ Expose homelab Kubernetes services securely to the internet without public ports
                                    │           │
                  ┌─────────────────┘           └─────────────────┐
                  ▼                                               ▼
-     k8s / Namespace: llm                         k8s / Namespaces: monitoring, argocd
+     k8s / Namespace: llm                         k8s / Namespaces: monitoring, argocd, gitea
   [chat.homelab.<domain>] ──▶ open-webui       [grafana.homelab.<domain>] ──▶ grafana
   [ai.homelab.<domain>]   ──▶ llm-gateway      [argocd.homelab.<domain>]  ──▶ argocd
+                                               [git.homelab.<domain>]     ──▶ gitea-http
 ```
 
 ### 1. Cloudflare Dashboard Tunnel Configuration
@@ -791,6 +853,10 @@ k8s/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
 │   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
+├── gitea/                    # Gitea, the internal forge and container registry (#1081); not in the root kustomization
+│   ├── kustomization.yaml    # The perimeter, as Application gitea-manifests syncs it
+│   ├── values.yaml           # Helm values for gitea-charts/gitea: SQLite in WAL mode, rootless, no SSH, packages on, no domain
+│   └── networkpolicy.yaml    # Default-deny perimeter: HTTP 3000 from Traefik, Argo CD's repo server and the namespace; DNS out
 ├── devops/                   # In-cluster devops-cli runtime; not in the root kustomization
 │   ├── kustomization.yaml    # Its resources; Image Updater sets the service image's digest on Application devops
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
@@ -807,7 +873,7 @@ k8s/
 ├── ingress/
 │   ├── kustomization.yaml    # Kustomize overlay for cluster ingress routes
 │   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type
-│   └── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd, prometheus, qdrant
+│   └── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd, git, prometheus, qdrant
 ├── argocd/
 │   ├── kustomization.yaml    # Kustomize overlay for Argo CD
 │   ├── values.yaml           # Helm values for argo/argo-cd
@@ -815,7 +881,7 @@ k8s/
 │   ├── bootstrap/            # Two-level bootstrap applications
 │   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
 │   │   └── cluster.yaml      # Cluster app tracking main, reconciles projects & leaf apps
-│   └── apps/                 # AppProjects and 25 leaf Applications (10 raw + 15 Helm)
+│   └── apps/                 # AppProjects and 27 leaf Applications (11 raw + 16 Helm)
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
