@@ -106,8 +106,12 @@ def request_pages_build(repo: str) -> bool:
 
 
 def _resolve_jekyll_config_path(root_dir: Path) -> Path:
-    """Resolve GitHub Pages configuration path, strictly requiring docs/github-pages.config.yaml."""
-    return root_dir / "docs" / "github-pages.config.yaml"
+    """Return docs/_config.yml, the one file of site settings that the Pages build reads.
+
+    GitHub Pages builds `main:/docs` and runs Jekyll with no `--config` option, so Jekyll reads
+    `_config.yml` in that directory and no other file.
+    """
+    return root_dir / "docs" / "_config.yml"
 
 
 def _check_jekyll_config(config_path: Path) -> tuple[bool, list[str]]:
