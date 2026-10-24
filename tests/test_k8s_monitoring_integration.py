@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import pytest
 import yaml
+from packaging.version import InvalidVersion, Version
 
 from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_RELEASES_BY_STACK,
@@ -61,6 +62,16 @@ COREDNS_METRICS_PORT = 9153
 LOKI_METRICS_PORT = 3100  # Loki's http-metrics port, which the Loki integration scrapes
 DCGM_METRICS_PORT = 9400
 ARGOCD_METRICS_PORTS = (8082, 8083, 8084, 9121)
+
+# The four Drilldown apps that Grafana preinstalls, and the major release of each that is built for
+# Grafana 13: each 3.x release needs Grafana 13.1.0 or later (#2022).
+GRAFANA_DRILLDOWN_APPS = (
+    "grafana-lokiexplore-app",
+    "grafana-metricsdrilldown-app",
+    "grafana-pyroscope-app",
+    "grafana-exploretraces-app",
+)
+GRAFANA_13_DRILLDOWN_MAJOR = 3
 
 
 def _k8s_yaml(relative: str) -> Any:
@@ -319,6 +330,34 @@ def test_grafana_provisioning_deletes_a_datasource_that_leaves_the_file() -> Non
         "prune": True,
         "deleteDatasources": [{"name": "Jaeger", "orgId": 1}],
     }
+
+
+def _pinned_major(version: str) -> int | None:
+    """The major number of a final release `version`, or None for no version, a pre-release or a
+    version with a URL after it."""
+    try:
+        release = Version(version)
+    except InvalidVersion:
+        return None
+    return None if release.is_prerelease else release.major
+
+
+def test_grafana_pins_each_drilldown_app_at_its_release_for_grafana_13() -> None:
+    """The chart sets `[plugins] preinstall_auto_update` to false, so a Drilldown app stays at
+    the version on the volume. Grafana also auto-updates no plugin to a new major version. After
+    the move to Grafana 13.2.4, each app stayed at 2.x, and the Grafana 13 upgrade guide tells
+    users to update every plugin for React 19 (#2022).
+
+    The chart writes `plugins` to `GF_PLUGINS_PREINSTALL_SYNC`. Grafana reads each entry as
+    `<id>@<version>`, and at start installs a pinned version that is not the installed one."""
+    plugins = _k8s_yaml("monitoring/grafana-values.yaml").get("plugins", [])
+    pinned = {
+        plugin_id: version for plugin_id, _, version in (entry.partition("@") for entry in plugins)
+    }
+
+    assert {
+        app: _pinned_major(pinned.get(app, "")) for app in GRAFANA_DRILLDOWN_APPS
+    } == dict.fromkeys(GRAFANA_DRILLDOWN_APPS, GRAFANA_13_DRILLDOWN_MAJOR)
 
 
 def test_grafana_stops_the_old_pod_before_the_new_pod_opens_its_sqlite_database() -> None:
