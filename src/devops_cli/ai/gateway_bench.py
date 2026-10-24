@@ -113,6 +113,7 @@ def run_level(
     timeout: float,
     fixed_length: bool = False,
     post: Post = _post_json,
+    return_replies: bool = False,
 ) -> dict[str, Any]:
     """Send ``total`` requests, ``concurrency`` at a time; report rate, tokens and latency.
 
@@ -123,34 +124,45 @@ def run_level(
     if fixed_length:
         base["ignore_eos"] = True
 
-    def one(_: int) -> tuple[float, int | None, str | None]:
+    def one(_: int) -> tuple[float, int | None, str | None, str | None]:
         content = f"Request {uuid.uuid4().hex}.\n{prompt}"
         body = {**base, "messages": [{"role": "user", "content": content}]}
         start = time.monotonic()
         try:
-            usage = post(url, body, timeout).get("usage") or {}
+            resp = post(url, body, timeout)
+            usage = resp.get("usage") or {}
+            choices = resp.get("choices") or []
+            reply = ""
+            if choices and isinstance(choices, list) and isinstance(choices[0], dict):
+                msg = choices[0].get("message") or {}
+                reply = str(msg.get("content") or "")
         except (OSError, ValueError) as exc:
-            return time.monotonic() - start, None, f"{type(exc).__name__}: {exc}"[:200]
-        return time.monotonic() - start, int(usage.get("completion_tokens") or 0), None
+            return time.monotonic() - start, None, f"{type(exc).__name__}: {exc}"[:200], None
+        return time.monotonic() - start, int(usage.get("completion_tokens") or 0), None, reply
 
     start = time.monotonic()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         outcomes = list(pool.map(one, range(total)))
     wall = time.monotonic() - start
 
-    succeeded = [(latency, tokens) for latency, tokens, _ in outcomes if tokens is not None]
-    return {
+    succeeded = [(lat, tok, rep) for lat, tok, _, rep in outcomes if tok is not None]
+    result: dict[str, Any] = {
         "concurrency": concurrency,
         "requests": total,
         "errors": total - len(succeeded),
         "wall_seconds": round(wall, 3),
         "requests_per_second": round(len(succeeded) / wall, 4) if wall > 0 else 0.0,
         "p50_latency_seconds": (
-            round(statistics.median(latency for latency, _ in succeeded), 3) if succeeded else None
+            round(statistics.median(latency for latency, _, _ in succeeded), 3)
+            if succeeded
+            else None
         ),
-        "completion_tokens": sum(tokens for _, tokens in succeeded),
-        "last_error": next((error for *_, error in reversed(outcomes) if error), None),
+        "completion_tokens": sum(tokens for _, tokens, _ in succeeded),
+        "last_error": next((error for *_, error, _ in reversed(outcomes) if error), None),
     }
+    if return_replies:
+        result["replies"] = [rep for _, _, rep in succeeded if rep is not None]
+    return result
 
 
 def measure(
@@ -163,6 +175,7 @@ def measure(
     post: Post = _post_json,
     get: Get = _get_text,
     include_cost: bool = True,
+    probes: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Measure each deployment in turn: its engine, capacity at every level, then its cost."""
     results: list[dict[str, Any]] = []
@@ -197,12 +210,32 @@ def measure(
             if include_cost
             else None
         )
+        probes_result = None
+        if probes:
+            probes_result = {}
+            for p in probes:
+                p_name = p["name"]
+                p_prompt = p["prompt"]
+                p_max = p.get("max_tokens", max_tokens)
+                p_rounds = p.get("rounds", rounds)
+                probes_result[p_name] = run_level(
+                    url,
+                    name,
+                    p_prompt,
+                    p_max,
+                    concurrency=1,
+                    total=p_rounds,
+                    timeout=timeout,
+                    post=post,
+                    return_replies=True,
+                )
         results.append(
             {
                 "deployment_id": deployment["deployment_id"],
                 "engine": engine,
                 "capacity": capacity,
                 "cost": cost,
+                "probes": probes_result,
             }
         )
     return results

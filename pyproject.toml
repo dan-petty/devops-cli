@@ -299,3 +299,6 @@ DEP002 = [
     "tree-sitter-yaml",
     "openai",
 ]
+DEP003 = [
+    "pydantic_evals",
+]

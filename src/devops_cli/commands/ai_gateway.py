@@ -19,7 +19,11 @@ from devops_cli.ai.gateway_tune import (
 from devops_cli.ai.pool_load import PoolLoad, pool_load, prometheus_query
 from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_runs import announce_run
-from devops_cli.config.constants import CONST_AI_GATEWAY_VIRTUAL_MODELS, CONST_OUTPUT_FORMAT_TABLE
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_VIRTUAL_MODELS,
+    CONST_CAPABILITY_PROBE_NAMES,
+    CONST_OUTPUT_FORMAT_TABLE,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_DEPLOYMENT,
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
@@ -345,6 +349,7 @@ def _render_tune_report(report: TuneReport) -> None:
         "Weight",
         "Recommended",
         "Max Parallel",
+        "Capabilities",
     ]
     rows = [
         [
@@ -362,6 +367,7 @@ def _render_tune_report(report: TuneReport) -> None:
             "-" if dep.current_weight is None else f"{dep.current_weight:g}",
             str(dep.recommended_weight),
             "-" if dep.recommended_concurrency is None else str(dep.recommended_concurrency),
+            dep.capabilities.summary_label,
         ]
         for dep in report.deployments
     ]
@@ -483,6 +489,7 @@ def tune_cmd(
             "prompt_tokens": report.prompt_tokens,
             "max_tokens": report.max_tokens,
             "estimate": estimate,
+            "probes": list(CONST_CAPABILITY_PROBE_NAMES) if not estimate else [],
             "pool": sorted(
                 (
                     {
