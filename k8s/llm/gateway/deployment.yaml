@@ -88,6 +88,8 @@ spec:
             periodSeconds: 10
 
       volumes:
+        # kustomization.yaml generates this ConfigMap from config.yaml and writes its name here,
+        # with a hash of the content, so a changed config rolls this Deployment (#1929).
         - name: config-volume
           configMap:
             name: llm-gateway-config

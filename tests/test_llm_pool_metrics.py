@@ -91,8 +91,7 @@ def test_network_policies_let_prometheus_reach_the_metrics_ports() -> None:
 
 def test_the_gateway_serves_its_prometheus_metrics() -> None:
     """Verify LiteLLM's Prometheus callback is on."""
-    (configmap,) = _yaml_docs(K8S / "llm/gateway/configmap.yaml")
-    config = yaml.safe_load(configmap["data"]["config.yaml"])
+    config = yaml.safe_load((K8S / "llm/gateway/config.yaml").read_text(encoding="utf-8"))
 
     assert "prometheus" in config["litellm_settings"]["callbacks"]
 

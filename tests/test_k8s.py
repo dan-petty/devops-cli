@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
 from devops_cli.prometheus.promql import selectors, validate_promql
+from tests.k8s_manifests import applied_documents
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 runner = CliRunner()
@@ -258,21 +259,30 @@ def test_k8s_teardown_stack_llm_dry_run() -> None:
 def test_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it() -> None:
     """deploy-stack --stack llm applies llm-gateway-perimeter before the gateway's Deployment,
     and teardown-stack deletes it (#795). Without Argo CD the gateway ran with no policy, so its
-    egress was unrestricted. Neither dry run makes a request."""
-    policy, gateway = (
-        str(Path("k8s", "llm", "gateway", name))
-        for name in ("networkpolicy.yaml", "deployment.yaml")
-    )
+    egress was unrestricted. Both apply the gateway kustomization, whose render puts the policy
+    first (#1929). Neither dry run makes a request."""
+    gateway = Path("k8s", "llm", "gateway")
     deploy = runner.invoke(app, ["deploy-stack", "--stack", "llm", "--dry-run"])
     teardown = runner.invoke(app, ["teardown-stack", "--stack", "llm", "--dry-run"])
-    manifests = _dry_run_details(deploy.output)["manifests"]
+    rendered = [
+        (doc["kind"], doc["metadata"]["name"])
+        for doc in applied_documents(gateway)
+        if doc["kind"] in ("NetworkPolicy", "Deployment")
+    ]
 
     assert (
         deploy.exit_code,
         teardown.exit_code,
-        policy in manifests and manifests.index(policy) < manifests.index(gateway),
-        policy in _dry_run_details(teardown.output)["manifest_deletes"],
-    ) == (0, 0, True, True)
+        str(gateway) in _dry_run_details(deploy.output)["manifests"],
+        str(gateway) in _dry_run_details(teardown.output)["manifest_deletes"],
+        rendered,
+    ) == (
+        0,
+        0,
+        True,
+        True,
+        [("NetworkPolicy", "llm-gateway-perimeter"), ("Deployment", "llm-gateway")],
+    )
 
 
 def test_k8s_deploy_stack_invalid_stack() -> None:
@@ -385,8 +395,9 @@ def test_prometheus_operator_crds_install_before_every_service_monitor() -> None
 
     k8s-monitoring 4.x and dcgm-exporter ship no ServiceMonitor CRD, so on a cluster without it
     Helm refused both releases and the infra stack came up without Alloy (#819). Pre-Helm
-    `_MANIFESTS_BY_STACK` files apply before any chart, so no pre-Helm manifest may hold a
-    ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `_POST_HELM_BY_STACK` (#1367).
+    `_MANIFESTS_BY_STACK` paths apply before any chart, so no pre-Helm file or kustomization may
+    hold a ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `_POST_HELM_BY_STACK`
+    (#1367).
     """
     from devops_cli.commands.k8s.stack_lifecycle import (
         _HELM_RELEASES_BY_STACK,
@@ -407,10 +418,7 @@ def test_prometheus_operator_crds_install_before_every_service_monitor() -> None
         (stack, path.as_posix())
         for stack, paths in _MANIFESTS_BY_STACK.items()
         for path in paths
-        if any(
-            isinstance(doc, dict) and doc.get("kind") == "ServiceMonitor"
-            for doc in yaml.safe_load_all(path.read_text("utf-8"))
-        )
+        if any(doc.get("kind") == "ServiceMonitor" for doc in applied_documents(path))
     ]
     post_helm_monitors = [
         (stack, path.as_posix())
@@ -1960,6 +1968,64 @@ def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(applications_repo: P
         0,
         [],
         True,
+    )
+
+
+def test_native_deploy_stack_llm_applies_the_gateway_kustomization_after_the_secret_push(
+    applications_repo: Path,
+) -> None:
+    """Without Argo CD, deploy-stack applies the gateway with `kubectl apply -k k8s/llm/gateway`
+    after it pushes the Secrets, so the gateway reads its master key at start. The ConfigMap that
+    the kustomization generates from `config.yaml` and the Deployment that names it go in one
+    apply, so a changed config rolls the gateway (#1929). The ServiceMonitor follows the charts."""
+    gateway = str(Path("k8s", "llm", "gateway"))
+    cluster = _Cluster(applications_repo, argo=False)
+    with (
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.push_for_stacks",
+            side_effect=lambda stacks, ctx: cluster.calls.append((["<push>"], None)),
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
+    ):
+        res = _deploy(cluster, "--stack", "llm", "--k8s-dir", "k8s", push=True)
+    steps = [
+        tuple(cmd[1:4]) if cmd[0] == "kubectl" else tuple(cmd)
+        for cmd, _ in cluster.calls
+        if cmd == ["<push>"] or (cmd[1:2] == ["apply"] and cmd[3].startswith(gateway))
+    ]
+    assert (res.exit_code, steps) == (
+        0,
+        [
+            ("<push>",),
+            ("apply", "-k", gateway),
+            ("apply", "-f", str(Path(gateway, "servicemonitor.yaml"))),
+        ],
+    )
+
+
+def test_native_teardown_stack_llm_deletes_the_gateway_kustomization(
+    applications_repo: Path,
+) -> None:
+    """Without Argo CD, teardown-stack deletes the gateway with `kubectl delete -k`, as
+    deploy-stack applies it, so the generated ConfigMap goes with the Deployment (#1929)."""
+    gateway = str(Path("k8s", "llm", "gateway"))
+    cluster = _Cluster(applications_repo, argo=False)
+    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+        res = runner.invoke(
+            app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", *_CONTEXT]
+        )
+    deletes = [
+        tuple(cmd[1:4])
+        for cmd in cluster.writes()
+        if cmd[1] == "delete" and len(cmd) > 3 and cmd[3].startswith(gateway)
+    ]
+    assert (res.exit_code, deletes) == (
+        0,
+        [
+            ("delete", "-f", str(Path(gateway, "servicemonitor.yaml"))),
+            ("delete", "-k", gateway),
+        ],
     )
 
 

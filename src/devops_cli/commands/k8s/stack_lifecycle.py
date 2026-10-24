@@ -193,6 +193,10 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
 
 _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
 
+# Paths applied right after the Secret push, before any chart: a directory with `kubectl apply -k`
+# and a file with `kubectl apply -f`, in order, and deleted in reverse order before the charts
+# uninstall. `llm/gateway` is a kustomization: it generates the gateway's ConfigMap from its
+# config.yaml with a content-hash name, so a changed config rolls the gateway (#1929).
 _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
         DEFAULT_K8S_DIR / "argocd" / "networkpolicy.yaml",
@@ -206,10 +210,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "llm" / "valkey-runs.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
-        DEFAULT_K8S_DIR / "llm" / "gateway" / "configmap.yaml",
-        DEFAULT_K8S_DIR / "llm" / "gateway" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "llm" / "gateway" / "deployment.yaml",
-        DEFAULT_K8S_DIR / "llm" / "gateway" / "service.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway",
         DEFAULT_K8S_DIR / "llm" / "portkey" / "configmap.yaml",
         DEFAULT_K8S_DIR / "llm" / "portkey" / "deployment.yaml",
         DEFAULT_K8S_DIR / "llm" / "portkey" / "service.yaml",
@@ -620,8 +621,13 @@ def _apply_single_manifest(
     kubectl_ctx: list[str],
     domain: str | None,
 ) -> None:
-    """Apply an individual manifest file, rendering templates if a domain is available."""
+    """Apply one manifest file, rendering templates if a domain is available, or one kustomization
+    directory with `kubectl apply -k`."""
     p = Path(manifest_path)
+    if p.is_dir():
+        print_info(f"[bold]Applying kustomization {p.name}...[/bold]", prefix=False)
+        _apply_kustomizations([p], kubectl_ctx)
+        return
     print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
     if domain and p.is_file():
         from devops_cli.k8s.template import render_manifest_template
@@ -1346,9 +1352,10 @@ def teardown_stack(
     # then native manifests
     _delete_post_helm_paths(all_post_helm_deletes, kubectl_ctx)
     for manifest_path in all_manifest_deletes:
+        flag = "-k" if Path(manifest_path).is_dir() else "-f"
         print_info(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]", prefix=False)
         runtime._run_cmd(
-            ["kubectl", "delete", "-f", manifest_path, "--ignore-not-found"] + kubectl_ctx,
+            ["kubectl", "delete", flag, manifest_path, "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
 

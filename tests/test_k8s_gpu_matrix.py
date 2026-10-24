@@ -128,21 +128,19 @@ def test_service_aliases_definition_and_ports() -> None:
     )
 
 
-def test_rendered_gateway_configmap_matches_ollama_profiles() -> None:
-    """Verify rendered ConfigMap matches Ollama profiles with zero diff, correct token limits, and no weights."""
-    cm_path = GATEWAY_DIR / "configmap.yaml"
+def test_rendered_gateway_config_matches_ollama_profiles() -> None:
+    """Verify the rendered gateway config matches Ollama profiles with zero diff, correct token limits, and no weights."""
+    config_path = GATEWAY_DIR / "config.yaml"
     profiles_path = PROFILES_DIR / "ollama-profiles.yaml"
     services_path = PROFILES_DIR / "services.yaml"
 
     tier_lengths = load_tier_context_lengths(profiles_path)
     service_lengths = load_service_context_lengths(services_path, tier_lengths)
-    cm_text = cm_path.read_text(encoding="utf-8")
-    rendered = render_gateway_config(cm_text, service_lengths)
-    diff = diff_gateway_config(cm_text, rendered)
+    config_text = config_path.read_text(encoding="utf-8")
+    rendered = render_gateway_config(config_text, service_lengths)
+    diff = diff_gateway_config(config_text, rendered)
 
-    cm_docs = list(yaml.safe_load_all(cm_text))
-    cm = next(d for d in cm_docs if d and d.get("kind") == "ConfigMap")
-    cm_model_list = yaml.safe_load(cm["data"]["config.yaml"])["model_list"]
+    cm_model_list = yaml.safe_load(config_text)["model_list"]
 
     weights = [
         m["litellm_params"].get("weight") for m in cm_model_list if "weight" in m["litellm_params"]

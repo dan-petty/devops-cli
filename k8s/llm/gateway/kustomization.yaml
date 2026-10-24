@@ -1,0 +1,36 @@
+# LiteLLM Proxy / AI Gateway: its Deployment, Service, NetworkPolicy and routing ConfigMap.
+# Applied through k8s/llm/kustomization.yaml by Argo CD's `llm` Application on a cluster it
+# manages, and by `kubectl apply -k k8s/llm/gateway` in `devops k8s deploy-stack --stack llm`
+# without Argo CD. The ServiceMonitor is not here: it needs the monitoring.coreos.com CRDs, so
+# deploy-stack applies it after the Helm releases (#1367).
+#
+# The generator makes ConfigMap llm-gateway-config from config.yaml. Its name gets a hash of that
+# content, and Kustomize writes the hashed name into the Deployment's volume. Thus a changed
+# config.yaml changes the pod template, and Kubernetes rolls the gateway onto it (#1929). LiteLLM
+# reads its config only at start, and a subPath mount never gets a ConfigMap update.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - networkpolicy.yaml
+  - deployment.yaml
+  - service.yaml
+
+configMapGenerator:
+  - name: llm-gateway-config
+    namespace: llm
+    files:
+      - config.yaml
+    options:
+      labels:
+        app.kubernetes.io/name: llm-gateway
+        app.kubernetes.io/part-of: devops-cli-stack
+
+# `kubectl apply -k` applies in this order: the perimeter before the gateway pod can start (#795),
+# and the ConfigMap before the Deployment that mounts it. Argo CD sorts by kind in the same way.
+sortOptions:
+  order: legacy
+  legacySortOptions:
+    orderFirst:
+      - NetworkPolicy
+      - ConfigMap

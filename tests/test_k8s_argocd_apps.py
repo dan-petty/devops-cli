@@ -245,12 +245,16 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
         ),
         *(p for p in post_helm if p.is_dir()),
     }
+    manifest_paths = [
+        (REPO_ROOT / p if not p.is_absolute() else p).resolve()
+        for ms in _MANIFESTS_BY_STACK.values()
+        for p in ms
+    ]
+    # A manifest path that is a directory is applied with `kubectl apply -k`, so it applies the
+    # files its kustomization lists.
     deploy_stack_manifests = {
-        *(
-            (REPO_ROOT / p if not p.is_absolute() else p).resolve()
-            for ms in _MANIFESTS_BY_STACK.values()
-            for p in ms
-        ),
+        *(p for p in manifest_paths if p.is_file()),
+        *(f for p in manifest_paths if p.is_dir() for f in _kustomization_manifest_files(p)),
         *(p for p in post_helm if p.is_file()),
     }
 

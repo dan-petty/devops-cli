@@ -6,8 +6,6 @@ import json
 import subprocess
 from unittest.mock import patch
 
-import yaml
-
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.commands.k8s.networking import (
     _build_port_forward_details,
@@ -29,6 +27,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
 from devops_cli.config.defaults import DEFAULT_OLLAMA_PORT, DEFAULT_OLLAMA_URLS, DEFAULT_QDRANT_URL
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
+from tests.k8s_manifests import applied_documents
 
 
 def test_should_update_url_edge_cases() -> None:
@@ -167,10 +166,8 @@ def test_llm_stack_forwards_ollama_through_a_service_deploy_stack_creates() -> N
     manifests = {
         (doc["metadata"]["namespace"], doc["metadata"]["name"]): doc
         for path in _MANIFESTS_BY_STACK["llm"]
-        for doc in yaml.load_all(
-            path.read_text(encoding="utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-        )
-        if doc and doc.get("kind") == "Service"
+        for doc in applied_documents(path)
+        if doc.get("kind") == "Service"
     }
     # A Helm release's Service carries the release name.
     deployed = manifests.keys() | {

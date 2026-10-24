@@ -2289,9 +2289,8 @@ def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None
         if doc and doc.get("kind") == "Service"
     }
 
-    gateway_cm_path = REPO_ROOT / "k8s" / "llm" / "gateway" / "configmap.yaml"
-    gateway_cm_docs = list(yaml.safe_load_all(gateway_cm_path.read_text(encoding="utf-8")))
-    gateway_cfg = yaml.safe_load(gateway_cm_docs[0]["data"]["config.yaml"])
+    gateway_config_path = REPO_ROOT / "k8s" / "llm" / "gateway" / "config.yaml"
+    gateway_cfg = yaml.safe_load(gateway_config_path.read_text(encoding="utf-8"))
 
     target_routes = [
         item

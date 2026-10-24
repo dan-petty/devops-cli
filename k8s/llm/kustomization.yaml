@@ -6,10 +6,7 @@ resources:
   - valkey.yaml
   - valkey-runs.yaml
   - profiles
-  - gateway/configmap.yaml
-  - gateway/deployment.yaml
-  - gateway/service.yaml
-  - gateway/networkpolicy.yaml
+  - gateway
   - gateway/servicemonitor.yaml
   - portkey/configmap.yaml
   - portkey/deployment.yaml
