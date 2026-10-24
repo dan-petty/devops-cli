@@ -241,6 +241,12 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 - **Codebase Integration**:
   - `devops_cli.commands.k8s` & `devops_cli.commands.devcontainer`: Dynamically renders DevContainer configurations, ArgoCD manifests, and Helm values files.
 
+#### `ruamel.yaml` ([Dedicated Manual](libraries/pyyaml_jinja2.md))
+- **Pinned Version**: `ruamel.yaml==0.19.1`
+- **Ecosystem Role**: YAML round-trip editing that keeps the comments, the order of the keys, the quotes and the unknown keys of a file.
+- **Codebase Integration**:
+  - `devops_cli.config.round_trip`: `save_settings` edits `config.yaml` in place and writes only the keys whose values changed (#1999).
+
 ---
 
 ## 🛠️ Development, CI Quality & Verification Tooling

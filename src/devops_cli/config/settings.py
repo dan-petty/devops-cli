@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
@@ -716,6 +716,9 @@ class Settings(BaseSettings):
     data: DataConfig = DataConfig()
     service: ServiceConfig = ServiceConfig()
     tavily: TavilyConfig = TavilyConfig()
+    # The values that `load_settings` returned, so `save_settings` writes only the keys that
+    # changed after the load (#1999). Settings made in code have none, and start from the defaults.
+    _loaded: dict[str, Any] | None = PrivateAttr(default=None)
 
 
 _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
@@ -1042,6 +1045,7 @@ def load_settings() -> Settings:
 
     raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
     settings.data = _resolve_data_config(raw_data, settings.data.dir)
+    settings._loaded = settings.model_dump(mode="json")
 
     return settings
 
@@ -1117,55 +1121,57 @@ def get_active_config_path(base_dir: Path | None = None) -> Path:
     return found if found is not None else CONFIG_PATH
 
 
-def _prune_default_data_config(dumped_data: dict[str, Any], settings: Settings) -> None:
-    """Omit default data configuration block to prevent polluting config.yaml."""
-    if "data" not in dumped_data:
-        return
-    data_cfg = settings.data
-    default_cfg = DataConfig()
-    if data_cfg == default_cfg:
-        dumped_data.pop("data", None)
-        return
+def save_settings(
+    settings: Settings, target_path: Path | None = None, *, keys: Iterable[str] = ()
+) -> None:
+    """Write the settings that changed after `load_settings` returned them into a config file.
 
-    clean_dict: dict[str, Any] = {}
-    if data_cfg.dir != default_cfg.dir:
-        clean_dict["dir"] = str(data_cfg.dir)
-    for field_name, _, rel_path in _DEFAULT_CHILD_DATA_PATHS:
-        val = getattr(data_cfg, field_name)
-        expected = data_cfg.dir / rel_path
-        if val != expected:
-            clean_dict[field_name] = str(val)
-
-    if clean_dict:
-        dumped_data["data"] = clean_dict
-    else:
-        dumped_data.pop("data", None)
-
-
-def save_settings(settings: Settings, target_path: Path | None = None) -> None:
-    """Persist settings to config YAML (secrets stay in keyring only).
+    Secrets stay in the keyring only. The write edits the file in place (`round_trip`, #1999): it
+    writes only the keys whose values changed, and it keeps the comments, the order of the keys and
+    the keys that the model does not know. A value that a default, another config file or an
+    environment variable gives, and that did not change, stays out of the file. Settings made in
+    code, not by `load_settings`, count each value that differs from the default as a change.
+    `keys` names dotted keys to write also when they hold the value that they had after the load,
+    such as the key that a person names to `devops config set`.
 
     A write that changes the file first copies the file beside itself, and then records the
     command and the changed keys in the audit log (`write_history`, #1921). A write that leaves
     every byte of the file as it is writes nothing.
     """
-    from devops_cli.config import write_history
+    from devops_cli.config import round_trip
 
-    dest_path = target_path or get_active_config_path()
-    data = settings.model_dump(mode="json", exclude_none=True)
-    _prune_default_data_config(data, settings)
-    content = yaml.dump(data, default_flow_style=False, allow_unicode=True).encode("utf-8")
-    previous = dest_path.read_bytes() if dest_path.is_file() else None
-    if content != previous:
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        backup = write_history.back_up(dest_path)
-        tmp = dest_path.with_suffix(".yaml.tmp")
-        tmp.write_bytes(content)
-        os.replace(tmp, dest_path)
-        write_history.record_write(dest_path, previous, data, backup)
+    baseline = settings._loaded
+    if baseline is None:
+        baseline = Settings.model_validate({}).model_dump(mode="json")
+    current = settings.model_dump(mode="json")
+    changed = round_trip.changes(baseline, current)
+    values = round_trip.leaves(current)
+    for key in keys:
+        path = tuple(_canonical_key(key).split("."))
+        if path in values:
+            changed.setdefault(path, values[path])
+    if changed:
+        _write_changes(target_path or get_active_config_path(), changed)
     # The writer knows the values changed, so it says so outright rather than leaving the
     # next load to infer it from a timestamp the filesystem may not yet have advanced.
     reset_settings_cache()
+
+
+def _write_changes(dest_path: Path, changed: dict[tuple[str, ...], Any]) -> None:
+    """Write the changed keys into `dest_path`, with its copy and its audit record."""
+    from devops_cli.config import round_trip, write_history
+
+    previous = dest_path.read_bytes() if dest_path.is_file() else None
+    text = previous.decode("utf-8") if previous is not None else ""
+    content = round_trip.edit(text, changed, name=str(dest_path)).encode("utf-8")
+    if content == previous:
+        return
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    backup = write_history.back_up(dest_path)
+    tmp = dest_path.with_suffix(".yaml.tmp")
+    tmp.write_bytes(content)
+    os.replace(tmp, dest_path)
+    write_history.record_write(dest_path, previous, content, backup)
 
 
 # NOTE (Design Justification - SECURITY.md, principle 1): Every credential resolves through the single
@@ -1251,10 +1257,14 @@ def get_tavily_api_key(settings: Settings | None = None) -> str | None:
     return _resolve(opt.TAVILY_API_KEY, active_settings)
 
 
+def _canonical_key(key: str) -> str:
+    """The settings key that a dotted key names: `otel.<field>` names `telemetry.<field>`."""
+    return "telemetry." + key[5:] if key.startswith("otel.") else key
+
+
 def dotted_get(settings: Settings, key: str) -> Any:
     """Get a config value by dotted key, e.g. 'github.default_org'."""
-    normalized_key = "telemetry." + key[5:] if key.startswith("otel.") else key
-    return operator.attrgetter(normalized_key)(settings)
+    return operator.attrgetter(_canonical_key(key))(settings)
 
 
 def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool) -> Any:
@@ -1289,8 +1299,7 @@ def dotted_set(settings: Settings, key: str, value: str) -> None:
     if key in _SECRET_FIELDS:
         _keyring_set(_KEYRING_KEYS[key], value)
         return
-    normalized_key = "telemetry." + key[5:] if key.startswith("otel.") else key
-    *path, field_name = normalized_key.split(".")
+    *path, field_name = _canonical_key(key).split(".")
     if not path:
         target = getattr(settings, field_name, None)
         if isinstance(target, BaseModel):

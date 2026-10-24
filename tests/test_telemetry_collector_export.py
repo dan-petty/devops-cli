@@ -26,6 +26,7 @@ from devops_cli.main import app
 from devops_cli.telemetry import tracer
 from devops_cli.telemetry.collector import collector_endpoint
 from devops_cli.telemetry.tracer import OTelTelemetryClient
+from tests.support.config_writes import written_keys
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -91,9 +92,11 @@ def own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
     reset_settings_cache()
 
 
-@pytest.mark.usefixtures("own_config")
-def test_connect_saves_an_endpoint_that_answers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify `devops telemetry connect` sends telemetry to the collector it found."""
+def test_connect_saves_an_endpoint_that_answers(
+    monkeypatch: pytest.MonkeyPatch, own_config: Path, isolate_data_dir: Path
+) -> None:
+    """Verify `devops telemetry connect` sends telemetry to the collector it found, and writes
+    only `telemetry.enabled` and `telemetry.endpoint` into the config file."""
     monkeypatch.setattr(node_port, "run_subprocess", _fake_kubectl(SERVICE, []))
     monkeypatch.setattr(
         OTelTelemetryClient,
@@ -107,6 +110,10 @@ def test_connect_saves_an_endpoint_that_answers(monkeypatch: pytest.MonkeyPatch)
     telemetry = load_settings().telemetry
     assert result.exit_code == 0, result.output
     assert (telemetry.endpoint, telemetry.enabled) == ("http://cluster.example:31318", True)
+    assert (own_config.read_text(encoding="utf-8"), written_keys(isolate_data_dir)) == (
+        "telemetry:\n  enabled: true\n  endpoint: http://cluster.example:31318\n",
+        [["telemetry.enabled", "telemetry.endpoint"]],
+    )
 
 
 @pytest.mark.usefixtures("own_config")

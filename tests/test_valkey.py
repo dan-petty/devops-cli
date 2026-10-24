@@ -38,6 +38,7 @@ from devops_cli.exceptions.valkey import (
 from devops_cli.valkey.client import ValkeyClient
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 from tests.support.certificates import LocalCa
+from tests.support.config_writes import written_keys
 from tests.support.fakes.valkey import (
     bulk_reply,
     serving_valkey,
@@ -348,27 +349,24 @@ class TestValkeyUrl:
             scheme="valkeys", host="example.org", port=6381, db=2
         )
 
-    def test_a_file_with_the_removed_host_port_and_db_keys_loads_and_saves_without_them(
-        self, config: Callable[..., Path], tmp_path: Path
+    def test_a_file_with_the_removed_host_port_and_db_keys_loads_and_a_save_keeps_them(
+        self, config: Callable[..., Path], isolate_data_dir: Path
     ) -> None:
-        """Every save before `valkey.url` became the one address wrote `host`, `port` and `db`."""
-        config(
-            valkey={
-                "host": "localhost:6379",
-                "port": 6379,
-                "db": 0,
-                "url": "valkey://example.com:6380/1",
-            }
-        )
+        """Every save before `valkey.url` became the one address wrote `host`, `port` and `db`.
+        The loader ignores them, and a save keeps them, as it keeps every key it does not know."""
+        removed = {"host": "localhost:6379", "port": 6379, "db": 0}
+        path = config(valkey={**removed, "url": "valkey://example.com:6380/1"})
         settings = load_settings()
-        saved = tmp_path / "saved.yaml"
-        save_settings(settings, saved)
+        settings.github.default_org = "example-org"
+        save_settings(settings)
         assert (
             settings.valkey.endpoint,
-            sorted(yaml.safe_load(saved.read_text(encoding="utf-8"))["valkey"]),
+            yaml.safe_load(path.read_text(encoding="utf-8"))["valkey"],
+            written_keys(isolate_data_dir),
         ) == (
             ValkeyEndpoint(scheme="valkey", host="example.com", port=6380, db=1),
-            ["threat_intel_ttl", "timeout", "url"],
+            {**removed, "url": "valkey://example.com:6380/1"},
+            [["github.default_org"]],
         )
 
     def test_the_database_of_the_url_is_selected_on_each_new_connection(

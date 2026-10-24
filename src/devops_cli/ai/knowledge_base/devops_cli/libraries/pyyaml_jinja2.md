@@ -2,10 +2,12 @@
 applies_to:
   - "pkg:pypi/pyyaml@6.0.*"
   - "pkg:pypi/jinja2@3.1.*"
+  - "pkg:pypi/ruamel-yaml@0.19.*"
 sources:
   - "https://pyyaml.org/"
   - "https://jinja.palletsprojects.com/"
-reviewed: "2026-10-15"
+  - "https://yaml.dev/doc/ruamel.yaml/"
+reviewed: "2026-10-24"
 tags:
   - "pyyaml"
   - "jinja2"
@@ -40,7 +42,7 @@ In `devops-cli`:
 | Library | Strengths | Weaknesses | Why `devops-cli` Chose PyYAML + Jinja2 |
 | :--- | :--- | :--- | :--- |
 | **`PyYAML` + `jinja2`** | Battle-tested, supports `CSafeLoader`/`CSafeDumper` in C/Rust, expressive templating (loops, filters, macros). | PyYAML does not preserve round-trip comments natively. | **Selected**: The definitive industry standard for cloud-native manifest generation. |
-| **`ruamel.yaml`** | Preserves YAML comments and exact formatting. | Slower parsing, complex API with frequent subtle behavioral shifts. | Rejected: PyYAML `safe_load` / `safe_dump` is cleaner and faster. |
+| **`ruamel.yaml`** | Round-trip mode keeps the comments, the order of the keys, the quotes and the unknown keys of a file that it edits. | Slower than PyYAML, and one indentation for all of a document. | Used for one job: `devops_cli.config.round_trip` edits `config.yaml` in place when a command saves settings (#1999). PyYAML `safe_load` / `safe_dump` reads and writes every other YAML file. |
 | **`mako`** | High-performance templating engine. | Less standard in the Kubernetes and DevContainer ecosystem than Jinja2. | Rejected: Jinja2 is the universal standard across Ansible, Helm, and DevContainers. |
 | **Python f-strings** | Built into Python. | Unsafe for complex multi-line templates, lacks template inheritance and reusable partial blocks. | Rejected: Jinja2 isolates template files cleanly from Python code logic. |
 

@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
+from tests.support.config_writes import written_keys
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -227,8 +228,9 @@ def test_switch_context_minikube_skips_start_when_already_running(
 
 
 def test_switch_context_other_cluster_does_not_start_minikube(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolate_data_dir: Path
 ) -> None:
+    """The switch writes `k8s.context` alone into the config file."""
     from unittest.mock import MagicMock, patch
 
     cfg_file = tmp_path / "config.yaml"
@@ -253,6 +255,10 @@ def test_switch_context_other_cluster_does_not_start_minikube(
         # Verify minikube start was NOT called
         assert not any(c[:2] == ["minikube", "start"] for c in calls)
         assert any(c == ["kubectl", "config", "use-context", "production-cluster"] for c in calls)
+    assert (cfg_file.read_text(encoding="utf-8"), written_keys(isolate_data_dir)) == (
+        "k8s:\n  context: production-cluster\n",
+        [["k8s.context"]],
+    )
 
 
 def test_resolve_effective_context(monkeypatch: pytest.MonkeyPatch) -> None:
