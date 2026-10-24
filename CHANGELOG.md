@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2](https://github.com/dan-petty/devops-cli/compare/v0.4.1...v0.4.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* **ai:** the default model, the bundle models, the benchmark default and the gpu matrix name models that the gateway serves ([#2188](https://github.com/dan-petty/devops-cli/issues/2188)) ([38f6afa](https://github.com/dan-petty/devops-cli/commit/38f6afa9e5da46526bcc81959658426a10f63b28))
+* **cli:** devops docker prune removes stopped containers, unused networks and dangling images instead of failing on every engine ([#2190](https://github.com/dan-petty/devops-cli/issues/2190)) ([adc122b](https://github.com/dan-petty/devops-cli/commit/adc122bd3c03e9c4790ba2b3f04dc24052a8e037))
+* **github:** gh calls no longer stall silently behind a fixed 60-call window ([#1118](https://github.com/dan-petty/devops-cli/issues/1118)) ([#2189](https://github.com/dan-petty/devops-cli/issues/2189)) ([ba239fa](https://github.com/dan-petty/devops-cli/commit/ba239fad6ced13d7e893886de50137b43d615017))
+
 ## [0.4.1](https://github.com/dan-petty/devops-cli/compare/v0.4.0...v0.4.1) (2026-10-24)
 
 
