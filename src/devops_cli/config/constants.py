@@ -775,9 +775,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     CONST_DOCS_CLASS_RECORD: (
         "docs/adr/*.md",
         "docs/agent/archive/**/*.md",
-        # Task files that pull requests opened before #1847 still merge; #2041 deletes them and
-        # this entry.
-        "docs/agent/tasks/task-*.md",
         "openspec/changes/**/*.md",
     ),
     CONST_DOCS_CLASS_PROMPT: (
