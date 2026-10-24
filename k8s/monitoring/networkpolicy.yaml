@@ -99,7 +99,7 @@ spec:
           port: 9100
         - protocol: TCP
           port: 10250
-    # 4. Allow cross-namespace metrics scraping (Argo CD, LLM, Registry, OTel, and Argo Workflows)
+    # 4. Allow cross-namespace metrics scraping (Argo CD, LLM, OTel, and Argo Workflows)
     - to:
         - namespaceSelector:
             matchLabels:
@@ -128,13 +128,6 @@ spec:
         # Valkey redis_exporter (#551)
         - protocol: TCP
           port: 9121
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: registry
-      ports:
-        - protocol: TCP
-          port: 5001
     - to:
         - namespaceSelector:
             matchLabels:

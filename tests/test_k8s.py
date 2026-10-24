@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
+from docker.auth import resolve_repository_name
+from docker.utils import parse_repository_tag
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -1280,16 +1282,6 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     )
     assert tempo_values["tempo"]["resources"]["limits"]["memory"] == "2048Mi"
 
-    # 4. Registry: memory limit >= 2048Mi
-    reg_docs = list(
-        yaml.safe_load_all(
-            (REPO_ROOT / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
-        )
-    )
-    reg_dep = next(d for d in reg_docs if d and d.get("kind") == "Deployment")
-    reg_res = reg_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
-    assert reg_res["limits"]["memory"] == "2048Mi"
-
     # 5. ArgoCD values: elevated memory limits
     argo_values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
@@ -1377,6 +1369,70 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     coredns_dep = next(d for d in coredns_patch_docs if d and d.get("kind") == "Deployment")
     coredns_res = coredns_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert coredns_res["limits"]["memory"] == "384Mi"
+
+
+# =============================================================================
+# No In-Cluster Image Registry (#1630)
+# =============================================================================
+
+# Docker Hub's Distribution image, as docker-py resolves `registry` and `library/registry`.
+DISTRIBUTION_IMAGES = {("docker.io", "registry"), ("docker.io", "library/registry")}
+# The namespace of the removed registry. Argo CD keeps it, with PVC `registry-data`, until a person
+# deletes it (k8s/README.md, Internal Image Registry).
+REMOVED_REGISTRY_NAMESPACE = "registry"
+
+
+def _k8s_objects() -> list[dict[str, Any]]:
+    """Every Kubernetes object that a YAML file under k8s/ declares."""
+    return [
+        document
+        for path in sorted((REPO_ROOT / "k8s").rglob("*.y*ml"))
+        for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+        if isinstance(document, dict) and "kind" in document and "metadata" in document
+    ]
+
+
+def _container_images(node: object) -> list[str]:
+    """The image of every container and init container in `node`, at any depth."""
+    if isinstance(node, list):
+        return [image for item in node for image in _container_images(item)]
+    if not isinstance(node, dict):
+        return []
+    images = [
+        container["image"]
+        for key in ("containers", "initContainers")
+        for container in node.get(key) or []
+        if isinstance(container, dict) and isinstance(container.get("image"), str)
+    ]
+    return images + [image for value in node.values() for image in _container_images(value)]
+
+
+def _objects_of_the_removed_registry(objects: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """(kind, name) of each object in the removed registry's namespace, and of that Namespace."""
+    return sorted(
+        (obj["kind"], obj["metadata"]["name"])
+        for obj in objects
+        if obj["metadata"].get("namespace") == REMOVED_REGISTRY_NAMESPACE
+        or (obj["kind"] == "Namespace" and obj["metadata"]["name"] == REMOVED_REGISTRY_NAMESPACE)
+    )
+
+
+def test_no_manifest_runs_an_in_cluster_image_registry() -> None:
+    """Gitea's container registry is the internal registry (#1081). No manifest under k8s/ runs
+    the Distribution image or declares an object in namespace `registry`, and the root
+    kustomization renders none of them (#1630)."""
+    objects = _k8s_objects()
+    distribution = sorted(
+        image
+        for image in _container_images(objects)
+        if resolve_repository_name(parse_repository_tag(image)[0]) in DISTRIBUTION_IMAGES
+    )
+
+    assert (
+        distribution,
+        _objects_of_the_removed_registry(objects),
+        _objects_of_the_removed_registry(applied_documents(REPO_ROOT / "k8s")),
+    ) == ([], [], [])
 
 
 # =============================================================================
