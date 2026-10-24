@@ -296,12 +296,20 @@ def test_configure_urls_persists_all_llm_endpoints(
     mock_save: MagicMock,
 ) -> None:
     """configure_urls persists Ollama, Open-WebUI, Qdrant, and Valkey to Settings."""
+    ports = {
+        DEFAULT_OLLAMA_CLUSTER_SERVICE: "11434",
+        "open-webui": "8080",
+        "qdrant": "6333",
+        "valkey": "6379",
+    }
     settings = Settings()
     mock_load.return_value = settings
-    mock_detect.side_effect = lambda svc, ns, context=None: f"http://192.0.2.2:{svc}"
+    mock_detect.side_effect = lambda svc, ns, context=None: (
+        f"http://192.0.2.2:{ports.get(svc, '80')}"
+    )
     mock_resolve.side_effect = lambda detected, preferred_localhost_ports=None, **kwargs: (
         "http://localhost:6379"
-        if "valkey" in str(detected)
+        if kwargs.get("default_scheme") == "valkey" or "6379" in str(detected)
         else f"http://localhost:{str(detected).split(':')[-1]}"
     )
 
@@ -314,9 +322,9 @@ def test_configure_urls_persists_all_llm_endpoints(
         settings.qdrant.url,
         settings.valkey.url,
     ) == (
-        [f"http://localhost:{DEFAULT_OLLAMA_CLUSTER_SERVICE}"],
-        "http://localhost:open-webui",
-        "http://localhost:qdrant",
+        ["http://localhost:11434"],
+        "http://localhost:8080",
+        "http://localhost:6333",
         "valkey://localhost:6379",
     )
 
@@ -333,7 +341,16 @@ def test_configure_urls_persists_all_infra_endpoints(
 ) -> None:
     """configure_urls writes the ArgoCD, Grafana, Prometheus, Pyroscope, Tempo and OTLP URLs that it
     detects into the config file, and no other key."""
-    mock_detect.side_effect = lambda svc, ns, context=None: f"http://192.0.2.2:{svc}"
+    ports = {
+        "argocd-server": "8080",
+        "grafana": "3000",
+        "prometheus-server": "9090",
+        "tempo": "3201",
+        "pyroscope": "4041",
+    }
+    mock_detect.side_effect = lambda svc, ns, context=None: (
+        f"http://192.0.2.2:{ports.get(svc, '80')}"
+    )
     mock_resolve.side_effect = lambda detected, preferred_localhost_ports=None: (
         f"http://localhost:{str(detected).split(':')[-1]}"
     )
@@ -348,10 +365,10 @@ def test_configure_urls_persists_all_infra_endpoints(
         saved["tempo"]["url"],
         written_keys(isolate_data_dir),
     ) == (
-        "http://localhost:argocd-server",
-        "http://localhost:grafana",
-        "http://localhost:prometheus-server",
-        "http://localhost:tempo",
+        "http://localhost:8080",
+        "http://localhost:3000",
+        "http://localhost:9090",
+        "http://localhost:3201",
         [
             [
                 "argocd.url",

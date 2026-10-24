@@ -9,12 +9,27 @@ import operator
 import os
 import threading
 import time
+import types
+import typing
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
+import httpx2
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    AnyHttpUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    StringConstraints,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
@@ -154,47 +169,116 @@ def _ensure_keyring_backend() -> bool:
     return bool(priority > 0)
 
 
+_HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
+
+
+def _validate_http_url(v: str) -> str:
+    """Validate HTTP(S) URL preserving exact string representation and checking httpx2 origin."""
+    parsed = _HTTP_URL_ADAPTER.validate_python(v)
+    try:
+        raw_url = httpx2.URL(v)
+        parsed_url = httpx2.URL(str(parsed))
+        if raw_url.origin != parsed_url.origin:
+            raise ValueError("httpx2 would send this URL to a different host or port")
+    except httpx2.InvalidURL as exc:
+        raise ValueError("httpx2 cannot parse this URL") from exc
+    return v
+
+
+def _validate_service_url(v: str) -> str:
+    """Validate cluster service URL (k8s://, k8s+https://) or HTTP(S) URL."""
+    from devops_cli.k8s.service_proxy import ServiceAddressError, is_service_url, parse_service_url
+
+    if is_service_url(v):
+        try:
+            parse_service_url(v)
+        except ServiceAddressError as exc:
+            raise ValueError(str(exc)) from exc
+        return v
+    return _validate_http_url(v)
+
+
+HttpUrlStr = Annotated[
+    str, StringConstraints(strip_whitespace=True), AfterValidator(_validate_http_url)
+]
+ServiceUrlStr = Annotated[
+    str, StringConstraints(strip_whitespace=True), AfterValidator(_validate_service_url)
+]
+
+
+def _is_list_annotation(annotation: Any) -> bool:
+    """Report whether annotation represents a list or optional list type."""
+    origin = typing.get_origin(annotation)
+    if origin is list:
+        return True
+    if origin in (typing.Union, types.UnionType):
+        return any(typing.get_origin(arg) is list for arg in typing.get_args(annotation))
+    return False
+
+
+def _validation_error_key(exc: ValidationError, prefix: tuple[str, ...] = ()) -> str:
+    """Extract the dotted key for the first validation error."""
+    errors = exc.errors(include_url=False, include_input=False)
+    if not errors:
+        return ""
+    loc = prefix + tuple(str(p) for p in errors[0].get("loc", ()))
+    return ".".join(loc)
+
+
+def _format_validation_error(exc: ValidationError, prefix: tuple[str, ...] = ()) -> str:
+    """Format the first validation error as '<dotted.key>: <reason>'."""
+    errors = exc.errors(include_url=False, include_input=False)
+    if not errors:
+        return str(exc)
+    first = errors[0]
+    loc = prefix + tuple(str(p) for p in first.get("loc", ()))
+    msg = first.get("msg", "invalid value")
+    if msg.startswith("Value error, "):
+        msg = msg[len("Value error, ") :]
+    key_str = ".".join(loc)
+    return f"{key_str}: {msg}" if key_str else msg
+
+
 class GitHubConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     default_org: str | None = None
 
 
 class SSHConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     key_dir: Path = DEFAULT_SSH_KEY_DIR
     key_prefix: str | None = DEFAULT_SSH_KEY_PREFIX
-    rotation_days: int = DEFAULT_SSH_ROTATION_DAYS
+    rotation_days: int = Field(default=DEFAULT_SSH_ROTATION_DAYS, gt=0)
 
 
 class ReposConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     base_dir: Path = DEFAULT_REPOS_BASE_DIR
 
 
 class WorkspaceConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     file: Path = DEFAULT_WORKSPACE_FILE
 
 
 class GrafanaConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    url: str | None = None
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: ServiceUrlStr | None = None
 
 
 class PrometheusConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    url: str | None = None
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: ServiceUrlStr | None = None
 
 
 class ArgoCDConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    url: str | None = None
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: ServiceUrlStr | None = None
 
 
 class QdrantConfig(BaseModel):
-    # Assignments are validated, so an environment override is parsed and checked as the file is.
-    model_config = ConfigDict(frozen=False, validate_assignment=True)
-    url: str | None = DEFAULT_QDRANT_URL
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: ServiceUrlStr | None = DEFAULT_QDRANT_URL
     collection_prefix: str = "devops"
     api_key: str | None = None
     timeout: float = Field(
@@ -209,14 +293,14 @@ class QdrantConfig(BaseModel):
 
 
 class OpenWebUIConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    url: str | None = None
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: ServiceUrlStr | None = None
 
 
 class RunsConfig(BaseModel):
     """The evaluation run store's shared index; records stay in `data.runs_dir` without it."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     # A Valkey URL such as `valkey://<host>:<port>/<db>`, checked as `valkey.url` is when the index
     # connects; unset keeps runs on this workstation only.
@@ -231,7 +315,7 @@ class ValkeyConfig(BaseModel):
     and `db` keys loads, and the next save drops them.
     """
 
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     url: str | None = Field(
         default=DEFAULT_VALKEY_URL,
         description=(
@@ -242,8 +326,8 @@ class ValkeyConfig(BaseModel):
         ),
     )
     password: str | None = None
-    timeout: float = DEFAULT_VALKEY_TIMEOUT_SECONDS
-    threat_intel_ttl: int = DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS
+    timeout: float = Field(default=DEFAULT_VALKEY_TIMEOUT_SECONDS, gt=0, allow_inf_nan=False)
+    threat_intel_ttl: int = Field(default=DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS, gt=0)
 
     @property
     def endpoint(self) -> ValkeyEndpoint:
@@ -259,21 +343,21 @@ class ValkeyConfig(BaseModel):
 
 
 class TempoConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    url: str | None = DEFAULT_TEMPO_URL
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: ServiceUrlStr | None = DEFAULT_TEMPO_URL
 
 
 class PyroscopeConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
-    url: str | None = DEFAULT_PYROSCOPE_URL
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: ServiceUrlStr | None = DEFAULT_PYROSCOPE_URL
 
 
 class TelemetryConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     enabled: bool = Field(default=True, description="Export OpenTelemetry traces and metrics")
     # Unset rather than the built-in endpoint, so OpenTelemetry's own variable can name the
     # collector when devops-cli's configuration does not.
-    endpoint: str | None = Field(
+    endpoint: HttpUrlStr | None = Field(
         default=None,
         description="OpenTelemetry collector that traces and metrics go to; unset, "
         f"`{ENV_OTEL_EXPORTER_OTLP_ENDPOINT}` names it, else `{DEFAULT_OTEL_ENDPOINT}`",
@@ -297,7 +381,7 @@ class TelemetryConfig(BaseModel):
 
 
 class SandboxConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     exclude_home_dir: bool = Field(
         default=DEFAULT_SANDBOX_EXCLUDE_HOME,
         description="Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*)",
@@ -305,7 +389,7 @@ class SandboxConfig(BaseModel):
 
 
 class KubernetesConfig(BaseModel):
-    model_config = ConfigDict(frozen=False, validate_assignment=True)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     context: str = Field(
         default="minikube",
         description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
@@ -328,7 +412,7 @@ class KubernetesConfig(BaseModel):
 
 
 class CloudflareAccessConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     enabled: bool = Field(
         default=False,
         description="Whether Cloudflare Zero Trust Access protection is enabled",
@@ -352,7 +436,7 @@ class CloudflareAccessConfig(BaseModel):
 
 
 class CloudflareConfig(BaseModel):
-    model_config = ConfigDict(frozen=False, validate_assignment=True)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     domain: OptionalConfiguredDomain = Field(
         default=None,
         description="Root or zone domain name managed in Cloudflare (e.g. example.com)",
@@ -380,40 +464,42 @@ class CloudflareConfig(BaseModel):
 
 
 class AIRAGConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
     enabled: bool = True
-    top_k: int = DEFAULT_RAG_TOP_K
-    score_threshold: float = DEFAULT_RAG_SCORE_THRESHOLD
-    chunk_size: int = DEFAULT_RAG_CHUNK_SIZE
-    chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP
+    top_k: int = Field(default=DEFAULT_RAG_TOP_K, gt=0)
+    score_threshold: float = Field(
+        default=DEFAULT_RAG_SCORE_THRESHOLD, ge=0.0, le=1.0, allow_inf_nan=False
+    )
+    chunk_size: int = Field(default=DEFAULT_RAG_CHUNK_SIZE, gt=0)
+    chunk_overlap: int = Field(default=DEFAULT_RAG_CHUNK_OVERLAP, ge=0)
 
 
 class AICacheConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     enabled: bool = DEFAULT_LLM_CACHE_ENABLED
     dir: Path = DEFAULT_LLM_CACHE_DATA_DIR
-    ttl_seconds: int = DEFAULT_LLM_CACHE_TTL_SECONDS
-    max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES
+    ttl_seconds: int = Field(default=DEFAULT_LLM_CACHE_TTL_SECONDS, gt=0)
+    max_entries: int = Field(default=DEFAULT_LLM_CACHE_MAX_ENTRIES, gt=0)
     append_cache: bool = False
 
 
 class AITaskOverride(BaseModel):
     """Per-task model/server override; unset fields fall back to the parent AIConfig."""
 
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     provider: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
     supports_reasoning: bool | None = None
-    temperature: float | None = None
-    top_p: float | None = None
-    context_window: int | None = None
-    num_ctx: int | None = None
-    max_tokens: int | None = None
-    ollama_urls: list[str] | None = None
-    ollama_max_parallel: int | None = None
-    api_base_url: str | None = None
-    max_retries: int | None = None
+    temperature: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
+    context_window: int | None = Field(default=None, gt=0)
+    num_ctx: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0)
+    ollama_urls: list[HttpUrlStr] | None = None
+    ollama_max_parallel: int | None = Field(default=None, gt=0)
+    api_base_url: HttpUrlStr | None = None
+    max_retries: int | None = Field(default=None, ge=0)
     timeout: float | None = Field(
         default=None,
         gt=0,
@@ -423,7 +509,7 @@ class AITaskOverride(BaseModel):
 
 
 class AITasksConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     chat: AITaskOverride = AITaskOverride()
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
@@ -433,31 +519,33 @@ class AITasksConfig(BaseModel):
 
 
 class AIConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
     reference_model: str = DEFAULT_AI_REFERENCE_MODEL
     reference_embedding_model: str = DEFAULT_AI_REFERENCE_EMBEDDING_MODEL
     reference_provider: str = DEFAULT_AI_REFERENCE_PROVIDER
-    hardware_cost_usd: float = DEFAULT_AI_HARDWARE_COST_USD
+    hardware_cost_usd: float = Field(
+        default=DEFAULT_AI_HARDWARE_COST_USD, ge=0.0, allow_inf_nan=False
+    )
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
     supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING
-    temperature: float = DEFAULT_AI_TEMPERATURE
-    top_p: float = DEFAULT_AI_TOP_P
-    context_window: int = DEFAULT_AI_CONTEXT_WINDOW
-    num_ctx: int | None = None
-    max_tokens: int | None = None
-    ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
-    ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
+    temperature: float = Field(default=DEFAULT_AI_TEMPERATURE, ge=0.0, allow_inf_nan=False)
+    top_p: float = Field(default=DEFAULT_AI_TOP_P, ge=0.0, le=1.0, allow_inf_nan=False)
+    context_window: int = Field(default=DEFAULT_AI_CONTEXT_WINDOW, gt=0)
+    num_ctx: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0)
+    ollama_urls: list[HttpUrlStr] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
+    ollama_max_parallel: int = Field(default=DEFAULT_OLLAMA_MAX_PARALLEL, gt=0)
     gateway_provider: str = DEFAULT_AI_GATEWAY_PROVIDER
-    gateway_url: str = DEFAULT_AI_GATEWAY_URL
+    gateway_url: HttpUrlStr = DEFAULT_AI_GATEWAY_URL
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
     gateway_weights: dict[str, int] = Field(default_factory=dict)
     gateway_concurrency: dict[str, int] = Field(default_factory=dict)
-    portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
-    api_base_url: str | None = None
+    portkey_url: HttpUrlStr = DEFAULT_PORTKEY_GATEWAY_URL
+    api_base_url: HttpUrlStr | None = None
     allow_private_network: bool = False
-    max_retries: int = DEFAULT_AI_MAX_RETRIES
+    max_retries: int = Field(default=DEFAULT_AI_MAX_RETRIES, ge=0)
     timeout: float | None = Field(
         default=None,
         gt=0,
@@ -614,7 +702,7 @@ _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
 
 
 class ServiceConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     repos: list[str] = Field(default_factory=list)
     machine_account: str | None = None
@@ -633,7 +721,7 @@ class ServiceConfig(BaseModel):
                     parsed = json.loads(trimmed)
                     if isinstance(parsed, list):
                         return [str(item) for item in parsed if item]
-                except Exception:
+                except json.JSONDecodeError:
                     pass
             return [part.strip() for part in trimmed.split(",") if part.strip()]
         if isinstance(v, list):
@@ -654,7 +742,7 @@ class ServiceConfig(BaseModel):
 
 
 class DataConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     dir: Path = Field(default_factory=lambda: DEFAULT_DATA_DIR)
     analysis_dir: Path = Field(default_factory=lambda: DEFAULT_ANALYSIS_DATA_DIR)
@@ -680,7 +768,7 @@ class DataConfig(BaseModel):
 
 
 class TavilyConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     api_key: str | None = None
 
@@ -690,6 +778,7 @@ class Settings(BaseSettings):
         env_prefix="DEVOPS_CLI_",
         extra="ignore",
         frozen=False,
+        hide_input_in_errors=True,
     )
     github: GitHubConfig = GitHubConfig()
     ssh: SSHConfig = SSHConfig()
@@ -1057,9 +1146,12 @@ def telemetry_from_environment() -> TelemetryConfig:
     turning export off, so export stays off unless `DEVOPS_CLI_TELEMETRY_ENABLED` turns it on: an
     opt-out never fails open to the default (#956).
     """
-    fallback = Settings.model_validate({"telemetry": {"enabled": False}})
-    _apply_env_overrides(fallback, _TELEMETRY_ENV_OPTIONS)
-    return fallback.telemetry
+    try:
+        fallback = Settings.model_validate({"telemetry": {"enabled": False}})
+        _apply_env_overrides(fallback, _TELEMETRY_ENV_OPTIONS)
+        return fallback.telemetry
+    except ConfigurationError, ValidationError:
+        return TelemetryConfig(enabled=False)
 
 
 def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | None:
@@ -1267,15 +1359,9 @@ def dotted_get(settings: Settings, key: str) -> Any:
     return operator.attrgetter(_canonical_key(key))(settings)
 
 
-def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool) -> Any:
-    """Coerce string or raw setting input into target type based on current field schema."""
-    if isinstance(current_val, Path):
-        return Path(str(new_value))
-    if isinstance(current_val, bool):
-        return str(new_value).strip().lower() in {"1", "true", "yes", "on"}
-    if isinstance(current_val, int):
-        return int(new_value)
-    if isinstance(current_val, list) or is_list_field:
+def _coerce_setting_value(new_value: Any, is_list_field: bool) -> Any:
+    """Split comma-separated strings for list fields, leaving other values for Pydantic validation."""
+    if is_list_field:
         if isinstance(new_value, str):
             trimmed = new_value.strip()
             if trimmed.startswith("[") and trimmed.endswith("]"):
@@ -1283,14 +1369,14 @@ def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool)
                     parsed = json.loads(trimmed)
                     if isinstance(parsed, list):
                         return [str(item) for item in parsed if item]
-                except Exception:
+                except json.JSONDecodeError:
                     pass
             return [v.strip() for v in trimmed.split(",") if v.strip()]
         return new_value
     return new_value
 
 
-def dotted_set(settings: Settings, key: str, value: str) -> None:
+def dotted_set(settings: Settings, key: str, value: Any) -> None:
     """Set a config value by dotted key, at any depth. Secret keys go to the OS keyring.
 
     `ai.tasks.chat.model` walks the nested sections; a key naming no field raises
@@ -1308,16 +1394,26 @@ def dotted_set(settings: Settings, key: str, value: str) -> None:
                 f"Use dotted key (e.g. '{field_name}.<field>').",
                 key=field_name,
             )
-        setattr(settings, field_name, value)
+        field_info = type(settings).model_fields.get(field_name)
+        if field_info is None:
+            raise ConfigurationError(f"Unknown configuration key '{key}'.", key=key)
+        is_list = _is_list_annotation(field_info.annotation)
+        coerced = _coerce_setting_value(value, is_list)
+        try:
+            setattr(settings, field_name, coerced)
+        except ValidationError as exc:
+            raise ValueError(_format_validation_error(exc)) from exc
         return
     section = _settings_section(settings, path, key)
-    if field_name not in type(section).model_fields:
+    field_info = type(section).model_fields.get(field_name)
+    if field_info is None:
         raise ConfigurationError(f"Unknown configuration key '{key}'.", key=key)
-    current = getattr(section, field_name, None)
-    if current is None:
-        current = _typed_placeholder(type(section).model_fields[field_name].annotation)
-    coerced = _coerce_setting_value(current, value, field_name.endswith("s"))
-    setattr(section, field_name, coerced)
+    is_list = _is_list_annotation(field_info.annotation)
+    coerced = _coerce_setting_value(value, is_list)
+    try:
+        setattr(section, field_name, coerced)
+    except ValidationError as exc:
+        raise ValueError(_format_validation_error(exc, tuple(path))) from exc
 
 
 def _settings_section(settings: Settings, path: list[str], key: str) -> BaseModel:
@@ -1329,16 +1425,3 @@ def _settings_section(settings: Settings, path: list[str], key: str) -> BaseMode
             raise ConfigurationError(f"Unknown configuration key '{key}'.", key=key)
         section = child
     return section
-
-
-def _typed_placeholder(annotation: Any) -> Any:
-    """A value of the type a field holds, for coercing input into a field that is unset."""
-    import typing
-
-    args = typing.get_args(annotation) or (annotation,)
-    for candidate, placeholder in ((bool, False), (int, 0), (float, 0.0), (Path, Path())):
-        if candidate in args:
-            return placeholder
-    if any(typing.get_origin(a) is list for a in args):
-        return []
-    return None

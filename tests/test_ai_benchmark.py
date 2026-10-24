@@ -256,7 +256,7 @@ def test_benchmark_client_gets_key_only_for_configured_endpoint(
     monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-test-configured")
     settings = load_settings()
     settings.ai.provider = provider
-    settings.ai.api_base_url = api_base_url
+    object.__setattr__(settings.ai, "api_base_url", api_base_url)
     settings.ai.gateway_url = "https://example.com:4000/v1"
     b_runner = BenchmarkRunner(models=[model], tasks=[BENCHMARK_TASKS[0]], settings=settings)
 
@@ -272,17 +272,17 @@ def test_key_for_endpoint_direct_unparseable_fails_closed(monkeypatch: pytest.Mo
     settings = load_settings()
     settings.ai.provider = "openai"
 
-    cfg_malformed = AIConfig(
+    cfg_malformed = AIConfig.model_construct(
         provider="openai", model="m", api_base_url="https://example.com:abc/v1"
     )
     assert _key_for_endpoint(settings, cfg_malformed) == ""
 
-    settings.ai.api_base_url = "localhost:8000/v1"
+    object.__setattr__(settings.ai, "api_base_url", "localhost:8000/v1")
     cfg_valid = AIConfig(provider="openai", model="m", api_base_url="https://example.com/v1")
     assert _key_for_endpoint(settings, cfg_valid) == ""
 
     settings.ai.provider = "gateway"
-    settings.ai.gateway_url = "localhost:8000/v1"
+    object.__setattr__(settings.ai, "gateway_url", "localhost:8000/v1")
     cfg_gateway = AIConfig(provider="gateway", model="m")
     assert _key_for_endpoint(settings, cfg_gateway) == ""
 

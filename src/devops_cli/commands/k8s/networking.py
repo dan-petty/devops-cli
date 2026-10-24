@@ -332,7 +332,7 @@ def _update_ollama_urls(
     elif ollama_url in existing:
         configured["ai.ollama_urls"] = ", ".join(existing)
     elif not is_loopback:
-        settings.ai.ollama_urls.append(ollama_url)
+        settings.ai.ollama_urls = [*existing, ollama_url]
         configured["ai.ollama_urls"] = ", ".join(settings.ai.ollama_urls)
 
 
