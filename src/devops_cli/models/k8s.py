@@ -747,6 +747,17 @@ class Finding(BaseModel):
         return self.class_
 
 
+class DoctorCheck(BaseModel):
+    """One check of a stack that `devops k8s doctor --stack` runs, and its result."""
+
+    name: str = Field(description="Check identifier, e.g. clone-url")
+    resource: str = Field(
+        description="What the check reads, e.g. Ingress/gitea/gitea-ingress or GET /v2/"
+    )
+    passed: bool = Field(description="Whether the check passed")
+    reason: str = Field(description="Why the check passed or failed")
+
+
 class DoctorReport(BaseModel):
     """Comprehensive diagnosis report produced by `devops k8s doctor`."""
 
@@ -756,6 +767,9 @@ class DoctorReport(BaseModel):
     )
     findings: list[Finding] = Field(
         default_factory=list, description="Ranked list of diagnosed findings"
+    )
+    checks: list[DoctorCheck] = Field(
+        default_factory=list, description="The checks of the stack that --stack names, in order"
     )
     errors: list[str] = Field(
         default_factory=list, description="API errors encountered during diagnosis"

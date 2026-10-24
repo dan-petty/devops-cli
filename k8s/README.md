@@ -643,8 +643,28 @@ Without `--domain`, the command updates the apex application. Without the emails
    kubectl patch pv "$(kubectl -n gitea get pvc gitea-shared-storage -o jsonpath='{.spec.volumeName}')" \
      -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
    ```
+5. Run `uv run devops k8s doctor --stack gitea --context <context>`. Every check must pass ([Stack checks](#stack-checks)).
 
-To change the admin password, store the new one with `uv run devops config set gitea.admin_password`, then run `uv run devops k8s push-secrets --only gitea/gitea-admin --rotate`. The push restarts Gitea, and Gitea sets the admin's password to the Secret's when it starts (`passwordMode: keepUpdated`).
+To change the admin password, store the new one with `uv run devops config set gitea.admin_password`, then run `uv run devops k8s push-secrets --only gitea/gitea-admin --rotate`. The push restarts Gitea, and Gitea sets the admin's password to the Secret's when it starts (`passwordMode: keepUpdated`). Then `uv run devops k8s doctor --stack gitea` signs in with the new password in its `clone-url` check.
+
+### Stack checks
+
+`devops k8s doctor --stack gitea` checks the live stack, and shows the result and the reason of each check. It exits 2 when a check fails. A failed check does not stop the next one. `--dry-run` lists the kubectl commands and the HTTP requests, and makes none of them. `--format json` or `yaml` gives the checks as data.
+
+| Check | It passes when |
+| :--- | :--- |
+| `application-gitea`, `application-gitea-manifests` | the Application is `Synced` and `Healthy`. |
+| `volume-retained` | the volume of claim `gitea-shared-storage` has the reclaim policy `Retain` ([Rollout](#rollout), step 4). |
+| `pod-security-restricted` | namespace `gitea` has the Pod Security enforce level `restricted`. |
+| `ingress-host` | Ingress `gitea/gitea-ingress` has a host, and the host is not `git.example.com`, the placeholder in git. The next checks send their requests to that host of the live Ingress, through the tunnel. Without it, they fail and send nothing. |
+| `tunnel-host` | `GET /user/login` answers 200. A redirect to the Access login tells you that the public address changed ([Cloudflare](#cloudflare)). |
+| `anonymous-read-refused` | `GET /api/v1/repos/search` with no sign-in answers 401 or 403. |
+| `registry-token` | `GET /v2/` answers 401 with a Bearer challenge whose realm starts with `https://git.<domain>/`. |
+| `clone-url` | a temporary private repository `devops-doctor-<random>`, which the check makes as `gitea_admin` with the password from the keyring (`gitea.admin_password`), has a `clone_url` that starts with `https://git.<domain>/`, and an `ssh_url` that does not name that host. Gitea 1.27.3 fills `ssh_url` also when SSH is off: it names the in-cluster address, where nothing answers. |
+| `temporary-repository-deleted` | Gitea deleted the temporary repository. The check deletes it also when the `clone-url` check fails, and when the create gets no answer. When the delete fails, the reason names the repository to delete by hand. |
+| `no-egress` | `curl https://github.com` in the Gitea container cannot connect (curl exits 7 or 28). |
+
+The password goes only into the Authorization header of the create and the delete. It goes into no argument list, log line or output.
 
 ### Data
 

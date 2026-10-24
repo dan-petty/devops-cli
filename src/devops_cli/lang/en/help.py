@@ -304,6 +304,15 @@ class K8sCommandHelp:
     doctor_context: str = "Target Kubernetes cluster context (default: resolved context)."
     doctor_tail: str = "Number of container log lines to tail per flagged container."
     doctor_format: str = "Output format: table, json, or yaml."
+    doctor_stack: str = (
+        "Check one stack end to end in place of the cluster rules: gitea. The gitea checks read "
+        "Applications gitea and gitea-manifests, the volume of claim gitea-shared-storage, the "
+        "Pod Security of namespace gitea and the host of Ingress gitea-ingress. Through that "
+        "host, they check the sign-in page, the refusal of an anonymous API read, the token "
+        "challenge of the registry, and the clone URL of a temporary private repository, which "
+        "they make as gitea_admin with keyring gitea_admin_password and then delete. Last, they "
+        "check that the pod reaches no address outside the cluster. Exits 2 when a check fails."
+    )
 
     port_forward: str = "Forward local port to a remote Kubernetes service."
     port_forward_flag: str = "Start background port-forwarding daemons for deployed services."

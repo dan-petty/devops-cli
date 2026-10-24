@@ -77,7 +77,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_create_tls_secret`](#k8s-create-tls-secret) | `false` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 | [`k8s_deploy_stack`](#k8s-deploy-stack) | `false` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.  Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every detached stack whose namespace exists (`devops k8s push-secrets`), before anything that reads them. A locked or missing keyring stops it before it applies anything. |
 | [`k8s_diff_helm`](#k8s-diff-helm) | `true` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
-| [`k8s_doctor`](#k8s-doctor) | `true` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
+| [`k8s_doctor`](#k8s-doctor) | `false` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
 | [`k8s_enable_tls`](#k8s-enable-tls) | `false` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
 | [`k8s_lint`](#k8s-lint) | `true` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
 | [`k8s_logs`](#k8s-logs) | `true` | Stream pod logs or execute LogQL queries across cluster log streams. |
@@ -1242,7 +1242,7 @@ Preview Kubernetes manifest diffs before executing a Helm upgrade.
 
 Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations.
 
-**Annotations:** `readOnlyHint: true`
+**Annotations:** `readOnlyHint: false`
 
 **Parameters:**
 
@@ -1252,6 +1252,7 @@ Diagnose Kubernetes cluster deployment health, correlate failures, and recommend
 | `context` | `string` | No | - | Target Kubernetes cluster context (default: resolved context). |
 | `tail` | `integer` | No | `20` | Number of container log lines to tail per flagged container. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+| `stack` | `string` | No | - | Check one stack end to end in place of the cluster rules: gitea. The gitea checks read Applications gitea and gitea-manifests, the volume of claim gitea-shared-storage, the Pod Security of namespace gitea and the host of Ingress gitea-ingress. Through that host, they check the sign-in page, the refusal of an anonymous API read, the token challenge of the registry, and the clone URL of a temporary private repository, which they make as gitea_admin with keyring gitea_admin_password and then delete. Last, they check that the pod reaches no address outside the cluster. Exits 2 when a check fails. |
 
 ### `k8s_enable_tls`
 

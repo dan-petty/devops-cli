@@ -9,6 +9,8 @@ import typer
 
 from devops_cli.config.constants import (
     CONST_FALCO_SEVERITY_LEVELS,
+    CONST_K8S_DOCTOR_GITEA_PLAN_HEADING,
+    CONST_K8S_DOCTOR_STACKS,
     CONST_MAX_SECURITY_STREAM_DURATION,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MIN_SECURITY_STREAM_DURATION,
@@ -452,6 +454,68 @@ def _handle_doctor_dry_run(
         render_request_plan("Planned Kubernetes Doctor API Requests:", requests)
 
 
+def _validate_doctor_stack(value: str | None) -> str | None:
+    """Accept only a stack that the doctor has checks for."""
+    if value is None or value in CONST_K8S_DOCTOR_STACKS:
+        return value
+    raise typer.BadParameter(
+        f"{value!r} has no checks; choose one of: {', '.join(CONST_K8S_DOCTOR_STACKS)}"
+    )
+
+
+def _render_stack_checks(report: Any) -> None:
+    """Print each check of a stack as one row: its result, name, resource and reason."""
+    from devops_cli.output import TablePayload, print_table
+
+    rows = [
+        [
+            "[green]PASS[/green]" if check.passed else "[red]FAIL[/red]",
+            check.name,
+            check.resource,
+            check.reason,
+        ]
+        for check in report.checks
+    ]
+    payload = TablePayload(
+        title=f"Gitea Stack Checks ({report.context or 'current'})",
+        columns=["Result", "Check", "Resource", "Reason"],
+        rows=rows,
+    )
+    print_table(payload)
+
+
+def _run_stack_doctor(context: str | None, resolved_fmt: str, *, dry_run: bool) -> None:
+    """Run the checks of the Gitea stack, or list their requests in a dry run; exit 2 on a failed check."""
+    from devops_cli.dry_run.requests import render_request_plan
+    from devops_cli.k8s.context import resolve_context
+    from devops_cli.k8s.gitea_doctor import plan_gitea_requests, run_gitea_checks
+    from devops_cli.models.k8s import DoctorReport
+
+    target_context = resolve_context(context)
+    if dry_run:
+        requests = plan_gitea_requests(target_context)
+        if resolved_fmt != CONST_OUTPUT_FORMAT_TABLE:
+            plan = DoctorReport(context=target_context or "", requests=requests)
+            emit_serialized(plan.model_dump(), resolved_fmt)
+        else:
+            render_request_plan(CONST_K8S_DOCTOR_GITEA_PLAN_HEADING, requests)
+        return
+
+    checks = run_gitea_checks(target_context)
+    failed = sum(not check.passed for check in checks)
+    report = DoctorReport(
+        context=target_context or "",
+        counts={"checks": len(checks), "failed": failed},
+        checks=checks,
+    )
+    if resolved_fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved_fmt)
+    else:
+        _render_stack_checks(report)
+    if failed:
+        raise typer.Exit(2)
+
+
 def _handle_doctor_output(report: Any, resolved_fmt: str) -> None:
     """Handle doctor report output formatting."""
     from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
@@ -486,12 +550,20 @@ def doctor_cmd(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    stack: Annotated[
+        str | None,
+        typer.Option("--stack", help=HELP.k8s.doctor_stack, callback=_validate_doctor_stack),
+    ] = None,
 ) -> None:
     """Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations."""
     from devops_cli.k8s.doctor import get_k8s_client
     from devops_cli.output.serialization import normalize_format
 
     resolved_fmt = normalize_format(output_format)
+
+    if stack:
+        _run_stack_doctor(context, resolved_fmt, dry_run=dry_run or is_dry_run())
+        return
 
     if dry_run or is_dry_run():
         _handle_doctor_dry_run(namespace, tail, context, resolved_fmt)

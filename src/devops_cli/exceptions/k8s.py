@@ -235,6 +235,24 @@ class VolumeReclaimError(KubernetesError, RuntimeError):
         )
 
 
+class DoctorCheckError(KubernetesError, RuntimeError):
+    """Raised inside `devops k8s doctor --stack` when one check fails; the message is its reason.
+
+    The doctor reports the reason as the result of that check and goes on to the next check, so
+    the message never holds a secret value.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "K8S_DOCTOR_CHECK_FAILED",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
 class VolumeMoveError(KubernetesError, RuntimeError):
     """Raised when a volume move fails before the old claim is deleted; it undid its own steps.
 
@@ -315,6 +333,7 @@ __all__ = [
     "ClusterJobError",
     "ClusterSecretPushError",
     "ClusterSecretWriteError",
+    "DoctorCheckError",
     "GitOpsSyncError",
     "KubernetesContextError",
     "KubernetesDeployError",

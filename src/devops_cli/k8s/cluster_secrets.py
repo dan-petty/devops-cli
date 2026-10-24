@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from devops_cli.config import options as opt
+from devops_cli.config.constants import CONST_K8S_GITEA_ADMIN_USER
 
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "devops-cli"
@@ -287,7 +288,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         name="gitea-admin",
         stack="gitea",
         entries=(
-            SecretEntry("username", LiteralSource("gitea_admin")),
+            SecretEntry("username", LiteralSource(CONST_K8S_GITEA_ADMIN_USER)),
             SecretEntry(
                 "password", KeyringSource("gitea_admin_password", opt.GITEA_ADMIN_PASSWORD)
             ),
