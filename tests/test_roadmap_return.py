@@ -46,7 +46,7 @@ def test_plan_return_and_apply_return_in_memory_store() -> None:
     apply_return(store, plan)
     updated_item = store.item(num)
     assert updated_item is not None
-    comments = store.comments_on(num)
+    comments = [comment.body for comment in store.comments_on(num)]
     assert (updated_item.status, comments) == (
         "New",
         ["Upstream library removed this API."],
@@ -119,7 +119,7 @@ def test_roadmap_return_cli_confirm(tmp_path: Path) -> None:
         assert (
             res.exit_code,
             updated.status if updated else None,
-            store.comments_on(num),
+            [comment.body for comment in store.comments_on(num)],
         ) == (0, "New", ["Detailed evidence from upstream docs."])
 
 

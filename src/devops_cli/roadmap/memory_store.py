@@ -11,9 +11,9 @@ A person also labels, closes and reopens issues through the helpers below; each 
 change a poll would find. Every write to an issue, a comment included, moves its `updated_at`,
 as on GitHub. A person's `archive_card` takes a card off every read with its fields and job
 record, and `add_item` restores it, marked `restored`, as GitHub's board does (#1403).
-`seed_evidence` makes a piece of evidence one GitHub confirms. Every write the store makes as a
-job, not as a person, is kept in `job_writes`, so a test can check what a job wrote and that a
-preview wrote nothing.
+`seed_evidence` makes a piece of evidence one GitHub confirms, and `seed_commit` a commit on the
+default branch that changed a path. Every write the store makes as a job, not as a person, is
+kept in `job_writes`, so a test can check what a job wrote and that a preview wrote nothing.
 
 Each view holds every card as it last read it, with its own writes: a job's write of a field a
 person changed since raises before it changes anything, as the GitHub adapter's does against
@@ -46,6 +46,7 @@ from devops_cli.roadmap.store import (
     Evidence,
     FieldOption,
     GitHubState,
+    IssueComment,
     IssueRecord,
     Item,
     ItemField,
@@ -105,8 +106,10 @@ class _Roadmap:
     # The cards a person archived, by issue number: in no read, and restored by an add.
     archived: dict[int, BoardEntry] = field(default_factory=dict)
     changes: list[Change] = field(default_factory=list)
-    comments: dict[int, list[str]] = field(default_factory=dict)
+    comments: dict[int, list[IssueComment]] = field(default_factory=dict)
     files: dict[tuple[str, str | None], str] = field(default_factory=dict)
+    # When each commit on the default branch that changed a path was made, by path.
+    commits: dict[str, list[datetime]] = field(default_factory=dict)
     closures: dict[int, list[Closure]] = field(default_factory=dict)
     evidence: set[Evidence] = field(default_factory=set)
     job_writes: list[JobWrite] = field(default_factory=list)
@@ -244,6 +247,10 @@ class InMemoryRoadmapStore(RoadmapStore):
     def seed_visibility(self, *, is_private: bool) -> None:
         """Set whether the repository is private."""
         self._roadmap.is_private = is_private
+
+    def seed_commit(self, path: str, *, at: datetime) -> None:
+        """Record a commit on the default branch, made at `at`, that changed `path`."""
+        self._roadmap.commits.setdefault(path, []).append(as_utc(at))
 
     def edit_options_by_hand(self, name: str, options: Sequence[FieldOption]) -> BoardField:
         """Edit field `name`'s options as a person does in the board's field settings.
@@ -410,13 +417,18 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Comment `body` on issue `number`."""
         issue = self._require_issue(number, "roadmap.issue.comment")
         self._update_issue(issue)
-        self._roadmap.comments.setdefault(number, []).append(body)
+        made = IssueComment(body=body, created_at=as_utc(self._roadmap.clock()))
+        self._roadmap.comments.setdefault(number, []).append(made)
         self._log("comment", number, value=body)
         self._record(ChangeKind.COMMENTED, number)
 
-    def comments_on(self, number: int) -> list[str]:
-        """The body of every comment on issue `number`, oldest first."""
+    def comments_on(self, number: int) -> list[IssueComment]:
+        """Every comment on issue `number`, oldest first."""
         return list(self._roadmap.comments.get(number, []))
+
+    def path_changed_at(self, path: str) -> datetime | None:
+        """When the newest commit `seed_commit` recorded for `path` was made, or None."""
+        return max(self._roadmap.commits.get(path, []), default=None)
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The text committed at `path` on `ref`, raising when there is none."""

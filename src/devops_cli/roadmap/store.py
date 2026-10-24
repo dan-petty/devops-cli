@@ -99,8 +99,9 @@ class ChangeKind(StrEnum):
 class RefineRecordKey(StrEnum):
     """What refine records in an Item's job record (#744): the body hash outside the section,
     the section hash, whether the proposal needs splitting, the body hash a reply that never
-    validated was about (#1539), and the next step the item waits on with the open items that
-    block it (#1758)."""
+    validated was about (#1539), the next step the item waits on with the open items that
+    block it (#1758), and the repository paths whose code the proposal cites as the cause of
+    the block (#2005)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -108,6 +109,7 @@ class RefineRecordKey(StrEnum):
     FAILED_BODY_HASH = "refine.failed_body_hash"
     NEXT_STEP = "refine.next_step"
     BLOCKED_BY = "refine.blocked_by"
+    BLOCK_PATHS = "refine.block_paths"
 
 
 JobRecord = dict[ItemField | RefineRecordKey, str | None]
@@ -228,6 +230,15 @@ class IssueRecord(BaseModel):
     updated_at: datetime | None = None
     closed_at: datetime | None = None
     sub_issues: int = 0
+
+
+class IssueComment(BaseModel):
+    """One comment on an issue: its body and when it was made."""
+
+    model_config = ConfigDict(frozen=True)
+
+    body: str
+    created_at: datetime
 
 
 class Closure(BaseModel):
@@ -567,8 +578,12 @@ class RoadmapStore(Protocol):
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
 
-    def comments_on(self, number: int) -> list[str]:
-        """The body of every comment on issue `number`, oldest first."""
+    def comments_on(self, number: int) -> list[IssueComment]:
+        """Every comment on issue `number`, oldest first."""
+
+    def path_changed_at(self, path: str) -> datetime | None:
+        """When the newest commit on the default branch that changed `path` was made, or None
+        when no commit changed it (#2005)."""
 
     # ── What intake reads and writes (#742) ──
 
@@ -637,6 +652,7 @@ __all__ = [
     "EvidenceKind",
     "FieldOption",
     "GitHubState",
+    "IssueComment",
     "IssueRecord",
     "Item",
     "ItemField",

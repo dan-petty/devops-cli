@@ -29,6 +29,7 @@ from devops_cli.roadmap.store import (
     EvidenceKind,
     FieldOption,
     GitHubState,
+    IssueComment,
     ItemField,
     RefineRecordKey,
     RoadmapStore,
@@ -610,7 +611,9 @@ def test_marks_refuse_an_item_off_the_board_and_a_board_without_a_job_record_fie
     )
 
 
-def test_a_comment_is_kept_on_its_issue(store: InMemoryRoadmapStore) -> None:
+def test_a_comment_is_kept_on_its_issue_with_the_time_it_was_made(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
     number = store.seed_issue("commented", milestone="Q4 hardening", on_board=True)
     store.comment(number, "Moved to the backlog.")
     with pytest.raises(GitHubOperationError, match="not an issue"):
@@ -618,7 +621,24 @@ def test_a_comment_is_kept_on_its_issue(store: InMemoryRoadmapStore) -> None:
     assert (
         store.comments_on(number),
         [(c.kind, c.number) for c in store.changes_since(datetime.min)],
-    ) == (["Moved to the backlog."], [(ChangeKind.COMMENTED, number)])
+    ) == (
+        [IssueComment(body="Moved to the backlog.", created_at=clock.now)],
+        [(ChangeKind.COMMENTED, number)],
+    )
+
+
+def test_a_path_changed_when_the_newest_commit_that_changed_it_was_made(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    """The time of the newest commit on the default branch that changed a path, and none for a
+    path that no commit changed (#2005)."""
+    later = clock.now + timedelta(hours=1)
+    store.seed_commit("src/app.py", at=later)
+    store.seed_commit("src/app.py", at=clock.now)
+    assert (store.path_changed_at("src/app.py"), store.path_changed_at("src/other.py")) == (
+        later,
+        None,
+    )
 
 
 def test_a_change_reads_the_value_and_job_record_as_they_are_now(
@@ -652,7 +672,7 @@ def test_a_duplicate_close_comments_then_closes_and_its_timeline_names_the_origi
     store.as_actor("alice").reopen_issue(copy)
     issue = next(issue for issue in store.issues() if issue.number == copy)
     assert (
-        store.comments_on(copy),
+        [comment.body for comment in store.comments_on(copy)],
         (issue.state, issue.author_association),
         store.closures(copy),
         store.job_writes()[-2:],

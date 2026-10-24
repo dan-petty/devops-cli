@@ -1345,6 +1345,11 @@ class RoadmapMessages:
             ),
         }
     )
+    # The last line of a next-step comment whose block cites code (#2005).
+    refine_block_paths: str = (
+        "The next refine round also looks at the item again when a commit on the default "
+        "branch changes one of these files: {paths}."
+    )
     refine_incomplete: str = (
         "The proposal has no problem statement, or no acceptance criterion with a "
         "verification. State the problem and how to verify the change."
@@ -1419,6 +1424,7 @@ class RoadmapMessages:
             "field": "<field>",
             "item": "<item>",
             "blocker": "<blocking item>",
+            "path": "<cited path>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -1444,6 +1450,7 @@ class RoadmapMessages:
             "advisory": "the advisory {subject} cites",
             "workflow_run": "the workflow run {subject} cites",
             "commit": "the commit {subject} cites",
+            "path_change": "the newest commit on the default branch that changed {subject}",
             "record": "the job record of {subject}",
             "set_field": "set {field} on {subject}",
             "comment": "comment on {subject}",
@@ -1465,6 +1472,7 @@ class RoadmapMessages:
             "fields_unread": "the run has not read the board's fields yet",
             "card_archived": "the card the add names is archived",
             "done": "the run is done and sent a GraphQL request: it comes after any write",
+            "still_waiting": "no comment follows refine's last comment on the waiting item",
         }
     )
     plan_repeat: dict[str, str] = field(
@@ -1472,6 +1480,7 @@ class RoadmapMessages:
             "milestone": "for each open milestone, by due date and then by number",
             "item": "for each item the run judges or changes",
             "blocker": "for each open item a blocked item waits on",
+            "block_path": "for each path the block of a waiting item cites, once a run",
             "evidence": "for each piece of evidence the model cites",
         }
     )

@@ -3097,6 +3097,9 @@ CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS: Final[frozenset[str]] = frozenset({"", "non
 # The newest replies that reach the model, each cut to this many tokens (#1758).
 CONST_ROADMAP_REFINE_MAX_REPLIES: Final[int] = 5
 CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS: Final[int] = 1024
+# The most paths refine records as the cause of an item's block. A later round reads the newest
+# commit of each one while the item waits, so the cap bounds those reads (#2005).
+CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS: Final[int] = 5
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"

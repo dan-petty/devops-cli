@@ -21,6 +21,11 @@ closed. The comments since refine's last one reach the model as `replies`. An it
 write a design for (too big, or two replies that never validated) waits on a body edit alone. An
 unchanged item whose record holds no step is refined again so it gets one. The report groups
 every item by its next step.
+A proposal with a suspected block or an open dependency also names the repository paths whose
+code causes the block (`block_paths`). Refine records those that the checkout holds, at most
+`CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS`, and a later round looks at the waiting item again when a
+commit on the default branch changed one of them at or after refine's last comment (#2005). That
+costs one commit read for each recorded path of an item that still waits, once a round.
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
 Two model steps run with `ai.for_task("analysis")`: research plan (Tavily search when public) and proposal.
 Their prompts are `roadmap_refine_research.md` and `roadmap_refine_proposal.md`, and the issue reaches the
@@ -46,6 +51,7 @@ import logging
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Literal
@@ -73,6 +79,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
+    CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
@@ -93,6 +100,7 @@ from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.store import (
     GitHubState,
+    IssueComment,
     Item,
     ItemField,
     JobRecord,
@@ -133,6 +141,7 @@ class RefinementProposal(BaseModel):
     split_offs: list[str] = Field(default_factory=list)
     suspected_block: str | None = None
     dependencies: list[int] = Field(default_factory=list)
+    block_paths: list[str] = Field(default_factory=list)
 
 
 class NextStep(StrEnum):
@@ -140,10 +149,11 @@ class NextStep(StrEnum):
 
     `READY`: refine set it to Ready. `PERSON`: a person answers the questions refine asked in a
     comment. `SPLIT`: a person splits it as refine proposed in a comment. `BLOCKED`: the open
-    items it depends on close. A reply after refine's last comment, or a body edit, ends each of
-    these waits, and a closed blocker ends `BLOCKED`. `EDIT`: refine cannot write a design for
-    the body, and only a body edit ends the wait. `NONE`: refine changes no item that is closed,
-    In Progress, Done or Blocked.
+    items it depends on close. A reply after refine's last comment, a body edit, or a commit on
+    the default branch after that comment that changes a path the block cites (#2005) ends each
+    of these waits, and a closed blocker ends `BLOCKED`. `EDIT`: refine cannot write a design
+    for the body, and only a body edit ends the wait. `NONE`: refine changes no item that is
+    closed, In Progress, Done or Blocked.
     """
 
     READY = "ready"
@@ -159,7 +169,8 @@ class RefinedItem:
     """An item's refinement. When `skip_reason` is set none of it is written; with `record_only`
     apply still records the hashes of the body refine saw, so the item reads as unchanged until
     its body changes (#1526). `next_step` is what the item waits on, with `step_details` (the
-    questions, the split or the blockers) and the open items `blocked_by` (#1758)."""
+    questions, the split or the blockers) and the open items `blocked_by` (#1758), and
+    `block_paths` the paths whose code causes the block (#2005)."""
 
     item: Item
     proposal: RefinementProposal
@@ -173,6 +184,7 @@ class RefinedItem:
     next_step: NextStep
     step_details: tuple[str, ...] = ()
     blocked_by: tuple[int, ...] = ()
+    block_paths: tuple[str, ...] = ()
     skip_reason: str | None = None
     record_only: bool = False
 
@@ -546,6 +558,32 @@ def _extract_heading_bullets(body: str, heading_re: re.Pattern[str]) -> list[str
     return bullets
 
 
+def _checkout_path(cited: str, source: Path, sha: str) -> str | None:
+    """The repository path that `cited` names, without its line, when the checkout holds it at
+    `sha`; None for other text and for a path outside the repository."""
+    match = _CITED_PATH_RE.match(cited.strip())
+    if match is None:
+        return None
+    path = match.group(1)
+    if ".." in path or path.startswith("/"):
+        return None
+    code, _ = _git(source, "cat-file", "-e", f"{sha}:{path}")
+    return path if code == 0 else None
+
+
+def _block_paths(cited: Sequence[str], source: Path, sha: str) -> list[str]:
+    """The checkout's paths among `cited`, each one time and without its line, at most
+    `CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS` of them (#2005)."""
+    kept: list[str] = []
+    for text in cited:
+        path = _checkout_path(text, source, sha)
+        if path is not None and path not in kept:
+            kept.append(path)
+        if len(kept) >= CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS:
+            break
+    return kept
+
+
 def _is_valid_source(src: str, allowed_urls: set[str], source: Path, sha: str) -> bool:
     if src in allowed_urls or urlsplit(src).scheme in {"http", "https"}:
         return src in allowed_urls
@@ -572,11 +610,12 @@ def validate_proposal(
     sha: str,
     store: RoadmapStore,
 ) -> tuple[RefinementProposal, list[str]]:
-    """Deterministically validates proposal sources, key questions, and decisions.
+    """Deterministically validates proposal sources, key questions, decisions and block paths.
     Returns (validated_proposal, open_questions).
 
     The key questions and owner decisions are the person's, read from the body outside refine's
-    own section, so a refined item's section never asks its own questions again (#1758).
+    own section, so a refined item's section never asks its own questions again (#1758). Only
+    the block paths that the checkout holds are kept (#2005).
     """
     open_questions: list[str] = []
     validated_qa: list[QuestionAnswer] = []
@@ -624,6 +663,7 @@ def validate_proposal(
         update={
             "key_questions": final_qa,
             "dependencies": valid_deps,
+            "block_paths": _block_paths(proposal.block_paths, source, sha),
         }
     )
     return validated_proposal, open_questions
@@ -683,10 +723,16 @@ def next_step_of(
     return NextStep.PERSON, (block or MESSAGES.roadmap.refine_incomplete,), ()
 
 
-def step_comment(item: Item, step: NextStep, details: Sequence[str], sha: str) -> str:
+def step_comment(
+    item: Item,
+    step: NextStep,
+    details: Sequence[str],
+    sha: str,
+    block_paths: Sequence[str] = (),
+) -> str:
     """The one comment that tells a person the item's next step, carrying refine's marker: the
     Ready notice, or the questions, the split or the blockers, with the Status change from Ready
-    first (#1515, #1758)."""
+    first (#1515, #1758), and last the files whose change ends the wait (#2005)."""
     texts = MESSAGES.roadmap
     short = sha[:12]
     marker = CONST_ROADMAP_REFINE_COMMENT_MARKER
@@ -698,7 +744,7 @@ def step_comment(item: Item, step: NextStep, details: Sequence[str], sha: str) -
         for index, detail in enumerate(details, start=1)
     )
     template = texts.refine_step_comments[step.value]
-    return texts.refine_step_comment.format(
+    comment = texts.refine_step_comment.format(
         marker=marker,
         status=texts.refine_back_to_new.format(sha=short)
         if item.status == CONST_ROADMAP_STATUS_READY
@@ -706,6 +752,10 @@ def step_comment(item: Item, step: NextStep, details: Sequence[str], sha: str) -
         step=template.format(sha=short, count=len(details) or 2),
         details=listed,
     )
+    if not block_paths:
+        return comment
+    paths = ", ".join(f"`{path}`" for path in block_paths)
+    return f"{comment}\n\n{texts.refine_block_paths.format(paths=paths)}"
 
 
 # ── Rendering & Sanitization ──────────────────────────────────────────────────
@@ -865,18 +915,37 @@ def _recorded_blockers(item: Item) -> list[int]:
     return [int(part) for part in recorded.split(",") if part.strip().isdecimal()]
 
 
-def replies_since_refine(comments: Sequence[str]) -> list[str] | None:
+def _recorded_block_paths(item: Item) -> list[str]:
+    """The paths whose code the item's last refine round found causing its block (#2005)."""
+    recorded = item.job_record.get(RefineRecordKey.BLOCK_PATHS) or ""
+    return [path for path in recorded.split(",") if path.strip()]
+
+
+def replies_since_refine(comments: Sequence[IssueComment]) -> list[IssueComment] | None:
     """The comments after refine's last comment, oldest first, or None when refine left none."""
     marked = [
-        index for index, text in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in text
+        index
+        for index, comment in enumerate(comments)
+        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body
     ]
     return list(comments[marked[-1] + 1 :]) if marked else None
+
+
+def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
+    """Whether a commit on the default branch changed a path the item's block cites at or after
+    `since`, the time of refine's last comment on it (#2005)."""
+    for path in _recorded_block_paths(item):
+        changed = store.path_changed_at(path)
+        if changed is not None and changed >= since:
+            return True
+    return False
 
 
 def _still_waiting(store: RoadmapStore, item: Item) -> WaitingItem | None:
     """The next step an item nothing changed since its last round still waits on, or None when
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
-    closed, or a comment followed refine's last one. Only a body edit ends an `EDIT` wait."""
+    closed, a comment followed refine's last one, or a commit on the default branch changed a
+    path the block cites after that comment (#2005). Only a body edit ends an `EDIT` wait."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     match step:
@@ -892,8 +961,10 @@ def _still_waiting(store: RoadmapStore, item: Item) -> WaitingItem | None:
         case NextStep.READY:
             # A New item refine set Ready: a person set it back, and refine waits for the reason.
             step, details = NextStep.PERSON, (MESSAGES.roadmap.refine_set_back_by_person,)
-    replies = replies_since_refine(store.comments_on(item.number))
-    if replies is None or replies:
+    comments = store.comments_on(item.number)
+    replies = replies_since_refine(comments)
+    # No reply: the last comment is refine's own.
+    if replies is None or replies or _cited_code_changed(store, item, comments[-1].created_at):
         return None
     return WaitingItem(item, step, details)
 
@@ -1060,6 +1131,9 @@ def refine_one_item(
     # The details hold the model's text, which goes into a comment: sanitized like the section,
     # on one line each (#1758).
     details = tuple(" ".join(sanitize_text(d, allowed_urls).split()) for d in model_details)
+    # The paths are the cause of a block: an open dependency or a suspected block (#2005).
+    blocked = bool(blocked_by) or _suspected_block(proposal) is not None
+    block_paths = tuple(proposal.block_paths) if blocked else ()
 
     # Step 5: Render section & Check size
     rendered_section = render_proposal_section(proposal, open_questions, sha, allowed_urls)
@@ -1086,7 +1160,7 @@ def refine_one_item(
         )
 
     # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515)
-    comment = step_comment(item, step, details, sha)
+    comment = step_comment(item, step, details, sha, block_paths)
 
     b_hash = hash_text(outside)
     s_hash = hash_text(
@@ -1108,17 +1182,18 @@ def refine_one_item(
         next_step=step,
         step_details=details,
         blocked_by=blocked_by,
+        block_paths=block_paths,
     )
 
 
-def _replies_for_model(comments: Sequence[str]) -> list[str]:
+def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
     """The replies the model reads: the comments after refine's last comment, or every comment
     when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
     cap (#1758)."""
     replies = replies_since_refine(comments)
     kept = (comments if replies is None else replies)[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     return [
-        truncate_to_token_limit(reply, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+        truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
         for reply in kept
     ]
 
@@ -1311,6 +1386,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             RefineRecordKey.FAILED_BODY_HASH: None,
             RefineRecordKey.NEXT_STEP: r.next_step.value,
             RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in r.blocked_by) or None,
+            RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
         }
 
         # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)

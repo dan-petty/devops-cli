@@ -897,7 +897,7 @@ def _comment(placement: Placement, lines: Sequence[tuple[str, str, str]]) -> str
 def _has_comment(store: RoadmapStore, subject: Subject, marker: str) -> bool:
     """Whether intake already left the comment `marker` marks on the candidate."""
     return subject.number is not None and any(
-        marker in body for body in store.comments_on(subject.number)
+        marker in comment.body for comment in store.comments_on(subject.number)
     )
 
 

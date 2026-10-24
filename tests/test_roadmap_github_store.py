@@ -1691,16 +1691,40 @@ def test_a_missing_file_raises_not_found_and_another_failure_raises_as_a_failed_
 # ── Comments and marks ────────────────────────────────────────────────────────
 
 
-def test_comments_on_reads_every_comment_of_the_issue_oldest_first() -> None:
+def test_comments_on_reads_every_comment_of_the_issue_oldest_first_with_its_time() -> None:
     store, runner = board_store({"issues/844/comments": recorded("issue-844-comments.json")})
     (comment,) = store.comments_on(844)
     assert (
-        comment.startswith("**Placement (2026-10-02):** moved from v0.2.28"),
+        comment.body.startswith("**Placement (2026-10-02):** moved from v0.2.28"),
+        comment.created_at,
         runner.calls[0][0],
     ) == (
         True,
+        datetime(2026, 10, 2, 3, 26, 48, tzinfo=UTC),
         [f"{API}/repos/{REPO}/issues/844/comments?per_page=100"],
     )
+
+
+def test_path_changed_at_reads_the_newest_commit_of_a_path_once_for_the_stores_life() -> None:
+    """The newest commit on the default branch that changed a path, one commit a page, as the
+    commits API lists them newest first; a path no commit changed has no time, and each path is
+    read once for the store's life (#2005)."""
+    newest = {"sha": "0a2bfe1f", "commit": {"committer": {"date": "2026-10-24T06:06:57Z"}}}
+    store, runner = board_store({"path=src%2Fapp.py": [newest], "path=src%2Fgone.py": []})
+    times = [store.path_changed_at(path) for path in ("src/app.py", "src/app.py", "src/gone.py")]
+    assert (times, [args for args, _ in runner.calls]) == (
+        [datetime(2026, 10, 24, 6, 6, 57, tzinfo=UTC)] * 2 + [None],
+        [
+            ["api", f"repos/{REPO}/commits?path=src%2Fapp.py&per_page=1"],
+            ["api", f"repos/{REPO}/commits?path=src%2Fgone.py&per_page=1"],
+        ],
+    )
+
+
+def test_a_failed_read_of_the_commits_of_a_path_raises() -> None:
+    store, _ = board_store({"path=": (1, "gh: Server Error (HTTP 502)")})
+    with pytest.raises(GitHubOperationError, match=r"Could not read the commits of src/app\.py"):
+        store.path_changed_at("src/app.py")
 
 
 def test_comment_posts_one_comment() -> None:

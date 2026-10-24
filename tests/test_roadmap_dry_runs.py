@@ -164,6 +164,22 @@ def test_a_refine_plan_reads_each_items_comments_and_each_open_blocker(
     ) == (True, True)
 
 
+def test_a_refine_round_plans_a_read_of_each_cited_path_and_an_item_plan_none() -> None:
+    """A round reads the newest commit that changed each path the block of a waiting item
+    cites, when no reply follows refine's last comment. `--item` refines its item whatever
+    changed, so its plan reads no path (#2005)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    reads, _ = refine_requests(REPO, None)
+    single, _ = refine_requests(REPO, None, item=7)
+    path_read = ("api", f"repos/{REPO}/commits?path=<cited path>&per_page=1")
+    texts = MESSAGES.roadmap
+    assert (
+        [(r.condition, r.repeat) for r in reads if r.argv[1:] == path_read],
+        [r for r in single if r.argv[1:] == path_read],
+    ) == ([(texts.plan_conditions["still_waiting"], texts.plan_repeat["block_path"])], [])
+
+
 def _shape(request: PlannedRequest) -> str:
     """What a planned `gh` command is: a board, card or fields read, an edit by ids, or its
     first arguments."""
