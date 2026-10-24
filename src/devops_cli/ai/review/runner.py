@@ -949,9 +949,11 @@ def _write_review_profile(
 
         print_warning(MESSAGES.review.code_changed_during_run, prefix=False)
     stages = ", ".join(
-        f"{s.name} {format_duration(s.wall_seconds)} ({s.llm_calls} calls)"
+        f"{s.name} {format_duration(s.wall_seconds)} ({s.llm_calls} calls, {s.cached_calls} replayed)"
+        if s.cached_calls
+        else f"{s.name} {format_duration(s.wall_seconds)} ({s.llm_calls} calls)"
         for s in profile.stages
-        if s.wall_seconds >= 1 or s.llm_calls
+        if s.wall_seconds >= 1 or s.llm_calls or s.cached_calls
     )
     capped = profile.truncated_replies
     capped_note = f", {capped} hit the reply cap" if capped else ""

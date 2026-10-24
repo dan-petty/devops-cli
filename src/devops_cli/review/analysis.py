@@ -275,7 +275,9 @@ class AnalysisReport(_StrictModel):
     sampling: SamplingRecord
     reference_coverage: RatioRecord
     rejections: dict[str, int]
-    model_calls: int
+    dispatched: int = 0
+    replayed: int = 0
+    failed: int = 0
     max_concurrency: int = DEFAULT_GATEWAY_REVIEW_CONCURRENCY
     drift_manuals: list[DriftManual] = Field(default_factory=list)
     injected_manuals: list[str] = Field(default_factory=list)
@@ -1057,7 +1059,7 @@ def _execute_single_group_job(
     file_contents: Mapping[str, str],
     python_block_checker: Callable[[str, str], list[str]] | None,
     correlation_table: Sequence[CorrelationEntry] | None = None,
-) -> tuple[GroupAnalysisRecord, list[str]]:
+) -> tuple[GroupAnalysisRecord, list[str], bool]:
     judge = functools.partial(
         _judge_group_reply,
         job_input=job_input,
@@ -1086,12 +1088,13 @@ def _execute_single_group_job(
         )
     except ReplyRejectedError as rejected:
         raw = rejected.reply
+    is_cached = bool(getattr(raw, "cached", False))
     if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
         reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
-        return (_rejected_group_record(job_input, sampling, reason), [reason])
+        return (_rejected_group_record(job_input, sampling, reason), [reason], is_cached)
     text = str(raw).strip()
     verified, reasons = judged[text] if text in judged else judge(text)
-    return _group_record(job_input, sampling, verified, reasons), reasons
+    return _group_record(job_input, sampling, verified, reasons), reasons, is_cached
 
 
 def _finding_plan_rank(finding: Finding) -> tuple[int, int, str, int, str]:
@@ -1302,12 +1305,12 @@ def run_review_plan_job(
     sampling: SamplingRecord,
     environment: EnvironmentFacts,
     python_block_checker: Callable[[str, str], list[str]] | None = None,
-) -> tuple[ReviewPlanRecord, list[str]]:
+) -> tuple[ReviewPlanRecord, list[str], bool]:
     """Execute one model review plan job across admitted findings under G10 checks (#1148)."""
     admitted = [f for f in findings if f.state != FindingState.SUPPRESSED]
     if not admitted or llm_client is None:
         plan = build_deterministic_review_plan(findings, correlation_table, group_records)
-        return ReviewPlanRecord(status="verified", output=plan), []
+        return ReviewPlanRecord(status="verified", output=plan), [], False
 
     plan_input = {
         "admitted_findings": [
@@ -1355,11 +1358,21 @@ def run_review_plan_job(
         )
     except RuntimeError, ValueError, OSError, TimeoutError, TypeError, KeyError:
         reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
-        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+        return (
+            ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]),
+            [reason],
+            False,
+        )
+
+    is_cached = bool(getattr(raw, "cached", False))
 
     if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
         reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
-        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+        return (
+            ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]),
+            [reason],
+            is_cached,
+        )
 
     text = raw if isinstance(raw, str) else str(getattr(raw, "content", raw))
     extracted = extract_json_block(text, default=None)
@@ -1373,13 +1386,21 @@ def run_review_plan_job(
 
     if candidate is None or "steps" not in candidate:
         reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
-        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+        return (
+            ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]),
+            [reason],
+            is_cached,
+        )
 
     try:
         parsed_plan = ReviewPlanOutput.model_validate(candidate)
     except PydanticValidationError:
         reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
-        return ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]), [reason]
+        return (
+            ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]),
+            [reason],
+            is_cached,
+        )
 
     verified_plan, reasons = verify_review_plan(
         parsed_plan,
@@ -1395,7 +1416,36 @@ def run_review_plan_job(
             rejected_reasons=reasons,
         ),
         reasons,
+        is_cached,
     )
+
+
+def _process_group_job_outcomes(
+    jobs: Sequence[AnalysisJobInput],
+    outcomes: Sequence[Any],
+    eff_sampling: SamplingRecord,
+) -> tuple[list[GroupAnalysisRecord], dict[str, int], int, int, int]:
+    records: list[GroupAnalysisRecord] = []
+    rejections: dict[str, int] = {}
+    dispatched = 0
+    replayed = 0
+    failed = 0
+    for job, outcome in zip(jobs, outcomes, strict=True):
+        if isinstance(outcome, BaseException):
+            failed += 1
+            err_reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
+            rejections[err_reason] = rejections.get(err_reason, 0) + 1
+            records.append(_rejected_group_record(job, eff_sampling, err_reason))
+            continue
+        rec, reasons, is_cached = outcome
+        if is_cached:
+            replayed += 1
+        else:
+            dispatched += 1
+        records.append(rec)
+        for reason in reasons:
+            rejections[reason] = rejections.get(reason, 0) + 1
+    return records, rejections, dispatched, replayed, failed
 
 
 def run_group_analysis(
@@ -1448,10 +1498,6 @@ def run_group_analysis(
         for group in groups
     ]
 
-    records: list[GroupAnalysisRecord] = []
-    rejections: dict[str, int] = {}
-    model_calls = 0
-
     if llm_client is not None and jobs:
         system_prompt = load_task_prompt(CONST_ANALYSIS_PROMPT_FILENAME)
         pool = ReviewWorkerPool.create(concurrency=capped_concurrency)
@@ -1469,17 +1515,9 @@ def run_group_analysis(
             jobs,
             return_exceptions=True,
         )
-        model_calls = len(jobs)
-        for job, outcome in zip(jobs, outcomes, strict=True):
-            if isinstance(outcome, BaseException):
-                err_reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
-                rejections[err_reason] = rejections.get(err_reason, 0) + 1
-                records.append(_rejected_group_record(job, eff_sampling, err_reason))
-                continue
-            rec, reasons = outcome
-            records.append(rec)
-            for reason in reasons:
-                rejections[reason] = rejections.get(reason, 0) + 1
+        records, rejections, dispatched, replayed, failed = _process_group_job_outcomes(
+            jobs, outcomes, eff_sampling
+        )
     else:
         records = [
             GroupAnalysisRecord(
@@ -1497,9 +1535,13 @@ def run_group_analysis(
             )
             for job in jobs
         ]
+        rejections = {}
+        dispatched = 0
+        replayed = 0
+        failed = 0
 
     if plan_client is not None:
-        plan_record, plan_reasons = run_review_plan_job(
+        plan_record, plan_reasons, plan_cached = run_review_plan_job(
             admitted_findings,
             correlation_table,
             records,
@@ -1508,7 +1550,12 @@ def run_group_analysis(
             environment=eff_env,
             python_block_checker=python_block_checker,
         )
-        model_calls += 1
+        if CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR in plan_reasons:
+            failed += 1
+        elif plan_cached:
+            replayed += 1
+        else:
+            dispatched += 1
     else:
         deterministic = build_deterministic_review_plan(
             admitted_findings, correlation_table, records
@@ -1546,7 +1593,9 @@ def run_group_analysis(
         sampling=eff_sampling,
         reference_coverage=RatioRecord(numerator=total_received, denominator=total_needed),
         rejections=rejections,
-        model_calls=model_calls,
+        dispatched=dispatched,
+        replayed=replayed,
+        failed=failed,
         max_concurrency=capped_concurrency,
         drift_manuals=eff_drift_kb,
         injected_manuals=injected_keys,
@@ -1645,7 +1694,7 @@ def render_model_analysis_markdown(report: AnalysisReport | None) -> list[str]:
         "## Model Analysis (Model-Written)",
         "*This section is model-written and kept strictly separate from tool-verified findings.*",
         "",
-        f"- **Model Calls**: {report.model_calls} (groups: {len(report.groups)})",
+        f"- **Jobs**: {report.dispatched} dispatched, {report.replayed} replayed, {report.failed} failed (groups: {len(report.groups)})",
         f"- **Reference Coverage**: {cov.numerator}/{cov.denominator} ({cov_pct:.0%})",
         f"- **Sampling**: temperature={report.sampling.temperature}, top_p={report.sampling.top_p}, seed={report.sampling.seed}",
     ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -217,6 +218,51 @@ def test_stage_is_a_no_op_without_a_profiler() -> None:
         pass
 
     assert active_profiler() is None
+
+
+def test_nested_review_stage_subtracts_inner_wall_time_from_outer_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A nested stage subtracts its wall time from the outer stage (#482)."""
+    current_time = 1000.0
+
+    def fake_monotonic() -> float:
+        return current_time
+
+    monkeypatch.setattr(time, "monotonic", fake_monotonic)
+
+    with profiling() as profiler:
+        with review_stage("report"):
+            current_time += 1.0  # report outer took 1s before nesting
+            with review_stage("group_analysis"):
+                current_time += 3.0  # group_analysis took 3s
+            current_time += 2.0  # report outer took 2s after nesting
+
+    profile = profiler.build(session_id="s", target="t")
+    stages = {s.name: s.wall_seconds for s in profile.stages}
+    assert stages == {"report": 3.0, "group_analysis": 3.0}
+
+
+def test_the_profile_summary_shows_replayed_count_and_includes_replayed_only_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The terminal profile line lists replayed calls next to calls, and includes stages that only replayed (#482)."""
+    lines: list[str] = []
+    monkeypatch.setattr(runner, "print_info", lambda message, **kwargs: lines.append(message))
+    monkeypatch.setattr(runner, "format_duration", lambda seconds: "1s")
+    orchestrator = MagicMock(session_id="s1", session=ReviewSession(tmp_path / "session"))
+
+    with profiling() as profiler:
+        with review_stage("report"):
+            _observed(profiler, REMOTE, "stop")
+            with review_stage("group_analysis"):
+                profiler.observe({"cached": True})
+                profiler.observe({"cached": True})
+        _write_review_profile(profiler, orchestrator, "target", 1)
+
+    assert lines == [
+        f"[dim]Profile: 1s, 1 LLM calls; report 1s (1 calls), group_analysis 1s (0 calls, 2 replayed) -> {tmp_path / 'session' / 'profile.json'}[/dim]"
+    ]
 
 
 def _profile(wall: float, persona: float, calls: int, candidates: int) -> ReviewProfile:
