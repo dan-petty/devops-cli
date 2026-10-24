@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from devops_cli.config.settings import Settings, get_logfire_token, load_settings
 from devops_cli.exceptions.telemetry import LogfireConfigurationError
 from devops_cli.output import Panel, Table
+from devops_cli.security.sanitizer import PRIVATE_HOST_PATTERNS
 from devops_cli.telemetry.tracer import _to_otlp_any_value, record_completed_span
 
 logger = logging.getLogger(__name__)
@@ -209,10 +210,14 @@ class LogfireBridge:
                 console=None if console else False,
                 additional_span_processors=[processor],  # type: ignore[list-item]
                 inspect_arguments=False,
+                scrubbing=logfire.ScrubbingOptions(extra_patterns=PRIVATE_HOST_PATTERNS),
             )
 
+            capture_llm_content = getattr(
+                getattr(active_settings, "telemetry", None), "capture_llm_content", False
+            )
             with contextlib.suppress(Exception):
-                logfire.instrument_pydantic_ai()
+                logfire.instrument_pydantic_ai(include_content=capture_llm_content)
 
             self._enabled = True
         except Exception as exc:

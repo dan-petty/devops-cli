@@ -131,6 +131,7 @@ OpenTelemetry export and Logfire settings.
 | `enabled` | `bool` | `True` | `DEVOPS_CLI_TELEMETRY_ENABLED` | Export OpenTelemetry traces and metrics |
 | `endpoint` | `Union` | - | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | OpenTelemetry collector that traces and metrics go to; unset, `OTEL_EXPORTER_OTLP_ENDPOINT` names it, else `http://localhost:4318` |
 | `capture_command_args` | `bool` | `False` | - | Record the arguments of each program that devops-cli runs in `process.command_args` on its subprocess span, each argument through the secret mask. Off by default: an argument can be a credential that the mask does not find |
+| `capture_llm_content` | `bool` | `False` | - | Record LLM prompt and reply text in OpenTelemetry and Logfire telemetry spans. Off by default to prevent exposure of sensitive data |
 | `logfire` | `bool` | `False` | - | - |
 | `logfire_token` | `Union` | - | - | - |
 | `logfire_send_to_logfire` | `Union` | `if-token-present` | - | - |
