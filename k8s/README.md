@@ -276,13 +276,15 @@ kubectl -n monitoring get alloys.collectors.grafana.com k8s-monitoring-alloy-met
   -o jsonpath='{.spec.controller.volumeClaimTemplates[*].metadata.name}'
 # Delete the old StatefulSet and keep its pod.
 kubectl -n monitoring delete statefulset k8s-monitoring-alloy-metrics --cascade=orphan
-# The operator makes the StatefulSet again with the claim template, and its pod mounts the volume.
+# The operator makes the StatefulSet again with the claim template.
 kubectl -n monitoring get statefulset k8s-monitoring-alloy-metrics \
   -o jsonpath='{.spec.volumeClaimTemplates[*].metadata.name}'
+# Delete the adopted pod, so that the StatefulSet makes a pod that mounts the volume.
+kubectl -n monitoring delete pod k8s-monitoring-alloy-metrics-0
 kubectl -n monitoring get pvc alloy-wal-k8s-monitoring-alloy-metrics-0
 ```
 
-`--cascade=orphan` keeps the pod while the StatefulSet is gone. The new StatefulSet adopts the pod and replaces it with a pod that mounts the volume of `alloy-wal-k8s-monitoring-alloy-metrics-0`. The StatefulSet keeps its claims when it is deleted or scaled down, so the volume and its log stay.
+`--cascade=orphan` keeps the pod while the StatefulSet is gone, so the metrics stop only for the restart of the pod. The new StatefulSet adopts the pod but cannot replace it: Kubernetes does not let a pod's volumes change, so each update fails with `pod updates may not change fields other than ...`, and the claim stays `Pending`. The pod that the StatefulSet makes after the delete mounts the volume of `alloy-wal-k8s-monitoring-alloy-metrics-0`, and the claim binds on the node of that pod. The samples in the old pod's own filesystem are lost one time. The StatefulSet keeps its claims when it is deleted or scaled down, so the volume and its log stay.
 
 ## Host Journals and Health Metrics
 
