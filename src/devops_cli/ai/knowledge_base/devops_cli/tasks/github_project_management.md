@@ -3,7 +3,7 @@
 ## 1. Overview & Purpose
 
 GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
-1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and local Jekyll `docs/github-pages.config.yaml` / `docs/` readiness verification.
+1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and readiness verification of `docs/_config.yml`, the one file of site settings that the Pages build reads, and `docs/`.
 2. **GitHub Issues Lifecycle & Triage**: Intake (`devops roadmap intake`), the one way new work becomes an item, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), and proactive triage auditing to guarantee zero unclassified open issues; a backlog item has no milestone.
 3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, reconciliation of Status and Priority on the board's cards from issue and pull request state and labels, and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
@@ -18,7 +18,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh labels sync| B[Remote GitHub Labels]
     E[Issues placed by devops roadmap intake] -->|devops gh project sync| F[GitHub Projects v2 Items]
-    G[docs/github-pages.config.yaml] -->|devops gh pages verify| H[GitHub Pages Deployment]
+    G[docs/_config.yml] -->|devops gh pages verify| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issues triage| J[Triage Audit & Taxonomies]
     B --> K[devops gh labels audit]
     D[Remote GitHub Milestones<br/>planning buckets set by a person] --> L[devops gh milestones list]
@@ -53,7 +53,7 @@ devops gh pages builds --limit 10
 # Request a new GitHub Pages deployment build
 devops gh pages build
 
-# Verify local repository readiness (validates Jekyll docs/github-pages.config.yaml and docs/ directory)
+# Verify local repository readiness (checks docs/_config.yml and the docs/ directory)
 devops gh pages verify
 ```
 
@@ -125,7 +125,7 @@ devops gh milestones list
 ## 4. Best Practice Guidance
 
 1. **GitHub Pages Deployment Readiness**:
-   - Before requesting builds or pushing documentation releases, run `devops gh pages verify` to validate local Jekyll configuration files (`docs/github-pages.config.yaml` syntax, title, markdown engine) and confirm the `docs/` publishing root exists.
+   - Before requesting builds or pushing documentation releases, run `devops gh pages verify` to check `docs/_config.yml` (its YAML syntax and its `title`, `url`, `baseurl` and `markdown` keys) and to confirm the `docs/` publishing root exists. GitHub Pages builds `main:/docs` with no `--config` option, so Jekyll reads `docs/_config.yml` only: put every site setting in that file.
    - Verify that HTTPS is strictly enforced (`enforce_https: true`) and custom domains have valid SSL certificates via `devops gh pages status`.
 2. **Issue Triage & Zero-Untracked Defect Policy**:
    - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and an assigned `priority/*` label (`priority/p0-critical` through `priority/p3-low`).

@@ -14,6 +14,7 @@ from devops_cli.github.pages import (
     request_pages_build,
     verify_pages_configuration,
 )
+from tests.support.paths import REPO_ROOT
 
 
 def test_github_pages_info_model() -> None:
@@ -105,10 +106,10 @@ def test_request_pages_build() -> None:
 
 
 def test_verify_pages_configuration_valid(tmp_path: Path) -> None:
-    """verify_pages_configuration passes with docs/github-pages.config.yaml."""
+    """Verify that a docs/_config.yml with the required site settings passes."""
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    config_file = docs_dir / "github-pages.config.yaml"
+    config_file = docs_dir / "_config.yml"
     config_file.write_text(
         "title: My Project\ndescription: Test\nurl: https://example.github.io\nbaseurl: /test\nmarkdown: kramdown\nplugins:\n  - jekyll-seo-tag\n",
         encoding="utf-8",
@@ -121,20 +122,53 @@ def test_verify_pages_configuration_valid(tmp_path: Path) -> None:
 
 
 def test_verify_pages_configuration_missing_config(tmp_path: Path) -> None:
-    """verify_pages_configuration fails when github-pages.config.yaml is missing."""
+    """Verify that the check fails and names _config.yml when docs/ has no _config.yml."""
     valid, diagnostics = verify_pages_configuration(tmp_path)
     assert valid is False
-    assert any("Missing github-pages.config.yaml in docs/" in d for d in diagnostics)
+    assert any("Missing _config.yml in docs/" in d for d in diagnostics)
+
+
+def test_verify_pages_configuration_reads_only_the_file_jekyll_reads(tmp_path: Path) -> None:
+    """Verify that site settings in a file other than docs/_config.yml do not pass the check.
+
+    The Pages builder runs Jekyll with no `--config` option, so Jekyll reads `_config.yml` in the
+    source directory only. A second file with valid settings has no effect on the site.
+    """
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "github-pages.config.yaml").write_text(
+        "title: My Project\nurl: https://example.github.io\nbaseurl: /test\nmarkdown: kramdown\n",
+        encoding="utf-8",
+    )
+    (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
+
+    valid, diagnostics = verify_pages_configuration(tmp_path)
+    assert valid is False
+    assert any("Missing _config.yml in docs/" in d for d in diagnostics)
 
 
 def test_verify_pages_configuration_missing_keys(tmp_path: Path) -> None:
-    """verify_pages_configuration fails when required keys are missing."""
+    """Verify that the check fails when docs/_config.yml has no url, baseurl or markdown."""
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    config_file = docs_dir / "github-pages.config.yaml"
+    config_file = docs_dir / "_config.yml"
     config_file.write_text("title: Only Title\n", encoding="utf-8")
     (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
 
     valid, diagnostics = verify_pages_configuration(tmp_path)
     assert valid is False
     assert any("Missing required Jekyll config keys" in d for d in diagnostics)
+
+
+def test_the_repository_site_settings_are_in_the_one_file_jekyll_reads() -> None:
+    """Verify that docs/_config.yml of this repository passes the check and is the only YAML
+    file at the top of docs/.
+
+    GitHub Pages builds `main:/docs`, and Jekyll reads `docs/_config.yml` only. A second YAML file
+    there is published as a static file, and its settings have no effect (#2001).
+    """
+    docs_dir = REPO_ROOT / "docs"
+    assert sorted(path.name for path in docs_dir.glob("*.y*ml")) == ["_config.yml"]
+
+    valid, diagnostics = verify_pages_configuration(REPO_ROOT)
+    assert valid is True, diagnostics
