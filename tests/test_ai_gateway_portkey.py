@@ -58,14 +58,9 @@ class TestPortkeyGatewayRouter:
         cm = next(d for d in docs if d and d.get("kind") == "ConfigMap")
         targets = {t["virtual_key"]: t for t in json.loads(cm["data"]["config.json"])["targets"]}
 
-        assert (
+        assert (targets["ollama-coder"]["override_params"]["model"], coder.backend_url) == (
             coder.target_model,
-            coder.backend_url,
-            targets["ollama-coder"]["override_params"]["model"],
-        ) == (
-            "qwen2.5-coder:14b",
             DEFAULT_OLLAMA_CLUSTER_URL,
-            "qwen2.5-coder:14b",
         )
 
     @pytest.mark.usefixtures("public_dns")

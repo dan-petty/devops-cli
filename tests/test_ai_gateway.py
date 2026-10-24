@@ -32,6 +32,22 @@ pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
 runner = CliRunner()
 
 
+def _write_routes_with_a_small_coder(state_file: Path) -> None:
+    """Write the default route table with devops-coder on gpt-oss:20b, below the 30B floor of
+    devops-reasoning, which fails over to devops-coder. No default route is below the floor of a
+    virtual model that fails over to it."""
+    routes = [
+        route.model_copy(update={"target_model": "gpt-oss:20b"})
+        if route.virtual_model == "devops-coder"
+        else route
+        for route in GatewayRouter(state_file=state_file).list_routes()
+    ]
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps({"routes": [route.model_dump() for route in routes]}), encoding="utf-8"
+    )
+
+
 class TestGatewayRouter:
     """Test suite for GatewayRouter model resolution, health probing, and failover."""
 
@@ -114,7 +130,7 @@ class TestGatewayRouter:
         state_file = tmp_path / "gateway_state.json"
         router = GatewayRouter(state_file=state_file)
 
-        # devops-coder fails over to devops-chat (7b >= 7b), satisfying capability tier
+        # devops-coder fails over to devops-chat (27b >= 7b), satisfying capability tier
         simulated = router.trigger_failover("devops-coder", simulate=True)
         executed = router.trigger_failover("devops-coder", simulate=False)
         assert (
@@ -129,15 +145,17 @@ class TestGatewayRouter:
             True,
             "failover:ollama",
             "devops-chat",
-            "qwen2.5-coder:7b",
+            "qwen3.8:27b",
             False,
         )
 
     def test_direct_ollama_failover_targets_the_default_ollama_tier(self, tmp_path: Path) -> None:
-        """Verify devops-chat fails over to the Service of the default Ollama tier (#953).
+        """Verify devops-chat fails over to the Service of the default Ollama tier (#953), with the
+        model of its default route (#1969).
 
         The direct-Ollama fallback sent requests to `ollama.llm.svc.cluster.local`, a Service
-        nothing deploys since the Ollama tiers replaced the single `ollama` workload.
+        nothing deploys since the Ollama tiers replaced the single `ollama` workload, and it named
+        `qwen2.5-coder:7b`, which that tier does not hold.
         """
         router = GatewayRouter(state_file=tmp_path / "gateway_state.json")
         router.trigger_failover("devops-chat", simulate=False)
@@ -152,16 +170,18 @@ class TestGatewayRouter:
 
         service, namespace = str(urlsplit(chat.backend_url).hostname).split(".")[:2]
 
-        assert (chat.backend_type, chat.backend_url, namespace, service in tier_services) == (
-            "failover:ollama",
-            DEFAULT_OLLAMA_CLUSTER_URL,
-            "llm",
-            True,
-        )
+        assert (
+            chat.target_model,
+            chat.backend_type,
+            chat.backend_url,
+            namespace,
+            service in tier_services,
+        ) == ("qwen3.8:27b", "failover:ollama", DEFAULT_OLLAMA_CLUSTER_URL, "llm", True)
 
     def test_trigger_failover_capability_gating(self, tmp_path: Path) -> None:
         """Verify reasoning failover to underpowered tier is blocked without --force."""
         state_file = tmp_path / "gateway_state.json"
+        _write_routes_with_a_small_coder(state_file)
         router = GatewayRouter(state_file=state_file)
 
         with pytest.raises(CapabilityDegradationError) as exc_info:
@@ -176,18 +196,6 @@ class TestGatewayRouter:
             30,
             True,
             "simulated",
-        )
-
-    def test_default_routes_target_profiles(self) -> None:
-        """Verify reasoning and coder aliases route to the designated Ollama profiles."""
-        routes = {
-            r.virtual_model: (r.target_model, r.backend_type, r.backend_url)
-            for r in GatewayRouter().list_routes()
-        }
-
-        assert (routes["devops-reasoning"], routes["devops-coder"]) == (
-            ("qwen3-coder:30b", "ollama", DEFAULT_OLLAMA_CLUSTER_URL),
-            ("qwen2.5-coder:14b", "ollama", DEFAULT_OLLAMA_CLUSTER_URL),
         )
 
     def test_trigger_failover_invalid_model_raises_value_error(self) -> None:
@@ -277,8 +285,9 @@ class TestAIGatewayCLI:
             True,
         )
 
-    def test_failover_command_execution(self) -> None:
+    def test_failover_command_execution(self, isolate_data_dir: Path) -> None:
         """Verify 'devops ai gateway failover' triggers simulated and active transitions."""
+        _write_routes_with_a_small_coder(isolate_data_dir / "agent" / "gateway_state.json")
         res_blocked = runner.invoke(
             gateway_cli_app,
             ["failover", "devops-reasoning", "--simulate", "--format", "json"],

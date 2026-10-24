@@ -18,9 +18,13 @@ import pytest
 import yaml
 from docker.utils import parse_repository_tag
 
-from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES
+from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, GatewayRoute, GatewayRouter
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
-from devops_cli.config.constants import CONST_K8S_OLLAMA_PROVIDER_LABEL, CONST_RAG_MAX_CHUNK_TOKENS
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_VIRTUAL_MODELS,
+    CONST_K8S_OLLAMA_PROVIDER_LABEL,
+    CONST_RAG_MAX_CHUNK_TOKENS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_CLUSTER_URL,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
@@ -1427,6 +1431,96 @@ def test_a_tier_that_stops_serving_names_each_consumer_that_reaches_it_alone() -
         (str(GATEWAY_CONFIG), "ollama-16gib-fast"),
         ("devops_cli.config.defaults.DEFAULT_GATEWAY_REVIEW_SLOTS", "ollama-16gib-fast"),
         (str(DEVCONTAINER), "ollama-16gib"),
+    }
+
+
+def _tiers_of(url: str) -> set[str]:
+    """Return the Ollama tiers whose pods the Service of `url` selects; none when `url` names no
+    Ollama Service."""
+    selector = _ollama_services().get((urlsplit(url).hostname or "").partition(".")[0])
+    return {
+        tier
+        for tier, labels in _tier_pod_labels().items()
+        if selector is not None and selector.items() <= labels.items()
+    }
+
+
+def _gateway_tier_models() -> set[tuple[str, str]]:
+    """Return each tier and model to which a gateway deployment sends requests: the model of the
+    deployment without its provider, on each tier that its Service selects."""
+    providers = _gateway_providers()
+    return {
+        (tier, _without_provider(m["litellm_params"]["model"], providers))
+        for m in _gateway_config()["model_list"]
+        for tier in _tiers_of(m["litellm_params"]["api_base"])
+    }
+
+
+def _routes_off_the_gateway(routes: list[GatewayRoute]) -> set[tuple[str, str]]:
+    """Return each route, as its virtual and target model, whose Service selects no serving tier,
+    or whose model no gateway deployment sends to a serving tier that the Service selects."""
+    served, serving = _gateway_tier_models(), _serving_tiers()
+    return {
+        (route.virtual_model, route.target_model)
+        for route in routes
+        if not (tiers := _tiers_of(route.backend_url) & serving)
+        or any((tier, route.target_model) not in served for tier in tiers)
+    }
+
+
+def _failover_routes(state_dir: Path) -> list[GatewayRoute]:
+    """Return the route that a failover of each virtual model records, each on a new route
+    table."""
+    routes: list[GatewayRoute] = []
+    for model in CONST_AI_GATEWAY_VIRTUAL_MODELS:
+        router = GatewayRouter(state_file=state_dir / f"{model}.json")
+        router.trigger_failover(model, simulate=False, force=True)
+        routes += [route for route in router.list_routes() if route.virtual_model == model]
+    return routes
+
+
+def test_every_gateway_route_and_failover_route_names_a_model_that_its_tier_serves(
+    tmp_path: Path,
+) -> None:
+    """Each default route of `devops ai gateway`, and the route that a failover of each virtual
+    model records, names a model that a gateway deployment sends to the serving tier of the
+    route's Service. Before #1969 the routes named qwen2.5-coder:7b and qwen2.5-coder:14b: no
+    tier held the 14b model, and the tier of the default Ollama Service held neither, so a
+    failover to them failed."""
+    routes = [
+        *GatewayRouter(state_file=tmp_path / "default.json").list_routes(),
+        *_failover_routes(tmp_path),
+    ]
+
+    assert [route.virtual_model for route in routes] == [*CONST_AI_GATEWAY_VIRTUAL_MODELS] * 2
+    assert _routes_off_the_gateway(routes) == set()
+
+
+def test_the_route_check_names_each_route_whose_tier_the_gateway_sends_no_such_model() -> None:
+    """Negative control: the check names a route to a model that no gateway deployment names, a
+    route to a model that the gateway sends to another tier only, a route to a tier that does not
+    serve and a route to no Ollama Service. It passes a route that the gateway serves."""
+    routes = [
+        GatewayRoute(
+            virtual_model=virtual_model,
+            target_model=model,
+            backend_type="ollama",
+            backend_url=f"http://{service}.llm.svc.cluster.local:11434",
+        )
+        for virtual_model, model, service in [
+            ("devops-coder", "qwen2.5-coder:14b", DEFAULT_OLLAMA_CLUSTER_SERVICE),
+            ("devops-reasoning", "deepseek-r1:70b", DEFAULT_OLLAMA_CLUSTER_SERVICE),
+            ("devops-embedding", "qwen3-embedding:0.6b", "ollama-24gib"),
+            ("devops-chat", "qwen3.8:27b", "ollama-nowhere"),
+            ("devops-review", "qwen3-coder:30b", "ollama-64gib-standard"),
+        ]
+    ]
+
+    assert _routes_off_the_gateway(routes) == {
+        ("devops-coder", "qwen2.5-coder:14b"),
+        ("devops-reasoning", "deepseek-r1:70b"),
+        ("devops-embedding", "qwen3-embedding:0.6b"),
+        ("devops-chat", "qwen3.8:27b"),
     }
 
 
