@@ -57,14 +57,17 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
             attributes={"command": cmd_name, "status": "ok"},
         )
     else:
-        from devops_cli.security.sanitizer import mask_secrets
+        if isinstance(exc, typer.TyperException):
+            # A usage error of Typer, such as `typer.BadParameter`, quotes what the person typed,
+            # and an argument can be a credential. The span records its class and no message, as
+            # the tracer does (#2024).
+            detail = {"error.type": exc.__class__.__name__}
+        else:
+            from devops_cli.security.sanitizer import mask_secrets
 
-        clean_err = mask_secrets(str(exc))
-        span_h.set_attribute("cli.error", clean_err)
-        span_h.add_event(
-            "subcommand_failed",
-            {"command": cmd_name, "error": clean_err},
-        )
+            detail = {"error": mask_secrets(str(exc))}
+            span_h.set_attribute("cli.error", detail["error"])
+        span_h.add_event("subcommand_failed", {"command": cmd_name, **detail})
         record_metric(
             "devops_cli_subcommand_seconds",
             dur,

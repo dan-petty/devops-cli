@@ -8,7 +8,6 @@ import time
 from importlib import import_module
 from typing import Final
 
-import click
 import typer
 
 from devops_cli import __version__
@@ -180,22 +179,27 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
             emit(COMMAND_DURATION, dur, {"command": command_name})
             if exit_code != 0:
                 raise typer.Exit(exit_code)
-        except click.ClickException as exc:
+        except typer.TyperException as exc:
+            # Typer has its own copy of Click, and its usage errors (`UsageError`, `BadParameter`,
+            # `NoSuchOption`) come from `typer.TyperException`, not from `click.ClickException`.
+            # Their message quotes what the person typed, such as "Got unexpected extra argument
+            # (<value>)", so the span records the class and the exit code of the error and not
+            # the message (#2024). The root app shows the error box of Typer for the error.
             dur = time.perf_counter() - start_time
-            code = getattr(exc, "exit_code", 1)
-            span_h.set_attribute("cli.exit_code", code)
+            span_h.set_attribute("cli.exit_code", exc.exit_code)
             span_h.set_attribute("cli.duration_seconds", dur)
             span_h.set_attribute("cli.status", "error")
-            span_h.set_attribute("error.message", str(exc))
-            span_h.set_attribute("error.type", exc.__class__.__name__)
             span_h.add_event(
                 "command_failed",
-                {"command": command_name, "error": str(exc), "exit_code": code},
+                {
+                    "command": command_name,
+                    "error.type": exc.__class__.__name__,
+                    "exit_code": exc.exit_code,
+                },
             )
             emit(COMMAND_TOTAL, 1.0, {"command": command_name, "status": "error"})
             emit(COMMAND_DURATION, dur, {"command": command_name})
-            exc.show()
-            raise typer.Exit(code) from exc
+            raise
         except SystemExit as exc:  # pragma: no cover - defensive for wrapped click exits
             dur = time.perf_counter() - start_time
             code = exc.code if isinstance(exc.code, int) else 1

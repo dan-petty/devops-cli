@@ -1130,6 +1130,12 @@ class DocGenerator:
             "arguments in `process.command_args`, each argument through the secret mask. The "
             "mask does not find all credentials, so set the option back to `false` after the "
             "session. A subprocess span never holds `process.command_line`.",
+            "- **Usage Errors**: The message of a usage error quotes the arguments, such as "
+            "`Got unexpected extra argument (<value>)` from the parser or a `typer.BadParameter` "
+            "that a command raises. Thus the command spans record the class of the error "
+            "(`error.type`) and the exit code (`cli.exit_code`), and not the message. The person "
+            "sees the error box of Typer, and `devops_cli_command_total` counts the command with "
+            "the status `error`.",
             "- **W3C `traceparent` Injection**: Subprocesses, sandbox containers (`devops sandbox "
             "deploy`, `devops docker sandbox`, `devops test sandbox`) and commands run with "
             "`devops sandbox exec` receive the active span as `TRACEPARENT` in their environment "
