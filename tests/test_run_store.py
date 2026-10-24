@@ -44,6 +44,7 @@ from devops_cli.config.settings import (
 )
 from devops_cli.k8s import node_port
 from devops_cli.main import app
+from tests.support.config_writes import written_keys
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -241,10 +242,11 @@ def _fake_cluster(calls: list[list[str]]) -> Any:
 
 
 def test_connect_finds_the_index_saves_it_and_indexes_local_runs(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, isolate_data_dir: Path
 ) -> None:
     """Verify connect reads the NodePort and password from the cluster, stores the password in
-    the keyring rather than the config file, and indexes the runs already kept."""
+    the keyring rather than the config file, writes `runs.index_url` alone into the config file,
+    and indexes the runs already kept."""
     calls: list[list[str]] = []
     fake = FakeValkey()
     connected: list[tuple[str, str | None]] = []
@@ -271,6 +273,7 @@ def test_connect_finds_the_index_saves_it_and_indexes_local_runs(
         get_runs_index_password(settings),
         "s3cret" in settings.model_dump_json() + result.output,
         len(fake.strings),
+        written_keys(isolate_data_dir),
     ) == (
         0,
         [("valkey://cluster.example:31379", "s3cret")],
@@ -278,6 +281,7 @@ def test_connect_finds_the_index_saves_it_and_indexes_local_runs(
         "s3cret",
         False,
         1,
+        [["runs.index_url"]],
     )
 
 

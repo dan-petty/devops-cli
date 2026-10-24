@@ -254,7 +254,8 @@ def set_value(
     settings = load_settings()
     try:
         dotted_set(settings, key, value)
-        save_settings(settings)
+        # A credential goes to the keyring, so the config file gets no key for it.
+        save_settings(settings, keys=() if key in _SECRET_FIELDS else (key,))
         if key in _SECRET_FIELDS:
             print_success(f"Secret '{key}' stored in keyring.", prefix=False)
         else:

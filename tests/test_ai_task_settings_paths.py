@@ -21,6 +21,7 @@ from devops_cli.config.settings import (
 )
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.main import app
+from tests.support.config_writes import written_keys
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -43,8 +44,9 @@ def _chat_task() -> tuple[str | None, str | None]:
     return chat.provider, chat.model
 
 
-def test_ai_config_routes_one_task_to_the_gateway() -> None:
-    """Verify `devops ai config --task chat --provider gateway` sets the chat task alone."""
+def test_ai_config_routes_one_task_to_the_gateway(own_config: Path, isolate_data_dir: Path) -> None:
+    """Verify `devops ai config --task chat --provider gateway` sets the chat task alone, and
+    writes only its provider and model into the config file."""
     result = cli.invoke(
         app, ["ai", "config", "--task", "chat", "--provider", "gateway", "--model", "devops-coder"]
     )
@@ -52,6 +54,11 @@ def test_ai_config_routes_one_task_to_the_gateway() -> None:
     assert result.exit_code == 0, result.output
     assert _chat_task() == ("gateway", "devops-coder")
     assert load_settings().ai.provider == "ollama"
+    assert (own_config.read_text(encoding="utf-8"), written_keys(isolate_data_dir)) == (
+        "ai:\n  provider: ollama\n  tasks:\n    chat:\n      provider: gateway\n"
+        "      model: devops-coder\n",
+        [["ai.tasks.chat.model", "ai.tasks.chat.provider"]],
+    )
 
 
 def test_ai_config_accepts_the_gateway_provider() -> None:

@@ -11,8 +11,10 @@ Validates:
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -26,6 +28,7 @@ from devops_cli.commands.k8s.networking import (
 )
 from devops_cli.config.defaults import DEFAULT_OLLAMA_CLUSTER_SERVICE
 from devops_cli.config.settings import Settings
+from tests.support.config_writes import written_keys
 
 runner = CliRunner()
 
@@ -318,8 +321,6 @@ def test_configure_urls_persists_all_llm_endpoints(
     )
 
 
-@patch("devops_cli.commands.k8s.networking.save_settings")
-@patch("devops_cli.commands.k8s.networking.load_settings")
 @patch("devops_cli.commands.k8s.networking.runtime._cluster_reachable", return_value=True)
 @patch("devops_cli.commands.k8s.networking._detect_service_url")
 @patch("devops_cli.commands.k8s.networking._resolve_accessible_url")
@@ -327,12 +328,11 @@ def test_configure_urls_persists_all_infra_endpoints(
     mock_resolve: MagicMock,
     mock_detect: MagicMock,
     mock_reach: MagicMock,
-    mock_load: MagicMock,
-    mock_save: MagicMock,
+    isolate_devops_cli_config: Path,
+    isolate_data_dir: Path,
 ) -> None:
-    """configure_urls persists ArgoCD, Grafana, Prometheus, and Tempo to Settings."""
-    settings = Settings()
-    mock_load.return_value = settings
+    """configure_urls writes the ArgoCD, Grafana, Prometheus, Pyroscope, Tempo and OTLP URLs that it
+    detects into the config file, and no other key."""
     mock_detect.side_effect = lambda svc, ns, context=None: f"http://192.0.2.2:{svc}"
     mock_resolve.side_effect = lambda detected, preferred_localhost_ports=None: (
         f"http://localhost:{str(detected).split(':')[-1]}"
@@ -340,17 +340,28 @@ def test_configure_urls_persists_all_infra_endpoints(
 
     configure_urls(stack="infra")
 
-    assert mock_save.called
+    saved = yaml.safe_load(isolate_devops_cli_config.read_text(encoding="utf-8"))
     assert (
-        settings.argocd.url,
-        settings.grafana.url,
-        settings.prometheus.url,
-        settings.tempo.url,
+        saved["argocd"]["url"],
+        saved["grafana"]["url"],
+        saved["prometheus"]["url"],
+        saved["tempo"]["url"],
+        written_keys(isolate_data_dir),
     ) == (
         "http://localhost:argocd-server",
         "http://localhost:grafana",
         "http://localhost:prometheus-server",
         "http://localhost:tempo",
+        [
+            [
+                "argocd.url",
+                "grafana.url",
+                "prometheus.url",
+                "pyroscope.url",
+                "telemetry.endpoint",
+                "tempo.url",
+            ]
+        ],
     )
 
 

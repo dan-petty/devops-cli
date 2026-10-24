@@ -7,11 +7,14 @@ from typing import Any
 
 import yaml
 
+from tests.support.config_writes import written_keys
+
 
 def test_config_init_names_the_active_config_file_it_writes(
-    cli: Any, config: Any, tmp_path: Path
+    cli: Any, config: Any, tmp_path: Path, isolate_data_dir: Path
 ) -> None:
-    """The wizard wrote the active config file but named the default config path (#1998).
+    """The wizard wrote the active config file but named the default config path (#1998). It
+    writes only the keys that the answers change (#1999).
 
     The floor's `DEVOPS_CLI_CONFIG` makes a file under `tmp_path` the active config. An empty
     PATH holds no gh, so the wizard asks no gh question and starts no program.
@@ -25,4 +28,9 @@ def test_config_init_names_the_active_config_file_it_writes(
 
     named = [line for line in result.output.splitlines() if line.startswith("Config file:")]
     written = yaml.safe_load(active.read_text(encoding="utf-8"))["github"]["default_org"]
-    assert (result.exit_code, named, written) == (0, [f"Config file: {active}"], "new-org")
+    assert (result.exit_code, named, written, written_keys(isolate_data_dir)) == (
+        0,
+        [f"Config file: {active}"],
+        "new-org",
+        [["github.default_org", "repos.base_dir"]],
+    )

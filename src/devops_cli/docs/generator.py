@@ -877,7 +877,11 @@ class DocGenerator:
             "",
             "A command that saves settings, such as `devops config set`, writes the file "
             "`DEVOPS_CLI_CONFIG` names, else the project configuration it finds, else the global "
-            "one. It writes the whole file from the settings it loaded. Before it changes the "
+            "one. It writes only the keys whose values the command changed, and it keeps the "
+            "comments, the order of the keys and the keys that devops-cli does not know. A "
+            "default, or a value that the other config file or an environment variable gives, "
+            "stays out of the file, but `devops config set` writes the key that it names also "
+            "when the value does not change. Before it changes the "
             f"file, it copies the file to `<name>{CONST_CONFIG_BACKUP_INFIX}<YYYYMMDD-HHMMSS>` "
             f"in the same directory, with the time in UTC, and keeps the newest "
             f"{CONST_CONFIG_BACKUPS_KEPT} copies. Then it appends a record to the audit log "
