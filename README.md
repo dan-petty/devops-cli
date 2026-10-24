@@ -295,6 +295,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
 |  | `devops scan aibom [OPTIONS] <target>` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
 |  | `devops scan fix [OPTIONS] <target>` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
+|  | `devops scan injection [OPTIONS] <target>` | Scan target files for prompt-injection smuggling vectors and canary tokens. |
 |  | `devops scan report [OPTIONS] <target>` | Run every registered scanner and report deduplicated, correlated findings. |
 |  | `devops scan sarif [OPTIONS] <document>` | Ingest a SARIF document from any tool and report it in the unified taxonomy. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |

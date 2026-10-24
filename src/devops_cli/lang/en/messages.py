@@ -821,6 +821,8 @@ class ScanMessages:
     semgrep_file_not_scanned: str = "Semgrep did not list the file as scanned"
     checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
     checkov_passed: str = "✓ No IaC policy violations detected."
+    injection_executing: str = "Scanning '{target}' for prompt-injection smuggling vectors..."
+    injection_passed: str = "✓ No prompt-injection smuggling vectors detected."
 
 
 @dataclass(frozen=True)

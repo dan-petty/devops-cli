@@ -120,6 +120,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`scan_complexity`](#scan-complexity) | `true` | Run AST-based cyclomatic complexity and indentation depth analysis. |
 | [`scan_fix`](#scan-fix) | `false` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
 | [`scan_iac`](#scan-iac) | `true` | Run Checkov IaC static policy and security compliance scan. |
+| [`scan_injection`](#scan-injection) | `true` | Scan target files for prompt-injection smuggling vectors and canary tokens. |
 | [`scan_sast`](#scan-sast) | `true` | Run static application security testing (SAST) via Semgrep. |
 | [`scan_sbom`](#scan-sbom) | `true` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
 | [`scan_secrets`](#scan-secrets) | `true` | Run Gitleaks secret pre-filter scan across workspace or targets. |
@@ -1979,6 +1980,26 @@ Run Checkov IaC static policy and security compliance scan.
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+
+### `scan_injection`
+
+Scan target files for prompt-injection smuggling vectors and canary tokens.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target` | `string` | No | `.` | Target file or directory to scan for prompt-injection smuggling vectors. |
+| `sarif` | `string` | No | - | Write findings to this path as a SARIF 2.1.0 document. |
+| `min_severity` | `string` | No | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
+| `suppress` | `string` | No | - | Suppression policy file; inherited policies are resolved via 'extends'. |
+| `show_suppressed` | `boolean` | No | `False` | List findings hidden by the suppression policy and the rule that hid them. |
+| `fail_on` | `string` | No | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
+| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `scan_sast`
 

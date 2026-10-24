@@ -240,6 +240,35 @@ devops scan fix [OPTIONS] <target>
 
 ---
 
+## `devops scan injection`
+
+**Scan target files for prompt-injection smuggling vectors and canary tokens.**
+
+```bash
+devops scan injection [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target file or directory to scan for prompt-injection smuggling vectors. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--sarif` | `path` | - | Write findings to this path as a SARIF 2.1.0 document. |
+| `--min-severity` | `string` | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
+| `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
+| `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
+| `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops scan report`
 
 **Run every registered scanner and report deduplicated, correlated findings.**

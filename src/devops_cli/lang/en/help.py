@@ -1310,6 +1310,9 @@ class ScanCommandHelp:
     show_suppressed: str = (
         "List findings hidden by the suppression policy and the rule that hid them."
     )
+    target_injection: str = (
+        "Target file or directory to scan for prompt-injection smuggling vectors."
+    )
     fail_on: str = "Exit non-zero when a finding at or above this severity survives suppression."
 
 
