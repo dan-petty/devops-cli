@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1](https://github.com/dan-petty/devops-cli/compare/v0.4.0...v0.4.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **ai:** sampling settings reach the model or are refused, review sessions record them, and the reply cache key includes them ([#2168](https://github.com/dan-petty/devops-cli/issues/2168)) ([e447c76](https://github.com/dan-petty/devops-cli/commit/e447c76daf48234ff56f5dc23a7b3e1c9f277d13)), closes [#1070](https://github.com/dan-petty/devops-cli/issues/1070)
+
 ## [0.4.0](https://github.com/dan-petty/devops-cli/compare/v0.3.1...v0.4.0) (2026-10-24)
 
 
