@@ -298,10 +298,6 @@ def test_a_whole_board_read_of_931_items_charges_its_pages() -> None:
     try:
         with (
             patch(
-                "devops_cli.github.rate_limiter._burst_protected_subprocess",
-                side_effect=lambda cmd, **kw: gh(cmd[1:], **kw),
-            ),
-            patch(
                 "devops_cli.github.rate_limiter.run_subprocess",
                 side_effect=lambda cmd, **kw: gh(cmd[1:], **kw),
             ),

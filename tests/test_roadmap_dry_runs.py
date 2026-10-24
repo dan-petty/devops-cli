@@ -64,7 +64,6 @@ def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github_store.GitHubRoadmapStore, "_run", _fail("ran gh"))
     monkeypatch.setattr(rate_limiter, "run_gh", _fail("ran gh"))
     monkeypatch.setattr(rate_limiter, "run_subprocess", _fail("started gh"))
-    monkeypatch.setattr(rate_limiter, "_burst_protected_subprocess", _fail("started gh"))
     monkeypatch.setattr(subprocess, "Popen", _fail("started a process"))
     monkeypatch.setattr(socket.socket, "connect", _fail("connected"))
     monkeypatch.setattr(socket, "getaddrinfo", _fail("resolved a name"))

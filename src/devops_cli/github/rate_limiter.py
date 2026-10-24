@@ -23,14 +23,13 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-from ratelimit import limits, sleep_and_retry  # type: ignore[import-untyped]
 from tenacity import RetryCallState, Retrying, wait_random_exponential
 
 from devops_cli.config.constants import (
@@ -54,7 +53,6 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
-from devops_cli.core import clock
 from devops_cli.core.process import github_token, is_local_gh_command, run_subprocess
 from devops_cli.exceptions.git import (
     GitHubOperationError,
@@ -79,28 +77,6 @@ logger = logging.getLogger(__name__)
 _CACHEABLE_CLI_GROUPS = frozenset(
     {"pr", "issue", "project", "label", "milestone", "repo", "workflow", "run"}
 )
-
-
-def _burst_protected_subprocess(
-    cmd: list[str],
-    *,
-    input: str | None = None,
-    cwd: Path | None = None,
-    check: bool = False,
-    quiet: bool = False,
-    timeout: float = 30.0,
-    capture_output: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """Execute raw gh command through ratelimit burst-ceiling protector."""
-    return run_subprocess(
-        cmd,
-        input=input,
-        cwd=cwd,
-        check=check,
-        quiet=quiet,
-        timeout=timeout,
-        capture_output=capture_output,
-    )
 
 
 @dataclass
@@ -831,10 +807,6 @@ class GitHubRateLimiter:
         self._total_throttles: int = 0
         self._total_wait_seconds: float = 0.0
         self._quotas: dict[str, QuotaState] = {}
-        burst_limit: Any = limits(calls=60, period=60, clock=clock.monotonic)
-        self._run_burst_protected: Callable[..., Any] = sleep_and_retry(
-            burst_limit(lambda *args, **kwargs: _burst_protected_subprocess(*args, **kwargs))
-        )
         if persist_path:
             self._sync_from_disk_locked()
             self.prune_expired_cache()
@@ -1648,17 +1620,14 @@ def _execute_gh_single_attempt(
     if not is_exempt:
         limiter.acquire(subcommand=target_resource, is_mutation=is_mutation, cost=cost)
     try:
-        proc = cast(
-            subprocess.CompletedProcess[str],
-            limiter._run_burst_protected(
-                full_cmd,
-                input=input,
-                cwd=cwd,
-                check=False,
-                quiet=quiet,
-                timeout=timeout,
-                capture_output=capture_output,
-            ),
+        proc = run_subprocess(
+            full_cmd,
+            input=input,
+            cwd=cwd,
+            check=False,
+            quiet=quiet,
+            timeout=timeout,
+            capture_output=capture_output,
         )
     except subprocess.TimeoutExpired:
         proc = subprocess.CompletedProcess(

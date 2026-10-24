@@ -1138,7 +1138,7 @@ def test_project_view_writes_are_paced_as_writes_and_the_view_read_is_not() -> N
         return subprocess.CompletedProcess(cmd, 0, json.dumps(reply), "")
 
     with (
-        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
         patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
     ):
         get_remote_project_views("o", "r")
@@ -1184,8 +1184,7 @@ def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None
         limiter.update_quota(resource, remaining=5000, reset_epoch=4_102_444_800.0, limit=5000)
     before = limiter.points_charged("graphql")
     with (
-        patch.object(rate_limiter, "_burst_protected_subprocess", side_effect=gh),
-        patch.object(rate_limiter, "run_subprocess", side_effect=AssertionError("ran gh")),
+        patch.object(rate_limiter, "run_subprocess", side_effect=gh),
         patch("devops_cli.github.rate_limiter.time.sleep"),
     ):
         found = _read_board("o", 2)

@@ -422,7 +422,6 @@ def serve_github_api(monkeypatch: pytest.MonkeyPatch, api: GitHubApiDouble) -> N
         rate_limiter.GitHubRateLimiter, "_refresh_from_github", refuse_quota_refresh
     )
     monkeypatch.setattr(rate_limiter, "run_subprocess", refuse_gh)
-    monkeypatch.setattr(rate_limiter, "_burst_protected_subprocess", refuse_gh)
     monkeypatch.setattr(rate_limiter, "time", PacedClock(api.paced))
     monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", api.wait)
     rate_limiter.get_github_rate_limiter().update_quota(

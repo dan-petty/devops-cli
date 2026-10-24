@@ -1664,7 +1664,7 @@ class TestPrCommands:
 
         with (
             patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/x"),
-            patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+            patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=gh),
             patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
         ):
             created = _fallback_create_pr(title="t", body="b", base="main", repo="o/r")

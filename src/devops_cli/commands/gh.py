@@ -1201,7 +1201,7 @@ def api_cmd(
         typer.Option("--cache-ttl", help="Cache TTL in seconds (default 15.0)"),
     ] = 15.0,
 ) -> None:
-    """Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching."""
+    """Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching."""
     args = ["api", endpoint]
     if method:
         args.extend(["-X", method.upper()])
