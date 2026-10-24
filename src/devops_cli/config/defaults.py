@@ -199,7 +199,11 @@ DEFAULT_VALKEY_SYMBOL_TTL_SECONDS = 604800  # 7 days TTL for cached symbol signa
 DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 DEFAULT_RAG_EMBEDDING_URL: str | None = None
 DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
-DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Bounded timeout for fast failover across nodes
+DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Read timeout of one direct Ollama node, then failover
+# Read timeout of one embedding batch sent to the gateway or to an OpenAI-compatible API. On
+# 2026-10-23, the slowest batch that a gateway tier answered took 76 s, and a 30 s read timeout
+# stopped 70 batches at 29 to 30 s. 120 s is more than 1.5 times the slowest reply (#2011).
+DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT: float = 120.0
 DEFAULT_RAG_EMBEDDING_BATCH_SIZE: int = 32  # Dynamic batch starting size
 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE: int = 1  # Smallest batch: one text, whose failure raises
 DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS: float = 2.0  # Target latency ceiling
