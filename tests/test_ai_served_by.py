@@ -1,4 +1,5 @@
-"""Each gateway call records the backend that served it, for per-backend cost, time and quality."""
+"""Each gateway call records the backend that served it, for per-backend cost, time and quality,
+and a hosted call is priced at the deployment model that the gateway names (#2031)."""
 
 from __future__ import annotations
 
@@ -25,6 +26,10 @@ GATEWAY_URL = "http://gateway.example.com:4000/v1"
 REMOTE = "http://remote.example.com:8000/v1"
 OLLAMA = "http://ollama-0.example.com:11434"
 SERVED_BY_HEADER = "x-litellm-model-api-base"
+# LiteLLM 1.103.0 names the deployment model of the route in this header, and the router writes
+# the route name in the reply body (#2031).
+SERVED_MODEL_HEADER = "x-litellm-model-name"
+HOSTED_API = "https://api.openai.com"
 
 # The ledger schema before the served_by column existed.
 _PREVIOUS_SCHEMA = """
@@ -51,9 +56,9 @@ def _public_endpoints(public_dns: str) -> None:
     """The configured endpoints are example.com URLs, which resolve to a public address."""
 
 
-def _gateway_client() -> LLMClient:
+def _gateway_client(model: str = "devops-review") -> LLMClient:
     return LLMClient(
-        AIConfig(provider="gateway", gateway_url=GATEWAY_URL, model="devops-review"),
+        AIConfig(provider="gateway", gateway_url=GATEWAY_URL, model=model),
         api_key="sk-gateway",
         cache_enabled=False,
     )
@@ -169,6 +174,76 @@ class TestClient:
         )
 
         assert (text, [c.get("served_by") for c in spend]) == ("OK", [OLLAMA])
+
+
+def _hosted_headers(served_model: str | None) -> dict[str, str]:
+    """The headers of a gateway reply that a hosted API served, with the deployment model."""
+    headers = {SERVED_BY_HEADER: HOSTED_API}
+    if served_model is not None:
+        headers[SERVED_MODEL_HEADER] = served_model
+    return headers
+
+
+def _chat_once(monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]) -> None:
+    """One blocking `devops-chat` call, with a reply that counts one million prompt tokens."""
+    body = {
+        "model": "devops-chat",
+        "choices": [{"message": {"content": "OK"}}],
+        "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0},
+    }
+    route_llm_clients(monkeypatch, lambda request: httpx2.Response(200, json=body, headers=headers))
+    _gateway_client("devops-chat").chat("You are terse.", "Reply with OK.", use_cache=False)
+
+
+def _stream_once(monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]) -> None:
+    """One streamed `devops-chat` call, whose headers arrive before the first chunk."""
+    sse = b'data: {"model": "devops-chat", "choices": [{"delta": {"content": "OK"}}]}\n\n'
+    sse += b"data: [DONE]\n\n"
+
+    def fake_send(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
+        stream_headers = {**headers, "content-type": "text/event-stream"}
+        return httpx2.Response(200, headers=stream_headers, content=sse, request=request)
+
+    monkeypatch.setattr(httpx2.Client, "send", fake_send)
+    "".join(
+        _gateway_client("devops-chat").chat_messages_stream(
+            "You are terse.", [ChatMessage(role="user", content="Reply with OK.")]
+        )
+    )
+
+
+def _priced_rows(ledger: SpendLedger) -> list[tuple[Any, ...]]:
+    with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
+        return conn.execute(
+            "SELECT model, served_model, pricing_source, cost_usd > 0 FROM ai_spend_records"
+            " ORDER BY id"
+        ).fetchall()
+
+
+@pytest.mark.parametrize("call", [_chat_once, _stream_once], ids=["blocking", "stream"])
+@pytest.mark.parametrize(
+    ("served_model", "priced"),
+    [
+        ("openai/gpt-4o", ("openai/gpt-4o", "genai_prices:openai", 1)),
+        (None, (None, "unknown", 0)),
+    ],
+    ids=["names-the-deployment", "names-no-deployment"],
+)
+def test_a_hosted_gateway_reply_is_priced_at_the_deployment_model_that_it_names(
+    monkeypatch: pytest.MonkeyPatch,
+    spend_ledger: SpendLedger,
+    call: Any,
+    served_model: str | None,
+    priced: tuple[Any, ...],
+) -> None:
+    """genai-prices does not know the route name `devops-chat`, so a hosted call cost $0 (#2031).
+
+    A reply that names its deployment model is priced at that model, and the row keeps the route
+    name as its model. A reply that names none is priced at the route name, as before.
+    """
+    call(monkeypatch, _hosted_headers(served_model))
+
+    assert _priced_rows(spend_ledger) == [("devops-chat", *priced)]
 
 
 def test_cost_command_breaks_spend_down_by_backend(

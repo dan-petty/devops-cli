@@ -22,6 +22,9 @@ from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
+# The only source files that may name a header of a gateway reply.
+_GATEWAY_HEADER_FILES = ("config/constants.py", "ai/client/network.py")
+
 
 def _eval_ssrf_target(input_str: str) -> Any:
     return SSRFBlockedError(input_str).details["target_url"]
@@ -435,21 +438,18 @@ def test_no_forbidden_constructs_remain() -> None:
     res3 = subprocess.run(cmd3, cwd=REPO_ROOT, capture_output=True, text=True)
     assert (res3.returncode, res3.stdout.strip()) == (1, "")
 
-    # 4. Check served_by header references: only constants.py and network.py
-    cmd4 = [
-        "git",
-        "grep",
-        "-n",
-        "-E",
+    # 4. Check gateway reply header references: only constants.py and network.py. The served-by
+    # header names the backend, and the served-model header the deployment model (#2031).
+    for header_pattern in (
         "CONST_AI_GATEWAY_SERVED_BY_HEADER|x-litellm-model-api-base",
-        "src",
-    ]
-    res4 = subprocess.run(cmd4, cwd=REPO_ROOT, capture_output=True, text=True)
-    lines = [line.split(":")[0] for line in res4.stdout.strip().splitlines() if line]
-    assert (
-        res4.returncode == 0
-        and len(lines) >= 2
-        and all(
-            p.endswith("config/constants.py") or p.endswith("ai/client/network.py") for p in lines
-        )
-    )
+        "CONST_AI_GATEWAY_SERVED_MODEL_HEADER|x-litellm-model-name",
+    ):
+        cmd4 = ["git", "grep", "-n", "-E", header_pattern, "src"]
+        res4 = subprocess.run(cmd4, cwd=REPO_ROOT, capture_output=True, text=True)
+        lines = [line.split(":")[0] for line in res4.stdout.strip().splitlines() if line]
+        assert (
+            header_pattern,
+            res4.returncode,
+            len(lines) >= 2,
+            sorted({p for p in lines if not p.endswith(_GATEWAY_HEADER_FILES)}),
+        ) == (header_pattern, 0, True, [])

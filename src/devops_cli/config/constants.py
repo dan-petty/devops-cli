@@ -1192,6 +1192,9 @@ CONST_SPEND_REQUEST_TYPE_EMBEDDING: Final[str] = "embedding"
 # `pricing_source` (#1672).
 CONST_PRICING_SOURCE_LOCAL: Final[str] = "local"
 CONST_PRICING_SOURCE_UNKNOWN: Final[str] = "unknown"
+# The genai-prices provider ID that reads a LiteLLM model reference, such as `openai/gpt-4o`:
+# genai-prices takes the provider from the prefix and the model from the rest (#2031).
+CONST_GENAI_PRICES_LITELLM_PROVIDER: Final[str] = "litellm"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 # What the GitHub session sends with every REST request (#983): GitHub requires a User-Agent
 # naming the project or user, and the API version pins the REST contract the session reads.
@@ -2884,6 +2887,9 @@ CONST_CAPABILITY_PROBE_CANARY: Final[str] = "CANARY-RECALL-9824"
 CONST_CAPABILITY_PROBE_FORBIDDEN_WORDS: Final[tuple[str, ...]] = ("security", "vulnerability")
 CONST_CAPABILITY_PROBE_PROHIBITION_PREFIX: Final[str] = "SUMMARY:"
 
+# Response header in which the LiteLLM gateway names the deployment model that served a call,
+# such as `openai/gpt-4o`. The router writes the route name in the reply body (#2031).
+CONST_AI_GATEWAY_SERVED_MODEL_HEADER: Final[str] = "x-litellm-model-name"
 # Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and
 # Anthropic tables copy pydantic-ai 2.54.0's private maps (models/openai.py, models/anthropic.py),
 # which are not imported because they are private. A value absent from a table, or mapped to

@@ -655,6 +655,32 @@ def test_an_existing_ledger_gains_the_pricing_source_column(tmp_path: Path) -> N
     assert _pricing_sources(db_path) == [("qwen", None, 0.0), ("llama3:8b", "local", 0.0)]
 
 
+def test_an_existing_ledger_gains_the_served_model_column(tmp_path: Path) -> None:
+    """Verify a ledger written before served_model existed keeps its rows and records the
+    deployment model that a gateway reply names (#2031)."""
+    db_path = tmp_path / "spend.db"
+    with contextlib.closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute(_SCHEMA_BEFORE_FINISH_REASON)
+        conn.execute(
+            "INSERT INTO ai_spend_records (timestamp, provider, server, model) "
+            "VALUES ('2026-09-01T00:00:00+00:00', 'ollama', 'local', 'qwen')"
+        )
+
+    SpendLedger(db_path=db_path).record_request(
+        provider="gateway",
+        server="example.com:4000",
+        model="devops-chat",
+        served_model="openai/gpt-4o",
+        prompt_tokens=10,
+        completion_tokens=5,
+        cost_usd=0.0,
+    )
+
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        rows = conn.execute("SELECT model, served_model FROM ai_spend_records ORDER BY id")
+        assert rows.fetchall() == [("qwen", None), ("devops-chat", "openai/gpt-4o")]
+
+
 def test_spend_ledger_export_prometheus_with_report(tmp_path: Path) -> None:
     """Verify export_ai_spend_prometheus accepts precomputed report."""
     from devops_cli.ai.spend.prometheus import export_ai_spend_prometheus

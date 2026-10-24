@@ -1124,6 +1124,38 @@ def test_a_gateway_batch_records_one_embedding_row_with_the_replys_tokens_and_ba
     )
 
 
+def test_a_hosted_gateway_embedding_is_priced_at_the_deployment_model_that_it_names(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """A gateway reply that a hosted API served names its deployment model in
+    `x-litellm-model-name`. The row is priced at that model and keeps the requested model (#2031).
+    """
+
+    def hosted_reply(request: httpx2.Request) -> httpx2.Response:
+        texts = _inputs(request)
+        return httpx2.Response(
+            200,
+            headers={
+                CONST_AI_GATEWAY_SERVED_BY_HEADER: "https://api.openai.com",
+                "x-litellm-model-name": "openai/text-embedding-3-small",
+            },
+            json={
+                "data": [{"index": i, "embedding": [0.5] * 4} for i in range(len(texts))],
+                "usage": {"prompt_tokens": 1_000_000, "total_tokens": 1_000_000},
+            },
+        )
+
+    _serve(monkeypatch, hosted_reply)
+
+    _gateway_engine().embed_texts(["hosted chunk"])
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute(
+            "SELECT model, served_model, pricing_source, cost_usd FROM ai_spend_records"
+        ).fetchall()
+    assert rows == [("bge-m3:latest", "openai/text-embedding-3-small", "genai_prices:openai", 0.02)]
+
+
 def test_a_batch_retried_after_http_429_records_one_row(
     monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
 ) -> None:

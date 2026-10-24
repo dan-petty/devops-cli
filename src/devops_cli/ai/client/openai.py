@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
@@ -18,9 +18,11 @@ from devops_cli.ai.client.models import (
 from devops_cli.ai.client.network import (
     acquire_gateway_slot,
     extract_served_by,
+    extract_served_model,
     reply_schema,
     request_limited_json,
     stream_served_by,
+    stream_served_model,
     stream_slot_wait,
     uses_gateway_slots,
 )
@@ -164,9 +166,10 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         self,
         raw_json: dict[str, Any],
         wall_elapsed: float,
-        served_by: str | None,
+        reply_headers: Mapping[str, str] | None,
     ) -> LLMResponse:
-        """Parse raw OpenAI completion JSON into a structured LLMResponse."""
+        """Parse raw OpenAI completion JSON into a structured LLMResponse, with the backend and
+        the deployment model that a gateway names in its reply headers."""
         choices = raw_json.get("choices", [{}])
         first_choice = choices[0] if choices else {}
         msg = first_choice.get("message", {})
@@ -190,7 +193,8 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             total_tokens=usage.get("total_tokens"),
-            served_by=served_by,
+            served_by=extract_served_by(reply_headers),
+            served_model=extract_served_model(reply_headers),
             model=raw_json.get("model"),
             finish_reason=provider_finish_reason(
                 CONST_OPENAI_FINISH_REASONS, first_choice.get("finish_reason")
@@ -229,8 +233,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                     timeout=self._request_timeout(),
                 )
                 wall_elapsed = time.monotonic() - start_time
-                served_by = extract_served_by(reply_headers)
-                return self._parse_compat_response(raw_json, wall_elapsed, served_by)
+                return self._parse_compat_response(raw_json, wall_elapsed, reply_headers)
             except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
                 raise self._connection_error(exc) from exc
             except httpx2.HTTPError as exc:
@@ -264,6 +267,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                     response.read()
                 response.raise_for_status()
                 stream_served_by.set(extract_served_by(response.headers))
+                stream_served_model.set(extract_served_model(response.headers))
                 yield from _read_event_stream(response, _openai_stream_frame, "Provider")
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
