@@ -1032,7 +1032,8 @@ class RoadmapCommandHelp:
     intake: str = (
         "Turn candidates into items: every open issue not on the board, and every board item "
         "intake left without a Priority. Each is checked for a duplicate among the board's "
-        "items and the issues closed as not planned, gets a type, a priority, Value and Effort "
+        "items and the issues closed as not planned. An issue that has sub-issues is not among "
+        "them, because its sub-issues deliver it. Each gets a type, a priority, Value and Effort "
         "from the model with a reason comment, and goes to the backlog. Intake sets no milestone: "
         "a person plans the milestones on the board, and a milestone an issue has stays. An "
         "open issue whose board card a person archived is a candidate too: intake restores the "
@@ -1057,7 +1058,8 @@ class RoadmapCommandHelp:
     intake_body_file: str = "File holding the new candidate's body. Needs --title."
     intake_source: str = (
         "Link the new candidate came from, such as the item it splits or the review that found "
-        "it; the filed body ends with it."
+        "it; the filed body ends with it. Intake never judges the candidate a duplicate of the "
+        "issue that this link names."
     )
     intake_filed_by: str = (
         "Who files the new candidate: an agent's is labeled source/agent; a person's is not."

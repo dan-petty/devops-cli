@@ -209,6 +209,7 @@ class _IssuePayload(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
+    sub_issues: int = Field(default=0, validation_alias=AliasPath("sub_issues_summary", "total"))
 
     def record(self) -> IssueRecord:
         return IssueRecord(
@@ -225,6 +226,7 @@ class _IssuePayload(BaseModel):
             created_at=self.created_at,
             updated_at=self.updated_at,
             closed_at=self.closed_at,
+            sub_issues=self.sub_issues,
         )
 
 
