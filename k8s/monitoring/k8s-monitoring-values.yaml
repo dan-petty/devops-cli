@@ -64,6 +64,8 @@ clusterMetrics:
         - kube_horizontalpodautoscaler_labels
         - kube_service_info
         - kube_ingress_info
+        # The host of each Ingress rule, for the IngressServesPlaceholderHost alert (#1817).
+        - kube_ingress_path
         - kube_namespace_created
         - kube_namespace_labels
         - kube_networkpolicy_labels

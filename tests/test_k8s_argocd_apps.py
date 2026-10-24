@@ -607,6 +607,35 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
     )
 
 
+def test_the_app_of_apps_applies_the_homelab_applications_server_side() -> None:
+    """A sync of `cluster` keeps the overrides on the homelab Applications with any sync options.
+
+    Client-side apply deletes a field that the last-applied annotation holds and git does not,
+    and `RespectIgnoreDifferences` writes the overrides into that annotation. So a manual sync
+    without the option deleted them, and every public host returned 404 (#1817). Server-side
+    apply deletes only the fields of its own field manager, and the overrides belong to
+    deploy-stack's `kubectl-patch` and to Image Updater. The migration manager moves the fields
+    of the controller's client-side apply entry into its server-side apply entry, so a field
+    that git removes from these Applications also leaves the cluster.
+    """
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
+
+    annotations = {
+        name: app["metadata"].get("annotations") or {} for name, app in _all_applications().items()
+    }
+    server_side = sorted(
+        name
+        for name, values in annotations.items()
+        if "ServerSideApply=true" in values.get("argocd.argoproj.io/sync-options", "").split(",")
+    )
+    assert (
+        server_side,
+        annotations["cluster"].get("argocd.argoproj.io/client-side-apply-migration-manager"),
+    ) == (sorted(HOMELAB_APPLICATIONS), "argocd-controller")
+
+
 @pytest.mark.live("jq")
 def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None:
     """The jqPathExpression matches pre- and post-delete finalizers, preserving resources-finalizer (#1674)."""
