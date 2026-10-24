@@ -968,6 +968,118 @@ def _evaluate_fail_on(
         raise typer.Exit(1)
 
 
+def _collect_injection_findings(target_abs: Path) -> list[Finding]:
+    """Scan target path or file for injection findings."""
+    from devops_cli.security.prompt_injection import scan_injection_file, scan_injection_paths
+
+    if target_abs.is_file():
+        return scan_injection_file(target_abs)
+    return scan_injection_paths([target_abs])
+
+
+def _render_injection_report(
+    report: ScanReport,
+    resolved: str,
+    show_suppressed: bool,
+    sarif: Path | None,
+) -> None:
+    """Render injection scan report in either serialized or table format."""
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.as_dict(), resolved)
+        return
+
+    if report.total == 0:
+        print_success(MESSAGES.scan.injection_passed)
+    else:
+        _render_report_table(report)
+    _warn_expired(report)
+    if show_suppressed:
+        _render_suppressed(report)
+    if sarif is not None:
+        print_success(f"SARIF document written to {sarif}")
+
+
+def _check_injection_exit(report: ScanReport, fail_on: str | None) -> None:
+    """Exit with non-zero status if findings exceed fail_on or findings exist."""
+    if fail_on:
+        if report.exceeds(fail_on):
+            raise typer.Exit(1)
+    elif report.findings:
+        raise typer.Exit(1)
+
+
+@app.command("injection")
+def scan_injection(
+    target: Annotated[
+        Path,
+        typer.Argument(help=HELP.scan.target_injection),
+    ] = DEFAULT_CURRENT_PATH,
+    sarif: Annotated[
+        Path | None,
+        typer.Option("--sarif", help=HELP.scan.sarif_output),
+    ] = None,
+    min_severity: Annotated[
+        str | None,
+        typer.Option("--min-severity", help=HELP.scan.min_severity),
+    ] = None,
+    suppress: Annotated[
+        Path | None,
+        typer.Option("--suppress", help=HELP.scan.suppression_policy),
+    ] = None,
+    show_suppressed: Annotated[
+        bool,
+        typer.Option("--show-suppressed", help=HELP.scan.show_suppressed),
+    ] = False,
+    fail_on: Annotated[
+        str | None,
+        typer.Option("--fail-on", help=HELP.scan.fail_on),
+    ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Scan target files for prompt-injection smuggling vectors and canary tokens."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+    policy = _load_policy_or_exit(suppress)
+
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan injection {target}",
+            target=str(target_abs),
+            action="prompt_injection_scan",
+            details={"sarif": str(sarif) if sarif else None},
+        )
+
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
+        print_muted(MESSAGES.scan.injection_executing.format(target=target_abs))
+
+    raw_findings = _collect_injection_findings(target_abs)
+    report = build_report(
+        {"injection": raw_findings},
+        target_abs,
+        policy=policy,
+        min_severity=min_severity,
+    )
+
+    if sarif is not None:
+        write_sarif(report.findings, sarif, report.outcomes)
+
+    _render_injection_report(report, resolved, show_suppressed, sarif)
+    _check_injection_exit(report, fail_on)
+    return None
+
+
 @app.command("report")
 def scan_report(
     target: Annotated[
