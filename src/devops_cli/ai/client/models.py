@@ -128,6 +128,7 @@ class LLMResponse(str):
     eval_duration_ms: float | None
     prompt_eval_duration_ms: float | None
     served_by: str | None
+    served_model: str | None
     model: str | None
     finish_reason: FinishReason | None
 
@@ -148,6 +149,7 @@ class LLMResponse(str):
         model: str | None = None,
         finish_reason: FinishReason | None = None,
         reasoning_tokens: int | None = None,
+        served_model: str | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
@@ -163,6 +165,10 @@ class LLMResponse(str):
         obj.cached = cached
         # The backend a gateway routed the call to; None when no gateway named one.
         obj.served_by = served_by
+        # The deployment model a gateway named as the model that served the call; None when no
+        # gateway named one. `model` is the model the reply body names: the route name for the
+        # gateway (#2031).
+        obj.served_model = served_model
         obj.model = model
         # Why the provider says the reply ended; None when it did not say.
         obj.finish_reason = finish_reason

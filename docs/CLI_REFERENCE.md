@@ -5231,7 +5231,7 @@ devops ai cost set-price <target> <prompt_rate> <completion_rate>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
+| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). When a gateway reply names its deployment model, such as 'openai/gpt-4o', that model is the target, not the route name. A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
 
@@ -5361,7 +5361,7 @@ devops ai spend set-price <target> <prompt_rate> <completion_rate>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
+| `<target>` | `string` | Yes | Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). When a gateway reply names its deployment model, such as 'openai/gpt-4o', that model is the target, not the route name. A local call costs nothing, also when it has a custom price. Its tokens count in local savings. |
 | `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
 | `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
 

@@ -715,7 +715,7 @@ def cost_set_price(
     target: Annotated[
         str,
         typer.Argument(
-            help="Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). A local call costs nothing, also when it has a custom price. Its tokens count in local savings.",
+            help="Target model identifier or backend server address of hosted calls (e.g. 'gpt-4o', 'api.example.com'). When a gateway reply names its deployment model, such as 'openai/gpt-4o', that model is the target, not the route name. A local call costs nothing, also when it has a custom price. Its tokens count in local savings.",
         ),
     ],
     prompt_rate: Annotated[

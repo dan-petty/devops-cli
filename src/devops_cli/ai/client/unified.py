@@ -480,6 +480,7 @@ class LLMClient(
             server=srv,
             backend_info=res.backend_info or self.backend_info,
             served_by=getattr(res, "served_by", None),
+            served_model=getattr(res, "served_model", None),
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             cached=res.cached,
@@ -906,6 +907,7 @@ class LLMClient(
             "ai.llm.stream", attributes=stream_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
         ) as span_h:
             network.stream_served_by.set(None)
+            network.stream_served_model.set(None)
             network.stream_finish_reason.set(None)
             network.stream_slot_wait.set(0.0)
             network.stream_server.set(None)
@@ -1008,6 +1010,7 @@ class LLMClient(
             server=srv,
             backend_info=self.backend_info,
             served_by=network.stream_served_by.get(),
+            served_model=network.stream_served_model.get(),
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             cached=False,

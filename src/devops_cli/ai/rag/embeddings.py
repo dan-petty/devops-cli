@@ -712,9 +712,9 @@ class EmbeddingsEngine:
         """Record one answered embedding request in the spend ledger and the AI usage counters.
 
         The provider and server are those a chat call names, so both are local or hosted alike;
-        a gateway's header names the backend that served the request.
+        a gateway's headers name the backend and the deployment model that served the request.
         """
-        from devops_cli.ai.client.network import extract_served_by
+        from devops_cli.ai.client.network import extract_served_by, extract_served_model
         from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
 
         provider = self.ai_config.provider
@@ -725,6 +725,7 @@ class EmbeddingsEngine:
             server=server,
             backend_info=f"{provider} ({server})",
             served_by=extract_served_by(res.headers),
+            served_model=extract_served_model(res.headers),
             prompt_tokens=_reply_input_tokens(res, parse_tokens, texts),
             request_type=CONST_SPEND_REQUEST_TYPE_EMBEDDING,
             duration_seconds=seconds,
