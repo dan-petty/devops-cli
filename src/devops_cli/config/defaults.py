@@ -782,9 +782,7 @@ DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 60
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 15
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
-# `.github/roadmap.toml` keys a repository may leave out. `board` has no default.
-# Refine readies backlog items while fewer than this many items are Ready (#1515).
-DEFAULT_ROADMAP_REFINE_READY_TARGET: int = 12
+# The most items one refine round takes. It is the only cap of a round (#2004).
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5

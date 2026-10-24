@@ -74,7 +74,6 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import LaneJob, TriggerBatch
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.config import RoadmapConfig
     from devops_cli.roadmap.intake_model import IntakeModel
 
 logger = logging.getLogger(__name__)
@@ -380,17 +379,14 @@ def _run_refine_adapter(
     store: RoadmapStore,
     repo: str = "",
     clone_path: Path | None = None,
-    config: RoadmapConfig | None = None,
     **_: Any,
 ) -> JobOutcome:
     """Run refine job and return JobOutcome; it fails, once the other items are written, when the
     model call failed for any item."""
-    from devops_cli.roadmap.config import read_roadmap_config
     from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
 
-    active_config = config or read_roadmap_config(store, ref=None)
     source = _job_clone("refine", clone_path)
-    plan = plan_refine(store, repo=repo, source=source, config=active_config)
+    plan = plan_refine(store, repo=repo, source=source)
     if plan.has_writes:
         apply_refine(store, plan)
     raise_for_failed_items(plan)

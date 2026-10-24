@@ -2,15 +2,15 @@
 
 Without `--item`, refine picks up to `--limit` (default 3) items, nearest place first (#1515):
 each open milestone's New items, in milestone order (due date, then number); the backlog's P0 and
-P1 items; each place by priority. Then it takes the backlog's other New items while fewer than the
-configured `refine_ready_target` items are Ready across the open milestones and the backlog. Each
-open milestone and the backlog's P0/P1 items also give their Ready items no refine round has
-recorded, which refine confirms Ready or sets back to New. It leaves out items that are Blocked
-or started, items whose section a person edited (`check_person_edits`), and items unchanged since
-their last round that still wait on their next step, so none of them takes one of the `--limit`
-places. Selection judges an item by the body its listing carried, so an item nothing changed costs
-no body read and no model call (#1539). `--item` refines the item it names whenever it is open,
-New or Ready, since a person asked for it.
+P1 items; the backlog's other New items; each place by priority. The number of Ready items does
+not stop a round: the board shows that number to the person who plans, and `--limit` is the only
+cap (#2004). Each open milestone and the backlog's P0/P1 items also give their Ready items no
+refine round has recorded, which refine confirms Ready or sets back to New. It leaves out items
+that are Blocked or started, items whose section a person edited (`check_person_edits`), and
+items unchanged since their last round that still wait on their next step, so none of them takes
+one of the `--limit` places. Selection judges an item by the body its listing carried, so an item
+nothing changed costs no body read and no model call (#1539). `--item` refines the item it names
+whenever it is open, New or Ready, since a person asked for it.
 
 Every item refine does not set Ready gets a next step (`NextStep`, #1758), recorded in its job
 record and posted as one comment that carries `CONST_ROADMAP_REFINE_COMMENT_MARKER`: the open
@@ -83,10 +83,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_REFINE_LIMIT,
-    DEFAULT_ROADMAP_REFINE_READY_TARGET,
-)
+from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
 from devops_cli.config.settings import get_tavily_api_key, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
@@ -94,7 +91,6 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.store import (
     GitHubState,
     Item,
@@ -828,7 +824,8 @@ _PRIORITY_ORDER: Final[dict[str | None, int]] = {
 }
 
 
-# The backlog's items at this rank or higher (P0 and P1) are refined whatever the Ready count.
+# The backlog's items at this rank or higher (P0 and P1) also give their unrefined Ready items,
+# as each open milestone does.
 _BACKLOG_FIRST_RANK: Final[int] = _PRIORITY_ORDER[CONST_ROADMAP_P1_PRIORITY]
 
 
@@ -950,10 +947,10 @@ def select_candidates(
     *,
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
-    ready_target: int = DEFAULT_ROADMAP_REFINE_READY_TARGET,
 ) -> tuple[list[Item], list[WaitingItem]]:
-    """Selects items to refine, nearest place first as the module's docstring orders them,
-    returning (selected, waiting): each item it leaves out waits on its next step."""
+    """Selects up to `limit` items to refine, nearest place first as the module's docstring
+    orders them, returning (selected, waiting): each item it leaves out waits on its next step.
+    The number of Ready items does not stop it (#2004)."""
     if item_number is not None:
         return _select_single_candidate(store, item_number)
 
@@ -961,42 +958,27 @@ def select_candidates(
     milestone_items = [store.items(milestone=m.number) for m in open_milestones]
     backlog_items = store.backlog()
 
-    # Count the Ready items across the open milestones and the backlog
-    ready_count = sum(
-        1
-        for items in (*milestone_items, backlog_items)
-        for it in items
-        if it.status == CONST_ROADMAP_STATUS_READY
-    )
-
     ordered = [
+        # The open milestones' items, nearest first, then the backlog's P0 and P1 items
         *(it for items in milestone_items for it in _refinable(items, unrefined_ready=True)),
         *(
             it
             for it in _refinable(backlog_items, unrefined_ready=True)
             if _priority_rank(it.priority) <= _BACKLOG_FIRST_RANK
         ),
-    ]
-    backlog_rest = [
-        it
-        for it in _refinable(backlog_items, unrefined_ready=False)
-        if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
+        # The backlog's other New items
+        *(
+            it
+            for it in _refinable(backlog_items, unrefined_ready=False)
+            if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
+        ),
     ]
 
     selection = _Selection(store)
-    # 1. The open milestones' items, nearest first, then the backlog's P0 and P1 items
     for it in ordered:
         if len(selection.selected) >= limit:
             break
         selection.consider(it)
-
-    # 2. The other backlog New items until ready + selected reaches the ready target
-    for it in backlog_rest:
-        taken = len(selection.selected)
-        if taken >= limit or (ready_count + taken) >= ready_target:
-            break
-        selection.consider(it)
-
     return selection.selected, selection.waiting
 
 
@@ -1152,17 +1134,13 @@ def plan_refine(
     ref: str | None = None,
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
-    config: RoadmapConfig | None = None,
     model: Any = None,
 ) -> RefinePlan:
     """Plans refinement for eligible candidates without writing anything to GitHub."""
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
 
-    ready_target = config.refine_ready_target if config else DEFAULT_ROADMAP_REFINE_READY_TARGET
-    candidates, waiting = select_candidates(
-        store, item_number=item_number, limit=limit, ready_target=ready_target
-    )
+    candidates, waiting = select_candidates(store, item_number=item_number, limit=limit)
     if not candidates:
         return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=False)
 
@@ -1378,7 +1356,6 @@ def refine_item(
     *,
     source: Path | str = ".",
     ref: str | None = None,
-    config: RoadmapConfig | None = None,
     confirm: bool = True,
     model: Any = None,
 ) -> RefineOutcome:
@@ -1386,13 +1363,7 @@ def refine_item(
     source_path = Path(source)
     repo = _store_repo(store) or get_repo_origin_name(source_path) or "example/repo"
     plan = plan_refine(
-        store,
-        repo=repo,
-        source=source_path,
-        ref=ref,
-        item_number=number,
-        config=config,
-        model=model,
+        store, repo=repo, source=source_path, ref=ref, item_number=number, model=model
     )
     applied = apply_refine(store, plan) if (confirm and plan.has_writes) else None
     raise_for_failed_items(plan)

@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as InvalidConfigError
 
 from devops_cli.config.constants import CONST_ROADMAP_CONFIG_PATH
-from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_READY_TARGET
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.store import RoadmapStore
@@ -24,15 +23,11 @@ if TYPE_CHECKING:
 
 
 class RoadmapConfig(BaseModel):
-    """The board and the numbers the roadmap jobs work to. `board` has no default.
-
-    Refine readies backlog items while fewer than `refine_ready_target` items are Ready.
-    """
+    """The board the roadmap jobs work on. `board` has no default."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     board: int = Field(ge=1)
-    refine_ready_target: int = Field(default=DEFAULT_ROADMAP_REFINE_READY_TARGET, ge=1)
 
 
 def parse_roadmap_config(text: str) -> RoadmapConfig:

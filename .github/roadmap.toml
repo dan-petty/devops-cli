@@ -4,6 +4,3 @@
 
 # The project board (number) that holds the roadmap's Items. It has no default.
 board = 2
-
-# Keys left out take these defaults:
-# refine_ready_target = 12  # refine readies backlog items while fewer than this many items are Ready
