@@ -55,8 +55,12 @@ datasources:
     apiVersion: 1
     # Grafana marks each datasource below as prunable, and at start deletes a prunable datasource
     # that this file no longer lists (#1624). A datasource removed before this setting is not
-    # prunable: delete it through the Grafana API or UI.
+    # prunable, and the API refuses to delete a provisioned datasource, so deleteDatasources
+    # deletes it at start. Grafana ignores a listed name that no longer exists (#2036).
     prune: true
+    deleteDatasources:
+      - name: Jaeger
+        orgId: 1
     datasources:
       - name: Prometheus
         type: prometheus

@@ -307,12 +307,17 @@ def test_grafana_runs_the_grafana_community_chart_that_ships_a_patched_grafana()
 def test_grafana_provisioning_deletes_a_datasource_that_leaves_the_file() -> None:
     """With `prune: true`, Grafana marks each datasource the file provisions as prunable, and at
     start deletes a prunable datasource that no file lists. Without it, the Jaeger datasource
-    stayed in Grafana after git removed it (#1135, #1624)."""
+    stayed in Grafana after git removed it (#1135, #1624).
+
+    That datasource was provisioned before `prune`, so it is not prunable, and the API refuses to
+    delete a provisioned datasource. `deleteDatasources` deletes it at start, and Grafana ignores
+    a listed name that no longer exists (#2036)."""
     provisioning = _k8s_yaml("monitoring/grafana-values.yaml")["datasources"]["datasources.yaml"]
 
-    assert {key: provisioning.get(key) for key in ("apiVersion", "prune")} == {
+    assert {key: provisioning.get(key) for key in ("apiVersion", "prune", "deleteDatasources")} == {
         "apiVersion": 1,
         "prune": True,
+        "deleteDatasources": [{"name": "Jaeger", "orgId": 1}],
     }
 
 
