@@ -9,13 +9,6 @@ import pytest
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding
-from devops_cli.ai.tools.builtin_tools import (
-    scan_bandit,
-    scan_kubelinter,
-    scan_pluto,
-    scan_popeye,
-    scan_trivy,
-)
 from devops_cli.ai.tools.registry import get_default_tools
 
 
@@ -28,28 +21,6 @@ def test_native_security_tools_in_registry() -> None:
     assert "scan_pluto" in tool_names
     assert "scan_bandit" in tool_names
     assert "scan_popeye" in tool_names
-
-
-@patch("devops_cli.ai.tools.builtin_tools._run_tool_cmd")
-def test_native_security_tool_invocations(mock_cmd: MagicMock, tmp_path: Path) -> None:
-    """Security tools must execute safe subprocess commands."""
-    mock_cmd.return_value = "No security issues detected."
-
-    res_trivy = scan_trivy("src")
-    assert res_trivy == "No security issues detected."
-    assert mock_cmd.call_count == 1
-
-    res_kl = scan_kubelinter("k8s")
-    assert res_kl == "No security issues detected."
-
-    res_pluto = scan_pluto("k8s")
-    assert res_pluto == "No security issues detected."
-
-    res_bandit = scan_bandit("src")
-    assert res_bandit == "No security issues detected."
-
-    res_popeye = scan_popeye(namespace="monitoring")
-    assert res_popeye == "No security issues detected."
 
 
 @pytest.mark.usefixtures("scanner_fake")

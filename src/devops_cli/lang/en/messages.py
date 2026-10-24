@@ -923,7 +923,13 @@ class ToolMessages:
     no_pods_in_namespace: str = "No pods found in namespace {namespace}."
     no_argo_apps: str = "No ArgoCD applications found."
     argo_app_not_found: str = "ArgoCD application '{app_name}' not found."
-    no_trivy_flaws: str = "No vulnerabilities, secrets, or flaws found by Trivy."
+    scan_status: str = "{scanner} scan status: {status}"
+    scan_reason: str = "Reason: {reason}"
+    scan_gave_no_result: str = "The scan gave no result. Do not report the target as clean."
+    scan_no_findings: str = "No findings."
+    scan_findings: str = "Findings ({count}):"
+    scan_finding: str = "- [{severity}] {location}: {title}"
+    scan_finding_fix: str = "{finding} ({fix})"
 
 
 @dataclass(frozen=True)
