@@ -497,6 +497,18 @@ def test_get_run_rejects_path_traversal_and_invalid_ids(tmp_path: Path) -> None:
     ) == (None, None, None, None)
 
 
+def test_get_run_rejects_trailing_newline_without_globbing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify get_run returns None without globbing when run_id has a trailing newline."""
+
+    def _fail_glob(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("Path.glob was called for invalid run_id")
+
+    monkeypatch.setattr(Path, "glob", _fail_glob)
+    assert get_run("abc\n", root=tmp_path) is None
+
+
 def test_get_run_retrieves_saved_run(tmp_path: Path) -> None:
     """Verify get_run retrieves an existing run record by id or prefix."""
     record = new_run(

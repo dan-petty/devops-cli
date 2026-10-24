@@ -342,8 +342,8 @@ def run_memory_profiler(
     if ":" in target:
         mod_name, func_name = target.split(":", 1)
         if not (
-            re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$", mod_name)
-            and re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", func_name)
+            re.fullmatch(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$", mod_name)
+            and re.fullmatch(r"^[a-zA-Z_][a-zA-Z0-9_]*$", func_name)
         ):
             msg = f"Invalid target identifier '{target}': must be valid python module and function name"
             raise MemoryProfilerError(msg, details={"target": target})
