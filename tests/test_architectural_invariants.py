@@ -524,26 +524,18 @@ def _files_that_name_the_task_files(root: Path) -> list[str]:
     return sorted(
         path.as_posix()
         for path in scanned
-        if _TASK_FILES_DIR.encode()
-        in (root / path).read_bytes().replace(_LATE_TASK_FILES_GLOB.encode(), b"")
+        if _TASK_FILES_DIR.encode() in (root / path).read_bytes()
     )
 
 
-# Pull requests opened before #1847 still merge task files. The docs inventory lists them with this
-# one glob until #2041 deletes them, the glob and this allowance.
-_LATE_TASK_FILES_GLOB = f"{_TASK_FILES_DIR}/task-*.md"
-
-
 def test_the_task_files_are_decommissioned() -> None:
-    """An OpenSpec change folder is the record of every item (#1847). The task-file guide and
-    template are gone, the directory holds at most task files that merged late, and no code, test,
-    manifest, GitHub file or hand-written document names that directory but the inventory glob."""
-    task_dir = REPO_ROOT / _TASK_FILES_DIR
-    late = sorted(path.name for path in task_dir.iterdir()) if task_dir.is_dir() else []
+    """An OpenSpec change folder is the record of every item (#1847), and the task files that
+    merged after that switch are deleted too (#2041). So the directory does not exist, and no
+    code, test, manifest, GitHub file or hand-written document names it."""
     assert (
-        [name for name in late if not PurePosixPath(name).match("task-*.md")],
+        (REPO_ROOT / _TASK_FILES_DIR).exists(),
         _files_that_name_the_task_files(REPO_ROOT),
-    ) == ([], [])
+    ) == (False, [])
 
 
 def test_a_file_that_names_the_task_files_is_reported(tmp_path: Path) -> None:
