@@ -272,18 +272,68 @@ def _ssl_context(configuration: Any) -> ssl.SSLContext:
     return context
 
 
-def _auth_headers(configuration: Any) -> dict[str, str]:
-    """Extract bearer or token headers from the client configuration."""
+def _format_auth_header_value(val: Any, key: Any, configuration: Any) -> str:
+    """Format authorization header value, ensuring Bearer prefix if configured."""
+    val_str = str(val)
+    if val_str.lower().startswith("bearer "):
+        return val_str
+    prefixes = getattr(configuration, "api_key_prefix", None) or {}
+    prefix = prefixes.get("BearerToken") or prefixes.get("authorization") or prefixes.get(key) or ""
+    return f"{prefix} {val_str}".strip() if prefix else val_str
+
+
+def _headers_from_auth_settings(configuration: Any, raw_settings: dict[str, Any]) -> dict[str, str]:
+    """Extract headers from Configuration.auth_settings() dictionary."""
+    headers: dict[str, str] = {}
+    for setting in raw_settings.values():
+        if isinstance(setting, dict) and setting.get("in") == "header":
+            key = setting.get("key")
+            val = setting.get("value")
+            if key and val:
+                header = "authorization" if str(key).lower() == "authorization" else str(key)
+                headers[header] = _format_auth_header_value(val, key, configuration)
+    return headers
+
+
+def _fallback_auth_headers(configuration: Any) -> dict[str, str]:
+    """Fallback authorization header extraction when auth_settings is unavailable."""
     headers: dict[str, str] = {}
     api_keys = getattr(configuration, "api_key", None) or {}
     prefixes = getattr(configuration, "api_key_prefix", None) or {}
     for name, value in api_keys.items():
         if not value:
             continue
-        prefix = prefixes.get(name, "")
-        header = "authorization" if name.lower() == "authorization" else name
-        headers[header] = f"{prefix} {value}".strip()
+        prefix = prefixes.get(name) or (
+            "Bearer" if str(name).lower() in ("authorization", "bearertoken") else ""
+        )
+        header = (
+            "authorization" if str(name).lower() in ("authorization", "bearertoken") else str(name)
+        )
+        headers[header] = f"{prefix} {value}".strip() if prefix else str(value).strip()
     return headers
+
+
+def _auth_headers(configuration: Any) -> dict[str, str]:
+    """Extract bearer or token headers from the client configuration."""
+    hook = getattr(configuration, "refresh_api_key_hook", None)
+    if callable(hook):
+        hook(configuration)
+
+    auth_settings_fn = getattr(configuration, "auth_settings", None)
+    if callable(auth_settings_fn):
+        try:
+            if callable(hook):
+                setattr(configuration, "refresh_api_key_hook", None)
+            raw_settings = auth_settings_fn()
+        finally:
+            if callable(hook):
+                setattr(configuration, "refresh_api_key_hook", hook)
+        if isinstance(raw_settings, dict):
+            headers = _headers_from_auth_settings(configuration, raw_settings)
+            if headers:
+                return headers
+
+    return _fallback_auth_headers(configuration)
 
 
 @dataclass(frozen=True)
