@@ -19,10 +19,12 @@ from devops_cli.argo.rollouts import (
     promote_rollout,
     restart_rollout,
 )
+from devops_cli.argo.sync import build_sync_request_body
 
 __all__ = [
     "GitOpsWatcher",
     "abort_rollout",
+    "build_sync_request_body",
     "compute_manifest_state",
     "evaluate_rollout_gate",
     "promote_rollout",

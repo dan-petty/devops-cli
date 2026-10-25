@@ -194,6 +194,39 @@ class ArgoCRDService:
             ) from exc
         return dict(patched or {})
 
+    def patch_resource_status(
+        self,
+        plural: str,
+        name: str,
+        patch: dict[str, Any],
+        namespace: str = DEFAULT_K8S_NAMESPACE,
+    ) -> dict[str, Any]:
+        """Apply a merge patch to an Argo custom resource status subresource."""
+        _require_k8s_name(name, f"{plural} name")
+        _require_k8s_name(namespace, "namespace", namespace=True)
+        try:
+            patched = self._api().patch_namespaced_custom_object_status(
+                group=CONST_ARGO_API_GROUP,
+                version=CONST_ARGO_API_VERSION,
+                namespace=namespace,
+                plural=plural,
+                name=name,
+                body=patch,
+            )
+        except Exception as exc:
+            if _is_not_found(exc):
+                raise ArgoResourceNotFoundError(
+                    f"Argo {plural[:-1]} '{name}' not found in namespace '{namespace}'",
+                    resource=name,
+                    namespace=namespace,
+                ) from exc
+            raise ArgoError(
+                f"Failed patching Argo {plural[:-1]} '{name}' status: {exc}",
+                resource=name,
+                namespace=namespace,
+            ) from exc
+        return dict(patched or {})
+
     def apply_resource(
         self, plural: str, manifest: dict[str, Any], namespace: str = DEFAULT_K8S_NAMESPACE
     ) -> dict[str, Any]:
@@ -262,7 +295,15 @@ class ArgoCRDService:
     def promote_rollout(
         self, name: str, namespace: str = DEFAULT_K8S_NAMESPACE, *, full: bool = False
     ) -> ArgoRolloutState:
-        """Promote a Rollout by clearing its pause conditions via the control-plane fields."""
+        """Promote a Rollout by clearing its pause conditions and spec.paused when set."""
+        rollout = self.get_resource(CONST_ARGO_PLURAL_ROLLOUTS, name, namespace=namespace)
+        if bool((rollout.get("spec") or {}).get("paused")):
+            self.patch_resource(
+                CONST_ARGO_PLURAL_ROLLOUTS,
+                name,
+                {"spec": {"paused": False}},
+                namespace=namespace,
+            )
         status: dict[str, Any] = {
             CONST_ROLLOUT_FIELD_PAUSE_CONDITIONS: None,
             CONST_ROLLOUT_FIELD_CONTROLLER_PAUSE: False,
@@ -270,7 +311,7 @@ class ArgoCRDService:
         if full:
             status[CONST_ROLLOUT_FIELD_PROMOTE_FULL] = True
         return ArgoRolloutState.from_manifest(
-            self.patch_resource(
+            self.patch_resource_status(
                 CONST_ARGO_PLURAL_ROLLOUTS, name, {"status": status}, namespace=namespace
             )
         )
@@ -278,7 +319,7 @@ class ArgoCRDService:
     def abort_rollout(self, name: str, namespace: str = DEFAULT_K8S_NAMESPACE) -> ArgoRolloutState:
         """Abort an in-progress Rollout, reverting traffic to the stable revision."""
         return ArgoRolloutState.from_manifest(
-            self.patch_resource(
+            self.patch_resource_status(
                 CONST_ARGO_PLURAL_ROLLOUTS,
                 name,
                 {"status": {CONST_ROLLOUT_FIELD_ABORT: True}},

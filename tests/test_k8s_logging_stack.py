@@ -129,6 +129,9 @@ def test_deploy_logging_stack_live() -> None:
         patch("devops_cli.commands.k8s._minikube_running", return_value=True),
         patch("devops_cli.commands.k8s.run_subprocess", side_effect=_fake_run),
         patch("devops_cli.commands.k8s._run_cmd", side_effect=_fake_run),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
         assert result.exit_code == 0
@@ -143,6 +146,9 @@ def test_teardown_logging_stack_live() -> None:
         patch("devops_cli.commands.k8s._minikube_running", return_value=True),
         patch("devops_cli.commands.k8s.run_subprocess", return_value=mock_proc),
         patch("devops_cli.commands.k8s._run_cmd", return_value=mock_proc),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
         assert result.exit_code == 0

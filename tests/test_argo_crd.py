@@ -222,32 +222,59 @@ def test_apply_resource_requires_manifest_name(crd_api: Any) -> None:
 
 def test_promote_rollout_clears_pause_conditions(crd_api: Any) -> None:
     """Promotion clears the pause conditions the rollouts controller watches."""
-    crd_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "web"}}
+    crd_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "web"}, "spec": {}}
+    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
     _service(crd_api).promote_rollout("web", "apps")
 
-    body = crd_api.patch_namespaced_custom_object.call_args.kwargs["body"]
+    body = crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"]
     assert body["status"] == {"pauseConditions": None, "controllerPause": False}
+    assert crd_api.patch_namespaced_custom_object.called is False
 
 
 def test_promote_rollout_full_sets_promote_full(crd_api: Any) -> None:
     """A full promotion additionally sets the promoteFull control-plane field."""
-    crd_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "web"}}
+    crd_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "web"}, "spec": {}}
+    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
     _service(crd_api).promote_rollout("web", "apps", full=True)
 
     assert (
-        crd_api.patch_namespaced_custom_object.call_args.kwargs["body"]["status"]["promoteFull"]
+        crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"]["status"][
+            "promoteFull"
+        ]
         is True
+    )
+
+
+def test_promote_rollout_clears_spec_paused_when_set(crd_api: Any) -> None:
+    """Promotion clears spec.paused on the main resource when it was set."""
+    crd_api.get_namespaced_custom_object.return_value = {
+        "metadata": {"name": "web"},
+        "spec": {"paused": True},
+    }
+    crd_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "web"}}
+    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
+    _service(crd_api).promote_rollout("web", "apps")
+
+    assert crd_api.patch_namespaced_custom_object.call_args.kwargs["body"] == {
+        "spec": {"paused": False}
+    }
+    assert (
+        crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"]["status"][
+            "controllerPause"
+        ]
+        is False
     )
 
 
 def test_abort_rollout_sets_abort_flag(crd_api: Any) -> None:
     """Aborting sets status.abort, reverting traffic to the stable revision."""
-    crd_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "web"}}
+    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
     _service(crd_api).abort_rollout("web", "apps")
 
-    assert crd_api.patch_namespaced_custom_object.call_args.kwargs["body"] == {
+    assert crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"] == {
         "status": {"abort": True}
     }
+    assert crd_api.patch_namespaced_custom_object.called is False
 
 
 def test_restart_rollout_stamps_restart_at(crd_api: Any) -> None:

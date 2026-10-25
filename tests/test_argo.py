@@ -553,3 +553,32 @@ def test_argo_workflows_logs_with_follow() -> None:
         )
         assert (res.exit_code, res.stdout) == (0, "── node-pod-1 ──\na\nbc\n")
         assert mock_core.read_namespaced_pod_log.call_args.kwargs["container"] == "main"
+
+
+def test_cd_apps_sync_payload_structure() -> None:
+    """cd_apps_sync sends top-level prune and strategy.apply.force without a sync wrapper."""
+    mock_settings = Settings()
+    mock_settings.argocd.url = "http://localhost:8080"
+    mock_settings.ai.allow_private_network = True
+
+    with (
+        patch("devops_cli.commands.argo.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.argo.validate_service_url"),
+        patch("httpx2.Client") as mock_client_cls,
+    ):
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client.post.return_value = mock_resp
+        mock_client_cls.return_value = mock_client
+
+        res = runner.invoke(argo_app, ["cd", "apps", "sync", "guestbook", "--prune", "--force"])
+        assert res.exit_code == 0
+        mock_client.post.assert_called_once()
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload == {
+            "prune": True,
+            "strategy": {"apply": {"force": True}},
+        }
+        assert "sync" not in payload

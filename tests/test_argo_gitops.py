@@ -162,7 +162,11 @@ def test_trigger_argocd_sync_api_success() -> None:
         assert len(sync_calls) == 1
         call_args = sync_calls[0]
         assert "/api/v1/applications/root-app/sync" in call_args[0][0]
-        assert call_args[1]["json"] == {"sync": {"prune": True, "force": True}}
+        assert call_args[1]["json"] == {
+            "prune": True,
+            "strategy": {"apply": {"force": True}},
+        }
+        assert "sync" not in call_args[1]["json"]
         assert call_args[1]["headers"]["Authorization"] == "Bearer test-token"
 
 

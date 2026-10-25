@@ -16,6 +16,7 @@ import httpx2
 import typer
 
 from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service, is_not_found_error
+from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.constants import (
     CONST_ARGO_DEFAULT_LOG_CONTAINER,
     CONST_ARGO_POD_NAME_V1,
@@ -265,7 +266,7 @@ def cd_apps_sync(
         resp = c.post(
             f"{base}/api/v1/applications/{name}/sync",
             headers=headers,
-            json={"sync": {"prune": prune, "force": force}},
+            json=build_sync_request_body(prune=prune, force=force),
             timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()

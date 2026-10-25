@@ -92,11 +92,16 @@ def test_rollouts_promote_abort_and_restart_patch_control_plane_fields() -> None
     from devops_cli.argo.rollouts import abort_rollout, promote_rollout, restart_rollout
 
     mock_api = MagicMock()
+    mock_api.get_namespaced_custom_object.return_value = {
+        "metadata": {"name": "frontend"},
+        "spec": {},
+    }
     mock_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "frontend"}}
+    mock_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "frontend"}}
 
     with patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_api):
         assert promote_rollout("frontend", namespace="web", full=True) is True
-        promote_body = mock_api.patch_namespaced_custom_object.call_args.kwargs["body"]
+        promote_body = mock_api.patch_namespaced_custom_object_status.call_args.kwargs["body"]
         assert promote_body["status"] == {
             "pauseConditions": None,
             "controllerPause": False,
@@ -104,7 +109,7 @@ def test_rollouts_promote_abort_and_restart_patch_control_plane_fields() -> None
         }
 
         assert abort_rollout("frontend", namespace="web") is True
-        assert mock_api.patch_namespaced_custom_object.call_args.kwargs["body"] == {
+        assert mock_api.patch_namespaced_custom_object_status.call_args.kwargs["body"] == {
             "status": {"abort": True}
         }
 
@@ -118,7 +123,13 @@ def test_rollout_mutation_failure_returns_false() -> None:
     from devops_cli.argo.rollouts import promote_rollout
 
     mock_api = MagicMock()
-    mock_api.patch_namespaced_custom_object.side_effect = RuntimeError("apiserver unavailable")
+    mock_api.get_namespaced_custom_object.return_value = {
+        "metadata": {"name": "frontend"},
+        "spec": {},
+    }
+    mock_api.patch_namespaced_custom_object_status.side_effect = RuntimeError(
+        "apiserver unavailable"
+    )
 
     with patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_api):
         assert promote_rollout("frontend", namespace="web") is False
@@ -161,6 +172,29 @@ def test_evaluate_rollout_gate_threshold_violation_triggers_abort() -> None:
         res = evaluate_rollout_gate("api-gateway", thresholds=thresholds, auto_abort=True)
         assert res.passed is False
         assert res.action_taken == "aborted"
+        mock_abort.assert_called_once()
+
+
+def test_evaluate_rollout_gate_refused_abort_reports_abort_failed() -> None:
+    """When automated rollback abort fails, gate outcome reports abort_failed."""
+    from devops_cli.argo.rollouts import evaluate_rollout_gate
+
+    thresholds = [
+        RolloutMetricThreshold(
+            metric_name="error_rate",
+            query="sum(rate(errors[1m]))",
+            threshold=1.0,
+            operator="lte",
+        )
+    ]
+    with (
+        patch("devops_cli.argo.rollouts._fetch_metric_value", return_value=4.5),
+        patch("devops_cli.argo.rollouts.abort_rollout", return_value=False) as mock_abort,
+    ):
+        res = evaluate_rollout_gate("api-gateway", thresholds=thresholds, auto_abort=True)
+        assert res.passed is False
+        assert res.action_taken == "abort_failed"
+        assert "automated rollback failed" in res.reason
         mock_abort.assert_called_once()
 
 
@@ -307,6 +341,13 @@ def test_execute_cluster_sync_live() -> None:
         mock_client.post.assert_called_once()
         assert "applications/my-app-prod-cluster/sync" in mock_client.post.call_args[0][0]
         assert mock_client.post.call_args[1]["headers"]["Authorization"] == "Bearer test-token"
+        payload = mock_client.post.call_args[1]["json"]
+        assert payload == {
+            "prune": True,
+            "strategy": {"apply": {"force": True}},
+            "appNamespace": "argocd",
+        }
+        assert "sync" not in payload
 
 
 def test_execute_cluster_sync_masked_token() -> None:
