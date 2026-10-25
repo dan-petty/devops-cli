@@ -32,7 +32,7 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import (
     INSTRUMENTS,
-    PROJECT_ITEMS_TOTAL,
+    PROJECT_ITEMS,
     REVIEW_DURATION,
     UPSTREAM_SERVICE_STATUS,
     InstrumentKind,
@@ -130,24 +130,48 @@ def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) 
     assert (len(queries) > 0, sorted(unsent), unnamed) == (True, [], [])
 
 
-@pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
-def test_every_series_is_read_through_rate_or_increase(dashboard: Path) -> None:
-    """Verify each series is the first argument of `rate(` or `increase(`.
+# The functions that read each kind of series over time. A counter's raw sum is the count since
+# the collector last reset the series, which it does when the series sits idle for an hour. A
+# gauge holds a snapshot, which Prometheus finds only within five minutes of its sample (#974).
+_READ_THROUGH: dict[InstrumentKind, frozenset[str]] = {
+    InstrumentKind.COUNTER: frozenset({"rate", "increase"}),
+    InstrumentKind.GAUGE: frozenset({"last_over_time"}),
+    InstrumentKind.HISTOGRAM: frozenset({"rate", "increase", "last_over_time"}),
+}
+_KIND_OF: dict[str, InstrumentKind] = {
+    instrument.name: instrument.kind for instrument in INSTRUMENTS
+}
 
-    A raw counter shows the count since the collector last reset the series, which happens
-    whenever it sits idle for an hour, so a raw sum is neither a lifetime total nor a rate.
-    `project-metrics.json` is exempt: its series report snapshot states of releases, commits,
-    PRs, and milestones emitted on demand, rather than continuous runtime event streams.
-    """
-    if dashboard.name == "project-metrics.json":
-        pytest.skip("project-metrics.json reports snapshot state, not event stream rates")
-    raw = [
+
+def _reading_function(before: str) -> str:
+    """The function whose first argument starts where `before` ends, or "" for none."""
+    found = re.search(r"\b([a-z_]+)\(\s*$", before)
+    return found.group(1) if found else ""
+
+
+@pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
+def test_every_series_is_read_through_the_function_of_its_kind(dashboard: Path) -> None:
+    """Verify each series is the first argument of a function that reads its kind over time: a
+    counter's `rate(` or `increase(`, a gauge's `last_over_time(`, a histogram's either."""
+    misread = [
         (query, match.group(0))
         for query in _queries(dashboard)
         for match in SERIES_NAME.finditer(query)
-        if not re.search(r"\b(?:rate|increase)\(\s*$", query[: match.start()])
+        if _reading_function(query[: match.start()])
+        not in _READ_THROUGH.get(_KIND_OF.get(match.group(0)), frozenset())
     ]
-    assert raw == []
+    assert misread == []
+
+
+def test_a_counter_name_ends_in_total_and_no_other_name_does() -> None:
+    """Prometheus keeps the `_total` suffix for counters, so a gauge that carries it reads as a
+    counter to each consumer (#974)."""
+    misnamed = [
+        instrument.name
+        for instrument in INSTRUMENTS
+        if (instrument.kind is InstrumentKind.COUNTER) != instrument.name.endswith("_total")
+    ]
+    assert misnamed == []
 
 
 def test_all_dashboards_referencing_devops_cli_metrics_name_sent_series() -> None:
@@ -791,17 +815,17 @@ def test_backends_are_named_by_their_hosts_first_label(served_by: str | None, na
 
 def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None:
     """Verify gauge metrics emit instantaneous point-in-time values rather than accumulating deltas."""
-    emit(PROJECT_ITEMS_TOTAL, 120.0, attributes={"milestone": "2026-11", "state": "closed"})
+    emit(PROJECT_ITEMS, 120.0, attributes={"milestone": "2026-11", "state": "closed"})
     tracer_module.get_tracer().flush()
-    emit(PROJECT_ITEMS_TOTAL, 115.0, attributes={"milestone": "2026-11", "state": "closed"})
-    emit(PROJECT_ITEMS_TOTAL, 125.0, attributes={"milestone": "2026-11", "state": "closed"})
+    emit(PROJECT_ITEMS, 115.0, attributes={"milestone": "2026-11", "state": "closed"})
+    emit(PROJECT_ITEMS, 125.0, attributes={"milestone": "2026-11", "state": "closed"})
 
-    points = captured.points("devops_cli_project_items_total")
+    points = captured.points("devops_cli_project_items")
     metric_entry = captured.metrics[0]
 
     assert (
         "gauge" in metric_entry,
-        PROJECT_ITEMS_TOTAL.kind is InstrumentKind.GAUGE,
+        PROJECT_ITEMS.kind is InstrumentKind.GAUGE,
         UPSTREAM_SERVICE_STATUS.kind is InstrumentKind.GAUGE,
         [(p[0]["milestone"], p[0]["state"], p[1]) for p in points],
     ) == (

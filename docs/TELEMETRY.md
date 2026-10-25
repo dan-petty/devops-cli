@@ -23,6 +23,10 @@ another one: roadmap-service sets `service.instance.id=roadmap-service`, so a ne
 writes the series of the pod before it. A running total that starts again from zero,
 for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
 `k8s/otel/values.yaml`), is a counter reset to `rate()` and `increase()`.
+A gauge holds a snapshot, such as a project metric that the roadmap Service sends
+every 15 minutes. Prometheus finds a plain selector only within five minutes of a
+sample, so a dashboard reads a gauge with `last_over_time(<metric>[$__range])`, and
+no gauge name ends in `_total`, which Prometheus keeps for counters.
 Prometheus 3 stores each histogram as a
 native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 `_count` series; query it with `histogram_quantile`, `histogram_avg` and
@@ -43,20 +47,20 @@ native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_rag_points` | Gauge | `1` | Points stored in RAG vector collections, by collection. |
-| `devops_cli_project_releases_total` | Gauge | `1` | Total project releases tracked. |
-| `devops_cli_project_commits_total` | Gauge | `1` | Project commits count by release. |
-| `devops_cli_project_prs_total` | Gauge | `1` | Project pull requests merged by release. |
-| `devops_cli_project_ci_runs_total` | Gauge | `1` | CI workflow runs by name, status and conclusion. |
-| `devops_cli_project_items_total` | Gauge | `1` | Project items by milestone, type, priority and state. |
+| `devops_cli_project_releases` | Gauge | `1` | Total project releases tracked. |
+| `devops_cli_project_commits` | Gauge | `1` | Project commits count by release. |
+| `devops_cli_project_prs` | Gauge | `1` | Project pull requests merged by release. |
+| `devops_cli_project_ci_runs` | Gauge | `1` | CI workflow runs by name, status and conclusion. |
+| `devops_cli_project_items` | Gauge | `1` | Project items by milestone, type, priority and state. |
 | `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases. |
-| `devops_cli_project_traffic_views_total` | Gauge | `1` | GitHub repository total page views count. |
-| `devops_cli_project_traffic_views_uniques_total` | Gauge | `1` | GitHub repository unique visitors count. |
-| `devops_cli_project_traffic_clones_total` | Gauge | `1` | GitHub repository total git clones count. |
-| `devops_cli_project_traffic_clones_uniques_total` | Gauge | `1` | GitHub repository unique cloners count. |
-| `devops_cli_project_traffic_referrers_total` | Gauge | `1` | GitHub repository traffic referrals count by referrer source. |
-| `devops_cli_project_traffic_paths_total` | Gauge | `1` | GitHub repository traffic page views by content path. |
-| `devops_cli_project_stars_total` | Gauge | `1` | GitHub repository stargazers count. |
-| `devops_cli_project_forks_total` | Gauge | `1` | GitHub repository forks count. |
+| `devops_cli_project_traffic_views` | Gauge | `1` | GitHub repository total page views count. |
+| `devops_cli_project_traffic_views_uniques` | Gauge | `1` | GitHub repository unique visitors count. |
+| `devops_cli_project_traffic_clones` | Gauge | `1` | GitHub repository total git clones count. |
+| `devops_cli_project_traffic_clones_uniques` | Gauge | `1` | GitHub repository unique cloners count. |
+| `devops_cli_project_traffic_referrers` | Gauge | `1` | GitHub repository traffic referrals count by referrer source. |
+| `devops_cli_project_traffic_paths` | Gauge | `1` | GitHub repository traffic page views by content path. |
+| `devops_cli_project_stars` | Gauge | `1` | GitHub repository stargazers count. |
+| `devops_cli_project_forks` | Gauge | `1` | GitHub repository forks count. |
 | `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
 | `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
 

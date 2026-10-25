@@ -83,7 +83,7 @@ from devops_cli.roadmap.run import (
 )
 from devops_cli.roadmap.store import CloseReason, GitHubState, ItemField, RoadmapStore
 from devops_cli.server.service import ServiceManager, TriggerBatch
-from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
+from devops_cli.telemetry.instruments import PROJECT_RELEASES
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
@@ -948,7 +948,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         json.dumps({"login": "test-bot"}),
         headers={"content-type": "application/json"},
     )
-    GLOBAL_METRICS.clear_metric(PROJECT_RELEASES_TOTAL.name)
+    GLOBAL_METRICS.clear_metric(PROJECT_RELEASES.name)
     data_dir = tmp_path / "data"
     with caplog.at_level(logging.WARNING):
         ran = run_due_jobs(
@@ -959,7 +959,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         (row.needs_clone, row.first_run_due, row.interval),
         ran,
         (clone / ".git").is_dir(),
-        GLOBAL_METRICS.get_gauge(PROJECT_RELEASES_TOTAL.name),
+        GLOBAL_METRICS.get_gauge(PROJECT_RELEASES.name),
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
     ) == (
         (True, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES)),

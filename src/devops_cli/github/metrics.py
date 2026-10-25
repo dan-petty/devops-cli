@@ -24,20 +24,20 @@ from pydantic import BaseModel, Field
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.github.client import GhCliClient
 from devops_cli.telemetry.instruments import (
-    PROJECT_CI_RUNS_TOTAL,
-    PROJECT_COMMITS_TOTAL,
-    PROJECT_FORKS_TOTAL,
-    PROJECT_ITEMS_TOTAL,
-    PROJECT_PRS_TOTAL,
+    PROJECT_CI_RUNS,
+    PROJECT_COMMITS,
+    PROJECT_FORKS,
+    PROJECT_ITEMS,
+    PROJECT_PRS,
     PROJECT_RELEASE_INTERVAL_DAYS,
-    PROJECT_RELEASES_TOTAL,
-    PROJECT_STARS_TOTAL,
-    PROJECT_TRAFFIC_CLONES_TOTAL,
-    PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL,
-    PROJECT_TRAFFIC_PATHS_TOTAL,
-    PROJECT_TRAFFIC_REFERRERS_TOTAL,
-    PROJECT_TRAFFIC_VIEWS_TOTAL,
-    PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL,
+    PROJECT_RELEASES,
+    PROJECT_STARS,
+    PROJECT_TRAFFIC_CLONES,
+    PROJECT_TRAFFIC_CLONES_UNIQUES,
+    PROJECT_TRAFFIC_PATHS,
+    PROJECT_TRAFFIC_REFERRERS,
+    PROJECT_TRAFFIC_VIEWS,
+    PROJECT_TRAFFIC_VIEWS_UNIQUES,
     emit,
 )
 
@@ -534,23 +534,23 @@ def collect_project_metrics_report(
 
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
     """Emit project and engineering velocity metrics over OpenTelemetry to Prometheus."""
-    emit(PROJECT_RELEASES_TOTAL, float(report.total_releases))
-    emit(PROJECT_TRAFFIC_VIEWS_TOTAL, float(report.traffic.views_count))
-    emit(PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL, float(report.traffic.views_uniques))
-    emit(PROJECT_TRAFFIC_CLONES_TOTAL, float(report.traffic.clones_count))
-    emit(PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL, float(report.traffic.clones_uniques))
-    emit(PROJECT_STARS_TOTAL, float(report.traffic.stars))
-    emit(PROJECT_FORKS_TOTAL, float(report.traffic.forks))
+    emit(PROJECT_RELEASES, float(report.total_releases))
+    emit(PROJECT_TRAFFIC_VIEWS, float(report.traffic.views_count))
+    emit(PROJECT_TRAFFIC_VIEWS_UNIQUES, float(report.traffic.views_uniques))
+    emit(PROJECT_TRAFFIC_CLONES, float(report.traffic.clones_count))
+    emit(PROJECT_TRAFFIC_CLONES_UNIQUES, float(report.traffic.clones_uniques))
+    emit(PROJECT_STARS, float(report.traffic.stars))
+    emit(PROJECT_FORKS, float(report.traffic.forks))
 
     for ref in report.traffic.referrers:
-        emit(PROJECT_TRAFFIC_REFERRERS_TOTAL, float(ref.count), {"referrer": ref.referrer})
+        emit(PROJECT_TRAFFIC_REFERRERS, float(ref.count), {"referrer": ref.referrer})
 
     for p in report.traffic.paths:
-        emit(PROJECT_TRAFFIC_PATHS_TOTAL, float(p.count), {"path": p.path})
+        emit(PROJECT_TRAFFIC_PATHS, float(p.count), {"path": p.path})
 
     for rel in report.releases:
-        emit(PROJECT_COMMITS_TOTAL, float(rel.commit_count), {"release": rel.tag})
-        emit(PROJECT_PRS_TOTAL, float(rel.pr_count), {"release": rel.tag})
+        emit(PROJECT_COMMITS, float(rel.commit_count), {"release": rel.tag})
+        emit(PROJECT_PRS, float(rel.pr_count), {"release": rel.tag})
         if rel.days_since_prev > 0:
             emit(
                 PROJECT_RELEASE_INTERVAL_DAYS,
@@ -560,24 +560,24 @@ def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
 
     for run in report.workflow_runs:
         emit(
-            PROJECT_CI_RUNS_TOTAL,
+            PROJECT_CI_RUNS,
             float(run.passed),
             {"workflow": run.workflow, "status": "completed", "conclusion": "success"},
         )
         emit(
-            PROJECT_CI_RUNS_TOTAL,
+            PROJECT_CI_RUNS,
             float(run.failed),
             {"workflow": run.workflow, "status": "completed", "conclusion": "failure"},
         )
 
     for ms in report.milestones:
         emit(
-            PROJECT_ITEMS_TOTAL,
+            PROJECT_ITEMS,
             float(ms.open_items),
             {"milestone": ms.milestone, "state": "open"},
         )
         emit(
-            PROJECT_ITEMS_TOTAL,
+            PROJECT_ITEMS,
             float(ms.closed_items),
             {"milestone": ms.milestone, "state": "closed"},
         )
@@ -588,26 +588,26 @@ def _record_releases_and_traffic(
     report: ProjectMetricsReport,
 ) -> None:
     """Record top-level release and traffic metrics in in-memory registry."""
-    reg.set_gauge(PROJECT_RELEASES_TOTAL.name, float(report.total_releases))
-    reg.set_gauge(PROJECT_TRAFFIC_VIEWS_TOTAL.name, float(report.traffic.views_count))
-    reg.set_gauge(PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL.name, float(report.traffic.views_uniques))
-    reg.set_gauge(PROJECT_TRAFFIC_CLONES_TOTAL.name, float(report.traffic.clones_count))
-    reg.set_gauge(PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL.name, float(report.traffic.clones_uniques))
-    reg.set_gauge(PROJECT_STARS_TOTAL.name, float(report.traffic.stars))
-    reg.set_gauge(PROJECT_FORKS_TOTAL.name, float(report.traffic.forks))
+    reg.set_gauge(PROJECT_RELEASES.name, float(report.total_releases))
+    reg.set_gauge(PROJECT_TRAFFIC_VIEWS.name, float(report.traffic.views_count))
+    reg.set_gauge(PROJECT_TRAFFIC_VIEWS_UNIQUES.name, float(report.traffic.views_uniques))
+    reg.set_gauge(PROJECT_TRAFFIC_CLONES.name, float(report.traffic.clones_count))
+    reg.set_gauge(PROJECT_TRAFFIC_CLONES_UNIQUES.name, float(report.traffic.clones_uniques))
+    reg.set_gauge(PROJECT_STARS.name, float(report.traffic.stars))
+    reg.set_gauge(PROJECT_FORKS.name, float(report.traffic.forks))
 
-    reg.clear_metric(PROJECT_TRAFFIC_REFERRERS_TOTAL.name)
+    reg.clear_metric(PROJECT_TRAFFIC_REFERRERS.name)
     for ref in report.traffic.referrers:
         reg.set_gauge(
-            PROJECT_TRAFFIC_REFERRERS_TOTAL.name,
+            PROJECT_TRAFFIC_REFERRERS.name,
             float(ref.count),
             {"referrer": ref.referrer},
         )
 
-    reg.clear_metric(PROJECT_TRAFFIC_PATHS_TOTAL.name)
+    reg.clear_metric(PROJECT_TRAFFIC_PATHS.name)
     for p in report.traffic.paths:
         reg.set_gauge(
-            PROJECT_TRAFFIC_PATHS_TOTAL.name,
+            PROJECT_TRAFFIC_PATHS.name,
             float(p.count),
             {"path": p.path},
         )
@@ -618,11 +618,11 @@ def _record_releases_breakdown(
     report: ProjectMetricsReport,
 ) -> None:
     """Record commits and PRs per release in in-memory registry."""
-    reg.clear_metric(PROJECT_COMMITS_TOTAL.name)
-    reg.clear_metric(PROJECT_PRS_TOTAL.name)
+    reg.clear_metric(PROJECT_COMMITS.name)
+    reg.clear_metric(PROJECT_PRS.name)
     for rel in report.releases:
-        reg.set_gauge(PROJECT_COMMITS_TOTAL.name, float(rel.commit_count), {"release": rel.tag})
-        reg.set_gauge(PROJECT_PRS_TOTAL.name, float(rel.pr_count), {"release": rel.tag})
+        reg.set_gauge(PROJECT_COMMITS.name, float(rel.commit_count), {"release": rel.tag})
+        reg.set_gauge(PROJECT_PRS.name, float(rel.pr_count), {"release": rel.tag})
 
 
 def _record_workflow_and_milestone_metrics(
@@ -630,28 +630,28 @@ def _record_workflow_and_milestone_metrics(
     report: ProjectMetricsReport,
 ) -> None:
     """Record CI workflow runs and milestone items in in-memory registry."""
-    reg.clear_metric(PROJECT_CI_RUNS_TOTAL.name)
+    reg.clear_metric(PROJECT_CI_RUNS.name)
     for run in report.workflow_runs:
         reg.set_gauge(
-            PROJECT_CI_RUNS_TOTAL.name,
+            PROJECT_CI_RUNS.name,
             float(run.passed),
             {"workflow": run.workflow, "status": "completed", "conclusion": "success"},
         )
         reg.set_gauge(
-            PROJECT_CI_RUNS_TOTAL.name,
+            PROJECT_CI_RUNS.name,
             float(run.failed),
             {"workflow": run.workflow, "status": "completed", "conclusion": "failure"},
         )
 
-    reg.clear_metric(PROJECT_ITEMS_TOTAL.name)
+    reg.clear_metric(PROJECT_ITEMS.name)
     for ms in report.milestones:
         reg.set_gauge(
-            PROJECT_ITEMS_TOTAL.name,
+            PROJECT_ITEMS.name,
             float(ms.open_items),
             {"milestone": ms.milestone, "state": "open"},
         )
         reg.set_gauge(
-            PROJECT_ITEMS_TOTAL.name,
+            PROJECT_ITEMS.name,
             float(ms.closed_items),
             {"milestone": ms.milestone, "state": "closed"},
         )
