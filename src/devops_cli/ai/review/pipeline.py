@@ -2840,7 +2840,8 @@ class ReviewPipelineOrchestrator:
     ) -> tuple[Any | None, SavedFinding | None]:
         """Attempt to admit an advisory finding candidate against the active worktree."""
         idx = len(getattr(self, "admitted_scanner_findings", []))
-        return _admit_single_candidate(
+        counts = getattr(self, "rejection_counts", None)
+        res = _admit_single_candidate(
             raw_finding,
             idx,
             session_id=getattr(self, "session_id", "advisory"),
@@ -2856,7 +2857,11 @@ class ReviewPipelineOrchestrator:
             suppressions=getattr(self, "suppressions", None),
             added_diff_lines=getattr(self, "added_diff_lines", None),
             base_fingerprints=getattr(self, "base_fingerprints", None),
+            rejection_counts=counts,
         )
+        if counts and (prof := active_profiler()):
+            prof.set_rejections(counts)
+        return res
 
     def _audit_dep_vulnerability(
         self,
@@ -2869,7 +2874,7 @@ class ReviewPipelineOrchestrator:
     ) -> SavedFinding | None:
         """Build and admit a single dependency vulnerability candidate (#871).
 
-        Returns None for an advisory a suppression covers, which is listed but not reported.
+        Returns None for an advisory admission rejects (#1302) or a suppression covers (#1295).
         """
         raw = _build_vulnerability_finding(
             fpath, dep, v, session_id=getattr(self, "session_id", "advisory")
@@ -2879,7 +2884,7 @@ class ReviewPipelineOrchestrator:
 
         frozen, admitted_sf = self._admit_advisory_finding(raw, fpath, wt_root)
         if frozen is None:
-            return raw
+            return None
 
         if hasattr(self, "admitted_scanner_findings"):
             self.admitted_scanner_findings.append(frozen)
@@ -4114,6 +4119,7 @@ class ReviewPipelineOrchestrator:
                 verified=sum(1 for f in all_findings if getattr(f, "verified", False)),
                 reported=len(payload_out.findings),
             )
+            profiler.set_rejections(self.rejection_counts)
 
         reportable_findings = [
             f for f in all_findings if f.reportable and not f.is_empty and f.location.strip()
