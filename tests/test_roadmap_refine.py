@@ -12,6 +12,7 @@ import json
 import logging
 import subprocess
 import time
+import traceback
 from collections import Counter
 from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta
@@ -47,7 +48,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import reset_settings_cache
 from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.intake import (
     IntakeDecision,
@@ -276,6 +277,35 @@ def test_research_plan_public_vs_private_and_errors(store: InMemoryRoadmapStore)
         ["research failed: timeout", "research failed: 401"],
         set(),
     )
+
+
+def test_run_research_step_visibility_errors(
+    store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Checking repository visibility re-raises GitHubRateLimitError, and logs a warning and
+    returns ([], set()) for any other error (#1365)."""
+    llm = MockLLMClient()
+
+    with (
+        patch.object(
+            store,
+            "repository_is_private",
+            side_effect=GitHubRateLimitError("GraphQL budget exhausted"),
+        ),
+        pytest.raises(GitHubRateLimitError),
+    ):
+        run_research_step(store, "body", llm)
+
+    with (
+        patch.object(
+            store, "repository_is_private", side_effect=RuntimeError("transient read failure")
+        ),
+        caplog.at_level(logging.WARNING),
+    ):
+        res, urls = run_research_step(store, "body", llm)
+
+    assert (res, urls) == ([], set())
+    assert any("Could not read repository visibility" in rec.getMessage() for rec in caplog.records)
 
 
 def test_validate_proposal_sources_and_questions(
@@ -1112,23 +1142,19 @@ def test_a_failed_item_fails_the_refine_job_of_a_run_without_its_model_text(
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
     failing_answer: Callable[[], Answer],
     named: str,
 ) -> None:
     """Verify run_due_jobs records `refine` as failed once the other items are written, whether
-    the item's reply never fit the schema or the gateway timed out, and its logged record names
-    the error class and holds none of the model's reply."""
+    the item's reply never fit the schema or the gateway timed out, and the raised error
+    names the error class and holds none of the model's reply."""
     first, second, third = _seed_new_items(store)
     scripted_gateway({first: failing_answer()})
     table = build_stub_table(
         {"refine": lambda **kwargs: _run_refine_adapter(**(kwargs | {"clone_path": git_repo}))}
     )
 
-    with (
-        caplog.at_level(logging.ERROR, logger="devops_cli.roadmap.run"),
-        pytest.raises(RoadmapRunError) as raised,
-    ):
+    with pytest.raises(RoadmapRunError) as raised:
         run_due_jobs(
             REPO,
             store,
@@ -1137,13 +1163,13 @@ def test_a_failed_item_fails_the_refine_job_of_a_run_without_its_model_text(
             data_dir=tmp_path,
         )
 
-    logged = logging.Formatter().format(caplog.records[-1])
+    formatted = "".join(traceback.format_exception(raised.value))
     assert (
         raised.value.failed_jobs,
         _bodies_written(store),
-        named in logged,
-        "leaked_model_key" in logged,
-        "During handling" in logged,
+        named in formatted,
+        "leaked_model_key" in formatted,
+        "During handling" in formatted,
     ) == (("refine",), [second, third], True, False, False)
 
 

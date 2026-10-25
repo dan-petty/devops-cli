@@ -316,8 +316,7 @@ def run_cmd(
         if ran:
             print_success(f"Roadmap jobs completed: {', '.join(ran)}")
     except RoadmapRunError as exc:
-        msg = f"Roadmap jobs failed: {', '.join(exc.failed_jobs)}" if exc.failed_jobs else str(exc)
-        print_error(msg)
+        print_error(str(exc), safe=True)
         raise typer.Exit(1) from exc
 
 
