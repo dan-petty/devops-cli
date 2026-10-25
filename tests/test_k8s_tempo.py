@@ -191,7 +191,13 @@ def test_k8s_deploy_stack_shows_tempo_connection_info(runner: CliRunner) -> None
         mock_proc.returncode = 0
         mock_proc.stdout = ""
         mock_proc.stderr = ""
-        mock_run.return_value = mock_proc
+
+        def _fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+            if cmd[:2] == ["helm", "version"]:
+                return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
+            return mock_proc
+
+        mock_run.side_effect = _fake_run
 
         result = runner.invoke(k8s_app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
         assert (

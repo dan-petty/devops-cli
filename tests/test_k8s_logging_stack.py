@@ -117,12 +117,18 @@ def test_teardown_logging_stack_dry_run() -> None:
 def test_deploy_logging_stack_live() -> None:
     """Verify deploy-stack --stack logging execution."""
     mock_proc = MagicMock(returncode=0, stdout="success", stderr="")
+
+    def _fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if cmd[:2] == ["helm", "version"]:
+            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
+        return mock_proc
+
     with (
         patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch("devops_cli.commands.k8s.run_subprocess", return_value=mock_proc),
-        patch("devops_cli.commands.k8s._run_cmd", return_value=mock_proc),
+        patch("devops_cli.commands.k8s.run_subprocess", side_effect=_fake_run),
+        patch("devops_cli.commands.k8s._run_cmd", side_effect=_fake_run),
     ):
         result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
         assert result.exit_code == 0

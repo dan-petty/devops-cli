@@ -15,12 +15,14 @@ import pytest
 import yaml
 from docker.auth import resolve_repository_name
 from docker.utils import parse_repository_tag
+from packaging.version import Version
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
 from devops_cli.prometheus.promql import selectors, validate_promql
 from tests.k8s_manifests import applied_documents
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 runner = CliRunner()
@@ -322,60 +324,70 @@ def test_k8s_configure_urls_llm_dry_run() -> None:
         set_dry_run(False)
 
 
-@patch("devops_cli.commands.k8s._run_cmd")
-def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
-    """_adopt_helm_resource_if_conflict annotates and labels pre-existing K8s resources."""
-    from devops_cli.commands.k8s import _adopt_helm_resource_if_conflict
+def test_require_helm_version() -> None:
+    """_require_helm_version requires Helm >= 3.17 and fails on older versions (#1438)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _require_helm_version
+    from devops_cli.exceptions.k8s import KubernetesDeployError
 
-    err = (
-        'Error: unable to continue with install: Service "ollama" in namespace "llm" exists '
-        "and cannot be imported into the current release: invalid ownership metadata; "
-        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = _mock_proc(0, "v3.16.0\n")
+        with pytest.raises(KubernetesDeployError, match=r"3\.16\.0"):
+            _require_helm_version()
+
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = _mock_proc(0, "v3.17.0\n")
+        ver = _require_helm_version()
+        assert str(ver) == "3.17.0"
+
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = _mock_proc(0, "v4.3.0\n")
+        ver = _require_helm_version()
+        assert ver.major >= 4
+
+
+def test_helm_version_older_than_minimum_fails(process_fake: ProcessFake) -> None:
+    """deploy-stack fails with the version error when Helm is older than 3.17 (#1438)."""
+    process_fake.answer(
+        lambda call: "cluster-info" in call.argv or ("get" in call.argv and "nodes" in call.argv),
+        ProcessAnswer(returncode=0, stdout="node1 Ready\n"),
     )
-    res = _adopt_helm_resource_if_conflict(err, "ollama", "llm", context="local-k3s")
-    assert res is True
-    assert mock_run.call_count == 2
-
-
-def test_adopt_helm_resource_warns_and_refuses_for_traefik() -> None:
-    """_adopt_helm_resource_if_conflict warns and refuses to adopt for traefik release (#1675)."""
-    from devops_cli.commands.k8s.stack_lifecycle import _adopt_helm_resource_if_conflict
-
-    err = (
-        'Error: unable to continue with install: Service "traefik" in namespace "kube-system" exists '
-        "and cannot be imported into the current release: invalid ownership metadata; "
-        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "version"),
+        ProcessAnswer(returncode=0, stdout="v3.16.2\n"),
     )
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run:
-        res = _adopt_helm_resource_if_conflict(err, "traefik", "kube-system", context="local-k3s")
-    assert res is False
-    assert mock_run.call_count == 0
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
+        patch("devops_cli.commands.k8s.stack_lifecycle._post_deploy_credentials"),
+    ):
+        res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
+        assert res.exit_code == 1
+        assert "3.16.2" in res.output
 
 
-_OPERATOR_CRDS = tuple(
-    f"{plural}.monitoring.coreos.com"
-    for plural in (
-        "alertmanagerconfigs",
-        "alertmanagers",
-        "podmonitors",
-        "probes",
-        "prometheusagents",
-        "prometheuses",
-        "prometheusrules",
-        "scrapeconfigs",
-        "servicemonitors",
-        "thanosrulers",
+def test_build_helm_upgrade_cmd_carries_take_ownership() -> None:
+    """Every helm upgrade --install argv carries --take-ownership (#1438)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _build_helm_upgrade_cmd
+
+    rel = {
+        "name": "argocd",
+        "chart": "argo/argo-cd",
+        "namespace": "argocd",
+        "values": "k8s/argocd/values.yaml",
+        "version": "5.51.6",
+    }
+    cmd_v3 = _build_helm_upgrade_cmd(
+        rel, ["--kube-context", "ctx"], wait=True, timeout="10m", is_v4=False
     )
-)
+    assert "--take-ownership" in cmd_v3
+    assert "--force-conflicts" not in cmd_v3
 
-
-def _ownership_conflict(kind: str, name: str, namespace: str) -> str:
-    """Helm's refusal to adopt a resource it does not own, as pkg/action/validate.go words it."""
-    return (
-        f'Error: unable to continue with install: {kind} "{name}" in namespace "{namespace}" '
-        "exists and cannot be imported into the current release: invalid ownership metadata; "
-        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    cmd_v4 = _build_helm_upgrade_cmd(
+        rel, ["--kube-context", "ctx"], wait=True, timeout="10m", is_v4=True
     )
+    assert "--take-ownership" in cmd_v4
+    assert "--force-conflicts" in cmd_v4
 
 
 def _renders_service_monitor(values: object) -> bool:
@@ -453,108 +465,81 @@ def test_prometheus_operator_crds_install_before_every_service_monitor() -> None
     )
 
 
-@pytest.mark.parametrize(
-    ("conflict", "release", "target"),
-    [
-        # A leftover CRD is cluster-scoped: Helm prints an empty namespace and kubectl gets no -n.
-        (
-            ("CustomResourceDefinition", "servicemonitors.monitoring.coreos.com", ""),
-            ("prometheus-operator-crds", "monitoring"),
-            ["customresourcedefinition", "servicemonitors.monitoring.coreos.com"],
-        ),
-        # k8s-monitoring's gateway monitor sits in llm, outside the release's own namespace.
-        (
-            ("ServiceMonitor", "llm-gateway", "llm"),
-            ("k8s-monitoring", "monitoring"),
-            ["servicemonitor", "llm-gateway", "-n", "llm"],
-        ),
-    ],
-)
-def test_adopt_helm_resource_addresses_cluster_scoped_and_namespaced_conflicts(
-    conflict: tuple[str, str, str], release: tuple[str, str], target: list[str]
-) -> None:
-    """Adoption annotates and labels the resource Helm named, passing -n only for a namespaced
-    one, and records the release's namespace, which Helm checks the annotation against (#819)."""
-    from devops_cli.commands.k8s.stack_lifecycle import _adopt_helm_resource_if_conflict
+def test_recover_stuck_helm_release_rolls_back_pending_upgrade() -> None:
+    """A pending-upgrade release is rolled back with helm rollback before upgrade (#1438)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
 
-    release_name, release_namespace = release
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run:
-        adopted = _adopt_helm_resource_if_conflict(
-            _ownership_conflict(*conflict), release_name, release_namespace, context="local-k3s"
-        )
-
-    assert (adopted, [c.args[0] for c in mock_run.call_args_list]) == (
-        True,
-        [
-            [
-                "kubectl",
-                "annotate",
-                *target,
-                f"meta.helm.sh/release-name={release_name}",
-                f"meta.helm.sh/release-namespace={release_namespace}",
-                "--overwrite",
-                "--context",
-                "local-k3s",
-            ],
-            [
-                "kubectl",
-                "label",
-                *target,
-                "app.kubernetes.io/managed-by=Helm",
-                "--overwrite",
-                "--context",
-                "local-k3s",
-            ],
-        ],
-    )
+    status_json = json.dumps({"info": {"status": "pending-upgrade"}, "version": 2})
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, status_json),
+            _mock_proc(0, "Rollback was a success!"),
+        ]
+        _recover_stuck_helm_release("argocd", "argocd", context="test-ctx")
+        assert mock_cmd.call_count == 2
+        status_call = mock_cmd.call_args_list[0][0][0]
+        rollback_call = mock_cmd.call_args_list[1][0][0]
+        assert status_call == [
+            "helm",
+            "status",
+            "argocd",
+            "-n",
+            "argocd",
+            "-o",
+            "json",
+            "--kube-context",
+            "test-ctx",
+        ]
+        assert rollback_call == [
+            "helm",
+            "rollback",
+            "argocd",
+            "-n",
+            "argocd",
+            "--kube-context",
+            "test-ctx",
+        ]
 
 
-@pytest.mark.parametrize(
-    ("helm_errors", "expected"),
-    [
-        # Helm names one leftover CRD per attempt; the release installs once all ten are adopted.
-        (
-            [_ownership_conflict("CustomResourceDefinition", crd, "") for crd in _OPERATOR_CRDS],
-            (0, 11, list(_OPERATOR_CRDS)),
-        ),
-        # An adoption that does not clear the conflict fails the same way twice, ending retries.
-        (
-            [_ownership_conflict("CustomResourceDefinition", _OPERATOR_CRDS[8], "")] * 30,
-            (1, 2, [_OPERATOR_CRDS[8]]),
-        ),
-    ],
-)
-def test_helm_retries_adopt_each_leftover_crd_until_the_release_installs(
-    helm_errors: list[str], expected: tuple[int, int, list[str]]
-) -> None:
-    """Every leftover CRD is adopted in one deploy, and a conflict adoption cannot clear stops
-    the retries instead of repeating Helm (#819)."""
-    from devops_cli.commands.k8s.stack_lifecycle import (
-        _HELM_RELEASES_BY_STACK,
-        _run_helm_with_adoption_retries,
-    )
+def test_recover_stuck_helm_release_rolls_back_pending_rollback() -> None:
+    """A pending-rollback release is rolled back with helm rollback before upgrade (#1438)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
 
-    release = _HELM_RELEASES_BY_STACK["infra"][0]
-    helm_cmd = ["helm", "upgrade", "--install", release["name"], release["chart"]]
-    pending_errors = iter(helm_errors)
+    status_json = json.dumps({"info": {"status": "pending-rollback"}, "version": 3})
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, status_json),
+            _mock_proc(0, "Rollback was a success!"),
+        ]
+        _recover_stuck_helm_release("argocd", "argocd")
+        assert mock_cmd.call_count == 2
+        assert mock_cmd.call_args_list[1][0][0] == ["helm", "rollback", "argocd", "-n", "argocd"]
 
-    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        if cmd != helm_cmd:
-            return _mock_proc(0)
-        error = next(pending_errors, None)
-        return _mock_proc(1, stderr=error) if error else _mock_proc(0)
 
-    with patch(
-        "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", side_effect=fake_run
-    ) as mock_run:
-        result = _run_helm_with_adoption_retries(helm_cmd, release, None)
+def test_recover_stuck_helm_release_uninstalls_pending_install() -> None:
+    """A pending-install release is uninstalled with helm uninstall before upgrade (#1438)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
 
-    calls = [c.args[0] for c in mock_run.call_args_list]
-    assert (
-        result.returncode,
-        calls.count(helm_cmd),
-        [cmd[3] for cmd in calls if cmd[:2] == ["kubectl", "annotate"]],
-    ) == expected
+    status_json = json.dumps({"info": {"status": "pending-install"}, "version": 1})
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, status_json),
+            _mock_proc(0, "release 'argocd' uninstalled"),
+        ]
+        _recover_stuck_helm_release("argocd", "argocd")
+        assert mock_cmd.call_count == 2
+        assert mock_cmd.call_args_list[1][0][0] == ["helm", "uninstall", "argocd", "-n", "argocd"]
+
+
+def test_recover_stuck_helm_release_deployed_does_nothing() -> None:
+    """A deployed release triggers neither rollback nor uninstall (#1438)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
+
+    status_json = json.dumps({"info": {"status": "deployed"}, "version": 1})
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = _mock_proc(0, status_json)
+        _recover_stuck_helm_release("argocd", "argocd")
+        assert mock_cmd.call_count == 1
 
 
 def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
@@ -595,25 +580,137 @@ def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
     )
 
 
-@patch("devops_cli.commands.k8s._run_cmd")
-def test_recover_stuck_helm_release_if_pending(mock_run: MagicMock) -> None:
-    """_recover_stuck_helm_release_if_pending deletes lock secret when release is stuck in pending state."""
-    from devops_cli.commands.k8s import _recover_stuck_helm_release_if_pending
-
-    err_unrelated = "Error: timed out waiting for condition"
-    res_unrelated = _recover_stuck_helm_release_if_pending(err_unrelated, "argocd", "argocd")
-
-    err_lock = "Error: UPGRADE FAILED: another operation (install/upgrade/rollback) is in progress"
-    mock_run.side_effect = [
-        MagicMock(
-            returncode=0, stdout=json.dumps({"version": 50, "info": {"status": "pending-upgrade"}})
-        ),
-        MagicMock(returncode=0, stdout="secret deleted"),
-    ]
-    res_lock = _recover_stuck_helm_release_if_pending(
-        err_lock, "argocd", "argocd", context="local-k3s"
+def test_deploy_stack_with_process_fake_pending_upgrade_rolls_back(
+    process_fake: ProcessFake,
+) -> None:
+    """When the process fake answers helm status with pending-upgrade, deploy-stack runs helm rollback before upgrade (#1438)."""
+    process_fake.answer(
+        lambda call: "cluster-info" in call.argv or ("get" in call.argv and "nodes" in call.argv),
+        ProcessAnswer(returncode=0, stdout="node1 Ready\n"),
     )
-    assert (res_unrelated, res_lock, mock_run.call_count) == (False, True, 2)
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "version"),
+        ProcessAnswer(returncode=0, stdout="v3.17.0\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "repo"),
+        ProcessAnswer(returncode=0, stdout="ok\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "status"),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"info": {"status": "pending-upgrade"}, "version": 2}),
+        ),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "rollback"),
+        ProcessAnswer(returncode=0, stdout="rolled back\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "upgrade"),
+        ProcessAnswer(returncode=0, stdout="Release installed\n"),
+    )
+
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+    ):
+        res = runner.invoke(
+            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
+        )
+        assert res.exit_code == 0
+
+    rollback_calls = [
+        call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "rollback")
+    ]
+    upgrade_calls = [
+        call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "upgrade")
+    ]
+    assert len(rollback_calls) > 0
+    assert len(upgrade_calls) > 0
+    assert rollback_calls[0][:5] == (
+        "helm",
+        "rollback",
+        "prometheus-operator-crds",
+        "-n",
+        "monitoring",
+    )
+    first_rollback_idx = next(
+        i for i, call in enumerate(process_fake.calls) if call.argv[:2] == ("helm", "rollback")
+    )
+    first_upgrade_idx = next(
+        i for i, call in enumerate(process_fake.calls) if call.argv[:2] == ("helm", "upgrade")
+    )
+    assert first_rollback_idx < first_upgrade_idx
+    for cmd in upgrade_calls:
+        assert "--take-ownership" in cmd
+
+
+def test_deploy_stack_with_process_fake_pending_install_uninstalls(
+    process_fake: ProcessFake,
+) -> None:
+    """When the process fake answers helm status with pending-install, deploy-stack runs helm uninstall (#1438)."""
+    process_fake.answer(
+        lambda call: "cluster-info" in call.argv or ("get" in call.argv and "nodes" in call.argv),
+        ProcessAnswer(returncode=0, stdout="node1 Ready\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "version"),
+        ProcessAnswer(returncode=0, stdout="v3.17.0\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "repo"),
+        ProcessAnswer(returncode=0, stdout="ok\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "status"),
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps({"info": {"status": "pending-install"}, "version": 1}),
+        ),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "uninstall"),
+        ProcessAnswer(returncode=0, stdout="uninstalled\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "upgrade"),
+        ProcessAnswer(returncode=0, stdout="Release installed\n"),
+    )
+
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+    ):
+        res = runner.invoke(
+            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
+        )
+        assert res.exit_code == 0
+
+    uninstall_calls = [
+        call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "uninstall")
+    ]
+    upgrade_calls = [
+        call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "upgrade")
+    ]
+    assert len(uninstall_calls) > 0
+    assert len(upgrade_calls) > 0
+    assert uninstall_calls[0][:5] == (
+        "helm",
+        "uninstall",
+        "prometheus-operator-crds",
+        "-n",
+        "monitoring",
+    )
+    for cmd in upgrade_calls:
+        assert "--take-ownership" in cmd
 
 
 def test_k8s_apply_and_logs() -> None:
@@ -688,6 +785,10 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             return_value=_mock_proc(0, "minikube is running"),
         ),
         patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
+            return_value=Version("3.17.0"),
+        ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch(
             "devops_cli.k8s.credentials.sync_k8s_credentials",
@@ -711,6 +812,10 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             return_value=_mock_proc(0, "success"),
         ),
         patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
+            return_value=Version("3.17.0"),
+        ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch(
             "devops_cli.k8s.credentials.sync_k8s_credentials",
@@ -1169,6 +1274,10 @@ def test_k8s_deploy_stack_no_wait() -> None:
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
         patch("devops_cli.commands.k8s.stack_lifecycle._is_helm_v4_or_newer", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
+            return_value=Version("4.3.0"),
+        ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
     ):
@@ -1187,11 +1296,16 @@ def test_k8s_deploy_stack_no_wait() -> None:
         for cmd in helm_cmds:
             assert "--wait" not in cmd
             assert "--force-conflicts" in cmd
+            assert "--take-ownership" in cmd
 
     with (
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
         patch("devops_cli.commands.k8s.stack_lifecycle._is_helm_v4_or_newer", return_value=False),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
+            return_value=Version("3.17.0"),
+        ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
     ):
@@ -1211,6 +1325,7 @@ def test_k8s_deploy_stack_no_wait() -> None:
         for cmd in helm_cmds:
             assert "--wait" not in cmd
             assert "--force-conflicts" not in cmd
+            assert "--take-ownership" in cmd
 
 
 def test_k8s_workload_resource_limits_and_probes() -> None:
@@ -1832,6 +1947,8 @@ class _Cluster:
         self.calls.append((cmd, input))
         if cmd[0] == "git" or cmd[1] == "kustomize":
             return subprocess.run(cmd, input=input, capture_output=True, text=True, check=False)
+        if cmd[0] == "helm" and len(cmd) > 1 and cmd[1] == "version":
+            return subprocess.CompletedProcess(cmd, 0, "v4.3.0", "")
         if cmd[1:6] == ["-n", "argocd", "get", "application", "cluster"]:
             return subprocess.CompletedProcess(
                 cmd, 0 if self.argo else 1, "cluster" * self.argo, ""
@@ -2274,6 +2391,10 @@ def test_k8s_helm_upgrade_command_includes_pinned_version() -> None:
         patch(
             "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
         ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
+            return_value=Version("3.17.0"),
+        ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
     ):
@@ -2290,6 +2411,7 @@ def test_k8s_helm_upgrade_command_includes_pinned_version() -> None:
         assert len(helm_cmds) > 0
         for cmd in helm_cmds:
             assert "--version" in cmd
+            assert "--take-ownership" in cmd
 
 
 def test_native_deploy_stack_infra_applies_the_monitoring_kustomization() -> None:
@@ -2304,6 +2426,10 @@ def test_native_deploy_stack_infra_applies_the_monitoring_kustomization() -> Non
         patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
         patch(
             "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
+            return_value=Version("3.17.0"),
         ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
@@ -2508,6 +2634,10 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
             "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
         ),
         patch("devops_cli.commands.k8s.stack_lifecycle._bootstrap_openwebui_account"),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
+            return_value=Version("3.17.0"),
+        ),
         patch(
             "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
             return_value=_mock_proc(0),

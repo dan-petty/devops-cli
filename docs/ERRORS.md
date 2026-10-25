@@ -77,7 +77,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `KubernetesLoggingError` | `K8S_LOGGING_ERROR` | `1` | K8s | Raised when querying cluster logs or Loki fails. |
 | `LLMInferenceError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Base exception for LLM provider invocation failures. |
 | `LibraryIngestionError` | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
-| `LibraryNotFoundError` | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package cannot be imported or found in the environment. |
+| `LibraryNotFoundError` | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package could not be loaded or found in the environment. |
 | `LogfireConfigurationError` | `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when Logfire configuration fails or credentials cannot be retrieved. |
 | `MemoryProfilerError` | `PROFILER_ERROR` | `1` | Devops_cli.telemetry.memory_profiler | Domain exception raised when memory profiling target resolution or execution fails. |
 | `ModelBundleError` | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |

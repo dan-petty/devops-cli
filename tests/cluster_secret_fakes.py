@@ -146,6 +146,8 @@ class FakeCluster:
             return 1, ""
         if argv[0] == "gh":
             return self._gh(argv, kwargs.get("env") or {})
+        if argv[:2] == ["helm", "version"]:
+            return 0, "v3.17.0"
         if argv[:2] == ["kubectl", "get"]:
             return 0, self._get(argv)
         if argv[:3] == ["kubectl", "apply", "--server-side"]:

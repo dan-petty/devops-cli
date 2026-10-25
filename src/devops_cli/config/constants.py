@@ -2369,11 +2369,8 @@ CONST_HELM_TEARDOWN_RETAINED_RELEASES: Final[frozenset[str]] = frozenset(
     {"prometheus-operator-crds"}
 )
 
-# A resource Helm refuses to adopt, as its resourceString prints it: `<Kind> "<name>" in namespace
-# "<namespace>"`, where the namespace is empty for a cluster-scoped resource such as a CRD
-CONST_HELM_OWNERSHIP_CONFLICT_RE: Final[re.Pattern[str]] = re.compile(
-    r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]*)"'
-)
+# The minimum supported Helm CLI version for Kubernetes stack deployments (#1438)
+CONST_HELM_MIN_VERSION: Final[str] = "3.17.0"
 
 # What a gh request writes (#1125, `github/request_classifier.py`). Uncertain requests count as
 # writes, so a high-level command reads only when its verb is a read verb or its group only reads.

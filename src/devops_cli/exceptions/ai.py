@@ -235,7 +235,7 @@ class LibraryIngestionError(DevOpsCLIError):
 
 
 class LibraryNotFoundError(LibraryIngestionError):
-    """Raised when target package cannot be imported or found in the environment."""
+    """Raised when target package could not be loaded or found in the environment."""
 
     DEFAULT_ERROR_CODE = CONST_ERROR_CODE_LIBRARY_NOT_FOUND
     DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
