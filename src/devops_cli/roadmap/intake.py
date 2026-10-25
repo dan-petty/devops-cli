@@ -6,30 +6,29 @@ left without a Priority (an unfinished item), or a candidate that is not an issu
 take. Intake plans every candidate before it writes anything, model calls included, so a model
 gateway that does not answer (`ModelGatewayUnreachableError`) leaves GitHub as it was.
 
-**Duplicates.** A candidate is compared with every item on the board, open or closed, and every
-issue closed as not planned, plus the candidates this run placed before it; a new candidate is
-also compared with the open agent issues off the board, which a run that stopped after filing
-leaves. An issue that has sub-issues is compared with no candidate. Its sub-issues deliver it,
-one pull request each (ADR 0012), so no candidate asks for its change. A new candidate is not
-compared with the issue its source links, such as the issue it splits (#1985). Each text is
-embedded once, and the model judges the candidate against its nearest
-`DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine similarity. A duplicate asks for the same
-change as its original: the same result and acceptance criteria, so that the delivery of one
-delivers the other. A shared theme, goal, umbrella or file does not make a duplicate (#1755). The
-model names an original only with the change both ask for (`shared_change`), and the
-duplicate's reason names that change. An original named with no shared change is not a
-duplicate: intake places the candidate and names the original as related. The model can also
-name a related item that asks for a different change, such as an umbrella, a sibling or a
-neighbour (`related_to`); the report and the reason comment name it, and the comment links it.
-A duplicate issue is closed as a duplicate of the original, with one comment, and stays off the
-board; a new candidate that is a duplicate is not filed. An unfinished item, and an issue whose
-timeline shows a duplicate close that a person reversed by reopening it, skip the check. An
-existing issue a person planned (a milestone, or a Priority a person set on its card or
-label) is never closed as a duplicate; intake reports it as a possible duplicate left for
-a person, places nothing else for it, and writes nothing (#1686). A duplicate pair closes the
-newer issue, never the older: when the model names an original newer than the candidate, intake
-reports the pair as a possible duplicate and closes nothing. A new candidate whose text holds
-what looks like a secret is refused before it reaches a model or GitHub.
+**Possible duplicates.** A candidate is compared with every item on the board, open or closed,
+and every issue closed as not planned, plus the candidates this run placed before it; a new
+candidate is also compared with the open agent issues off the board. An issue that has
+sub-issues is compared with no candidate. Its sub-issues deliver it, one pull request each (ADR
+0012), so no candidate asks for its change. A new candidate is not compared with the issue its
+source links, such as the issue it splits (#1985). Each text is embedded once, and the model
+judges the candidate against its nearest `DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine
+similarity. A duplicate asks for the same change as its original: the same result and
+acceptance criteria, so that the delivery of one delivers the other. A shared theme, goal,
+umbrella or file does not make a duplicate (#1755). The model names an original only with the
+change both ask for (`shared_change`). An original named with no shared change is not a
+possible duplicate: intake names it as related. The model can also name a related item that
+asks for a different change, such as an umbrella, a sibling or a neighbour (`related_to`).
+
+The model's verdict is a flag, never an action (#2218). Intake places a possible duplicate as
+it places any candidate, files a new one, and closes no issue. The report and the reason
+comment name the possible original and the change the model says both ask for, and the comment
+links it, so that a person, or refine, closes a real duplicate. A related item is named the
+same way. An issue whose timeline shows a duplicate close that a person reversed by reopening
+it skips the check, and so does an unfinished item. A new candidate whose title and body are
+those of an open issue that is not finished, which a run that stopped after filing leaves, is
+that issue: intake places it and files nothing. A new candidate whose text holds what looks
+like a secret is refused before it reaches a model or GitHub.
 
 **The proposal.** The model returns a type, a Priority from P1 to P3, Value and Effort, each
 with a one-line reason, and optionally one piece of evidence. The types it may pick are the
@@ -66,10 +65,8 @@ workflow sets on a card the add did not restore; a restored card keeps its miles
 does; and the reason comment gives that placement and those values. A value a person set stays,
 and the job record never claims it (ADR 0002).
 
-A duplicate close comments with `CONST_ROADMAP_INTAKE_DUPLICATE_MARKER` unless that comment is
-there, then closes. A run that stops part-way leaves an open issue off the board, an item with no
-Priority, or an open duplicate, and the next run finishes it. Intake writes to no issue but the
-candidate.
+A run that stops part-way leaves an open issue off the board, or an item with no Priority, and
+the next run finishes it. Intake writes to no issue but the candidate, and closes none.
 
 **Dry run, plan, confirm** (the dry-run rule of #412). `dry_run_intake` makes no request, to
 GitHub or a model: it returns an `IntakePlan` marked `dry_run`, with no decision, that holds
@@ -87,7 +84,7 @@ the oldest candidates first.
 
 **Agent candidates.** A new candidate comes from an agent unless its caller says a person
 filed it (`Filer`). An agent's is filed with the `source/agent` label, a person's with none.
-Intake files every new candidate that is not a duplicate.
+Intake files every new candidate, a possible duplicate too.
 """
 
 from __future__ import annotations
@@ -111,12 +108,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_EVIDENCE_PATTERNS,
-    CONST_ROADMAP_INTAKE_DUPLICATE_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_MODEL_PRIORITIES,
     CONST_ROADMAP_P0_PRIORITIES,
-    CONST_ROADMAP_PRIORITY_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
     CONST_ROADMAP_STATUS_DONE,
@@ -181,7 +176,6 @@ class Outcome(StrEnum):
     """What intake does with a candidate."""
 
     PLACE = "place"
-    DUPLICATE = "duplicate"
     SKIP = "skip"
 
 
@@ -295,14 +289,17 @@ class IntakeDecision:
 
     `shown` is the type, Priority, Value and Effort the item ends with, for the report.
     `reasons` holds the reason comment's lines, each value intake sets with its reason, so the
-    comment can be written for the placement and fields the writes make. `related` is the item
-    a placed candidate is related to but does not duplicate, with `related_reason` (#1755).
+    comment can be written for the placement and fields the writes make. `possible_duplicate`
+    is the item the model names as asking for the same change, with `duplicate_reason`, for a
+    person to judge (#2218). `related` is the item a placed candidate is related to but does not
+    duplicate, with `related_reason` (#1755).
     """
 
     subject: Subject
     outcome: Outcome
-    original: int | None = None
     reason: str = ""
+    possible_duplicate: int | None = None
+    duplicate_reason: str = ""
     related: int | None = None
     related_reason: str = ""
     labels: tuple[str, ...] = ()
@@ -314,22 +311,14 @@ class IntakeDecision:
     shown: tuple[str, str, str, str] = ("", "", "", "")
     notes: tuple[str, ...] = ()
     reasons: tuple[tuple[str, str, str], ...] = ()
-    held: bool = False
 
     @property
     def has_writes(self) -> bool:
-        if self.outcome is Outcome.DUPLICATE:
-            return self.subject.number is not None and not self.held
         return self.outcome is Outcome.PLACE
 
     def writes(self) -> list[str]:
         """Each write, in the order intake makes it."""
         texts = MESSAGES.roadmap
-        if self.outcome is Outcome.DUPLICATE:
-            if self.held:
-                return []
-            close = texts.intake_write_close if self.comment else texts.intake_write_close_only
-            return [close.format(original=self.original)]
         filing = ", ".join(self.filing_labels) or texts.intake_no_labels
         planned = [texts.intake_write_file.format(labels=filing)]
         planned = planned if self.subject.number is None else []
@@ -390,13 +379,12 @@ class PlacementFailure:
 
 @dataclass(frozen=True)
 class IntakeApplied:
-    """What a run wrote: items placed, duplicates closed, and the issues it filed. `finished`
-    names each candidate whose card the add returned holding a Priority, a card a person
-    archived that the add restored or one a lagging listing left out: intake wrote nothing
-    else to it (#1403). `failed` names each candidate a failed write made it skip (#1443)."""
+    """What a run wrote: items placed, and the issues it filed. `finished` names each candidate
+    whose card the add returned holding a Priority, a card a person archived that the add
+    restored or one a lagging listing left out: intake wrote nothing else to it (#1403).
+    `failed` names each candidate a failed write made it skip (#1443)."""
 
     placed: int = 0
-    closed: int = 0
     filed: tuple[int, ...] = ()
     finished: tuple[int, ...] = ()
     failed: tuple[PlacementFailure, ...] = ()
@@ -404,7 +392,8 @@ class IntakeApplied:
 
 @dataclass(frozen=True)
 class CandidateOutcome:
-    """The entry point's answer: the plan, the candidate's decision, and the issue filed for it."""
+    """The entry point's answer: the plan, the candidate's decision, and the issue filed for it
+    or, when a run that stopped after filing left that issue, the issue intake placed."""
 
     plan: IntakePlan
     decision: IntakeDecision
@@ -514,12 +503,33 @@ def _subject(issue: IssueRecord, item: Item | None = None) -> Subject:
     )
 
 
+def _new_subject(run: _Run, new: NewCandidate) -> Subject:
+    """The subject of a new candidate: the open issue that is not finished and holds the title
+    and body that intake files for it, which a run that stopped after filing leaves, or else the
+    candidate itself, to file (#2218)."""
+    body = new.filed_body()
+    for issue in run.issues:
+        item = run.board.get(issue.number)
+        unfinished = item is None or item.priority is None
+        if (
+            issue.state is GitHubState.OPEN
+            and unfinished
+            and (issue.title, issue.body)
+            == (
+                new.title,
+                body,
+            )
+        ):
+            return replace(_subject(issue, item), new=new)
+    return Subject(title=new.title, body=body, new=new)
+
+
 def _subjects(
     run: _Run, issues: Collection[int], new: NewCandidate | None
 ) -> tuple[list[Subject], tuple[int, ...]]:
     """The candidates this run decides, by number, and the asked-for numbers that are none."""
     if new is not None:
-        return [Subject(title=new.title, body=new.filed_body(), new=new)], ()
+        return [_new_subject(run, new)], ()
     found = [
         _subject(issue, run.board.get(issue.number))
         for issue in run.issues
@@ -733,11 +743,11 @@ def validate_proposal(raw: ModelProposal, types: Sequence[str], *, needs_type: b
 
 @dataclass(frozen=True)
 class _Judgement:
-    """What the model's reply says of the shortlist once code has read it: the original of a
-    duplicate, or the item a candidate is related to, with its reason, and a note for each
-    number code did not take (#1755)."""
+    """What the model's reply says of the shortlist once code has read it: the possible original
+    of a duplicate, or the item a candidate is related to, with its reason, and a note for each
+    number code did not take (#1755, #2218)."""
 
-    original: int | None = None
+    possible_duplicate: int | None = None
     related: int | None = None
     reason: str = ""
     notes: tuple[str, ...] = ()
@@ -759,9 +769,9 @@ def _related(
 def _judge(
     raw: ModelProposal, shortlist: Mapping[int, _Entry], subject: Subject
 ) -> tuple[_Judgement, Subject]:
-    """The duplicate or related item the reply names, and the candidate, with a reference to
-    the Done item it names as the original. An original named with no change both items
-    ask for is a related item, not an original."""
+    """The possible original or related item the reply names, and the candidate, with a
+    reference to the Done item it names as the original. An original named with no change both
+    items ask for is a related item, not a possible original."""
     named = _named_number(raw.duplicate_of)
     if named is None or named not in shortlist:
         return _related(raw, shortlist, _rejected(named)), subject
@@ -774,7 +784,7 @@ def _judge(
         related = _Judgement(related=named, reason=said, notes=(unnamed,))
         return related, subject
     reason = MESSAGES.roadmap.intake_duplicate_reason.format(change=change, reason=said)
-    return _Judgement(original=named, reason=reason.strip()), subject
+    return _Judgement(possible_duplicate=named, reason=reason.strip()), subject
 
 
 def _resolve_raw(
@@ -784,11 +794,9 @@ def _resolve_raw(
     subject: Subject,
     *,
     needs_type: bool,
-) -> tuple[_Judgement, Proposal | None, Subject]:
-    """The reply's judgement, and its proposal once checked unless it names an original."""
+) -> tuple[_Judgement, Proposal, Subject]:
+    """The reply's judgement, and its proposal once checked."""
     judgement, subject = _judge(raw, shortlist, subject)
-    if judgement.original is not None:
-        return judgement, None, subject
     return judgement, validate_proposal(raw, types, needs_type=needs_type), subject
 
 
@@ -868,13 +876,17 @@ def _reason_lines(
     judgement: _Judgement,
 ) -> tuple[tuple[str, str, str], ...]:
     """Each value intake sets that the reason comment gives, with its name and reason, then
-    the related item, whose number the comment links."""
+    the possible original or the related item, whose number the comment links."""
     reasons = {ItemField.VALUE: proposal.value_reason, ItemField.EFFORT: proposal.effort_reason}
     lines = [("Type", type_label, proposal.type_reason)] if type_label else []
     lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
     lines += [(f.value, value, reasons[f]) for f, value in fields if f in reasons]
+    texts = MESSAGES.roadmap
+    if judgement.possible_duplicate is not None:
+        original = texts.intake_possible_duplicate_value.format(number=judgement.possible_duplicate)
+        why = texts.intake_possible_duplicate_reason.format(reason=judgement.reason)
+        lines.append((texts.intake_possible_duplicate_field, original, why))
     if judgement.related is not None:
-        texts = MESSAGES.roadmap
         related = texts.intake_related_value.format(number=judgement.related)
         lines.append((texts.intake_related_field, related, judgement.reason))
     return tuple(lines)
@@ -926,23 +938,6 @@ def _rejected(named: int | None) -> tuple[str, ...]:
     if named is None:
         return ()
     return (MESSAGES.roadmap.intake_note_duplicate_rejected.format(number=named),)
-
-
-def _has_person_priority(subject: Subject) -> bool:
-    if any(lb.lower().startswith(CONST_ROADMAP_PRIORITY_LABEL_PREFIX) for lb in subject.labels):
-        return True
-    if subject.item is not None and subject.item.priority is not None:
-        record = subject.item.job_record
-        return (
-            ItemField.PRIORITY not in record or record[ItemField.PRIORITY] != subject.item.priority
-        )
-    return False
-
-
-def _is_planned_by_person(subject: Subject) -> bool:
-    """Whether a person planned the candidate: set its milestone, or Priority on card or label.
-    No job sets a milestone, so every milestone is a person's."""
-    return subject.milestone is not None or _has_person_priority(subject)
 
 
 @dataclass
@@ -1037,7 +1032,7 @@ class _Planner:
             return self._retry_proposal(
                 subject, request, vector, shortlist_entries, first_exc, needs_type=needs_type
             )
-        return self._judged(subject, judgement, proposal)
+        return self._place(subject, proposal, judgement)
 
     def _retry_proposal(
         self,
@@ -1061,45 +1056,11 @@ class _Planner:
             both = (*first_exc.problems, *second_exc.problems)
             reason = MESSAGES.roadmap.intake_invalid.format(problems="; ".join(both))
             return self._skipped(subject, reason, ())
-        return self._judged(subject, judgement, proposal)
-
-    def _judged(
-        self, subject: Subject, judgement: _Judgement, proposal: Proposal | None
-    ) -> IntakeDecision:
-        """A duplicate when the judgement names an original, else the placement."""
-        if judgement.original is not None:
-            return self._duplicate(subject, judgement.original, judgement.reason)
-        assert proposal is not None
         return self._place(subject, proposal, judgement)
 
     def _skipped(self, subject: Subject, reason: str, notes: tuple[str, ...]) -> IntakeDecision:
         """A candidate with no usable proposal: nothing is written."""
         return IntakeDecision(subject, Outcome.SKIP, reason=reason, notes=notes)
-
-    def _duplicate(self, subject: Subject, original: int, reason: str) -> IntakeDecision:
-        """A duplicate: an issue closes as a duplicate of its original, and a new candidate is
-        not filed. Its comment is left out when a stopped run already left it."""
-        if subject.number is not None and (
-            _is_planned_by_person(subject) or subject.number < original
-        ):
-            return IntakeDecision(
-                subject, Outcome.DUPLICATE, original=original, reason=reason, held=True
-            )
-        marker = CONST_ROADMAP_INTAKE_DUPLICATE_MARKER
-        comment = (
-            None
-            if _has_comment(self.run.store, subject, marker)
-            else MESSAGES.roadmap.intake_duplicate_comment.format(
-                marker=marker, original=original, reason=reason
-            )
-        )
-        return IntakeDecision(
-            subject,
-            Outcome.DUPLICATE,
-            original=original,
-            reason=reason,
-            comment=comment,
-        )
 
     def _place(self, subject: Subject, proposal: Proposal, judgement: _Judgement) -> IntakeDecision:
         type_label = subject.type_label or proposal.type
@@ -1125,8 +1086,10 @@ class _Planner:
             shown=_shown(subject, type_label, priority[0], proposal),
             notes=judgement.notes + proposal.notes,
             reasons=lines,
+            possible_duplicate=judgement.possible_duplicate,
+            duplicate_reason=judgement.reason if judgement.possible_duplicate is not None else "",
             related=judgement.related,
-            related_reason=judgement.reason,
+            related_reason=judgement.reason if judgement.related is not None else "",
         )
 
 
@@ -1291,14 +1254,6 @@ def _apply_decision(
     store: RoadmapStore, decision: IntakeDecision, refine_hook: Callable[[RoadmapStore, int], Any]
 ) -> IntakeApplied:
     """One candidate's writes, and what they wrote."""
-    if (
-        decision.outcome is Outcome.DUPLICATE
-        and decision.subject.number is not None
-        and not decision.held
-    ):
-        assert decision.original is not None
-        store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
-        return IntakeApplied(closed=1)
     if decision.outcome is not Outcome.PLACE:
         return IntakeApplied()
     number, applied = _apply_placement(store, decision)
@@ -1338,7 +1293,6 @@ def apply_intake(
             failed.append(_failed_placement(decision.subject, exc))
     return IntakeApplied(
         placed=sum(each.placed for each in written),
-        closed=sum(each.closed for each in written),
         filed=tuple(number for each in written for number in each.filed),
         finished=tuple(number for each in written for number in each.finished),
         failed=tuple(failed),
@@ -1371,13 +1325,16 @@ def intake_candidate(
     confirm: bool = False,
 ) -> CandidateOutcome:
     """The entry point discovery (#745) and the review hand-off call: decide one candidate that
-    is not an issue yet, and with `confirm` file and place it unless it is a duplicate."""
+    is not an issue yet, and with `confirm` file and place it, or place the issue that a stopped
+    run filed for it."""
     plan = plan_intake(store, repo=repo, model=model, ref=ref, new=candidate)
     (decision,) = plan.decisions
     applied = apply_intake(store, plan) if confirm else None
     if applied is not None:
         raise_for_failed_placements(applied)
     number = applied.filed[0] if applied and applied.filed else None
+    if applied is not None and number is None and decision.outcome is Outcome.PLACE:
+        number = decision.subject.number
     return CandidateOutcome(plan=plan, decision=decision, number=number)
 
 
@@ -1389,23 +1346,6 @@ def _decision_lines(decision: IntakeDecision) -> list[str]:
     subject = decision.subject.name
     if decision.outcome is Outcome.SKIP:
         return [texts.intake_skip_line.format(subject=subject, reason=decision.reason)]
-    if decision.outcome is Outcome.DUPLICATE:
-        if decision.held:
-            return [
-                texts.intake_possible_duplicate_line.format(
-                    subject=subject, original=decision.original, reason=decision.reason
-                )
-            ]
-        action = (
-            texts.intake_duplicate_closes
-            if decision.subject.number is not None
-            else texts.intake_duplicate_files_nothing.format(original=decision.original)
-        )
-        return [
-            texts.intake_duplicate_line.format(
-                subject=subject, original=decision.original, reason=decision.reason, action=action
-            )
-        ]
     assert decision.placement is not None
     kind, priority, value, effort = decision.shown
     placed = texts.intake_place_line.format(
@@ -1416,12 +1356,18 @@ def _decision_lines(decision: IntakeDecision) -> list[str]:
         effort=effort,
         placement=decision.placement.text,
     )
-    if decision.related is None:
-        return [placed]
-    related = texts.intake_related_line.format(
-        number=decision.related, reason=decision.related_reason
-    )
-    return [placed, related.rstrip()]
+    lines = [placed]
+    if decision.possible_duplicate is not None:
+        possible = texts.intake_possible_duplicate_line.format(
+            number=decision.possible_duplicate, reason=decision.duplicate_reason
+        )
+        lines.append(possible.rstrip())
+    if decision.related is not None:
+        related = texts.intake_related_line.format(
+            number=decision.related, reason=decision.related_reason
+        )
+        lines.append(related.rstrip())
+    return lines
 
 
 def render_intake_dry_run(plan: IntakePlan, *, repo: str) -> None:

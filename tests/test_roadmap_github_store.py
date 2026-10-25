@@ -715,22 +715,6 @@ def test_the_stores_own_write_is_the_value_its_next_write_of_that_field_compares
     assert (github.card(7) or {})["priority"] == "P0-Critical"
 
 
-def test_a_read_after_a_duplicate_close_in_the_same_store_shows_the_status_the_board_set() -> None:
-    """A close lets the board's "Item closed" workflow set the card's Status to Done, so the
-    store drops the listings it read: a later read through the same store shows Done, not the
-    Status the store read before the close."""
-    github = GitHubFake(REPO, milestones=[{"number": 43, "title": "Q4 hardening", "state": "open"}])
-    github.seed_issue(7, "feat: a copy", milestone="Q4 hardening", card={"status": "In Review"})
-    github.seed_issue(8, "feat: the original", milestone="Q4 hardening", card={"status": "Ready"})
-    store = GitHubRoadmapStore(
-        REPO, board_owner="dan-petty", board_number=2, runner=github, session=RunnerSession(github)
-    )
-    before = {item.number: item.status for item in store.items(milestone=43)}
-    store.close_as_duplicate(7, 8, None)
-    after = {item.number: item.status for item in store.items(milestone=43)}
-    assert (before[7], after[7]) == ("In Review", "Done")
-
-
 def test_a_write_refuses_before_it_starts_while_the_points_left_are_below_the_reserve() -> None:
     """The card read reports the points left; below the reserve the write never starts."""
     server = BoardServer(BOARD, remaining=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR)
@@ -1797,51 +1781,6 @@ def test_an_item_no_store_read_has_no_card_to_write_and_raises_before_any_write(
 def issue_payload(number: int, **changes: Any) -> dict[str, Any]:
     """The recorded open issue #917 as issue `number`, with its node id."""
     return {**OPEN_ISSUES[1], "number": number, "node_id": f"I_kw{number}", **changes}
-
-
-def test_close_as_duplicate_comments_then_closes_with_the_originals_node_id() -> None:
-    store, runner = board_store(
-        {
-            "-X POST": {},
-            "--input": {"data": {"closeIssue": {"issue": {"number": 950}}}},
-            f"api repos/{REPO}/issues/950": issue_payload(950),
-            f"api repos/{REPO}/issues/742": issue_payload(742),
-        }
-    )
-    store.close_as_duplicate(950, 742, "Duplicate of #742.")
-    (request,) = runner.inputs()
-    assert (runner.writes[0][3:], "DUPLICATE" in request["query"], request["variables"]) == (
-        [f"repos/{REPO}/issues/950/comments", "-f", "body=Duplicate of #742."],
-        True,
-        {"issue": "I_kw950", "original": "I_kw742"},
-    )
-
-
-def test_close_as_duplicate_without_a_comment_writes_only_the_close() -> None:
-    store, runner = board_store(
-        {
-            "--input": {"data": {"closeIssue": {"issue": {"number": 950}}}},
-            f"api repos/{REPO}/issues/950": issue_payload(950),
-            f"api repos/{REPO}/issues/742": issue_payload(742),
-        }
-    )
-    store.close_as_duplicate(950, 742, None)
-    assert ([w for w in runner.writes if "comments" in " ".join(w)], len(runner.inputs())) == (
-        [],
-        1,
-    )
-
-
-def test_close_as_duplicate_refuses_a_pull_request_before_any_write() -> None:
-    store, runner = board_store(
-        {
-            f"api repos/{REPO}/issues/918": OPEN_ISSUES[0],
-            f"api repos/{REPO}/issues/742": issue_payload(742),
-        }
-    )
-    with pytest.raises(GitHubOperationError, match="pull request"):
-        store.close_as_duplicate(742, 918, "no")
-    assert runner.writes == []
 
 
 def _timeline(nodes: list[dict[str, Any]], total: int | None = None) -> dict[str, Any]:

@@ -32,7 +32,6 @@ from devops_cli.commands import roadmap as roadmap_command
 from devops_cli.commands.roadmap import app
 from devops_cli.config.constants import (
     CONST_GRAPHQL_REFUSAL_RESET_KEY,
-    CONST_ROADMAP_INTAKE_DUPLICATE_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
 )
 from devops_cli.config.settings import AIConfig
@@ -78,7 +77,6 @@ from devops_cli.roadmap.intake_model import (
 from devops_cli.roadmap.intake_requests import Spend, SpendMeter
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.store import (
-    ChangeKind,
     CloseReason,
     Evidence,
     EvidenceKind,
@@ -380,35 +378,46 @@ def test_the_model_judges_only_the_five_nearest_items(roadmap: Roadmap) -> None:
 # ── Duplicates ────────────────────────────────────────────────────────────────
 
 
-def test_a_duplicate_of_a_not_planned_issue_is_closed_as_duplicate_and_kept_off_the_board(
+def _possible_duplicate_line(original: int, change: str) -> str:
+    """The line of the reason comment that names a possible original."""
+    return (
+        f"- Possible duplicate: #{original}, which may ask for the same change. The model names "
+        f"`{change}` as the change that both ask for. A person closes one of the two if that is "
+        "so."
+    )
+
+
+def test_a_possible_duplicate_of_a_not_planned_issue_is_placed_and_stays_open(
     roadmap: Roadmap,
 ) -> None:
+    """A model's duplicate verdict closes nothing: intake places the issue, and its reason
+    comment names the possible original (#2218)."""
     rejected = roadmap.issue(
         "Bare-metal installers", state=GitHubState.CLOSED, state_reason="not_planned"
     )
     copy = roadmap.issue("Install on bare metal")
     roadmap.run(FakeModel(duplicates={"Install on bare metal": "Bare-metal installers"}))
     (comment,) = roadmap.comments(copy)
-    closure = roadmap.store.closures(copy)[-1]
     assert (
-        (closure.kind, closure.reason, closure.duplicate_of),
-        f"#{rejected}" in comment,
-        roadmap.store.item(copy),
-    ) == ((ChangeKind.CLOSED, "duplicate", rejected), True, None)
+        roadmap.store.closures(copy),
+        roadmap.fields(copy)[0],
+        _possible_duplicate_line(rejected, "Bare-metal installers") in comment.splitlines(),
+    ) == ([], "New", True)
 
 
-def test_two_candidates_that_duplicate_each_other_make_one_item_and_one_duplicate_close(
-    roadmap: Roadmap,
-) -> None:
+def test_two_candidates_that_duplicate_each_other_make_two_items(roadmap: Roadmap) -> None:
+    """Of two candidates in one run that the model judges duplicates, the second is placed too,
+    and its reason comment names the first as the possible original (#2218)."""
     first = roadmap.issue("Cache embeddings")
     second = roadmap.issue("Keep embeddings cached")
     roadmap.run(FakeModel(duplicates={"Keep embeddings cached": "Cache embeddings"}))
-    closures = roadmap.store.closures(second)
+    (comment,) = roadmap.comments(second)
     assert (
         roadmap.fields(first)[0],
-        [(c.reason, c.duplicate_of) for c in closures],
-        roadmap.store.item(second),
-    ) == ("New", [("duplicate", first)], None)
+        roadmap.fields(second)[0],
+        roadmap.store.closures(second),
+        _possible_duplicate_line(first, "Cache embeddings") in comment.splitlines(),
+    ) == ("New", "New", [], True)
 
 
 def test_a_duplicate_close_a_person_reopened_is_placed_without_a_duplicate_check(
@@ -417,7 +426,7 @@ def test_a_duplicate_close_a_person_reopened_is_placed_without_a_duplicate_check
     original = roadmap.issue("Original", on_board=True)
     roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
     reopened = roadmap.issue("Not a copy")
-    roadmap.store.close_as_duplicate(reopened, original, "Duplicate.")
+    roadmap.person.close_by_hand(reopened, CloseReason.DUPLICATE)
     roadmap.person.reopen_issue(reopened)
     model = FakeModel(duplicates={"Not a copy": "Original"})
     roadmap.run(model)
@@ -428,60 +437,30 @@ def test_a_duplicate_close_a_person_reopened_is_placed_without_a_duplicate_check
     ) == ([()], [], "New")
 
 
-def test_a_candidate_with_a_person_placed_milestone_is_held_as_possible_duplicate(
-    roadmap: Roadmap,
+@pytest.mark.parametrize(
+    ("planned", "older"),
+    [
+        pytest.param({"milestone": LATER}, False, id="person-placed-milestone"),
+        pytest.param({"labels": ("priority/legacy",)}, False, id="person-priority"),
+        pytest.param({}, True, id="older-than-its-original"),
+    ],
+)
+def test_a_possible_duplicate_a_person_planned_or_an_older_one_is_placed_and_stays_open(
+    roadmap: Roadmap, planned: dict[str, Any], older: bool
 ) -> None:
-    """Verify an existing candidate with a milestone placed by a person is held as a possible
-    duplicate, leaving it open and writing nothing (#1686)."""
+    """A candidate a person planned, or one older than the item the model names as its
+    original, is placed and stays open like any other: no verdict closes an issue (#2218)."""
+    candidate = roadmap.issue("Parent task", **planned) if older else 0
     original = roadmap.issue("Split work", on_board=True)
     roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P1-High")
-    parent = roadmap.issue("Parent task", milestone=LATER)
+    candidate = candidate or roadmap.issue("Parent task", **planned)
     roadmap.run(FakeModel(duplicates={"Parent task": "Split work"}))
-    assert roadmap.store.closures(parent) == []
-    assert roadmap.comments(parent) == []
-    assert roadmap.store.item(parent) is None
-
-
-def test_a_candidate_with_a_person_priority_is_held_as_possible_duplicate(
-    roadmap: Roadmap,
-) -> None:
-    """Verify an existing candidate with a person-set Priority label is held as a possible
-    duplicate, leaving it open and writing nothing (#1686)."""
-    original = roadmap.issue("Feature A", on_board=True)
-    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
-    candidate = roadmap.issue("Feature A copy", labels=("priority/legacy",))
-    roadmap.run(FakeModel(duplicates={"Feature A copy": "Feature A"}))
-    assert roadmap.store.closures(candidate) == []
-    assert roadmap.comments(candidate) == []
-
-
-def test_a_candidate_older_than_its_matched_original_is_held_as_possible_duplicate(
-    roadmap: Roadmap,
-) -> None:
-    """Verify an older candidate matched to a newer original is held as a possible duplicate,
-    leaving it open and writing nothing (#1686)."""
-    parent = roadmap.issue("Older parent task")
-    split = roadmap.issue("Newer split task", on_board=True)
-    roadmap.store.set_field(roadmap.item(split), ItemField.PRIORITY, "P1-High")
-    roadmap.run(FakeModel(duplicates={"Older parent task": "Newer split task"}))
-    assert roadmap.store.closures(parent) == []
-    assert roadmap.comments(parent) == []
-
-
-def test_an_unplanned_newer_candidate_matched_to_an_older_original_is_closed_as_duplicate(
-    roadmap: Roadmap,
-) -> None:
-    """Verify an unplanned, newer candidate matched to an older original is closed as a duplicate (#1686)."""
-    original = roadmap.issue("Original feature", on_board=True)
-    roadmap.store.set_field(roadmap.item(original), ItemField.PRIORITY, "P2-Medium")
-    copy = roadmap.issue("Duplicate feature")
-    roadmap.run(FakeModel(duplicates={"Duplicate feature": "Original feature"}))
-    closures = roadmap.store.closures(copy)
-    (comment,) = roadmap.comments(copy)
+    (comment,) = roadmap.comments(candidate)
     assert (
-        [(c.reason, c.duplicate_of) for c in closures],
-        f"#{original}" in comment,
-    ) == ([("duplicate", original)], True)
+        roadmap.store.closures(candidate),
+        roadmap.store.item(candidate) is not None,
+        _possible_duplicate_line(original, "Split work") in comment.splitlines(),
+    ) == ([], True, True)
 
 
 # ── The same change, not a shared theme (#1755) ───────────────────────────────
@@ -535,32 +514,30 @@ def test_a_candidate_that_shares_only_a_theme_with_an_item_is_filed_and_names_it
 @pytest.mark.parametrize(
     "case", [c for c in JUDGEMENTS if c["duplicate"]], ids=lambda case: case["name"]
 )
-def test_a_candidate_that_asks_for_the_same_change_is_a_duplicate_whose_reason_names_it(
+def test_a_candidate_that_asks_for_the_same_change_is_filed_and_names_the_possible_original(
     roadmap: Roadmap, model_fake: ModelFake, case: dict[str, Any]
 ) -> None:
-    """A duplicate a person closed is not filed, and its reason names the change that the
-    candidate and its original both ask for."""
+    """A duplicate a person closed is filed and placed all the same: the report and the reason
+    comment name the possible original and the change that the model says both ask for, and a
+    person closes the duplicate (#2218)."""
     number, plan, filed = _judged(roadmap, model_fake, case)
     (decision,) = plan.decisions
     answer = case["answer"]
-    assert (decision.outcome, decision.original, decision.reason, filed) == (
-        Outcome.DUPLICATE,
-        number,
-        f"both ask for `{answer['shared_change']}`. `{answer['duplicate_reason']}`",
-        None,
+    reason = (
+        f"The model names `{answer['shared_change']}` as the change that both ask for. "
+        f"`{answer['duplicate_reason']}`"
     )
-
-
-def test_a_duplicate_issue_closes_with_a_comment_that_names_the_shared_change(
-    roadmap: Roadmap,
-) -> None:
-    original = roadmap.finished("feat: cache embeddings")
-    copy = roadmap.issue("feat: keep embeddings cached")
-    roadmap.run(FakeModel(duplicates={"feat: keep embeddings cached": "feat: cache embeddings"}))
-    (comment,) = roadmap.comments(copy)
-    assert comment.splitlines()[1] == (
-        f"Closed as a duplicate of #{original}: both ask for `feat: cache embeddings`."
-    )
+    assert filed is not None
+    (comment,) = roadmap.comments(filed)
+    assert (
+        decision.outcome,
+        decision.possible_duplicate,
+        f"  - possible duplicate: #{number}. {reason}"
+        in render_intake(plan, repo=REPO).splitlines(),
+        f"- Possible duplicate: #{number}, which may ask for the same change. {reason} A person "
+        "closes one of the two if that is so." in comment.splitlines(),
+        roadmap.store.closures(filed),
+    ) == (Outcome.PLACE, number, True, True, [])
 
 
 def test_a_related_item_the_model_names_is_reported_and_linked_from_the_reason_comment(
@@ -638,13 +615,14 @@ def _split(
     roadmap: Roadmap, model_fake: ModelFake, answer: dict[str, Any], *, source: str | None
 ) -> tuple[Outcome, int | None, int | None, list[list[int]]]:
     """File step B with `source` over the shared model fake, which gives `answer`. Return the
-    outcome, the original, the issue intake filed and the numbers of each shortlist it sent."""
+    outcome, the possible original, the issue intake filed and the numbers of each shortlist it
+    sent."""
     model_fake.answer(json.dumps(DEFAULT_PROPOSAL | answer))
     model = GatewayIntakeModel(AIConfig(), embedder=_Embedder())
     part = replace(STEP_B, source=source)
     outcome = intake_candidate(roadmap.store, part, repo=REPO, model=model, confirm=True)
     sent = [[n["number"] for n in json.loads(call.user)["shortlist"]] for call in model_fake.calls]
-    return outcome.decision.outcome, outcome.decision.original, outcome.number, sent
+    return outcome.decision.outcome, outcome.decision.possible_duplicate, outcome.number, sent
 
 
 @pytest.mark.parametrize("anchor", ["", "#issuecomment-1"], ids=["issue", "comment-on-issue"])
@@ -666,10 +644,11 @@ def test_a_part_is_never_a_duplicate_of_the_issue_its_source_names(
     )
 
 
-def test_a_part_that_repeats_an_item_other_than_its_source_is_still_a_duplicate(
+def test_a_part_that_repeats_an_item_other_than_its_source_names_it_as_the_possible_original(
     roadmap: Roadmap, model_fake: ModelFake
 ) -> None:
-    """Only the source leaves the shortlist: the part filed before is still its original."""
+    """Only the source leaves the shortlist: the part filed before is still its possible
+    original, and the part is filed (#2218)."""
     parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY)
     filed_before = roadmap.finished(STEP_B.title, body=STEP_B.body)
     answer = {
@@ -677,10 +656,11 @@ def test_a_part_that_repeats_an_item_other_than_its_source_is_still_a_duplicate(
         "duplicate_of": filed_before,
         "duplicate_reason": "the earlier issue asks for the same step.",
     }
-    assert _split(roadmap, model_fake, answer, source=_link(parent)) == (
-        Outcome.DUPLICATE,
+    outcome, original, filed, sent = _split(roadmap, model_fake, answer, source=_link(parent))
+    assert (outcome, original, filed is not None, sent) == (
+        Outcome.PLACE,
         filed_before,
-        None,
+        True,
         [[filed_before]],
     )
 
@@ -1243,21 +1223,21 @@ def test_plan_reads_and_asks_the_model_writes_nothing_and_reports_its_spend(
     ) == (True, True, True, True, True, 1, True)
 
 
-def test_intake_plan_reports_possible_duplicate_left_for_a_person(
+def test_intake_plan_reports_a_possible_duplicate_with_the_writes_that_place_it(
     board: Roadmap, fake_model: FakeModel
 ) -> None:
-    """Verify devops roadmap intake --plan reports a person-planned candidate as a possible duplicate
-    held for a person rather than closing it as duplicate (#1686)."""
+    """`devops roadmap intake --plan` reports the possible original of a candidate, and the
+    writes that place it: it closes nothing (#2218)."""
     parent = board.issue("feat: parent issue", milestone=LATER)
     split = board.issue("feat: split issue", on_board=True)
     board.store.set_field(board.item(split), ItemField.PRIORITY, "P1-High")
     fake_model.duplicates["feat: parent issue"] = "feat: split issue"
     output = _intake("--issue", str(parent), "--plan")
-    assert (
-        f"#{parent} feat: parent issue: possible duplicate of #{split}, left for a person" in output
+    possible = (
+        f"- possible duplicate: #{split}. The model names `feat: split issue` as the change that "
+        "both ask for. - writes: "
     )
-    assert "close as a duplicate" not in output
-    assert "writes:" not in output
+    assert (possible in output, "close" in output) == (True, False)
 
 
 def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_traceback(
@@ -1303,7 +1283,7 @@ def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
     with patch.object(board.store, "add_item", side_effect=refuse_one):
         output = _intake("--confirm", exit_code=1)
     assert (
-        "Intake placed 1 item(s) and closed 0 duplicate(s)." in output,
+        "Intake placed 1 item(s)." in output,
         "Intake finished with candidates it could not write: the writes failed for 1 "
         "candidate(s)" in output,
         f"#{refused} (GitHubOperationError)" in output,
@@ -1421,9 +1401,6 @@ STORE_OPERATIONS: dict[str, str | None] = {
     "field": "set_field",
     "comment": "comment",
     "priority": "set_field",
-    "duplicate_read": None,
-    "duplicate_comment": None,
-    "duplicate_close": "close_as_duplicate",
 }
 
 
@@ -1651,26 +1628,28 @@ def test_confirm_names_a_restored_card_it_left_as_it_was(
     )
 
 
-def test_a_new_candidate_files_one_issue_and_a_duplicate_files_none(
+def test_a_new_candidate_and_a_possible_duplicate_are_each_filed(
     board: Roadmap, fake_model: FakeModel, tmp_path: Path
 ) -> None:
+    """A candidate that the model judges a duplicate is filed and placed like a new idea, and
+    the report names its possible original (#2218)."""
     original = board.issue("feat(github): single-entry item intake", on_board=True)
     board.store.set_field(board.item(original), ItemField.PRIORITY, "P1-High")
     body = tmp_path / "body.md"
     body.write_text("One entry point turns candidates into items.", encoding="utf-8")
     fake_model.duplicates["feat: item intake again"] = "feat(github): single-entry item intake"
-    duplicate = _intake("--title", "feat: item intake again", "--body-file", str(body), "--confirm")
-    issues_after_duplicate = len(board.store.issues())
+    possible = _intake("--title", "feat: item intake again", "--body-file", str(body), "--confirm")
     filed = _intake("--title", "feat: a new idea", "--body-file", str(body), "--confirm")
-    (new,) = [i.number for i in board.store.issues() if i.title == "feat: a new idea"]
+    numbers = {i.title: i.number for i in board.store.issues()}
+    again, new = numbers["feat: item intake again"], numbers["feat: a new idea"]
     assert (
-        f"duplicate of #{original}" in duplicate,
-        issues_after_duplicate,
+        f"possible duplicate: #{original}." in possible,
+        f"Filed #{again}" in possible,
         f"Filed #{new}" in filed,
         len(board.store.issues()),
-        board.fields(new)[0],
+        [board.fields(number)[0] for number in (again, new)],
         _labels(board, new),
-    ) == (True, 1, True, 2, "New", ("source/agent", "type/feature"))
+    ) == (True, True, True, 3, ["New", "New"], ("source/agent", "type/feature"))
 
 
 def test_title_and_body_file_go_together(board: Roadmap, fake_model: FakeModel) -> None:
@@ -1986,45 +1965,11 @@ def test_a_duplicate_of_written_as_text_is_read_against_the_shortlist(roadmap: R
     model = FakeModel(proposals={"Keep embeddings cached": answer})
     model.propose = _echoing(model.propose, answer)  # type: ignore[method-assign, assignment]
     (decision,) = roadmap.plan(model).decisions
-    assert (decision.outcome, decision.original, decision.subject.number) == (
-        Outcome.DUPLICATE,
+    assert (decision.outcome, decision.possible_duplicate, decision.subject.number) == (
+        Outcome.PLACE,
         original,
         copy,
     )
-
-
-def test_a_duplicate_close_that_failed_is_retried_without_a_second_comment(
-    roadmap: Roadmap,
-) -> None:
-    roadmap.finished("Cache embeddings")
-    copy = roadmap.issue("Keep embeddings cached")
-    model = FakeModel(duplicates={"Keep embeddings cached": "Cache embeddings"})
-    failure = GitHubOperationError("HTTP 502", operation="roadmap.issue.close")
-    with patch.object(roadmap.store, "_close", side_effect=failure):
-        with pytest.raises(RoadmapIntakeError, match=f"#{copy} \\(GitHubOperationError\\)"):
-            roadmap.run(model)
-    roadmap.run(model)
-    assert (len(roadmap.comments(copy)), roadmap.store.closures(copy)[-1].reason) == (
-        1,
-        "duplicate",
-    )
-
-
-def test_intakes_own_duplicate_close_a_person_reopened_gets_its_reason_comment(
-    roadmap: Roadmap,
-) -> None:
-    roadmap.finished("Original")
-    copy = roadmap.issue("Not a copy")
-    roadmap.run(FakeModel(duplicates={"Not a copy": "Original"}))
-    roadmap.person.reopen_issue(copy)
-    roadmap.run(FakeModel(duplicates={"Not a copy": "Original"}))
-    comments = roadmap.comments(copy)
-    assert (
-        len(comments),
-        comments[0].startswith(CONST_ROADMAP_INTAKE_DUPLICATE_MARKER),
-        comments[1].startswith(CONST_ROADMAP_INTAKE_REASON_MARKER),
-        roadmap.fields(copy)[1],
-    ) == (2, True, True, "P2-Medium")
 
 
 def test_evidence_counts_as_a_whole_token_anywhere_in_the_text(roadmap: Roadmap) -> None:
@@ -2072,22 +2017,25 @@ def test_the_gateway_a_failure_names_carries_no_password() -> None:
 # ── Agent candidates and their duplicates ─────────────────────────────────────
 
 
-def test_a_duplicate_agent_candidate_is_not_filed_and_the_report_names_its_original(
+def test_a_possible_duplicate_agent_candidate_is_filed_and_the_report_names_its_original(
     roadmap: Roadmap,
 ) -> None:
+    """An agent's candidate that the model judges a duplicate is filed and placed, and the report
+    names the possible original instead of sending the text to it (#2218)."""
     original = roadmap.finished("feat: cache embeddings")
     model = FakeModel(duplicates={"feat: cached embeddings": "feat: cache embeddings"})
     outcome = intake_candidate(
         roadmap.store, _new("feat: cached embeddings"), repo=REPO, model=model, confirm=True
     )
-    report = " ".join(render_intake(outcome.plan, repo=REPO).split())
+    report = render_intake(outcome.plan, repo=REPO).splitlines()
     assert (
         outcome.decision.outcome,
-        outcome.decision.original,
-        outcome.number,
+        outcome.decision.possible_duplicate,
+        outcome.number is not None,
         len(roadmap.store.issues()),
-        f"Nothing is filed; add to #{original} instead." in report,
-    ) == (Outcome.DUPLICATE, original, None, 1, True)
+        f"  - possible duplicate: #{original}. The model names `feat: cache embeddings` as the "
+        "change that both ask for." in report,
+    ) == (Outcome.PLACE, original, True, 2, True)
 
 
 def test_every_agent_issue_filed_outside_intake_is_placed(roadmap: Roadmap) -> None:
@@ -2116,18 +2064,21 @@ def test_every_agent_issue_filed_outside_intake_is_placed(roadmap: Roadmap) -> N
 
 
 def test_a_retried_new_candidate_finds_the_issue_its_stopped_run_filed(roadmap: Roadmap) -> None:
-    """A run that filed the issue and stopped before the board add left it open off the board;
-    the retry finds it instead of filing a second one."""
-    filed = roadmap.issue("feat: retry me", labels=("source/agent",))
-    model = FakeModel(duplicates={"feat: retry me": "feat: retry me"})
-    outcome = intake_candidate(
-        roadmap.store, _new("feat: retry me"), repo=REPO, model=model, confirm=True
+    """A run that filed the issue and stopped before the board add left it open off the board,
+    with the title and body that intake files. The retry places that issue instead of filing a
+    second one, with no model verdict (#2218)."""
+    candidate = _new("feat: retry me")
+    filed = roadmap.issue(
+        candidate.title, candidate.filed_body(), labels=("source/agent",), author="NONE"
     )
-    assert (outcome.decision.outcome, outcome.decision.original, len(roadmap.store.issues())) == (
-        Outcome.DUPLICATE,
-        filed,
-        1,
-    )
+    outcome = intake_candidate(roadmap.store, candidate, repo=REPO, model=FakeModel(), confirm=True)
+    assert (
+        outcome.decision.outcome,
+        outcome.decision.subject.number,
+        outcome.number,
+        len(roadmap.store.issues()),
+        roadmap.fields(filed)[0],
+    ) == (Outcome.PLACE, filed, filed, 1, "New")
 
 
 def test_a_person_files_through_the_command_without_the_agent_label(
@@ -2444,8 +2395,9 @@ def test_candidate_matching_only_done_item_is_filed_with_reference_in_body(
     assert "Tempo fails to start under restricted pod security." in filed_issue.body
 
 
-def test_candidate_matching_open_item_is_folded(roadmap: Roadmap) -> None:
-    """A candidate matching an open item folds into that item as duplicate (#1671)."""
+def test_candidate_matching_open_item_is_filed_as_its_possible_duplicate(roadmap: Roadmap) -> None:
+    """A candidate that the model matches to an open item is filed, and names that item as its
+    possible original (#1671, #2218)."""
     open_item = roadmap.issue(
         "feat: open feature",
         body="Feature in progress.",
@@ -2459,13 +2411,19 @@ def test_candidate_matching_open_item_is_folded(roadmap: Roadmap) -> None:
     )
     plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
-    assert (decision.outcome, decision.original) == (Outcome.DUPLICATE, open_item)
     applied = apply_intake(roadmap.store, plan)
-    assert applied.filed == ()
+    assert (decision.outcome, decision.possible_duplicate, len(applied.filed)) == (
+        Outcome.PLACE,
+        open_item,
+        1,
+    )
 
 
-def test_candidate_matching_item_closed_as_not_planned_is_folded(roadmap: Roadmap) -> None:
-    """A candidate matching an item closed as not planned folds into that decision (#1671)."""
+def test_candidate_matching_item_closed_as_not_planned_is_filed_as_its_possible_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """A candidate that the model matches to an item closed as not planned is filed, and names
+    that item as its possible original (#1671, #2218)."""
     not_planned = roadmap.issue(
         "feat: rejected proposal",
         body="Rejected idea.",
@@ -2479,6 +2437,9 @@ def test_candidate_matching_item_closed_as_not_planned_is_folded(roadmap: Roadma
     )
     plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
-    assert (decision.outcome, decision.original) == (Outcome.DUPLICATE, not_planned)
     applied = apply_intake(roadmap.store, plan)
-    assert applied.filed == ()
+    assert (decision.outcome, decision.possible_duplicate, len(applied.filed)) == (
+        Outcome.PLACE,
+        not_planned,
+        1,
+    )

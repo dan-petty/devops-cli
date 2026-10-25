@@ -1660,7 +1660,6 @@ class RoadmapMessages:
             "label": "label {subject}",
             "add_item": "add {subject} to board {board}",
             "unarchive_card": "restore {subject}'s archived card on board {board}",
-            "close_duplicate": "close {subject} as a duplicate",
             "create_issue": "open an issue for {subject}",
             "budget": "GraphQL's points spent and left, for the run's last line",
         }
@@ -1699,16 +1698,16 @@ class RoadmapMessages:
     intake_place_line: str = (
         "- {subject}: {type}, {priority}, Value {value}, Effort {effort}; {placement}"
     )
-    intake_duplicate_line: str = "- {subject}: duplicate of #{original}: {reason} {action}"
-    intake_possible_duplicate_line: str = (
-        "- {subject}: possible duplicate of #{original}, left for a person: {reason}"
+    intake_possible_duplicate_line: str = "  - possible duplicate: #{number}. {reason}"
+    intake_possible_duplicate_field: str = "Possible duplicate"
+    intake_possible_duplicate_value: str = "#{number}, which may ask for the same change"
+    intake_possible_duplicate_reason: str = "{reason} A person closes one of the two if that is so."
+    intake_duplicate_reason: str = (
+        "The model names {change} as the change that both ask for. {reason}"
     )
-    intake_duplicate_reason: str = "both ask for {change}. {reason}"
     intake_related_line: str = "  - related: #{number}, which asks for a different change. {reason}"
     intake_related_field: str = "Related"
     intake_related_value: str = "#{number}, which asks for a different change"
-    intake_duplicate_closes: str = "It is closed as a duplicate."
-    intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
     intake_skip_line: str = "- {subject}: skipped, nothing written: {reason}"
     intake_writes: str = "  - writes: {writes}"
     intake_note: str = "  - note: {note}"
@@ -1718,8 +1717,6 @@ class RoadmapMessages:
     intake_write_add: str = "add to the board"
     intake_write_field: str = "{field} {value}"
     intake_write_comment: str = "reason comment"
-    intake_write_close: str = "comment and close as a duplicate of #{original}"
-    intake_write_close_only: str = "close as a duplicate of #{original} (its comment is there)"
     intake_placement_backlog: str = "to the backlog: {reason}"
     intake_placement_kept: str = "kept in milestone {milestone}: {reason}"
     intake_reason_backlog: str = (
@@ -1729,10 +1726,6 @@ class RoadmapMessages:
     intake_reason_resumed: str = "it was already in {milestone}."
     intake_comment: str = "{marker}\nIntake placed this item {placement}\n\n{fields}"
     intake_comment_field: str = "- {field}: {value}. {reason}"
-    intake_duplicate_comment: str = (
-        "{marker}\nClosed as a duplicate of #{original}: {reason}\n\nIf it is not a duplicate, "
-        "reopen it: intake then places it without the duplicate check."
-    )
     intake_p0_granted: str = (
         "P0: the {kind} {value} is evidence GitHub confirms, from a trusted source."
     )
@@ -1841,9 +1834,6 @@ class RoadmapMessages:
                 "set Priority <the proposed Priority> on {subject}: the board's fields once a "
                 "run, its card, the job record, then the field"
             ),
-            "duplicate_read": "{subject} and <the original>",
-            "duplicate_comment": "the duplicate comment on {subject}",
-            "duplicate_close": "close {subject} as a duplicate of <the original>",
         }
     )
     intake_request_conditions: dict[str, str] = field(
@@ -1852,18 +1842,16 @@ class RoadmapMessages:
             "closures": "{subject} is not on the board",
             "embed": "a candidate is off the board",
             "evidence": "the model cites any",
-            "comments": "{subject} is placed or a duplicate",
-            "file": "it is not a duplicate",
+            "comments": "{subject} is placed",
+            "file": "no open issue that is not finished holds its title and body",
             "placed": "intake places {subject}",
             "add": "it is not on the board",
             "field": "it has none",
             "comment": "intake's is not there",
             "priority": "it has none",
-            "duplicate": "{subject} is a duplicate instead of placed",
-            "duplicate_comment": "intake's is not there",
         }
     )
-    intake_applied: str = "Intake placed {placed} item(s) and closed {closed} duplicate(s)."
+    intake_applied: str = "Intake placed {placed} item(s)."
     intake_filed: str = "Filed #{number}."
     intake_finished: str = (
         "#{number}'s card holds a Priority, so it was already placed: the add restored the "

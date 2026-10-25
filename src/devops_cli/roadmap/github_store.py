@@ -21,8 +21,7 @@ for each path (#2005).
 The store reads the board listing once for each filter, and the board's fields once, and keeps
 both for its life, one command or one Service round (#1361): every reader of a filter shares its
 listing, and the store's own writes keep it current with the values they sent and the cards
-they add. A duplicate close drops the listings, because the board's own workflow then changes
-the closed issue's card. A write reads only the card it writes, by node id (`RoadmapBoardCard`,
+they add. A write reads only the card it writes, by node id (`RoadmapBoardCard`,
 about one point), so the job record it writes joins the one the card holds then, a card gone or
 archived raises before any write, and the points that read reports below the reserve refuse the
 write. Within one process, `_JOB_RECORD_LOCK` holds each job-record write from that read to its
@@ -207,7 +206,6 @@ class _IssuePayload(BaseModel):
     labels: list[_NamedPayload] = Field(default_factory=list)
     milestone: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
     pull_request: dict[str, Any] | None = None
-    node_id: str | None = None
     author_association: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -491,10 +489,6 @@ _CLOSURES_QUERY = _REPOSITORY.format(
         "... on ReopenedEvent { createdAt } } } }"
     ),
 )
-_CLOSE_AS_DUPLICATE_MUTATION = (
-    "mutation($issue: ID!, $original: ID!) { closeIssue(input: {issueId: $issue, "
-    "stateReason: DUPLICATE, duplicateIssueId: $original}) { issue { number } } }"
-)
 
 
 def _text_value(raw: object) -> str | None:
@@ -709,12 +703,6 @@ GRAPHQL_INPUT_ARGS: tuple[str, ...] = ("api", "graphql", "--input", "-")
 def graphql_request(query: str, variables: Mapping[str, Any]) -> str:
     """The stdin of a `GRAPHQL_INPUT_ARGS` write."""
     return json.dumps({"query": query, "variables": dict(variables)})
-
-
-def close_as_duplicate_request(issue_id: str, original_id: str) -> str:
-    return graphql_request(
-        _CLOSE_AS_DUPLICATE_MUTATION, {"issue": issue_id, "original": original_id}
-    )
 
 
 def issue_args(repo: str, number: Number) -> list[str]:
@@ -1026,20 +1014,6 @@ class GitHubRoadmapStore(RoadmapStore):
         self._write(comment_args(self._repo, number, body), f"comment on #{number}")
 
     # ── What intake reads and writes ──
-
-    def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
-        """Comment on issue `number` unless `comment` is None, then close it as a duplicate of
-        `original` through GraphQL, which alone sets the original (`duplicateIssueId`). Both are
-        read first, so a pull request on either side raises before any write. The board's own
-        workflow then changes the issue's card, so the store drops the listings it read."""
-        node_ids = [self._require_issue_node(n, "roadmap.issue.close") for n in (number, original)]
-        if comment is not None:
-            self.comment(number, comment)
-        self._graphql(
-            close_as_duplicate_request(node_ids[0], node_ids[1]),
-            f"close #{number} as a duplicate of #{original}",
-        )
-        self._listings = {}
 
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number` from its timeline, oldest first."""
@@ -1409,17 +1383,6 @@ class GitHubRoadmapStore(RoadmapStore):
             return None
         raise self._failure(proc, f"read {what}", "roadmap.read")
 
-    def _require_issue_node(self, number: int, operation: str) -> str:
-        """Issue `number`'s node id, raising when it is a pull request."""
-        issue = self._read_issue(number)
-        if issue.pull_request is not None or issue.node_id is None:
-            raise GitHubOperationError(
-                f"#{number} in {self._repo} is a pull request, not an issue.",
-                operation=operation,
-                details={"repo": self._repo[:256], "number": number},
-            )
-        return issue.node_id
-
     def _read_schema(self) -> _BoardSchema:
         """The configured board's node id and fields through GraphQL, which alone gives option
         colors and descriptions, read the first time a store needs them."""
@@ -1574,7 +1537,6 @@ __all__ = [
     "board_fields_args",
     "board_query_args",
     "card_edit_args",
-    "close_as_duplicate_request",
     "closures_args",
     "comment_args",
     "comments_endpoint",

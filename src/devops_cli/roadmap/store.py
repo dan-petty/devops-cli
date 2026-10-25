@@ -587,12 +587,6 @@ class RoadmapStore(Protocol):
 
     # ── What intake reads and writes (#742) ──
 
-    def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
-        """Comment on issue `number` unless `comment` is None (a retry whose comment is already
-        there), then close it as a duplicate of issue `original`, raising if either is not an
-        issue of this repository. The store's next board read reads the board again, as the
-        board's own workflow changes a closed issue's card."""
-
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number`, oldest first, from its timeline."""
 

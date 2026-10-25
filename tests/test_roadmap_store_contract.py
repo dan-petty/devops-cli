@@ -19,12 +19,11 @@ from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationEr
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import (
     BoardField,
     ChangeKind,
     CloseReason,
-    Closure,
     Evidence,
     EvidenceKind,
     FieldOption,
@@ -661,56 +660,6 @@ def test_a_change_reads_the_value_and_job_record_as_they_are_now(
 
 
 # ── What intake reads and writes (#742) ───────────────────────────────────────
-
-
-def test_a_duplicate_close_comments_then_closes_and_its_timeline_names_the_original(
-    store: InMemoryRoadmapStore, clock: SteppedClock
-) -> None:
-    original = store.seed_issue("original", state=GitHubState.CLOSED, state_reason="not_planned")
-    copy = store.seed_issue("copy", author_association="NONE")
-    store.close_as_duplicate(copy, original, "Duplicate of #1.")
-    closed_at = clock.now
-    clock.now += timedelta(hours=1)
-    store.as_actor("alice").reopen_issue(copy)
-    issue = next(issue for issue in store.issues() if issue.number == copy)
-    assert (
-        [comment.body for comment in store.comments_on(copy)],
-        (issue.state, issue.author_association),
-        store.closures(copy),
-        store.job_writes()[-2:],
-    ) == (
-        ["Duplicate of #1."],
-        (GitHubState.OPEN, "NONE"),
-        [
-            Closure(kind=ChangeKind.CLOSED, at=closed_at, reason="duplicate", duplicate_of=1),
-            Closure(kind=ChangeKind.REOPENED, at=clock.now),
-        ],
-        [
-            JobWrite("comment", copy, value="Duplicate of #1."),
-            JobWrite("close_as_duplicate", copy, value="1"),
-        ],
-    )
-
-
-def test_a_duplicate_close_without_a_comment_only_closes(store: InMemoryRoadmapStore) -> None:
-    """A retry whose duplicate comment is already there closes without a second one."""
-    original = store.seed_issue("original")
-    copy = store.seed_issue("copy")
-    store.close_as_duplicate(copy, original, None)
-    assert (store.comments_on(copy), store.closures(copy)[-1].duplicate_of) == ([], original)
-
-
-def test_a_duplicate_close_refuses_a_pull_request_on_either_side(
-    store: InMemoryRoadmapStore,
-) -> None:
-    issue = store.seed_issue("issue")
-    pull_request = store.seed_issue("a pull request", pull_request=True)
-    refused = []
-    for number, original in ((pull_request, issue), (issue, pull_request)):
-        with pytest.raises(GitHubOperationError, match="not an issue"):
-            store.close_as_duplicate(number, original, "no")
-        refused.append(store.comments_on(number))
-    assert (refused, store.closures(issue)) == ([[], []], [])
 
 
 def test_labeling_an_issue_adds_the_label_once_as_a_job_write(store: InMemoryRoadmapStore) -> None:

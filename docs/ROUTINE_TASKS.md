@@ -81,7 +81,7 @@ flowchart TD
    - **Inspect Project Status**: Inspect the project template via `devops gh project status` and the live board via `devops gh project audit` (or FastMCP `gh_project_status`) and triage queue via `devops gh issues triage` (or FastMCP `gh_issues_triage`).
    - **Ground Requirement in GitHub Issue Card**: Every feature, bug fix, or refactor must map to an active tracking issue and project item.
      - If a matching issue card exists: link task to it and verify taxonomy labels. `devops gh project sync` sets its card to In Progress once a draft PR is open.
-     - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it unless it duplicates an issue, puts it on the board and gives it its type, Priority, Value and Effort, and puts it in the backlog; set no milestone or priority on it yourself.
+     - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it (a possible duplicate too, which its reason comment names for a person to close), puts it on the board and gives it its type, Priority, Value and Effort, and puts it in the backlog; set no milestone or priority on it yourself.
    - Plan the item as an OpenSpec change, `openspec/changes/<issue>-<slug>/` ([`openspec/config.yaml`](../openspec/config.yaml)). The board holds the Status of the item, and the change folder holds none.
 2. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
 3. **Centralize Constants, Config & Defaults**:

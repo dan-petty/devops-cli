@@ -124,7 +124,7 @@ class _Steps:
         return planned
 
     def writes(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:
-        """The writes `--confirm` makes for each candidate it places or closes as a duplicate."""
+        """The writes `--confirm` makes for each candidate it places."""
         texts = MESSAGES.roadmap
         planned: list[PlannedRequest] = []
         for subject in subjects:
@@ -132,7 +132,6 @@ class _Steps:
                 filing = self.store.create_issue(subject, (texts.plan_placeholders["label"],))
                 planned += self.step("file", filing, subject=subject, repeat=repeat)
             planned += self._placement(texts.intake_placeholder_filed if new else subject, repeat)
-            planned += [] if new else self._duplicate(subject, repeat)
         return planned
 
     def _placement(self, subject: str, repeat: str) -> list[PlannedRequest]:
@@ -157,22 +156,6 @@ class _Steps:
             for planned in self.step(
                 key, requests, when=when, repeat=repeat, subject=subject, **values
             )
-        ]
-
-    def _duplicate(self, subject: str, repeat: str) -> list[PlannedRequest]:
-        """The reads and writes that close `subject` as a duplicate, when it is one."""
-        when = MESSAGES.roadmap.intake_request_conditions["duplicate"].format(subject=subject)
-        store = self.store
-        original = store.issue(MESSAGES.roadmap.plan_placeholders["number"])
-        steps = (
-            ("duplicate_read", [*store.issue(subject), *original]),
-            ("duplicate_comment", store.comment(subject)),
-            ("duplicate_close", store.close_as_duplicate(subject)),
-        )
-        return [
-            planned
-            for key, requests in steps
-            for planned in self.step(key, requests, when=when, repeat=repeat, subject=subject)
         ]
 
 

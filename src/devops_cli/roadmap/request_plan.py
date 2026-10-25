@@ -305,12 +305,6 @@ class StoreRequests:
         args = gh.write_issue_body_args(self.repo, _number(subject), _p("body"))
         return [self.gh(args, "issue", subject=subject)]
 
-    def close_as_duplicate(self, subject: str) -> Requests:
-        stdin = gh.close_as_duplicate_request(_p("node_id"), _p("original_id"))
-        return [
-            self.gh(gh.GRAPHQL_INPUT_ARGS, "close_duplicate", stdin=stdin, subject=subject),
-        ]
-
 
 def _number(subject: str) -> str:
     """The issue number a subject such as `#7` names, or the subject itself as a placeholder."""

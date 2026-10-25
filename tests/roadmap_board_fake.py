@@ -403,7 +403,6 @@ class GitHubFake:
             ("RoadmapGraphQLBudget", lambda: budget_reply(self.board.remaining)),
             ("fields(first", fields_reply),
             ("timelineItems", self._timeline),
-            ("closeIssue", lambda: self._close_as_duplicate(stdin or "")),
         ]
         found = next((answer for key, answer in answers if key in query), None)
         assert found is not None, f"no fake for the GraphQL request: {query[:120]}"
@@ -572,13 +571,6 @@ class GitHubFake:
         if card is not None:
             card["content"]["state"] = "CLOSED"
             card["status"] = "Done"
-
-    def _close_as_duplicate(self, stdin: str) -> dict[str, Any]:
-        """The `closeIssue` mutation that closes an issue as a duplicate of another."""
-        issue_id = json.loads(stdin)["variables"]["issue"]
-        number = next(n for n, issue in self.issues.items() if issue["node_id"] == issue_id)
-        self.close(number, "duplicate")
-        return {"data": {"closeIssue": {"issue": {"number": number}}}}
 
     def _milestone(self, title: str | None) -> dict[str, Any] | None:
         found = next((m for m in self.milestones if m["title"] == title), None)

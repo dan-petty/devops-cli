@@ -345,7 +345,7 @@ def _run_intake_adapter(
 ) -> JobOutcome:
     """Decide at most `limit` of `repo`'s candidates, fresh ones first, and place them (#1360).
     The record of what it decided is written before any placement, so intake keeps the round's
-    skips and duplicates when a placement raises, and a candidate whose placement raised is
+    skips when a placement raises, and a candidate whose placement raised is
     decided again after the fresh ones. A candidate whose write fails is skipped, the round's
     others are placed, and the job then fails naming it (#1443)."""
     from devops_cli.roadmap.intake_model import build_intake_model
