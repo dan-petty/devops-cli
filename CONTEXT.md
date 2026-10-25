@@ -164,3 +164,13 @@ _Avoid_: test run, task, action, status
 **Required check**:
 A check configured in repository rulesets that must complete with a passing status before a pull request can merge.
 _Avoid_: mandatory check, blocking check, required status check
+
+## Telemetry
+
+**Breakdown panel**:
+A timeseries panel that shows metrics divided by a dimension such as pod, container or deployment.
+_Avoid_: multi-series graph, split graph
+
+**Aggregate line**:
+A reference line on a breakdown panel, labeled Total (Sum) or Average (Mean), that sums or averages the lines shown by the breakdown query.
+_Avoid_: baseline line, summary series

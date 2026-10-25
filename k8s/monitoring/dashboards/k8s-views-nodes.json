@@ -1209,7 +1209,66 @@
           },
           "unit": "none"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total (Sum)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B0B0B0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average (Mean)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FFB357",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -1249,7 +1308,7 @@
             "uid": "${datasource}"
           },
           "exemplar": true,
-          "expr": "sum(rate(container_cpu_usage_seconds_total{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}[$__rate_interval]))",
+          "expr": "sum(sum(rate(container_cpu_usage_seconds_total{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod))",
           "interval": "$resolution",
           "legendFormat": "Total (Sum)",
           "refId": "B"
@@ -1260,7 +1319,7 @@
             "uid": "${datasource}"
           },
           "exemplar": true,
-          "expr": "avg(rate(container_cpu_usage_seconds_total{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}[$__rate_interval]))",
+          "expr": "avg(sum(rate(container_cpu_usage_seconds_total{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod))",
           "interval": "$resolution",
           "legendFormat": "Average (Mean)",
           "refId": "C"
@@ -1328,7 +1387,66 @@
           },
           "unit": "bytes"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total (Sum)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B0B0B0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average (Mean)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FFB357",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -1368,7 +1486,7 @@
             "uid": "${datasource}"
           },
           "exemplar": true,
-          "expr": "sum(container_memory_working_set_bytes{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"})",
+          "expr": "sum(sum(container_memory_working_set_bytes{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}) by (pod))",
           "interval": "$resolution",
           "legendFormat": "Total (Sum)",
           "refId": "B"
@@ -1379,7 +1497,7 @@
             "uid": "${datasource}"
           },
           "exemplar": true,
-          "expr": "avg(container_memory_working_set_bytes{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"})",
+          "expr": "avg(sum(container_memory_working_set_bytes{node=~\"$node\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}) by (pod))",
           "interval": "$resolution",
           "legendFormat": "Average (Mean)",
           "refId": "C"
