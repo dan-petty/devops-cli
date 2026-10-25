@@ -6,6 +6,7 @@ from rich import box as box
 from rich.console import Console as Console
 from rich.console import Group as Group
 from rich.console import RenderableType as RenderableType
+from rich.highlighter import RegexHighlighter as RegexHighlighter
 from rich.live import Live as Live
 from rich.panel import Panel as Panel
 from rich.table import Table as Table
@@ -142,6 +143,7 @@ __all__ = [
     "PrintRequest",
     "PrintResult",
     "ProgressStep",
+    "RegexHighlighter",
     "RenderableType",
     "RulePayload",
     "StatusBadge",

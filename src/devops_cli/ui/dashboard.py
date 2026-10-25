@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
+    CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAINS,
     CONST_DASHBOARD_TAB_FOCUS,
     CONST_DASHBOARD_TABS_ID,
@@ -45,7 +46,7 @@ from devops_cli.models.k8s import PodInfo
 from devops_cli.ui.projections import log_title, next_container
 from devops_cli.ui.refresh import pod_log_source, refresh_domain
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, TelemetryPanel
 
 
 def _tab_id(domain: str) -> str:
@@ -53,13 +54,14 @@ def _tab_id(domain: str) -> str:
     return f"tab-{domain}"
 
 
-_PANELS: dict[str, type[DockerPanel | K8sPanel]] = {
+_PANELS: dict[str, type[DockerPanel | K8sPanel | TelemetryPanel]] = {
     CONST_DASHBOARD_DOMAIN_DOCKER: DockerPanel,
     CONST_DASHBOARD_DOMAIN_K8S: K8sPanel,
+    CONST_DASHBOARD_DOMAIN_TELEMETRY: TelemetryPanel,
 }
 
 
-def _panel_for(domain: str) -> DomainPanel | DockerPanel | K8sPanel:
+def _panel_for(domain: str) -> DomainPanel | DockerPanel | K8sPanel | TelemetryPanel:
     """Build the panel a domain renders into.
 
     Most domains are a banner over one table. Docker carries several views of one snapshot,
@@ -129,6 +131,7 @@ class HelpScreen(ModalScreen[None]):
             "  l   : Streamed pod logs\n"
             "  /   : Filter pods by namespace, name or status (Kubernetes)\n"
             "  e   : Inspect the highlighted pod's containers and events (Kubernetes)\n"
+            "  w   : Open trace waterfall modal (Telemetry)\n"
             "  esc : Clear the pod filter, or close a dialog\n"
             "  r   : Refresh active data sources\n"
             "  ctrl+p : Command palette\n"

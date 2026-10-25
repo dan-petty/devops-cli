@@ -89,6 +89,11 @@ class TelemetrySummary(BaseModel):
     # has not recorded anything yet".
     source: str = "in-process"
     error_message: str = ""
+    latency_samples: list[float] = Field(default_factory=list)
+    token_throughput_samples: list[float] = Field(default_factory=list)
+    cache_hit_ratio: float = 0.0
+    cache_hit_samples: list[float] = Field(default_factory=list)
+    recent_traces: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ReviewSessionInfo(BaseModel):
@@ -401,9 +406,67 @@ def fetch_docker_status() -> DockerSummary:
     )
 
 
+def _extract_recent_traces(max_traces: int = 10) -> list[dict[str, Any]]:
+    """Extract recent trace summaries grouped by trace ID from in-memory spans."""
+    from devops_cli.telemetry.tracer import get_recent_spans
+
+    spans = get_recent_spans()
+    if not spans:
+        return []
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for s in spans:
+        tid = str(s.get("traceId", ""))
+        if tid:
+            grouped.setdefault(tid, []).append(s)
+
+    traces: list[dict[str, Any]] = []
+    for tid, trace_spans in list(grouped.items())[-max_traces:]:
+        root = next((s for s in trace_spans if not s.get("parentSpanId")), trace_spans[0])
+        start_nano = min(int(s.get("startTimeUnixNano", 0)) for s in trace_spans)
+        end_nano = max(int(s.get("endTimeUnixNano", start_nano)) for s in trace_spans)
+        dur_ms = max(0.0, (end_nano - start_nano) / 1_000_000.0)
+        has_error = any(
+            "ERROR" in str(s.get("status", {}).get("code", "")).upper() for s in trace_spans
+        )
+        status = "ERROR" if has_error else "OK"
+
+        traces.append(
+            {
+                "trace_id": tid,
+                "root_name": str(root.get("name", "unknown")),
+                "span_count": len(trace_spans),
+                "duration_ms": dur_ms,
+                "status": status,
+                "spans": trace_spans,
+            }
+        )
+    return list(reversed(traces))
+
+
+def _extract_latency_samples(spans: list[dict[str, Any]], max_samples: int = 20) -> list[float]:
+    """Extract execution latencies in milliseconds from recent span durations."""
+    samples: list[float] = []
+    for s in spans:
+        start_ns = int(s.get("startTimeUnixNano", 0))
+        end_ns = int(s.get("endTimeUnixNano", start_ns))
+        dur_ms = max(0.0, (end_ns - start_ns) / 1_000_000.0)
+        samples.append(dur_ms)
+    return samples[-max_samples:]
+
+
 def _in_process_telemetry() -> TelemetrySummary:
     """Read the metric registry belonging to this process."""
+    from devops_cli.telemetry.tracer import get_recent_spans
+
     snapshot = GLOBAL_METRICS.get_metrics_snapshot()
+    spans = get_recent_spans()
+    recent_traces = _extract_recent_traces()
+    latency_samples = _extract_latency_samples(spans)
+
+    tokens = float(snapshot["counters"].get("devops_cli_ai_tokens_total", 0.0))
+    token_samples = [tokens] if tokens > 0 else []
+
     return TelemetrySummary(
         counter_count=snapshot["counter_count"],
         gauge_count=snapshot["gauge_count"],
@@ -411,6 +474,11 @@ def _in_process_telemetry() -> TelemetrySummary:
         counters=snapshot["counters"],
         gauges=snapshot["gauges"],
         source="in-process",
+        latency_samples=latency_samples,
+        token_throughput_samples=token_samples,
+        cache_hit_ratio=0.0,
+        cache_hit_samples=[],
+        recent_traces=recent_traces,
     )
 
 
@@ -453,6 +521,12 @@ def _fetch_prometheus_metrics(base_url: str) -> TelemetrySummary:
         if name not in counters and name not in histograms and not str(name).startswith("go_")
     }
 
+    from devops_cli.telemetry.tracer import get_recent_spans
+
+    recent_traces = _extract_recent_traces()
+    spans = get_recent_spans()
+    latency_samples = _extract_latency_samples(spans)
+
     return TelemetrySummary(
         counter_count=len(counters),
         gauge_count=len(gauges),
@@ -462,6 +536,11 @@ def _fetch_prometheus_metrics(base_url: str) -> TelemetrySummary:
         counters=dict(sorted(counters.items())[:CONST_TELEMETRY_PANEL_MAX_SERIES]),
         gauges=dict(sorted(gauges.items())[:CONST_TELEMETRY_PANEL_MAX_SERIES]),
         source=describe_endpoint(base_url),
+        latency_samples=latency_samples,
+        token_throughput_samples=[],
+        cache_hit_ratio=0.0,
+        cache_hit_samples=[],
+        recent_traces=recent_traces,
     )
 
 

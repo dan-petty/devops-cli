@@ -29,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
+    CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DOCKER_RESOURCE_CONTAINERS,
     CONST_DOCKER_RESOURCE_LABELS,
     CONST_DOCKER_RESOURCES,
@@ -38,8 +39,13 @@ from devops_cli.config.defaults import (
     DEFAULT_LOG_REDRAW_INTERVAL_SECONDS,
     DEFAULT_LOG_STREAM_POLL_SECONDS,
 )
+from devops_cli.exceptions import ValidationError
+from devops_cli.exceptions.k8s import KubernetesLoggingError
+from devops_cli.k8s.logql import execute_logql_query
 from devops_cli.models.k8s import PodInfo
 from devops_cli.output import Text
+from devops_cli.ui.data_providers import TelemetrySummary
+from devops_cli.ui.highlighters import LogQLHighlighter
 from devops_cli.ui.log_buffer import VirtualLogBuffer
 from devops_cli.ui.pod_inspector import PodInspector
 from devops_cli.ui.projections import (
@@ -59,7 +65,9 @@ from devops_cli.ui.projections import (
     render_domain,
     render_keys,
 )
+from devops_cli.ui.sparklines import render_gauge, render_sparkline
 from devops_cli.ui.state import DomainSnapshot
+from devops_cli.ui.waterfall_modal import TraceWaterfallModal
 
 
 def _highlighted_key(table: DataTable[Any]) -> str | None:
@@ -179,7 +187,193 @@ class DomainPanel(Vertical):
             self._pending_snapshot = snapshot
 
 
-__all__ = ["DockerPanel", "DomainPanel", "K8sPanel", "LogPane", "redraw_table"]
+__all__ = [
+    "DockerPanel",
+    "DomainPanel",
+    "K8sPanel",
+    "LogPane",
+    "TelemetryPanel",
+    "redraw_table",
+]
+
+
+class LokiLogSource:
+    """A closable LogQL query line source for LogPane."""
+
+    def __init__(self, query: str, poll_interval: float = DEFAULT_LOG_STREAM_POLL_SECONDS) -> None:
+        self.query = query
+        self.poll_interval = poll_interval
+        self._stop = threading.Event()
+
+    def __call__(self) -> Iterable[str]:
+        seen: set[str] = set()
+        try:
+            result = execute_logql_query(self.query)
+            for entry in result.entries:
+                if self._stop.is_set():
+                    return
+                key = f"{entry.timestamp}_{entry.line}"
+                seen.add(key)
+                label_str = " ".join(f"{k}={v}" for k, v in entry.stream_labels.items())
+                prefix = f"[{label_str}] " if label_str else ""
+                yield f"{entry.timestamp} {prefix}{entry.line}"
+        except (KubernetesLoggingError, ValidationError, OSError, ValueError, RuntimeError) as exc:
+            yield f"[ERROR] Loki query failed: {exc}"
+            return
+
+        while not self._stop.is_set():
+            self._stop.wait(self.poll_interval)
+            if self._stop.is_set():
+                break
+            try:
+                res = execute_logql_query(self.query, since="10s")
+                for entry in res.entries:
+                    if self._stop.is_set():
+                        break
+                    key = f"{entry.timestamp}_{entry.line}"
+                    if key not in seen:
+                        seen.add(key)
+                        label_str = " ".join(f"{k}={v}" for k, v in entry.stream_labels.items())
+                        prefix = f"[{label_str}] " if label_str else ""
+                        yield f"{entry.timestamp} {prefix}{entry.line}"
+            except KubernetesLoggingError, ValidationError, OSError, ValueError, RuntimeError:
+                break
+
+    def close(self) -> None:
+        """Stop the LogQL polling loop immediately."""
+        self._stop.set()
+
+
+class TelemetryPanel(DomainPanel):
+    """The Telemetry domain: metrics sparklines, LogQL streaming console, and trace waterfalls."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("w", "show_waterfall", "Trace Waterfall", show=True),
+        Binding("slash", "focus_logql", "Query LogQL", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    TelemetryPanel {
+        height: 1fr;
+    }
+    TelemetryPanel > #telemetry-banner {
+        padding: 0 1;
+        margin-bottom: 1;
+        background: $boost;
+        color: $text;
+    }
+    TelemetryPanel > #telemetry-sparklines {
+        padding: 0 1;
+        margin-bottom: 1;
+        background: $surface;
+        color: $text;
+        height: auto;
+    }
+    TelemetryPanel > #logql-query-input {
+        margin-bottom: 1;
+    }
+    TelemetryPanel > #logql-log-pane {
+        height: 1fr;
+        min-height: 6;
+        margin-bottom: 1;
+    }
+    TelemetryPanel > #telemetry-table {
+        height: 1fr;
+        min-height: 5;
+    }
+    """
+
+    def __init__(
+        self,
+        domain: str = CONST_DASHBOARD_DOMAIN_TELEMETRY,
+        *,
+        stale_after: float | None = None,
+    ) -> None:
+        super().__init__(domain, stale_after=stale_after)
+        self._summary: TelemetrySummary | None = None
+        self._recent_traces: list[dict[str, Any]] = []
+
+    def compose(self) -> ComposeResult:
+        yield Static(loading_banner(self.domain), id=f"{self.domain}-banner")
+        yield Static("Initializing performance sparklines...", id="telemetry-sparklines")
+        yield Input(
+            placeholder='LogQL query (e.g. {namespace="default"} |= "error")',
+            highlighter=LogQLHighlighter(),
+            id="logql-query-input",
+        )
+        yield LogPane(id="logql-log-pane", title="Loki Query Stream")
+        yield DataTable(id="telemetry-table")
+
+    def apply(self, snapshot: DomainSnapshot) -> None:
+        """Render snapshot metrics, sparklines, and update table."""
+        super().apply(snapshot)
+
+        summary = snapshot.data
+        if not isinstance(summary, TelemetrySummary):
+            return
+
+        self._summary = summary
+        self._recent_traces = summary.recent_traces
+
+        lat_spark = render_sparkline(summary.latency_samples, width=12)
+        tok_spark = render_sparkline(summary.token_throughput_samples, width=12)
+        gauge_bar = render_gauge(summary.cache_hit_ratio, width=10)
+
+        latest_lat = f"{summary.latency_samples[-1]:.1f} ms" if summary.latency_samples else "—"
+        latest_tok = (
+            f"{summary.token_throughput_samples[-1]:.1f} tok/s"
+            if summary.token_throughput_samples
+            else "—"
+        )
+
+        sparklines_text = (
+            f"Command Latency:   {lat_spark}  {latest_lat}  │  "
+            f"Token Throughput: {tok_spark}  {latest_tok}  │  "
+            f"Cache Hit Ratio: {gauge_bar}"
+        )
+        try:
+            self.query_one("#telemetry-sparklines", Static).update(sparklines_text)
+        except NoMatches:
+            pass
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Start streaming logs when the user submits a LogQL query."""
+        if event.input.id != "logql-query-input":
+            return
+        query_text = event.value.strip()
+        if not query_text:
+            return
+
+        log_pane = self.query_one("#logql-log-pane", LogPane)
+        log_pane.title = f"LogQL Stream: {query_text}"
+        log_pane.start_stream(LokiLogSource(query_text))
+
+    def action_focus_logql(self) -> None:
+        """Focus the LogQL query input widget."""
+        self.query_one("#logql-query-input", Input).focus()
+
+    def action_show_waterfall(self) -> None:
+        """Open the trace waterfall modal for the highlighted or newest trace."""
+        table = self.query_one("#telemetry-table", DataTable)
+        target_id = _highlighted_key(table)
+        target_spans = None
+        if target_id and self._recent_traces:
+            target_spans = next(
+                (t.get("spans") for t in self._recent_traces if t.get("trace_id") == target_id),
+                None,
+            )
+        elif self._recent_traces:
+            target_id = self._recent_traces[0].get("trace_id")
+            target_spans = self._recent_traces[0].get("spans")
+
+        self.app.push_screen(TraceWaterfallModal(trace_id=target_id, spans=target_spans))
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Open waterfall modal when selecting a row in the telemetry table."""
+        if event.data_table.id != "telemetry-table":
+            return
+        event.stop()
+        self.action_show_waterfall()
 
 
 class K8sPanel(Vertical):
