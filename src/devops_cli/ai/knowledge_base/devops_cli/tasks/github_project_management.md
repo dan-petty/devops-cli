@@ -134,7 +134,7 @@ devops gh milestones list
 3. **Task-to-Issue Grounding**:
    - Ground every user task to a corresponding GitHub Issue and Project Item.
    - If an open issue exists: verify its taxonomy labels. `devops gh project sync` moves the card to In Progress when a draft pull request is open.
-    - Without a matching issue: file the task as a candidate with `devops roadmap intake --title … --body-file … --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); intake files it unless it is a duplicate, gives it its type, Priority, Value and Effort, and puts it in the backlog.
+    - Without a matching issue: file the task as a candidate with `devops roadmap intake --title … --body-file … --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); intake files it, names a possible duplicate for a person to close, gives it its type, Priority, Value and Effort, and puts it in the backlog.
 4. **Projects v2 Board Linkage & Real-Time Card Lifecycle Transitions**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
    - Issue cards on the board progress across canonical lifecycle states (status lives on GitHub per ADR 0001; an OpenSpec change folder carries no status, and only the delivering PR writes and archives it):

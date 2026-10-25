@@ -20,7 +20,6 @@ from devops_cli.roadmap.store import Item, RoadmapStore
 WRITES = frozenset(
     {
         "add_item",
-        "close_as_duplicate",
         "comment",
         "create_issue",
         "label_issue",

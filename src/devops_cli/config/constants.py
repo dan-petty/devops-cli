@@ -2770,10 +2770,9 @@ CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
     {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
 )
 CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
-# `devops roadmap intake` (#742). Its reason comment and its duplicate close each carry their own
-# marker, so a run that finds one posts no second comment of that kind.
+# `devops roadmap intake` (#742). Its reason comment carries this marker, so a run that finds it
+# posts no second reason comment.
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
-CONST_ROADMAP_INTAKE_DUPLICATE_MARKER: Final[str] = "<!-- devops roadmap intake: duplicate -->"
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
 CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
 CONST_ROADMAP_PRIORITY_LABEL_PREFIX: Final[str] = "priority/"

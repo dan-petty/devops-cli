@@ -170,7 +170,8 @@ def intake_cmd(
     plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.intake_plan)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.intake_confirm)] = False,
 ) -> None:
-    """Turn candidates into items: duplicate check, type, priority, Value, Effort and placement."""
+    """Turn candidates into items: possible duplicates, type, priority, Value, Effort and
+    placement."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
     given = _new_candidate(title, body_file)
     if given is not None and issue:
@@ -226,9 +227,7 @@ def _intake(
         return
     with _exit_on_failure("Intake stopped part-way; run it again to finish"):
         applied = apply_intake(store, plan)
-    print_success(
-        MESSAGES.roadmap.intake_applied.format(placed=applied.placed, closed=applied.closed)
-    )
+    print_success(MESSAGES.roadmap.intake_applied.format(placed=applied.placed))
     for number in applied.filed:
         print_info(MESSAGES.roadmap.intake_filed.format(number=number))
     for number in applied.finished:

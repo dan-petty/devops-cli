@@ -1074,16 +1074,19 @@ class RoadmapCommandHelp:
     )
     intake: str = (
         "Turn candidates into items: every open issue not on the board, and every board item "
-        "intake left without a Priority. Each is checked for a duplicate among the board's "
-        "items and the issues closed as not planned. An issue that has sub-issues is not among "
-        "them, because its sub-issues deliver it. Each gets a type, a priority, Value and Effort "
-        "from the model with a reason comment, and goes to the backlog. Intake sets no milestone: "
-        "a person plans the milestones on the board, and a milestone an issue has stays. An "
+        "intake left without a Priority. The model compares each with the board's items and the "
+        "issues closed as not planned, but not with an issue that has sub-issues, because its "
+        "sub-issues deliver it. It names a possible duplicate for a person to close: intake "
+        "never closes an issue and never drops a candidate. Each gets a type, a priority, Value "
+        "and Effort from the model with a reason comment, and goes to the backlog. Intake sets "
+        "no milestone: a person plans the milestones on the board, and a milestone an issue "
+        "has stays. An "
         "open issue whose board card a person archived is a candidate too: intake restores the "
         "card, which keeps its values and milestone; close the issue as not planned to keep it "
         "off the roadmap. A candidate an agent files with --title and --body-file is labeled "
-        "source/agent, and intake files it when it is not a duplicate; a text that looks like it "
-        "holds a secret is refused. --dry-run makes no request and prints "
+        "source/agent, and intake files it, a possible duplicate too, unless a run that stopped "
+        "after filing left an open issue with its title and body, which intake then places; a "
+        "text that looks like it holds a secret is refused. --dry-run makes no request and prints "
         "the requests a run makes; --plan, the default, reads GitHub and calls the model, "
         "writes nothing and reports what it spent; --confirm makes the writes."
     )
@@ -1095,14 +1098,14 @@ class RoadmapCommandHelp:
         "candidate it left undecided waits behind the fresh ones."
     )
     intake_title: str = (
-        "Title of a candidate that is not an issue yet; intake files it only when it is not a "
-        "duplicate. Needs --body-file."
+        "Title of a candidate that is not an issue yet; intake files it, and names a possible "
+        "duplicate for a person to close. Needs --body-file."
     )
     intake_body_file: str = "File holding the new candidate's body. Needs --title."
     intake_source: str = (
         "Link the new candidate came from, such as the item it splits or the review that found "
-        "it; the filed body ends with it. Intake never judges the candidate a duplicate of the "
-        "issue that this link names."
+        "it; the filed body ends with it. Intake never names the issue that this link names as "
+        "a possible duplicate of the candidate."
     )
     intake_filed_by: str = (
         "Who files the new candidate: an agent's is labeled source/agent; a person's is not."

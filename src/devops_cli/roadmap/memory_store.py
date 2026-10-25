@@ -385,18 +385,6 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._log("create_issue", number, value=title)
         return self._roadmap.issues[number]
 
-    def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
-        """Comment on issue `number` unless `comment` is None, then close it as a duplicate of
-        issue `original`."""
-        issue = self._require_issue(number, "roadmap.issue.close_as_duplicate")
-        self._require_issue(original, "roadmap.issue.close_as_duplicate")
-        if comment is not None:
-            self.comment(number, comment)
-        self._close(
-            self._roadmap.issues[issue.number], CloseReason.DUPLICATE, duplicate_of=original
-        )
-        self._log("close_as_duplicate", number, value=str(original))
-
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number`, oldest first."""
         return list(self._roadmap.closures.get(number, []))
@@ -566,9 +554,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             return {}
         return {"closed_at": self._roadmap.clock() if state == GitHubState.CLOSED else None}
 
-    def _close(
-        self, issue: IssueRecord, reason: CloseReason, *, duplicate_of: int | None = None
-    ) -> None:
+    def _close(self, issue: IssueRecord, reason: CloseReason) -> None:
         """Close the issue for `reason` now, recording the close in its timeline and changes."""
         self._update_issue(
             issue,
@@ -576,7 +562,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             state_reason=reason.value,
             closed_at=self._roadmap.clock(),
         )
-        self._closure(issue.number, ChangeKind.CLOSED, reason.value, duplicate_of)
+        self._closure(issue.number, ChangeKind.CLOSED, reason.value)
         self._record(ChangeKind.CLOSED, issue.number)
 
     def _update_issue(self, issue: IssueRecord, **changes: Any) -> None:
@@ -585,16 +571,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         update = changes | {"updated_at": self._roadmap.clock()}
         self._roadmap.issues[issue.number] = issue.model_copy(update=update)
 
-    def _closure(
-        self,
-        number: int,
-        kind: ChangeKind,
-        reason: str | None = None,
-        duplicate_of: int | None = None,
-    ) -> None:
-        closure = Closure(
-            kind=kind, at=self._roadmap.clock(), reason=reason, duplicate_of=duplicate_of
-        )
+    def _closure(self, number: int, kind: ChangeKind, reason: str | None = None) -> None:
+        closure = Closure(kind=kind, at=self._roadmap.clock(), reason=reason)
         self._roadmap.closures.setdefault(number, []).append(closure)
 
     def _require_issue(self, number: int, operation: str) -> IssueRecord:
