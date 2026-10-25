@@ -1,0 +1,65 @@
+# The answers of the live Prometheus to the query of the "Local Cloud Savings in Range" panel of
+# k8s/monitoring/dashboards/ai-spend.json, and the token series that it read (#2194).
+# tests/test_k8s_monitoring_dashboards.py checks that `expr` is the query of the panel, and that the
+# `result` of each record is the total of its `series`, priced at the prices of the dashboard.
+#
+# Each record ran `expr` as one instant query at `end`, with `$__range` set to `range` and
+# `${reference_price_usd_per_token:raw}` set to the value of that dashboard constant, as Grafana
+# sets them. `series` is the answer at `end` of
+#   sum by (local, operation, provider, server, type) (increase(devops_cli_ai_tokens_total[<range>]))
+# The query reads no other label. The server name of the workstation is written as ai.example.com.
+#
+# The first range ends before the first sample of the recording rule that priced the panel before
+# #2194, and its series have no `local` and no `operation` label. The second range holds series
+# with and without each label: the labels came with #1623 (`operation`) and #1672 (`local`).
+#
+# Record again when the query or a price of the dashboard changes. Run the two queries read-only
+# against the Prometheus HTTP API (`/api/v1/query` with `time=<end>`), for example with the
+# `query_prometheus` tool of the Grafana MCP server, and copy the values. Prometheus keeps 30 d of
+# samples, so select ranges inside the retention window.
+captured: "2026-10-24"
+expr: 'sum((label_replace(sum by (type) (increase(devops_cli_ai_tokens_total{local="true", operation!="embeddings"}[$__range]) or increase(devops_cli_ai_tokens_total{local="", provider="gateway", server!="cache", operation!="embeddings"}[$__range])), "operation", "chat", "", "") or sum by (operation, type) (increase(devops_cli_ai_tokens_total{local="true", operation="embeddings"}[$__range]) or increase(devops_cli_ai_tokens_total{local="", provider="gateway", server!="cache", operation="embeddings"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) or vector(0)'
+# The first sample of the recording rule devops_cli:ai_reference_price_usd_per_token, which #2194
+# deleted: min_over_time(timestamp(devops_cli:ai_reference_price_usd_per_token)[3d:1m]).
+deleted_price_rule_first_sample: "2026-10-24T05:21:33Z"
+records:
+  - end: "2026-10-22T00:00:00Z"
+    range: 21d
+    result: "423.02858490194393"
+    series:
+      - labels: {provider: gateway, server: ai.example.com, type: prompt}
+        value: "136084728.10024625"
+      - labels: {provider: gateway, server: ai.example.com, type: completion}
+        value: "5312177.801425805"
+      - labels: {provider: gateway, server: "llm-gateway.llm.svc.cluster.local:4000", type: prompt}
+        value: "6804314.803320493"
+      - labels: {provider: gateway, server: "llm-gateway.llm.svc.cluster.local:4000", type: completion}
+        value: "1268419.9628768929"
+      - labels: {provider: gateway, server: cache, type: prompt}
+        value: "0"
+      - labels: {provider: gateway, server: cache, type: completion}
+        value: "0"
+  - end: "2026-10-24T22:00:00Z"
+    range: 2d
+    result: "17.435455929386272"
+    series:
+      - labels: {local: "true", operation: chat, provider: gateway, server: ai.example.com, type: prompt}
+        value: "671343.5430646066"
+      - labels: {local: "true", operation: chat, provider: gateway, server: ai.example.com, type: completion}
+        value: "43192.8376627957"
+      - labels: {local: "true", operation: embeddings, provider: gateway, server: ai.example.com, type: prompt}
+        value: "26788044.397961542"
+      - labels: {local: "true", operation: embeddings, provider: gateway, server: ai.example.com, type: completion}
+        value: "0"
+      - labels: {operation: chat, provider: gateway, server: ai.example.com, type: prompt}
+        value: "217951.75000000003"
+      - labels: {operation: chat, provider: gateway, server: ai.example.com, type: completion}
+        value: "13931.722222222224"
+      - labels: {operation: embeddings, provider: gateway, server: ai.example.com, type: prompt}
+        value: "17686713.86878307"
+      - labels: {operation: embeddings, provider: gateway, server: ai.example.com, type: completion}
+        value: "0"
+      - labels: {provider: gateway, server: ai.example.com, type: prompt}
+        value: "4180297.0968253976"
+      - labels: {provider: gateway, server: ai.example.com, type: completion}
+        value: "330073.41904761904"

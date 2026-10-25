@@ -67,7 +67,10 @@ DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 # A model that the gateway config sends to the tier of the default Ollama Service, the model of
 # the devops-coder route. tests/test_k8s_llm_gateway.py binds it to k8s/llm/gateway/config.yaml.
 DEFAULT_AI_FALLBACK_MODEL = "qwen3-coder:30b"
-DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o-mini"
+# The hosted model that local chat tokens are priced against: the owner's choice (#2194). The AI
+# spend dashboard holds genai-prices' price of this model, and of the embedding reference below,
+# and tests/test_k8s_monitoring_dashboards.py fails when the two differ.
+DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o"
 # The hosted model that local embedding tokens are priced against, and the genai-prices provider
 # that prices both reference models: genai-prices finds no provider for an embedding model by its
 # name alone (#1623).

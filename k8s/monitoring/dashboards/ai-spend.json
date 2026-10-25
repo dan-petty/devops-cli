@@ -92,7 +92,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Equivalent cloud spend avoided by local model execution over the dashboard's time range. Each operation's local prompt and completion tokens are priced at the reference price that the Prometheus recording rule devops_cli:ai_reference_price_usd_per_token holds for them, so every process is priced at one reference (#1672). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Equivalent cloud spend avoided by local model execution over the dashboard's time range. The local prompt and completion tokens of each operation are priced at the hosted reference price that the dashboard constant reference_price_usd_per_token holds for them, so every process and every range is priced at one reference (#1672, #2194). A series from before the local label that the gateway served counts as local, because the gateway serves only local models, and a series from before the operation label counts as chat. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -142,7 +142,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (operation, type) (increase(devops_cli_ai_tokens_total{local=\"true\"}[$__range])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token)) or vector(0)",
+          "expr": "sum((label_replace(sum by (type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) or vector(0)",
           "instant": true,
           "legendFormat": "Savings USD",
           "refId": "A"
@@ -346,7 +346,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\"}[$__range])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token)) * 86400 * 30 or vector(0)",
+          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 30 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Savings (30d)",
           "refId": "B"
@@ -404,7 +404,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\"}[$__range])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token)) * 86400 * 90 or vector(0)",
+          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 90 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Savings (90d)",
           "refId": "B"
@@ -462,7 +462,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\"}[$__range])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token)) * 86400 * 365 or vector(0)",
+          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 365 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Savings (1y)",
           "refId": "B"
@@ -606,7 +606,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Equivalent hosted cloud spend avoided per hour by local model execution. Each operation's local prompt and completion tokens are priced at the reference price that the Prometheus recording rule devops_cli:ai_reference_price_usd_per_token holds for them, so every process is priced at one reference (#1672).",
+      "description": "Equivalent hosted cloud spend avoided per hour by local model execution. The local prompt and completion tokens of each operation are priced at the hosted reference price that the dashboard constant reference_price_usd_per_token holds for them, so every process and every range is priced at one reference (#1672, #2194). A series from before the local label that the gateway served counts as local, because the gateway serves only local models, and a series from before the operation label counts as chat.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -641,7 +641,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\"}[5m])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token)) * 3600 or vector(0)",
+          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[5m]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[5m])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[5m]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[5m]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 3600 or vector(0)",
           "legendFormat": "Savings Rate ($/hr)",
           "refId": "A"
         },
@@ -650,7 +650,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\"}[1h])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token)) * 3600 or vector(0)",
+          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[1h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[1h])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[1h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[1h]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 3600 or vector(0)",
           "legendFormat": "Savings Rate Rolling Avg (1h)",
           "refId": "B"
         }
@@ -661,7 +661,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Equivalent hosted cloud spend avoided per hour by local model execution, grouped by backend, server and provider. Each operation's local prompt and completion tokens are priced at the reference price that the Prometheus recording rule devops_cli:ai_reference_price_usd_per_token holds for them, so every process is priced at one reference (#1672). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Equivalent hosted cloud spend avoided per hour by local model execution, grouped by backend, server and provider. The local prompt and completion tokens of each operation are priced at the hosted reference price that the dashboard constant reference_price_usd_per_token holds for them, so every process and every range is priced at one reference (#1672, #2194). A series from before the local label that the gateway served counts as local, because the gateway serves only local models, and a series from before the operation label counts as chat. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -697,7 +697,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) (sum by (server, backend, provider, operation, type) (increase(devops_cli_ai_tokens_total{local=\"true\"}[1h])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token))",
+          "expr": "sum by (server, backend, provider) ((label_replace(sum by (server, backend, provider, type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[1h]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[1h])), \"operation\", \"chat\", \"\", \"\") or sum by (server, backend, provider, operation, type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[1h]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[1h]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw}))",
           "legendFormat": "{{backend}} via {{server}} ({{provider}})",
           "refId": "A"
         },
@@ -706,7 +706,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\"}[6h])) * on (operation, type) group_left max by (operation, type) (devops_cli:ai_reference_price_usd_per_token)) * 3600",
+          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[6h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[6h])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[6h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[6h]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 3600",
           "legendFormat": "Total Rolling Avg (6h)",
           "refId": "B"
         }
@@ -893,6 +893,19 @@
     "cost",
     "tokens"
   ],
+  "templating": {
+    "list": [
+      {
+        "description": "The hosted price of one local token in USD, by operation and token type: genai-prices' price of `gpt-4o` for chat and of `text-embedding-3-small` for embeddings, the default reference models of devops-cli, written as USD per million tokens. The savings queries multiply the local tokens by it, and put it in with the raw format, so Grafana does not escape its quotes. tests/test_k8s_monitoring_dashboards.py fails when a price differs from genai-prices.",
+        "hide": 2,
+        "label": "Reference price (USD per token)",
+        "name": "reference_price_usd_per_token",
+        "query": "label_replace(label_replace(vector(2.5 / 1e6), \"operation\", \"chat\", \"\", \"\"), \"type\", \"prompt\", \"\", \"\") or label_replace(label_replace(vector(10 / 1e6), \"operation\", \"chat\", \"\", \"\"), \"type\", \"completion\", \"\", \"\") or label_replace(label_replace(vector(0.02 / 1e6), \"operation\", \"embeddings\", \"\", \"\"), \"type\", \"prompt\", \"\", \"\") or label_replace(label_replace(vector(0 / 1e6), \"operation\", \"embeddings\", \"\", \"\"), \"type\", \"completion\", \"\", \"\")",
+        "skipUrlSync": true,
+        "type": "constant"
+      }
+    ]
+  },
   "time": {
     "from": "now-6h",
     "to": "now"

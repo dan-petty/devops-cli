@@ -715,7 +715,7 @@ def test_two_processes_with_different_references_send_the_same_local_series(
     """Verify the points of a local call do not depend on `ai.reference_model` or
     `ai.reference_embedding_model`. The workstation priced its savings at gpt-4o and the Service
     at gpt-4o-mini, and the dashboard added the two; now each process sends the same tokens and
-    no price, and one recording rule prices them (#1672)."""
+    no price, and the prices of the dashboard price them (#1672, #2194)."""
     config(ai={"reference_model": "gpt-4o", "reference_embedding_model": "text-embedding-3-large"})
     workstation = _local_call_points(captured)
     config(

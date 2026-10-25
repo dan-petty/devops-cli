@@ -174,7 +174,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `provider` | `str` | `ollama` | `DEVOPS_CLI_AI_PROVIDER` | - |
 | `model` | `str` | `qwen3.8:27b` | `DEVOPS_CLI_AI_MODEL` | - |
 | `api_key` | `Union` | - | `DEVOPS_CLI_AI_API_KEY` | - |
-| `reference_model` | `str` | `gpt-4o-mini` | - | - |
+| `reference_model` | `str` | `gpt-4o` | - | - |
 | `reference_embedding_model` | `str` | `text-embedding-3-small` | - | - |
 | `reference_provider` | `str` | `openai` | - | - |
 | `hardware_cost_usd` | `float` | `0.0` | - | - |

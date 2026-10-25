@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import genai_prices
+import pytest
 import yaml
 from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GenAiOperationNameValues,
@@ -26,7 +28,8 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_REFERENCE_PROVIDER,
 )
-from tests.support.paths import REPO_ROOT
+from devops_cli.prometheus.promql import selectors
+from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
 MONITORING_DIR = K8S_DIR / "monitoring"
@@ -57,15 +60,26 @@ SIDECAR_LABELS = {
 }
 # kubectl's client-side apply stores the object in an annotation, and annotations are capped.
 LAST_APPLIED_ANNOTATION_LIMIT_BYTES = 262_144
-# The recording rule that holds the hosted price of a local token, by operation and token type,
-# and the series of the tokens that a local model ran (#1672).
-REFERENCE_PRICE_RULE = "devops_cli:ai_reference_price_usd_per_token"
-LOCAL_TOKENS = 'devops_cli_ai_tokens_total{local="true"}'
-PRICED_BY_THE_RULE = (
-    f"* on (operation, type) group_left max by (operation, type) ({REFERENCE_PRICE_RULE})"
+# The dashboard constant that holds the hosted price of a local token, as a PromQL vector by
+# operation and token type, and the part of each savings query that multiplies local tokens by
+# it (#2194). Grafana puts the value in unchanged (`:raw`), so its quotes are not escaped.
+PRICE_VARIABLE = "reference_price_usd_per_token"
+PRICED = f"* on (operation, type) group_left () (${{{PRICE_VARIABLE}:raw}})"
+# One price of the vector, written as USD per million tokens of one operation and token type.
+PRICE_TERM = re.compile(
+    r'label_replace\(label_replace\(vector\(([0-9.]+) / 1e6\), "operation", "(\w+)", "", ""\), '
+    r'"type", "(\w+)", "", ""\)'
 )
-# A rule's price, written as USD per million tokens.
-PRICE_PER_MILLION = re.compile(r"^vector\(([0-9.]+) / 1e6\)$")
+# The local tokens: a series that says so, or a series from before the `local` label (#1672) that
+# the gateway served, because the gateway serves only local models. Chat is every operation but
+# embeddings, so a series from before the `operation` label (#1623) is chat.
+LOCAL_TOKEN_SELECTORS = tuple(
+    f"devops_cli_ai_tokens_total{{{local}, {operation}}}"
+    for operation in ('operation!="embeddings"', 'operation="embeddings"')
+    for local in ('local="true"', 'local="", provider="gateway", server!="cache"')
+)
+SAVINGS_RECORD = FIXTURES / "recorded_queries" / "ai_spend_local_savings.yaml"
+SAVINGS_IN_RANGE = "Local Cloud Savings in Range"
 
 
 def _kustomization(directory: Path) -> dict[str, Any]:
@@ -229,24 +243,29 @@ def test_no_query_selects_the_container_series_the_chart_drops() -> None:
     assert (tuning.get("dropEmptyImageLabels", True), selecting) == (True, [])
 
 
-def _reference_price_rules() -> dict[tuple[str, str], tuple[str, Decimal]]:
-    """The reference model and USD price per million tokens of each (operation, token type) that
-    the recording rules hold."""
-    values = yaml.safe_load((MONITORING_DIR / "prometheus-values.yaml").read_text("utf-8"))
-    rules = [
-        rule
-        for group in values["serverFiles"]["recording_rules.yml"]["groups"]
-        for rule in group["rules"]
-        if rule.get("record") == REFERENCE_PRICE_RULE
-    ]
-    prices: dict[tuple[str, str], tuple[str, Decimal]] = {}
-    for rule in rules:
-        price = PRICE_PER_MILLION.match(rule["expr"])
-        labels = rule["labels"]
-        prices[(labels["operation"], labels["type"])] = (
-            labels["reference_model"],
-            Decimal(price.group(1)) if price else Decimal(-1),
-        )
+def _ai_spend_dashboard() -> dict[str, Any]:
+    loaded: dict[str, Any] = json.loads(
+        (DASHBOARDS_DIR / "ai-spend.json").read_text(encoding="utf-8")
+    )
+    return loaded
+
+
+def _price_variable(dashboard: dict[str, Any]) -> dict[str, Any]:
+    """The dashboard constant that holds the reference prices, or an empty dict."""
+    variables: list[dict[str, Any]] = dashboard.get("templating", {}).get("list", [])
+    return next((variable for variable in variables if variable["name"] == PRICE_VARIABLE), {})
+
+
+def _dashboard_prices(variable: dict[str, Any]) -> dict[tuple[str, str], Decimal]:
+    """The USD price per million tokens of each (operation, token type) that the price vector
+    holds. A term of the vector that is not a price is put in as ("not a price", <term>)."""
+    prices: dict[tuple[str, str], Decimal] = {}
+    for term in variable.get("query", "").split(" or "):
+        price = PRICE_TERM.fullmatch(term)
+        if price:
+            prices[(price.group(2), price.group(3))] = Decimal(price.group(1))
+        else:
+            prices[("not a price", term)] = Decimal(-1)
     return prices
 
 
@@ -257,21 +276,48 @@ def _genai_prices_per_million(model: str) -> dict[str, Decimal]:
     return {"prompt": price.input_price, "completion": price.output_price}
 
 
-def test_the_reference_price_rule_holds_the_genai_prices_price_of_each_default_reference() -> None:
-    """The recording rule holds, for each operation and token type that devops-cli sends, the
-    price that genai-prices gives the default reference model of that operation, so the committed
-    prices cannot drift from the pricing library (#1672)."""
+def _reference_prices() -> dict[tuple[str, str], Decimal]:
+    """genai-prices' price of the default reference model of each operation, by token type."""
     references = {
         GenAiOperationNameValues.CHAT.value: DEFAULT_AI_REFERENCE_MODEL,
         GenAiOperationNameValues.EMBEDDINGS.value: DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
     }
-    expected = {
-        (operation, token_type): (model, price)
+    return {
+        (operation, token_type): price
         for operation, model in references.items()
         for token_type, price in _genai_prices_per_million(model).items()
     }
 
-    assert _reference_price_rules() == expected
+
+def _price_rules() -> list[str]:
+    """The recording rules of the Prometheus values that record a price."""
+    values = yaml.safe_load((MONITORING_DIR / "prometheus-values.yaml").read_text("utf-8"))
+    groups = values["serverFiles"].get("recording_rules.yml", {}).get("groups", [])
+    return [
+        rule["record"]
+        for group in groups
+        for rule in group["rules"]
+        if "price" in rule.get("record", "")
+    ]
+
+
+def test_the_dashboard_holds_the_genai_prices_price_of_each_default_reference() -> None:
+    """The AI spend dashboard holds, in one hidden constant, the price that genai-prices gives
+    the default reference model of each operation and token type that devops-cli sends. The chat
+    reference is gpt-4o, the `ai.reference_model` of the owner, so the dashboard and
+    `devops ai cost` price at one model. No recording rule holds a second copy of a price
+    (#2194)."""
+    variable = _price_variable(_ai_spend_dashboard())
+    description = variable.get("description", "")
+    references = (DEFAULT_AI_REFERENCE_MODEL, DEFAULT_AI_REFERENCE_EMBEDDING_MODEL)
+
+    assert (
+        DEFAULT_AI_REFERENCE_MODEL,
+        (variable.get("type"), variable.get("hide")),
+        _dashboard_prices(variable),
+        [model for model in references if f"`{model}`" not in description],
+        _price_rules(),
+    ) == ("gpt-4o", ("constant", 2), _reference_prices(), [], [])
 
 
 def _savings_targets(dashboard: dict[str, Any]) -> list[str]:
@@ -285,16 +331,103 @@ def _savings_targets(dashboard: dict[str, Any]) -> list[str]:
     ]
 
 
-def test_every_savings_query_prices_local_tokens_at_the_reference_price_rule() -> None:
-    """Each savings query multiplies the tokens that a local model ran by the reference price of
-    their operation and token type, so the workstation and the Service are priced at one
-    reference whatever their `ai.reference_model` (#1672). No query reads a price that a process
-    computed."""
-    dashboard = json.loads((DASHBOARDS_DIR / "ai-spend.json").read_text(encoding="utf-8"))
+def _misses_a_local_token_or_the_price(expr: str) -> bool:
+    """Whether a savings query leaves out a kind of local token or the dashboard prices, or
+    reads a series other than the token counter."""
+    return (
+        any(selector not in expr for selector in LOCAL_TOKEN_SELECTORS)
+        or '"operation", "chat", "", ""' not in expr
+        or PRICED not in expr
+        or {selector.metric for selector in selectors(expr)} != {"devops_cli_ai_tokens_total"}
+    )
+
+
+def test_each_savings_query_prices_all_local_tokens_at_the_dashboard_prices() -> None:
+    """Each savings query multiplies the local tokens by the dashboard prices on operation and
+    token type, and reads no series other than the token counter. The recording rule that priced
+    the queries had samples only from its first evaluation, so every range that ended before
+    it showed $0 (#2194). The local tokens include the series from before the `local` (#1672)
+    and `operation` (#1623) labels, and no query reads a price that a process computed."""
+    dashboard = _ai_spend_dashboard()
     targets = _savings_targets(dashboard)
 
     assert (
         len(targets),
-        [expr for expr in targets if LOCAL_TOKENS not in expr or PRICED_BY_THE_RULE not in expr],
+        [expr for expr in targets if _misses_a_local_token_or_the_price(expr)],
         [expr for expr in _expressions(dashboard) if "cost_equivalent" in expr],
     ) == (8, [], [])
+
+
+def _savings_record() -> dict[str, Any]:
+    loaded: dict[str, Any] = yaml.safe_load(SAVINGS_RECORD.read_text(encoding="utf-8"))
+    return loaded
+
+
+def _is_local(labels: dict[str, str]) -> bool:
+    """Whether a local model ran the tokens of a series. A series from before the `local` label
+    (#1672) is local when the gateway served it, because the gateway serves only local models.
+    The response cache is no model (#816)."""
+    if "local" in labels:
+        return labels["local"] == "true"
+    return labels.get("provider") == "gateway" and labels.get("server") != "cache"
+
+
+def _priced_total(series: list[dict[str, Any]], prices: dict[tuple[str, str], Decimal]) -> Decimal:
+    """The local savings of recorded series in USD: each local token at the price per million
+    tokens of its operation and type. A series with no operation is chat (#1623), and a type
+    with no price, such as reasoning, adds nothing."""
+    return sum(
+        (
+            Decimal(point["value"])
+            * prices.get(
+                (point["labels"].get("operation", "chat"), point["labels"]["type"]), Decimal(0)
+            )
+            / 1_000_000
+            for point in series
+            if _is_local(point["labels"])
+        ),
+        Decimal(0),
+    )
+
+
+@pytest.mark.parametrize(
+    "record",
+    _savings_record()["records"],
+    ids=lambda record: f"{record['range']}-to-{record['end']}",
+)
+def test_local_cloud_savings_in_range_gives_the_priced_total_of_the_recorded_series(
+    record: dict[str, Any],
+) -> None:
+    """Prometheus' answer to the query of the panel is the total of the recorded token series
+    at the dashboard prices, for series with and without the `local` and `operation` labels.
+    From 2026-10-01 to 2026-10-22 it is $423 at gpt-4o, where the panel showed $0 (#2194). The
+    record is of the query of the panel as it is now, so a changed query or price fails here
+    until a person records it again."""
+    dashboard = _ai_spend_dashboard()
+    (panel,) = [panel for panel in dashboard["panels"] if panel.get("title") == SAVINGS_IN_RANGE]
+    to_the_micro_dollar = Decimal("0.000001")
+    total = _priced_total(record["series"], _dashboard_prices(_price_variable(dashboard)))
+
+    assert (
+        [target["expr"] for target in panel["targets"]],
+        Decimal(record["result"]).quantize(to_the_micro_dollar),
+    ) == ([_savings_record()["expr"]], total.quantize(to_the_micro_dollar))
+
+
+def test_the_records_hold_each_kind_of_series_and_a_range_before_the_price_rule() -> None:
+    """The records hold token series with both labels, without `local` (#1672), and without
+    `local` and `operation` (#1623), and a range that ends before the first sample of the
+    recording rule that priced the panel before #2194."""
+    saved = _savings_record()
+    kinds = {
+        ("local" in point["labels"], "operation" in point["labels"])
+        for record in saved["records"]
+        for point in record["series"]
+        if Decimal(point["value"]) > 0
+    }
+    first_price = datetime.fromisoformat(saved["deleted_price_rule_first_sample"])
+
+    assert (
+        kinds,
+        any(datetime.fromisoformat(record["end"]) < first_price for record in saved["records"]),
+    ) == ({(True, True), (False, True), (False, False)}, True)

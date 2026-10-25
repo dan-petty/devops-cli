@@ -93,10 +93,10 @@ ai:
   # supports_reasoning: false  # Set true if model natively supports reasoning / thinking parameters
 
   # Reference model used for counterfactual cloud spend calculations and hardware payoff.
-  # Defaults to gpt-4o-mini. The two reference models price the local ledger that
+  # Defaults to gpt-4o. The two reference models price the local ledger that
   # `devops ai cost` reports. The AI spend dashboard prices the local tokens of every process
-  # at the default reference models, in a recording rule of k8s/monitoring/prometheus-values.yaml.
-  reference_model: gpt-4o-mini
+  # at the default reference models, in a constant of k8s/monitoring/dashboards/ai-spend.json.
+  reference_model: gpt-4o
   # Reference model that prices the tokens of local embedding requests.
   # Defaults to text-embedding-3-small.
   reference_embedding_model: text-embedding-3-small
