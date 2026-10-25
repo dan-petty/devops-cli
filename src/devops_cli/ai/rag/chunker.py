@@ -6,11 +6,12 @@ import ast
 import hashlib
 import logging
 import mimetypes
-import re
 import warnings
 from pathlib import Path
 
 from devops_cli.ai.analyze.scanner import detect_language
+from devops_cli.ai.ast.engine import TreeSitterEngine
+from devops_cli.ai.context_budget import get_tiktoken_encoding
 from devops_cli.ai.rag.metadata import extract_code_metadata, extract_doc_metadata
 from devops_cli.ai.rag.models import CodeChunk
 from devops_cli.config.constants import (
@@ -24,9 +25,48 @@ logger = logging.getLogger(__name__)
 MAX_CHUNK_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MiB safety cap
 
 
-def estimate_tokens(text: str) -> int:
-    """The project's token estimate (~4 characters per token)."""
-    return max(1, len(text) // 4) if text else 0
+def count_chunk_tokens(text: str, model: str | None = None) -> int:
+    """Count tokens for chunk boundary enforcement.
+
+    Uses tiktoken matching the configured embedding model when available.
+    Falls back to cl100k_base or a documented safe bound (1 token per character)
+    for dense punctuation and worst-case sequences.
+    """
+    if not text:
+        return 0
+    clean_model = model.split(":", 1)[1] if model and ":" in model else (model or "cl100k_base")
+    enc = get_tiktoken_encoding(clean_model)
+    if enc is not None:
+        try:
+            return len(enc.encode(text, disallowed_special=()))
+        except (ValueError, TypeError, KeyError) as exc:
+            logger.debug("Failed to count tokens with %s: %s", clean_model, exc)
+    return len(text)
+
+
+def parse_markdown_headings(content: str) -> list[tuple[int, int, str]]:
+    """Extract heading line numbers (0-indexed), levels (1-6), and titles using CommonMark parser.
+
+    Headings inside fenced code blocks are excluded by the AST parser.
+    """
+    from markdown_it import MarkdownIt
+
+    md = MarkdownIt("commonmark")
+    tokens = md.parse(content)
+    headings: list[tuple[int, int, str]] = []
+
+    for idx, token in enumerate(tokens):
+        if token.type == "heading_open" and token.map:
+            level = int(token.tag[1:]) if len(token.tag) > 1 and token.tag[1:].isdigit() else 1
+            inline = (
+                tokens[idx + 1]
+                if idx + 1 < len(tokens) and tokens[idx + 1].type == "inline"
+                else None
+            )
+            title = inline.content.strip() if inline else ""
+            headings.append((token.map[0], level, title))
+
+    return headings
 
 
 def _append_sub_window(
@@ -34,131 +74,64 @@ def _append_sub_window(
     start_line: int,
     end_line: int,
     content: str,
-    max_chars: int,
+    max_tokens: int,
+    model: str | None = None,
 ) -> None:
-    """Append bounded sub-window(s) to sub_windows list."""
+    """Append bounded sub-window(s) to sub_windows list capped at max_tokens."""
     if not content:
         return
-    if len(content) <= max_chars:
+    if count_chunk_tokens(content, model=model) <= max_tokens:
         sub_windows.append((start_line, end_line, content))
-    else:
-        for piece in [content[i : i + max_chars] for i in range(0, len(content), max_chars)]:
-            sub_windows.append((start_line, end_line, piece))
+        return
+
+    clean_model = model.split(":", 1)[1] if model and ":" in model else (model or "cl100k_base")
+    enc = get_tiktoken_encoding(clean_model)
+    if enc is not None:
+        try:
+            tokens = enc.encode(content, disallowed_special=())
+            for i in range(0, len(tokens), max_tokens):
+                piece = enc.decode(tokens[i : i + max_tokens])
+                if piece:
+                    sub_windows.append((start_line, end_line, piece))
+            return
+        except (ValueError, TypeError, KeyError) as exc:
+            logger.debug("Failed to decode token chunks with %s: %s", clean_model, exc)
+
+    for i in range(0, len(content), max_tokens):
+        sub_windows.append((start_line, end_line, content[i : i + max_tokens]))
 
 
 def _split_window_by_token_limit(
     lines: list[str],
     window_start_line: int,
     max_tokens: int = CONST_RAG_MAX_CHUNK_TOKENS,
+    model: str | None = None,
 ) -> list[tuple[int, int, str]]:
     """Split a window of lines into (start_line, end_line, content) tuples capped at max_tokens."""
     sub_windows: list[tuple[int, int, str]] = []
     current_lines: list[str] = []
-    current_chars = 0
     current_start = window_start_line
-    max_chars = max_tokens * 4
 
     for offset, line in enumerate(lines):
-        line_chars = len(line) + (1 if current_lines else 0)
-        if current_lines and (current_chars + line_chars > max_chars):
+        cand_lines = current_lines + [line]
+        cand_content = "\n".join(cand_lines).strip()
+        if current_lines and count_chunk_tokens(cand_content, model=model) > max_tokens:
             content = "\n".join(current_lines).strip()
             end_line = current_start + len(current_lines) - 1
-            _append_sub_window(sub_windows, current_start, end_line, content, max_chars)
+            _append_sub_window(
+                sub_windows, current_start, end_line, content, max_tokens, model=model
+            )
             current_start = window_start_line + offset
             current_lines = [line]
-            current_chars = len(line)
         else:
             current_lines.append(line)
-            current_chars += line_chars
 
     if current_lines:
         content = "\n".join(current_lines).strip()
         end_line = current_start + len(current_lines) - 1
-        _append_sub_window(sub_windows, current_start, end_line, content, max_chars)
+        _append_sub_window(sub_windows, current_start, end_line, content, max_tokens, model=model)
 
     return sub_windows
-
-
-_LANGUAGE_PATTERNS: dict[str, tuple[re.Pattern[str], str]] = {
-    "go": (
-        re.compile(
-            r"^(?:func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]+)|type\s+([A-Za-z0-9_]+)\s+(?:struct|interface))",
-            re.MULTILINE,
-        ),
-        "code",
-    ),
-    "rust": (
-        re.compile(
-            r"^(?:pub\s+)?(?:async\s+)?(?:fn\s+([A-Za-z0-9_]+)|struct\s+([A-Za-z0-9_]+)|enum\s+([A-Za-z0-9_]+)|trait\s+([A-Za-z0-9_]+)|impl(?:<[^>]+>)?\s+([A-Za-z0-9_:]+))",
-            re.MULTILINE,
-        ),
-        "code",
-    ),
-    "typescript": (
-        re.compile(
-            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
-            re.MULTILINE,
-        ),
-        "code",
-    ),
-    "javascript": (
-        re.compile(
-            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
-            re.MULTILINE,
-        ),
-        "code",
-    ),
-    "ts": (
-        re.compile(
-            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
-            re.MULTILINE,
-        ),
-        "code",
-    ),
-    "js": (
-        re.compile(
-            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
-            re.MULTILINE,
-        ),
-        "code",
-    ),
-    "terraform": (
-        re.compile(
-            r'^(?:resource|data|module|variable|output)\s+"([^"]+)"(?:\s+"([^"]+)")?',
-            re.MULTILINE,
-        ),
-        "iac",
-    ),
-    "tofu": (
-        re.compile(
-            r'^(?:resource|data|module|variable|output)\s+"([^"]+)"(?:\s+"([^"]+)")?',
-            re.MULTILINE,
-        ),
-        "iac",
-    ),
-    "hcl": (
-        re.compile(
-            r'^(?:resource|data|module|variable|output)\s+"([^"]+)"(?:\s+"([^"]+)")?',
-            re.MULTILINE,
-        ),
-        "iac",
-    ),
-    "sql": (
-        re.compile(
-            r"^(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|PROCEDURE|FUNCTION|INDEX)\s+([A-Za-z0-9_.]+))",
-            re.IGNORECASE | re.MULTILINE,
-        ),
-        "code",
-    ),
-}
-
-_C_LIKE_PATTERN = (
-    re.compile(
-        r"^(?:(?:public|private|protected|static|final|abstract|override|inline|virtual)\s+)*(?:class\s+([A-Za-z0-9_]+)|interface\s+([A-Za-z0-9_]+)|struct\s+([A-Za-z0-9_]+)|enum\s+([A-Za-z0-9_]+)|fun\s+([A-Za-z0-9_]+))",
-        re.MULTILINE,
-    ),
-    "code",
-)
 
 
 def _resolve_file_category(suffix: str, rel_path: str, language: str = "") -> str:
@@ -185,6 +158,41 @@ def _resolve_file_category(suffix: str, rel_path: str, language: str = "") -> st
     return "code"
 
 
+def _extract_yaml_metadata_name(metadata_node: object) -> str | None:
+    """Extract name attribute from a YAML metadata MappingNode."""
+    import yaml
+
+    if not isinstance(metadata_node, yaml.MappingNode):
+        return None
+    for mk, mv in metadata_node.value:
+        if getattr(mk, "value", None) == "name" and isinstance(getattr(mv, "value", None), str):
+            return str(mv.value)
+    return None
+
+
+def _extract_yaml_symbols(doc: object) -> list[str]:
+    """Extract top-level kind and metadata.name symbols from a YAML MappingNode."""
+    import yaml
+
+    if not isinstance(doc, yaml.MappingNode):
+        return []
+    kind_val: str | None = None
+    name_val: str | None = None
+    for k_node, v_node in doc.value:
+        k_val = getattr(k_node, "value", None)
+        v_val = getattr(v_node, "value", None)
+        if k_val == "kind" and isinstance(v_val, str):
+            kind_val = str(v_val)
+        elif k_val == "metadata":
+            name_val = _extract_yaml_metadata_name(v_node)
+    symbols: list[str] = []
+    if kind_val:
+        symbols.append(kind_val)
+    if name_val:
+        symbols.append(name_val)
+    return symbols
+
+
 class SemanticChunker:
     """Chunks source code and documentation files into semantic search units."""
 
@@ -192,9 +200,14 @@ class SemanticChunker:
         self,
         chunk_size: int = DEFAULT_RAG_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP,
+        embedding_model: str | None = None,
+        max_tokens: int = CONST_RAG_MAX_CHUNK_TOKENS,
     ) -> None:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.embedding_model = embedding_model
+        self.max_tokens = max_tokens
+        self._ts_engine = TreeSitterEngine()
 
     def _dispatch_language_chunker(
         self,
@@ -214,22 +227,16 @@ class SemanticChunker:
             return self._chunk_tech_docs(
                 content, rel_path, language=language, project_name=project_name
             )
-        if language == "go":
-            return self._chunk_go(content, rel_path, project_name=project_name)
-        if language == "rust":
-            return self._chunk_rust(content, rel_path, project_name=project_name)
-        if language in ("javascript", "typescript"):
-            return self._chunk_js_ts(
-                content, rel_path, language=language, project_name=project_name
+        if self._ts_engine.is_language_supported(language) or self._ts_engine.is_language_supported(
+            suffix
+        ):
+            return self._chunk_tree_sitter_symbols(
+                content,
+                rel_path,
+                language=language,
+                category=category,
+                project_name=project_name,
             )
-        if language in ("java", "kotlin", "csharp", "cpp", "c"):
-            return self._chunk_c_like(
-                content, rel_path, language=language, project_name=project_name
-            )
-        if language in ("hcl", "terraform"):
-            return self._chunk_terraform(content, rel_path, project_name=project_name)
-        if language == "sql":
-            return self._chunk_sql(content, rel_path, project_name=project_name)
         return self._chunk_line_window(
             content,
             rel_path,
@@ -391,126 +398,38 @@ class SemanticChunker:
                 covered_lines.update(line_range)
 
         uncovered = [i + 1 for i in range(len(lines)) if (i + 1) not in covered_lines]
-        if uncovered and len(uncovered) > 3:
-            preamble_lines = lines[0 : min(uncovered[-1], 60)]
-            preamble_content = "\n".join(preamble_lines).strip()
-            if preamble_content:
-                preamble_chunk = self._make_code_chunk(
-                    file_path,
-                    1,
-                    len(preamble_lines),
-                    preamble_content,
-                    language="python",
-                    category="code",
-                    project_name=project_name,
-                    symbols=[CONST_CHUNK_MODULE_PREAMBLE_SYMBOL],
-                )
-                chunks.insert(0, preamble_chunk)
+        if uncovered and uncovered[0] == 1 and len(uncovered) > 3:
+            first_covered = min(covered_lines) if covered_lines else len(lines) + 1
+            preamble_end = min(first_covered - 1, 60)
+            if preamble_end >= 1:
+                preamble_lines = lines[0:preamble_end]
+                preamble_content = "\n".join(preamble_lines).strip()
+                if preamble_content:
+                    preamble_chunk = self._make_code_chunk(
+                        file_path,
+                        1,
+                        preamble_end,
+                        preamble_content,
+                        language="python",
+                        category="code",
+                        project_name=project_name,
+                        symbols=[CONST_CHUNK_MODULE_PREAMBLE_SYMBOL],
+                    )
+                    chunks.insert(0, preamble_chunk)
 
         return chunks
 
-    def _chunk_language_symbols(
+    def _chunk_tree_sitter_symbols(
         self,
         content: str,
         file_path: str,
-        language: str = "go",
-        category: str = "code",
-        project_name: str = "default",
-    ) -> list[CodeChunk]:
-        """Extract language-specific symbols and construct chunks using regex heuristics."""
-        lang_lower = language.lower()
-        pattern, cat = _LANGUAGE_PATTERNS.get(lang_lower, _C_LIKE_PATTERN)
-
-        return self._chunk_by_regex_symbols(
-            content,
-            file_path,
-            pattern,
-            language=language,
-            category=category or cat,
-            project_name=project_name,
-        )
-
-    def _chunk_go(
-        self, content: str, file_path: str, project_name: str = "default"
-    ) -> list[CodeChunk]:
-        """Extract Go functions, methods, structs, and interfaces."""
-        return self._chunk_language_symbols(
-            content, file_path, language="go", project_name=project_name
-        )
-
-    def _chunk_rust(
-        self, content: str, file_path: str, project_name: str = "default"
-    ) -> list[CodeChunk]:
-        """Extract Rust functions, structs, enums, traits, and impl blocks."""
-        return self._chunk_language_symbols(
-            content, file_path, language="rust", project_name=project_name
-        )
-
-    def _chunk_js_ts(
-        self,
-        content: str,
-        file_path: str,
-        language: str = "typescript",
-        project_name: str = "default",
-    ) -> list[CodeChunk]:
-        """Extract JavaScript / TypeScript functions, classes, interfaces, and types."""
-        return self._chunk_language_symbols(
-            content, file_path, language=language, project_name=project_name
-        )
-
-    def _chunk_c_like(
-        self,
-        content: str,
-        file_path: str,
-        language: str = "cpp",
-        project_name: str = "default",
-    ) -> list[CodeChunk]:
-        """Extract C/C++, Java, C#, Kotlin classes, structs, and methods."""
-        return self._chunk_language_symbols(
-            content, file_path, language=language, project_name=project_name
-        )
-
-    def _chunk_terraform(
-        self, content: str, file_path: str, project_name: str = "default"
-    ) -> list[CodeChunk]:
-        """Extract Terraform/OpenTofu resources, modules, variables, and outputs."""
-        return self._chunk_language_symbols(
-            content, file_path, language="terraform", category="iac", project_name=project_name
-        )
-
-    def _chunk_sql(
-        self, content: str, file_path: str, project_name: str = "default"
-    ) -> list[CodeChunk]:
-        """Extract SQL tables, procedures, views, and index definitions."""
-        return self._chunk_language_symbols(
-            content, file_path, language="sql", project_name=project_name
-        )
-
-    def _chunk_by_regex_symbols(
-        self,
-        content: str,
-        file_path: str,
-        pattern: re.Pattern[str],
         language: str,
         category: str,
         project_name: str = "default",
     ) -> list[CodeChunk]:
-        """Generic symbol boundary chunker using regex match positions."""
-        chunks: list[CodeChunk] = []
-        lines = content.splitlines()
-        if not lines:
-            return []
-
-        matches: list[tuple[int, str]] = []
-        for idx, line in enumerate(lines):
-            m = pattern.search(line)
-            if m:
-                # Find first non-None group as symbol name
-                syms = [g for g in m.groups() if g]
-                sym_name = " ".join(syms) if syms else line.strip()[:40]
-                matches.append((idx, sym_name))
-
-        if not matches:
+        """Extract code chunks based on TreeSitterEngine symbol spans."""
+        file_map = self._ts_engine.parse_code(content, language, path=file_path)
+        if not file_map.symbols:
             return self._chunk_line_window(
                 content,
                 file_path,
@@ -519,68 +438,98 @@ class SemanticChunker:
                 project_name=project_name,
             )
 
-        indices = [m[0] for m in matches] + [len(lines)]
+        lines = content.splitlines()
+        if not lines:
+            return []
 
-        for i in range(len(matches)):
-            start_idx = indices[i]
-            end_idx = indices[i + 1]
-            sym = matches[i][1]
-            chunk_lines = lines[start_idx:end_idx]
+        chunks: list[CodeChunk] = []
+        covered_lines: set[int] = set()
+
+        for sym in file_map.symbols:
+            start_line = sym.span.line_start
+            end_line = min(len(lines), sym.span.line_end)
+            if start_line > len(lines) or end_line < start_line:
+                continue
+            chunk_lines = lines[start_line - 1 : end_line]
             chunk_content = "\n".join(chunk_lines).strip()
             if not chunk_content:
                 continue
 
+            symbols = [sym.name]
+            if sym.parent_scope:
+                symbols.insert(0, f"{sym.parent_scope}.{sym.name}")
+
             chunks.append(
                 self._make_code_chunk(
                     file_path,
-                    start_idx + 1,
-                    end_idx,
+                    start_line,
+                    end_line,
                     chunk_content,
                     language=language,
                     category=category,
                     project_name=project_name,
-                    symbols=[sym],
+                    symbols=symbols,
                 )
             )
+            covered_lines.update(range(start_line, end_line + 1))
+
+        # Check preamble before first symbol
+        uncovered = [i + 1 for i in range(len(lines)) if (i + 1) not in covered_lines]
+        if uncovered and uncovered[0] == 1 and len(uncovered) > 3:
+            first_covered = min(covered_lines) if covered_lines else len(lines) + 1
+            preamble_end = min(first_covered - 1, 60)
+            if preamble_end >= 1:
+                preamble_lines = lines[0:preamble_end]
+                preamble_content = "\n".join(preamble_lines).strip()
+                if preamble_content:
+                    preamble_chunk = self._make_code_chunk(
+                        file_path,
+                        1,
+                        preamble_end,
+                        preamble_content,
+                        language=language,
+                        category=category,
+                        project_name=project_name,
+                        symbols=[CONST_CHUNK_MODULE_PREAMBLE_SYMBOL],
+                    )
+                    chunks.insert(0, preamble_chunk)
 
         return chunks
 
     def _chunk_yaml(
         self, content: str, file_path: str, project_name: str = "default"
     ) -> list[CodeChunk]:
-        """Split multi-document YAML manifests and OpenAPI/Swagger specs."""
-        chunks: list[CodeChunk] = []
+        """Split multi-document YAML manifests using PyYAML compose_all and SafeLoader."""
+        import yaml
+
         lines = content.splitlines()
-        doc_starts = [0]
-
-        for idx, line in enumerate(lines):
-            if line.strip() == "---" and idx > 0:
-                doc_starts.append(idx)
-
-        doc_starts.append(len(lines))
+        if not lines:
+            return []
 
         category = "iac" if any(k in file_path.lower() for k in ("k8s", "helm")) else "config"
+        try:
+            docs = list(yaml.compose_all(content, Loader=yaml.SafeLoader))
+        except yaml.YAMLError:
+            return self._chunk_line_window(
+                content, file_path, language="yaml", category=category, project_name=project_name
+            )
 
-        for i in range(len(doc_starts) - 1):
-            start = doc_starts[i]
-            end = doc_starts[i + 1]
-            doc_lines = lines[start:end]
-            doc_content = "\n".join(doc_lines).strip()
+        chunks: list[CodeChunk] = []
+        for doc in docs:
+            if doc is None:
+                continue
+            start_line = doc.start_mark.line + 1
+            end_line = max(start_line, doc.end_mark.line)
+            doc_content = "\n".join(lines[start_line - 1 : end_line]).strip()
             if not doc_content:
                 continue
 
-            symbols: list[str] = []
-            for line in doc_lines:
-                if line.startswith("kind:"):
-                    symbols.append(line.split(":", 1)[1].strip())
-                elif line.strip().startswith("name:"):
-                    symbols.append(line.strip().split(":", 1)[1].strip())
-
+            symbols = _extract_yaml_symbols(doc)
             chunks.append(
                 self._make_code_chunk(
                     file_path,
-                    start + 1,
-                    end,
+                    start_line,
+                    end_line,
                     doc_content,
                     language="yaml",
                     category=category,
@@ -604,25 +553,16 @@ class SemanticChunker:
         if not lines:
             return []
 
-        # Match markdown headers (# Title, ## Sub), RST headers, or AsciiDoc (= Title, == Sub)
-        md_regex = re.compile(r"^(#{1,4})\s+(.+)$")
-        adoc_regex = re.compile(r"^(=+)\s+(.+)$")
+        if language != "markdown":
+            return self._chunk_line_window(
+                content,
+                file_path,
+                language=language,
+                category="docs",
+                project_name=project_name,
+            )
 
-        section_starts: list[tuple[int, int, str]] = []  # (line_idx, level, title)
-
-        for idx, line in enumerate(lines):
-            m_md = md_regex.match(line)
-            if m_md:
-                level = len(m_md.group(1))
-                section_starts.append((idx, level, m_md.group(2).strip()))
-                continue
-
-            m_adoc = adoc_regex.match(line)
-            if m_adoc:
-                level = len(m_adoc.group(1))
-                section_starts.append((idx, level, m_adoc.group(2).strip()))
-                continue
-
+        section_starts = parse_markdown_headings(content)
         if not section_starts:
             return self._chunk_line_window(
                 content,
@@ -640,7 +580,6 @@ class SemanticChunker:
             end_idx = section_indices[i + 1]
             level, title = section_starts[i][1], section_starts[i][2]
 
-            # Update breadcrumb stack for hierarchical section path
             while breadcrumb_stack and breadcrumb_stack[-1][0] >= level:
                 breadcrumb_stack.pop()
             breadcrumb_stack.append((level, title))
@@ -706,11 +645,11 @@ class SemanticChunker:
 
     def _split_large_chunk(self, chunk: CodeChunk) -> list[CodeChunk]:
         """Split a CodeChunk that exceeds the maximum token limit into sub-chunks."""
-        if estimate_tokens(chunk.content) <= CONST_RAG_MAX_CHUNK_TOKENS:
+        if count_chunk_tokens(chunk.content, model=self.embedding_model) <= self.max_tokens:
             return [chunk]
         lines = chunk.content.splitlines()
         sub_windows = _split_window_by_token_limit(
-            lines, chunk.start_line, CONST_RAG_MAX_CHUNK_TOKENS
+            lines, chunk.start_line, self.max_tokens, model=self.embedding_model
         )
         return [
             CodeChunk(
@@ -754,9 +693,9 @@ class SemanticChunker:
             if not chunk_content:
                 continue
 
-            if estimate_tokens(chunk_content) > CONST_RAG_MAX_CHUNK_TOKENS:
+            if count_chunk_tokens(chunk_content, model=self.embedding_model) > self.max_tokens:
                 for sub_start, sub_end, sub_content in _split_window_by_token_limit(
-                    chunk_lines, start + 1, CONST_RAG_MAX_CHUNK_TOKENS
+                    chunk_lines, start + 1, self.max_tokens, model=self.embedding_model
                 ):
                     chunks.append(
                         self._create_window_chunk(

@@ -84,6 +84,8 @@ LANG_ALIASES: dict[str, str] = {
     "gotemplate": "helm",
     "go-template": "helm",
     "yml": "yaml",
+    "terraform": "hcl",
+    "tofu": "hcl",
 }
 
 # C++ in a .h header: a namespace, a template, a class with a body, or a scope operator, none of
