@@ -215,7 +215,10 @@ devops k8s deploy-stack [OPTIONS]
 
 Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring.
 
-The direction is cluster → workstation keyring, the reverse of `push-secrets`.
+The direction is cluster → workstation keyring, the reverse of `push-secrets`. The command
+keeps a stored Argo CD or Grafana API token that the service accepts, and mints a new token
+only when the service refuses the stored one. When a token check fails, the stored token
+stays. Each failed step shows its cause, and the command then exits with status 1.
 
 ```bash
 devops k8s sync-secrets [OPTIONS]

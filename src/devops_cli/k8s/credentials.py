@@ -1,32 +1,86 @@
-"""Kubernetes stack credential discovery and secure OS Keyring synchronization."""
+"""Kubernetes stack credential discovery and OS keyring synchronization.
+
+`sync_k8s_credentials` copies the Argo CD admin password from the cluster into the keyring, and
+keeps an API token for Argo CD and for Grafana. It keeps a stored token that the service accepts,
+and mints a new token only when the service refuses the stored one. When the check fails, with
+another HTTP status or a request error, the sync keeps the stored token. Every failure reaches
+the sync result with its cause (#2156).
+"""
 
 from __future__ import annotations
 
 import base64
 import binascii
 import itertools
+import json
 import logging
-from typing import Any
+from collections.abc import Callable
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
+from devops_cli.config.constants import (
+    CONST_GRAFANA_ACCOUNT_EXISTS_HTTP_STATUSES,
+    CONST_GRAFANA_SERVICE_ACCOUNT_NAME,
+    CONST_STACK_TOKEN_REFUSED_HTTP_STATUSES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_NAMESPACE,
     DEFAULT_BOOTSTRAP_STACK,
     DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.config.settings import _keyring_set
+from devops_cli.config.settings import (
+    SecretStorageError,
+    _keyring_get,
+    _keyring_set,
+    get_argocd_password,
+    get_argocd_token,
+    get_grafana_password,
+    get_grafana_token,
+    load_settings,
+)
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions.k8s import StackCredentialError
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
+if TYPE_CHECKING:
+    import subprocess
+
+    import httpx2
+
+    from devops_cli.config.settings import Settings
+
 logger = logging.getLogger(__name__)
+
+_ARGOCD_LABEL = "Argo CD"
+_GRAFANA_LABEL = "Grafana"
+
+
+class SyncState(StrEnum):
+    """What a sync did with one credential."""
+
+    SYNCED = "synced"
+    MISSING = "missing"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class CredentialSync:
+    """The outcome of one credential in a sync; a failed one carries its cause."""
+
+    state: SyncState
+    cause: str | None = None
+
+
+_SYNCED = CredentialSync(SyncState.SYNCED)
+_MISSING = CredentialSync(SyncState.MISSING)
 
 
 def _clean_service_base_url(base_url: str, setting_name: str = "service URL") -> str:
     """Ensure base URL has valid http/https scheme and host, returning urlunsplit without trailing slash."""
     clean = (base_url or "").strip().rstrip("/")
-    if not clean:
-        return ""
     from urllib.parse import urlsplit, urlunsplit
 
     from devops_cli.exceptions.config import ConfigurationError
@@ -41,28 +95,83 @@ def _clean_service_base_url(base_url: str, setting_name: str = "service URL") ->
     return urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment)).rstrip("/")
 
 
-def _safe_keyring_set(key: str, value: str) -> bool:
-    """Store secret in OS Keyring and record telemetry metric. Return True on success."""
+def _service_base_url(
+    base_url: str, setting_name: str, purpose: str, allow_private_network: bool
+) -> str:
+    """Return the clean base URL of a stack service, after the egress check of the URL."""
+    from devops_cli.http.validation import validate_service_url
+
+    clean_base = _clean_service_base_url(base_url, setting_name)
+    validate_service_url(clean_base, purpose, allow=allow_private_network)
+    return clean_base
+
+
+def _store_secret(key: str, value: str, metric_service: str) -> None:
+    """Store a secret in the OS keyring and count it; raise StackCredentialError when it fails."""
     try:
         _keyring_set(key, value)
-        GLOBAL_METRICS.increment_counter("k8s_credentials_synced_total", labels={"service": key})
-        return True
-    except Exception as exc:
-        logger.debug("Could not store %s in OS Keyring: %s", key, exc)
-        return False
+    except SecretStorageError as exc:
+        raise StackCredentialError(str(exc)) from exc
+    GLOBAL_METRICS.increment_counter(
+        "k8s_credentials_synced_total", labels={"service": metric_service}
+    )
 
 
-def _decode_k8s_secret_field(raw_b64: str) -> str | None:
-    """Safely decode base64 secret field into string."""
-    cleaned = raw_b64.strip()
-    if not cleaned:
-        return None
+def _request_failure(exc: Exception) -> str:
+    """Name a request error with its message, as `ReadTimeout: timed out`."""
+    detail = str(exc)
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
+def _read_json[Body](resp: httpx2.Response, kind: type[Body], service: str) -> Body:
+    """Return the JSON body of `resp` when it is a `kind`; raise StackCredentialError if not."""
+    noun = "object" if kind is dict else "array"
+    failure = f"{service} sent an answer at {resp.request.url} that is not a JSON {noun}"
     try:
-        decoded_bytes = base64.b64decode(cleaned)
-        return decoded_bytes.decode("utf-8").strip()
-    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
-        logger.debug("Failed to decode k8s secret field as utf-8: %s", type(exc).__name__)
-        return None
+        body = resp.json()
+    except ValueError as exc:
+        raise StackCredentialError(failure) from exc
+    if not isinstance(body, kind):
+        raise StackCredentialError(failure)
+    return body
+
+
+def _secret_read_failure(res: subprocess.CompletedProcess[str], namespace: str, ref: str) -> None:
+    """Return when kubectl did not find the Secret; raise StackCredentialError for another failure.
+
+    The debug line names the namespace only, as the code before #2156 did: the error that a person
+    reads names the whole Secret."""
+    stderr = (res.stderr or "").strip()
+    if "NotFound" in stderr or "not found" in stderr.lower():
+        logger.debug("Kubernetes Secret not found in namespace %s", namespace)
+        return
+    detail = stderr.splitlines()[0] if stderr else f"kubectl exited with code {res.returncode}"
+    raise StackCredentialError(f"kubectl cannot read Secret {ref}: {detail}")
+
+
+def _secret_data(stdout: str, ref: str) -> dict[str, Any]:
+    """Return the `data` map of a Secret that kubectl printed as JSON."""
+    failure = f"kubectl sent Secret {ref} as output that is not a JSON object"
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise StackCredentialError(failure) from exc
+    if not isinstance(payload, dict):
+        raise StackCredentialError(failure)
+    data = payload.get("data") or {}
+    if not isinstance(data, dict):
+        raise StackCredentialError(failure)
+    return data
+
+
+def _decode_secret_field(raw_b64: str, field: str, ref: str) -> str:
+    """Decode one base64 field of a Secret into text."""
+    try:
+        return base64.b64decode(raw_b64.strip(), validate=True).decode("utf-8").strip()
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        raise StackCredentialError(
+            f"Field {field} of Secret {ref} is not base64-encoded UTF-8 text"
+        ) from exc
 
 
 def fetch_secret_data(
@@ -70,9 +179,11 @@ def fetch_secret_data(
     namespace: str,
     context: str | None = None,
 ) -> dict[str, str]:
-    """Fetch and decode all data fields from a Kubernetes Secret in a single call."""
-    import json
+    """Fetch and decode all data fields from a Kubernetes Secret in a single call.
 
+    Return an empty dict when the Secret does not exist. Raise StackCredentialError when kubectl
+    fails for another reason, or when its output or a field cannot be decoded.
+    """
     from devops_cli.core.validation import validate_k8s_name
 
     validate_k8s_name(secret_name, "secret_name")
@@ -92,30 +203,16 @@ def fetch_secret_data(
     if context:
         cmd.extend(["--context", context])
 
+    ref = f"{namespace}/{secret_name}"
     res = run_subprocess(cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     if res.returncode != 0:
-        stderr_msg = res.stderr.strip() if res.stderr else ""
-        if "NotFound" in stderr_msg or "not found" in stderr_msg.lower():
-            logger.debug("K8s secret resource not found in namespace %s", namespace)
-        else:
-            logger.warning(
-                "kubectl get secret failed in namespace %s (exit %d)",
-                namespace,
-                res.returncode,
-            )
+        _secret_read_failure(res, namespace, ref)
         return {}
-    if not res.stdout.strip():
-        return {}
-
-    try:
-        payload = json.loads(res.stdout)
-        data = payload.get("data", {})
-        return {k: _decode_k8s_secret_field(v) or "" for k, v in data.items() if isinstance(v, str)}
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as err:
-        logger.warning(
-            "Failed to parse secret payload in namespace %s: %s", namespace, type(err).__name__
-        )
-        return {}
+    return {
+        field: _decode_secret_field(raw, field, ref)
+        for field, raw in _secret_data(res.stdout, ref).items()
+        if isinstance(raw, str)
+    }
 
 
 def fetch_secret_field(
@@ -144,10 +241,7 @@ def fetch_argocd_password(
         context=context,
     )
     if pw and save_to_keyring:
-        _keyring_set("argocd_password", pw)
-        GLOBAL_METRICS.increment_counter(
-            "k8s_credentials_synced_total", labels={"service": "argocd"}
-        )
+        _store_secret("argocd_password", pw, "argocd")
     return pw
 
 
@@ -158,8 +252,6 @@ def _find_grafana_field_in_secret(
     context: str | None,
 ) -> str | None:
     data = fetch_secret_data(secret_name, namespace, context=context)
-    if not data:
-        return None
     for field in candidate_fields:
         pw = data.get(field)
         if pw:
@@ -183,23 +275,9 @@ def fetch_grafana_password(
         if not pw:
             continue
         if save_to_keyring:
-            _keyring_set("grafana_password", pw)
-            GLOBAL_METRICS.increment_counter(
-                "k8s_credentials_synced_total", labels={"service": "grafana"}
-            )
+            _store_secret("grafana_password", pw, "grafana")
         return pw
     return None
-
-
-def _post_argocd_session(client: Any, url: str, payload: dict[str, str]) -> str | None:
-    """Send login request to ArgoCD session endpoint and return token string."""
-    resp = client.post(url, json=payload)
-    if resp.status_code != 200:
-        logger.debug("ArgoCD session creation returned status %d", resp.status_code)
-        return None
-    data = resp.json()
-    token = data.get("token")
-    return token if isinstance(token, str) and token else None
 
 
 @trace_span("k8s.credentials.argocd.token")
@@ -210,91 +288,115 @@ def mint_argocd_token(
     save_to_keyring: bool = True,
     allow_private_network: bool = True,
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
-) -> str | None:
-    """Acquire an ArgoCD session token by authenticating with the admin password."""
+) -> str:
+    """Open an Argo CD admin session with the admin password, and return its token.
+
+    Raise StackCredentialError with the cause when Argo CD refuses the session or sends no
+    token, when the request fails, or when the keyring cannot store the token.
+    """
     import httpx2
 
-    from devops_cli.http.validation import validate_service_url
-
-    clean_base = _clean_service_base_url(base_url, "argocd.url")
-    if not clean_base or not password:
-        return None
-    try:
-        validate_service_url(clean_base, "ArgoCD", allow=allow_private_network)
-    except ValueError as exc:
-        logger.debug("Invalid ArgoCD URL for token minting: %s", exc)
-        return None
-
+    clean_base = _service_base_url(base_url, "argocd.url", "ArgoCD", allow_private_network)
     url = f"{clean_base}/api/v1/session"
-    payload = {"username": "admin", "password": password}
     try:
         with httpx2.Client(timeout=timeout) as client:
-            token = _post_argocd_session(client, url, payload)
-        if token and save_to_keyring and not _safe_keyring_set("argocd_token", token):
-            return None
-        return token
-    except Exception as exc:
-        logger.debug("Failed to mint ArgoCD token via %s: %s", url, type(exc).__name__)
-        return None
+            resp = client.post(url, json={"username": "admin", "password": password})
+    except httpx2.RequestError as exc:
+        raise StackCredentialError(
+            f"The {_ARGOCD_LABEL} token mint at {url} failed: {_request_failure(exc)}"
+        ) from exc
+    if not resp.is_success:
+        raise StackCredentialError(
+            f"{_ARGOCD_LABEL} refused the admin session at {url} with HTTP {resp.status_code}"
+        )
+    token = _read_json(resp, dict, _ARGOCD_LABEL).get("token")
+    if not isinstance(token, str) or not token:
+        raise StackCredentialError(
+            f"{_ARGOCD_LABEL} opened the admin session at {url} but sent no token"
+        )
+    if save_to_keyring:
+        _store_secret("argocd_token", token, "argocd_token")
+    return token
 
 
-def _find_or_create_grafana_sa(
-    client: Any,
-    base_url: str,
-) -> int | None:
-    """Find existing or create new service account for devops-cli in Grafana."""
-    sa_url = f"{base_url}/api/serviceaccounts"
-    try:
-        sa_resp = client.post(sa_url, json={"name": "devops-cli", "role": "Admin"})
-        if sa_resp.status_code in (200, 201):
-            sa_id = sa_resp.json().get("id")
-            return int(sa_id) if sa_id is not None else None
-
-        if sa_resp.status_code in (400, 409):
-            search_resp = client.get(f"{sa_url}/search", params={"query": "devops-cli"})
-            if search_resp.status_code == 200:
-                accounts = search_resp.json().get("serviceAccounts", [])
-                for sa in accounts:
-                    if sa.get("name") == "devops-cli" and "id" in sa:
-                        return int(sa["id"])
-    except Exception as exc:
-        logger.debug("Grafana service account discovery failed: %s", exc)
-    return None
+def _search_grafana_sa(client: httpx2.Client, accounts_url: str) -> int:
+    """Find the ID of the devops-cli service account with the search of Grafana."""
+    name = CONST_GRAFANA_SERVICE_ACCOUNT_NAME
+    resp = client.get(f"{accounts_url}/search", params={"query": name})
+    if not resp.is_success:
+        raise StackCredentialError(
+            f"Grafana refused the search for the {name} service account with HTTP "
+            f"{resp.status_code}"
+        )
+    accounts = _read_json(resp, dict, _GRAFANA_LABEL).get("serviceAccounts")
+    for account in accounts if isinstance(accounts, list) else []:
+        if isinstance(account, dict) and account.get("name") == name:
+            account_id = account.get("id")
+            if isinstance(account_id, int):
+                return account_id
+    raise StackCredentialError(
+        f"Grafana has a {name} service account, but the search did not find it"
+    )
 
 
-def _revoke_grafana_sa_tokens(client: Any, base_url: str, sa_id: int) -> None:
-    """Revoke existing tokens for the devops-cli service account to prevent accumulation."""
-    token_url = f"{base_url}/api/serviceaccounts/{sa_id}/tokens"
-    try:
-        resp = client.get(token_url)
-        if resp.status_code == 200 and isinstance(resp.json(), list):
-            for old_token in resp.json():
-                tid = old_token.get("id")
-                if tid is not None:
-                    client.delete(f"{token_url}/{tid}")
-    except Exception as exc:
-        logger.debug("Could not revoke older Grafana SA tokens: %s", exc)
+def _find_or_create_grafana_sa(client: httpx2.Client, base_url: str) -> int:
+    """Create the devops-cli service account of Grafana, or find it when it exists."""
+    name = CONST_GRAFANA_SERVICE_ACCOUNT_NAME
+    accounts_url = f"{base_url}/api/serviceaccounts"
+    resp = client.post(accounts_url, json={"name": name, "role": "Admin"})
+    if resp.status_code in CONST_GRAFANA_ACCOUNT_EXISTS_HTTP_STATUSES:
+        return _search_grafana_sa(client, accounts_url)
+    if not resp.is_success:
+        raise StackCredentialError(
+            f"Grafana refused to create the {name} service account with HTTP {resp.status_code}"
+        )
+    account_id = _read_json(resp, dict, _GRAFANA_LABEL).get("id")
+    if not isinstance(account_id, int):
+        raise StackCredentialError(
+            f"Grafana created the {name} service account but sent no account ID"
+        )
+    return account_id
 
 
-def _create_grafana_sa_token(
-    client: Any,
-    base_url: str,
-    sa_id: int,
-) -> str | None:
-    """Create a token for the specified service account after revoking prior tokens."""
+def _revoke_grafana_sa_tokens(client: httpx2.Client, base_url: str, account_id: int) -> None:
+    """Revoke the tokens of the devops-cli service account, so that tokens do not accumulate."""
+    tokens_url = f"{base_url}/api/serviceaccounts/{account_id}/tokens"
+    resp = client.get(tokens_url)
+    if not resp.is_success:
+        raise StackCredentialError(
+            f"Grafana refused to list the tokens of service account {account_id} with HTTP "
+            f"{resp.status_code}"
+        )
+    for old_token in _read_json(resp, list, _GRAFANA_LABEL):
+        token_id = old_token.get("id") if isinstance(old_token, dict) else None
+        if token_id is None:
+            continue
+        revoked = client.delete(f"{tokens_url}/{token_id}")
+        if not revoked.is_success:
+            raise StackCredentialError(
+                f"Grafana refused to revoke token {token_id} of service account {account_id} "
+                f"with HTTP {revoked.status_code}"
+            )
+
+
+def _create_grafana_sa_token(client: httpx2.Client, base_url: str, account_id: int) -> str:
+    """Create a token for the service account and return its key."""
     import time
 
-    _revoke_grafana_sa_tokens(client, base_url, sa_id)
-    token_url = f"{base_url}/api/serviceaccounts/{sa_id}/tokens"
-    token_name = f"devops-cli-{int(time.time())}"
-    try:
-        token_resp = client.post(token_url, json={"name": token_name})
-        if token_resp.status_code in (200, 201):
-            key = token_resp.json().get("key")
-            return str(key) if key else None
-    except Exception as exc:
-        logger.debug("Grafana SA token creation failed: %s", exc)
-    return None
+    tokens_url = f"{base_url}/api/serviceaccounts/{account_id}/tokens"
+    token_name = f"{CONST_GRAFANA_SERVICE_ACCOUNT_NAME}-{int(time.time())}"
+    resp = client.post(tokens_url, json={"name": token_name})
+    if not resp.is_success:
+        raise StackCredentialError(
+            f"Grafana refused to create a token for service account {account_id} with HTTP "
+            f"{resp.status_code}"
+        )
+    key = _read_json(resp, dict, _GRAFANA_LABEL).get("key")
+    if not isinstance(key, str) or not key:
+        raise StackCredentialError(
+            f"Grafana created a token for service account {account_id} but sent no key"
+        )
+    return key
 
 
 @trace_span("k8s.credentials.grafana.token")
@@ -305,44 +407,37 @@ def mint_grafana_token(
     save_to_keyring: bool = True,
     allow_private_network: bool = True,
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
-) -> str | None:
-    """Acquire a Grafana service account token by authenticating with the admin password."""
+) -> str:
+    """Mint a token for the devops-cli service account of Grafana with the admin password.
+
+    The account keeps one token: the mint revokes the older tokens before it creates the new one.
+    Raise StackCredentialError with the cause when a step fails, or when the keyring cannot store
+    the token.
+    """
     import httpx2
 
-    from devops_cli.http.validation import validate_service_url
-
-    clean_base = _clean_service_base_url(base_url, "grafana.url")
-    if not clean_base or not password:
-        return None
+    clean_base = _service_base_url(base_url, "grafana.url", "Grafana", allow_private_network)
     try:
-        validate_service_url(clean_base, "Grafana", allow=allow_private_network)
-    except ValueError as exc:
-        logger.debug("Invalid Grafana URL for token minting: %s", exc)
-        return None
-
-    try:
-        with httpx2.Client(
-            auth=("admin", password),
-            timeout=timeout,
-        ) as client:
-            sa_id = _find_or_create_grafana_sa(client, clean_base)
-            token = (
-                _create_grafana_sa_token(client, clean_base, sa_id) if sa_id is not None else None
-            )
-        if token and save_to_keyring and not _safe_keyring_set("grafana_token", token):
-            return None
-        return token
-    except Exception as exc:
-        logger.debug("Failed to mint Grafana token via %s: %s", clean_base, type(exc).__name__)
-        return None
+        with httpx2.Client(auth=("admin", password), timeout=timeout) as client:
+            account_id = _find_or_create_grafana_sa(client, clean_base)
+            _revoke_grafana_sa_tokens(client, clean_base, account_id)
+            token = _create_grafana_sa_token(client, clean_base, account_id)
+    except httpx2.RequestError as exc:
+        raise StackCredentialError(
+            f"The {_GRAFANA_LABEL} token mint at {clean_base} failed: {_request_failure(exc)}"
+        ) from exc
+    if save_to_keyring:
+        _store_secret("grafana_token", token, "grafana_token")
+    return token
 
 
 def get_or_mint_argocd_token(settings: Any) -> str | None:
-    """Resolve ArgoCD token, minting on-demand via admin password if token is missing."""
-    from devops_cli.config.settings import get_argocd_password, get_argocd_token
+    """Resolve the Argo CD token, and mint one with the admin password when it is missing.
 
+    A failed mint raises StackCredentialError with its cause.
+    """
     token = get_argocd_token(settings)
-    if token and not token.startswith("*"):
+    if token:
         return token
 
     pw = get_argocd_password(settings)
@@ -359,11 +454,13 @@ def get_or_mint_argocd_token(settings: Any) -> str | None:
 
 
 def get_or_mint_grafana_auth(settings: Any) -> tuple[str | None, str | None]:
-    """Resolve Grafana authentication, returning (bearer_token, basic_auth_header)."""
-    from devops_cli.config.settings import get_grafana_password, get_grafana_token
+    """Resolve Grafana authentication, returning (bearer_token, basic_auth_header).
 
+    When the mint of a token fails, the requests use the admin password, and a warning gives the
+    cause.
+    """
     token = get_grafana_token(settings)
-    if token and not token.startswith("*"):
+    if token:
         return token, None
 
     pw = get_grafana_password(settings)
@@ -373,17 +470,45 @@ def get_or_mint_grafana_auth(settings: Any) -> tuple[str | None, str | None]:
     graf_url = getattr(getattr(settings, "grafana", None), "url", None)
     if graf_url:
         allow = getattr(getattr(settings, "ai", None), "allow_private_network", True)
-        minted = mint_grafana_token(
-            graf_url,
-            pw,
-            save_to_keyring=True,
-            allow_private_network=allow,
-        )
-        if minted:
+        try:
+            minted = mint_grafana_token(
+                graf_url,
+                pw,
+                save_to_keyring=True,
+                allow_private_network=allow,
+            )
+        except StackCredentialError as exc:
+            logger.warning(
+                "The Grafana token mint failed, so the requests use the admin password: %s", exc
+            )
+        else:
             return minted, None
 
     auth_bytes = f"admin:{pw}".encode()
     return None, f"Basic {base64.b64encode(auth_bytes).decode('utf-8')}"
+
+
+def _check_token(url: str, token: str, service: str, timeout: float) -> httpx2.Response | None:
+    """Send the bearer token to `url`: the answer when accepted, None when the service refused it.
+
+    Raise StackCredentialError when the check fails, with another status or a request error.
+    """
+    import httpx2
+
+    try:
+        with httpx2.Client(timeout=timeout) as client:
+            resp = client.get(url, headers={"Authorization": f"Bearer {token}"})
+    except httpx2.RequestError as exc:
+        raise StackCredentialError(
+            f"The {service} token check at {url} failed: {_request_failure(exc)}"
+        ) from exc
+    if resp.status_code in CONST_STACK_TOKEN_REFUSED_HTTP_STATUSES:
+        return None
+    if not resp.is_success:
+        raise StackCredentialError(
+            f"The {service} token check at {url} failed with HTTP {resp.status_code}"
+        )
+    return resp
 
 
 def verify_argocd_token(
@@ -393,32 +518,18 @@ def verify_argocd_token(
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
     allow_private_network: bool = True,
 ) -> bool:
-    """Verify that an ArgoCD session token is valid and active."""
-    import httpx2
+    """Return True when Argo CD accepts the session token, and False when it refuses it.
 
-    from devops_cli.exceptions.config import ConfigurationError
-    from devops_cli.http.validation import validate_service_url
-
-    try:
-        clean_base = _clean_service_base_url(base_url, "argocd.url")
-    except ConfigurationError:
-        return False
-    if not clean_base or not token:
-        return False
-    try:
-        validate_service_url(clean_base, "ArgoCD", allow=allow_private_network)
-    except ValueError:
-        return False
-
+    Argo CD refuses a token with HTTP 401 or 403, or with `loggedIn: false` from its userinfo,
+    which answers every caller with HTTP 200. Raise StackCredentialError when the check fails:
+    another status, an answer that is not JSON, or a request error.
+    """
+    clean_base = _service_base_url(base_url, "argocd.url", "ArgoCD", allow_private_network)
     url = f"{clean_base}/api/v1/session/userinfo"
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        with httpx2.Client(timeout=timeout) as client:
-            resp = client.get(url, headers=headers)
-            return resp.status_code == 200
-    except Exception as exc:
-        logger.debug("ArgoCD token verification failed via %s: %s", url, type(exc).__name__)
+    resp = _check_token(url, token, _ARGOCD_LABEL, timeout)
+    if resp is None:
         return False
+    return _read_json(resp, dict, _ARGOCD_LABEL).get("loggedIn") is True
 
 
 def verify_grafana_token(
@@ -428,130 +539,110 @@ def verify_grafana_token(
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
     allow_private_network: bool = True,
 ) -> bool:
-    """Verify that a Grafana API or Service Account token is valid and active."""
-    import httpx2
+    """Return True when Grafana accepts the API or service account token, False when it refuses it.
 
-    from devops_cli.exceptions.config import ConfigurationError
-    from devops_cli.http.validation import validate_service_url
-
-    try:
-        clean_base = _clean_service_base_url(base_url, "grafana.url")
-    except ConfigurationError:
-        return False
-    if not clean_base or not token:
-        return False
-    try:
-        validate_service_url(clean_base, "Grafana", allow=allow_private_network)
-    except ValueError:
-        return False
-
-    url = f"{clean_base}/api/org"
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        with httpx2.Client(timeout=timeout) as client:
-            resp = client.get(url, headers=headers)
-            return resp.status_code == 200
-    except Exception as exc:
-        logger.debug("Grafana token verification failed via %s: %s", url, type(exc).__name__)
-        return False
+    Grafana refuses a token with HTTP 401 or 403. Raise StackCredentialError when the check
+    fails: another status, or a request error.
+    """
+    clean_base = _service_base_url(base_url, "grafana.url", "Grafana", allow_private_network)
+    return _check_token(f"{clean_base}/api/org", token, _GRAFANA_LABEL, timeout) is not None
 
 
-_verify_argocd_token = verify_argocd_token
-_verify_grafana_token = verify_grafana_token
+@dataclass(frozen=True)
+class _TokenService:
+    """How the sync finds, checks and mints the API token of one stack service."""
+
+    label: str
+    key: str
+    stored_token: Callable[[Settings], str | None]
+    verify: Callable[[str, str], bool]
+    mint: Callable[..., str]
 
 
-def _resolve_existing_token(service: str, settings: Any = None) -> str | None:
-    """Resolve an existing token for the service from settings or keyring."""
-    try:
-        from devops_cli.config.settings import (
-            _keyring_get,
-            get_argocd_token,
-            get_grafana_token,
-            load_settings,
-        )
-
-        cfg = settings or load_settings()
-        tok = None
-        if service == "argocd":
-            tok = get_argocd_token(cfg) or _keyring_get("argocd_token")
-        elif service == "grafana":
-            tok = get_grafana_token(cfg) or _keyring_get("grafana_token")
-        if tok and not tok.startswith("*"):
-            return tok
-    except Exception as exc:
-        logger.debug("Failed to resolve existing %s token: %s", service, exc)
-    return None
+_ARGOCD_TOKEN = _TokenService(
+    _ARGOCD_LABEL, "argocd_token", get_argocd_token, verify_argocd_token, mint_argocd_token
+)
+_GRAFANA_TOKEN = _TokenService(
+    _GRAFANA_LABEL, "grafana_token", get_grafana_token, verify_grafana_token, mint_grafana_token
+)
 
 
-def _resolve_service_url(service: str, override_url: str | None) -> str | None:
-    """Resolve service URL from explicit override or settings."""
-    if override_url:
-        return override_url
-    try:
-        from devops_cli.config.settings import load_settings
-
-        settings = load_settings()
-        if service == "argocd":
-            return getattr(getattr(settings, "argocd", None), "url", None)
-        if service == "grafana":
-            return getattr(getattr(settings, "grafana", None), "url", None)
-    except Exception:
-        pass
-    return None
+def _failed(exc: StackCredentialError) -> CredentialSync:
+    return CredentialSync(SyncState.FAILED, str(exc))
 
 
-def _sync_argocd_credentials(
-    results: dict[str, bool],
+def _keep_accepted_token(
+    service: _TokenService, token: str, *, save_to_keyring: bool
+) -> CredentialSync:
+    """Copy the accepted token into the keyring; it can come from Vault or the environment."""
+    if save_to_keyring:
+        try:
+            _store_secret(service.key, token, service.key)
+        except StackCredentialError as exc:
+            return _failed(exc)
+    return _SYNCED
+
+
+def _sync_token(
+    service: _TokenService,
+    url: str,
+    settings: Settings,
+    password: str | None,
     *,
-    context: str | None,
     save_to_keyring: bool,
-    argocd_url: str | None,
-) -> None:
-    argo_pw = fetch_argocd_password(context=context, save_to_keyring=save_to_keyring)
-    results["argocd"] = argo_pw is not None
-    effective_url = _resolve_service_url("argocd", argocd_url)
-    if not effective_url:
-        return
+) -> CredentialSync | None:
+    """Keep the stored token that the service accepts, and mint a new one only after a refusal.
 
-    existing_tok = _resolve_existing_token("argocd")
-    if existing_tok and verify_argocd_token(effective_url, existing_tok):
-        if save_to_keyring and not _safe_keyring_set("argocd_token", existing_tok):
-            return
-        results["argocd_token"] = True
-        return
+    Return None when there is nothing to sync: no stored token and no admin password.
+    """
+    stored_token = service.stored_token(settings)
+    if stored_token:
+        try:
+            accepted = service.verify(url, stored_token)
+        except StackCredentialError as exc:
+            return CredentialSync(SyncState.FAILED, f"{exc}; the stored token stays in the keyring")
+        if accepted:
+            return _keep_accepted_token(service, stored_token, save_to_keyring=save_to_keyring)
+        if not password:
+            return CredentialSync(
+                SyncState.FAILED,
+                f"{service.label} refused the stored token, and no admin password is available "
+                "to mint a new one",
+            )
+    if not password:
+        return None
+    try:
+        service.mint(url, password, save_to_keyring=save_to_keyring)
+    except StackCredentialError as exc:
+        return _failed(exc)
+    return _SYNCED
 
-    if argo_pw:
-        tok = mint_argocd_token(effective_url, argo_pw, save_to_keyring=save_to_keyring)
-        if tok:
-            results["argocd_token"] = True
 
-
-def _sync_grafana_credentials(
-    results: dict[str, bool],
+def _add_token_sync(
+    results: dict[str, CredentialSync],
+    service: _TokenService,
+    url: str | None,
+    settings: Settings,
+    password: str | None,
     *,
-    context: str | None,
     save_to_keyring: bool,
-    grafana_url: str | None,
 ) -> None:
-    from devops_cli.config.settings import _keyring_get
-
-    graf_pw = _keyring_get("grafana_password")
-    results["grafana"] = bool(graf_pw)
-    effective_url = _resolve_service_url("grafana", grafana_url)
-    if not effective_url:
+    if not url:
         return
+    outcome = _sync_token(service, url, settings, password, save_to_keyring=save_to_keyring)
+    if outcome is not None:
+        results[service.key] = outcome
 
-    existing_tok = _resolve_existing_token("grafana")
-    if existing_tok and verify_grafana_token(effective_url, existing_tok):
-        if save_to_keyring and not _safe_keyring_set("grafana_token", existing_tok):
-            return
-        results["grafana_token"] = True
-        return
 
-    if graf_pw:
-        tok = mint_grafana_token(effective_url, graf_pw, save_to_keyring=save_to_keyring)
-        if tok:
-            results["grafana_token"] = True
+def _sync_argocd_password(
+    context: str | None, *, save_to_keyring: bool
+) -> tuple[CredentialSync, str | None]:
+    """Copy the admin password from the cluster; return the outcome and the password."""
+    try:
+        password = fetch_argocd_password(context=context, save_to_keyring=save_to_keyring)
+    except StackCredentialError as exc:
+        return _failed(exc), None
+    return (_SYNCED if password else _MISSING), password
 
 
 @trace_span("k8s.credentials.sync")
@@ -561,24 +652,39 @@ def sync_k8s_credentials(
     save_to_keyring: bool = True,
     argocd_url: str | None = None,
     grafana_url: str | None = None,
-) -> dict[str, bool]:
-    """Copy the chart-generated Argo CD and Grafana credentials into the OS keyring.
+) -> dict[str, CredentialSync]:
+    """Copy the chart-generated Argo CD admin password into the OS keyring, and keep the API
+    tokens of Argo CD and Grafana.
 
     Only `infra` (or `all`) has such credentials. The Secrets `devops k8s push-secrets` writes
-    from the keyring are never copied back.
+    from the keyring are never copied back. Each entry says whether its credential was synced,
+    is missing, or failed with a cause. A token has no entry when its service has no URL, or when
+    there is no stored token and no admin password.
     """
-    results: dict[str, bool] = {}
-    if stack in ("infra", "all"):
-        _sync_argocd_credentials(
-            results,
-            context=context,
-            save_to_keyring=save_to_keyring,
-            argocd_url=argocd_url,
-        )
-        _sync_grafana_credentials(
-            results,
-            context=context,
-            save_to_keyring=save_to_keyring,
-            grafana_url=grafana_url,
-        )
+    results: dict[str, CredentialSync] = {}
+    if stack not in ("infra", "all"):
+        return results
+
+    settings = load_settings()
+    results["argocd"], argocd_password = _sync_argocd_password(
+        context, save_to_keyring=save_to_keyring
+    )
+    _add_token_sync(
+        results,
+        _ARGOCD_TOKEN,
+        argocd_url or settings.argocd.url,
+        settings,
+        argocd_password,
+        save_to_keyring=save_to_keyring,
+    )
+    grafana_password = _keyring_get("grafana_password")
+    results["grafana"] = _SYNCED if grafana_password else _MISSING
+    _add_token_sync(
+        results,
+        _GRAFANA_TOKEN,
+        grafana_url or settings.grafana.url,
+        settings,
+        grafana_password,
+        save_to_keyring=save_to_keyring,
+    )
     return results

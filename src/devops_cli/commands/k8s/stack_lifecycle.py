@@ -6,10 +6,10 @@ import json
 import os
 import secrets
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, assert_never
 
 import typer
 from pydantic import ValidationError
@@ -52,6 +52,9 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.k8s.credentials import CredentialSync
 
 _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "infra": {
@@ -758,6 +761,26 @@ def _post_deploy_networking(
         net.configure_urls(stack=stack, context=effective_context)
 
 
+def _report_credential_sync(results: Mapping[str, CredentialSync]) -> bool:
+    """Print one line for each credential of a sync; return False when a step failed."""
+    from devops_cli.k8s.credentials import SyncState
+
+    succeeded = True
+    for name, outcome in results.items():
+        label = name.replace("_", " ").title()
+        match outcome.state:
+            case SyncState.SYNCED:
+                print_success(f"{label} credentials securely stored in OS Keyring.")
+            case SyncState.MISSING:
+                print_info(f"{name.capitalize()} secret not found in active cluster.", prefix=False)
+            case SyncState.FAILED:
+                print_error(f"{label}: {outcome.cause}", prefix=False)
+                succeeded = False
+            case _:
+                assert_never(outcome.state)
+    return succeeded
+
+
 def _post_deploy_credentials(
     selected_stacks: Sequence[str],
     effective_context: str | None,
@@ -766,15 +789,7 @@ def _post_deploy_credentials(
     if "infra" in selected_stacks:
         from devops_cli.k8s.credentials import sync_k8s_credentials
 
-        synced = sync_k8s_credentials(context=effective_context, stack="infra")
-        if synced.get("argocd"):
-            print_success("ArgoCD admin credentials securely synced to OS Keyring.")
-        if synced.get("argocd_token"):
-            print_success("ArgoCD API token securely synced to OS Keyring.")
-        if synced.get("grafana"):
-            print_success("Grafana admin credentials securely synced to OS Keyring.")
-        if synced.get("grafana_token"):
-            print_success("Grafana API token securely synced to OS Keyring.")
+        _report_credential_sync(sync_k8s_credentials(context=effective_context, stack="infra"))
         print_info(
             "[dim]Tempo HTTP API: http://localhost:3200 (namespace: otel)[/dim]",
             prefix=False,
@@ -1252,7 +1267,10 @@ def sync_secrets(
 ) -> None:
     """Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring.
 
-    The direction is cluster → workstation keyring, the reverse of `push-secrets`.
+    The direction is cluster → workstation keyring, the reverse of `push-secrets`. The command
+    keeps a stored Argo CD or Grafana API token that the service accepts, and mints a new token
+    only when the service refuses the stored one. When a token check fails, the stored token
+    stays. Each failed step shows its cause, and the command then exits with status 1.
     """
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
@@ -1278,13 +1296,8 @@ def sync_secrets(
     from devops_cli.k8s.credentials import sync_k8s_credentials
 
     print_info(f"Synchronizing Kubernetes credentials for stack ({stack})...", prefix=False)
-    results = sync_k8s_credentials(context=effective_context, stack=stack)
-    for svc, success in results.items():
-        if success:
-            label = svc.replace("_", " ").title()
-            print_success(f"{label} credentials securely stored in OS Keyring.")
-        elif not svc.endswith("_token"):
-            print_info(f"{svc.capitalize()} secret not found in active cluster.", prefix=False)
+    if not _report_credential_sync(sync_k8s_credentials(context=effective_context, stack=stack)):
+        raise typer.Exit(1)
 
 
 def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> None:

@@ -691,7 +691,7 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         patch("devops_cli.commands.k8s.port_forward"),
         patch(
             "devops_cli.k8s.credentials.sync_k8s_credentials",
-            return_value={"argocd": True, "grafana": True},
+            return_value={},
         ),
         patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks") as mock_push,
         patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
@@ -714,7 +714,7 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         patch("devops_cli.commands.k8s.port_forward"),
         patch(
             "devops_cli.k8s.credentials.sync_k8s_credentials",
-            return_value={"argocd": True, "grafana": True},
+            return_value={},
         ),
     ):
         result = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
