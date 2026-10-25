@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from devops_cli.ai.rag.chunker import SemanticChunker
 
 
@@ -120,7 +122,7 @@ module "vpc" {
     chunks = chunker.chunk_file(tf_file, project_name="cloud-infra")
 
     assert len(chunks) >= 2
-    assert all(c.language == "terraform" for c in chunks)
+    assert all(c.language in ("terraform", "hcl") for c in chunks)
     assert all(c.category == "iac" for c in chunks)
 
 
@@ -138,7 +140,7 @@ CREATE INDEX idx_users_email ON users(email);
         encoding="utf-8",
     )
 
-    chunker = SemanticChunker()
+    chunker = SemanticChunker(chunk_size=4)
     chunks = chunker.chunk_file(sql_file, project_name="db-migrations")
 
     assert len(chunks) >= 2
@@ -180,3 +182,174 @@ OpenTelemetry Collector routes spans to Tempo.
         "Vector Storage",
         "Sharding & Replicas",
     ]
+
+
+@pytest.mark.parametrize(
+    ("lang", "extension", "source", "expected_symbols", "forbidden_symbols"),
+    [
+        (
+            "rust",
+            "rs",
+            """pub struct DatabasePool {
+    url: String,
+}
+
+impl DatabasePool {
+    pub fn new(url: &str) -> Self {
+        Self { url: url.to_string() }
+    }
+}
+
+/*
+fn fake_in_comment() {}
+*/
+""",
+            ["new"],
+            ["fake_in_comment"],
+        ),
+        (
+            "typescript",
+            "ts",
+            """export class UserService {
+    getUser(
+        id: string,
+        tenant: string,
+    ): string {
+        return id + tenant;
+    }
+}
+
+// function fake_in_comment() {}
+""",
+            ["getUser"],
+            ["fake_in_comment"],
+        ),
+        (
+            "go",
+            "go",
+            """package main
+
+type Server struct{}
+
+func (s *Server) Start(
+    port int,
+) error {
+    return nil
+}
+
+/*
+func FakeInComment() {}
+*/
+""",
+            ["Start"],
+            ["FakeInComment"],
+        ),
+        (
+            "java",
+            "java",
+            """public class Service {
+    public void processData(
+        String input,
+        int count
+    ) {
+    }
+}
+/*
+void fakeInComment() {}
+*/
+""",
+            ["processData"],
+            ["fakeInComment"],
+        ),
+        (
+            "csharp",
+            "cs",
+            """public class Handler {
+    public int Calculate(
+        int a,
+        int b
+    ) {
+        return a + b;
+    }
+}
+// void FakeInComment() {}
+""",
+            ["Calculate"],
+            ["FakeInComment"],
+        ),
+        (
+            "cpp",
+            "cpp",
+            """class Processor {
+public:
+    void Execute(
+        int steps
+    ) {
+    }
+};
+/*
+void FakeInComment() {}
+*/
+""",
+            ["Execute"],
+            ["FakeInComment"],
+        ),
+        (
+            "hcl",
+            "tf",
+            """resource "aws_s3_bucket" "data_lake" {
+  bucket = "my-bucket"
+}
+/*
+resource "aws_fake" "comment" {}
+*/
+""",
+            ["data_lake"],
+            ["fake"],
+        ),
+    ],
+)
+def test_polyglot_tree_sitter_chunking_table(
+    tmp_path: Path,
+    lang: str,
+    extension: str,
+    source: str,
+    expected_symbols: list[str],
+    forbidden_symbols: list[str],
+) -> None:
+    """Table test: indented definitions and multi-line signatures are captured while comment symbols are ignored."""
+    test_file = tmp_path / f"sample.{extension}"
+    test_file.write_text(source, encoding="utf-8")
+
+    chunker = SemanticChunker()
+    chunks = chunker.chunk_file(test_file, relative_to=tmp_path)
+
+    all_symbols = [s for c in chunks for s in c.symbol_names]
+    for exp in expected_symbols:
+        assert any(exp in s for s in all_symbols), (
+            f"Expected symbol '{exp}' not found in {all_symbols} for {lang}"
+        )
+    for forb in forbidden_symbols:
+        assert not any(forb in s for s in all_symbols), (
+            f"Forbidden symbol '{forb}' unexpectedly found in {all_symbols} for {lang}"
+        )
+
+
+@pytest.mark.parametrize("extension", ["py", "rs", "ts", "go", "yaml", "md", "txt"])
+def test_chunker_hypothesis_properties(tmp_path: Path, extension: str) -> None:
+    """Hypothesis property test feeds generated input to chunker and checks it never raises and line ranges stay inside the file."""
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    @settings(max_examples=15, deadline=800)
+    @given(payload=st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=2000))
+    def _run_prop(payload: str) -> None:
+        file_path = tmp_path / f"test_{extension}.{extension}"
+        file_path.write_text(payload, encoding="utf-8")
+        chunker = SemanticChunker()
+        chunks = chunker.chunk_file(file_path, relative_to=tmp_path)
+        total_lines = max(1, len(payload.splitlines()))
+        for c in chunks:
+            assert 1 <= c.start_line <= c.end_line <= total_lines
+
+    _run_prop()

@@ -82,6 +82,11 @@ def reset_tiktoken_encoding_cache() -> None:
     _get_tiktoken_encoding.cache_clear()
 
 
+def get_tiktoken_encoding(model: str = DEFAULT_TIKTOKEN_MODEL) -> Any:
+    """Retrieve cached tiktoken encoding instance with graceful fallback."""
+    return _get_tiktoken_encoding(model)
+
+
 def count_tokens(text: str, model: str = DEFAULT_TIKTOKEN_MODEL) -> int:
     """Count exact BPE tokens for text, with robust heuristic fallback."""
     if not text:

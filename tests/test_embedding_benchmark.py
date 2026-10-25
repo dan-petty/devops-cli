@@ -695,7 +695,7 @@ def test_code_chunks_are_queried_by_their_path_and_symbol_names(tmp_path: Path) 
                 "    def put(self):\n"
                 "        return 2",
             ),
-            _code_task(3, 2, "beta.go:3-5", "beta.go ServeHTTP", "func ServeHTTP() {\n}"),
+            _code_task(3, 2, "beta.go:3-4", "beta.go ServeHTTP", "func ServeHTTP() {\n}"),
             _code_task(4, 3, "beta.go:6-7", "beta.go Router", "type Router struct {\n}"),
         ],
         [

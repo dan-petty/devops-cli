@@ -14,6 +14,7 @@ from urllib.parse import urldefrag
 
 import httpx2
 
+from devops_cli.ai.rag.chunker import parse_markdown_headings
 from devops_cli.core.repo import resolve_store_path
 from devops_cli.exceptions.ai import DocsIngestionError
 from devops_cli.http.validation import validate_service_url
@@ -21,7 +22,6 @@ from devops_cli.models.library import DocChunk, IngestDocResult
 from devops_cli.security.sanitizer import mask_uri_credentials
 
 _SUPPORTED_DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
-_HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
 
 
 def _extract_hrefs(attrs: list[tuple[str, str | None]]) -> list[str]:
@@ -140,29 +140,33 @@ def _chunk_markdown_content(
 ) -> list[DocChunk]:
     """Split markdown text into structured chunks based on heading hierarchy."""
     lines = content.splitlines()
+    headings = parse_markdown_headings(content)
+    if not headings:
+        chunk = _create_chunk(slug, 1, source, [], lines)
+        return [chunk] if chunk is not None else []
+
     chunks: list[DocChunk] = []
     heading_stack: list[tuple[int, str]] = []
     flat_headings: list[str] = []
-    current_lines: list[str] = []
     chunk_index = 1
 
-    for line in lines:
-        match = _HEADING_PATTERN.match(line)
-        if match:
-            chunk = _create_chunk(slug, chunk_index, source, flat_headings, current_lines)
-            if chunk is not None:
-                chunks.append(chunk)
-                chunk_index += 1
-            current_lines = []
-            level = len(match.group(1))
-            heading_text = match.group(2).strip()
-            flat_headings = _update_heading_stack(heading_stack, level, heading_text)
-        else:
-            current_lines.append(line)
+    if headings[0][0] > 0:
+        preamble_lines = lines[0 : headings[0][0]]
+        chunk = _create_chunk(slug, chunk_index, source, [], preamble_lines)
+        if chunk is not None:
+            chunks.append(chunk)
+            chunk_index += 1
 
-    chunk = _create_chunk(slug, chunk_index, source, flat_headings, current_lines)
-    if chunk is not None:
-        chunks.append(chunk)
+    for i in range(len(headings)):
+        start_line = headings[i][0]
+        end_line = headings[i + 1][0] if i + 1 < len(headings) else len(lines)
+        level, heading_text = headings[i][1], headings[i][2]
+        flat_headings = _update_heading_stack(heading_stack, level, heading_text)
+        sec_lines = lines[start_line:end_line]
+        chunk = _create_chunk(slug, chunk_index, source, flat_headings, sec_lines)
+        if chunk is not None:
+            chunks.append(chunk)
+            chunk_index += 1
 
     return chunks
 

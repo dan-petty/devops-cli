@@ -118,7 +118,7 @@ def test_chunk_file_defensive_boundaries(tmp_path: Path) -> None:
 
 def test_chunk_synthetic_file_bounds_tokens(tmp_path: Path) -> None:
     """A 4,000-line synthetic file is chunked so that every chunk is <= 8,192 tokens."""
-    from devops_cli.ai.rag.chunker import estimate_tokens
+    from devops_cli.ai.context_budget import count_tokens
     from devops_cli.config.constants import CONST_RAG_MAX_CHUNK_TOKENS
 
     lines = [f"line_{i} = 'some payload text content that spans lines'\n" for i in range(4000)]
@@ -129,4 +129,83 @@ def test_chunk_synthetic_file_bounds_tokens(tmp_path: Path) -> None:
     chunks = chunker.chunk_file(synthetic_file, relative_to=tmp_path)
 
     assert len(chunks) > 0
-    assert all(estimate_tokens(c.content) <= CONST_RAG_MAX_CHUNK_TOKENS for c in chunks)
+    assert all(count_tokens(c.content) <= CONST_RAG_MAX_CHUNK_TOKENS for c in chunks)
+
+
+def test_chunk_dense_punctuation_stays_under_token_limit(tmp_path: Path) -> None:
+    """A file with dense punctuation is split into chunks that all stay under the real token limit."""
+    from devops_cli.ai.context_budget import count_tokens
+    from devops_cli.config.constants import CONST_RAG_MAX_CHUNK_TOKENS
+
+    dense_text = "!@#$%^&*()_+-=[]{}|;:,.<>?" * 550
+    punct_file = tmp_path / "dense.txt"
+    punct_file.write_text(dense_text, encoding="utf-8")
+
+    chunker = SemanticChunker()
+    chunks = chunker.chunk_file(punct_file, relative_to=tmp_path)
+
+    assert len(chunks) >= 2
+    assert all(count_tokens(c.content) <= CONST_RAG_MAX_CHUNK_TOKENS for c in chunks)
+
+
+def test_chunk_markdown_fenced_code_blocks_ignore_comment_headings(tmp_path: Path) -> None:
+    """Markdown sections are not split on # comment lines inside fenced code blocks."""
+    doc = """# Introduction
+Introductory section.
+
+```bash
+# comment inside code block
+echo "hello world"
+```
+
+## Architecture
+Architecture details.
+"""
+    md_file = tmp_path / "fenced.md"
+    md_file.write_text(doc, encoding="utf-8")
+
+    chunker = SemanticChunker()
+    chunks = chunker.chunk_file(md_file, relative_to=tmp_path)
+
+    assert len(chunks) == 2
+    titles = [s for c in chunks for s in c.symbol_names]
+    assert "Introduction" in titles
+    assert "Architecture" in titles
+    assert not any("comment inside code block" in t for t in titles)
+
+
+def test_chunk_yaml_two_documents_nested_name(tmp_path: Path) -> None:
+    """A two-document YAML file emits top-level kind and metadata.name only, ignoring nested name."""
+    manifest = """apiVersion: v1
+kind: Service
+metadata:
+  name: my-svc
+spec:
+  ports:
+    - name: http
+      port: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-deploy
+spec:
+  template:
+    metadata:
+      name: nested-pod-name
+    spec:
+      containers:
+        - image: busybox
+"""
+    yaml_file = tmp_path / "multi.yaml"
+    yaml_file.write_text(manifest, encoding="utf-8")
+
+    chunker = SemanticChunker()
+    chunks = chunker.chunk_file(yaml_file, relative_to=tmp_path)
+
+    assert len(chunks) == 2
+    doc1_symbols = chunks[0].symbol_names
+    doc2_symbols = chunks[1].symbol_names
+    assert "nested-pod-name" not in doc2_symbols
+    assert any("Service" in s or "my-svc" in s for s in doc1_symbols)
+    assert any("Deployment" in s or "my-deploy" in s for s in doc2_symbols)
