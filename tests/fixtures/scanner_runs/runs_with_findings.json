@@ -1,0 +1,52 @@
+{
+  "gitleaks": {
+    "version": "8.30.1",
+    "argv": [
+      "gitleaks",
+      "dir",
+      "--report-format",
+      "json",
+      "--report-path",
+      "-",
+      "--redact",
+      "{tree}/settings.py"
+    ],
+    "cwd": "{tree}",
+    "returncode": 1,
+    "stdout": "[\n {\n  \"RuleID\": \"github-pat\",\n  \"Description\": \"Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.\",\n  \"StartLine\": 1,\n  \"EndLine\": 1,\n  \"StartColumn\": 10,\n  \"EndColumn\": 49,\n  \"Match\": \"REDACTED\",\n  \"Secret\": \"REDACTED\",\n  \"File\": \"{tree}/settings.py\",\n  \"SymlinkFile\": \"\",\n  \"Commit\": \"\",\n  \"Entropy\": 4.853056,\n  \"Author\": \"\",\n  \"Email\": \"\",\n  \"Date\": \"\",\n  \"Message\": \"\",\n  \"Tags\": [],\n  \"Fingerprint\": \"{tree}/settings.py:github-pat:1\"\n }\n]\n",
+    "stderr": "\n    \u25cb\n    \u2502\u2572\n    \u2502 \u25cb\n    \u25cb \u2591\n    \u2591    gitleaks\n\n\u001b[90m5:19PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mscanned ~51 bytes (51 bytes) in 5.5ms\u001b[0m\n\u001b[90m5:19PM\u001b[0m \u001b[33mWRN\u001b[0m \u001b[1mleaks found: 1\u001b[0m\n"
+  },
+  "pluto": {
+    "version": "5.24.4",
+    "argv": [
+      "pluto",
+      "detect-files",
+      "-d",
+      ".",
+      "-o",
+      "json",
+      "--target-versions",
+      "k8s=v1.33.0"
+    ],
+    "cwd": "{tree}/k8s",
+    "returncode": 4,
+    "stdout": "{\"items\":[{\"name\":\"web\",\"filePath\":\"{tree}/k8s/deploy.yaml\",\"namespace\":\"shop\",\"api\":{\"version\":\"extensions/v1beta1\",\"kind\":\"Deployment\",\"deprecated-in\":\"v1.9.0\",\"removed-in\":\"v1.16.0\",\"replacement-api\":\"apps/v1\",\"replacement-available-in\":\"v1.9.0\",\"component\":\"k8s\"},\"deprecated\":true,\"removed\":true,\"replacementAvailable\":true},{\"name\":\"restricted\",\"filePath\":\"{tree}/k8s/deploy.yaml\",\"api\":{\"version\":\"policy/v1beta1\",\"kind\":\"PodSecurityPolicy\",\"deprecated-in\":\"v1.21.0\",\"removed-in\":\"v1.25.0\",\"replacement-api\":\"\",\"replacement-available-in\":\"\",\"component\":\"k8s\"},\"deprecated\":true,\"removed\":true,\"replacementAvailable\":false}],\"target-versions\":{\"cert-manager\":\"v1.5.3\",\"istio\":\"v1.11.0\",\"k8s\":\"v1.33.0\"}}\n",
+    "stderr": ""
+  },
+  "popeye": {
+    "version": "0.22.1",
+    "argv": [
+      "popeye",
+      "-o",
+      "json",
+      "-l",
+      "warn",
+      "-n",
+      "argocd"
+    ],
+    "cwd": "{workdir}",
+    "returncode": 1,
+    "stdout": "{\n  \"popeye\": {\n    \"report_time\": \"2026-10-25T17:16:04Z\",\n    \"score\": 80,\n    \"grade\": \"B\",\n    \"sections\": [\n      {\n        \"linter\": \"configmaps\",\n        \"gvr\": \"v1/configmaps\",\n        \"tally\": {\n          \"ok\": 10,\n          \"info\": 0,\n          \"warning\": 0,\n          \"error\": 0,\n          \"score\": 100\n        },\n        \"issues\": {}\n      },\n      {\n        \"linter\": \"deployments\",\n        \"gvr\": \"apps/v1/deployments\",\n        \"tally\": {\n          \"ok\": 3,\n          \"info\": 0,\n          \"warning\": 1,\n          \"error\": 1,\n          \"score\": 60\n        },\n        \"issues\": {\n          \"argocd/argocd-applicationset-controller\": [\n            {\n              \"group\": \"__root__\",\n              \"gvr\": \"apps/v1/deployments\",\n              \"level\": 2,\n              \"message\": \"[POP-500] Zero scale detected\"\n            },\n            {\n              \"group\": \"applicationset-controller\",\n              \"gvr\": \"containers\",\n              \"level\": 2,\n              \"message\": \"[POP-106] No resources requests/limits defined\"\n            },\n            {\n              \"group\": \"__root__\",\n              \"gvr\": \"apps/v1/deployments\",\n              \"level\": 3,\n              \"message\": \"[POP-508] No pods match controller selector: app.kubernetes.io/name=argocd-applicationset-controller,app.kubernetes.io/instance=argocd\"\n            }\n          ]\n        }\n      },\n      {\n        \"linter\": \"pods\",\n        \"gvr\": \"v1/pods\",\n        \"tally\": {\n          \"ok\": 0,\n          \"info\": 0,\n          \"warning\": 5,\n          \"error\": 0,\n          \"score\": 0\n        },\n        \"issues\": {\n          \"argocd/argocd-application-controller-0\": [\n            {\n              \"group\": \"application-controller\",\n              \"gvr\": \"containers\",\n              \"level\": 2,\n              \"message\": \"[POP-103] No liveness probe\"\n            },\n            {\n              \"group\": \"__root__\",\n              \"gvr\": \"v1/pods\",\n              \"level\": 2,\n              \"message\": \"[POP-301] Connects to API Server? ServiceAccount token is mounted\"\n            },\n            {\n              \"group\": \"\",\n              \"gvr\": \"\",\n              \"level\": 2,\n              \"message\": \"[POP-110] Memory Current/Request (791Mi/256Mi) reached user 80% threshold (308%)\"\n            }\n          ]\n        }\n      }\n    ],\n    \"errors\": {\n      \"error\": \"the server could not find the requested resource\"\n    }\n  },\n  \"ClusterName\": \"example\",\n  \"ContextName\": \"example\"\n}\n",
+    "stderr": ""
+  }
+}

@@ -117,6 +117,8 @@ def _script_scanner_reports(scanner_fake: ScannerFake, workspace: Path) -> None:
                 "api": {
                     "version": "extensions/v1beta1",
                     "kind": "Ingress",
+                    "deprecated-in": "v1.14.0",
+                    "removed-in": "v1.22.0",
                     "replacement-api": "networking.k8s.io/v1",
                 },
                 "deprecated": True,

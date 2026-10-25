@@ -55,8 +55,8 @@ kube-linter lint k8s/base/
 # KubeLinter: Lint Helm chart templates
 helm template my-chart | kube-linter lint -
 
-# Popeye: Run cluster sanitation on specific namespace with spin report
-popeye -n default -s ok,info,warn,error
+# Popeye: Lint one namespace and report warnings and errors (-l is the lint level; -s names resource sections, such as po,svc)
+popeye -n default -l warn
 
 # Popeye: Output structured JSON report
 popeye -o json > popeye-report.json

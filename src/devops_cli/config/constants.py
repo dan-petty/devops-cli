@@ -593,6 +593,9 @@ CONST_REVIEW_SCAN_KUBELINTER_CONFIG = "checks: {}\n"
 CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
 CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
+# The `group` that Popeye 0.22 writes for an issue of the resource itself, not of one of its
+# containers: `__root__`, or empty for an issue that it measured (#1434).
+CONST_POPEYE_RESOURCE_GROUPS: Final[frozenset[str]] = frozenset({"", "__root__"})
 CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG: Final[str] = (
     "linters:\n"
     "  disable-all: true\n"

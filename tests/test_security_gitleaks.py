@@ -12,12 +12,14 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.commands.scan import app as scan_app
 from devops_cli.security.gitleaks import (
     parse_gitleaks_json,
     run_gitleaks_scan,
 )
 from devops_cli.security.sarif import to_sarif
+from tests.support.fakes.scanners import ScannerFake
 
 runner = CliRunner()
 
@@ -109,6 +111,75 @@ def test_scan_secrets_without_gitleaks_says_it_did_not_run_and_not_that_it_passe
     )
 
 
+_GITHUB_PAT = (
+    "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository "
+    "access and sensitive content exposure."
+)
+
+
+def _leaked_settings(tmp_path: Path) -> Path:
+    """The file of Gitleaks' recorded run that finds a leak. The recording ran over a GitHub token;
+    the report is redacted, so this file holds none."""
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    settings = tree / "settings.py"
+    settings.write_text("token = None\n", encoding="utf-8")
+    return settings
+
+
+def _leak(settings: Path) -> Finding:
+    """The finding of the leak in Gitleaks' recorded report."""
+    return Finding(
+        severity="CRITICAL",
+        location=f"{settings}:1",
+        title=f"[GITLEAKS:github-pat] {_GITHUB_PAT}",
+        description=f"Gitleaks detected secret rule pattern 'github-pat' at {settings}:1: "
+        f"{_GITHUB_PAT}",
+        fix="Remove plaintext credentials from source control and store securely in OS Keyring.",
+        confidence_score=None,
+        category=DefectClass.SECRET_EXPOSURE.value,
+    )
+
+
+def test_a_leak_that_gitleaks_reports_is_a_finding_of_a_scan_that_ran(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """Gitleaks writes its report on stdout only with `--report-path -`, and exits 1 when it finds
+    a leak. The scan ran, and the leak is its finding (#1434)."""
+    settings = _leaked_settings(tmp_path)
+    recorded = scanner_fake.script_run_with_findings("gitleaks", tree=settings.parent)
+
+    outcome = run_gitleaks_scan(settings)
+
+    assert (scanner_fake.runs, outcome.status, outcome.findings) == (
+        [recorded],
+        "ran",
+        [_leak(settings)],
+    )
+
+
+def test_the_agent_gitleaks_tool_reports_the_leak_that_gitleaks_found(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The agent tool `scan_gitleaks` reports the leak that Gitleaks found, and not that the scan
+    gave no result (#1434)."""
+    from devops_cli.ai.tools.builtin_tools import scan_gitleaks
+
+    settings = _leaked_settings(tmp_path)
+    recorded = scanner_fake.script_run_with_findings("gitleaks", tree=settings.parent)
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_gitleaks(str(settings))
+
+    assert (scanner_fake.runs, reply) == (
+        [recorded],
+        "Gitleaks scan status: ok\n"
+        "Findings (1):\n"
+        f"- [CRITICAL] {settings}:1: [GITLEAKS:github-pat] {_GITHUB_PAT} (Remove plaintext "
+        "credentials from source control and store securely in OS Keyring.)",
+    )
+
+
 def test_gitleaks_binary_mocked_execution(tmp_path: Path) -> None:
     """Verify mocked binary JSON output parsing and location extraction."""
     patterns_file = tmp_path / "all_secrets.txt"
@@ -142,7 +213,7 @@ def test_run_gitleaks_scan_ignore_tests(tmp_path: Path) -> None:
     src_file.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
 
     def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        source = cmd[cmd.index("--source") + 1] if "--source" in cmd else str(tmp_path)
+        source = cmd[-1]
         leaks = [
             {
                 "RuleID": "aws-key",
@@ -223,7 +294,7 @@ def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(tmp_path: Path)
     sources: list[str] = []
 
     def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        source = cmd[cmd.index("--source") + 1]
+        source = cmd[-1]
         sources.append(source)
         leaks = []
         if source == str(second):

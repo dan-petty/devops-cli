@@ -556,7 +556,10 @@ class BaseSecurityScanner(ABC):
 
     @abstractmethod
     def build_command(self, target_path: Any, **kwargs: Any) -> list[str]:
-        """Build argument command list for invoking the scanner binary."""
+        """Build argument command list for invoking the scanner binary.
+
+        `kwargs` holds the scan's arguments and `cwd`, the directory that the command starts in.
+        """
 
     @abstractmethod
     def parse_output(self, data: Any, target_path: Any) -> list[Finding]:
@@ -809,7 +812,7 @@ class BaseSecurityScanner(ABC):
     ) -> ScanOutcome:
         """Build the scanner's command for `target_path` and run it from `cwd`, with the flags
         that name the files devops-cli handed it."""
-        cmd = self.build_command(target_path, **kwargs)
+        cmd = self.build_command(target_path, cwd=cwd, **kwargs)
         if not cmd:
             return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
         files = partial(self._tool_files, target_path, cwd, handed, kwargs)

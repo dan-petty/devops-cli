@@ -35,7 +35,8 @@ directories, the bytes of each file in that directory as the run started.
 Each recorded run is the real tool's, at the version `tools.lock` pins, started through its
 adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
 that finds nothing. Semgrep's was recorded again on 2026-10-24, offline, with a rule file in
-place of the registry's `p/default`, which a recording cannot fetch. They are kept in
+place of the registry's `p/default`, which a recording cannot fetch. Gitleaks' was recorded again
+on 2026-10-25, with the command that writes its report on stdout (#1434). They are kept in
 `tests/fixtures/scanner_runs/recorded_runs.json`, each with its command, in which `{tree}` stands
 for the scanned tree, `{workdir}` for the directory the scanner ran in and `{rule_pack}` for
 devops-cli's Semgrep rule pack. The contract suite, `tests/test_scanner_contract.py`, starts each
@@ -43,6 +44,14 @@ adapter that way over the fake and checks that it still makes the recorded comma
 run as it read the real one, and that each recording is of the locked version. When either
 changes, record the run again: start the adapter as the contract suite does, with the real tool
 at its locked version on PATH, and keep the command, exit code, stdout and stderr it ran with.
+
+A run that finds something is in `tests/fixtures/scanner_runs/runs_with_findings.json`, recorded
+on 2026-10-25 with the command each adapter makes, and `script_run_with_findings` answers with it
+(#1434). Gitleaks ran over a file that held a GitHub token; its report is redacted, so the token is
+not in the recording. Pluto ran over two objects whose APIs Kubernetes removed, one with no
+replacement. Popeye ran at warn level over the namespace of a lab cluster; its report keeps three
+of its sections and two of its resources, and the names of the cluster and the context read
+`example`.
 """
 
 from __future__ import annotations
@@ -156,6 +165,32 @@ class ScannerFake(ToolExecutorFake):
                     version=run.version,
                 ),
             )
+
+    def script_run_with_findings(self, tool: str, **places: Path) -> ScannerRun:
+        """Answer `tool` with its recorded run that finds something, and return the command and
+        the directory that run started in.
+
+        The runs are in `tests/fixtures/scanner_runs/runs_with_findings.json`, each the real
+        tool's at the version `tools.lock` pins, started with the command its adapter makes. In
+        each, a placeholder such as `{tree}` stands for the path given as that keyword."""
+        recorded = files("tests").joinpath("fixtures", "scanner_runs", "runs_with_findings.json")
+        run: dict[str, Any] = json.loads(recorded.read_text(encoding="utf-8"))[tool]
+
+        def placed(text: str) -> str:
+            for place, path in places.items():
+                text = text.replace(f"{{{place}}}", str(path))
+            return text
+
+        self.script(
+            tool,
+            ToolAnswer(
+                exit_code=run["returncode"],
+                stdout=placed(run["stdout"]),
+                stderr=placed(run["stderr"]),
+                version=run["version"],
+            ),
+        )
+        return ScannerRun([placed(word) for word in run["argv"]], placed(run["cwd"]))
 
     def script(self, tool: str, answer: ToolAnswer) -> None:
         """Answer every later request for `tool` with `answer`, and put a stand-in for `tool` in

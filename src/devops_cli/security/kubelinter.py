@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _manifest_location(target_path: str) -> str:
+def manifest_location(target_path: str) -> str:
     """The scanned manifest's path relative to the working tree that holds it.
 
     The tree is found from the manifest, not from the working directory of the process, so a
@@ -76,7 +76,7 @@ def _finding_from_report(report: dict[str, Any], target_path: str) -> Finding:
     file_path = ((report.get("Object") or {}).get("Metadata") or {}).get("FilePath")
     return Finding(
         severity="MEDIUM",
-        location=f"{_manifest_location(file_path or target_path)}:{symbol}",
+        location=f"{manifest_location(file_path or target_path)}:{symbol}",
         title=f"[{check}] {message}",
         description=f"{message} for {kind} '{name}'.",
         fix=report.get("Remediation")
@@ -141,6 +141,7 @@ def run_kubelinter_scan(
 
 __all__ = [
     "KubelinterScanner",
+    "manifest_location",
     "parse_kubelinter_json",
     "run_kubelinter_scan",
 ]

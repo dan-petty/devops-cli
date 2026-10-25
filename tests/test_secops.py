@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import json
+import os
 from pathlib import Path
 
 import pytest
 
+from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.scan import scan_trivy as scan_main
 from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter_scan
-from devops_cli.security.pluto import PlutoScanner, parse_pluto_json, run_pluto_scan
-from devops_cli.security.popeye import parse_popeye_json, run_popeye_scan
+from devops_cli.security.pluto import parse_pluto_json, run_pluto_scan
+from devops_cli.security.popeye import run_popeye_scan
 from devops_cli.security.trivy import parse_trivy_json, run_trivy_scan
 from tests.support.fakes.scanners import ScannerFake, ScannerRun
-from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_trivy_parser() -> None:
@@ -94,54 +94,10 @@ def test_kubelinter_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert [f.title for f in findings] == ["[DRY-RUN] Simulated Kube-linter Manifest Audit"]
 
 
-def test_popeye_parser() -> None:
-    data = {
-        "popeye": {
-            "sanitizers": [
-                {
-                    "sanitizer": "pods",
-                    "issues": {
-                        "default/web-pod": [
-                            {
-                                "level": 3,
-                                "message": "Container has no CPU limits",
-                            }
-                        ]
-                    },
-                }
-            ]
-        }
-    }
-    findings = parse_popeye_json(data)
-    assert len(findings) == 1
-    assert findings[0].severity == "HIGH"
-    assert "PODS" in findings[0].title
-
-
 def test_popeye_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
     findings = run_popeye_scan(workdir=tmp_path)
     assert [f.title for f in findings] == ["[DRY-RUN] Simulated Popeye Kubernetes Cluster Scan"]
-
-
-def test_pluto_parser() -> None:
-    data = {
-        "items": [
-            {
-                "name": "ingress-lb",
-                "kind": "Ingress",
-                "apiVersion": "extensions/v1beta1",
-                "replacement": "networking.k8s.io/v1",
-                "deprecated": True,
-                "removed": True,
-                "filepath": "k8s/ingress.yaml",
-            }
-        ]
-    }
-    findings = parse_pluto_json(data)
-    assert len(findings) == 1
-    assert findings[0].severity == "HIGH"
-    assert "networking.k8s.io/v1" in findings[0].fix
 
 
 def test_pluto_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -192,87 +148,6 @@ def test_kubelinter_scanner_execution(tmp_path: Path) -> None:
     )
     with patch("devops_cli.security.kubelinter.run_subprocess", return_value=mock_127):
         assert run_kubelinter_scan(tmp_path) == []
-
-
-def test_pluto_scanner_execution(tmp_path: Path) -> None:
-    """Verify pluto subprocess execution, command building, and exit 127 handling."""
-    import json
-    import subprocess
-    from unittest.mock import patch
-
-    from devops_cli.config.commands import BIN_PLUTO
-
-    scanner = PlutoScanner()
-    manifest_file = tmp_path / "deployment.yaml"
-    manifest_file.touch()
-
-    assert (
-        scanner.build_command(tmp_path),
-        scanner.build_command(manifest_file),
-    ) == (
-        [BIN_PLUTO, "detect-files", "-d", str(tmp_path), "-o", "json"],
-        [BIN_PLUTO, "detect", str(manifest_file), "-o", "json"],
-    )
-
-    pluto_json = json.dumps(
-        {
-            "items": [
-                {
-                    "name": "ingress-lb",
-                    "kind": "Ingress",
-                    "apiVersion": "extensions/v1beta1",
-                    "replacement": "networking.k8s.io/v1",
-                    "deprecated": True,
-                    "removed": True,
-                }
-            ]
-        }
-    )
-    mock_pluto_proc = subprocess.CompletedProcess(
-        args=["pluto"], returncode=0, stdout=pluto_json, stderr=""
-    )
-    with patch("devops_cli.security.pluto.run_subprocess", return_value=mock_pluto_proc):
-        pluto_findings = run_pluto_scan(tmp_path)
-        assert (len(pluto_findings), pluto_findings[0].severity) == (1, "HIGH")
-
-    mock_127 = subprocess.CompletedProcess(
-        args=["cmd"], returncode=127, stdout="", stderr="not found"
-    )
-    with patch("devops_cli.security.pluto.run_subprocess", return_value=mock_127):
-        assert run_pluto_scan(tmp_path) == []
-
-
-def test_popeye_scanner_execution(tmp_path: Path) -> None:
-    """Verify popeye subprocess execution and exit 127 handling."""
-    import json
-    import subprocess
-    from unittest.mock import patch
-
-    popeye_json = json.dumps(
-        {
-            "popeye": {
-                "sanitizers": [
-                    {
-                        "sanitizer": "pods",
-                        "issues": {"default/pod-1": [{"level": 3, "message": "No CPU limit"}]},
-                    }
-                ]
-            }
-        }
-    )
-    mock_popeye_proc = subprocess.CompletedProcess(
-        args=["popeye"], returncode=0, stdout=popeye_json, stderr=""
-    )
-    with patch("devops_cli.security.popeye.run_subprocess", return_value=mock_popeye_proc):
-        popeye_findings = run_popeye_scan(workdir=tmp_path)
-        assert len(popeye_findings) == 1
-        assert popeye_findings[0].severity == "HIGH"
-
-    mock_127 = subprocess.CompletedProcess(
-        args=["cmd"], returncode=127, stdout="", stderr="not found"
-    )
-    with patch("devops_cli.security.popeye.run_subprocess", return_value=mock_127):
-        assert run_popeye_scan(workdir=tmp_path) == []
 
 
 def test_secops_scanners_dry_run(tmp_path: Path) -> None:
@@ -358,21 +233,210 @@ def test_a_kubelinter_finding_names_a_manifest_that_no_checkout_holds_by_its_fil
     assert [finding.location for finding in findings] == ["deployment.yaml:Deployment/web"]
 
 
-def test_popeye_starts_in_the_directory_its_caller_gives(
+# The manifests of Pluto's recorded run: Kubernetes removed both APIs, and has no replacement for
+# PodSecurityPolicy.
+_REMOVED_APIS = """apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: web
+  namespace: shop
+spec: {}
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: restricted
+spec: {}
+"""
+
+_PLUTO_FINDINGS = [
+    Finding(
+        severity="HIGH",
+        location="deploy.yaml:Deployment/shop/web",
+        title="[Removed API] Deployment 'web' uses extensions/v1beta1",
+        description=(
+            "Deployment 'web' uses extensions/v1beta1, which Kubernetes removed in v1.16.0. "
+            "Use apps/v1."
+        ),
+        fix="Change apiVersion from extensions/v1beta1 to apps/v1.",
+        confidence_score=None,
+    ),
+    Finding(
+        severity="HIGH",
+        location="deploy.yaml:PodSecurityPolicy/restricted",
+        title="[Removed API] PodSecurityPolicy 'restricted' uses policy/v1beta1",
+        description=(
+            "PodSecurityPolicy 'restricted' uses policy/v1beta1, which Kubernetes removed in "
+            "v1.25.0. Kubernetes has no replacement API."
+        ),
+        fix="Remove PodSecurityPolicy 'restricted': no Kubernetes API replaces policy/v1beta1.",
+        confidence_score=None,
+    ),
+]
+
+
+def _manifests(tmp_path: Path) -> Path:
+    """The directory `k8s` of a tree, holding the manifests of Pluto's recorded run."""
+    manifests = tmp_path / "tree" / "k8s"
+    manifests.mkdir(parents=True)
+    (manifests / "deploy.yaml").write_text(_REMOVED_APIS, encoding="utf-8")
+    return manifests
+
+
+def test_pluto_reports_each_object_with_its_api_at_its_manifest(
     scanner_fake: ScannerFake, tmp_path: Path
 ) -> None:
-    """Popeye reads the cluster and starts in the directory that the command gives, not in the
-    working directory of the process (#2098)."""
-    scanner_fake.script(
-        "popeye",
-        ToolAnswer(stdout=json.dumps({"popeye": {"sanitizers": []}}), version="0.22.1"),
+    """Pluto walks `.` from the directory of the manifests, so the `filePath` of its report is the
+    manifest's path. Each finding names the kind, namespace and name of the object and the API that
+    Kubernetes removed, and an API that has no replacement says so (#1434, #1045)."""
+    manifests = _manifests(tmp_path)
+    recorded = scanner_fake.script_run_with_findings("pluto", tree=manifests.parent)
+
+    outcome = run_pluto_scan(manifests, kubernetes_version="v1.33.0")
+
+    assert (scanner_fake.runs, outcome.status, outcome.findings) == (
+        [recorded],
+        "ran",
+        _PLUTO_FINDINGS,
     )
+
+
+def test_pluto_names_its_manifest_relative_to_the_scratch_directory_of_a_review(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """Pluto writes `filePath` as its working directory joined to the path that it walked, so a
+    review's run from a scratch directory names the manifest relative to that directory (#1434)."""
+    manifest = _manifests(tmp_path) / "deploy.yaml"
+    tree = manifest.parent.parent
+    scanner_fake.script_run_with_findings("pluto", tree=tree)
+
+    run_pluto_scan(manifest, isolated=True, tree=tree, kubernetes_version="v1.33.0")
+
+    [run] = scanner_fake.runs
+    assert run.argv == [
+        "pluto",
+        "detect",
+        os.path.relpath(manifest, run.cwd),
+        "-o",
+        "json",
+        "--target-versions",
+        "k8s=v1.33.0",
+    ]
+
+
+def test_pluto_reads_a_file_path_that_climbs_out_of_its_working_directory(tmp_path: Path) -> None:
+    """From a scratch directory, the `filePath` of Pluto's report climbs out of it with `..`. The
+    finding names the manifest that the path leads to (#1434)."""
+    manifest = _manifests(tmp_path) / "deploy.yaml"
+    item = {
+        "name": "web",
+        "filePath": f"{tmp_path}/scratch/../tree/k8s/deploy.yaml",
+        "namespace": "shop",
+        "api": {
+            "version": "extensions/v1beta1",
+            "kind": "Deployment",
+            "deprecated-in": "v1.9.0",
+            "removed-in": "v1.16.0",
+            "replacement-api": "apps/v1",
+            "replacement-available-in": "v1.9.0",
+            "component": "k8s",
+        },
+        "deprecated": True,
+        "removed": True,
+        "replacementAvailable": True,
+    }
+
+    findings = parse_pluto_json({"items": [item]}, target_path=str(manifest))
+
+    assert findings == _PLUTO_FINDINGS[:1]
+
+
+def test_popeye_reports_each_issue_of_its_report_at_warn_level(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """Popeye runs at warn level over the namespace that it gets, from the directory that the
+    command gives (#2098). Each issue of its report is a finding at its linter, resource and
+    container, with the severity of its level (#1434)."""
     workdir = tmp_path / "command-directory"
     workdir.mkdir()
+    recorded = scanner_fake.script_run_with_findings("popeye", workdir=workdir)
 
-    outcome = run_popeye_scan(workdir=workdir)
+    outcome = run_popeye_scan(namespace="argocd", workdir=workdir)
 
-    assert (outcome.status, scanner_fake.runs) == (
-        "ran",
-        [ScannerRun(["popeye", "-o", "json", "-s", "error,warn"], str(workdir))],
+    deployment = "argocd/argocd-applicationset-controller"
+    pod = "argocd/argocd-application-controller-0"
+    fix_deployment = f"Review and adjust Kubernetes specification for {deployment}"
+    fix_pod = f"Review and adjust Kubernetes specification for {pod}"
+    selector = (
+        "[POP-508] No pods match controller selector: "
+        "app.kubernetes.io/name=argocd-applicationset-controller,app.kubernetes.io/instance=argocd"
     )
+    memory = "[POP-110] Memory Current/Request (791Mi/256Mi) reached user 80% threshold (308%)"
+    assert (scanner_fake.runs, outcome.status, outcome.findings) == (
+        [recorded],
+        "ran",
+        [
+            Finding(
+                severity="MEDIUM",
+                location=f"k8s:deployments/{deployment}",
+                title="[POP-500] Zero scale detected",
+                description=f"Popeye linter 'deployments' on {deployment}: "
+                "[POP-500] Zero scale detected",
+                fix=fix_deployment,
+                confidence_score=None,
+            ),
+            Finding(
+                severity="MEDIUM",
+                location=f"k8s:deployments/{deployment}/applicationset-controller",
+                title="[POP-106] No resources requests/limits defined",
+                description=f"Popeye linter 'deployments' on {deployment}: "
+                "[POP-106] No resources requests/limits defined",
+                fix=fix_deployment,
+                confidence_score=None,
+            ),
+            Finding(
+                severity="HIGH",
+                location=f"k8s:deployments/{deployment}",
+                title=selector,
+                description=f"Popeye linter 'deployments' on {deployment}: {selector}",
+                fix=fix_deployment,
+                confidence_score=None,
+            ),
+            Finding(
+                severity="MEDIUM",
+                location=f"k8s:pods/{pod}/application-controller",
+                title="[POP-103] No liveness probe",
+                description=f"Popeye linter 'pods' on {pod}: [POP-103] No liveness probe",
+                fix=fix_pod,
+                confidence_score=None,
+            ),
+            Finding(
+                severity="MEDIUM",
+                location=f"k8s:pods/{pod}",
+                title="[POP-301] Connects to API Server? ServiceAccount token is mounted",
+                description=f"Popeye linter 'pods' on {pod}: "
+                "[POP-301] Connects to API Server? ServiceAccount token is mounted",
+                fix=fix_pod,
+                confidence_score=None,
+            ),
+            Finding(
+                severity="MEDIUM",
+                location=f"k8s:pods/{pod}",
+                title=memory,
+                description=f"Popeye linter 'pods' on {pod}: {memory}",
+                fix=fix_pod,
+                confidence_score=None,
+            ),
+        ],
+    )
+
+
+def test_popeye_scans_the_whole_cluster_when_it_gets_no_namespace(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """With no namespace, Popeye runs at warn level over every namespace of the current context."""
+    scanner_fake.script_run_with_findings("popeye", workdir=tmp_path)
+
+    run_popeye_scan(workdir=tmp_path)
+
+    assert scanner_fake.runs == [ScannerRun(["popeye", "-o", "json", "-l", "warn"], str(tmp_path))]

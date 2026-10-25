@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -14,6 +15,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.kubelinter import manifest_location
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolExecutor
@@ -21,39 +23,45 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _pluto_finding(item: dict[str, Any], target_path: str) -> Finding:
+    """One item of a Pluto report as a Finding at its manifest and object.
+
+    Pluto writes the object's `name` and `namespace` and its `api`: `kind`, `version`,
+    `deprecated-in`, `removed-in` and `replacement-api`, which is empty when Kubernetes has no
+    replacement. `filePath` is Pluto's working directory joined to the path that it read, so from
+    another directory it climbs out with `..`. The object is `Kind/namespace/name`, or `Kind/name`
+    without a namespace, as kube-linter names it.
+    """
+    api = item["api"]
+    kind, version, name = api["kind"], api["version"], item["name"]
+    namespace = item.get("namespace") or ""
+    symbol = f"{kind}/{namespace}/{name}" if namespace else f"{kind}/{name}"
+    removed = bool(item.get("removed"))
+    status, release = (
+        ("removed", api["removed-in"]) if removed else ("deprecated", api["deprecated-in"])
+    )
+    replacement = api.get("replacement-api") or ""
+    manifest = os.path.normpath(item["filePath"]) if item.get("filePath") else target_path
+    if replacement:
+        moved = f"Use {replacement}."
+        fix = f"Change apiVersion from {version} to {replacement}."
+    else:
+        moved = "Kubernetes has no replacement API."
+        fix = f"Remove {kind} '{name}': no Kubernetes API replaces {version}."
+    return Finding(
+        severity="HIGH" if removed else "MEDIUM",
+        location=f"{manifest_location(manifest)}:{symbol}",
+        title=f"[{status.title()} API] {kind} '{name}' uses {version}",
+        description=f"{kind} '{name}' uses {version}, which Kubernetes {status} in {release}. {moved}",
+        fix=fix,
+        confidence_score=None,
+    )
+
+
 def parse_pluto_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
-    """Parse Pluto JSON output payload into Finding objects."""
-    findings: list[Finding] = []
-    items = data.get("items") or []
-
-    for item in items:
-        api = item.get("api") if isinstance(item.get("api"), dict) else {}
-        name = item.get("name") or "unnamed"
-        kind = item.get("kind") or api.get("kind") or "Resource"
-        api_ver = item.get("apiVersion") or api.get("version") or "v1"
-        replacement = item.get("replacement") or api.get("replacement-api") or "apps/v1"
-        deprecated = item.get("deprecated", True)
-        removed = item.get("removed", False)
-        filepath = item.get("filepath") or item.get("filePath") or target_path or "manifest.yaml"
-
-        sev = "HIGH" if removed else ("MEDIUM" if deprecated else "LOW")
-        status_word = "Removed" if removed else "Deprecated"
-
-        findings.append(
-            Finding(
-                severity=sev,
-                location=f"{filepath}:{kind}/{name}",
-                title=f"[{status_word} API] {kind} '{name}' uses {api_ver}",
-                description=(
-                    f"K8s API version '{api_ver}' used by {kind} '{name}' is "
-                    f"{status_word.lower()} in target version. Upgrade to '{replacement}'."
-                ),
-                fix=f"Update apiVersion from '{api_ver}' to '{replacement}'",
-                confidence_score=None,
-            )
-        )
-
-    return findings
+    """The findings of a Pluto JSON report: one for each item. A report that finds nothing has no
+    `items`."""
+    return [_pluto_finding(item, target_path) for item in data.get("items") or []]
 
 
 class PlutoScanner(BaseSecurityScanner):
@@ -80,6 +88,7 @@ class PlutoScanner(BaseSecurityScanner):
             target_abs,
             binary_name=self.binary_name,
             target_versions=target_versions,
+            cwd=kwargs.get("cwd"),
         )
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:

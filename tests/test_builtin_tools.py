@@ -208,9 +208,6 @@ def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
     scan_uv_audit(".")
     assert called_cmds[-1][:2] == ["uv", "audit"]
 
-    scan_popeye("monitoring")
-    assert called_cmds[-1][:2] == ["popeye", "-n"]
-
 
 def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify scan_osv and check_threat_intel functions."""
@@ -514,6 +511,44 @@ def _semgrep_directory_scan(target: Path, *configs: str) -> list[str]:
         "--quiet",
         str(target.resolve()),
     ]
+
+
+def test_the_agent_popeye_tool_runs_the_popeye_adapter_over_the_namespace(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`scan_popeye` runs Popeye through its adapter, at warn level over the namespace, from the
+    workspace, and replies with the outcome of the scan (#1434)."""
+    monkeypatch.chdir(tmp_path)
+    recorded = scanner_fake.script_run_with_findings("popeye", workdir=tmp_path)
+
+    reply = scan_popeye("argocd")
+
+    deployment = "argocd/argocd-applicationset-controller"
+    pod = "argocd/argocd-application-controller-0"
+    fix_deployment = f"(Review and adjust Kubernetes specification for {deployment})"
+    fix_pod = f"(Review and adjust Kubernetes specification for {pod})"
+    assert (scanner_fake.runs, reply) == (
+        [recorded],
+        "\n".join(
+            [
+                "Popeye scan status: ok",
+                "Findings (6):",
+                f"- [MEDIUM] k8s:deployments/{deployment}: [POP-500] Zero scale detected "
+                f"{fix_deployment}",
+                f"- [MEDIUM] k8s:deployments/{deployment}/applicationset-controller: "
+                f"[POP-106] No resources requests/limits defined {fix_deployment}",
+                f"- [HIGH] k8s:deployments/{deployment}: [POP-508] No pods match controller "
+                "selector: app.kubernetes.io/name=argocd-applicationset-controller,"
+                f"app.kubernetes.io/instance=argocd {fix_deployment}",
+                f"- [MEDIUM] k8s:pods/{pod}/application-controller: [POP-103] No liveness probe "
+                f"{fix_pod}",
+                f"- [MEDIUM] k8s:pods/{pod}: [POP-301] Connects to API Server? ServiceAccount "
+                f"token is mounted {fix_pod}",
+                f"- [MEDIUM] k8s:pods/{pod}: [POP-110] Memory Current/Request (791Mi/256Mi) "
+                f"reached user 80% threshold (308%) {fix_pod}",
+            ]
+        ),
+    )
 
 
 def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(

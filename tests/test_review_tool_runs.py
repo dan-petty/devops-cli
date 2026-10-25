@@ -453,11 +453,12 @@ def test_the_argument_template_marks_where_the_targets_and_the_files_of_a_scan_s
 
     assert run.argv_template == (
         "gitleaks",
-        "detect",
+        "dir",
         "--report-format",
         "json",
-        "--no-git",
-        "--source",
+        "--report-path",
+        "-",
+        "--redact",
         "{targets}",
         "--config",
         "{config}",
