@@ -867,6 +867,9 @@ def _prepare_branch_content(
     base_revision = _branch_base_revision(repo_path, effective_base, target_branch, is_working_tree)
     path_classes = load_path_classes(base_revision=base_revision)
     pages = [redact_text(p) for p in diff_blocks(diff_proc.stdout, path_classes=path_classes)]
+    if base_revision is not None and base_revision.changes:
+        deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
+        pages = [p for p in pages if not any(fn in deleted for fn in diff_file_names(p))]
     return pages, title, target_branch, base_revision
 
 
@@ -909,6 +912,9 @@ def _prepare_pr_content(
         base_revision = _pr_base_revision(gh, repo, pull, pr_files)
     path_classes = load_path_classes(base_revision=base_revision)
     pages = [redact_text(p) for p in diff_blocks(diff, path_classes=path_classes)]
+    if base_revision is not None and base_revision.changes:
+        deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
+        pages = [p for p in pages if not any(fn in deleted for fn in diff_file_names(p))]
     return pages, title, pull, repo, base_revision
 
 
@@ -1331,6 +1337,7 @@ def _execute_review_workflow(
     if base_revision is not None and base_revision.changes:
         deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
         all_files = [f for f in all_files if f not in deleted]
+        pages = [p for p in pages if not any(fn in deleted for fn in diff_file_names(p))]
 
     if summary_only:
         print_info(f"[dim]{MESSAGES.review.generating_metadata}[/dim]", prefix=False)
