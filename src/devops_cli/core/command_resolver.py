@@ -306,8 +306,11 @@ def _descend_subcommand(
         or not tokens
     ):
         return None
-    ctx = curr_cmd.make_context(curr_name, tokens, parent=parent_ctx, resilient_parsing=False)
-    sub_name, sub_cmd, remaining_args = curr_cmd.resolve_command(ctx, list(tokens))
+    parse_tokens = list(tokens)
+    ctx = curr_cmd.make_context(curr_name, parse_tokens, parent=parent_ctx, resilient_parsing=False)
+    if not parse_tokens:
+        return None
+    sub_name, sub_cmd, remaining_args = curr_cmd.resolve_command(ctx, list(parse_tokens))
     if sub_name is None:
         return None
     consumed = len(tokens) - len(remaining_args)
