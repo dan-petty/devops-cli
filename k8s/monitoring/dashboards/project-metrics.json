@@ -18,7 +18,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total releases tracked.",
+      "description": "Total releases tracked. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -49,7 +49,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_project_releases_total) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_project_releases[$__range]))",
           "instant": true,
           "legendFormat": "Releases",
           "refId": "A"
@@ -159,7 +159,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total commits included in each release.",
+      "description": "Total commits included in each release. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -175,7 +175,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (devops_cli_project_commits_total)",
+          "expr": "sum by (release) (last_over_time(devops_cli_project_commits[$__range]))",
           "legendFormat": "{{release}}",
           "refId": "A"
         }
@@ -183,7 +183,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total pull requests merged for each release.",
+      "description": "Total pull requests merged for each release. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -199,7 +199,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (devops_cli_project_prs_total)",
+          "expr": "sum by (release) (last_over_time(devops_cli_project_prs[$__range]))",
           "legendFormat": "{{release}}",
           "refId": "A"
         }
@@ -214,7 +214,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Overall pass rate percentage across all CI workflows.",
+      "description": "Overall pass rate percentage across all CI workflows. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -247,7 +247,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(devops_cli_project_ci_runs_total{conclusion=\"success\"}) / clamp_min(sum(devops_cli_project_ci_runs_total), 1) * 100",
+          "expr": "sum(last_over_time(devops_cli_project_ci_runs{conclusion=\"success\"}[$__range])) / clamp_min(sum(last_over_time(devops_cli_project_ci_runs[$__range])), 1) * 100",
           "instant": true,
           "legendFormat": "Pass Rate %",
           "refId": "A"
@@ -256,7 +256,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "CI workflow run completions by workflow name and conclusion (success vs failure).",
+      "description": "CI workflow run completions by workflow name and conclusion (success vs failure). It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -272,7 +272,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (workflow, conclusion) (devops_cli_project_ci_runs_total)",
+          "expr": "sum by (workflow, conclusion) (last_over_time(devops_cli_project_ci_runs[$__range]))",
           "legendFormat": "{{workflow}} ({{conclusion}})",
           "refId": "A"
         }
@@ -287,7 +287,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Open and closed items tracked per milestone.",
+      "description": "Open and closed items tracked per milestone. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -303,7 +303,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (milestone, state) (devops_cli_project_items_total)",
+          "expr": "sum by (milestone, state) (last_over_time(devops_cli_project_items[$__range]))",
           "legendFormat": "{{milestone}} ({{state}})",
           "refId": "A"
         }
@@ -311,7 +311,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Aggregate open vs closed items across all milestones.",
+      "description": "Aggregate open vs closed items across all milestones. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -327,7 +327,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (state) (devops_cli_project_items_total)",
+          "expr": "sum by (state) (last_over_time(devops_cli_project_items[$__range]))",
           "legendFormat": "{{state}}",
           "refId": "A"
         }
@@ -342,7 +342,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total repository page views and unique visitors over the last 14 days.",
+      "description": "Total repository page views and unique visitors over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -373,14 +373,14 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_project_traffic_views_total) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_project_traffic_views[$__range]))",
           "instant": true,
           "legendFormat": "Total Views",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_project_traffic_views_uniques_total) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_project_traffic_views_uniques[$__range]))",
           "instant": true,
           "legendFormat": "Unique Visitors",
           "refId": "B"
@@ -389,7 +389,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total git clones and unique cloners over the last 14 days.",
+      "description": "Total git clones and unique cloners over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -420,14 +420,14 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_project_traffic_clones_total) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_project_traffic_clones[$__range]))",
           "instant": true,
           "legendFormat": "Total Clones",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_project_traffic_clones_uniques_total) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_project_traffic_clones_uniques[$__range]))",
           "instant": true,
           "legendFormat": "Unique Cloners",
           "refId": "B"
@@ -436,7 +436,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "GitHub repository stargazers and forks count.",
+      "description": "GitHub repository stargazers and forks count. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -467,14 +467,14 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_project_stars_total) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_project_stars[$__range]))",
           "instant": true,
           "legendFormat": "Stars",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_project_forks_total) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_project_forks[$__range]))",
           "instant": true,
           "legendFormat": "Forks",
           "refId": "B"
@@ -483,7 +483,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Top GitHub repository traffic referral sources over the last 14 days.",
+      "description": "Top GitHub repository traffic referral sources over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -513,7 +513,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "topk(10, sum by (referrer) (devops_cli_project_traffic_referrers_total))",
+          "expr": "topk(10, sum by (referrer) (last_over_time(devops_cli_project_traffic_referrers[$__range])))",
           "instant": true,
           "legendFormat": "{{referrer}}",
           "refId": "A"
@@ -522,7 +522,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Most popular content paths and documentation visited over the last 14 days.",
+      "description": "Most popular content paths and documentation visited over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -552,7 +552,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "topk(10, sum by (path) (devops_cli_project_traffic_paths_total))",
+          "expr": "topk(10, sum by (path) (last_over_time(devops_cli_project_traffic_paths[$__range])))",
           "instant": true,
           "legendFormat": "{{path}}",
           "refId": "A"
@@ -568,7 +568,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Published operational status reported by GitHub Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical).",
+      "description": "Published operational status reported by GitHub Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -615,7 +615,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_upstream_service_status{service=\"github\"}) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_upstream_service_status{service=\"github\"}[$__range]))",
           "instant": true,
           "legendFormat": "GitHub",
           "refId": "A"
@@ -624,7 +624,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Published operational status reported by Cloudflare Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical).",
+      "description": "Published operational status reported by Cloudflare Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -671,7 +671,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(devops_cli_upstream_service_status{service=\"cloudflare\"}) or vector(0)",
+          "expr": "max(last_over_time(devops_cli_upstream_service_status{service=\"cloudflare\"}[$__range]))",
           "instant": true,
           "legendFormat": "Cloudflare",
           "refId": "A"

@@ -112,32 +112,32 @@ RAG_POINTS = Instrument(
     "Points stored in RAG vector collections, by collection",
 )
 
-PROJECT_RELEASES_TOTAL = Instrument(
-    "devops_cli_project_releases_total",
+PROJECT_RELEASES = Instrument(
+    "devops_cli_project_releases",
     InstrumentKind.GAUGE,
     "1",
     "Total project releases tracked",
 )
-PROJECT_COMMITS_TOTAL = Instrument(
-    "devops_cli_project_commits_total",
+PROJECT_COMMITS = Instrument(
+    "devops_cli_project_commits",
     InstrumentKind.GAUGE,
     "1",
     "Project commits count by release",
 )
-PROJECT_PRS_TOTAL = Instrument(
-    "devops_cli_project_prs_total",
+PROJECT_PRS = Instrument(
+    "devops_cli_project_prs",
     InstrumentKind.GAUGE,
     "1",
     "Project pull requests merged by release",
 )
-PROJECT_CI_RUNS_TOTAL = Instrument(
-    "devops_cli_project_ci_runs_total",
+PROJECT_CI_RUNS = Instrument(
+    "devops_cli_project_ci_runs",
     InstrumentKind.GAUGE,
     "1",
     "CI workflow runs by name, status and conclusion",
 )
-PROJECT_ITEMS_TOTAL = Instrument(
-    "devops_cli_project_items_total",
+PROJECT_ITEMS = Instrument(
+    "devops_cli_project_items",
     InstrumentKind.GAUGE,
     "1",
     "Project items by milestone, type, priority and state",
@@ -148,50 +148,50 @@ PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
     "d",
     "Days elapsed between consecutive project releases",
 )
-PROJECT_TRAFFIC_VIEWS_TOTAL = Instrument(
-    "devops_cli_project_traffic_views_total",
+PROJECT_TRAFFIC_VIEWS = Instrument(
+    "devops_cli_project_traffic_views",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository total page views count",
 )
-PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL = Instrument(
-    "devops_cli_project_traffic_views_uniques_total",
+PROJECT_TRAFFIC_VIEWS_UNIQUES = Instrument(
+    "devops_cli_project_traffic_views_uniques",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository unique visitors count",
 )
-PROJECT_TRAFFIC_CLONES_TOTAL = Instrument(
-    "devops_cli_project_traffic_clones_total",
+PROJECT_TRAFFIC_CLONES = Instrument(
+    "devops_cli_project_traffic_clones",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository total git clones count",
 )
-PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL = Instrument(
-    "devops_cli_project_traffic_clones_uniques_total",
+PROJECT_TRAFFIC_CLONES_UNIQUES = Instrument(
+    "devops_cli_project_traffic_clones_uniques",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository unique cloners count",
 )
-PROJECT_TRAFFIC_REFERRERS_TOTAL = Instrument(
-    "devops_cli_project_traffic_referrers_total",
+PROJECT_TRAFFIC_REFERRERS = Instrument(
+    "devops_cli_project_traffic_referrers",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository traffic referrals count by referrer source",
 )
-PROJECT_TRAFFIC_PATHS_TOTAL = Instrument(
-    "devops_cli_project_traffic_paths_total",
+PROJECT_TRAFFIC_PATHS = Instrument(
+    "devops_cli_project_traffic_paths",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository traffic page views by content path",
 )
-PROJECT_STARS_TOTAL = Instrument(
-    "devops_cli_project_stars_total",
+PROJECT_STARS = Instrument(
+    "devops_cli_project_stars",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository stargazers count",
 )
-PROJECT_FORKS_TOTAL = Instrument(
-    "devops_cli_project_forks_total",
+PROJECT_FORKS = Instrument(
+    "devops_cli_project_forks",
     InstrumentKind.GAUGE,
     "1",
     "GitHub repository forks count",
@@ -222,20 +222,20 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
-    PROJECT_RELEASES_TOTAL,
-    PROJECT_COMMITS_TOTAL,
-    PROJECT_PRS_TOTAL,
-    PROJECT_CI_RUNS_TOTAL,
-    PROJECT_ITEMS_TOTAL,
+    PROJECT_RELEASES,
+    PROJECT_COMMITS,
+    PROJECT_PRS,
+    PROJECT_CI_RUNS,
+    PROJECT_ITEMS,
     PROJECT_RELEASE_INTERVAL_DAYS,
-    PROJECT_TRAFFIC_VIEWS_TOTAL,
-    PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL,
-    PROJECT_TRAFFIC_CLONES_TOTAL,
-    PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL,
-    PROJECT_TRAFFIC_REFERRERS_TOTAL,
-    PROJECT_TRAFFIC_PATHS_TOTAL,
-    PROJECT_STARS_TOTAL,
-    PROJECT_FORKS_TOTAL,
+    PROJECT_TRAFFIC_VIEWS,
+    PROJECT_TRAFFIC_VIEWS_UNIQUES,
+    PROJECT_TRAFFIC_CLONES,
+    PROJECT_TRAFFIC_CLONES_UNIQUES,
+    PROJECT_TRAFFIC_REFERRERS,
+    PROJECT_TRAFFIC_PATHS,
+    PROJECT_STARS,
+    PROJECT_FORKS,
     UPSTREAM_SERVICE_STATUS,
     UPSTREAM_COMPONENT_STATUS,
 )
@@ -281,20 +281,20 @@ __all__ = [
     "COMMAND_TOTAL",
     "FINDINGS_TOTAL",
     "INSTRUMENTS",
-    "PROJECT_CI_RUNS_TOTAL",
-    "PROJECT_COMMITS_TOTAL",
-    "PROJECT_FORKS_TOTAL",
-    "PROJECT_ITEMS_TOTAL",
-    "PROJECT_PRS_TOTAL",
-    "PROJECT_RELEASES_TOTAL",
+    "PROJECT_CI_RUNS",
+    "PROJECT_COMMITS",
+    "PROJECT_FORKS",
+    "PROJECT_ITEMS",
+    "PROJECT_PRS",
+    "PROJECT_RELEASES",
     "PROJECT_RELEASE_INTERVAL_DAYS",
-    "PROJECT_STARS_TOTAL",
-    "PROJECT_TRAFFIC_CLONES_TOTAL",
-    "PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL",
-    "PROJECT_TRAFFIC_PATHS_TOTAL",
-    "PROJECT_TRAFFIC_REFERRERS_TOTAL",
-    "PROJECT_TRAFFIC_VIEWS_TOTAL",
-    "PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL",
+    "PROJECT_STARS",
+    "PROJECT_TRAFFIC_CLONES",
+    "PROJECT_TRAFFIC_CLONES_UNIQUES",
+    "PROJECT_TRAFFIC_PATHS",
+    "PROJECT_TRAFFIC_REFERRERS",
+    "PROJECT_TRAFFIC_VIEWS",
+    "PROJECT_TRAFFIC_VIEWS_UNIQUES",
     "QDRANT_RETRIES_TOTAL",
     "RAG_POINTS",
     "RAG_QUERY_DURATION",

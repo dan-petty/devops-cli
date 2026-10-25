@@ -379,20 +379,20 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
     instrument_names = [e[0] for e in emitted]
 
     expected_instruments = {
-        "devops_cli_project_releases_total",
-        "devops_cli_project_commits_total",
-        "devops_cli_project_prs_total",
+        "devops_cli_project_releases",
+        "devops_cli_project_commits",
+        "devops_cli_project_prs",
         "devops_cli_project_release_interval_days",
-        "devops_cli_project_ci_runs_total",
-        "devops_cli_project_items_total",
-        "devops_cli_project_traffic_views_total",
-        "devops_cli_project_traffic_views_uniques_total",
-        "devops_cli_project_traffic_clones_total",
-        "devops_cli_project_traffic_clones_uniques_total",
-        "devops_cli_project_stars_total",
-        "devops_cli_project_forks_total",
-        "devops_cli_project_traffic_referrers_total",
-        "devops_cli_project_traffic_paths_total",
+        "devops_cli_project_ci_runs",
+        "devops_cli_project_items",
+        "devops_cli_project_traffic_views",
+        "devops_cli_project_traffic_views_uniques",
+        "devops_cli_project_traffic_clones",
+        "devops_cli_project_traffic_clones_uniques",
+        "devops_cli_project_stars",
+        "devops_cli_project_forks",
+        "devops_cli_project_traffic_referrers",
+        "devops_cli_project_traffic_paths",
     }
     assert expected_instruments.issubset(set(instrument_names))
 
@@ -603,23 +603,19 @@ def test_record_project_metrics_in_registry() -> None:
     record_project_metrics_in_registry(report, registry=reg)
 
     assert (
-        reg.get_gauge("devops_cli_project_releases_total"),
-        reg.get_gauge("devops_cli_project_traffic_views_total"),
-        reg.get_gauge("devops_cli_project_traffic_views_uniques_total"),
-        reg.get_gauge("devops_cli_project_traffic_clones_total"),
-        reg.get_gauge("devops_cli_project_traffic_clones_uniques_total"),
-        reg.get_gauge("devops_cli_project_stars_total"),
-        reg.get_gauge("devops_cli_project_forks_total"),
-        reg.get_gauge("devops_cli_project_traffic_referrers_total", {"referrer": "github.com"}),
-        reg.get_gauge("devops_cli_project_traffic_paths_total", {"path": "/repo"}),
-        reg.get_gauge("devops_cli_project_commits_total", {"release": "v0.2.25"}),
-        reg.get_gauge("devops_cli_project_prs_total", {"release": "v0.2.25"}),
-        reg.get_gauge(
-            "devops_cli_project_items_total", {"milestone": "2026-10-01", "state": "open"}
-        ),
-        reg.get_gauge(
-            "devops_cli_project_items_total", {"milestone": "2026-10-01", "state": "closed"}
-        ),
+        reg.get_gauge("devops_cli_project_releases"),
+        reg.get_gauge("devops_cli_project_traffic_views"),
+        reg.get_gauge("devops_cli_project_traffic_views_uniques"),
+        reg.get_gauge("devops_cli_project_traffic_clones"),
+        reg.get_gauge("devops_cli_project_traffic_clones_uniques"),
+        reg.get_gauge("devops_cli_project_stars"),
+        reg.get_gauge("devops_cli_project_forks"),
+        reg.get_gauge("devops_cli_project_traffic_referrers", {"referrer": "github.com"}),
+        reg.get_gauge("devops_cli_project_traffic_paths", {"path": "/repo"}),
+        reg.get_gauge("devops_cli_project_commits", {"release": "v0.2.25"}),
+        reg.get_gauge("devops_cli_project_prs", {"release": "v0.2.25"}),
+        reg.get_gauge("devops_cli_project_items", {"milestone": "2026-10-01", "state": "open"}),
+        reg.get_gauge("devops_cli_project_items", {"milestone": "2026-10-01", "state": "closed"}),
     ) == (
         2.0,
         150.0,
@@ -638,10 +634,10 @@ def test_record_project_metrics_in_registry() -> None:
 
     prom_text = reg.export_prometheus_text()
     assert (
-        "devops_cli_project_releases_total 2.0" in prom_text,
-        "devops_cli_project_traffic_views_total 150.0" in prom_text,
-        'devops_cli_project_traffic_referrers_total{referrer="github.com"} 60.0' in prom_text,
-        'devops_cli_project_traffic_paths_total{path="/repo"} 100.0' in prom_text,
+        "devops_cli_project_releases 2.0" in prom_text,
+        "devops_cli_project_traffic_views 150.0" in prom_text,
+        'devops_cli_project_traffic_referrers{referrer="github.com"} 60.0' in prom_text,
+        'devops_cli_project_traffic_paths{path="/repo"} 100.0' in prom_text,
     ) == (
         True,
         True,
