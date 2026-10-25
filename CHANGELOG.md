@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0](https://github.com/dan-petty/devops-cli/compare/v0.4.3...v0.5.0) (2026-10-25)
+
+
+### Features
+
+* **config:** devops config unset removes a key, and an unknown key's error names the line and that command ([#2207](https://github.com/dan-petty/devops-cli/issues/2207)) ([217e05b](https://github.com/dan-petty/devops-cli/commit/217e05bac917254e986431c129241d527d1fd51b)), closes [#2201](https://github.com/dan-petty/devops-cli/issues/2201)
+* **k8s:** devops k8s volume move copies a local-path claim to a volume on another node and rebinds it, with argo cd paused and each step checked ([#2199](https://github.com/dan-petty/devops-cli/issues/2199)) ([8efee07](https://github.com/dan-petty/devops-cli/commit/8efee07dc755827601071be2547495b77ec2bd60)), closes [#2186](https://github.com/dan-petty/devops-cli/issues/2186)
+
+
+### Bug Fixes
+
+* **review:** exclude deleted files and record scanner failures per file ([#1140](https://github.com/dan-petty/devops-cli/issues/1140)) ([#2204](https://github.com/dan-petty/devops-cli/issues/2204)) ([cdc5070](https://github.com/dan-petty/devops-cli/commit/cdc5070d4d15be26245ddb4fcdd7f2581678b511))
+
 ## [0.4.3](https://github.com/dan-petty/devops-cli/compare/v0.4.2...v0.4.3) (2026-10-24)
 
 
