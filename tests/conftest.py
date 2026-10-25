@@ -1046,7 +1046,11 @@ def isolate_devops_cli_config(
     side_channel = f"127.0.0.1:{unserved_side_channel_port}"
     test_config.write_text(
         f"telemetry:\n  enabled: false\n  endpoint: http://{side_channel}\n"
+        "tempo:\n  url: http://localhost:3200\n"
+        "pyroscope:\n  url: http://localhost:4040\n"
         "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n"
+        "  gateway_url: http://localhost:4000/v1\n"
+        "  ollama_urls:\n    - http://localhost:11434\n"
         "qdrant:\n  url: http://localhost:6333\n"
         f"valkey:\n  url: valkey://{side_channel}\n",
         encoding="utf-8",

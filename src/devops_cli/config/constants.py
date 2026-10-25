@@ -837,7 +837,6 @@ CONST_GITHUB_SSH_KEY_REFRESH_SCOPES: Final[str] = ",".join(
     CONST_GITHUB_SSH_KEY_ENDPOINT_SCOPES.values()
 )
 
-CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
 CONST_URL_GITHUB_COPILOT_API_BASE = "https://api.githubcopilot.com"
 CONST_URL_OPENAI_API_BASE = "https://api.openai.com"

@@ -33,7 +33,7 @@ from devops_cli.config.constants import (
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
 )
-from devops_cli.config.defaults import DEFAULT_AI_GATEWAY_URL
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import inject_trace_context
 
@@ -47,7 +47,12 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         # The gateway holds its own key, so its requests go only to gateway_url; api_base_url is
         # usually another provider's endpoint (a gateway task's own one is folded into gateway_url).
         if self._config.provider == "gateway":
-            gw_url = getattr(self._config, "gateway_url", None) or DEFAULT_AI_GATEWAY_URL
+            gw_url = getattr(self._config, "gateway_url", None)
+            if not gw_url:
+                raise ConfigurationError(
+                    "No AI gateway URL configured. Run: devops config set ai.gateway_url <url>",
+                    key="ai.gateway_url",
+                )
             return self._validate_base_url(gw_url, purpose="provider API")
         if self._config.api_base_url:
             return self._validate_base_url(self._config.api_base_url, purpose="provider API")
@@ -70,7 +75,9 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         if self._config.provider == "gateway":
             from devops_cli.ai.gateway import is_gateway_model_reasoning
 
-            gw_url = getattr(self._config, "gateway_url", None) or DEFAULT_AI_GATEWAY_URL
+            gw_url = getattr(self._config, "gateway_url", None)
+            if not gw_url:
+                return False
             allow_private = getattr(self._config, "allow_private_network", False)
             return is_gateway_model_reasoning(
                 self._config.model,

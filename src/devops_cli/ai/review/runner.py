@@ -460,7 +460,10 @@ def _make_review_clients(
     append_cache: bool | None = None,
 ) -> ReviewClients:
     """Build LLM client for review analysis."""
+    from devops_cli.ai.endpoints import resolve_ai_endpoint
+
     task_config = settings.ai.for_task("analysis")
+    resolve_ai_endpoint(task_config, task="analysis", settings=settings)
     return ReviewClients(
         analysis=get_llm_client(
             task="analysis",

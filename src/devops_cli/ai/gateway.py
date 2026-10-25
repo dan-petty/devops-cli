@@ -28,13 +28,11 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
-    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_OLLAMA_CLUSTER_URL,
-    DEFAULT_PORTKEY_GATEWAY_URL,
 )
 from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.core.validation import validate_url_egress
-from devops_cli.exceptions import ValidationError
+from devops_cli.exceptions import ConfigurationError, ValidationError
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -429,8 +427,18 @@ class GatewayRouter:
     def gateway_url(self) -> str:
         """Resolve effective gateway base URL based on active provider."""
         if self.provider == CONST_AI_GATEWAY_PROVIDER_PORTKEY:
-            return self.config.portkey_url or DEFAULT_PORTKEY_GATEWAY_URL
-        return self.config.gateway_url or DEFAULT_AI_GATEWAY_URL
+            if not self.config.portkey_url:
+                raise ConfigurationError(
+                    "No Portkey gateway URL configured. Run: devops config set ai.portkey_url <url>",
+                    key="ai.portkey_url",
+                )
+            return self.config.portkey_url
+        if not self.config.gateway_url:
+            raise ConfigurationError(
+                "No AI gateway URL configured. Run: devops config set ai.gateway_url <url>",
+                key="ai.gateway_url",
+            )
+        return self.config.gateway_url
 
     def list_routes(self, gateway_url: str | None = None) -> list[GatewayRoute]:
         """Return configured or live queried virtual model routes."""

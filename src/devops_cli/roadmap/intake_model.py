@@ -146,7 +146,7 @@ _FAILED_CALL = (DevOpsCLIError, OSError)
 def gateway_address(ai: AIConfig) -> str:
     """Where the model calls go: the gateway when one is configured, else the provider's endpoint."""
     if ai.gateway_enabled or ai.provider == CONST_AI_GATEWAY_PROVIDER:
-        return ai.gateway_url
+        return ai.gateway_url or ""
     return ai.api_base_url or ", ".join(ai.get_ollama_urls)
 
 

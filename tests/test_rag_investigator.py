@@ -46,6 +46,8 @@ def test_investigate_rag_context_qdrant_unreachable() -> None:
     """Unreachable Qdrant server safely returns None without raising."""
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
+    st.qdrant.url = "http://192.0.2.10:6333"
     with patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls:
         mock_instance = MagicMock()
         mock_instance.is_alive.return_value = False
@@ -62,6 +64,7 @@ def test_a_refused_rag_backend_is_reported_once(
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
     st.qdrant.url = "http://192.0.2.10:6333"
 
     with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.investigator"):
@@ -82,6 +85,8 @@ def test_investigate_rag_context_success() -> None:
     """Successful RAG investigation returns structured RAGContext."""
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
+    st.qdrant.url = "http://192.0.2.10:6333"
 
     chunk = CodeChunk(
         id="chk-1",
@@ -125,6 +130,8 @@ def test_investigate_rag_context_persona_expansion() -> None:
     """Persona parameter triggers persona-expanded query retrieval."""
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
+    st.qdrant.url = "http://192.0.2.10:6333"
 
     with (
         patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
@@ -185,6 +192,7 @@ def test_concurrent_lookups_wait_for_probe_outcome() -> None:
     clear_investigation_cache()
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
 
     request_count = 0
     lock = threading.Lock()
@@ -228,6 +236,7 @@ def test_concurrent_lookups_healthy_stub_all_get_context() -> None:
     clear_investigation_cache()
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
 
     chunk = CodeChunk(
         id="chk-1",
@@ -276,6 +285,7 @@ def test_circuit_breaker_pause_and_resume(clock: ClockFake) -> None:
     clear_investigation_cache()
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
 
     request_count = 0
     fail = True
@@ -364,6 +374,7 @@ def test_a_failed_probe_pauses_rag_lookups_for_60_seconds_more(
     """
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
     outcomes = iter([False, False, False, False, True, True])
     requests: list[str] = []
 
@@ -422,6 +433,7 @@ def test_settings_score_threshold_reaches_qdrant_search() -> None:
     clear_investigation_cache()
     st = Settings()
     st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
     st.ai.rag.score_threshold = 0.5
 
     with (

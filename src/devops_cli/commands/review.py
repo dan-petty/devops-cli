@@ -38,7 +38,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
 from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan, set_dry_run
-from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
@@ -448,15 +448,19 @@ def path(
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    clients = (
-        _make_review_clients(
-            settings,
-            cache_enabled=False if (no_cache or force) else None,
-            append_cache=append_cache,
+    try:
+        clients = (
+            _make_review_clients(
+                settings,
+                cache_enabled=False if (no_cache or force) else None,
+                append_cache=append_cache,
+            )
+            if stage_flags.needs_model()
+            else ReviewClients()
         )
-        if stage_flags.needs_model()
-        else ReviewClients()
-    )
+    except ConfigurationError as exc:
+        print_error(f"Configuration error: {exc.message} ({exc.key})", prefix=False)
+        raise typer.Exit(1) from exc
     # The one read of the working directory: every target and boundary comes from it (#2098).
     working_directory = Path.cwd().resolve()
     path_targets = targets or [DEFAULT_CURRENT_PATH]
@@ -595,15 +599,19 @@ def branch(
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    clients = (
-        _make_review_clients(
-            settings,
-            cache_enabled=False if (no_cache or force) else None,
-            append_cache=append_cache,
+    try:
+        clients = (
+            _make_review_clients(
+                settings,
+                cache_enabled=False if (no_cache or force) else None,
+                append_cache=append_cache,
+            )
+            if stage_flags.needs_model()
+            else ReviewClients()
         )
-        if stage_flags.needs_model()
-        else ReviewClients()
-    )
+    except ConfigurationError as exc:
+        print_error(f"Configuration error: {exc.message} ({exc.key})", prefix=False)
+        raise typer.Exit(1) from exc
     # The one read of the working directory: the repository and the boundary come from it (#2098).
     working_directory = Path.cwd().resolve()
     repo_path = (working_directory / repo_path).resolve()
@@ -881,15 +889,19 @@ def pr(
     with exit_on_error(GitHubOperationError):
         get_github_session()
 
-    clients = (
-        _make_review_clients(
-            settings,
-            cache_enabled=False if (no_cache or force) else None,
-            append_cache=append_cache,
+    try:
+        clients = (
+            _make_review_clients(
+                settings,
+                cache_enabled=False if (no_cache or force) else None,
+                append_cache=append_cache,
+            )
+            if stage_flags.needs_model()
+            else ReviewClients()
         )
-        if stage_flags.needs_model()
-        else ReviewClients()
-    )
+    except ConfigurationError as exc:
+        print_error(f"Configuration error: {exc.message} ({exc.key})", prefix=False)
+        raise typer.Exit(1) from exc
     # The review reads the PR head's files, not the local checkout's version of them.
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:

@@ -4,7 +4,6 @@ from typing import Any
 
 _OLLAMA_EXPORTS: frozenset[str] = frozenset(
     {
-        "DEFAULT_OLLAMA_BASE_URL",
         "ModelProfileSpec",
         "ModelSettings",
         "OllamaModel",
@@ -37,7 +36,6 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "DEFAULT_OLLAMA_BASE_URL",
     "ModelProfileSpec",
     "ModelSettings",
     "OllamaModel",

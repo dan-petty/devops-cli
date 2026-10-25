@@ -84,9 +84,7 @@ def telemetry_status_cmd(
     )
 
     tempo_cfg = getattr(settings, "tempo", None)
-    tempo_url = (
-        tempo_cfg.url if tempo_cfg and hasattr(tempo_cfg, "url") else "http://localhost:3200"
-    )
+    tempo_url = tempo_cfg.url if tempo_cfg and hasattr(tempo_cfg, "url") else None
 
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -120,7 +118,7 @@ def telemetry_status_cmd(
             ],
             ["OTLP Endpoint", endpoint],
             ["Service Name", tracer.service_name],
-            ["Tempo API", format_link(tempo_url)],
+            ["Tempo API", format_link(tempo_url) if tempo_url else "Unconfigured"],
             [
                 "Collector Health",
                 format_status_badge(True, label=f"✓ Connected ({format_latency(latency_ms)})")
@@ -144,9 +142,10 @@ def telemetry_status_cmd(
             ],
         ],
     )
-    print_info(
-        f"\n[dim]To query traces via Tempo API: {format_link(tempo_url)}[/dim]", prefix=False
-    )
+    if tempo_url:
+        print_info(
+            f"\n[dim]To query traces via Tempo API: {format_link(tempo_url)}[/dim]", prefix=False
+        )
 
 
 # =============================================================================
@@ -302,13 +301,12 @@ def telemetry_test_cmd(
     )
     settings = load_settings()
     tempo_cfg = getattr(settings, "tempo", None)
-    tempo_url = (
-        tempo_cfg.url if tempo_cfg and hasattr(tempo_cfg, "url") else "http://localhost:3200"
-    )
-    print_info(
-        f"[dim]Query in Tempo: {format_link(tempo_url)} (Service: {tracer.service_name})[/dim]",
-        prefix=False,
-    )
+    tempo_url = tempo_cfg.url if tempo_cfg and hasattr(tempo_cfg, "url") else None
+    if tempo_url:
+        print_info(
+            f"[dim]Query in Tempo: {format_link(tempo_url)} (Service: {tracer.service_name})[/dim]",
+            prefix=False,
+        )
 
 
 # =============================================================================
@@ -316,10 +314,11 @@ def telemetry_test_cmd(
 # =============================================================================
 
 
-def _tempo_url() -> str:
+def _tempo_url() -> str | None:
     """Return the configured Tempo HTTP API URL."""
     tempo_cfg = getattr(load_settings(), "tempo", None)
-    return str(getattr(tempo_cfg, "url", "") or "http://localhost:3200")
+    url = getattr(tempo_cfg, "url", None)
+    return str(url) if url else None
 
 
 def _devops_entry_argv(command: str) -> list[str]:
@@ -450,6 +449,12 @@ def telemetry_profile_cmd(
         trace_id = _run_profiled_command(command, argv, tracer)
 
     tempo_url = _tempo_url()
+    if not tempo_url:
+        print_error(
+            "No Tempo URL configured. Run: devops config set tempo.url <url>",
+            prefix=False,
+        )
+        raise typer.Exit(1)
     spans = _read_trace_from_tempo(str(trace_id), tempo_url)
     if not spans:
         print_error(
@@ -518,7 +523,12 @@ def telemetry_profile_cmd(
 @app.command("open-ui")
 def telemetry_open_ui_cmd() -> None:
     """Print and show the Tempo HTTP API endpoint for inspecting traces."""
-    print_info(f"[bold]Tempo HTTP API:[/bold] {format_link(_tempo_url())}", prefix=False)
+    url = _tempo_url()
+    if not url:
+        print_info("[bold]Tempo HTTP API:[/bold] Unconfigured", prefix=False)
+        print_info(MESSAGES.telemetry.port_forward_tip, prefix=False)
+        return
+    print_info(f"[bold]Tempo HTTP API:[/bold] {format_link(url)}", prefix=False)
     print_info(MESSAGES.telemetry.port_forward_tip, prefix=False)
 
 

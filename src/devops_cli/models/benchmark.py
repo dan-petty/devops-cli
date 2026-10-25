@@ -176,9 +176,13 @@ class EmbeddingServerSummary(BaseModel):
 class EmbeddingBenchmarkReport(BaseModel):
     """Consolidated benchmark report for multiple embedding models."""
 
+    model_config = ConfigDict(extra="allow")
+
     session_id: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     models: list[EmbeddingBenchmarkResult] = Field(default_factory=list)
     server_benchmarks: list[EmbeddingServerSummary] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     is_dry_run: bool = False
+    failed_count: int | None = None
+    total_count: int | None = None

@@ -122,8 +122,9 @@ def vault_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """Give the Vault broker a token from the environment, and nothing else from the shell."""
     from devops_cli.security.secrets import reset_resolver
 
-    for name in ("VAULT_ADDR", "VAULT_NAMESPACE", "DEVOPS_CLI_VAULT_TOKEN"):
+    for name in ("VAULT_NAMESPACE", "DEVOPS_CLI_VAULT_TOKEN"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("VAULT_ADDR", "http://127.0.0.1:8200")
     monkeypatch.setenv("VAULT_TOKEN", "s.env-token")
     reset_resolver()
 
@@ -195,8 +196,9 @@ def test_vault_source_without_a_token_raises_before_any_request(
     from devops_cli.exceptions.vault import VaultAuthenticationError
     from devops_cli.security.secrets import reset_resolver
 
-    for name in ("VAULT_ADDR", "VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN"):
+    for name in ("VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("VAULT_ADDR", "http://127.0.0.1:8200")
     reset_resolver()
     with patch("devops_cli.http.broker.HttpClientBroker.request") as mock_request:
         with pytest.raises(VaultAuthenticationError, match="devops vault login"):

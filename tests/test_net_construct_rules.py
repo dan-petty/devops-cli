@@ -80,6 +80,12 @@ _VIOLATIONS = [
         "net-hostport", "src", 'host, _, port = endpoint.rpartition(":")\n', id="net-hostport"
     ),
     pytest.param("net-ip-literal", "src", 'local = host == "127.0.0.1"\n', id="net-ip-literal"),
+    pytest.param(
+        "net-localhost-fallback",
+        "src",
+        'url = endpoint or "http://localhost:11434"\n',
+        id="net-localhost-fallback",
+    ),
     pytest.param("net-cidr-build", "src", 'network = f"{ip}/32"\n', id="net-cidr-build"),
     pytest.param(
         "test-elapsed-upper-bound", "tests", _ELAPSED_UPPER_BOUND, id="test-elapsed-upper-bound"

@@ -143,6 +143,25 @@ def _execute_embedding_benchmark(
     )
     with exit_on_error(ValidationError):
         embed_report = embed_runner.run()
+
+    failed_cnt = (
+        embed_report.failed_count
+        if embed_report.failed_count is not None
+        else sum(1 for m in embed_report.models if getattr(m, "failed", False))
+    )
+    total_cnt = (
+        embed_report.total_count
+        if embed_report.total_count is not None
+        else len(embed_report.models)
+    )
+    if total_cnt > 0 and failed_cnt >= total_cnt:
+        if output:
+            resolved_output = output.resolve()
+            write_text_file(resolved_output, embed_report.model_dump_json(indent=2))
+        embed_runner.print_report(embed_report, format_type=format_type)
+        print_error("All embedding benchmark requests failed.", prefix=False)
+        raise typer.Exit(1)
+
     if not dry_run:
         from devops_cli.ai.benchmark.code_chunk_corpus import code_tree_digest
         from devops_cli.ai.run_store import file_digest
@@ -329,9 +348,25 @@ def run_benchmark(
         _validate_benchmark_type(benchmark_type)
         _validate_corpus_choice(document, code)
 
+    from devops_cli.ai.endpoints import resolve_ai_endpoint
     from devops_cli.config.settings import load_settings
+    from devops_cli.exceptions import ConfigurationError
 
     settings = load_settings()
+    effective_ai_cfg = settings.ai
+    if provider:
+        effective_ai_cfg = settings.ai.model_copy(update={"provider": provider})
+    if servers:
+        effective_ai_cfg = effective_ai_cfg.model_copy(
+            update={"ollama_urls": _parse_server_list(servers) or []}
+        )
+
+    try:
+        resolve_ai_endpoint(effective_ai_cfg)
+    except ConfigurationError as exc:
+        print_error(f"Configuration error: {exc.message} ({exc.key})", prefix=False)
+        raise typer.Exit(1) from exc
+
     model_list = parse_model_list(models, settings.ai.model)
     safe_concurrency = max(1, min(concurrency, 32))
     server_list = _parse_server_list(servers)
@@ -342,6 +377,13 @@ def run_benchmark(
     )
 
     if is_embedding:
+        if not models:
+            effective_provider = provider or settings.ai.provider
+            if effective_provider == "gateway":
+                model_list = ["devops-embedding"]
+            else:
+                emb_model = getattr(getattr(settings.ai.tasks, "embedding", None), "model", None)
+                model_list = [emb_model] if emb_model else [settings.ai.model]
         _execute_embedding_benchmark(
             model_list=model_list,
             settings=settings,

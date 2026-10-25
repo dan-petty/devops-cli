@@ -193,7 +193,7 @@ _SEV_ORDER: dict[str, int] = {
 def _resolve_ollama_urls(config: Any) -> list[str]:
     """Safely resolve configured Ollama base URLs handling properties and callables."""
     if not config:
-        return ["http://localhost:11434"]
+        return []
     raw_urls = getattr(config, "get_ollama_urls", None)
     if callable(raw_urls):
         try:
@@ -205,7 +205,7 @@ def _resolve_ollama_urls(config: Any) -> list[str]:
     raw_list = getattr(config, "ollama_urls", None)
     if isinstance(raw_list, list) and raw_list:
         return [str(u).strip().rstrip("/") for u in raw_list if str(u).strip()]
-    return ["http://localhost:11434"]
+    return []
 
 
 def _review_batch_capacity(config: Any) -> int:

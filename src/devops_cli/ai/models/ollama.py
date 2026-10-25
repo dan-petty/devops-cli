@@ -25,9 +25,7 @@ from pydantic_ai.profiles.qwen import qwen_model_profile
 from pydantic_ai.settings import ModelSettings, merge_model_settings
 
 from devops_cli.ai.settings import create_model_settings
-from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
-
-DEFAULT_OLLAMA_BASE_URL: str = "http://localhost:11434"
+from devops_cli.exceptions import ConfigurationError, InvalidURLError, SSRFBlockedError
 
 
 def _is_cloud_metadata_host(host: str) -> bool:
@@ -46,7 +44,10 @@ def normalize_ollama_base_url(url: str, *, allow_private: bool = True) -> str:
     """
     clean_url = url.strip()
     if not clean_url:
-        clean_url = DEFAULT_OLLAMA_BASE_URL
+        raise ConfigurationError(
+            "No Ollama server URLs configured. Run: devops config set ai.ollama_urls <url>",
+            key="ai.ollama_urls",
+        )
 
     parsed = urlsplit(clean_url)
     if parsed.scheme.lower() not in ("http", "https"):
@@ -112,7 +113,13 @@ def create_ollama_provider(
     elif base_url:
         raw_url = base_url
     else:
-        raw_url = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
+        raw_url = os.environ.get("OLLAMA_BASE_URL")
+
+    if not raw_url:
+        raise ConfigurationError(
+            "No Ollama server URLs configured. Run: devops config set ai.ollama_urls <url>",
+            key="ai.ollama_urls",
+        )
 
     normalized_url = normalize_ollama_base_url(raw_url, allow_private=allow_private)
     resolved_api_key = api_key or os.environ.get("OLLAMA_API_KEY")
@@ -224,7 +231,6 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "DEFAULT_OLLAMA_BASE_URL",
     "ModelProfileSpec",
     "ModelSettings",
     "OllamaModel",

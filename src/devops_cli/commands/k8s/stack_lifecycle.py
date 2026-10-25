@@ -9,7 +9,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Final, assert_never
 
 import typer
 from pydantic import ValidationError
@@ -1098,6 +1098,53 @@ def _handle_argo_managed_deployment(
     )
 
 
+_STACK_SERVICE_URLS: Final[dict[str, list[tuple[str, Any]]]] = {
+    "infra": [
+        ("tempo.url", "http://localhost:3200"),
+        ("pyroscope.url", "http://localhost:4040"),
+    ],
+    "llm": [
+        ("ai.gateway_url", "http://localhost:4000/v1"),
+        ("qdrant.url", "http://localhost:6333"),
+        ("ai.ollama_urls", ["http://localhost:11434"]),
+    ],
+}
+
+
+def _get_setting_value(settings: Any, dotted_key: str) -> Any:
+    cur: Any = settings
+    for part in dotted_key.split("."):
+        if cur is None:
+            return None
+        cur = getattr(cur, part, None)
+    return cur
+
+
+def _compute_stack_config_writes(
+    selected_stacks: Sequence[str], settings: Any
+) -> list[tuple[str, Any]]:
+    writes: list[tuple[str, Any]] = []
+    for s in selected_stacks:
+        for key, default_val in _STACK_SERVICE_URLS.get(s, []):
+            cur_val = _get_setting_value(settings, key)
+            if cur_val is None or cur_val == [] or cur_val == "":
+                writes.append((key, default_val))
+    return writes
+
+
+def _apply_stack_config_writes(selected_stacks: Sequence[str]) -> None:
+    from devops_cli.config.settings import dotted_set, load_settings, save_settings
+
+    active_settings = load_settings()
+    writes = _compute_stack_config_writes(selected_stacks, active_settings)
+    if not writes:
+        return
+    for k, v in writes:
+        dotted_set(active_settings, k, v)
+        print_info(f"Configured service URL: {k} -> {v}", prefix=False)
+    save_settings(active_settings)
+
+
 def deploy_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
@@ -1160,7 +1207,13 @@ def deploy_stack(
     # and a deploy alike, before either touches the cluster
     config_map = _render_devops_configmap(k8s_dir) if "devops" in selected_stacks else None
 
+    from devops_cli.config.settings import load_settings
+
     if dry_run or is_dry_run():
+        active_settings = load_settings()
+        config_writes = [
+            f"{k}: {v}" for k, v in _compute_stack_config_writes(selected_stacks, active_settings)
+        ]
         render_dry_run_result(
             command="devops k8s deploy-stack",
             target=str(k8s_dir),
@@ -1175,6 +1228,7 @@ def deploy_stack(
                 "timeout": timeout,
                 "port_forward": port_forward,
                 "configure_urls": configure_urls,
+                "config_writes": config_writes,
                 "secrets": _dry_run_secrets(selected_stacks, push_secrets),
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
@@ -1256,6 +1310,8 @@ def deploy_stack(
     write_stdout("\n")
     _post_deploy_networking(stack, effective_context, port_forward, configure_urls)
     _post_deploy_credentials(selected_stacks, effective_context)
+
+    _apply_stack_config_writes(selected_stacks)
 
 
 def sync_secrets(

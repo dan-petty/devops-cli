@@ -34,6 +34,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
     DEFAULT_OLLAMA_MAX_PARALLEL,
 )
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.models.ai import ChatMessage
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -181,7 +182,10 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         all_urls = self._config.get_ollama_urls
         n = len(all_urls)
         if n == 0:
-            return [(0, "http://localhost:11434")]
+            raise ConfigurationError(
+                "No Ollama server URLs configured. Run: devops config set ai.ollama_urls <url>",
+                key="ai.ollama_urls",
+            )
         start = self._load_and_increment_rr_index(n)
         candidate_urls = [all_urls[(start + i) % n] for i in range(n)]
         indexed_urls = list(enumerate(candidate_urls))

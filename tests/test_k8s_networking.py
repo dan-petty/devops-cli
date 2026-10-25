@@ -25,7 +25,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _MANIFESTS_BY_STACK,
     deploy_stack,
 )
-from devops_cli.config.defaults import DEFAULT_OLLAMA_PORT, DEFAULT_OLLAMA_URLS, DEFAULT_QDRANT_URL
+from devops_cli.config.defaults import DEFAULT_OLLAMA_PORT, DEFAULT_QDRANT_URL
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from tests.k8s_manifests import applied_documents
@@ -156,7 +156,7 @@ def test_update_ollama_urls_endpoint_preservation() -> None:
     _update_ollama_urls(settings_append, configured_append, "http://example.com:31434")
 
     settings_default = Settings()
-    settings_default.ai.ollama_urls = list(DEFAULT_OLLAMA_URLS)
+    settings_default.ai.ollama_urls = []
     configured_default: dict[str, str] = {}
     _update_ollama_urls(settings_default, configured_default, "http://example.com:31434")
 

@@ -130,6 +130,8 @@ def gateway_pool(task: AIConfig) -> list[dict[str, Any]] | None:
     from devops_cli.ai.gateway_tune import backend_label, discover_pool
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
+    if not task.gateway_url:
+        return None
     try:
         info = fetch_model_info(
             task.gateway_url, task.allow_private_network, get_ai_api_key(load_settings())

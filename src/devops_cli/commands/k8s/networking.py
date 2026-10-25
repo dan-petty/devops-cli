@@ -320,13 +320,11 @@ def _update_ollama_urls(
     """Update settings.ai.ollama_urls preserving existing custom non-loopback endpoints."""
     from urllib.parse import urlparse
 
-    from devops_cli.config.defaults import DEFAULT_OLLAMA_URLS
-
     if not ollama_url:
         return
     existing = list(settings.ai.ollama_urls or [])
     is_loopback = is_loopback_host(urlparse(ollama_url).hostname or "")
-    if not existing or existing == list(DEFAULT_OLLAMA_URLS):
+    if not existing:
         settings.ai.ollama_urls = [ollama_url]
         configured["ai.ollama_urls"] = ollama_url
     elif ollama_url in existing:

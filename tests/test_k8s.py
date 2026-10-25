@@ -1718,7 +1718,7 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
         True,
         ("monitoring", "svc/pyroscope", 4040, 4040),
         "http://localhost:4040",
-        "http://localhost:4040",
+        None,
     )
 
 

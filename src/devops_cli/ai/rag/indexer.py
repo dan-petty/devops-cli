@@ -33,7 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_DOCS_COLLECTION,
 )
 from devops_cli.core.repo import is_ignored_by_git
-from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
 from devops_cli.lang.en.errors import ERRORS
 from devops_cli.telemetry import record_metric, trace_span
 
@@ -414,9 +414,9 @@ def _calc_effective_batch_size(embedder: Any, default_batch: int) -> int:
             raw_urls = getattr(
                 ai_cfg,
                 "ollama_urls",
-                getattr(ai_cfg, "ollama_server_urls", ["http://localhost:11434"]),
+                getattr(ai_cfg, "ollama_server_urls", []),
             )
-            urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            urls = raw_urls if isinstance(raw_urls, list) else []
             raw_par = getattr(ai_cfg, "ollama_max_parallel", 2)
             is_numeric = isinstance(raw_par, (int, float, str)) and not isinstance(raw_par, bool)
             max_par = int(raw_par) if is_numeric else 2
@@ -440,7 +440,12 @@ def resolve_qdrant_client(
     from devops_cli.config.settings import get_qdrant_api_key, load_settings
 
     settings = load_settings()
-    url = base_url or settings.qdrant.url or "http://localhost:6333"
+    url = base_url or settings.qdrant.url
+    if not url:
+        raise ConfigurationError(
+            "No Qdrant vector store URL configured. Run: devops config set qdrant.url <url>",
+            key="qdrant.url",
+        )
     resolved_api_key = api_key or get_qdrant_api_key(settings)
     private_net = (
         allow_private_network

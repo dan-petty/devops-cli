@@ -1,0 +1,10 @@
+id: net-localhost-fallback
+valid:
+  - 'url = endpoint or "https://api.openai.com/v1"'
+  - 'addr = cfg.get("url", None)'
+  - 'val = getattr(settings, "url", None)'
+  - 'bind = "http://127.0.0.1:8000"'
+invalid:
+  - 'url = endpoint or "http://localhost:11434"'
+  - 'addr = cfg.get("url", "http://127.0.0.1:8200")'
+  - 'val = getattr(settings, "url", "http://localhost:6333")'

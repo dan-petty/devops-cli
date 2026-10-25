@@ -1,0 +1,17 @@
+id: net-localhost-fallback
+language: python
+severity: error
+files:
+  - "src/**"
+message: Hard-coded localhost fallback URL. Service clients must use configured URLs or explicit port forwards only and fail when unconfigured.
+rule:
+  any:
+    - all:
+        - kind: boolean_operator
+        - regex: '\bor\s+["'']https?://(localhost|127\.0\.0\.1|::1)'
+    - all:
+        - kind: call
+        - regex: '\.get\([^,]+,\s*["'']https?://(localhost|127\.0\.0\.1|::1)'
+    - all:
+        - kind: call
+        - regex: 'getattr\([^,]+,[^,]+,\s*["'']https?://(localhost|127\.0\.0\.1|::1)'

@@ -226,7 +226,10 @@ def _get_or_create_retriever(
         if valid is not None:
             return valid
 
-        qdrant_url = st.qdrant.url or "http://localhost:6333"
+        qdrant_url = st.qdrant.url
+        if not qdrant_url:
+            logger.debug("Qdrant vector store not configured, skipping RAG investigation")
+            return None
         qdrant = QdrantClient(
             base_url=qdrant_url,
             api_key=settings_mod.get_qdrant_api_key(st),

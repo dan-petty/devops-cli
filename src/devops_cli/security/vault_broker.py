@@ -131,12 +131,12 @@ class VaultSecretBroker:
         vault_token: str | None = None,
         vault_namespace: str | None = None,
     ) -> None:
-        self.vault_addr = (
-            vault_addr
-            or os.getenv("VAULT_ADDR")
-            or os.getenv("DEVOPS_CLI_VAULT_ADDR")
-            or "http://127.0.0.1:8200"
-        ).rstrip("/")
+        resolved_addr = vault_addr or os.getenv("VAULT_ADDR") or os.getenv("DEVOPS_CLI_VAULT_ADDR")
+        if not resolved_addr:
+            raise VaultConfigurationError(
+                "No Vault address configured. Set VAULT_ADDR, DEVOPS_CLI_VAULT_ADDR, or pass --vault-addr."
+            )
+        self.vault_addr = resolved_addr.rstrip("/")
         parsed = urlsplit(self.vault_addr)
         if parsed.scheme not in ("http", "https"):
             raise VaultConfigurationError(

@@ -137,6 +137,7 @@ CONST_NET_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "net-domain-suffix",
     "net-hostport",
     "net-ip-literal",
+    "net-localhost-fallback",
     "net-normalise",
     "net-port-table",
     "net-scheme-affix",

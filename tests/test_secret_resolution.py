@@ -202,6 +202,7 @@ def test_vault_provider_with_a_rejected_token_answers_none(
     """A 403 leaves the provider unable to supply, and the keyring is not read in its place."""
     import httpx2
 
+    monkeypatch.setenv("VAULT_ADDR", "http://127.0.0.1:8200")
     monkeypatch.setenv("VAULT_TOKEN", "s.expired")
     with (
         patch(
@@ -223,6 +224,7 @@ def test_resolving_the_broker_token_builds_no_second_broker(
     """The broker's token lookups carry no Vault path, so the chain never recurses into Vault."""
     from devops_cli.security import vault_broker
 
+    monkeypatch.setenv("VAULT_ADDR", "http://127.0.0.1:8200")
     built: list[object] = []
     original_init = vault_broker.VaultSecretBroker.__init__
 

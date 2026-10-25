@@ -43,7 +43,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_AI_CONTEXT_WINDOW,
-    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
@@ -307,7 +306,7 @@ class LLMClient(
                 "claude": CONST_URL_ANTHROPIC_API_BASE,
                 "copilot": CONST_URL_GITHUB_COPILOT_API_BASE,
                 "openai": CONST_URL_OPENAI_API_BASE,
-                "gateway": getattr(self._config, "gateway_url", None) or DEFAULT_AI_GATEWAY_URL,
+                "gateway": getattr(self._config, "gateway_url", None),
             }
             base_url = provider_defaults.get(p)
         if isinstance(base_url, str) and base_url:
@@ -317,11 +316,13 @@ class LLMClient(
 
     def _resolve_ollama_backend_host(self) -> str:
         """Resolve comma-separated backend host string for configured Ollama endpoints."""
-        urls = getattr(self._config, "get_ollama_urls", ["http://localhost:11434"])
+        urls = getattr(self._config, "get_ollama_urls", [])
         if not isinstance(urls, (list, tuple)):
-            urls = ["http://localhost:11434"]
-        hosts = [urlparse(u).netloc or urlparse(u).path or u for u in urls if isinstance(u, str)]
-        return ", ".join(hosts) or "localhost:11434"
+            urls = []
+        hosts = [
+            urlparse(u).netloc or urlparse(u).path or u for u in urls if isinstance(u, str) and u
+        ]
+        return ", ".join(hosts) or "unconfigured"
 
     @property
     def backend_info(self) -> str:

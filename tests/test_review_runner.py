@@ -371,6 +371,7 @@ def test_make_review_clients() -> None:
     from devops_cli.config.settings import Settings
 
     st = Settings()
+    st.ai.ollama_urls = ["http://localhost:11434"]
     clients = _make_review_clients(st)
     assert isinstance(clients.analysis, LLMClient)
     assert clients.analysis._config.task_name == "analysis"
@@ -382,9 +383,12 @@ def test_review_clients_wait_a_configured_task_timeout() -> None:
     from devops_cli.config.settings import AITaskOverride, Settings
 
     st = Settings()
+    st.ai.ollama_urls = ["http://localhost:11434"]
     st.ai.tasks.analysis = AITaskOverride(timeout=30.0)
     configured = _make_review_clients(st)
-    defaults = _make_review_clients(Settings())
+    def_st = Settings()
+    def_st.ai.ollama_urls = ["http://localhost:11434"]
+    defaults = _make_review_clients(def_st)
 
     assert (
         configured.analysis._request_timeout().read,

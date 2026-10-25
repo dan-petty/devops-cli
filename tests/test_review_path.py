@@ -56,7 +56,8 @@ def test_review_client_uses_long_read_timeout_for_chat_requests(
     it here entirely, and every long review would have aborted.
     """
     client = LLMClient(
-        AIConfig(provider="ollama"), request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS
+        AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]),
+        request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
     )
     sent = route_client(
         client,
