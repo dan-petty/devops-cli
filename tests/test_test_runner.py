@@ -365,3 +365,34 @@ def test_test_run_runs_pytest_in_a_nested_worktree(
         result = runner.invoke(app_cli, ["run"])
 
     assert (result.exit_code, run.call_args.kwargs["cwd"]) == (0, nested.resolve())
+
+
+def test_changed_paths_handles_spaces_non_ascii_and_renames(tmp_path: Path) -> None:
+    """_changed_paths parses git output without quoting corrupting paths with spaces or non-ASCII characters."""
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+
+    (repo / "first.py").write_text("a = 1\n", encoding="utf-8")
+    (repo / "old.py").write_text("b = 2\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
+
+    subprocess.run(["git", "-C", str(repo), "checkout", "-q", "-b", "topic"], check=True)
+    (repo / "first.py").write_text("a = 2\n", encoding="utf-8")
+    (repo / "path with space.py").write_text("c = 3\n", encoding="utf-8")
+    (repo / "café.py").write_text("d = 4\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "mv", "old.py", "renamed.py"], check=True)
+
+    paths = _changed_paths(repo)
+    assert paths == [
+        "café.py",
+        "first.py",
+        "old.py",
+        "path with space.py",
+        "renamed.py",
+    ]

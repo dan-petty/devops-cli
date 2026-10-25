@@ -1115,3 +1115,30 @@ def test_repo_origin_lru_caching(tmp_path: Path) -> None:
 
     res_list = runner.invoke(app, ["--dry-run", "repos", "list"])
     assert (res_list.exit_code, "devops repos list" in res_list.output) == (0, True)
+
+
+def test_list_repo_files_handles_spaces_non_ascii_and_renames(tmp_path: Path) -> None:
+    """Real git repository file listing includes unquoted non-ASCII files and files with spaces."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+
+    (repo / "first.py").write_text("a = 1\n", encoding="utf-8")
+    (repo / "old.py").write_text("b = 2\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
+
+    (repo / "path with space.py").write_text("c = 3\n", encoding="utf-8")
+    (repo / "café.py").write_text("d = 4\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "mv", "old.py", "renamed.py"], check=True)
+
+    files = list_repo_files(repo)
+    expected = [
+        repo / "café.py",
+        repo / "first.py",
+        repo / "path with space.py",
+        repo / "renamed.py",
+    ]
+    assert files == expected

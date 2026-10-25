@@ -67,11 +67,11 @@ def test_git_worktree_porcelain_parsing_specification(
     records: list[str] = []
     for idx, path in enumerate(paths):
         h = hashes[idx % len(hashes)] if hashes else "0" * 40
-        records.append(f"worktree {path}\nHEAD {h}\nbranch refs/heads/branch-{idx}\n")
+        records.append(f"worktree {path}\0HEAD {h}\0branch refs/heads/branch-{idx}\0")
 
-    stdout_text = "\n".join(records)
+    stdout_text = "\0".join(records)
     proc = subprocess.CompletedProcess(
-        args=["git", "worktree", "list", "--porcelain"],
+        args=["git", "worktree", "list", "--porcelain", "-z"],
         returncode=0,
         stdout=stdout_text,
         stderr="",
@@ -91,7 +91,7 @@ def test_git_worktree_porcelain_parsing_specification(
 def test_git_worktree_porcelain_failure_specification(exit_code: int) -> None:
     """git-worktree(1): non-zero exit code indicates not a repository or git error, returning empty list."""
     proc = subprocess.CompletedProcess(
-        args=["git", "worktree", "list", "--porcelain"],
+        args=["git", "worktree", "list", "--porcelain", "-z"],
         returncode=exit_code,
         stdout="fatal: not a git repository",
         stderr="fatal: not a git repository",

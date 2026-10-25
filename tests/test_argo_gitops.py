@@ -560,3 +560,37 @@ def test_inspect_git_manifest_drift_error_handling(tmp_path: Path) -> None:
         side_effect=RuntimeError("git not installed"),
     ):
         assert inspect_git_manifest_drift([tmp_path]) == []
+
+
+def test_inspect_git_manifest_drift_handles_spaces_non_ascii_and_renames(tmp_path: Path) -> None:
+    """Real git repository drift inspection handles leading spaces, spaces in path, non-ASCII paths, and renames."""
+    import subprocess
+
+    from devops_cli.argo.gitops import inspect_git_manifest_drift
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+
+    k8s = repo / "k8s"
+    k8s.mkdir()
+    (k8s / "first.yaml").write_text("kind: ConfigMap\n", encoding="utf-8")
+    (k8s / "old.yaml").write_text("kind: Service\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
+
+    (k8s / "first.yaml").write_text("kind: ConfigMap\nmetadata:\n  name: first\n", encoding="utf-8")
+    (k8s / "space manifest.yaml").write_text("kind: Deployment\n", encoding="utf-8")
+    (k8s / "café.yaml").write_text("kind: Ingress\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "mv", "k8s/old.yaml", "k8s/renamed.yaml"], check=True)
+
+    events = inspect_git_manifest_drift([k8s])
+    event_paths = {Path(e.path).relative_to(repo).as_posix() for e in events}
+    assert event_paths == {
+        "k8s/first.yaml",
+        "k8s/space manifest.yaml",
+        "k8s/café.yaml",
+        "k8s/renamed.yaml",
+    }
