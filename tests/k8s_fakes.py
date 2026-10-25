@@ -7,6 +7,9 @@ real API response. Names are generic, as SECURITY.md requires of fixtures.
 from __future__ import annotations
 
 import datetime
+import json
+from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 
@@ -205,6 +208,22 @@ def event(
     )
 
 
+class _FakeWatchResponse:
+    """A streaming HTTP response for fake Watch generators."""
+
+    def __init__(self, lines: list[str]) -> None:
+        self._lines = lines
+
+    def stream(self, amt: Any = None, decode_content: bool = False) -> Iterator[str]:
+        yield from self._lines
+
+    def close(self) -> None:
+        pass
+
+    def release_conn(self) -> None:
+        pass
+
+
 class FakeCoreV1:
     """A CoreV1Api stand-in that records every call and answers from fixed data.
 
@@ -217,7 +236,9 @@ class FakeCoreV1:
         nodes: list[Any] | Exception | None = None,
         events: list[Any] | Exception | None = None,
         logs: dict[tuple[str, str], str] | str | Exception | None = None,
+        watch_events: list[dict[str, Any]] | Exception | None = None,
     ) -> None:
+        self.watch_events = watch_events
         self.answers = {
             "list_pod_for_all_namespaces": pods if pods is not None else [],
             "list_namespaced_pod": pods if pods is not None else [],
@@ -230,6 +251,12 @@ class FakeCoreV1:
 
     def _answer(self, method: str, kwargs: dict[str, Any]) -> Any:
         self.calls.append((method, kwargs))
+        if kwargs.get("watch"):
+            if isinstance(self.watch_events, Exception):
+                raise self.watch_events
+            if self.watch_events is not None:
+                lines = [f"{json.dumps(ev)}\n" for ev in self.watch_events]
+                return _FakeWatchResponse(lines)
         answer = self.answers[method]
         if isinstance(answer, Exception):
             raise answer
@@ -237,12 +264,24 @@ class FakeCoreV1:
             if isinstance(answer, dict):
                 return answer.get((kwargs.get("namespace", ""), kwargs.get("name", "")), "")
             return str(answer)
+        if kwargs.get("watch"):
+            lines = []
+            for item in answer:
+                raw_item = (
+                    item
+                    if isinstance(item, dict)
+                    else client.ApiClient().sanitize_for_serialization(item)
+                )
+                lines.append(f"{json.dumps({'type': 'ADDED', 'object': raw_item})}\n")
+            return _FakeWatchResponse(lines)
         return _Items(answer)
 
     def list_pod_for_all_namespaces(self, **kwargs: Any) -> Any:
+        """:rtype: V1PodList"""
         return self._answer("list_pod_for_all_namespaces", kwargs)
 
     def list_namespaced_pod(self, namespace: str, **kwargs: Any) -> Any:
+        """:rtype: V1PodList"""
         return self._answer("list_namespaced_pod", {"namespace": namespace, **kwargs})
 
     def list_node(self, **kwargs: Any) -> Any:
@@ -261,7 +300,8 @@ class FakeCoreV1:
 
 
 class _Items:
-    """A list response: only `items` is read."""
+    """A list response: `items` and `metadata` are read."""
 
-    def __init__(self, items: list[Any]) -> None:
+    def __init__(self, items: list[Any], resource_version: str = "100") -> None:
         self.items = items
+        self.metadata = SimpleNamespace(resource_version=resource_version)

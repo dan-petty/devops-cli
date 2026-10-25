@@ -6,6 +6,7 @@ import threading
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -298,6 +299,38 @@ def test_resource_informer_stream_events_all_namespaces() -> None:
         assert (len(events),) == (0,)
 
 
+def test_watch_streams_yield_typed_v1_pods_from_fake_cluster() -> None:
+    """Namespaced and all-namespace watches yield typed V1Pod objects from the fake cluster."""
+    from kubernetes.client import V1Pod
+
+    from tests.k8s_fakes import FakeCoreV1, pod
+
+    fake_pod = pod(name="worker-0", namespace="prod")
+    fake_cluster = FakeCoreV1(pods=[fake_pod])
+    mock_svc = MagicMock()
+    mock_svc.load_config.return_value = True
+    mock_svc._core_v1 = fake_cluster
+
+    # 1. Namespaced watch
+    informer_ns = ResourceInformer(resource_kind="Pod", namespace="prod", service=mock_svc)
+    events_ns = list(informer_ns.stream_events(timeout_seconds=1.0))
+    cached_ns = informer_ns.get_cached_resources()
+
+    # 2. All-namespaces watch
+    informer_all = ResourceInformer(resource_kind="Pod", namespace="*", service=mock_svc)
+    events_all = list(informer_all.stream_events(timeout_seconds=1.0))
+    cached_all = informer_all.get_cached_resources()
+
+    assert isinstance(cached_ns["prod/worker-0"], V1Pod)
+    assert isinstance(cached_all["prod/worker-0"], V1Pod)
+    assert (
+        len(events_ns),
+        events_ns[0].name,
+        len(events_all),
+        events_all[0].name,
+    ) == (1, "worker-0", 1, "worker-0")
+
+
 def test_resource_informer_start_and_stop() -> None:
     """Verify start initiates background thread and stop terminates it."""
     mock_svc = MagicMock()
@@ -311,6 +344,82 @@ def test_resource_informer_start_and_stop() -> None:
         informer.start()  # Idempotent second call
         informer.stop()
         assert (is_running_init, informer._running) == (True, False)
+
+
+def test_informer_reconnect_loop_passes_last_resource_version_and_backs_off() -> None:
+    """A persistent watch error backs off instead of looping, and reconnect passes last resourceVersion."""
+    mock_svc = MagicMock()
+    mock_svc.load_config.return_value = True
+    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    informer._resource_version = "42"
+    informer._running = True
+
+    calls: list[str | None] = []
+    waits: list[float] = []
+
+    def fake_stream(
+        *, timeout_seconds: float = 30.0, resource_version: str | None = None
+    ) -> Iterator[Any]:
+        calls.append(resource_version)
+        if len(calls) == 1:
+            raise RuntimeError("transient connection drop")
+        informer._running = False
+        return iter([])
+
+    def fake_sleep(duration: float) -> None:
+        waits.append(duration)
+
+    with (
+        patch.object(informer, "stream_events", side_effect=fake_stream),
+        patch.object(informer, "_sleep_with_stop", side_effect=fake_sleep),
+    ):
+        informer._run_watch_loop(on_event=None)
+
+    assert (calls, len(waits) > 0) == (["42", "42"], True)
+
+
+def test_informer_reconnect_loop_relists_on_410_gone() -> None:
+    """Encountering 410 Gone triggers relisting to acquire fresh resourceVersion."""
+    from kubernetes.client import V1ObjectMeta, V1Pod
+    from kubernetes.client.rest import ApiException
+
+    mock_svc = MagicMock()
+    mock_svc.load_config.return_value = True
+    relisted_pod = V1Pod(
+        metadata=V1ObjectMeta(name="relisted-pod", namespace="default", resource_version="99")
+    )
+    mock_list_resp = SimpleNamespace(
+        items=[relisted_pod], metadata=SimpleNamespace(resource_version="99")
+    )
+    mock_svc._core_v1.list_namespaced_pod.return_value = mock_list_resp
+
+    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    informer._resource_version = "10"
+    informer._running = True
+
+    calls: list[str | None] = []
+
+    def fake_stream(
+        *, timeout_seconds: float = 30.0, resource_version: str | None = None
+    ) -> Iterator[Any]:
+        calls.append(resource_version)
+        if len(calls) == 1:
+            raise ApiException(status=410, reason="Gone")
+        informer._running = False
+        return iter([])
+
+    with (
+        patch.object(informer, "stream_events", side_effect=fake_stream),
+        patch.object(informer, "_sleep_with_stop", return_value=None),
+    ):
+        informer._run_watch_loop(on_event=None)
+
+    cached = informer.get_cached_resources()
+    assert (
+        calls,
+        informer._resource_version,
+        "default/relisted-pod" in cached,
+    ) == (["10", "99"], "99", True)
 
 
 def test_k8s_service_read_pod_logs_follow() -> None:

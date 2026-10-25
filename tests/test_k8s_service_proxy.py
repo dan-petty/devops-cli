@@ -158,7 +158,9 @@ def test_a_reference_round_trips_through_its_configuration_form() -> None:
 
 def _configuration(**overrides: Any) -> Any:
     """Build a Kubernetes client configuration stub."""
-    configuration = MagicMock()
+    from kubernetes.client import Configuration
+
+    configuration = Configuration()
     configuration.host = overrides.get("host", "https://cluster.example.com:6443")
     configuration.ssl_ca_cert = overrides.get("ssl_ca_cert", None)
     configuration.verify_ssl = overrides.get("verify_ssl", True)
@@ -166,6 +168,7 @@ def _configuration(**overrides: Any) -> Any:
     configuration.key_file = overrides.get("key_file", None)
     configuration.api_key = overrides.get("api_key", {})
     configuration.api_key_prefix = overrides.get("api_key_prefix", {})
+    configuration.refresh_api_key_hook = overrides.get("refresh_api_key_hook", None)
     return configuration
 
 
@@ -199,6 +202,44 @@ def test_a_bearer_token_becomes_an_authorization_header() -> None:
     ):
         target = resolve_proxy_target(parse_service_url(PROM))
     assert target.headers["authorization"] == "Bearer abc123"
+
+
+def test_a_bearer_token_stored_under_bearer_token_key_becomes_authorization_header() -> None:
+    """kubernetes 36+ stores bearer tokens under BearerToken, which must map to authorization."""
+    with patch(
+        "devops_cli.k8s.service_proxy._kube_configuration",
+        return_value=_configuration(
+            api_key={"BearerToken": "cluster-token-xyz"},
+            api_key_prefix={"BearerToken": "Bearer"},
+        ),
+    ):
+        target = resolve_proxy_target(parse_service_url(PROM))
+    assert ("BearerToken" not in target.headers, target.headers.get("authorization")) == (
+        True,
+        "Bearer cluster-token-xyz",
+    )
+
+
+def test_refresh_api_key_hook_rotates_token_on_each_request() -> None:
+    """Dynamic tokens (in-cluster, OIDC, exec) rotate through refresh_api_key_hook."""
+    counter = 0
+
+    def rotate(config: Any) -> None:
+        nonlocal counter
+        counter += 1
+        config.api_key["BearerToken"] = f"rotated-token-{counter}"
+        config.api_key_prefix["BearerToken"] = "Bearer"
+
+    cfg = _configuration(refresh_api_key_hook=rotate)
+    with patch("devops_cli.k8s.service_proxy._kube_configuration", return_value=cfg):
+        target1 = resolve_proxy_target(parse_service_url(PROM))
+        target2 = resolve_proxy_target(parse_service_url(PROM))
+
+    assert (
+        target1.headers.get("authorization"),
+        target2.headers.get("authorization"),
+        "BearerToken" in target1.headers,
+    ) == ("Bearer rotated-token-1", "Bearer rotated-token-2", False)
 
 
 def test_an_empty_credential_is_not_sent_as_a_header() -> None:
