@@ -583,27 +583,11 @@ def _simulate_dry_run(rows: Sequence[JobRow], initially_due: Mapping[str, bool])
     return tuple(due_list)
 
 
-def _prepare_clone(
-    row: JobRow,
-    repo: str,
-    base_data: Path,
-    remote_url: str | None,
-    clone_path: Path | None,
-    clone_error: Exception | None,
-    clone_dirname: str,
-) -> tuple[Path | None, Exception | None]:
-    """Ensure git clone `clone_dirname` is ready for a job requiring checkout."""
-    if not row.needs_clone:
-        return clone_path, clone_error
-    if clone_error is not None:
-        return None, clone_error
-    if clone_path is not None:
-        return clone_path, None
-    try:
-        path = ensure_checkout(repo, base_data, remote_url, clone_dirname)
-        return path, None
-    except Exception as exc:
-        return None, exc
+def _format_error_line(exc: BaseException) -> str:
+    """The first line of an exception's message, masked and capped at 256 chars."""
+    lines = str(exc).strip().splitlines()
+    first = lines[0] if lines else type(exc).__name__
+    return mask_secrets(first)[:256]
 
 
 def _execute_due_rows(
@@ -623,10 +607,11 @@ def _execute_due_rows(
     Each runner also gets the repository's data directory and the round's time."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
-    resets: list[datetime] = []
     outcomes: dict[str, JobOutcome] = {}
     clone_path: Path | None = None
     clone_error: Exception | None = None
+    clone_jobs: list[str] = []
+    error_entries: list[tuple[list[str], Exception]] = []
 
     for row in rows:
         is_due = initially_due[row.name]
@@ -635,15 +620,15 @@ def _execute_due_rows(
         if not is_due:
             continue
 
-        if row.needs_clone:
-            clone_path, clone_error = _prepare_clone(
-                row, repo, base_data, remote_url, clone_path, clone_error, clone_dirname
-            )
-            if clone_error is not None:
-                failed_jobs.append(row.name)
-                continue
+        if row.needs_clone and clone_error is not None:
+            failed_jobs.append(row.name)
+            clone_jobs.append(row.name)
+            continue
 
         try:
+            if row.needs_clone and clone_path is None:
+                clone_path = ensure_checkout(repo, base_data, remote_url, clone_dirname)
+
             outcome = row.runner(
                 store=store,
                 clone_path=clone_path,
@@ -657,17 +642,25 @@ def _execute_due_rows(
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)
         except Exception as exc:
-            logger.exception("Roadmap job %s failed", row.name)
             failed_jobs.append(row.name)
-            if (reset := refusal_reset(exc)) is not None:
-                resets.append(reset)
+            if row.needs_clone and clone_path is None:
+                clone_error = exc
+                clone_jobs.append(row.name)
+                error_entries.append((clone_jobs, exc))
+            else:
+                error_entries.append(([row.name], exc))
 
     if failed_jobs:
-        raise RoadmapRunError(
-            f"Roadmap jobs failed: {', '.join(failed_jobs)}",
-            failed_jobs=failed_jobs,
-            reset_at=min(resets, default=None),
-        )
+        error_parts: list[str] = []
+        exceptions: list[Exception] = []
+        for job_names, entry_exc in error_entries:
+            entry_exc.add_note(", ".join(job_names))
+            error_parts.append(f"{', '.join(job_names)}: {_format_error_line(entry_exc)}")
+            exceptions.append(entry_exc)
+
+        msg = f"Roadmap jobs failed: {'; '.join(error_parts)}"
+        cause = ExceptionGroup("Roadmap jobs failed", exceptions)
+        raise RoadmapRunError(msg, failed_jobs=failed_jobs) from cause
     return tuple(succeeded_jobs)
 
 
@@ -749,8 +742,14 @@ def log_round_spend(repo: str, store: RoadmapStore, *, read: bool = True) -> Non
 
 def _refused_reset(exc: BaseException) -> datetime | None:
     """The reset a round's GraphQL budget refusal names: from the refusal itself, or the
-    earliest of the failed jobs' in `RoadmapRunError`; None for any other error."""
-    return exc.reset_at if isinstance(exc, RoadmapRunError) else refusal_reset(exc)
+    earliest among the member exceptions of a RoadmapRunError; None for any other error."""
+    if isinstance(exc, RoadmapRunError):
+        cause = exc.__cause__
+        if isinstance(cause, BaseExceptionGroup):
+            resets = [r for sub in cause.exceptions if (r := _refused_reset(sub)) is not None]
+            return min(resets) if resets else None
+        return refusal_reset(cause) if cause is not None else None
+    return refusal_reset(exc)
 
 
 def service_pause_until(exc: Exception) -> datetime | None:
@@ -768,10 +767,20 @@ def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: 
     """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
     `clone_dirname` for a coalesced trigger batch, ending, however the round ends, with its
     GraphQL spend line; a round a budget refusal ended reads no budget for it."""
+    from devops_cli.exceptions.config import ConfigurationError
+    from devops_cli.exceptions.git import GitHubFileNotFoundError
     from devops_cli.roadmap.config import open_roadmap
 
     repo = batch.repo
-    _config, store = open_roadmap(repo, ref=None, board_filter=CONST_ROADMAP_RUN_BOARD_FILTER)
+    try:
+        _config, store = open_roadmap(repo, ref=None, board_filter=CONST_ROADMAP_RUN_BOARD_FILTER)
+    except GitHubFileNotFoundError as exc:
+        raise ConfigurationError(
+            f"Repository {repo} is missing .github/roadmap.toml; commit the file or remove {repo} from service.repos",
+            key="service.repos",
+            details={"path": ".github/roadmap.toml"},
+        ) from exc
+
     refused = False
     try:
         run_due_jobs(repo, store, batch=batch, table=table, clone_dirname=clone_dirname)

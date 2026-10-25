@@ -34,6 +34,7 @@ from devops_cli.config.settings import (
     get_service_webhook_secrets,
     load_settings,
 )
+from devops_cli.exceptions import ConfigurationError, RoadmapRunError
 from devops_cli.lang import MESSAGES
 from devops_cli.server.routes.webhooks import (
     DeliveryLRUCache,
@@ -262,12 +263,15 @@ class RepoWorker:
                 span.set_status("ERROR", str(exc)[:256])
                 span.set_attribute("error", True)
                 span.set_attribute("error.message", str(exc)[:256])
+                is_config_only = isinstance(exc, ConfigurationError) or (
+                    isinstance(exc, RoadmapRunError) and exc.is_configuration_only
+                )
                 logger.error(
                     "Service job execution failed for %s: %s",
                     self.repo,
                     exc,
                     extra={**self._labels, "result": "error"},
-                    exc_info=True,
+                    exc_info=True if not is_config_only else None,
                 )
                 self.pause.after(exc, self.repo)
             finally:

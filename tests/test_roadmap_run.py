@@ -46,8 +46,9 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.config.settings import ServiceConfig
-from devops_cli.exceptions import GitOperationError, RoadmapRunError
+from devops_cli.exceptions import ConfigurationError, GitOperationError, RoadmapRunError
 from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
@@ -450,7 +451,7 @@ def test_failure_isolation_and_cli_exit(
     sched_data = _schedule(tmp_path)
 
     def failing_adapter(*_: Any, **__: Any) -> JobOutcome:
-        raise RoadmapRunError("Crash", failed_jobs=("intake",))
+        raise RoadmapRunError("Crash [bold red]markup[/bold red]", failed_jobs=("intake",))
 
     with patch("devops_cli.roadmap.run.run_due_jobs", side_effect=failing_adapter):
         res = runner.invoke(roadmap_app, ["run", "--confirm", "-R", REPO])
@@ -461,7 +462,7 @@ def test_failure_isolation_and_cli_exit(
         "intake" not in sched_data,
         "refine" in sched_data,
         res.exit_code,
-        "intake" in res.output,
+        "[bold red]markup[/bold red]" in res.output,
     ) == (("intake",), ("intake", "refine"), True, True, 1, True)
 
 
@@ -1255,22 +1256,23 @@ def test_a_jobs_refused_write_fails_the_round_with_the_reset_and_the_next_job_st
         _poll_round(store, tmp_path, table=refusing, batch={OPENED: 1})
     with pytest.raises(RoadmapRunError) as crashed:
         _poll_round(store, tmp_path, table=build_stub_table({"intake": crash}), batch={OPENED: 1})
+    assert not hasattr(refused.value, "reset_at")
     assert (
         refused.value.failed_jobs,
-        refused.value.reset_at,
-        refused.value.details["reset_at"],
+        "reset_at" in refused.value.details,
+        refused.value.__cause__ is not None,
+        refusal_reset(refused.value.__cause__.exceptions[0]),
         ran,
         github.board.remaining,
-        crashed.value.reset_at,
         service_pause_until(refused.value),
         service_pause_until(crashed.value),
     ) == (
         ("intake",),
+        False,
+        True,
         RESET,
-        RESET.isoformat(),
         ["refine"],
         249,
-        None,
         RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS),
         None,
     )
@@ -1579,3 +1581,205 @@ def test_each_lane_updates_only_its_own_clone(
         },
         "work in progress\n",
     )
+
+
+def test_roadmap_run_error_is_configuration_only() -> None:
+    """RoadmapRunError.is_configuration_only checks if all cause group exceptions are ConfigurationError (#1365)."""
+    cfg1 = ConfigurationError("bad toml 1", key="service.repos")
+    cfg2 = ConfigurationError("bad toml 2", key="board")
+    unexpected = RuntimeError("unexpected crash")
+
+    # Group of configuration errors only
+    group_cfg = ExceptionGroup("jobs", [cfg1, cfg2])
+    err1 = RoadmapRunError("failed", failed_jobs=("intake", "metrics"))
+    err1.__cause__ = group_cfg
+    assert err1.is_configuration_only is True
+
+    # Group of mixed errors
+    group_mixed = ExceptionGroup("jobs", [cfg1, unexpected])
+    err2 = RoadmapRunError("failed", failed_jobs=("intake", "metrics"))
+    err2.__cause__ = group_mixed
+    assert err2.is_configuration_only is False
+
+    # Group of unexpected errors only
+    group_unexpected = ExceptionGroup("jobs", [unexpected])
+    err3 = RoadmapRunError("failed", failed_jobs=("metrics",))
+    err3.__cause__ = group_unexpected
+    assert err3.is_configuration_only is False
+
+    # Single ConfigurationError cause
+    err4 = RoadmapRunError("failed", failed_jobs=("intake",))
+    err4.__cause__ = cfg1
+    assert err4.is_configuration_only is True
+
+    # No cause or non-config single cause
+    err5 = RoadmapRunError("failed", failed_jobs=("intake",))
+    err5.__cause__ = unexpected
+    assert err5.is_configuration_only is False
+
+    err6 = RoadmapRunError("failed", failed_jobs=())
+    assert err6.is_configuration_only is False
+
+
+def test_failed_run_keeps_every_job_error_and_clone_error(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failed run keeps every job's error, names intake and metrics, refine with clone failure,
+    carries ExceptionGroup cause with PEP 678 notes, is not config-only, and emits no ERROR log (#1365)."""
+    data_dir = tmp_path / "data"
+    missing_remote = tmp_path / "missing_remote"
+    ran: list[str] = []
+
+    def fail_intake(**_: Any) -> JobOutcome:
+        raise ConfigurationError("invalid roadmap.toml key", key="board")
+
+    def stub(name: str) -> Callable[..., JobOutcome]:
+        return _recorded(ran, name)
+
+    table = build_stub_table(
+        {"intake": fail_intake, "metrics": stub("metrics"), "refine": stub("refine")},
+        needs_clone=True,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="devops_cli.roadmap.run"):
+        with pytest.raises(RoadmapRunError) as exc_info:
+            run_due_jobs(
+                REPO,
+                seeded_store,
+                batch={OPENED: 1},
+                table=table,
+                data_dir=data_dir,
+                remote_url=str(missing_remote),
+                now=NOW,
+            )
+
+    err = exc_info.value
+    assert err.failed_jobs == ("metrics", "intake", "refine")
+    assert "intake: invalid roadmap.toml key" in str(err)
+    assert "metrics, refine: git clone " in str(err)
+    assert err.is_configuration_only is False
+
+    cause = err.__cause__
+    assert isinstance(cause, ExceptionGroup)
+    assert len(cause.exceptions) == 2
+    notes = {exc.__notes__[0]: exc for exc in cause.exceptions}
+    assert "intake" in notes
+    assert isinstance(notes["intake"], ConfigurationError)
+    assert "metrics, refine" in notes
+    assert isinstance(notes["metrics, refine"], GitOperationError)
+
+    # No ERROR records emitted by devops_cli.roadmap.run
+    error_records = [
+        r
+        for r in caplog.records
+        if r.name == "devops_cli.roadmap.run" and r.levelno >= logging.ERROR
+    ]
+    assert error_records == []
+
+
+def test_failed_run_configuration_only(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
+    """A run failing only with ConfigurationError is marked is_configuration_only (#1365)."""
+    data_dir = tmp_path / "data"
+
+    def fail_intake(**_: Any) -> JobOutcome:
+        raise ConfigurationError("missing board", key="board")
+
+    table = build_stub_table({"intake": fail_intake})
+
+    with pytest.raises(RoadmapRunError) as exc_info:
+        run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={OPENED: 1},
+            table=table,
+            data_dir=data_dir,
+            now=NOW,
+        )
+
+    err = exc_info.value
+    assert err.failed_jobs == ("intake",)
+    assert "intake: missing board" in str(err)
+    assert err.is_configuration_only is True
+    assert isinstance(err.__cause__, ExceptionGroup)
+    assert len(err.__cause__.exceptions) == 1
+    assert err.__cause__.exceptions[0].__notes__ == ["intake"]
+
+
+def test_clone_fails_with_missing_git_binary(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When git binary is missing, clone rows fail with FileNotFoundError as group member (#1365)."""
+    data_dir = tmp_path / "data"
+    empty_bin = tmp_path / "empty_bin"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+
+    missing_remote = tmp_path / "missing_remote"
+    ran: list[str] = []
+
+    def stub(name: str) -> Callable[..., JobOutcome]:
+        return _recorded(ran, name)
+
+    table = build_stub_table(
+        {"metrics": stub("metrics"), "refine": stub("refine")},
+        needs_clone=True,
+    )
+
+    with pytest.raises(RoadmapRunError) as exc_info:
+        run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={OPENED: 1},
+            table=table,
+            data_dir=data_dir,
+            remote_url=str(missing_remote),
+            now=NOW,
+        )
+
+    err = exc_info.value
+    assert err.failed_jobs == ("metrics", "refine")
+    cause = err.__cause__
+    assert isinstance(cause, ExceptionGroup)
+    assert len(cause.exceptions) == 1
+    assert isinstance(cause.exceptions[0], FileNotFoundError)
+    assert cause.exceptions[0].__notes__ == ["metrics, refine"]
+    assert str(cause.exceptions[0]).splitlines()[0] in str(err)
+
+
+def test_service_job_missing_roadmap_config_raises_configuration_error(
+    roadmap_store: Any,
+) -> None:
+    """service_job converts missing .github/roadmap.toml to ConfigurationError, and leaves
+    GitHubOperationError unchanged (#1365)."""
+    batch = TriggerBatch(repo="example/repo", counts={OPENED: 1}, first_at=NOW, last_at=NOW)
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        service_job(
+            batch,
+            table=STATUS_LANE_ROWS,
+            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+        )
+
+    err = exc_info.value
+    assert err.key == "service.repos"
+    assert err.details["path"] == ".github/roadmap.toml"
+    assert "example/repo" in str(err)
+    assert ".github/roadmap.toml" in str(err)
+    assert "service.repos" in str(err)
+
+
+def test_service_job_unreadable_github_roadmap_propagates_unchanged(
+    unreadable_github_roadmap: Any,
+) -> None:
+    """service_job propagates GitHubOperationError (e.g. HTTP 503) unchanged (#1365)."""
+    batch = TriggerBatch(repo="example/repo", counts={OPENED: 1}, first_at=NOW, last_at=NOW)
+
+    with pytest.raises(GitHubOperationError) as exc_info:
+        service_job(
+            batch,
+            table=STATUS_LANE_ROWS,
+            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+        )
+
+    assert not isinstance(exc_info.value, ConfigurationError)
+    assert not isinstance(exc_info.value, GitHubFileNotFoundError)

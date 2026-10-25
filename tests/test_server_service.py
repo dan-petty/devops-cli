@@ -41,7 +41,7 @@ from devops_cli.config.constants import (
     WebhookProviderName,
 )
 from devops_cli.config.settings import ServiceConfig, Settings
-from devops_cli.exceptions import RoadmapRunError
+from devops_cli.exceptions import ConfigurationError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.roadmap.board_read import GraphQLBudget, require_budget, require_write_floor
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -988,6 +988,117 @@ def test_each_batch_exports_its_ai_requests_before_the_workers_next_batch_starts
         len(sink.payloads),
         [value for _, value in sink.points(AI_REQUESTS_TOTAL.name)],
     ) == (True, [0, 1], 2, [1.0, 1.0])
+
+
+def test_repo_worker_logs_configuration_errors_without_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The Service logs a configuration-only failure without a traceback, and every other
+    failure with exc_info (#1365)."""
+    test_repo = "example-org/traceback-suppression-test"
+    test_lane = "status"
+    counter_labels = {"repo": test_repo, "lane": test_lane}
+
+    cfg1 = ConfigurationError("missing .github/roadmap.toml", key="service.repos")
+    cfg2 = ConfigurationError("invalid yaml", key="service.repos")
+
+    g_cfg1 = ConfigurationError("toml error 1", key="board")
+    g_cfg1.add_note("intake")
+    g_cfg2 = ConfigurationError("toml error 2", key="board")
+    g_cfg2.add_note("metrics")
+    cfg_group_err = RoadmapRunError(
+        "Roadmap jobs failed: intake, metrics", failed_jobs=("intake", "metrics")
+    )
+    cfg_group_err.__cause__ = ExceptionGroup("jobs", [g_cfg1, g_cfg2])
+
+    g_mixed1 = ConfigurationError("toml error", key="board")
+    g_mixed1.add_note("intake")
+    g_mixed2 = RuntimeError("transient db crash")
+    g_mixed2.add_note("metrics")
+    mixed_group_err = RoadmapRunError(
+        "Roadmap jobs failed: intake, metrics", failed_jobs=("intake", "metrics")
+    )
+    mixed_group_err.__cause__ = ExceptionGroup("jobs", [g_mixed1, g_mixed2])
+
+    runtime_err = RuntimeError("runner crash")
+
+    stages: list[Any] = [
+        cfg1,
+        cfg2,
+        cfg_group_err,
+        mixed_group_err,
+        runtime_err,
+        "success",
+    ]
+    stage_idx = 0
+
+    def job(batch: TriggerBatch) -> None:
+        nonlocal stage_idx
+        item = stages[stage_idx]
+        stage_idx += 1
+        if isinstance(item, Exception):
+            raise item
+
+    err_count_before = GLOBAL_METRICS.get_counter_value(
+        CONST_SERVICE_METRIC_JOBS, labels={**counter_labels, "result": "error"}
+    )
+    success_count_before = GLOBAL_METRICS.get_counter_value(
+        CONST_SERVICE_METRIC_JOBS, labels={**counter_labels, "result": "success"}
+    )
+
+    worker = RepoWorker(
+        repo=test_repo,
+        lane=test_lane,
+        job_func=job,
+        clock=lambda: datetime.now(UTC),
+    )
+    worker.start()
+    with caplog.at_level(logging.WARNING, logger="devops_cli.server.service"):
+        for _ in range(6):
+            worker.enqueue("poll", "", "")
+            assert worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    worker.stop()
+    assert worker.join(THREAD_HANDOFF_BOUND_SECONDS)
+
+    records = [
+        r
+        for r in caplog.records
+        if r.name == "devops_cli.server.service" and r.levelno >= logging.WARNING
+    ]
+    assert len(records) == 5
+    assert all(r.levelno == logging.ERROR for r in records)
+    assert all(getattr(r, "repo", None) == test_repo for r in records)
+    assert all(getattr(r, "lane", None) == test_lane for r in records)
+    assert all(getattr(r, "result", None) == "error" for r in records)
+
+    # First 3 are configuration-only: no exc_info
+    assert records[0].exc_info is None
+    assert records[1].exc_info is None
+    assert records[2].exc_info is None
+
+    # Next 2 are unexpected: exc_info present
+    assert bool(records[3].exc_info) is True
+    assert bool(records[4].exc_info) is True
+
+    # Check metrics
+    err_count_after = GLOBAL_METRICS.get_counter_value(
+        CONST_SERVICE_METRIC_JOBS, labels={**counter_labels, "result": "error"}
+    )
+    success_count_after = GLOBAL_METRICS.get_counter_value(
+        CONST_SERVICE_METRIC_JOBS, labels={**counter_labels, "result": "success"}
+    )
+    assert err_count_after - err_count_before == 5.0
+    assert success_count_after - success_count_before == 1.0
+
+    # JsonLogFormatter formatting
+    formatter = JsonLogFormatter()
+    formatted_1 = json.loads(formatter.format(records[0]))
+    assert "exception" not in formatted_1
+
+    formatted_4 = json.loads(formatter.format(records[3]))
+    assert "exception" in formatted_4
+    assert "intake" in formatted_4["exception"]
+    assert "metrics" in formatted_4["exception"]
 
 
 # ── A GraphQL budget refusal holds every repository's rounds (#1400) ──────────

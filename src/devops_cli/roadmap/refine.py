@@ -95,7 +95,7 @@ from devops_cli.config.settings import get_tavily_api_key, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.store import (
@@ -464,6 +464,8 @@ def run_research_step(
     """
     try:
         is_private = store.repository_is_private()
+    except GitHubRateLimitError:
+        raise
     except Exception as exc:
         logger.warning("Could not read repository visibility: %s", exc)
         return [], set()
