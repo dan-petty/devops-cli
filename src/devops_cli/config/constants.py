@@ -2936,6 +2936,8 @@ CONST_K8S_POD_EVENT_FIELD_SELECTOR: Final[str] = (
 CONST_K8S_SERVICE_HOST_ENV: Final[str] = "KUBERNETES_SERVICE_HOST"
 # What the dashboard banner names when it connects with the pod's service account.
 CONST_K8S_IN_CLUSTER_CONTEXT: Final[str] = "in-cluster"
+# The default local Minikube cluster context.
+CONST_K8S_MINIKUBE_CONTEXT: Final[str] = "minikube"
 
 # ── Kubernetes Doctor Diagnostic Constants ───────────────────────────────────
 CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR: Final[str] = "type=Warning"

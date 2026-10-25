@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
     CONST_GH_LOGIN_ENV_VARS,
     CONST_GH_TOKEN_ENV_VARS,
+    CONST_K8S_MINIKUBE_CONTEXT,
     CONST_KEYRING_PACKAGES,
     CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
     CONST_MCP_JSON_NAME,
@@ -963,29 +964,10 @@ def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
     return success, msg
 
 
-def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> str | None:
-    """Auto-deploy Kubernetes stack via devops k8s deploy-stack.
-
-    It runs at post-start, possibly before the first shell unlocks the keyring, and deploy-stack
-    then stops before applying anything, so its warning says how to finish the deploy.
-    """
-    if not dry_run:
-        res = run_subprocess(
-            ["devops", "k8s", "deploy-stack", "--stack", stack],
-            cwd=workspace_dir,
-            check=False,
-            quiet=True,
-        )
-        if res.returncode == 0:
-            return f"Auto-deployed Kubernetes stack '{stack}'"
-        return f"Warning: {MESSAGES.devcontainer.auto_deploy_failed.format(stack=stack)}"
-    return f"Auto-deployed Kubernetes stack '{stack}'"
-
-
 def _run_k8s_bootstrap_worker(
     workspace_dir: Path, stack: str | None = None, *, dry_run: bool = False
 ) -> list[str]:
-    """Execute complete Minikube startup, context update, and optional K8s stack deployment."""
+    """Execute complete Minikube startup and context update."""
     actions: list[str] = []
     if not shutil.which("minikube"):
         actions.append("Warning: Minikube binary is not available; skipping cluster start")
@@ -998,11 +980,9 @@ def _run_k8s_bootstrap_worker(
     res = run_subprocess(["minikube", "status", "--format", "{{.Host}}"], check=False, quiet=True)
     is_running = res.returncode == 0 and "Running" in str(res.stdout)
 
-    minikube_healthy = is_running
     if not is_running:
         healthy, action_msg = _start_minikube_cluster(dry_run)
         actions.append(action_msg)
-        minikube_healthy = healthy
         if healthy and not dry_run:
             run_subprocess(["minikube", "update-context"], check=False, quiet=True)
     else:
@@ -1010,18 +990,13 @@ def _run_k8s_bootstrap_worker(
             run_subprocess(["minikube", "update-context"], check=False, quiet=True)
         actions.append("Minikube cluster is already running")
 
-    if stack and (minikube_healthy or dry_run):
-        result = _auto_deploy_k8s_stack(workspace_dir, stack, dry_run)
-        if result:
-            actions.append(result)
-
     return actions
 
 
 def _spawn_background_k8s_bootstrap(
     workspace_dir: Path, stack: str | None = None, *, dry_run: bool = False
 ) -> str:
-    """Spawn detached background process for Minikube startup and Kubernetes stack deployment."""
+    """Spawn detached background process for Minikube cluster startup."""
     log_file = Path(tempfile.gettempdir()) / "devops-k8s-bootstrap.log"
     cmd = [
         "devops",
@@ -1031,9 +1006,7 @@ def _spawn_background_k8s_bootstrap(
         str(workspace_dir),
     ]
     if stack:
-        cmd.extend(["--stack", stack, "--deploy"])
-    else:
-        cmd.append("--no-deploy")
+        cmd.extend(["--stack", stack])
 
     if dry_run:
         return f"Spawned background Minikube & Kubernetes bootstrap (log: {log_file})"
@@ -1149,17 +1122,16 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         else:
             actions.append(f"Scaffolded AI agent instructions (AGENTS.md) in {workspace_dir}")
 
-    # 6. Minikube autostart & K8s deploy status evaluation (background supervisor)
+    # 6. Minikube autostart (background supervisor)
     from devops_cli.commands.k8s.cluster_runtime import should_autostart_minikube
 
     auto_start = should_autostart_minikube()
-    auto_deploy = os.getenv("DEVOPS_K8S_AUTO_DEPLOY", "false").lower() in ("true", "1")
     stack = os.getenv("DEVOPS_K8S_STACK", "infra")
 
     if auto_start and shutil.which("minikube"):
         action_msg = _spawn_background_k8s_bootstrap(
             workspace_dir,
-            stack=stack if auto_deploy else None,
+            stack=stack,
             dry_run=dry_run,
         )
         actions.append(action_msg)
@@ -1609,18 +1581,15 @@ def bootstrap_k8s_cmd(
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = DEFAULT_CURRENT_PATH,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.devcontainer.stack)] = "infra",
-    auto_deploy: Annotated[
-        bool, typer.Option("--deploy/--no-deploy", help=HELP.devcontainer.auto_deploy)
-    ] = True,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
-    """Execute Minikube cluster startup and Kubernetes stack deployment in the background."""
+    """Execute Minikube cluster startup in the background."""
     ws = workspace.resolve()
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops devcontainer bootstrap-k8s",
             action="bootstrap_k8s",
-            details={"workspace": str(ws), "stack": stack, "auto_deploy": auto_deploy},
+            details={"workspace": str(ws), "stack": stack},
         )
         return
 
@@ -1628,10 +1597,17 @@ def bootstrap_k8s_cmd(
         "devcontainer_bootstrap_k8s", attributes={"workspace": str(ws), "stack": stack}
     ):
         print_info(MESSAGES.devcontainer.bootstrap_k8s_start.format(workspace=ws), prefix=False)
-        actions = _run_k8s_bootstrap_worker(ws, stack=stack if auto_deploy else None, dry_run=False)
+        actions = _run_k8s_bootstrap_worker(ws, stack=stack, dry_run=False)
         for act in actions:
             if act.startswith("Warning:"):
                 print_warning(act, prefix=False)
             else:
                 print_info(f"  [green]✓[/green] {act}", prefix=False)
         print_success(MESSAGES.devcontainer.bootstrap_k8s_ready, prefix=False)
+        if stack and not any(act.startswith("Warning:") for act in actions):
+            print_info(
+                MESSAGES.devcontainer.bootstrap_k8s_deploy_hint.format(
+                    stack=stack, context=CONST_K8S_MINIKUBE_CONTEXT
+                ),
+                prefix=False,
+            )
