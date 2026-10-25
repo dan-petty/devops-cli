@@ -673,16 +673,30 @@ def test_monitoring_destinations_point_at_prometheus_server_service() -> None:
 def test_dcgm_exporter_is_scraped_by_the_integration_and_holds_sys_admin() -> None:
     """The k8s-monitoring dcgm-exporter integration scrapes the exporter every 15s (#1130), so the
     chart's own ServiceMonitor, on by chart default, stays off. Datacenter GPUs need SYS_ADMIN for
-    the DCGM host engine's hardware counters."""
+    the DCGM host engine's hardware counters. Its resource requests and limits fit its measured
+    footprint (#1650)."""
     data = _k8s_yaml("monitoring/dcgm-exporter-values.yaml")
     caps = data.get("securityContext", {}).get("capabilities", {}).get("add", [])
     integration = _integration(_k8s_monitoring_values(), "dcgm-exporter")
+    res = data.get("resources", {})
+    resources = (
+        res.get("requests", {}).get("cpu"),
+        res.get("requests", {}).get("memory"),
+        res.get("limits", {}).get("cpu"),
+        res.get("limits", {}).get("memory"),
+    )
 
     assert (
         "SYS_ADMIN" in caps,
         data.get("serviceMonitor"),
         integration["metrics"]["scrapeInterval"],
-    ) == (True, {"enabled": False}, "15s")
+        resources,
+    ) == (
+        True,
+        {"enabled": False},
+        "15s",
+        ("50m", "512Mi", "200m", "768Mi"),
+    )
 
 
 def test_scrape_ownership_moves_to_k8s_monitoring() -> None:
