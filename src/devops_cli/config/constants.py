@@ -317,7 +317,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("k8s", "create-tls-secret"), 60.0, False, False),
     (("k8s", "deploy-stack"), 360.0, False, False),
     (("k8s", "diff-helm"), 60.0, True, False),
-    (("k8s", "doctor"), 60.0, True, True),
+    # `--stack gitea` makes a temporary repository in Gitea and deletes it (#2187).
+    (("k8s", "doctor"), 60.0, False, True),
     (("k8s", "enable-tls"), 60.0, False, False),
     (("k8s", "lint"), 60.0, True, False),
     (("k8s", "logs"), 300.0, True, True),
@@ -2947,6 +2948,59 @@ CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL: Final[str] = "pod-image-pull"
 CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE: Final[str] = "pod-unschedulable"
 CONST_K8S_DOCTOR_RULE_POD_NOT_READY: Final[str] = "pod-not-ready"
 CONST_K8S_DOCTOR_RULE_WARNING_EVENTS: Final[str] = "warning-events"
+
+# ── Kubernetes Doctor: the Gitea stack (#2187) ───────────────────────────────
+CONST_K8S_DOCTOR_STACK_GITEA: Final[str] = "gitea"
+CONST_K8S_DOCTOR_STACKS: Final[tuple[str, ...]] = (CONST_K8S_DOCTOR_STACK_GITEA,)
+"""The stacks that `devops k8s doctor --stack` has checks for."""
+CONST_K8S_DOCTOR_GITEA_PLAN_HEADING: Final[str] = "Planned Gitea Stack Checks:"
+CONST_K8S_DOCTOR_CHECK_APPLICATION_PREFIX: Final[str] = "application-"
+CONST_K8S_DOCTOR_CHECK_VOLUME_RETAINED: Final[str] = "volume-retained"
+CONST_K8S_DOCTOR_CHECK_POD_SECURITY: Final[str] = "pod-security-restricted"
+CONST_K8S_DOCTOR_CHECK_INGRESS_HOST: Final[str] = "ingress-host"
+CONST_K8S_DOCTOR_CHECK_TUNNEL_HOST: Final[str] = "tunnel-host"
+CONST_K8S_DOCTOR_CHECK_ANONYMOUS_READ: Final[str] = "anonymous-read-refused"
+CONST_K8S_DOCTOR_CHECK_REGISTRY_TOKEN: Final[str] = "registry-token"
+CONST_K8S_DOCTOR_CHECK_CLONE_URL: Final[str] = "clone-url"
+CONST_K8S_DOCTOR_CHECK_REPOSITORY_DELETED: Final[str] = "temporary-repository-deleted"
+CONST_K8S_DOCTOR_CHECK_NO_EGRESS: Final[str] = "no-egress"
+CONST_K8S_GITEA_NAMESPACE: Final[str] = "gitea"
+CONST_K8S_GITEA_ADMIN_USER: Final[str] = "gitea_admin"
+"""Gitea's admin user, the chart's default, which push-secrets writes to Secret gitea-admin."""
+CONST_K8S_GITEA_APPLICATIONS: Final[tuple[str, ...]] = ("gitea", "gitea-manifests")
+"""The Argo CD Applications of the Gitea stack: the chart and the perimeter."""
+CONST_K8S_GITEA_CLAIM: Final[str] = "gitea-shared-storage"
+CONST_K8S_GITEA_INGRESS: Final[str] = "gitea-ingress"
+CONST_K8S_GITEA_DEPLOYMENT: Final[str] = "gitea"
+CONST_K8S_GITEA_CONTAINER: Final[str] = "gitea"
+CONST_K8S_GITEA_PLACEHOLDER_HOST: Final[str] = "git.example.com"
+"""The host of Ingress gitea-ingress in git; deploy-stack sets the configured domain on it."""
+CONST_K8S_ARGOCD_APPLICATION_RESOURCE: Final[str] = "applications.argoproj.io"
+CONST_ARGOCD_SYNC_STATUS_SYNCED: Final[str] = "Synced"
+CONST_ARGOCD_HEALTH_STATUS_HEALTHY: Final[str] = "Healthy"
+CONST_K8S_PVC_PHASE_BOUND: Final[str] = "Bound"
+CONST_K8S_RECLAIM_POLICY_RETAIN: Final[str] = "Retain"
+CONST_K8S_POD_SECURITY_ENFORCE_LABEL: Final[str] = "pod-security.kubernetes.io/enforce"
+CONST_K8S_POD_SECURITY_RESTRICTED: Final[str] = "restricted"
+CONST_GITEA_LOGIN_PATH: Final[str] = "/user/login"
+CONST_GITEA_REPO_SEARCH_PATH: Final[str] = "/api/v1/repos/search"
+CONST_GITEA_REGISTRY_PATH: Final[str] = "/v2/"
+CONST_GITEA_CREATE_REPO_PATH: Final[str] = "/api/v1/user/repos"
+CONST_GITEA_REPO_PATH_TEMPLATE: Final[str] = "/api/v1/repos/{owner}/{name}"
+CONST_GITEA_ANONYMOUS_REFUSALS: Final[frozenset[int]] = frozenset({401, 403})
+"""The answers of Gitea to an anonymous API read when `REQUIRE_SIGNIN_VIEW` is set."""
+CONST_GITEA_TEMPORARY_REPO_PREFIX: Final[str] = "devops-doctor-"
+CONST_GITEA_TEMPORARY_REPO_DESCRIPTION: Final[str] = (
+    "A temporary repository of devops k8s doctor. The doctor deletes it."
+)
+CONST_URL_SCHEME_SSH: Final[str] = "ssh"
+"""The scheme of an SSH clone URL in URL form; git's scp-like form has none."""
+CONST_HTTP_BEARER_SCHEME: Final[str] = "bearer"
+"""The authentication scheme of a token challenge (RFC 6750), compared in lower case."""
+CONST_K8S_GITEA_EGRESS_PROBE_URL: Final[str] = "https://github.com"
+"""An address outside the cluster that the Gitea pod must not reach."""
+CONST_CURL_NO_CONNECTION_EXIT_CODES: Final[frozenset[int]] = frozenset({7, 28})
+"""curl's exit codes for a connect that failed (7) or timed out (28) (curl man page, EXIT CODES)."""
 
 CONST_K8S_PV_PHASE_RELEASED: Final[str] = "Released"
 CONST_K8S_PV_PHASE_FAILED: Final[str] = "Failed"

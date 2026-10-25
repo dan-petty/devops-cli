@@ -237,6 +237,7 @@ class StubWeb:
 
     def __init__(self) -> None:
         self.routes: dict[str, tuple[int, dict[str, str], bytes]] = {}
+        self.servers: list[Callable[[httpx2.Request], httpx2.Response | None]] = []
         self.sent: list[httpx2.Request] = []
 
     @property
@@ -260,9 +261,18 @@ class StubWeb:
         """Answer `url` with a redirect to `location`; a 307 or 308 keeps the method and body."""
         self.routes[url] = (status, {"location": location}, b"")
 
+    def serve(self, server: Callable[[httpx2.Request], httpx2.Response | None]) -> None:
+        """Answer each request that `server` answers before the routes. A server gives None for
+        a request it does not serve. It stands in for a service whose answer depends on the
+        method or the body, such as an API that makes a resource under a name in the body."""
+        self.servers.append(server)
+
     def handle(self, request: httpx2.Request) -> httpx2.Response:
-        """Record `request` and answer it from the routes, or with a 404."""
+        """Record `request` and answer it from the servers, then the routes, or with a 404."""
         self.sent.append(request)
+        for server in self.servers:
+            if (response := server(request)) is not None:
+                return response
         status, headers, body = self.routes.get(str(request.url), (404, {}, b""))
         return httpx2.Response(status, headers=headers, content=body)
 

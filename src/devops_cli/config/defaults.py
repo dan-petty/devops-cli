@@ -726,6 +726,11 @@ DEFAULT_K8S_DOCTOR_LOG_TAIL_LINES: int = 20
 DEFAULT_K8S_DOCTOR_STUCK_SECONDS: int = 300
 DEFAULT_K8S_DOCTOR_RESTART_THRESHOLD: int = 3
 DEFAULT_K8S_DOCTOR_EVENT_COUNT_THRESHOLD: int = 5
+# The Gitea stack checks (#2187): the bound of one kubectl read, of one request through the
+# tunnel host, and of the curl that probes the pod's egress.
+DEFAULT_K8S_DOCTOR_KUBECTL_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_K8S_DOCTOR_HTTP_TIMEOUT_SECONDS: float = 15.0
+DEFAULT_K8S_DOCTOR_EGRESS_PROBE_SECONDS: int = 5
 
 # ── Kubernetes Local-Path Volume Move Defaults (#2186) ───────────────────────
 # GNU tar, findutils, coreutils, mawk and bash, with no package to install.

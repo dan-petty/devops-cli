@@ -52,6 +52,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `DockerError` | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
 | `DockerSandboxError` | `DOCKER_SANDBOX_ERROR` | `1` | Docker | Raised when docker sandbox execution, container creation, or termination fails. |
 | `DocsIngestionError` | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |
+| `DoctorCheckError` | `K8S_DOCTOR_CHECK_FAILED` | `1` | K8s | Raised inside `devops k8s doctor --stack` when one check fails; the message is its reason. |
 | `EmbeddingsError` | `EMBEDDINGS_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
 | `GatewayTuneError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.gateway_tune | Raised when the gateway's deployments cannot be discovered or measured. |
 | `GitHubFileNotFoundError` | `GITHUB_FILE_NOT_FOUND` | `1` | Git | Raised when a repository file GitHub was asked for does not exist on that ref. |

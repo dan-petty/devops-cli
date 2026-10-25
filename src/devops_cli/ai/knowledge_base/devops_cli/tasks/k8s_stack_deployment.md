@@ -26,7 +26,7 @@ graph TD
   - `llm`: Local LLM stack (Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, LiteLLM gateway) in `llm` namespace.
   - `logging`: Loki in `logging` namespace.
   - `devops`: devops-cli's cluster Jobs and roadmap-service in `devops` namespace; deploy-stack renders their ConfigMap `devops-cli-config` from `config.yaml`, and on an Argo CD-managed cluster sets the homelab hosts on the Applications `devops` and `ingress`.
-  - `gitea`: Gitea, the internal forge and container registry, in `gitea` namespace; its push needs the Gitea admin password in the keyring (`devops config set gitea.admin_password`).
+  - `gitea`: Gitea, the internal forge and container registry, in `gitea` namespace; its push needs the Gitea admin password in the keyring (`devops config set gitea.admin_password`), and `devops k8s doctor --stack gitea` checks the live stack after the deploy.
   - `all`: `infra`, `llm`, `logging`, `devops` and `gitea`.
 - **Cluster Secrets**: right after the namespaces, `deploy-stack` pushes every Secret its stacks read from the OS keyring (`devops k8s push-secrets`, workstation keyring → cluster), so the keyring must be unlocked (`devops devcontainer unlock-keyring`). `--no-push-secrets` skips the push on a cluster without a keyring.
 

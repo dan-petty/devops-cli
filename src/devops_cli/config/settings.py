@@ -1426,6 +1426,11 @@ def get_runs_index_password(settings: Settings) -> str | None:
     return _resolve(opt.RUNS_INDEX_PASSWORD, settings)
 
 
+def get_gitea_admin_password(settings: Settings) -> str | None:
+    """Resolve the password of Gitea's admin user."""
+    return _resolve(opt.GITEA_ADMIN_PASSWORD, settings)
+
+
 def get_logfire_token(settings: Settings) -> str | None:
     """Resolve the Logfire telemetry write token."""
     return _resolve(opt.TELEMETRY_LOGFIRE_TOKEN, settings)
