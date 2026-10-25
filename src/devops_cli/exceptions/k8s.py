@@ -195,6 +195,24 @@ class ClusterSecretWriteError(ClusterSecretPushError):
         self.completed = completed
 
 
+class StackCredentialError(KubernetesError, RuntimeError):
+    """Raised when a stack credential cannot be read, checked, minted, revoked or stored (#2156).
+
+    The message gives the cause: the HTTP status or request error of the service, the kubectl
+    error, or the keyring error.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "K8S_STACK_CREDENTIAL_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
 class ClusterJobError(KubernetesError, RuntimeError):
     """Raised when a devops-cli Job cannot be created or followed in the cluster."""
 
@@ -339,6 +357,7 @@ __all__ = [
     "KubernetesDeployError",
     "KubernetesError",
     "KubernetesLoggingError",
+    "StackCredentialError",
     "VolumeMoveError",
     "VolumeMoveRefusedError",
     "VolumeMoveStrandedError",

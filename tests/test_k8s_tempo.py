@@ -184,7 +184,7 @@ def test_k8s_deploy_stack_shows_tempo_connection_info(runner: CliRunner) -> None
         patch("devops_cli.commands.k8s.port_forward"),
         patch(
             "devops_cli.k8s.credentials.sync_k8s_credentials",
-            return_value={"argocd": True, "grafana": True},
+            return_value={},
         ),
     ):
         mock_proc = MagicMock()

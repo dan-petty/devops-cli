@@ -10,6 +10,7 @@ hostname is the point of the test.
 
 from __future__ import annotations
 
+import json
 import socket
 import ssl
 from collections.abc import Callable, Iterable, Sequence
@@ -238,6 +239,8 @@ class StubWeb:
     def __init__(self) -> None:
         self.routes: dict[str, tuple[int, dict[str, str], bytes]] = {}
         self.servers: list[Callable[[httpx2.Request], httpx2.Response | None]] = []
+        self.method_routes: dict[tuple[str, str], tuple[int, dict[str, str], bytes]] = {}
+        self.failures: dict[str, httpx2.TransportError] = {}
         self.sent: list[httpx2.Request] = []
 
     @property
@@ -267,13 +270,32 @@ class StubWeb:
         method or the body, such as an API that makes a resource under a name in the body."""
         self.servers.append(server)
 
+    def respond(self, method: str, url: str, status: int, body: object = None) -> None:
+        """Answer `method` requests to `url` with `status` and `body` as JSON.
+
+        A route for a method comes before the page of its URL, so one URL can list on GET and
+        create on POST, as a REST collection does. A `body` of None sends no content.
+        """
+        content = b"" if body is None else json.dumps(body).encode()
+        self.method_routes[(method, url)] = (status, {"content-type": "application/json"}, content)
+
+    def fail(self, url: str, error: httpx2.TransportError) -> None:
+        """Raise `error` for each request to `url`, as a client sees a timeout or a lost connection."""
+        self.failures[url] = error
+
     def handle(self, request: httpx2.Request) -> httpx2.Response:
-        """Record `request` and answer it from the servers, then the routes, or with a 404."""
+        """Record `request` and answer it from the failures, the servers, then the routes, or with
+        a 404."""
         self.sent.append(request)
+        url = str(request.url)
+        if (error := self.failures.get(url)) is not None:
+            error.request = request
+            raise error
         for server in self.servers:
             if (response := server(request)) is not None:
                 return response
-        status, headers, body = self.routes.get(str(request.url), (404, {}, b""))
+        route = self.method_routes.get((request.method, url)) or self.routes.get(url)
+        status, headers, body = route or (404, {}, b"")
         return httpx2.Response(status, headers=headers, content=body)
 
     def vetting_handler(

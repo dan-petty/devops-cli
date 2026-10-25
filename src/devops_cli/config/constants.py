@@ -2880,6 +2880,15 @@ CONST_K8S_INFORMER_EVENTS: Final[tuple[str, ...]] = (
     CONST_K8S_EVENT_ERROR,
 )
 
+# ── Stack Credential Sync (`devops k8s sync-secrets`, #2156) ─────────────────
+# The HTTP statuses with which Argo CD and Grafana refuse a token. Any other status is a failed
+# check, and the sync keeps the stored token. Argo CD also refuses a token with HTTP 200 and
+# `loggedIn: false` from its userinfo, because that endpoint takes no authentication.
+CONST_STACK_TOKEN_REFUSED_HTTP_STATUSES: Final[frozenset[int]] = frozenset({401, 403})
+# The statuses with which Grafana refuses to create a service account whose name is in use.
+CONST_GRAFANA_ACCOUNT_EXISTS_HTTP_STATUSES: Final[frozenset[int]] = frozenset({400, 409})
+CONST_GRAFANA_SERVICE_ACCOUNT_NAME: Final[str] = "devops-cli"
+
 # ── Kubernetes Pod Status ────────────────────────────────────────────────────
 # The STATUS kubectl prints for a pod, ported from its `printPod`: the pod's reason or
 # phase, unless an init or app container's waiting or terminated reason says more. Every

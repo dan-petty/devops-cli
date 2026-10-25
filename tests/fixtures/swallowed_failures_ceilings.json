@@ -92,7 +92,6 @@
   "src/devops_cli/k8s/chaos.py": 1,
   "src/devops_cli/k8s/chaos_runner.py": 1,
   "src/devops_cli/k8s/context.py": 2,
-  "src/devops_cli/k8s/credentials.py": 11,
   "src/devops_cli/k8s/doctor.py": 2,
   "src/devops_cli/k8s/informer.py": 2,
   "src/devops_cli/k8s/logql.py": 1,
