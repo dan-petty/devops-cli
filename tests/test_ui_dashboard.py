@@ -564,6 +564,59 @@ async def test_textual_dashboard_app_lifecycle() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("empty_docker_engine")
+async def test_the_dashboard_telemetry_tab_renders_telemetry_panel_and_opens_modal() -> None:
+    """The dashboard composes TelemetryPanel under tab-telemetry and opens trace modal."""
+    from devops_cli.ui.state import DomainSnapshot
+    from devops_cli.ui.waterfall_modal import TraceWaterfallModal
+    from devops_cli.ui.widgets import TelemetryPanel
+
+    app = DashboardApp(initial_tab="tab-telemetry", refresh_interval=0)
+    async with app.run_test() as pilot:
+        panel = app.query_one(TelemetryPanel)
+        assert panel is not None
+        assert panel.id == "panel-telemetry"
+
+        # Apply snapshot with sample trace
+        sample = TelemetrySummary(
+            latency_samples=[15.0, 25.0],
+            token_throughput_samples=[120.0],
+            cache_hit_ratio=0.8,
+            recent_traces=[
+                {
+                    "trace_id": "00112233445566778899aabbccddeeff",
+                    "root_name": "ai.analyze",
+                    "duration_ms": 100.0,
+                    "span_count": 1,
+                    "status": "OK",
+                    "spans": [
+                        {
+                            "traceId": "00112233445566778899aabbccddeeff",
+                            "spanId": "0011223344556677",
+                            "name": "ai.analyze",
+                            "startTimeUnixNano": "1000000000000000000",
+                            "endTimeUnixNano": "1000000000100000000",
+                            "status": {"code": "STATUS_CODE_OK"},
+                        }
+                    ],
+                }
+            ],
+        )
+        app.apply_snapshot(DomainSnapshot(domain="telemetry", data=sample))
+        await pilot.pause()
+
+        # Open waterfall modal with 'w'
+        await pilot.press("w")
+        await pilot.pause()
+        assert any(isinstance(s, TraceWaterfallModal) for s in app.screen_stack)
+
+        # Close modal with escape
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not any(isinstance(s, TraceWaterfallModal) for s in app.screen_stack)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_docker_engine")
 async def test_the_dashboard_shows_four_domain_tabs_and_the_logs_tab() -> None:
     """The dashboard holds no AI Review tab: `devops review findings --details` shows findings
     (#1883)."""

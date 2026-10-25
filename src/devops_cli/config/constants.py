@@ -3139,6 +3139,7 @@ CONST_DASHBOARD_TABS_ID: Final[str] = "dashboard-tabs"
 # A tab not listed here focuses the first widget in it that can take focus.
 CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
     f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
+    f"tab-{CONST_DASHBOARD_DOMAIN_TELEMETRY}": "#telemetry-table",
     CONST_LOGS_TAB_ID: "#log-pane",
 }
 
