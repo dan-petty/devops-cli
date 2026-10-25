@@ -377,6 +377,9 @@ def _lockfiles_beside(paths: list[Path]) -> list[Path]:
 
 def _parse_candidate_location(location: str) -> tuple[str, int | None, int | None, str | None]:
     """Parse candidate finding location into (path, start_line, end_line, logical_location)."""
+    if location.startswith(":"):
+        return "", None, None, location.lstrip(":").strip() or None
+
     from devops_cli.ai.review_schema import _parse_location
     from devops_cli.security.normalization import split_location
 
@@ -472,6 +475,7 @@ def _admit_single_candidate(
     base_fingerprints: set[str] | None = None,
     canary_passed: bool = True,
     rejection_counts: dict[str, int] | None = None,
+    manifest_objects: set[str] | None = None,
 ) -> tuple[Any | None, SavedFinding | None]:
     """Admit a single scanner finding candidate into a frozen finding (#871).
 
@@ -511,6 +515,7 @@ def _admit_single_candidate(
         worktree_root=worktree_root,
         commit_files=commit_files,
         file_content_getter=file_content_getter,
+        manifest_objects=manifest_objects,
         path_classes=path_classes,
         severity_caps=None if _is_secret_scanner_result(tool, r_id) else severity_caps,
         suppressions=suppressions,
@@ -552,6 +557,22 @@ def _read_cited_file(
         return None
 
 
+def _collect_manifest_candidates(
+    file_paths: Sequence[str],
+    secret_scan_files: Sequence[str],
+    findings: Sequence[SavedFinding],
+) -> list[str]:
+    """Collect candidate manifest file paths from reviewed files and finding locations."""
+    candidates = [
+        p for p in set(file_paths) | set(secret_scan_files) if p.endswith((".yaml", ".yml"))
+    ]
+    for sf in findings:
+        raw_p = sf.location.split(":")[0] if sf.location else ""
+        if raw_p.endswith((".yaml", ".yml")) and raw_p not in candidates:
+            candidates.append(raw_p)
+    return candidates
+
+
 def _admit_scanner_findings(
     findings: list[SavedFinding],
     *,
@@ -568,6 +589,7 @@ def _admit_scanner_findings(
     base_fingerprints: set[str] | None = None,
     canary_results: Mapping[str, bool] | None = None,
     rejection_counts: dict[str, int] | None = None,
+    manifest_objects: set[str] | None = None,
 ) -> tuple[list[Any], list[SavedFinding]]:
     """Admit static scanner candidates into frozen review findings (#871).
 
@@ -582,6 +604,16 @@ def _admit_scanner_findings(
         resolve_file_path=resolve_file_path,
         coverage_gaps=coverage_gaps,
     )
+
+    if manifest_objects is None:
+        from devops_cli.review.manifests import collect_manifest_objects
+
+        candidates = _collect_manifest_candidates(file_paths, secret_scan_files, findings)
+        eff_manifest_objects: set[str] | None = collect_manifest_objects(
+            candidates, content_getter=read_cited_file
+        )
+    else:
+        eff_manifest_objects = manifest_objects
 
     admitted_frozen: list[Any] = []
     admitted_saved: list[SavedFinding] = []
@@ -607,6 +639,7 @@ def _admit_scanner_findings(
             base_fingerprints=base_fingerprints,
             canary_passed=tool_canary_ok,
             rejection_counts=rejection_counts,
+            manifest_objects=eff_manifest_objects,
         )
         if frozen is not None:
             admitted_frozen.append(frozen)
@@ -2313,6 +2346,7 @@ class ReviewPipelineOrchestrator:
         self.static_severities: Counter[str] = Counter()
         self.admitted_scanner_findings: list[Any] = []
         self.base_fingerprints: set[str] = set()
+        self.manifest_objects: set[str] | None = None
         # The review.toml the path classes come from: its suppressions, the most severe a
         # scanner finding in each path class is admitted as (#871, #1301), and the advisory
         # rules and complexity limits for the ruff and mypy evidence (#873).
@@ -2573,6 +2607,22 @@ class ReviewPipelineOrchestrator:
                         tool_executor=self.tool_executor,
                     )
 
+                if self.manifest_objects is None:
+                    from devops_cli.review.manifests import collect_manifest_objects
+
+                    candidates = _collect_manifest_candidates(
+                        file_paths, self.secret_scan_files, all_static_findings
+                    )
+                    read_for_manifests = partial(
+                        _read_cited_file,
+                        worktree_root=reviewed_tree(self.target_dir),
+                        resolve_file_path=self._resolve_file_path,
+                        coverage_gaps=self.errored_files,
+                    )
+                    self.manifest_objects = collect_manifest_objects(
+                        candidates, content_getter=read_for_manifests
+                    )
+
                 eff_added = (
                     added_diff_lines
                     if added_diff_lines is not None
@@ -2593,6 +2643,7 @@ class ReviewPipelineOrchestrator:
                     base_fingerprints=getattr(self, "base_fingerprints", None),
                     canary_results=self.canary_results,
                     rejection_counts=self.rejection_counts,
+                    manifest_objects=self.manifest_objects,
                 )
                 self.admitted_scanner_findings = admitted_frozen
                 all_static_findings = admitted_saved
@@ -2719,6 +2770,7 @@ class ReviewPipelineOrchestrator:
                 base_fingerprints=getattr(self, "base_fingerprints", None),
                 canary_results=self.canary_results,
                 rejection_counts=self.rejection_counts,
+                manifest_objects=getattr(self, "manifest_objects", None),
             )
             self.admitted_scanner_findings.extend(admitted_frozen)
             evidence_findings_by_file = _match_static_findings_to_files(admitted_saved, file_paths)
@@ -2858,6 +2910,7 @@ class ReviewPipelineOrchestrator:
             added_diff_lines=getattr(self, "added_diff_lines", None),
             base_fingerprints=getattr(self, "base_fingerprints", None),
             rejection_counts=counts,
+            manifest_objects=getattr(self, "manifest_objects", None),
         )
         if counts and (prof := active_profiler()):
             prof.set_rejections(counts)

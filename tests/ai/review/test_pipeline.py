@@ -283,3 +283,68 @@ def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
         True,
         False,
     )
+
+
+def test_scanner_finding_citing_absent_kubernetes_object_is_rejected(tmp_path: Path) -> None:
+    """A scanner finding citing a Kubernetes object not in manifests is rejected (#1352)."""
+    manifest_dir = tmp_path / "k8s"
+    manifest_dir.mkdir(parents=True)
+    manifest_file = manifest_dir / "deploy.yaml"
+    manifest_file.write_text(
+        "apiVersion: apps/v1\n"
+        "kind: Deployment\n"
+        "metadata:\n"
+        "  name: web-app\n"
+        "  namespace: prod\n"
+        "spec:\n"
+        "  replicas: 1\n",
+        encoding="utf-8",
+    )
+
+    finding_valid = Finding(
+        title="[Kube-linter] Container has no resource limits",
+        location="k8s/deploy.yaml:Deployment/prod/web-app",
+        severity="MEDIUM",
+    )
+    finding_ghost = Finding(
+        title="[Kube-linter] Container has no resource limits",
+        location="k8s/deploy.yaml:Deployment/prod/ghost-app",
+        severity="MEDIUM",
+    )
+    finding_empty_path_valid = Finding(
+        title="[Pluto] Deprecated API",
+        location=":Deployment/prod/web-app",
+        severity="HIGH",
+    )
+    finding_empty_path_ghost = Finding(
+        title="[Pluto] Deprecated API",
+        location=":Deployment/prod/ghost-app",
+        severity="HIGH",
+    )
+
+    candidates = [
+        *_wrap_static_findings([finding_valid, finding_ghost], tool="kube-linter"),
+        *_wrap_static_findings([finding_empty_path_valid, finding_empty_path_ghost], tool="pluto"),
+    ]
+
+    rejection_counts: dict[str, int] = {}
+    admitted, reported = _admit_scanner_findings(
+        candidates,
+        session_id="s1352-manifests",
+        worktree_root=tmp_path,
+        file_paths=["k8s/deploy.yaml"],
+        secret_scan_files=[],
+        resolve_file_path=lambda p: tmp_path / p,
+        coverage_gaps={},
+        rejection_counts=rejection_counts,
+    )
+
+    assert (
+        [(f.path, f.logical_location) for f in admitted],
+        [f.location for f in reported],
+        rejection_counts.get("object-not-in-commit"),
+    ) == (
+        [("k8s/deploy.yaml", "Deployment/prod/web-app"), ("", "Deployment/prod/web-app")],
+        ["k8s/deploy.yaml", ""],
+        2,
+    )

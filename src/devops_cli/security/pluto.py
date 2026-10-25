@@ -14,6 +14,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
+from devops_cli.review.manifests import manifest_object_key
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.kubelinter import manifest_location
 
@@ -35,7 +36,7 @@ def _pluto_finding(item: dict[str, Any], target_path: str) -> Finding:
     api = item["api"]
     kind, version, name = api["kind"], api["version"], item["name"]
     namespace = item.get("namespace") or ""
-    symbol = f"{kind}/{namespace}/{name}" if namespace else f"{kind}/{name}"
+    symbol = manifest_object_key(kind, name, namespace)
     removed = bool(item.get("removed"))
     status, release = (
         ("removed", api["removed-in"]) if removed else ("deprecated", api["deprecated-in"])
