@@ -313,7 +313,7 @@ class PackageIntrospector:
             except ImportError, ModuleNotFoundError:
                 continue
         raise LibraryNotFoundError(
-            f"Package '{package_name}' not found or cannot be imported in the current environment"
+            f"Package '{package_name}' not found or could not be loaded in the current environment"
         )
 
     def save_to_dir(self, contract: LibraryContract, output_dir: Path | str) -> Path:

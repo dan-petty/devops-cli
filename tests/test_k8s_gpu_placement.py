@@ -50,6 +50,8 @@ def _deploy(nodes: object, *, argo: bool = False, fail: bool = False) -> tuple[i
             return subprocess.CompletedProcess(
                 cmd, 1 if fail else 0, "" if fail else json.dumps({"items": nodes}), ""
             )
+        if cmd[:2] == ["helm", "version"]:
+            return subprocess.CompletedProcess(cmd, 0, "v3.17.0\n", "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     with (

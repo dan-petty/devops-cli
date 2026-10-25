@@ -173,6 +173,8 @@ def test_switch_context_minikube_autostarts_when_stopped(
 
     def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
         calls.append(cmd)
+        if cmd[:2] == ["helm", "version"]:
+            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
         return MagicMock(returncode=0, stdout="OK", stderr="")
 
     def mock_minikube_running() -> bool:
@@ -211,6 +213,8 @@ def test_switch_context_minikube_skips_start_when_already_running(
 
     def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
         calls.append(cmd)
+        if cmd[:2] == ["helm", "version"]:
+            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
         return MagicMock(returncode=0, stdout="OK", stderr="")
 
     with (
@@ -241,6 +245,8 @@ def test_switch_context_other_cluster_does_not_start_minikube(
 
     def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
         calls.append(cmd)
+        if cmd[:2] == ["helm", "version"]:
+            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
         return MagicMock(returncode=0, stdout="OK", stderr="")
 
     with (
@@ -319,6 +325,8 @@ def test_switch_context_accepts_kubeconfig_names_and_rejects_injection(
 
     def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
         calls.append(cmd)
+        if cmd[:2] == ["helm", "version"]:
+            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
         return MagicMock(returncode=0, stdout="OK", stderr="")
 
     with (
@@ -376,6 +384,8 @@ def test_deploy_and_teardown_stack_use_effective_context(
 
     def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
         calls.append(cmd)
+        if cmd[:2] == ["helm", "version"]:
+            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
         return MagicMock(returncode=0, stdout="OK", stderr="")
 
     manifest_dir = tmp_path / "k8s"

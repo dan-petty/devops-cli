@@ -301,7 +301,7 @@ def test_deploy_stack_defaults_do_not_port_forward_or_configure_urls() -> None:
         patch(
             "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable", return_value=True
         ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run_cmd,
         patch("devops_cli.commands.k8s.stack_lifecycle.net.port_forward") as mock_pf,
         patch("devops_cli.commands.k8s.stack_lifecycle.net.configure_urls") as mock_conf,
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
@@ -309,6 +309,13 @@ def test_deploy_stack_defaults_do_not_port_forward_or_configure_urls() -> None:
         patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
         patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
     ):
+
+        def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if cmd[:2] == ["helm", "version"]:
+                return subprocess.CompletedProcess(cmd, 0, "v3.17.0\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        mock_run_cmd.side_effect = _fake_run
         deploy_stack(stack="infra")
         assert (mock_pf.called, mock_conf.called) == (False, False)
 

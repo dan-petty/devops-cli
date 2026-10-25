@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final, assert_never
 
 import typer
+from packaging.version import InvalidVersion, Version
 from pydantic import ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
@@ -20,7 +21,7 @@ from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subpro
 from devops_cli.commands.k8s.cluster_secret_push import push_for_stacks, require_keyring_for_push
 from devops_cli.config.constants import (
     CONST_HELM_DAEMONSET_RELEASES,
-    CONST_HELM_OWNERSHIP_CONFLICT_RE,
+    CONST_HELM_MIN_VERSION,
     CONST_HELM_TEARDOWN_RETAINED_RELEASES,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
@@ -28,12 +29,15 @@ from devops_cli.config.constants import (
     CONST_K8S_OLLAMA_PROFILES_PATH,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_HELM_RECOVERY_MAX_RETRIES,
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
-from devops_cli.exceptions.k8s import ClusterSecretPushError, KubernetesContextError
+from devops_cli.exceptions.k8s import (
+    ClusterSecretPushError,
+    KubernetesContextError,
+    KubernetesDeployError,
+)
 from devops_cli.k8s.argocd_overrides import (
     application_patch,
     application_source,
@@ -273,109 +277,39 @@ _POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "gitea", "all")
 
 
-def _recover_stuck_helm_release_if_pending(
-    error_output: str, release_name: str, namespace: str, context: str | None = None
-) -> bool:
-    """If Helm failed due to another operation in progress, clean up stuck pending lock."""
-    if "another operation" not in error_output:
-        return False
-
+def _recover_stuck_helm_release(
+    release_name: str, namespace: str, context: str | None = None
+) -> None:
+    """If Helm release is stuck in a pending state, rollback or uninstall it before upgrade."""
     helm_ctx = ["--kube-context", context] if context else []
     status_cmd = ["helm", "status", release_name, "-n", namespace, "-o", "json"] + helm_ctx
     res = runtime._run_cmd(status_cmd, check=False, capture=True)
     if res.returncode != 0 or not res.stdout:
-        return False
+        return
 
     try:
         data = json.loads(res.stdout)
-        status = str(data.get("info", {}).get("status", ""))
-        version = data.get("version")
-        if status.startswith("pending-") and version:
-            secret_name = f"sh.helm.release.v1.{release_name}.v{version}"
-            msg = (
-                f"Helm release '{release_name}' in namespace '{namespace}' is stuck in '{status}' "
-                f"(revision {version}). Cleaning up release lock secret '{secret_name}'..."
+        status = str(data.get("info", {}).get("status", "")).strip().lower()
+        if status == "pending-install":
+            print_warning(
+                f"Helm release '{release_name}' in namespace '{namespace}' is stuck in "
+                f"'{status}'. Uninstalling release before upgrade..."
             )
-            print_warning(msg)
-            k_ctx = ["--context", context] if context else []
-            del_cmd = [
-                "kubectl",
-                "delete",
-                "secret",
-                secret_name,
-                "-n",
-                namespace,
-                "--ignore-not-found",
-            ] + k_ctx
-            runtime._run_cmd(del_cmd, check=False)
-            return True
+            runtime._run_cmd(
+                ["helm", "uninstall", release_name, "-n", namespace] + helm_ctx,
+                check=False,
+            )
+        elif status in ("pending-upgrade", "pending-rollback"):
+            print_warning(
+                f"Helm release '{release_name}' in namespace '{namespace}' is stuck in "
+                f"'{status}'. Rolling back release before upgrade..."
+            )
+            runtime._run_cmd(
+                ["helm", "rollback", release_name, "-n", namespace] + helm_ctx,
+                check=False,
+            )
     except json.JSONDecodeError, KeyError, TypeError:
         pass
-    return False
-
-
-def _adopt_helm_resource_if_conflict(
-    error_output: str, release_name: str, namespace: str, context: str | None = None
-) -> bool:
-    """If Helm failed due to pre-existing unmanaged resources, annotate and label them to adopt.
-
-    Helm names a cluster-scoped resource, such as a CRD, `in namespace ""`, so it is addressed
-    without `-n`. Helm checks the release-namespace annotation against the release's namespace,
-    which a namespaced resource need not share.
-    """
-    if (
-        "invalid ownership metadata" not in error_output
-        and "cannot be imported" not in error_output
-    ):
-        return False
-
-    if release_name == "traefik":
-        print_warning(
-            "Traefik conflict detected: k3s must run with '--disable traefik' "
-            "rather than adopting pre-existing resources."
-        )
-        return False
-
-    matches = CONST_HELM_OWNERSHIP_CONFLICT_RE.findall(error_output)
-    if not matches:
-        return False
-
-    ctx_args = ["--context", context] if context else []
-    adopted_any = False
-    for kind_raw, name, ns in matches:
-        kind = kind_raw.lower()
-        ns_args = ["-n", ns] if ns else []
-        adopt_msg = f"Adopting pre-existing {kind}/{name} for release '{release_name}'..."
-        print_warning(adopt_msg)
-        runtime._run_cmd(
-            [
-                "kubectl",
-                "annotate",
-                kind,
-                name,
-                *ns_args,
-                f"meta.helm.sh/release-name={release_name}",
-                f"meta.helm.sh/release-namespace={namespace}",
-                "--overwrite",
-            ]
-            + ctx_args,
-            check=False,
-        )
-        runtime._run_cmd(
-            [
-                "kubectl",
-                "label",
-                kind,
-                name,
-                *ns_args,
-                "app.kubernetes.io/managed-by=Helm",
-                "--overwrite",
-            ]
-            + ctx_args,
-            check=False,
-        )
-        adopted_any = True
-    return adopted_any
 
 
 def _get_openwebui_bootstrap_credentials() -> dict[str, str]:
@@ -565,6 +499,39 @@ def bootstrap_openwebui(
         raise typer.Exit(1)
 
 
+def _require_helm_version() -> Version:
+    """Ensure installed Helm is version 3.17 or later, returning the parsed version."""
+    proc = runtime._run_cmd(
+        ["helm", "version", "--template", "{{.Version}}"], check=False, capture=True
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        raise KubernetesDeployError("Helm CLI is required but failed to report its version.")
+    raw_ver = proc.stdout.strip()
+    ver_clean = raw_ver.lstrip("v")
+    try:
+        ver = Version(ver_clean)
+    except InvalidVersion as exc:
+        raise KubernetesDeployError(f"Could not parse Helm version: {raw_ver}.") from exc
+    min_ver = Version(CONST_HELM_MIN_VERSION)
+    if ver < min_ver:
+        raise KubernetesDeployError(
+            f"Helm {CONST_HELM_MIN_VERSION} or later is required; found {raw_ver}."
+        )
+    return ver
+
+
+def _check_helm_version_for_deploy(all_releases: Sequence[dict[str, str]]) -> bool:
+    """Verify Helm meets minimum version if releases are deployed, returning if Helm is v4+."""
+    if not all_releases:
+        return False
+    try:
+        helm_ver = _require_helm_version()
+        return helm_ver.major >= 4
+    except KubernetesDeployError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from exc
+
+
 def _is_helm_v4_or_newer() -> bool:
     """Detect whether the active Helm CLI is version 4 or newer."""
     proc = runtime._run_cmd(
@@ -574,9 +541,9 @@ def _is_helm_v4_or_newer() -> bool:
         return False
     ver_clean = proc.stdout.strip().lstrip("v")
     try:
-        major = int(ver_clean.split(".")[0])
-        return major >= 4
-    except ValueError, IndexError:
+        ver = Version(ver_clean)
+        return ver.major >= 4
+    except InvalidVersion:
         return False
 
 
@@ -585,10 +552,12 @@ def _build_helm_upgrade_cmd(
     helm_ctx: list[str],
     wait: bool,
     timeout: str,
+    is_v4: bool | None = None,
 ) -> list[str]:
     """Construct helm upgrade --install command matching installed Helm capabilities."""
-    helm_cmd = ["helm", "upgrade", "--install"]
-    if _is_helm_v4_or_newer():
+    helm_cmd = ["helm", "upgrade", "--install", "--take-ownership"]
+    v4 = _is_helm_v4_or_newer() if is_v4 is None else is_v4
+    if v4:
         helm_cmd.append("--force-conflicts")
     helm_cmd.extend(
         [
@@ -684,41 +653,6 @@ def _apply_manifest_files(
         _apply_single_manifest(manifest_path, kubectl_ctx, effective_domain)
 
 
-def _run_helm_with_adoption_retries(
-    helm_cmd: list[str],
-    release: dict[str, str],
-    effective_context: str | None,
-) -> Any:
-    """Run Helm upgrade, retrying after recovering a stuck pending lock or adopting a resource.
-
-    Helm names one conflicting resource per failed attempt, so each retry adopts the next one. A
-    retry that fails exactly like the attempt before it made no progress and ends the retries.
-    """
-    result = runtime._run_cmd(helm_cmd, check=False, capture=True)
-    previous_error: str | None = None
-    for _ in range(DEFAULT_HELM_RECOVERY_MAX_RETRIES):
-        err_msg = (result.stderr or "") + " " + (result.stdout or "")
-        if result.returncode == 0 or err_msg == previous_error:
-            break
-        previous_error = err_msg
-        pending_recovered = _recover_stuck_helm_release_if_pending(
-            err_msg,
-            release["name"],
-            release["namespace"],
-            context=effective_context,
-        )
-        conflicts_adopted = _adopt_helm_resource_if_conflict(
-            err_msg,
-            release["name"],
-            release["namespace"],
-            context=effective_context,
-        )
-        if not (pending_recovered or conflicts_adopted):
-            break
-        result = runtime._run_cmd(helm_cmd, check=False, capture=True)
-    return result
-
-
 def _install_single_release(
     release: dict[str, str],
     effective_context: str | None,
@@ -726,17 +660,23 @@ def _install_single_release(
     wait: bool,
     timeout: str,
     unready_nodes: Sequence[str] = (),
+    is_v4: bool | None = None,
 ) -> None:
-    """Install or upgrade a single Helm release with conflict adoption retries."""
+    """Install or upgrade a single Helm release after recovering pending state if stuck."""
     effective_wait = wait
     if wait and unready_nodes and release["name"] in CONST_HELM_DAEMONSET_RELEASES:
         print_warning(
             f"Cluster has unready nodes ({', '.join(unready_nodes)}). Skipping Helm '--wait' for DaemonSet release '{release['name']}'."
         )
         effective_wait = False
+    _recover_stuck_helm_release(
+        release["name"],
+        release["namespace"],
+        context=effective_context,
+    )
     print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
-    helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, effective_wait, timeout)
-    result = _run_helm_with_adoption_retries(helm_cmd, release, effective_context)
+    helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, effective_wait, timeout, is_v4=is_v4)
+    result = runtime._run_cmd(helm_cmd, check=False, capture=True)
     if result.returncode != 0:
         err_details = (result.stderr or result.stdout or "").strip()
         print_error(f"Failed to install {release['name']}: {err_details}", prefix=False)
@@ -1282,6 +1222,9 @@ def deploy_stack(
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
         push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
 
+    # 5b. Verify Helm version requirement before Helm operations
+    is_v4 = _check_helm_version_for_deploy(all_releases)
+
     # 6. Add Helm repos for selected stacks
     _deploy_helm_repos(selected_stacks)
 
@@ -1298,7 +1241,13 @@ def deploy_stack(
     # 9. Install Helm releases
     for release in all_releases:
         _install_single_release(
-            release, effective_context, helm_ctx, wait, timeout, unready_nodes=unready_nodes
+            release,
+            effective_context,
+            helm_ctx,
+            wait,
+            timeout,
+            unready_nodes=unready_nodes,
+            is_v4=is_v4,
         )
 
     # 9b. Apply post-Helm custom resources and kustomizations whose CRDs the charts installed
