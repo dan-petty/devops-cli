@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -23,6 +22,8 @@ from devops_cli.core.validation import is_valid_k8s_name, validate_url_egress
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,12 @@ _TRACE_ID_REGEX = re.compile(
     r'(?:trace_id|traceId|traceID)[=:"\s]+([0-9a-fA-F]{16,32})', re.IGNORECASE
 )
 _LOGFMT_REGEX = re.compile(r'([a-zA-Z0-9_\-\.]+)=(?:"([^"]*)"|([^\s]+))')
-_SELECTOR_REGEX = re.compile(r'([a-zA-Z0-9_\-\.]+)\s*=\s*"([^"]*)"')
+_MATCHER_TOKEN_REGEX = re.compile(
+    r'([a-zA-Z0-9_\-\.]+)\s*(=~|!~|!=|=)\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\')'
+)
+_CONTAINS_FILTER_REGEX = re.compile(
+    r'\|=\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\')'
+)
 _FILTER_REGEX = re.compile(r'(\|=|\!=|\|~|!~)\s*"([^"]*)"')
 
 
@@ -114,7 +120,11 @@ def _parse_stream_selectors(selector_part: str) -> dict[str, str]:
     content = selector_part.strip().lstrip("{").rstrip("}").strip()
     if not content:
         return {}
-    return dict(_SELECTOR_REGEX.findall(content))
+    return {
+        m.group(1): m.group(3) if m.group(3) is not None else m.group(4)
+        for m in _MATCHER_TOKEN_REGEX.finditer(content)
+        if m.group(2) == "="
+    }
 
 
 def _parse_filters_and_pipeline(
@@ -153,7 +163,7 @@ def parse_logql_query(query_str: str) -> LogQLQuery:
     """Parse raw LogQL string into structured LogQLQuery model."""
     cleaned = query_str.strip()
     if not cleaned:
-        return LogQLQuery(raw_query="")
+        return LogQLQuery(raw_query=query_str)
 
     if cleaned.startswith("{") and "}" in cleaned:
         brace_end = cleaned.find("}")
@@ -162,7 +172,7 @@ def parse_logql_query(query_str: str) -> LogQLQuery:
         selectors = _parse_stream_selectors(selector_part)
         filters, pipeline = _parse_filters_and_pipeline(remaining)
         return LogQLQuery(
-            raw_query=cleaned,
+            raw_query=query_str,
             selectors=selectors,
             filters=filters,
             format_pipeline=pipeline,
@@ -173,7 +183,7 @@ def parse_logql_query(query_str: str) -> LogQLQuery:
     if not filters and cleaned:
         filters = [LogQLFilter(op=FilterOp.CONTAINS, pattern=cleaned)]
     return LogQLQuery(
-        raw_query=cleaned,
+        raw_query=query_str,
         selectors={},
         filters=filters,
         format_pipeline=pipeline,
@@ -254,89 +264,111 @@ def evaluate_log_lines(
     return results
 
 
-def _get_matching_pods(namespace: str, selectors: dict[str, str]) -> list[str]:
-    """Discover active pod names matching namespace and stream selectors."""
-    cmd = ["kubectl", "get", "pods", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}"]
-    label_filters = [f"{k}={v}" for k, v in selectors.items() if k not in ("namespace", "pod")]
-    if label_filters:
-        cmd.extend(["-l", ",".join(label_filters)])
-    proc = run_subprocess(cmd, check=False)
-    if proc.returncode == 0 and proc.stdout.strip():
-        return proc.stdout.strip().split()
-    return []
+def _validate_fallback_query(raw_query: str) -> tuple[dict[str, str], list[str]]:
+    """Verify that the query is supported by kubectl fallback, returning selectors and |= filters."""
+    raw = raw_query.strip()
+    err_msg = (
+        'The kubectl fallback supports only label="value" matchers and |= filters. '
+        "Configure loki.url to evaluate this query."
+    )
+    if not (raw.startswith("{") and "}" in raw):
+        raise KubernetesLoggingError(err_msg, query=raw_query)
+
+    brace_end = raw.find("}")
+    selector_content = raw[1:brace_end].strip()
+    remaining = raw[brace_end + 1 :].strip()
+
+    if not selector_content:
+        raise KubernetesLoggingError(err_msg, query=raw_query)
+
+    selectors: dict[str, str] = {}
+    for m in _MATCHER_TOKEN_REGEX.finditer(selector_content):
+        if m.group(2) != "=":
+            raise KubernetesLoggingError(err_msg, query=raw_query)
+        selectors[m.group(1)] = m.group(3) if m.group(3) is not None else m.group(4)
+
+    if not selectors:
+        raise KubernetesLoggingError(err_msg, query=raw_query)
+
+    reconstructed = _MATCHER_TOKEN_REGEX.sub("", selector_content)
+    if reconstructed.replace(",", "").strip():
+        raise KubernetesLoggingError(err_msg, query=raw_query)
+
+    if remaining:
+        cleaned_remaining = _CONTAINS_FILTER_REGEX.sub("", remaining).strip()
+        if cleaned_remaining:
+            raise KubernetesLoggingError(err_msg, query=raw_query)
+
+    substring_filters = [
+        m.group(1) if m.group(1) is not None else m.group(2)
+        for m in _CONTAINS_FILTER_REGEX.finditer(remaining)
+    ]
+    return selectors, substring_filters
 
 
-def _parse_duration_to_seconds(duration_str: str) -> int:
-    """Parse duration strings like '30s', '15m', '1h', '2d' to integer seconds."""
-    stripped = duration_str.strip().lower()
-    if not stripped:
-        return 3600
-    if stripped.isdigit():
-        return int(stripped)
-    unit = stripped[-1]
-    val_part = stripped[:-1]
-    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
-    if unit in multipliers:
-        try:
-            return int(float(val_part) * multipliers[unit])
-        except ValueError:
-            return 3600
-    return 3600
+def _build_kubectl_logs_cmd(
+    ns: str, selectors: dict[str, str], limit: int, since: str | None
+) -> list[str]:
+    """Construct argument list for kubectl logs execution."""
+    cmd = ["kubectl", "logs", "-n", ns]
+    if "pod" in selectors:
+        pod = selectors["pod"].removeprefix("pod/")
+        if not is_valid_k8s_name(pod):
+            raise ValidationError(f"Invalid Kubernetes pod identifier: '{pod}'")
+        cmd.append(pod)
+    else:
+        label_parts = [f"{k}={v}" for k, v in selectors.items() if k != "namespace"]
+        if label_parts:
+            cmd.extend(["-l", ",".join(label_parts)])
+
+    cmd.append(f"--tail={limit}")
+    if since:
+        cmd.append(f"--since={since}")
+    return cmd
 
 
-def execute_kubectl_logql(  # noqa: C901
+def execute_kubectl_logql(
     query: LogQLQuery,
     namespace: str = DEFAULT_K8S_NAMESPACE,
     limit: int = DEFAULT_LOG_QUERY_LIMIT,
     since: str | None = None,
 ) -> LogQueryResult:
-    """Query logs via kubectl across matching pods with in-memory LogQL filtering."""
-    ns = query.selectors.get("namespace", namespace)
+    """Query logs via kubectl across matching pods using native label selectors."""
+    selectors, substring_filters = _validate_fallback_query(query.raw_query)
+    ns = selectors.get("namespace", namespace)
     if not is_valid_k8s_name(ns, namespace=True):
         raise ValidationError(f"Invalid Kubernetes namespace identifier: '{ns}'")
-    if "pod" in query.selectors:
-        raw_pod = query.selectors["pod"].removeprefix("pod/")
-        if not is_valid_k8s_name(raw_pod):
-            raise ValidationError(f"Invalid Kubernetes pod identifier: '{raw_pod}'")
-        pods = [raw_pod]
-    else:
-        pods = _get_matching_pods(ns, query.selectors)
 
-    # If stream selectors were specified (e.g. app="x") and no pods matched, return empty result
-    if not pods and query.selectors:
+    cmd = _build_kubectl_logs_cmd(ns, selectors, limit, since)
+    proc = run_subprocess(cmd, check=False)
+    if proc.returncode != 0 or not proc.stdout.strip():
         return LogQueryResult(
             query=query,
             entries=[],
             source="k8s_fallback",
             duration_ms=0.0,
         )
-    if not pods:
-        pods = _get_matching_pods(ns, {})
 
     all_entries: list[LogEntry] = []
-    for raw_pod in pods[:5]:
-        pod = raw_pod.removeprefix("pod/")
-        if not is_valid_k8s_name(pod):
+    for line in proc.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped or not all(pattern in stripped for pattern in substring_filters):
             continue
-        cmd = ["kubectl", "logs", pod, "-n", ns, f"--tail={limit}"]
-        if since:
-            cmd.append(f"--since={since}")
-        proc = run_subprocess(cmd, check=False)
-        if proc.returncode != 0:
-            continue
-        raw_lines = proc.stdout.splitlines()
-        entries = evaluate_log_lines(
-            raw_lines,
-            query,
-            default_labels={"pod": pod, "namespace": ns, **query.selectors},
+        all_entries.append(
+            LogEntry(
+                timestamp="",
+                line=stripped,
+                stream_labels={"namespace": ns, **selectors},
+                fields={},
+                trace_id=extract_trace_id(stripped),
+            )
         )
-        all_entries.extend(entries)
         if len(all_entries) >= limit:
             break
 
     return LogQueryResult(
         query=query,
-        entries=all_entries[:limit],
+        entries=all_entries,
         source="k8s_fallback",
         duration_ms=0.0,
     )
@@ -351,18 +383,15 @@ def execute_loki_query(
     """Execute LogQL query against Loki REST API (/loki/api/v1/query_range)."""
     valid_url = validate_url_egress(loki_url, purpose="Loki", allow_private=True)
     endpoint = f"{valid_url.rstrip('/')}/loki/api/v1/query_range"
-    now_ns = int(time.time() * 1_000_000_000)
-    duration_sec = _parse_duration_to_seconds(since)
-    start_ns = now_ns - (duration_sec * 1_000_000_000)
     params: dict[str, Any] = {
         "query": query.raw_query,
         "limit": limit,
-        "start": str(start_ns),
-        "end": str(now_ns),
+        "since": since,
         "direction": "BACKWARD",
     }
     try:
-        resp = httpx2.get(endpoint, params=params, timeout=10.0)
+        with new_http_client(level=EgressLevel.PRIVATE, timeout=10.0) as client:
+            resp = client.get(endpoint, params=params)
     except (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.NetworkError) as conn_err:
         raise ConnectionError(f"Loki connection failed: {conn_err}") from conn_err
 
@@ -429,13 +458,13 @@ def execute_logql_query(
                 query=parsed.raw_query,
             )
         if not current_ns:
-            parsed.selectors["namespace"] = namespace
-            selectors_str = ", ".join(f'{k}="{v}"' for k, v in parsed.selectors.items())
-            pipeline_parts = [f'{f.op.value} "{f.pattern}"' for f in parsed.filters]
-            if parsed.format_pipeline:
-                pipeline_parts.append(f"| {parsed.format_pipeline}")
-            filter_suffix = f" {' '.join(pipeline_parts)}" if pipeline_parts else ""
-            parsed.raw_query = f"{{{selectors_str}}}{filter_suffix}".strip()
+            suggested_selectors = dict(parsed.selectors)
+            suggested_selectors["namespace"] = namespace
+            suggested = "{" + ", ".join(f'{k}="{v}"' for k, v in suggested_selectors.items()) + "}"
+            raise KubernetesLoggingError(
+                f"Query selector lacks namespace '{namespace}'. Use selector '{suggested}'.",
+                query=parsed.raw_query,
+            )
 
     target_ns = parsed.selectors.get("namespace", namespace or "default")
     url = loki_url or DEFAULT_LOKI_URL
