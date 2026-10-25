@@ -12,6 +12,7 @@ from devops_cli.review.admission import admit
 from devops_cli.review.anchors import AdvisoryAnchor, Anchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.fingerprint import compute_fingerprint_v2
+from devops_cli.review.manifests import manifest_object_key
 from devops_cli.review.session import ReviewSession
 from devops_cli.review.severity import derive_severity
 from devops_cli.review.state import (
@@ -126,10 +127,10 @@ def test_location_check_and_typed_rejections(tmp_path: Path) -> None:
         rule_id="no-read-only-fs",
         path="k8s/deploy.yaml",
         message="fs",
-        logical_location="Deployment/prod/api",
+        logical_location=manifest_object_key("Deployment", "api", "prod"),
         commit_files=commit_files,
         file_content_getter=file_getter,
-        manifest_objects={"Deployment/default/web"},
+        manifest_objects={manifest_object_key("Deployment", "web", "default")},
         rejection_counts=rejections,
     )
     assert f_obj is None
@@ -1119,3 +1120,78 @@ def test_a_marker_of_another_tool_added_by_the_change_does_not_mark_the_finding(
     )
     assert found is not None
     assert (found.state, found.suppressed_by_change) == (FindingState.OPEN, False)
+
+
+def test_admission_logical_location_without_physical_path() -> None:
+    """A finding with only a logical location reaches logical location validation (#1352).
+
+    With no physical region, it is admitted only with the matching manifest object as evidence.
+    """
+    anchor = ToolAnchor(run_id="run-1", result_index=0, rule_id="no-read-only-fs")
+    commit_files = {"k8s/deploy.yaml"}
+    rejections: dict[str, int] = {}
+    valid_key = manifest_object_key("Deployment", "web", "default")
+    absent_key = manifest_object_key("Deployment", "ghost", "default")
+
+    # 1. Matching manifest object without physical path -> admitted
+    admitted = admit(
+        anchor=anchor,
+        tool="kubelinter",
+        rule_id="no-read-only-fs",
+        path="",
+        message="read-only root fs",
+        logical_location=valid_key,
+        commit_files=commit_files,
+        manifest_objects={valid_key},
+        rejection_counts=rejections,
+    )
+    assert admitted is not None
+    assert admitted.path == ""
+    assert admitted.line is None
+    assert admitted.logical_location == valid_key
+    assert admitted.region_sha256 is None
+
+    # 2. Absent manifest object without physical path -> rejected as object-not-in-commit
+    rejected_absent = admit(
+        anchor=anchor,
+        tool="kubelinter",
+        rule_id="no-read-only-fs",
+        path="",
+        message="read-only root fs",
+        logical_location=absent_key,
+        commit_files=commit_files,
+        manifest_objects={valid_key},
+        rejection_counts=rejections,
+    )
+    assert rejected_absent is None
+    assert rejections.get("object-not-in-commit") == 1
+
+    # 3. No manifest objects provided without physical path -> rejected as object-not-in-commit
+    rejected_none = admit(
+        anchor=anchor,
+        tool="kubelinter",
+        rule_id="no-read-only-fs",
+        path="",
+        message="read-only root fs",
+        logical_location=valid_key,
+        commit_files=commit_files,
+        manifest_objects=None,
+        rejection_counts=rejections,
+    )
+    assert rejected_none is None
+    assert rejections.get("object-not-in-commit") == 2
+
+    # 4. Empty path and empty logical location -> rejected as path-not-in-commit
+    rejected_empty = admit(
+        anchor=anchor,
+        tool="kubelinter",
+        rule_id="no-read-only-fs",
+        path="",
+        message="read-only root fs",
+        logical_location="",
+        commit_files=commit_files,
+        manifest_objects={valid_key},
+        rejection_counts=rejections,
+    )
+    assert rejected_empty is None
+    assert rejections.get("path-not-in-commit") == 1

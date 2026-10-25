@@ -14,6 +14,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
+from devops_cli.review.manifests import manifest_object_key
 from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
 
 if TYPE_CHECKING:
@@ -72,7 +73,7 @@ def _finding_from_report(report: dict[str, Any], target_path: str) -> Finding:
     check = report["Check"]
     message = report["Diagnostic"]["Message"]
     kind, name, namespace = _reported_object(report)
-    symbol = f"{kind}/{namespace}/{name}" if namespace else f"{kind}/{name}"
+    symbol = manifest_object_key(kind, name, namespace)
     file_path = ((report.get("Object") or {}).get("Metadata") or {}).get("FilePath")
     return Finding(
         severity="MEDIUM",

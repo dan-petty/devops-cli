@@ -367,6 +367,10 @@ def canonicalize_finding_location(location: str) -> str:
     loc, had_prompt_leakage = _pre_clean_location(location)
     if not loc:
         return ""
+    if loc.startswith(":"):
+        clean_suffix = loc.lstrip(":").strip()
+        if clean_suffix:
+            return f":{clean_suffix}"
 
     if " " in loc:
         embedded = _extract_embedded_location(loc)
