@@ -241,7 +241,14 @@ def test_the_collector_reads_every_module_and_both_prefixes(
         ("src/devops_cli/commands/ci.py", ("docs", "check")),
         (
             "src/devops_cli/commands/devcontainer.py",
-            ("k8s", "deploy-stack", "--stack", _single("stack")),
+            (
+                "devcontainer",
+                "bootstrap-k8s",
+                "--workspace",
+                _single("str(workspace_dir)"),
+                "--stack",
+                _single("stack"),
+            ),
         ),
         ("src/devops_cli/core/cli.py", (_single("cmd_name"), _spread("*args"))),
         ("src/devops_cli/ai/mcp/server.py", ("config", "show")),

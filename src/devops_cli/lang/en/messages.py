@@ -1294,10 +1294,7 @@ class CIMessages:
 @dataclass(frozen=True)
 class DevcontainerMessages:
     already_exists: str = "devcontainer.json already exists: {path}"
-    auto_deploy_failed: str = (
-        "Failed to auto-deploy Kubernetes stack '{stack}'. If the keyring was still locked, run "
-        "`devops devcontainer unlock-keyring`, then `devops k8s deploy-stack --stack {stack}`."
-    )
+    bootstrap_k8s_deploy_hint: str = "Deploy the stack once the keyring is unlocked: devops k8s deploy-stack --stack {stack} --context {context}"
     created_file: str = "Created: {path}"
     no_manifest_found: str = "No devcontainer.json found: {path}"
     manifest_valid: str = "✓ DevContainer manifest is valid: {path}"

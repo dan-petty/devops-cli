@@ -332,7 +332,7 @@ Containers scaffolded by `devops devcontainer init` run Debian's `gnome-keyring`
   ```
   `devops devcontainer post-start` and `unlock-keyring` both warn about any host that still has a plaintext token, and print this command for it.
 - **Git over HTTPS**: `containerEnv` routes `github.com` and `gist.github.com` credentials through `gh auth git-credential`, so git uses the same keyring-backed token as `gh`. These `GIT_CONFIG_*` entries are read after every config file, so they override the helper VS Code adds to forward credentials from the host. While the keyring is locked, `git fetch` over HTTPS fails instead of quietly using the host's credentials. Other hosts are unchanged.
-- **`devops` secrets**: `devops config` refuses to store a secret while the keyring is locked, and names `unlock-keyring` in the error. `devops k8s push-secrets`, and the `deploy-stack` that the post-start auto-deploy (`DEVOPS_K8S_AUTO_DEPLOY`) runs, stop before applying anything while it is locked; unlock it, then run `devops k8s deploy-stack --stack <stack>` again. It also refuses keyring setups that could fall back to a plaintext backend.
+- **`devops` secrets**: `devops config` refuses to store a secret while the keyring is locked, and names `unlock-keyring` in the error. `devops k8s push-secrets` and `devops k8s deploy-stack` stop before applying anything while it is locked; unlock it, then run `devops k8s deploy-stack --stack <stack> --context minikube`. It also refuses keyring setups that could fall back to a plaintext backend.
 
 > [!WARNING]
 > `gh` still falls back to a plaintext `hosts.yml` token if you log in while the keyring is locked (cli/cli#10108). Unlock first. post-start flags the fallback on the next container start.

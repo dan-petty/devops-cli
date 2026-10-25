@@ -27,7 +27,6 @@ def runner() -> CliRunner:
 def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate devcontainer tests from spawning real background system daemons."""
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-    monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
     monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
 
 
@@ -185,7 +184,6 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
@@ -200,7 +198,6 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
         mock_proc = MagicMock()
@@ -270,9 +267,7 @@ class TestDevcontainerCli:
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
 
         with docker_engine(MagicMock()):
-            result = runner.invoke(
-                app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"]
-            )
+            result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker --cni=calico --gpus=all)" in result.output
         assert any(c[:2] == ["minikube", "start"] for c in calls)
@@ -309,9 +304,7 @@ class TestDevcontainerCli:
         )
 
         with docker_engine(MagicMock()):
-            result = runner.invoke(
-                app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"]
-            )
+            result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker --cni=calico)" in result.output
         assert any(c == ["minikube", "start", "--driver=docker", "--cni=calico"] for c in calls)
@@ -334,7 +327,7 @@ class TestDevcontainerCli:
             "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: False
         )
 
-        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Docker daemon is not running" in result.output
 
@@ -377,7 +370,6 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         # Create pyproject.toml and .agents directory
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
@@ -416,7 +408,7 @@ class TestDevcontainerCli:
             "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: True
         )
 
-        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Minikube cluster is already running" in result.output
 
@@ -428,7 +420,6 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         # Scaffold .git and .pre-commit-config.yaml
         (tmp_path / ".git").mkdir()
@@ -468,7 +459,6 @@ class TestDevcontainerCli:
         ssh_dir.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         ws = tmp_path / "test-local-dev"
         ws.mkdir()
@@ -510,7 +500,6 @@ class TestDevcontainerCli:
         ssh_dir.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         ws = tmp_path / "isolated-proj"
         ws.mkdir()
@@ -557,7 +546,6 @@ class TestDevcontainerCli:
         ssh_dir.mkdir(parents=True)
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         ws = tmp_path / "isolated-proj"
         ws.mkdir()
@@ -772,7 +760,6 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         result = runner.invoke(app, ["run-lifecycle", "--all", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
@@ -893,7 +880,6 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
         monkeypatch.delenv("DEVOPS_GIT_DAEMON_AUTOSTART", raising=False)
         monkeypatch.delenv("DEVOPS_GIT_DAEMON_PATHS", raising=False)
 
@@ -918,28 +904,52 @@ class TestDevcontainerCli:
     def test_post_start_autodeploy_k8s_stack(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer post-start with DEVOPS_K8S_AUTO_DEPLOY spawns bootstrap with stack."""
+        """devops devcontainer post-start spawns bootstrap with stack and no deploy flag."""
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "true")
-        monkeypatch.setenv("DEVOPS_K8S_STACK", "observability")
+        monkeypatch.setenv("DEVOPS_K8S_STACK", "infra")
 
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
         mock_proc = MagicMock()
         mock_proc.__enter__.return_value = mock_proc
         mock_proc.communicate.return_value = ("", "")
         mock_proc.returncode = 0
-        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: mock_proc)
+        captured_popen: list[list[str]] = []
+
+        def fake_popen(cmd: list[str], *a: object, **kw: object) -> MagicMock:
+            captured_popen.append(cmd)
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Spawned background Minikube & Kubernetes bootstrap" in result.output
+        bootstrap_calls = [
+            cmd
+            for cmd in captured_popen
+            if len(cmd) >= 3 and cmd[:3] == ["devops", "devcontainer", "bootstrap-k8s"]
+        ]
+        assert len(bootstrap_calls) == 1
+        spawned_cmd = bootstrap_calls[0]
+        assert spawned_cmd == [
+            "devops",
+            "devcontainer",
+            "bootstrap-k8s",
+            "--workspace",
+            str(tmp_path),
+            "--stack",
+            "infra",
+        ]
+        assert "--deploy" not in spawned_cmd
+        assert "--no-deploy" not in spawned_cmd
 
     def test_bootstrap_k8s_autodeploy_k8s_stack(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer bootstrap-k8s autodeploys stack when cluster is running."""
+        """devops devcontainer bootstrap-k8s prints deploy command instead of auto-deploying."""
+        from devops_cli.core.command_resolver import resolve_devops_argv
 
         def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
             import subprocess
@@ -960,12 +970,15 @@ class TestDevcontainerCli:
                 "--workspace",
                 str(tmp_path),
                 "--stack",
-                "observability",
-                "--deploy",
+                "infra",
             ],
         )
         assert result.exit_code == 0
-        assert "Auto-deployed Kubernetes stack 'observability'" in result.output
+        assert "Auto-deployed" not in result.output
+        expected_cmd = "devops k8s deploy-stack --stack infra --context minikube"
+        assert expected_cmd in result.output
+        tokens = expected_cmd.split()[1:]
+        assert resolve_devops_argv(tokens) is None
 
     def test_devcontainer_update_and_validate_edge_cases(
         self, runner: CliRunner, tmp_path: Path
@@ -1060,7 +1073,6 @@ class TestDevcontainerCli:
         fake_ssh.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         # Test dry-run permission setup
         dry_actions = _setup_volume_mount_permissions(tmp_path, dry_run=True)
@@ -2233,35 +2245,32 @@ def test_post_create_skip_tools_flag(tmp_path: Path, runner: CliRunner) -> None:
         mock_pc.assert_called_once_with(tmp_path.resolve(), dry_run=False, skip_tools=True)
 
 
-def test_auto_deploy_passes_the_stack_as_an_option_and_names_the_unlock_on_failure(
+def test_bootstrap_k8s_prints_deploy_stack_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """deploy-stack takes only `--stack`, and at post-start the keyring may still be locked."""
-    import subprocess
+    """bootstrap-k8s prints the deploy-stack command with the minikube context."""
+    from devops_cli.config.constants import CONST_K8S_MINIKUBE_CONTEXT
+    from devops_cli.core.command_resolver import resolve_devops_argv
 
-    from devops_cli.commands import devcontainer
+    def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+        import subprocess
 
-    calls: list[list[str]] = []
-    codes = iter([0, 1])
+        if cmd[:2] == ["minikube", "status"]:
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="Running", stderr="")
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
-    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, next(codes), "", "")
-
-    monkeypatch.setattr(devcontainer, "run_subprocess", fake_run)
-    deployed = devcontainer._auto_deploy_k8s_stack(tmp_path, "infra", dry_run=False)
-    failed = devcontainer._auto_deploy_k8s_stack(tmp_path, "infra", dry_run=False) or ""
-    assert (
-        calls[0],
-        deployed,
-        "devops devcontainer unlock-keyring" in failed,
-        "devops k8s deploy-stack --stack infra" in failed,
-    ) == (
-        ["devops", "k8s", "deploy-stack", "--stack", "infra"],
-        "Auto-deployed Kubernetes stack 'infra'",
-        True,
-        True,
+    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+    monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: True
     )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--stack", "llm"])
+    assert result.exit_code == 0
+    expected_cmd = f"devops k8s deploy-stack --stack llm --context {CONST_K8S_MINIKUBE_CONTEXT}"
+    assert expected_cmd in result.output
+    assert resolve_devops_argv(expected_cmd.split()[1:]) is None
 
 
 def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None:
