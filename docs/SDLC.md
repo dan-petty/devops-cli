@@ -79,6 +79,7 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 5. **Topic Branch Creation**:
    - Fetch the remote (`git fetch origin`).
    - Create an isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/main`.
+   - Before the first push of the branch, fetch again and rebase it onto `origin/main` if `main` moved, so the branch holds the latest `main` when the pull request opens. A pull request that is open needs no rebase to catch up with `main`. Update it when it has a conflict or a check fails (Phase 6).
 
 ---
 
