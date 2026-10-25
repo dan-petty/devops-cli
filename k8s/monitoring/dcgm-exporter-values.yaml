@@ -36,6 +36,15 @@ arguments:
   - "-f"
   - "/etc/dcgm-exporter/dcp-metrics-included.csv"
 
+# RSS about 420-430 MiB with 2 GPUs per node, 2026-10.
+resources:
+  requests:
+    cpu: 50m
+    memory: 512Mi
+  limits:
+    cpu: 200m
+    memory: 768Mi
+
 rollingUpdate:
   maxUnavailable: "50%"
 
