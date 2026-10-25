@@ -47,6 +47,35 @@ def test_global_dry_run_non_declaring_command_prints_generic_preview(monkeypatch
     ) == (0, True, True)
 
 
+def test_global_dry_run_non_declaring_command_with_options_prints_generic_preview(
+    monkeypatch,
+) -> None:
+    called = False
+
+    def _fake_delegate(module_path: str, command_name: str, args: list[str]) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
+
+    result = runner.invoke(main_module.app, ["--dry-run", "install-tools", "--tool", "kubectl"])
+
+    assert (
+        result.exit_code,
+        not called,
+        "Would run delegated command: devops install-tools --tool kubectl" in result.output,
+    ) == (0, True, True)
+
+
+def test_global_dry_run_declaring_group_with_own_options_executes_preview() -> None:
+    result = runner.invoke(main_module.app, ["--dry-run", "ci", "--check"])
+
+    assert (
+        result.exit_code,
+        "Dry run: no request was made." in result.output,
+    ) == (0, True)
+
+
 def test_trailing_dry_run_delegates_to_subcommand(monkeypatch) -> None:
     delegated_args: list[str] = []
 
@@ -129,6 +158,14 @@ def test_no_flag_and_no_variable_still_executes(monkeypatch) -> None:
         (
             ["--dry-run", "sandbox", "deploy", "--", "echo", "test"],
             ["deploy", "--dry-run", "--", "echo", "test"],
+        ),
+        (
+            ["--dry-run", "ci", "--check", "lint"],
+            ["--check", "lint", "--dry-run"],
+        ),
+        (
+            ["--dry-run", "ci", "--check"],
+            ["--dry-run", "--check"],
         ),
     ],
 )
