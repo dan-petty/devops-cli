@@ -748,11 +748,15 @@ def _render_sandbox_trace_waterfall(
     min_start = min((int(s.get("startTimeUnixNano", 0)) for s in spans), default=0)
     max_end = max((int(s.get("endTimeUnixNano", 0)) for s in spans), default=0)
     total_dur_ms = max(0.0, (max_end - min_start) / 1e6)
-    t_url = (tempo_url or "http://localhost:3200").rstrip("/")
+    tempo_suffix = (
+        f" | [dim]Tempo: {tempo_url.rstrip('/')}/api/v2/traces/{trace_id}[/dim]"
+        if tempo_url
+        else ""
+    )
 
     print_info(
-        f"[bold]Trace Summary:[/bold] {len(spans)} span(s), total duration {format_latency(total_dur_ms)} | "
-        f"[dim]Tempo: {t_url}/api/v2/traces/{trace_id}[/dim]",
+        f"[bold]Trace Summary:[/bold] {len(spans)} span(s), total duration {format_latency(total_dur_ms)}"
+        f"{tempo_suffix}",
         prefix=False,
     )
 

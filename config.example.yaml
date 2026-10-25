@@ -72,6 +72,12 @@ tempo:
   # Example: http://localhost:3200 or https://example.com:3200
   url: http://localhost:3200
 
+# ── Pyroscope Continuous Profiling ────────────────────────────────────────────
+pyroscope:
+  # Grafana Pyroscope HTTP API base URL for querying continuous profiling data.
+  # Example: http://localhost:4040 or https://example.com:4040
+  url: http://localhost:4040
+
 # ── Telemetry ─────────────────────────────────────────────────────────────────
 telemetry:
   # OpenTelemetry OTLP collector endpoint for devops-cli traces & metrics.
@@ -112,6 +118,14 @@ ai:
   # Use DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for remote/private IP hosts.
   ollama_urls:
     - http://localhost:11434
+
+  # AI gateway URL for the gateway provider (LiteLLM).
+  # Example: http://localhost:4000/v1
+  gateway_url: http://localhost:4000/v1
+
+  # Portkey AI gateway URL.
+  # Example: http://localhost:8787/v1
+  portkey_url: http://localhost:8787/v1
 
   # Custom base URL for claude/openai-compatible providers (leave null for defaults).
   api_base_url: null

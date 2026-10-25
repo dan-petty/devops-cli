@@ -46,7 +46,6 @@ from devops_cli.config.constants import (
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_MAX_RETRIES,
     DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
@@ -66,6 +65,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.core import clock
 from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import ERRORS
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
@@ -648,21 +648,16 @@ class EmbeddingsEngine:
         urls = (
             getattr(self.ai_config, "get_ollama_urls", None)
             or self.ai_config.ollama_urls
-            or [self.ai_config.api_base_url or "http://localhost:11434"]
+            or ([self.ai_config.api_base_url] if self.ai_config.api_base_url else [])
         )
-        return list(urls)
+        return [u for u in urls if u]
 
     def _probe_dimension(self) -> int | None:
         """Dynamically probe active provider to determine the model's actual embedding dimension."""
         provider = self.ai_config.provider.lower()
-        api_base = self.ai_config.api_base_url or ""
         if provider in ("openai", "copilot") or self._is_gateway_provider():
             return self._probe_openai_dimension()
-        if (
-            provider == "ollama"
-            or (not provider and ":11434" in api_base)
-            or self.ai_config.ollama_urls
-        ):
+        if provider == "ollama" or (not provider and self.ai_config.ollama_urls):
             return self._probe_ollama_dimension()
         return None
 
@@ -801,10 +796,9 @@ class EmbeddingsEngine:
     def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
         """Embed with the configured provider; raise EmbeddingsError when none is configured."""
         provider = self.ai_config.provider.lower()
-        api_base = self.ai_config.api_base_url or ""
         if provider in ("openai", "copilot") or self._is_gateway_provider():
             return self._embed_openai(prefixed_miss)
-        if provider == "ollama" or (not provider and ":11434" in api_base):
+        if provider == "ollama" or (not provider and self.ai_config.ollama_urls):
             return self._embed_ollama(prefixed_miss)
         if self.ai_config.ollama_urls:
             return self._embed_ollama(prefixed_miss)
@@ -999,9 +993,13 @@ class EmbeddingsEngine:
     def _openai_compatible_base_url(self) -> str:
         """Resolve the embeddings base URL: gateway_url for gateway providers, otherwise api_base_url or OpenAI."""
         if self._is_gateway_provider():
-            return (
-                self.ai_config.gateway_url or self.ai_config.api_base_url or DEFAULT_AI_GATEWAY_URL
-            )
+            gw_url = self.ai_config.gateway_url or self.ai_config.api_base_url
+            if not gw_url:
+                raise ConfigurationError(
+                    "No AI gateway URL configured. Run: devops config set ai.gateway_url <url>",
+                    key="ai.gateway_url",
+                )
+            return gw_url
         return self.ai_config.api_base_url or "https://api.openai.com/v1"
 
     def _resolve_openai_endpoint_and_model(

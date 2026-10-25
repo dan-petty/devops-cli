@@ -80,7 +80,13 @@ def _get_rag_components() -> tuple[Any, Any, str, str]:
     from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
 
     settings = load_settings()
-    qdrant_url = settings.qdrant.url or "http://localhost:6333"
+    qdrant_url = settings.qdrant.url
+    if not qdrant_url:
+        print_error(
+            "No Qdrant vector store URL configured. Run: devops config set qdrant.url <url>",
+            prefix=False,
+        )
+        raise typer.Exit(1)
     prefix = settings.qdrant.collection_prefix or "devops"
     code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
     docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION

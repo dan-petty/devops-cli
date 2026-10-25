@@ -54,7 +54,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_AI_GATEWAY_ENABLED,
     DEFAULT_AI_GATEWAY_PROVIDER,
-    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_AI_HARDWARE_COST_USD,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
@@ -80,12 +79,8 @@ from devops_cli.config.defaults import (
     DEFAULT_LOGS_DATA_DIR,
     DEFAULT_MODELS_DATA_DIR,
     DEFAULT_OLLAMA_MAX_PARALLEL,
-    DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
-    DEFAULT_PORTKEY_GATEWAY_URL,
-    DEFAULT_PYROSCOPE_URL,
     DEFAULT_QDRANT_TIMEOUT_SECONDS,
-    DEFAULT_QDRANT_URL,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_DATA_DIR,
@@ -103,7 +98,6 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
-    DEFAULT_TEMPO_URL,
     DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
@@ -282,7 +276,7 @@ class ArgoCDConfig(BaseModel):
 
 class QdrantConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: ServiceUrlStr | None = DEFAULT_QDRANT_URL
+    url: ServiceUrlStr | None = None
     collection_prefix: str = "devops"
     api_key: str | None = None
     timeout: float = Field(
@@ -348,12 +342,12 @@ class ValkeyConfig(BaseModel):
 
 class TempoConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: ServiceUrlStr | None = DEFAULT_TEMPO_URL
+    url: ServiceUrlStr | None = None
 
 
 class PyroscopeConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: ServiceUrlStr | None = DEFAULT_PYROSCOPE_URL
+    url: ServiceUrlStr | None = None
 
 
 class TelemetryConfig(BaseModel):
@@ -556,14 +550,14 @@ class AIConfig(BaseModel):
     context_window: int = Field(default=DEFAULT_AI_CONTEXT_WINDOW, gt=0)
     num_ctx: int | None = Field(default=None, gt=0)
     max_tokens: int | None = Field(default=None, gt=0)
-    ollama_urls: list[HttpUrlStr] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
+    ollama_urls: list[HttpUrlStr] = Field(default_factory=list)
     ollama_max_parallel: int = Field(default=DEFAULT_OLLAMA_MAX_PARALLEL, gt=0)
     gateway_provider: str = DEFAULT_AI_GATEWAY_PROVIDER
-    gateway_url: HttpUrlStr = DEFAULT_AI_GATEWAY_URL
+    gateway_url: HttpUrlStr | None = None
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
     gateway_weights: dict[str, int] = Field(default_factory=dict)
     gateway_concurrency: dict[str, int] = Field(default_factory=dict)
-    portkey_url: HttpUrlStr = DEFAULT_PORTKEY_GATEWAY_URL
+    portkey_url: HttpUrlStr | None = None
     api_base_url: HttpUrlStr | None = None
     allow_private_network: bool = False
     max_retries: int = Field(default=DEFAULT_AI_MAX_RETRIES, ge=0)
@@ -612,7 +606,7 @@ class AIConfig(BaseModel):
     def get_ollama_urls(self) -> list[str]:
         """Return non-empty list of Ollama base URLs."""
         if not self.ollama_urls:
-            return list(DEFAULT_OLLAMA_URLS)
+            return []
 
         from urllib.parse import urlsplit, urlunsplit
 
@@ -635,7 +629,7 @@ class AIConfig(BaseModel):
                     "/"
                 )
             )
-        return cleaned or list(DEFAULT_OLLAMA_URLS)
+        return cleaned
 
     def for_task(self, task: str) -> AIConfig:
         """Return a copy with task-specific overrides from ai.tasks.<task> applied."""

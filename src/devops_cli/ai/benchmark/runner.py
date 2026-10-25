@@ -190,7 +190,7 @@ class BenchmarkRunner:
         self.provider = provider or self.settings.ai.provider
         self.session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._is_dry_run_override = is_dry_run
-        self.servers = servers or self.settings.ai.ollama_urls or ["http://localhost:11434"]
+        self.servers = servers or self.settings.ai.ollama_urls or []
         self.concurrency = max(1, concurrency)
         self._print_lock = threading.Lock()
 

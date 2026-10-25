@@ -633,10 +633,23 @@ def test(
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
+    from devops_cli.ai.endpoints import resolve_ai_endpoint
+    from devops_cli.exceptions import ConfigurationError
+
+    cfg = settings.ai
+    if url and settings.ai.provider == "ollama":
+        cfg = settings.ai.model_copy(update={"ollama_urls": [url]})
+
+    try:
+        endpoint = resolve_ai_endpoint(cfg)
+    except ConfigurationError as exc:
+        print_error(f"AI configuration error: {exc.message} ({exc.key})", prefix=False)
+        raise typer.Exit(1) from exc
+
     test_sys_prompt = load_task_prompt("test_assistant.md")
 
     if settings.ai.provider == "ollama":
-        urls = [url] if url else settings.ai.get_ollama_urls
+        urls = [url] if url else list(endpoint.urls)
         if len(urls) > 1:
             print_info(
                 MESSAGES.ai.testing_ollama_servers.format(count=len(urls), model=settings.ai.model),
@@ -644,10 +657,6 @@ def test(
             )
             _run_ollama_server_tests(urls, test_sys_prompt, prompt, settings)
             return
-
-    cfg = settings.ai
-    if url and settings.ai.provider == "ollama":
-        cfg = settings.ai.model_copy(update={"ollama_urls": [url]})
 
     client = get_llm_client(config=cfg, settings=settings, cache_enabled=False)
     print_info(

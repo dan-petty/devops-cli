@@ -747,7 +747,9 @@ def _resolve_qdrant_client() -> Any | None:
         from devops_cli.config.settings import get_qdrant_api_key, load_settings
 
         settings = load_settings()
-        qdrant_url = settings.qdrant.url or "http://localhost:6333"
+        qdrant_url = settings.qdrant.url
+        if not qdrant_url:
+            return None
         return QdrantClient(
             base_url=qdrant_url,
             api_key=get_qdrant_api_key(settings),

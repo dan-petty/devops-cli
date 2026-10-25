@@ -64,7 +64,12 @@ def _resolve_remote_provider_endpoint(
     ai_cfg = active_settings.ai
     prefix, target = _model_prefix_and_target(model_str, ai_cfg)
     if setting := CONST_AI_GATEWAY_URL_SETTINGS.get(prefix):
-        gateway_url = getattr(ai_cfg, setting) or AIConfig.model_fields[setting].default
+        gateway_url = getattr(ai_cfg, setting)
+        if not gateway_url:
+            raise ConfigurationError(
+                f"No AI gateway URL configured. Run: devops config set ai.{setting} <url>",
+                key=f"ai.{setting}",
+            )
         return f"openai-chat:{target}", gateway_url, f"ai.{setting}"
     copilot_base = CONST_URL_GITHUB_COPILOT_API_BASE if ai_cfg.provider == "copilot" else None
     name = f"{prefix}:{target}" if prefix else target

@@ -135,6 +135,7 @@ def test_streamed_native_ollama_request_includes_options_and_trace_headers(
 
     cfg = AIConfig(
         provider="ollama",
+        ollama_urls=["http://localhost:11434"],
         temperature=0.7,
         top_p=0.85,
         num_ctx=8192,
@@ -176,6 +177,7 @@ def test_streamed_native_ollama_omits_sampling_when_use_model_sampling(
 
     cfg = AIConfig(
         provider="ollama",
+        ollama_urls=["http://localhost:11434"],
         temperature=0.7,
         top_p=0.85,
         num_ctx=8192,
@@ -338,6 +340,7 @@ def test_response_cache_key_varies_with_sampling_parameters(
 
     cfg1 = AIConfig(
         provider="ollama",
+        ollama_urls=["http://localhost:11434"],
         temperature=0.7,
         top_p=0.9,
         max_tokens=100,
@@ -347,6 +350,7 @@ def test_response_cache_key_varies_with_sampling_parameters(
 
     cfg2 = AIConfig(
         provider="ollama",
+        ollama_urls=["http://localhost:11434"],
         temperature=0.9,
         top_p=0.9,
         max_tokens=100,

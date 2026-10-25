@@ -26,6 +26,7 @@ def _default_settings(collector_port: int) -> Settings:
     than to the built-in endpoint on a port no test binds."""
     settings = Settings()
     settings.telemetry.endpoint = f"http://127.0.0.1:{collector_port}"
+    settings.ai.ollama_urls = ["http://localhost:11434"]
     return settings
 
 

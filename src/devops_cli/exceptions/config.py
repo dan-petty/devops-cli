@@ -20,6 +20,7 @@ class ConfigurationError(DevOpsCLIError, ValueError):
         error_code: str = CONST_ERROR_CODE_CONFIG,
         details: dict[str, Any] | None = None,
     ) -> None:
+        self.key = key
         err_details = {"key": key} if key else {}
         if details:
             err_details.update(details)

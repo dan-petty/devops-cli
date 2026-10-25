@@ -156,9 +156,9 @@ def query_tempo_trace(
     every phase of the request, the connect included.
     """
     clean_id = trace_id.strip() if trace_id else ""
-    if not clean_id or not _TRACE_ID_RE.fullmatch(clean_id):
+    if not clean_id or not _TRACE_ID_RE.fullmatch(clean_id) or not tempo_url:
         return []
-    api_url = f"{(tempo_url or 'http://localhost:3200').rstrip('/')}/api/v2/traces/{clean_id}"
+    api_url = f"{tempo_url.rstrip('/')}/api/v2/traces/{clean_id}"
     try:
         with new_http_client(level=EgressLevel.LOOPBACK, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(api_url)

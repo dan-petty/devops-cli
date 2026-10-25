@@ -421,7 +421,9 @@ def rag_search(
         from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
 
         settings = load_settings()
-        qdrant_url = settings.qdrant.url or "http://localhost:6333"
+        qdrant_url = settings.qdrant.url
+        if not qdrant_url:
+            return "RAG vector database unconfigured (qdrant.url is not set). Fallback: use search_code."
         prefix = settings.qdrant.collection_prefix or "devops"
         qdrant = QdrantClient(
             base_url=qdrant_url,

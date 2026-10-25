@@ -81,7 +81,7 @@ The vector store that RAG searches query and indexing writes to.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `url` | `Union` | `http://localhost:6333` | `DEVOPS_CLI_QDRANT_URL` | - |
+| `url` | `Union` | - | `DEVOPS_CLI_QDRANT_URL` | - |
 | `collection_prefix` | `str` | `devops` | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | - |
 | `api_key` | `Union` | - | `DEVOPS_CLI_QDRANT_API_KEY` | - |
 | `timeout` | `float` | `300.0` | `DEVOPS_CLI_QDRANT_TIMEOUT` | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
@@ -111,7 +111,7 @@ Grafana Tempo distributed tracing query endpoint and service addressing settings
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `url` | `Union` | `http://localhost:3200` | - | - |
+| `url` | `Union` | - | - | - |
 
 ## Pyroscope Configuration (`pyroscope`)
 
@@ -119,7 +119,7 @@ Grafana Pyroscope continuous profiling endpoint and service addressing settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `url` | `Union` | `http://localhost:4040` | - | - |
+| `url` | `Union` | - | - | - |
 
 ## Telemetry & Metrics (`telemetry`)
 
@@ -188,14 +188,14 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `context_window` | `int` | `32768` | - | - |
 | `num_ctx` | `Union` | - | - | - |
 | `max_tokens` | `Union` | - | - | - |
-| `ollama_urls` | `list` | `['http://localhost:11434']` | `DEVOPS_CLI_AI_OLLAMA_URLS` | - |
+| `ollama_urls` | `list` | `[]` | `DEVOPS_CLI_AI_OLLAMA_URLS` | - |
 | `ollama_max_parallel` | `int` | `2` | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | - |
 | `gateway_provider` | `str` | `litellm` | - | - |
-| `gateway_url` | `str` | `http://localhost:4000/v1` | `DEVOPS_CLI_AI_GATEWAY_URL` | - |
+| `gateway_url` | `Union` | - | `DEVOPS_CLI_AI_GATEWAY_URL` | - |
 | `gateway_enabled` | `bool` | `False` | - | - |
 | `gateway_weights` | `dict` | `{}` | - | - |
 | `gateway_concurrency` | `dict` | `{}` | - | - |
-| `portkey_url` | `str` | `http://localhost:8787/v1` | - | - |
+| `portkey_url` | `Union` | - | - | - |
 | `api_base_url` | `Union` | - | `DEVOPS_CLI_AI_API_BASE_URL` | - |
 | `allow_private_network` | `bool` | `False` | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | - |
 | `max_retries` | `int` | `4` | `DEVOPS_CLI_AI_MAX_RETRIES` | - |

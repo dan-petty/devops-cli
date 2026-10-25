@@ -375,6 +375,7 @@ class TestOllamaThinkingSeparation:
 
         cfg = AIConfig(
             provider="ollama",
+            ollama_urls=["http://localhost:11434"],
             model="deepseek-r1:14b",
             allow_private_network=True,
         )

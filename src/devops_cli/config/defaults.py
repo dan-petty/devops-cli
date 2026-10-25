@@ -23,7 +23,6 @@ from devops_cli.config.constants import (
     CONST_RUNS_DIR_NAME,
     CONST_SAMPLES_DIR_NAME,
     CONST_TLS_DIR_NAME,
-    CONST_URL_OLLAMA_LOCALHOST,
 )
 
 # ── Data Directories & Artifact Default Paths ─────────────────────────────────
@@ -85,7 +84,6 @@ DEFAULT_THINKING_TAGS: Final[tuple[str, str]] = ("<think>", "</think>")
 DEFAULT_AI_TEMPERATURE: float = 0.1
 DEFAULT_AI_TOP_P: float = 0.95
 DEFAULT_AI_CONTEXT_WINDOW: int = 32768
-DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
 DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS: float = 2.0

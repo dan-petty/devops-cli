@@ -238,7 +238,12 @@ class EmbeddingBenchmarkRunner:
         self.provider = provider or self.settings.ai.provider
         self.session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._is_dry_run_override = is_dry_run
-        self.servers = servers or self.settings.ai.ollama_urls or ["http://localhost:11434"]
+        if self.provider == "gateway":
+            self.servers = servers or (
+                [self.settings.ai.gateway_url] if self.settings.ai.gateway_url else []
+            )
+        else:
+            self.servers = servers or self.settings.ai.ollama_urls or []
         self.concurrency = max(1, concurrency)
         self.document_path = document_path
         self.code_path = code_path
@@ -292,7 +297,9 @@ class EmbeddingBenchmarkRunner:
             "tasks": {"embedding": {"model": clean_model}},
         }
 
-        if endpoint:
+        if resolved_provider == "gateway":
+            ai_kwargs["gateway_url"] = endpoint or self.settings.ai.gateway_url
+        elif endpoint:
             clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=allow_priv)
             ai_kwargs["ollama_urls"] = [clean_endpoint]
             ai_kwargs["api_base_url"] = clean_endpoint

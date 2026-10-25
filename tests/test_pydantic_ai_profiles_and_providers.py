@@ -87,6 +87,7 @@ class TestBridgeModelResolutionWithProviders:
         settings = Settings()
         settings.ai.provider = "ollama"
         settings.ai.model = "qwen2.5-coder:7b"
+        settings.ai.ollama_urls = ["http://localhost:11434"]
 
         model = resolve_pydantic_ai_model("ollama:qwen2.5-coder:7b", settings=settings)
         assert model is not None
@@ -310,7 +311,12 @@ def test_remote_model_on_loopback_needs_no_opt_in(
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
 
     resolved = remote_bridge.resolve_pydantic_ai_model(
-        "devops-review", settings=_remote_settings("gateway", allow_private_network=False)
+        "devops-review",
+        settings=_remote_settings(
+            "gateway",
+            gateway_url="http://localhost:4000/v1",
+            allow_private_network=False,
+        ),
     )
 
     assert (resolved.model_name, str(resolved.base_url)) == (
