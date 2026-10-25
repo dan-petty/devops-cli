@@ -38,7 +38,67 @@
             "fillOpacity": 10
           },
           "unit": "short"
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total (Sum)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B0B0B0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average (Mean)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FFB357",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -67,6 +127,24 @@
           "expr": "sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"}))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ],
       "description": "Mean concurrent calls the gateway had on each deployment (call seconds per second). Covers the Ollama nodes, which export no metrics."
@@ -87,7 +165,67 @@
             "fillOpacity": 10
           },
           "unit": "reqps"
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total (Sum)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B0B0B0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average (Mean)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FFB357",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -122,7 +260,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(litellm_deployment_total_requests_total[5m]))",
+          "expr": "sum(sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[5m])))",
           "legendFormat": "Total (Sum)",
           "refId": "B"
         },
@@ -131,7 +269,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "avg(rate(litellm_deployment_total_requests_total[5m]))",
+          "expr": "avg(sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[5m])))",
           "legendFormat": "Average (Mean)",
           "refId": "C"
         },
@@ -658,7 +796,38 @@
             "fillOpacity": 10
           },
           "unit": "percent"
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average (Mean)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FFB357",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -693,7 +862,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "avg(DCGM_FI_DEV_GPU_UTIL)",
+          "expr": "avg(avg by (hostname, gpu, modelName) (DCGM_FI_DEV_GPU_UTIL))",
           "legendFormat": "Average (Mean)",
           "refId": "B"
         },
@@ -724,7 +893,67 @@
             "fillOpacity": 10
           },
           "unit": "decmbytes"
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total (Sum)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B0B0B0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average (Mean)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FFB357",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -759,7 +988,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(DCGM_FI_DEV_FB_USED)",
+          "expr": "sum(max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED))",
           "legendFormat": "Total (Sum)",
           "refId": "B"
         },
@@ -768,7 +997,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "avg(DCGM_FI_DEV_FB_USED)",
+          "expr": "avg(max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED))",
           "legendFormat": "Average (Mean)",
           "refId": "C"
         },
@@ -898,7 +1127,67 @@
             "fillOpacity": 10
           },
           "unit": "watt"
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total (Sum)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#B0B0B0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average (Mean)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FFB357",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -933,7 +1222,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(DCGM_FI_DEV_POWER_USAGE)",
+          "expr": "sum(max by (hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE))",
           "legendFormat": "Total (Sum)",
           "refId": "B"
         },
@@ -942,7 +1231,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "avg(DCGM_FI_DEV_POWER_USAGE)",
+          "expr": "avg(max by (hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE))",
           "legendFormat": "Average (Mean)",
           "refId": "C"
         }

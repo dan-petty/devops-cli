@@ -524,45 +524,130 @@ def test_sre_dashboards_contain_heatmap_and_ratio_panels() -> None:
 
 def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
     """Verify service, ingress, k8s, and LLM dashboards contain properly labeled sum/avg queries."""
-    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
-    ingress_dash = json.loads(
-        (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
-    )
-    nodes_dash = json.loads((_REPO_DASHBOARDS / "k8s-views-nodes.json").read_text(encoding="utf-8"))
-    pods_dash = json.loads((_REPO_DASHBOARDS / "k8s-views-pods.json").read_text(encoding="utf-8"))
-    llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
+    in_scope_panels = [
+        ("sre-service.json", 7, "CPU Usage by Pod", True),
+        ("sre-service.json", 8, "Memory Working Set by Pod", True),
+        ("ingress-tunnel.json", 16, "Service Request Rate", True),
+        ("ingress-tunnel.json", 21, "Ingress & Tunnel Pod CPU Usage", True),
+        ("ingress-tunnel.json", 22, "Ingress & Tunnel Memory Working Set", True),
+        ("k8s-views-nodes.json", 26, "CPU usage by Pod", True),
+        ("k8s-views-nodes.json", 28, "Memory usage by Pod", True),
+        ("k8s-views-pods.json", 29, "CPU Usage by container", True),
+        ("k8s-views-pods.json", 51, "Memory Usage by container", True),
+        ("llm-stack.json", 2, "Calls in Flight per Deployment", True),
+        ("llm-stack.json", 4, "Requests per Deployment", True),
+        ("llm-stack.json", 13, "GPU Utilisation", False),
+        ("llm-stack.json", 14, "GPU Memory Used", True),
+        ("llm-stack.json", 15, "GPU Power", True),
+    ]
 
-    legends = {
-        (dash_name, p["title"]): [t.get("legendFormat") for t in p.get("targets", [])]
-        for dash_name, dash in (
-            ("sre", sre_dash),
-            ("ingress", ingress_dash),
-            ("nodes", nodes_dash),
-            ("pods", pods_dash),
-            ("llm", llm_dash),
-        )
-        for p in dash.get("panels", [])
-        if "title" in p
+    dashboards = {
+        dash_name: json.loads((_REPO_DASHBOARDS / dash_name).read_text(encoding="utf-8"))
+        for dash_name in {entry[0] for entry in in_scope_panels}
     }
 
-    assert (
-        "Total (Sum)" in legends.get(("sre", "CPU Usage by Pod"), []),
-        "Average (Mean)" in legends.get(("sre", "CPU Usage by Pod"), []),
-        "Total (Sum)" in legends.get(("sre", "Memory Working Set by Pod"), []),
-        "Average (Mean)" in legends.get(("sre", "Memory Working Set by Pod"), []),
-        "Total (Sum)" in legends.get(("ingress", "Service Request Rate"), []),
-        "Average (Mean)" in legends.get(("ingress", "Service Request Rate"), []),
-        "Total (Sum)" in legends.get(("ingress", "Ingress & Tunnel Pod CPU Usage"), []),
-        "Average (Mean)" in legends.get(("ingress", "Ingress & Tunnel Pod CPU Usage"), []),
-        "Total (Sum)" in legends.get(("nodes", "CPU usage by Pod"), []),
-        "Average (Mean)" in legends.get(("nodes", "CPU usage by Pod"), []),
-        "Total (Sum)" in legends.get(("pods", "CPU Usage by container"), []),
-        "Average (Mean)" in legends.get(("pods", "CPU Usage by container"), []),
-        "Total (Sum)" in legends.get(("llm", "Requests per Deployment"), []),
-        "Average (Mean)" in legends.get(("llm", "Requests per Deployment"), []),
-        "Total (Sum)" in legends.get(("llm", "GPU Memory Used"), []),
-        "Average (Mean)" in legends.get(("llm", "GPU Memory Used"), []),
-    ) == (True,) * 16
+    for dash_name, panel_id, panel_title, has_total in in_scope_panels:
+        dash = dashboards[dash_name]
+        panel = next((p for p in dash.get("panels", []) if p.get("id") == panel_id), None)
+        assert panel is not None, f"Panel id {panel_id} not found in {dash_name}"
+        assert panel.get("title") == panel_title, (
+            f"Panel id {panel_id} title mismatch in {dash_name}"
+        )
+
+        targets = panel.get("targets", [])
+        ref_a = next((t for t in targets if t.get("refId") == "A"), None)
+        assert ref_a is not None, f"RefId A missing in {dash_name} panel {panel_id}"
+        ref_a_expr = ref_a.get("expr", "")
+        assert ref_a_expr, f"RefId A expr empty in {dash_name} panel {panel_id}"
+
+        overrides = panel.get("fieldConfig", {}).get("overrides", [])
+
+        if has_total:
+            total_target = next(
+                (t for t in targets if t.get("legendFormat") == "Total (Sum)"), None
+            )
+            assert total_target is not None, (
+                f"Total (Sum) target missing in {dash_name} panel {panel_id}"
+            )
+            assert total_target.get("expr") == f"sum({ref_a_expr})", (
+                f"Total (Sum) expr mismatch in {dash_name} panel {panel_id}: "
+                f"{total_target.get('expr')!r} != {f'sum({ref_a_expr})'!r}"
+            )
+
+            total_override = next(
+                (
+                    ov
+                    for ov in overrides
+                    if ov.get("matcher", {}).get("id") == "byName"
+                    and ov.get("matcher", {}).get("options") == "Total (Sum)"
+                ),
+                None,
+            )
+            assert total_override is not None, (
+                f"Total (Sum) override missing in {dash_name} panel {panel_id}"
+            )
+            total_props = {
+                p.get("id"): p.get("value") for p in total_override.get("properties", [])
+            }
+            line_style = total_props.get("custom.lineStyle")
+            assert isinstance(line_style, dict)
+            assert line_style.get("fill") == "dash", (
+                f"Total (Sum) lineStyle.fill must be 'dash' in {dash_name} panel {panel_id}"
+            )
+            assert total_props.get("custom.lineWidth") == 2, (
+                f"Total (Sum) lineWidth must be 2 in {dash_name} panel {panel_id}"
+            )
+            color = total_props.get("color")
+            assert isinstance(color, dict)
+            assert color.get("mode") == "fixed", (
+                f"Total (Sum) color.mode must be 'fixed' in {dash_name} panel {panel_id}"
+            )
+            assert "custom.axisPlacement" not in total_props, (
+                f"Total (Sum) must not override custom.axisPlacement in {dash_name} panel {panel_id}"
+            )
+        else:
+            assert not any(t.get("legendFormat") == "Total (Sum)" for t in targets), (
+                f"Total (Sum) target must not exist in {dash_name} panel {panel_id}"
+            )
+
+        avg_target = next((t for t in targets if t.get("legendFormat") == "Average (Mean)"), None)
+        assert avg_target is not None, (
+            f"Average (Mean) target missing in {dash_name} panel {panel_id}"
+        )
+        assert avg_target.get("expr") == f"avg({ref_a_expr})", (
+            f"Average (Mean) expr mismatch in {dash_name} panel {panel_id}: "
+            f"{avg_target.get('expr')!r} != {f'avg({ref_a_expr})'!r}"
+        )
+
+        avg_override = next(
+            (
+                ov
+                for ov in overrides
+                if ov.get("matcher", {}).get("id") == "byName"
+                and ov.get("matcher", {}).get("options") == "Average (Mean)"
+            ),
+            None,
+        )
+        assert avg_override is not None, (
+            f"Average (Mean) override missing in {dash_name} panel {panel_id}"
+        )
+        avg_props = {p.get("id"): p.get("value") for p in avg_override.get("properties", [])}
+        line_style = avg_props.get("custom.lineStyle")
+        assert isinstance(line_style, dict)
+        assert line_style.get("fill") == "dash", (
+            f"Average (Mean) lineStyle.fill must be 'dash' in {dash_name} panel {panel_id}"
+        )
+        assert avg_props.get("custom.lineWidth") == 2, (
+            f"Average (Mean) lineWidth must be 2 in {dash_name} panel {panel_id}"
+        )
+        color = avg_props.get("color")
+        assert isinstance(color, dict)
+        assert color.get("mode") == "fixed", (
+            f"Average (Mean) color.mode must be 'fixed' in {dash_name} panel {panel_id}"
+        )
+        assert "custom.axisPlacement" not in avg_props, (
+            f"Average (Mean) must not override custom.axisPlacement in {dash_name} panel {panel_id}"
+        )
 
 
 def test_enhanced_dashboard_panels_and_visualizations() -> None:
