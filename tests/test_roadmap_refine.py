@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -50,15 +50,6 @@ from devops_cli.config.settings import reset_settings_cache
 from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.roadmap import store as roadmap_store_module
-from devops_cli.roadmap.intake import (
-    IntakeDecision,
-    IntakePlan,
-    NewCandidate,
-    Outcome,
-    Placement,
-    Subject,
-    apply_intake,
-)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
@@ -74,7 +65,6 @@ from devops_cli.roadmap.refine import (
     hash_text,
     inspect_checkout,
     plan_refine,
-    refine_item,
     render_proposal_section,
     render_refine_plan,
     run_research_step,
@@ -453,7 +443,14 @@ def test_refining_twice_with_a_body_edit_between_leaves_only_the_second_section(
     def _refine(statement: str) -> None:
         # A suspected block keeps the item New, so the second run selects it again.
         proposal = RefinementProposal(problem_statement=statement, suspected_block="Waiting")
-        refine_item(store, num, source=git_repo, model=MockLLMClient(proposal=proposal))
+        plan = plan_refine(
+            store,
+            repo=REPO,
+            source=git_repo,
+            item_number=num,
+            model=MockLLMClient(proposal=proposal),
+        )
+        apply_refine(store, plan)
 
     _refine("First design")
     edited = store.read_issue_body(num).replace("a design.", "a design, see src/sample.py:1.")
@@ -706,59 +703,16 @@ def test_too_big_needs_split(git_repo: Path, store: InMemoryRoadmapStore) -> Non
     )
     llm = MockLLMClient(proposal=proposal)
 
-    outcome = refine_item(store, num, source=git_repo, confirm=True, model=llm)
+    plan = plan_refine(store, repo=REPO, source=git_repo, item_number=num, model=llm)
+    applied = apply_refine(store, plan)
     updated = store.item(num)
     assert updated is not None
     assert (
         updated.status,
         updated.milestone,
         updated.job_record.get(RefineRecordKey.NEEDS_SPLIT),
-        outcome.applied is not None and outcome.applied.split_count == 1,
+        applied.split_count == 1,
     ) == ("New", FIRST, "true", True)
-
-
-def test_intake_hook_calls_refine(store: InMemoryRoadmapStore) -> None:
-    # Candidate with critical priority (P0 feature)
-    cand = NewCandidate(
-        title="Critical feature",
-        body="Must be refined",
-    )
-    subject = Subject(title=cand.title, body=cand.body, labels=(), new=cand)
-    placement = Placement(milestone=FIRST, text="into 2026-11")
-    decision = IntakeDecision(
-        subject=subject,
-        outcome=Outcome.PLACE,
-        priority=CONST_ROADMAP_CRITICAL_PRIORITY,
-        placement=placement,
-        fields=((ItemField.STATUS, "New"),),
-    )
-    plan = IntakePlan(decisions=(decision,))
-
-    spy_refine = MagicMock()
-    applied = apply_intake(store, plan, refine=spy_refine)
-
-    assert (
-        applied.placed,
-        spy_refine.call_count,
-    ) == (1, 1)
-
-
-def test_intake_hook_skips_a_finished_card_the_add_restored(store: InMemoryRoadmapStore) -> None:
-    """A critical placement whose card the add restores from the archive, holding a Priority,
-    is not placed, so the refine hook does not run (#1403)."""
-    number = store.seed_issue("Critical feature", body="Must be refined", on_board=True)
-    store.set_field(_require_item(store, number), ItemField.PRIORITY, "P1-High")
-    store.as_actor("alice").archive_card(number)
-    decision = IntakeDecision(
-        subject=Subject(title="Critical feature", body="Must be refined", number=number),
-        outcome=Outcome.PLACE,
-        priority=CONST_ROADMAP_CRITICAL_PRIORITY,
-        placement=Placement(milestone=FIRST, text="into 2026-11"),
-        fields=((ItemField.STATUS, "New"),),
-    )
-    spy_refine = MagicMock()
-    applied = apply_intake(store, IntakePlan(decisions=(decision,)), refine=spy_refine)
-    assert (applied.placed, applied.finished, spy_refine.call_count) == (0, (number,), 0)
 
 
 def test_size_limit_guard(git_repo: Path, store: InMemoryRoadmapStore) -> None:
@@ -1171,42 +1125,6 @@ def test_a_failed_item_fails_the_refine_job_of_a_run_without_its_model_text(
         "leaked_model_key" in formatted,
         "During handling" in formatted,
     ) == (("refine",), [second, third], True, False, False)
-
-
-def test_intakes_refine_hook_still_reports_a_failed_refine(
-    git_repo: Path,
-    store: InMemoryRoadmapStore,
-    scripted_gateway: Callable[..., list[httpx2.Request]],
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Verify a P0 item whose refine fails raises from refine_item, so intake's hook logs it."""
-    store.seed_visibility(is_private=True)
-    scripted_gateway({}, default=_SCHEMA_MISS)
-    candidate = NewCandidate(title="Critical feature", body="Must be refined")
-    decision = IntakeDecision(
-        subject=Subject(title=candidate.title, body=candidate.body, labels=(), new=candidate),
-        outcome=Outcome.PLACE,
-        priority=CONST_ROADMAP_CRITICAL_PRIORITY,
-        placement=Placement(milestone=FIRST, text="into 2026-11"),
-        fields=((ItemField.STATUS, "New"),),
-    )
-
-    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.intake"):
-        applied = apply_intake(
-            store,
-            IntakePlan(decisions=(decision,)),
-            refine=partial(refine_item, source=git_repo),
-        )
-
-    hook_warnings = [
-        r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.intake"
-    ]
-    assert (
-        applied.placed,
-        len(hook_warnings),
-        "StructuredOutputValidationError" in "".join(hook_warnings),
-        "leaked_model_key" in "".join(hook_warnings),
-    ) == (1, 1, True, False)
 
 
 # ── The hourly round: no Ready count stops it, and no model call when nothing changed ──
@@ -1909,12 +1827,14 @@ def test_an_item_named_with_item_is_refined_though_nothing_changed_since_its_las
     store.seed_visibility(is_private=True)
     number = _seed_item(store, "New", "P1-High")
     model_fake.answer(*answers)
-    refine_item(store, number, source=git_repo, confirm=True)
+    plan1 = plan_refine(store, repo=REPO, source=git_repo, item_number=number)
+    apply_refine(store, plan1)
 
-    again = refine_item(store, number, source=git_repo, confirm=True)
+    again = plan_refine(store, repo=REPO, source=git_repo, item_number=number)
+    apply_refine(store, again)
 
     assert (
-        [r.item.number for r in again.plan.refined_items],
+        [r.item.number for r in again.refined_items],
         model_fake.call_count,
         _require_item(store, number).status,
     ) == ([number], 2, status)

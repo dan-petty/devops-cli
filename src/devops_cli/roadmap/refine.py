@@ -248,12 +248,6 @@ class RefineApplied:
     comments_posted: int
 
 
-@dataclass(frozen=True)
-class RefineOutcome:
-    plan: RefinePlan
-    applied: RefineApplied | None = None
-
-
 # ── Parsing & Hashes ──────────────────────────────────────────────────────────
 
 
@@ -1417,37 +1411,6 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
     )
 
 
-def _store_repo(store: RoadmapStore) -> str | None:
-    if hasattr(store, "_repo"):
-        val = getattr(store, "_repo")
-        return str(val) if val is not None else None
-    roadmap = getattr(store, "_roadmap", None)
-    if roadmap is not None and hasattr(roadmap, "repo"):
-        val = getattr(roadmap, "repo")
-        return str(val) if val is not None else None
-    return None
-
-
-def refine_item(
-    store: RoadmapStore,
-    number: int,
-    *,
-    source: Path | str = ".",
-    ref: str | None = None,
-    confirm: bool = True,
-    model: Any = None,
-) -> RefineOutcome:
-    """Entry point for refining a single item directly (used by intake hook and CLI)."""
-    source_path = Path(source)
-    repo = _store_repo(store) or get_repo_origin_name(source_path) or "example/repo"
-    plan = plan_refine(
-        store, repo=repo, source=source_path, ref=ref, item_number=number, model=model
-    )
-    applied = apply_refine(store, plan) if (confirm and plan.has_writes) else None
-    raise_for_failed_items(plan)
-    return RefineOutcome(plan=plan, applied=applied)
-
-
 def _step_lines(plan: RefinePlan, step: NextStep) -> list[str]:
     """The report's lines for the items that wait on `step`: each item, then its details."""
     texts = MESSAGES.roadmap
@@ -1499,7 +1462,6 @@ __all__ = [
     "QuestionAnswer",
     "RefineApplied",
     "RefineFailure",
-    "RefineOutcome",
     "RefinePlan",
     "RefinedItem",
     "RefinementProposal",
@@ -1516,7 +1478,6 @@ __all__ = [
     "next_step_of",
     "plan_refine",
     "raise_for_failed_items",
-    "refine_item",
     "render_proposal_section",
     "render_refine_plan",
     "replies_since_refine",

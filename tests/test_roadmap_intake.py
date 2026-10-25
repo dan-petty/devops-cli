@@ -2134,7 +2134,7 @@ def _intake_on_github(
     store: GitHubRoadmapStore, model: FakeModel, **options: Any
 ) -> tuple[IntakePlan, Any]:
     plan = plan_intake(store, repo=REPO, model=model, **options)
-    return plan, lambda: apply_intake(store, plan, refine=lambda *_: None)
+    return plan, lambda: apply_intake(store, plan)
 
 
 def _sent(github: GitHubFake, start: int, operation: str) -> int:

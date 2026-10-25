@@ -33,7 +33,6 @@ from pydantic import ValidationError as MalformedRecordError
 from devops_cli.config.constants import (
     CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GIT_CLI,
-    CONST_ROADMAP_CRITICAL_FIX_LABELS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
     CONST_ROADMAP_P0_PRIORITIES,
@@ -62,6 +61,7 @@ from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityEr
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import refusal_reset
 from devops_cli.roadmap.intake import (
+    IntakeApplied,
     IntakePlan,
     IntakeRecord,
     Outcome,
@@ -321,14 +321,13 @@ def _refine_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
     return intake_outcome is not None and intake_outcome.placed_critical_or_p0
 
 
-def _places_critical_or_p0(plan: IntakePlan) -> bool:
-    """Whether the plan places a critical fix or a P0 item."""
+def _places_critical_or_p0(plan: IntakePlan, applied: IntakeApplied) -> bool:
+    """Whether intake placed a critical fix or a P0 item, skipping finished cards (#1540)."""
+    finished = set(applied.finished)
     return any(
         decision.outcome is Outcome.PLACE
-        and (
-            decision.priority in CONST_ROADMAP_P0_PRIORITIES
-            or not CONST_ROADMAP_CRITICAL_FIX_LABELS.isdisjoint(decision.labels)
-        )
+        and decision.priority in CONST_ROADMAP_P0_PRIORITIES
+        and (decision.subject.number is None or decision.subject.number not in finished)
         for decision in plan.decisions
     )
 
@@ -360,9 +359,10 @@ def _run_intake_adapter(
         waiting=record.waiting,
     )
     _write_intake_record(record_path, record.after(plan, now))
+    applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
     if plan.has_writes:
-        raise_for_failed_placements(apply_intake(store, plan))
-    return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
+        raise_for_failed_placements(applied)
+    return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan, applied))
 
 
 def _job_clone(job: str, clone_path: Path | None) -> Path:

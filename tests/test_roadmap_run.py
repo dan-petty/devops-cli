@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -62,7 +62,12 @@ from devops_cli.roadmap.board_read import (
     refusal_reset,
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.intake_model import ModelProposal, ProposalRequest, UnusableProposalError
+from devops_cli.roadmap.intake_model import (
+    ModelEvidence,
+    ModelProposal,
+    ProposalRequest,
+    UnusableProposalError,
+)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
@@ -82,7 +87,14 @@ from devops_cli.roadmap.run import (
     service_job,
     service_pause_until,
 )
-from devops_cli.roadmap.store import CloseReason, GitHubState, ItemField, RoadmapStore
+from devops_cli.roadmap.store import (
+    CloseReason,
+    Evidence,
+    EvidenceKind,
+    GitHubState,
+    ItemField,
+    RoadmapStore,
+)
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_RELEASES
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -1032,6 +1044,7 @@ class _IntakeModel:
 
     unusable: frozenset[str] = frozenset()
     asked: list[str] = field(default_factory=list)
+    proposals: Mapping[str, ModelProposal] = field(default_factory=dict)
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [[1.0] for _ in texts]
@@ -1040,6 +1053,8 @@ class _IntakeModel:
         self.asked.append(request.title)
         if request.title in self.unusable:
             raise UnusableProposalError("no proposal fits")
+        if request.title in self.proposals:
+            return self.proposals[request.title]
         return ModelProposal(
             type="type/feature",
             type_reason="it adds a capability.",
@@ -1141,6 +1156,241 @@ def test_a_failed_placement_is_decided_again_after_the_fresh_candidates_and_its_
         (False, True, True, True, True),
         (*titles[5:], titles[0]),
     )
+
+
+def test_intake_placing_p0_item_makes_no_refine_call_and_refine_is_due_through_cross_job_rule(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An intake run that places a P0 item makes no refine call directly; the same round's refine
+    row is due through the cross-job rule (#1540)."""
+    clock = _Clock()
+    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
+    store.seed_milestone(PLANNED)
+    store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
+    num = store.seed_issue(
+        "P0 critical candidate",
+        body="Failed run 4242.",
+        labels=["type/bug"],
+        author_association="COLLABORATOR",
+    )
+    proposal = ModelProposal(
+        type="type/bug",
+        type_reason="defect.",
+        priority="P0-Critical",
+        priority_reason="critical.",
+        value="High",
+        value_reason="high.",
+        effort="Low",
+        effort_reason="low.",
+        evidence=ModelEvidence(kind="failed_run", value="4242"),
+    )
+    model = _IntakeModel(proposals={"P0 critical candidate": proposal})
+    ran: list[str] = []
+    intake = partial(_run_intake_adapter, model=model)
+    table = build_stub_table(
+        {
+            "intake": _recorded(ran, "intake", intake),
+            "refine": _recorded(ran, "refine"),
+        }
+    )
+    _stamp(
+        tmp_path,
+        metrics=NOW,
+        intake=NOW - timedelta(minutes=61),
+        refine=NOW - timedelta(minutes=5),
+    )
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.intake"):
+        jobs = _poll_round(store, tmp_path, table=table)
+
+    intake_warnings = [
+        r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.intake"
+    ]
+    item = store.item(num)
+    assert (
+        jobs,
+        ran,
+        any("refine" in w.lower() for w in intake_warnings),
+        item is not None and item.priority,
+    ) == (("intake", "refine"), ["intake", "refine"], False, "P0-Critical")
+
+
+def test_intake_placing_p0_critical_issue_already_labelled_type_bug_makes_refine_due(
+    tmp_path: Path,
+) -> None:
+    """An intake that places a P0-Critical issue already labelled type/bug, so intake adds no
+    type label, makes refine due in the same round (#1540)."""
+    clock = _Clock()
+    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
+    store.seed_milestone(PLANNED)
+    store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
+    num = store.seed_issue(
+        "Pre-labelled P0 bug",
+        body="Failed run 4242.",
+        labels=["type/bug"],
+        author_association="COLLABORATOR",
+    )
+    proposal = ModelProposal(
+        type="type/bug",
+        type_reason="defect.",
+        priority="P0-Critical",
+        priority_reason="critical.",
+        value="High",
+        value_reason="high.",
+        effort="Low",
+        effort_reason="low.",
+        evidence=ModelEvidence(kind="failed_run", value="4242"),
+    )
+    model = _IntakeModel(proposals={"Pre-labelled P0 bug": proposal})
+    ran: list[str] = []
+    intake = partial(_run_intake_adapter, model=model)
+    table = build_stub_table(
+        {
+            "intake": _recorded(ran, "intake", intake),
+            "refine": _recorded(ran, "refine"),
+        }
+    )
+    _stamp(
+        tmp_path,
+        metrics=NOW,
+        intake=NOW - timedelta(minutes=61),
+        refine=NOW - timedelta(minutes=5),
+    )
+    jobs = _poll_round(store, tmp_path, table=table)
+    item = store.item(num)
+    assert (
+        jobs,
+        ran,
+        item is not None and item.priority,
+    ) == (("intake", "refine"), ["intake", "refine"], "P0-Critical")
+
+
+def test_intake_placing_p2_medium_issue_labelled_type_bug_does_not_make_refine_due(
+    tmp_path: Path,
+) -> None:
+    """An intake that places a P2-Medium issue labelled type/bug does not make refine due in
+    the same round, whether it goes to the backlog or keeps a milestone a person set (#1540)."""
+    clock = _Clock()
+    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
+    store.seed_milestone(PLANNED)
+    # 1. Backlog placement
+    num_backlog = store.seed_issue("Backlog P2 bug")
+    proposal_backlog = ModelProposal(
+        type="type/bug",
+        type_reason="defect.",
+        priority="P2-Medium",
+        priority_reason="medium.",
+        value="Medium",
+        value_reason="medium.",
+        effort="Low",
+        effort_reason="low.",
+    )
+    model_backlog = _IntakeModel(proposals={"Backlog P2 bug": proposal_backlog})
+    ran_backlog: list[str] = []
+    table_backlog = build_stub_table(
+        {
+            "intake": _recorded(
+                ran_backlog, "intake", partial(_run_intake_adapter, model=model_backlog)
+            ),
+            "refine": _recorded(ran_backlog, "refine"),
+        }
+    )
+    _stamp(
+        tmp_path,
+        metrics=NOW,
+        intake=NOW - timedelta(minutes=61),
+        refine=NOW - timedelta(minutes=5),
+    )
+    jobs_backlog = _poll_round(store, tmp_path, table=table_backlog)
+    item_backlog = store.item(num_backlog)
+    assert (
+        jobs_backlog,
+        ran_backlog,
+        item_backlog is not None and item_backlog.priority,
+    ) == (("intake",), ["intake"], "P2-Medium")
+
+    # 2. Keeps a milestone a person set
+    num_milestone = store.seed_issue("Milestone P2 bug", milestone=PLANNED)
+    proposal_milestone = ModelProposal(
+        type="type/bug",
+        type_reason="defect.",
+        priority="P2-Medium",
+        priority_reason="medium.",
+        value="Medium",
+        value_reason="medium.",
+        effort="Low",
+        effort_reason="low.",
+    )
+    model_milestone = _IntakeModel(proposals={"Milestone P2 bug": proposal_milestone})
+    ran_milestone: list[str] = []
+    table_milestone = build_stub_table(
+        {
+            "intake": _recorded(
+                ran_milestone, "intake", partial(_run_intake_adapter, model=model_milestone)
+            ),
+            "refine": _recorded(ran_milestone, "refine"),
+        }
+    )
+    _stamp(
+        tmp_path,
+        metrics=NOW,
+        intake=NOW - timedelta(minutes=61),
+        refine=NOW - timedelta(minutes=5),
+    )
+    jobs_milestone = _poll_round(store, tmp_path, table=table_milestone)
+    item_milestone = store.item(num_milestone)
+    assert (
+        jobs_milestone,
+        ran_milestone,
+        item_milestone is not None and (item_milestone.priority, item_milestone.milestone),
+    ) == (("intake",), ["intake"], ("P2-Medium", PLANNED))
+
+
+def test_intake_whose_only_p0_placement_is_finished_card_does_not_make_refine_due(
+    tmp_path: Path,
+) -> None:
+    """An intake whose only P0 placement is a card reported in IntakeApplied.finished does not
+    make refine due (#1540)."""
+    clock = _Clock()
+    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
+    store.seed_milestone(PLANNED)
+    num = store.seed_issue("Archived finished P0 card", on_board=True)
+    item = store.item(num)
+    assert item is not None
+    store.set_field(item, ItemField.PRIORITY, "P0-Critical")
+    store.as_actor("alice").archive_card(num)
+
+    proposal = ModelProposal(
+        type="type/bug",
+        type_reason="defect.",
+        priority="P0-Critical",
+        priority_reason="critical.",
+        value="High",
+        value_reason="high.",
+        effort="Low",
+        effort_reason="low.",
+    )
+    model = _IntakeModel(proposals={"Archived finished P0 card": proposal})
+    ran: list[str] = []
+    intake = partial(_run_intake_adapter, model=model)
+    table = build_stub_table(
+        {
+            "intake": _recorded(ran, "intake", intake),
+            "refine": _recorded(ran, "refine"),
+        }
+    )
+    _stamp(
+        tmp_path,
+        metrics=NOW,
+        intake=NOW - timedelta(minutes=61),
+        refine=NOW - timedelta(minutes=5),
+    )
+    jobs = _poll_round(store, tmp_path, table=table)
+    assert (jobs, ran) == (("intake",), ["intake"])
 
 
 # ── On the GitHub store, at the `gh` process edge (#1361) ─────────────────────
