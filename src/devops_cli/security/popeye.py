@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_POPEYE, build_popeye_cmd
+from devops_cli.config.constants import CONST_POPEYE_RESOURCE_GROUPS
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
@@ -18,41 +19,37 @@ logger = logging.getLogger(__name__)
 _LEVEL_TO_SEV = {0: "INFO", 1: "LOW", 2: "MEDIUM", 3: "HIGH"}
 
 
-def _parse_single_popeye_issue(sanitizer_name: str, res_id: str, issue: dict[str, Any]) -> Finding:
-    """Construct Finding from single Popeye issue entry."""
-    msg = issue.get("message") or f"Resource health issue in {res_id}"
-    lvl_raw = issue.get("level")
-    lvl: int = lvl_raw if isinstance(lvl_raw, int) else 2
-    sev = _LEVEL_TO_SEV.get(lvl, "MEDIUM")
+def _popeye_finding(linter: str, resource: str, issue: dict[str, Any]) -> Finding:
+    """One issue of a Popeye report as a Finding at its linter, its resource and, for an issue of
+    one container, that container."""
+    group = issue["group"]
+    location = f"k8s:{linter}/{resource}"
+    if group not in CONST_POPEYE_RESOURCE_GROUPS:
+        location = f"{location}/{group}"
+    message = issue["message"]
     return Finding(
-        severity=sev,
-        location=f"k8s:{sanitizer_name}/{res_id}",
-        title=f"[{sanitizer_name.upper()}] Cluster Sanitizer Finding",
-        description=msg,
-        fix=f"Review and adjust Kubernetes specification for {res_id}",
+        severity=_LEVEL_TO_SEV[issue["level"]],
+        location=location,
+        title=message,
+        description=f"Popeye linter '{linter}' on {resource}: {message}",
+        fix=f"Review and adjust Kubernetes specification for {resource}",
         confidence_score=None,
     )
 
 
-def _parse_sanitizer_findings(sanitizer: dict[str, Any]) -> list[Finding]:
-    """Extract findings from a single sanitizer entry."""
-    sanitizer_name = sanitizer.get("sanitizer") or "cluster"
-    issues = sanitizer.get("issues") or {}
-    findings: list[Finding] = []
-    for res_id, res_issues in issues.items():
-        for issue in res_issues:
-            findings.append(_parse_single_popeye_issue(sanitizer_name, res_id, issue))
-    return findings
-
-
 def parse_popeye_json(data: dict[str, Any]) -> list[Finding]:
-    """Parse Popeye cluster audit JSON payload into Finding objects."""
-    popeye_data = data.get("popeye") or data
-    sanitizers = popeye_data.get("sanitizers") or []
-    findings: list[Finding] = []
-    for s in sanitizers:
-        findings.extend(_parse_sanitizer_findings(s))
-    return findings
+    """The findings of a Popeye 0.22 JSON report: one for each issue.
+
+    `popeye.sections` holds one section for each linter. Its `issues` maps each resource,
+    `<namespace>/<name>`, to the issues that Popeye found on it, each with `group`, `gvr`, `level`
+    and `message`. A section with no issue holds none.
+    """
+    return [
+        _popeye_finding(section["linter"], resource, issue)
+        for section in data["popeye"]["sections"]
+        for resource, issues in (section.get("issues") or {}).items()
+        for issue in issues
+    ]
 
 
 class PopeyeScanner(BaseSecurityScanner):
@@ -74,11 +71,12 @@ class PopeyeScanner(BaseSecurityScanner):
         self,
         target_path: Path,
         context: str | None = None,
+        namespace: str | None = None,
         **kwargs: Any,
     ) -> list[str]:
-        """Build argument command list for invoking Popeye."""
+        """Build argument command list for invoking Popeye over `namespace`, or every namespace."""
         ctx = context if context and context != "current" else None
-        return build_popeye_cmd(context=ctx)
+        return build_popeye_cmd(context=ctx, namespace=namespace)
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Popeye cluster JSON payload into Finding models."""

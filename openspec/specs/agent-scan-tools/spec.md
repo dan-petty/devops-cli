@@ -62,3 +62,10 @@ The MCP tool `scan_sast` SHALL scan with `DEFAULT_SEMGREP_CONFIG` when the calle
 #### Scenario: The default ruleset and a named ruleset
 - **WHEN** the cached `p/default` exists, and an MCP client calls `scan_sast` once with no config and once with the config `./rules`
 - **THEN** the first Semgrep run names the cached file of `p/default` as its config, and the second run names `./rules`
+
+### Requirement: The Popeye tool runs the Popeye adapter over the namespace
+The agent tool `scan_popeye` SHALL run the Popeye adapter of `devops_cli.security` over the namespace that the agent names, or over every namespace when the agent names none, from the workspace as its working directory. It SHALL keep no command line of its own, and SHALL reply as the other agent scan tools reply.
+
+#### Scenario: Popeye finds issues in a namespace
+- **WHEN** the agent calls `scan_popeye("argocd")`, and Popeye reports six issues at warn and error level
+- **THEN** Popeye starts in the workspace with `popeye -o json -l warn -n argocd`, and the reply is `Popeye scan status: ok`, then `Findings (6):`, then one line for each finding

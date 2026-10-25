@@ -43,14 +43,14 @@ devops scan secrets --dry-run
 
 ### Standard Gitleaks CLI Commands
 ```bash
-# Detect secrets in working directory without git history
-gitleaks detect --no-git --source .
+# Scan the files of a directory, without git history (`detect --no-git` is deprecated)
+gitleaks dir .
 
 # Scan git commits in a specific range
-gitleaks detect --log-opts="main..HEAD"
+gitleaks git --log-opts="main..HEAD" .
 
-# Output structured JSON findings
-gitleaks detect --report-path gitleaks-report.json --report-format json
+# Write the JSON report to stdout, with each secret redacted; without --report-path, no report is written
+gitleaks dir --report-format json --report-path - --redact .
 ```
 
 ---

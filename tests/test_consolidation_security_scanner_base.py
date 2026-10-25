@@ -366,13 +366,17 @@ _SAMPLE_STDOUTS: dict[str, str] = {
             "items": [
                 {
                     "name": "deprecated-deploy",
+                    "filePath": "/srv/tree/k8s/deploy.yaml",
                     "namespace": "default",
-                    "api": {"version": "extensions/v1beta1", "kind": "Deployment"},
+                    "api": {
+                        "version": "extensions/v1beta1",
+                        "kind": "Deployment",
+                        "deprecated-in": "v1.9.0",
+                        "removed-in": "v1.16.0",
+                        "replacement-api": "apps/v1",
+                    },
                     "deprecated": True,
-                    "deprecated_in": "v1.16.0",
                     "removed": True,
-                    "removed_in": "v1.22.0",
-                    "replacement": "apps/v1",
                 }
             ]
         }
@@ -380,9 +384,10 @@ _SAMPLE_STDOUTS: dict[str, str] = {
     "popeye": json.dumps(
         {
             "popeye": {
-                "sanitizers": [
+                "sections": [
                     {
-                        "sanitizer": "deployment",
+                        "linter": "deployments",
+                        "gvr": "apps/v1/deployments",
                         "issues": {
                             "default/web": [
                                 {

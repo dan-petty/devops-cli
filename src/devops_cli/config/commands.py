@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -169,9 +170,12 @@ def build_osv_scan_cmd(
     return cmd
 
 
-def build_popeye_cmd(context: str | None = None) -> list[str]:
-    """Build a Popeye Kubernetes cluster scanner command."""
-    cmd = [BIN_POPEYE, "-o", "json", "-s", "error,warn"]
+def build_popeye_cmd(context: str | None = None, namespace: str | None = None) -> list[str]:
+    """Build a Popeye cluster scan that reports warnings and errors as JSON, over `namespace` or,
+    with none, over every namespace. `-l` is Popeye's lint level; `-s` names resource sections."""
+    cmd = [BIN_POPEYE, "-o", "json", "-l", "warn"]
+    if namespace:
+        cmd.extend(["-n", namespace])
     if context:
         cmd.extend(["--context", context])
     return cmd
@@ -186,13 +190,21 @@ def build_pluto_cmd(
     target_path: Path | str,
     binary_name: str = BIN_PLUTO,
     target_versions: str | None = None,
+    *,
+    cwd: Path | None = None,
 ) -> list[str]:
-    """Build a Pluto deprecated Kubernetes API scanner command."""
+    """Build a Pluto deprecated Kubernetes API scanner command.
+
+    Pluto writes each `filePath` as its working directory joined to the path it read
+    (`CheckForAPIVersion` in `pkg/finder/finder.go` of FairwindsOps/pluto), so a command that
+    starts in `cwd` names the target relative to `cwd` (#1434).
+    """
     p = Path(target_path)
+    named = os.path.relpath(p, cwd) if cwd is not None else str(target_path)
     if p.is_file() or (not p.is_dir() and p.suffix.lower() in CONST_K8S_MANIFEST_EXTENSIONS):
-        cmd = [binary_name, "detect", str(target_path), "-o", "json"]
+        cmd = [binary_name, "detect", named, "-o", "json"]
     else:
-        cmd = [binary_name, "detect-files", "-d", str(target_path), "-o", "json"]
+        cmd = [binary_name, "detect-files", "-d", named, "-o", "json"]
     if target_versions:
         cmd.extend(["--target-versions", target_versions])
     return cmd
@@ -264,13 +276,12 @@ def build_tofu_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[s
 
 
 def build_gitleaks_cmd(target_path: Path | str, no_git: bool = True) -> list[str]:
-    """Build a Gitleaks secret scanner command."""
-    cmd = [BIN_GITLEAKS, "detect", "--report-format", "json"]
-    if no_git:
-        cmd.extend(["--no-git", "--source", str(target_path)])
-    else:
-        cmd.extend(["--source", str(target_path)])
-    return cmd
+    """Build a Gitleaks scan of the files at `target_path` (`dir`), or with `no_git` false of the
+    history of its repository (`git`). Gitleaks writes its JSON report only to `--report-path`, so
+    `-` sends it to stdout, and `--redact` keeps each secret out of the report (#1434)."""
+    scan = "dir" if no_git else "git"
+    report = ["--report-format", "json", "--report-path", "-", "--redact"]
+    return [BIN_GITLEAKS, scan, *report, str(target_path)]
 
 
 def build_zizmor_cmd(*targets: Path | str) -> list[str]:

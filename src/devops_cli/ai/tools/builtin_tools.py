@@ -373,14 +373,12 @@ def scan_bandit(target: str = DEFAULT_SRC_DIR) -> str:
 
 def scan_popeye(namespace: str = "") -> str:
     """Run Popeye Kubernetes cluster and namespace resource sanitizer."""
-    cmd = ["popeye"]
-    if namespace:
-        cmd.extend(["-n", namespace])
-    return _run_tool_cmd(
-        cmd,
-        fallback_msg="Popeye cluster sanitize check passed.",
-        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
-    )
+    from devops_cli.security.popeye import run_popeye_scan
+
+    workspace = _workspace_target(".")
+    if workspace is None:
+        return _outside_workspace_reply(".")
+    return _scan_reply("Popeye", run_popeye_scan(namespace=namespace or None, workdir=workspace))
 
 
 def scan_gitleaks(target: str = ".") -> str:

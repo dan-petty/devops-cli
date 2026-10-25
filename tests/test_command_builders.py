@@ -82,47 +82,34 @@ def test_command_builders(tmp_path: Path) -> None:
         "json",
         "--quiet",
     ]
-    assert build_popeye_cmd("k3s") == [
-        BIN_POPEYE,
-        "-o",
-        "json",
-        "-s",
-        "error,warn",
-        "--context",
-        "k3s",
-    ]
+    assert (build_popeye_cmd("k3s"), build_popeye_cmd("k3s", namespace="argocd")) == (
+        [BIN_POPEYE, "-o", "json", "-l", "warn", "--context", "k3s"],
+        [BIN_POPEYE, "-o", "json", "-l", "warn", "-n", "argocd", "--context", "k3s"],
+    )
     assert (
         build_kubelinter_cmd("k8s"),
         build_pluto_cmd("k8s"),
         build_pluto_cmd("k8s/deployment.yaml"),
+        build_pluto_cmd(Path("/srv/tree/k8s/deployment.yaml"), cwd=Path("/srv/tree/k8s")),
+        build_pluto_cmd(Path("/srv/tree/k8s"), cwd=Path("/srv/scratch")),
         build_uv_audit_cmd(),
     ) == (
         [BIN_KUBELINTER, "lint", "k8s", "--format", "json"],
         [BIN_PLUTO, "detect-files", "-d", "k8s", "-o", "json"],
         [BIN_PLUTO, "detect", "k8s/deployment.yaml", "-o", "json"],
+        [BIN_PLUTO, "detect", "deployment.yaml", "-o", "json"],
+        [BIN_PLUTO, "detect-files", "-d", "../tree/k8s", "-o", "json"],
         [BIN_UV, "audit"],
     )
     assert build_tf_cmd("plan", ["-out=tfplan"]) == [BIN_TERRAFORM, "plan", "-out=tfplan"]
     assert build_tofu_cmd("apply", ["-auto-approve"]) == [BIN_TOFU, "apply", "-auto-approve"]
     assert build_iac_cmd("terraform", "validate") == [BIN_TERRAFORM, "validate"]
     assert build_iac_cmd("tofu", "validate") == [BIN_TOFU, "validate"]
-    assert build_gitleaks_cmd("src", no_git=True) == [
-        BIN_GITLEAKS,
-        "detect",
-        "--report-format",
-        "json",
-        "--no-git",
-        "--source",
-        "src",
-    ]
-    assert build_gitleaks_cmd("src", no_git=False) == [
-        BIN_GITLEAKS,
-        "detect",
-        "--report-format",
-        "json",
-        "--source",
-        "src",
-    ]
+    report = ["--report-format", "json", "--report-path", "-", "--redact"]
+    assert (build_gitleaks_cmd("src", no_git=True), build_gitleaks_cmd("src", no_git=False)) == (
+        [BIN_GITLEAKS, "dir", *report, "src"],
+        [BIN_GITLEAKS, "git", *report, "src"],
+    )
     assert build_semgrep_cmd(
         ["src", "docs"],
         configs=["p/default", "rules"],

@@ -26,11 +26,12 @@
     "version": "8.30.1",
     "argv": [
       "gitleaks",
-      "detect",
+      "dir",
       "--report-format",
       "json",
-      "--no-git",
-      "--source",
+      "--report-path",
+      "-",
+      "--redact",
       "{tree}/app.py",
       "--config",
       "{workdir}/gitleaks.toml",
@@ -38,8 +39,8 @@
       "{workdir}/.gitleaksignore"
     ],
     "returncode": 0,
-    "stdout": "",
-    "stderr": "\n    \u25cb\n    \u2502\u2572\n    \u2502 \u25cb\n    \u25cb \u2591\n    \u2591    gitleaks\n\n\u001b[90m2:49PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mscanned ~15 bytes (15 bytes) in 800ms\u001b[0m\n\u001b[90m2:49PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mno leaks found\u001b[0m\n"
+    "stdout": "[]\n",
+    "stderr": "\n    \u25cb\n    \u2502\u2572\n    \u2502 \u25cb\n    \u25cb \u2591\n    \u2591    gitleaks\n\n\u001b[90m5:28PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mscanned ~15 bytes (15 bytes) in 3.46ms\u001b[0m\n\u001b[90m5:28PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mno leaks found\u001b[0m\n"
   },
   "bandit": {
     "version": "1.9.4",
