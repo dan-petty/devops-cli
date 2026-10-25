@@ -239,6 +239,19 @@ def test_collect_context_and_truncation(git_repo: Path) -> None:
     assert "[truncated due to context budget]" in short_ctx
 
 
+def test_collect_context_handles_spaces_and_non_ascii_adrs(git_repo: Path) -> None:
+    """collect_context reads ADR files whose names have spaces or non-ASCII characters without C-quoting failure."""
+    adr_file = git_repo / "docs" / "adr" / "0002-café decision with space.md"
+    adr_file.write_text("# ADR 2\nSpecial ADR content.\n", encoding="utf-8")
+    _git_run(git_repo, "add", "-A")
+    _git_run(git_repo, "commit", "-q", "-m", "add special adr")
+    new_sha = inspect_checkout(git_repo, REPO)
+
+    ctx = collect_context(git_repo, new_sha, "body", max_tokens=1000)
+    assert "Special ADR content." in ctx
+    assert "0002-café decision with space.md" in ctx
+
+
 def test_research_plan_public_vs_private_and_errors(store: InMemoryRoadmapStore) -> None:
     llm = MockLLMClient(plan_queries=["roadmap architecture", "cli best practices"])
 

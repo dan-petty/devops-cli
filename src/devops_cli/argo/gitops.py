@@ -23,11 +23,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from devops_cli.argo.sync import build_sync_request_body
+from devops_cli.config.constants import CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_argocd_token, load_settings
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
+from devops_cli.git.operations import git_show_toplevel
 from devops_cli.http.validation import validate_service_url
 from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
@@ -225,15 +227,27 @@ def _resolve_valid_drift_paths(paths: Sequence[Path | str]) -> list[str]:
     return resolved_paths
 
 
-def _parse_drift_event(line: str, now: float) -> GitOpsDriftEvent | None:
+def _parse_drift_event(
+    line: str,
+    now: float,
+    repo_root: Path | None = None,
+) -> GitOpsDriftEvent | None:
     """Parse a single porcelain status line into a GitOpsDriftEvent."""
     if len(line) < 4:
         return None
     status_code = line[:2].strip()
-    rel_path = line[3:].strip().strip('"')
+    rel_path = line[3:]
+    if rel_path.startswith('"') and rel_path.endswith('"'):
+        rel_path = rel_path[1:-1]
     try:
         validate_no_path_traversal(rel_path, label="Drift relative path")
-        fpath = Path(rel_path).resolve()
+        path_obj = Path(rel_path)
+        if path_obj.is_absolute():
+            fpath = path_obj.resolve()
+        elif repo_root is not None:
+            fpath = (repo_root / path_obj).resolve()
+        else:
+            fpath = path_obj.resolve()
     except Exception:
         return None
 
@@ -263,15 +277,34 @@ def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftE
     resolved_paths = _resolve_valid_drift_paths(paths)
     if not resolved_paths:
         return []
+    first_path = Path(resolved_paths[0])
+    repo_root = git_show_toplevel(first_path) or find_repo_root(first_path)
     try:
-        cmd = ["git", "status", "--porcelain", "--", *resolved_paths]
-        res = run_subprocess(cmd, check=False, capture_output=True, timeout=5.0)
+        cmd = ["git", "status", "--porcelain=v1", "-z", "--", *resolved_paths]
+        res = run_subprocess(cmd, cwd=repo_root, check=False, capture_output=True, timeout=5.0)
         if res.returncode != 0:
             return []
         now = time.time()
         events: list[GitOpsDriftEvent] = []
-        for line in res.stdout.strip().splitlines():
-            ev = _parse_drift_event(line, now)
+        tokens = (
+            [t for t in res.stdout.split("\0") if t]
+            if "\0" in res.stdout
+            else res.stdout.strip().splitlines()
+        )
+        idx = 0
+        while idx < len(tokens):
+            line = tokens[idx]
+            idx += 1
+            if len(line) < 4:
+                continue
+            status_code = line[:2]
+            if (
+                status_code[0] in CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS
+                or status_code[1] in CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS
+            ):
+                if idx < len(tokens):
+                    idx += 1
+            ev = _parse_drift_event(line, now, repo_root=repo_root)
             if ev is not None:
                 events.append(ev)
         return events

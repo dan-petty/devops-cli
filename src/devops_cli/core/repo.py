@@ -552,6 +552,7 @@ def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path
             "--cached",
             "--others",
             "--exclude-standard",
+            "-z",
         ]
         if resolved_target != repo_root:
             rel_to_repo = resolved_target.relative_to(repo_root)
@@ -568,8 +569,9 @@ def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path
         files: list[Path] = []
         repo_root_resolved = repo_root.resolve()
         inside: dict[Path, bool] = {}
-        for line in proc.stdout.splitlines():
-            line_str = line.strip()
+        entries = proc.stdout.split("\0") if "\0" in proc.stdout else proc.stdout.splitlines()
+        for entry in entries:
+            line_str = entry.strip() if "\0" not in proc.stdout else entry
             if not line_str:
                 continue
             p = repo_root / line_str

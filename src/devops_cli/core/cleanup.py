@@ -91,14 +91,15 @@ def _listed_worktrees(main_root: Path) -> list[Path]:
     """Every worktree of the repository whose main worktree is `main_root`, as git lists them;
     none when `main_root` is not in a repository."""
     listing = run_subprocess(
-        ["git", "worktree", "list", "--porcelain"], cwd=main_root, check=False, quiet=True
+        ["git", "worktree", "list", "--porcelain", "-z"], cwd=main_root, check=False, quiet=True
     )
     if listing.returncode != 0:
         return []
+    entries = listing.stdout.split("\0") if "\0" in listing.stdout else listing.stdout.splitlines()
     return [
-        Path(line.removeprefix("worktree ")).resolve()
-        for line in listing.stdout.splitlines()
-        if line.startswith("worktree ")
+        Path(entry.removeprefix("worktree ")).resolve()
+        for entry in entries
+        if entry.startswith("worktree ")
     ]
 
 

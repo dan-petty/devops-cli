@@ -47,12 +47,16 @@ from devops_cli.telemetry.tracer import record_metric, trace_span
 app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
 
-def _porcelain_path(line: str) -> str:
-    """The path a `git status --porcelain --no-renames` line names; empty if none."""
-    parts = line.strip().split(maxsplit=1)
-    if len(parts) != 2:
+def _porcelain_path(entry: str) -> str:
+    """The path a `git status --porcelain=v1 -z --no-renames` entry names; empty if none."""
+    if len(entry) < 4:
         return ""
-    return parts[1].strip().strip('"')
+    if entry[2] == " ":
+        return entry[3:]
+    parts = entry.strip().split(maxsplit=1)
+    if len(parts) == 2:
+        return parts[1].strip().strip('"')
+    return ""
 
 
 def _changed_paths(repo_root: Path) -> list[str]:
@@ -61,17 +65,27 @@ def _changed_paths(repo_root: Path) -> list[str]:
     and its new path added, so a helper renamed away reaches what it reached (#1312)."""
     changed: set[str] = set()
     diff_proc = run_subprocess(
-        ["git", "diff", "--name-only", "--no-renames", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
+        ["git", "diff", "--name-only", "-z", "--no-renames", f"{CONST_GIT_MAIN_BRANCH}...HEAD"],
         cwd=repo_root,
         check=False,
     )
     if diff_proc.returncode == 0 and diff_proc.stdout:
-        changed.update(diff_proc.stdout.strip().splitlines())
+        diff_entries = (
+            diff_proc.stdout.split("\0")
+            if "\0" in diff_proc.stdout
+            else diff_proc.stdout.strip().splitlines()
+        )
+        changed.update(p for p in diff_entries if p)
 
-    status = ["git", "status", "--porcelain", "--no-renames", "--untracked-files=all"]
+    status = ["git", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"]
     wt_proc = run_subprocess(status, cwd=repo_root, check=False)
     if wt_proc.returncode == 0 and wt_proc.stdout:
-        changed.update(_porcelain_path(line) for line in wt_proc.stdout.strip().splitlines())
+        wt_entries = (
+            wt_proc.stdout.split("\0")
+            if "\0" in wt_proc.stdout
+            else wt_proc.stdout.strip().splitlines()
+        )
+        changed.update(_porcelain_path(entry) for entry in wt_entries if entry)
     return sorted(path for path in changed if path)
 
 

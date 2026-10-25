@@ -304,7 +304,7 @@ def _git(checkout: Path, *args: str) -> tuple[int, str]:
         timeout=15,
         quiet=True,
     )
-    return proc.returncode, (proc.stdout or proc.stderr or "").strip()
+    return proc.returncode, proc.stdout if proc.returncode == 0 else (proc.stderr or "").strip()
 
 
 def inspect_checkout(source: Path | str, expected_repo: str) -> str:
@@ -325,6 +325,7 @@ def inspect_checkout(source: Path | str, expected_repo: str) -> str:
             },
         )
     code_sha, sha = _git(path, "rev-parse", "HEAD")
+    sha = sha.strip()
     if code_sha != 0 or not sha:
         raise GitHubOperationError(
             f"Could not determine HEAD SHA in {source}.",
@@ -392,9 +393,10 @@ def _collect_repo_map(source: Path, sha: str, paths: Sequence[str]) -> list[str]
     dirs = {str(Path(p).parent) for p in paths if "/" in p}
     files: list[str] = []
     for d in sorted(dirs):
-        code, out = _git(source, "ls-tree", "-r", "--name-only", sha, d)
+        code, out = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, d)
         if code == 0 and out:
-            files.extend(out.splitlines()[:15])
+            items = out.split("\0") if "\0" in out else out.splitlines()
+            files.extend([f for f in items if f][:15])
         if len(files) >= 50:
             break
     return files[:50]
@@ -415,9 +417,10 @@ def collect_context(
         sections.append(f"### CONTEXT.md\n{ctx}")
 
     # docs/adr/*.md
-    code_adr, adr_list = _git(source, "ls-tree", "-r", "--name-only", sha, "docs/adr")
+    code_adr, adr_list = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, "docs/adr")
     if code_adr == 0 and adr_list:
-        for adr_path in adr_list.splitlines()[:5]:
+        adr_items = adr_list.split("\0") if "\0" in adr_list else adr_list.splitlines()
+        for adr_path in [p for p in adr_items if p][:5]:
             adr_content = _read_git_file(source, sha, adr_path)
             if adr_content:
                 sections.append(f"### {adr_path}\n{adr_content}")
