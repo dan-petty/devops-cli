@@ -61,6 +61,11 @@ def _queries(dashboard: Path) -> list[str]:
 
     def walk(node: Any) -> None:
         if isinstance(node, dict):
+            ds = node.get("datasource")
+            if isinstance(ds, dict) and ds.get("type") == "loki":
+                return
+            if node.get("type") == "logs":
+                return
             if "expr" in node:
                 found.append(node["expr"])
             for value in node.values():

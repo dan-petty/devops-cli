@@ -216,7 +216,34 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 {"command": command_name, "status": "ok" if code == 0 else "error"},
             )
             emit(COMMAND_DURATION, dur, {"command": command_name})
+            if code != 0:
+                import logging
+
+                logging.getLogger("devops_cli.main").error(
+                    "Command '%s' failed with exit code %s", command_name, code
+                )
             raise typer.Exit(code) from exc
+        except Exception as exc:
+            dur = time.perf_counter() - start_time
+            span_h.set_attribute("cli.exit_code", 1)
+            span_h.set_attribute("cli.duration_seconds", dur)
+            span_h.set_attribute("cli.status", "error")
+            span_h.add_event(
+                "command_failed",
+                {
+                    "command": command_name,
+                    "error.type": exc.__class__.__name__,
+                    "exit_code": 1,
+                },
+            )
+            emit(COMMAND_TOTAL, 1.0, {"command": command_name, "status": "error"})
+            emit(COMMAND_DURATION, dur, {"command": command_name})
+            import logging
+
+            logging.getLogger("devops_cli.main").error(
+                "Command '%s' failed: %s", command_name, exc, exc_info=True
+            )
+            raise
         finally:
             from devops_cli.telemetry.tracer import get_tracer
 

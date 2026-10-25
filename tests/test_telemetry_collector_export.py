@@ -222,3 +222,56 @@ def test_a_commands_own_dry_run_exports_nothing(monkeypatch: pytest.MonkeyPatch)
     client.shutdown()
 
     assert sent == []
+
+
+def test_warning_and_error_logs_export_to_v1_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify WARNING and ERROR log records export to /v1/logs with trace correlation (#813)."""
+    sent: list[tuple[str, dict[str, Any]]] = []
+
+    def record(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:
+        sent.append((path, payload))
+
+    monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", record)
+    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+
+    log_record = {
+        "timeUnixNano": "1000",
+        "observedTimeUnixNano": "1000",
+        "severityNumber": 13,
+        "severityText": "WARN",
+        "body": {"stringValue": "test warning"},
+        "attributes": [],
+        "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+        "spanId": "00f067aa0ba902b7",
+    }
+    client.export_log_record(log_record)
+    client.shutdown()
+
+    assert len(sent) == 1
+    path, payload = sent[0]
+    assert path == "/v1/logs"
+    assert "resourceLogs" in payload
+    rl = payload["resourceLogs"][0]
+    assert rl["scopeLogs"][0]["logRecords"][0]["traceId"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+
+
+def test_dry_run_exports_no_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify dry run suppresses log export to /v1/logs (#813)."""
+    sent: list[str] = []
+    monkeypatch.setattr(
+        OTelTelemetryClient, "_send_payload_sync", lambda self, path, p: sent.append(path)
+    )
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+
+    client.export_log_record(
+        {
+            "timeUnixNano": "1000",
+            "severityNumber": 13,
+            "severityText": "WARN",
+            "body": {"stringValue": "dry run warn"},
+        }
+    )
+    client.shutdown()
+
+    assert sent == []

@@ -1048,6 +1048,35 @@ class OTelTelemetryClient:
             ]
         }
 
+    def _build_logs_payload(
+        self,
+        log_records: list[dict[str, Any]],
+        resource_attributes: list[dict[str, Any]] | None = None,
+        scope_name: str = CONST_OTEL_SCOPE_NAME,
+    ) -> dict[str, Any]:
+        """Build structured OTLP resourceLogs payload."""
+        res_attrs = resource_attributes or self._get_resource_attributes()
+        return {
+            "resourceLogs": [
+                {
+                    "resource": {"attributes": res_attrs},
+                    "scopeLogs": [{"scope": {"name": scope_name}, "logRecords": log_records}],
+                }
+            ]
+        }
+
+    def export_log_record(self, log_record: dict[str, Any]) -> None:
+        """Queue one OTLP log record for asynchronous export to /v1/logs.
+
+        A dry run sends nothing: it makes no external request, the collector included (#412).
+        """
+        from devops_cli.dry_run.state import in_dry_run_invocation
+
+        if not self.enabled or in_dry_run_invocation():
+            return
+        payload = self._build_logs_payload([log_record])
+        self._send_payload("/v1/logs", payload)
+
     def record_metric(
         self,
         name: str,
@@ -1495,6 +1524,10 @@ def get_tracer() -> OTelTelemetryClient:
                 capture_command_args=telemetry.capture_command_args,
                 capture_llm_content=telemetry.capture_llm_content,
             )
+            if _GLOBAL_TRACER.enabled:
+                from devops_cli.telemetry.logging_bridge import attach_otel_logging_handler
+
+                attach_otel_logging_handler()
         return _GLOBAL_TRACER
 
 
@@ -1508,6 +1541,9 @@ def reset_tracer() -> None:
     dropped, _GLOBAL_TRACER = _GLOBAL_TRACER, None
     if dropped is not None:
         dropped.shutdown()
+    from devops_cli.telemetry.logging_bridge import detach_otel_logging_handler
+
+    detach_otel_logging_handler()
     if hasattr(_detect_vcs_metadata, "cache_clear"):
         _detect_vcs_metadata.cache_clear()
     if hasattr(_detect_k8s_context, "cache_clear"):
