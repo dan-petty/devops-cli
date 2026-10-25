@@ -1030,6 +1030,50 @@ def test_suppressed_dependency_advisory_is_listed_not_reported(tmp_path: Path) -
     ) == ([], [("GHSA-xxxx-yyyy", FindingState.SUPPRESSED)])
 
 
+def test_rejected_dependency_advisory_is_omitted_and_counted(tmp_path: Path) -> None:
+    """A dependency advisory admission rejects is omitted from report findings and counted (#1302)."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review.profile import profiling
+    from devops_cli.models.vulnerability import (
+        DependencySpec,
+        PackageLookupResult,
+        VulnerabilityRecord,
+    )
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "requirements.txt").write_text("requests==2.20.0\n", encoding="utf-8")
+    with profiling() as profiler:
+        orchestrator = ReviewPipelineOrchestrator(session_id="s1302-adv-rej", target_dir=tmp_path)
+        dep = DependencySpec(
+            name="requests", version_range="2.20.0", ecosystem="PyPI", line_number=99
+        )
+        vuln = VulnerabilityRecord(
+            id="GHSA-xxxx-yyyy",
+            summary="Remote Code Execution",
+            severity="CRITICAL",
+            source="OSV",
+            details_url="https://example.com/advisory",
+        )
+        dep_cache = {
+            ("requests", "2.20.0", "PyPI"): PackageLookupResult(status="ok", vulnerabilities=[vuln])
+        }
+
+        findings = orchestrator._audit_file_dependencies("src/requirements.txt", [dep], dep_cache)
+        profile = profiler.build(session_id="s1302-adv-rej", target="src/requirements.txt", files=1)
+
+    assert (
+        findings,
+        orchestrator.admitted_scanner_findings,
+        orchestrator.rejection_counts,
+        profile.rejections,
+    ) == (
+        [],
+        [],
+        {"line-out-of-range": 1},
+        {"line-out-of-range": 1},
+    )
+
+
 @pytest.mark.parametrize(
     ("tool", "line_text", "state"),
     [

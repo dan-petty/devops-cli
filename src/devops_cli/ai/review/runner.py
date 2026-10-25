@@ -1035,6 +1035,7 @@ def _write_review_profile(
     """Summarise where the time went, and write it to the session's profile.json when the
     review keeps a session."""
     profiler.set_coverage(getattr(orchestrator, "coverage", {}))
+    profiler.set_rejections(getattr(orchestrator, "rejection_counts", {}))
     profiler.set_tool_runs(orchestrator.tool_executor.runs)
     profiler.set_partial_context(getattr(orchestrator, "partial_context", False))
     profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
