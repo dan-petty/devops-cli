@@ -47,10 +47,10 @@ def _is_reviewable_candidate_file(
     """Check if candidate file meets review criteria (non-symlink, within root, text, non-ignored)."""
     if candidate.is_symlink() or not candidate.is_file():
         return False
-    try:
-        if not candidate.resolve().is_relative_to(root):
-            return False
-    except OSError, RuntimeError:
+    # A pattern with a directory part follows a symlinked directory, so a candidate that is no
+    # symlink can still have its real path outside the root. A non-strict resolve raises no
+    # error for a missing path, a loop or a denied directory.
+    if not candidate.resolve().is_relative_to(root):
         return False
     if excluded_dirs and any(part in excluded_dirs for part in candidate.parts):
         return False
@@ -80,9 +80,7 @@ def find_repo_files(
         raise SecurityError("target must be a sub-path of the repository root")
 
     if target.is_file():
-        if target.is_symlink() or not target_resolved.is_relative_to(root):
-            return []
-        return [target]
+        return [] if target.is_symlink() else [target]
 
     return [
         p
