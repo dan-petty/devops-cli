@@ -1,4 +1,4 @@
-"""Config command group: show, get, set, init."""
+"""Config command group: show, get, set, unset, init."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import typer
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
+    CONST_CONFIG_UNSET_COMMAND,
     CONST_GH_CLI,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_SECRET_FILE_MAX_BYTES,
@@ -31,10 +32,13 @@ from devops_cli.config.settings import (
     dotted_set,
     get_active_config_path,
     load_settings,
+    remove_config_key,
     save_settings,
 )
 from devops_cli.core.binaries import check_binary
-from devops_cli.dry_run import render_dry_run_result
+from devops_cli.core.cli import exit_on_error
+from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -266,6 +270,44 @@ def set_value(
     except (AttributeError, ValueError) as exc:
         print_error(f"Failed to set {key!r}: {exc}", prefix=False)
         raise typer.Exit(1) from exc
+
+
+# =============================================================================
+# Command: devops config unset
+# =============================================================================
+
+
+@app.command("unset")
+def unset_value(
+    key: Annotated[str, typer.Argument(help=HELP.config.key)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.config.unset_dry_run),
+    ] = False,
+) -> None:
+    """Remove a key from the config file, also a key that stops the settings from loading.
+
+    The command edits the active config file and loads no settings. It keeps the other lines and
+    comments, and it copies the file to `<name>.bak-<YYYYMMDD-HHMMSS>` before the change. A key
+    that the file does not hold exits 1. A credential in the OS keyring stays.
+    """
+    preview = dry_run or is_dry_run()
+    with exit_on_error(ConfigurationError):
+        removal = remove_config_key(key, dry_run=preview)
+    if preview:
+        render_dry_run_result(
+            command=CONST_CONFIG_UNSET_COMMAND,
+            action="remove_config_key",
+            target=removal.path,
+            details={"key": removal.key, "line": removal.line, "diff": removal.diff.splitlines()},
+        )
+        return
+    print_success(
+        MESSAGES.config.unset_success.format(key=removal.key, path=removal.path, line=removal.line),
+        prefix=False,
+        safe=True,
+    )
+    print_info(MESSAGES.config.unset_backup.format(backup=removal.backup), prefix=False, safe=True)
 
 
 # =============================================================================

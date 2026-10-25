@@ -66,6 +66,7 @@ from devops_cli.models.cloudflare import (
     CloudflareZone,
 )
 from devops_cli.models.config import (
+    ConfigKeyRemoval,
     ConfigOptionSpec,
     ConfigOutputRequest,
     ConfigOutputResult,
@@ -201,6 +202,7 @@ __all__ = [
     "CloudflareTunnelIngressRule",
     "CloudflareZone",
     "CommandDryRunResult",
+    "ConfigKeyRemoval",
     "ConfigOptionSpec",
     "ConfigOutputRequest",
     "ConfigOutputResult",

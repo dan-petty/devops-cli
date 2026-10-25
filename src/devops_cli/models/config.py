@@ -46,3 +46,15 @@ class ConfigOutputResult(BaseModel):
     options: list[ConfigOptionSpec] = Field(
         default_factory=list, description="Supported option specifications"
     )
+
+
+class ConfigKeyRemoval(BaseModel):
+    """The removal of one key from a config file by `devops config unset` (#2201)."""
+
+    path: str = Field(..., description="Config file that held the key")
+    key: str = Field(..., description="Dotted key as the file holds it")
+    line: int = Field(..., description="Line of the key before the removal, counted from 1")
+    diff: str = Field(..., description="Unified diff of the removal, with no context lines")
+    backup: str | None = Field(
+        default=None, description="Copy of the file before the removal, or None for a dry run"
+    )

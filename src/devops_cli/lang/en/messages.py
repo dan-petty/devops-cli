@@ -251,6 +251,8 @@ class ConfigMessages:
     from_file_oversize: str = "The input is larger than {limit} bytes, the limit for a credential."
     from_file_not_text: str = "The input is not UTF-8 text."
     from_file_empty: str = "The input holds no value."
+    unset_success: str = "Removed {key} from {path}:{line}."
+    unset_backup: str = "The file before the change is in {backup}."
 
 
 @dataclass(frozen=True)

@@ -11,7 +11,12 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.config.settings import AIConfig, AITaskOverride
+from devops_cli.config.settings import (
+    AIConfig,
+    AITaskOverride,
+    load_settings,
+    reset_settings_cache,
+)
 from devops_cli.exceptions import ConfigurationError
 
 # =============================================================================
@@ -56,15 +61,26 @@ def test_num_ctx_accepted_on_native_ollama_provider() -> None:
     "key",
     ["top_k", "min_p", "presence_penalty", "repeat_penalty", "think", "keep_alive"],
 )
-def test_per_model_sampling_keys_fail_validation_with_guidance(key: str) -> None:
-    """Unknown keys under ai.tasks.<task> fail validation, naming the key and where it belongs."""
-    with pytest.raises((ValidationError, ValueError)) as exc_info:
-        AITaskOverride.model_validate({key: 20})
+def test_per_model_sampling_keys_fail_validation_with_guidance(
+    key: str, isolate_devops_cli_config: Path
+) -> None:
+    """A per-model sampling key under ai.tasks.<task> stops the settings from loading. The error
+    names the key and its line, where the setting belongs, and the command that removes it."""
+    isolate_devops_cli_config.write_text(
+        f"telemetry:\n  enabled: false\nai:\n  tasks:\n    analysis:\n      {key}: 20\n",
+        encoding="utf-8",
+    )
+    reset_settings_cache()
 
-    err_str = str(exc_info.value)
-    assert key in err_str
-    assert "litellm_params" in err_str
-    assert "Ollama tag" in err_str
+    with pytest.raises(ConfigurationError) as exc_info:
+        load_settings()
+
+    assert exc_info.value.message == (
+        f"Unknown configuration key 'ai.tasks.analysis.{key}' at {isolate_devops_cli_config}:6. "
+        "Per-model sampling and serving settings belong in a gateway deployment's "
+        "litellm_params or the Ollama tag. "
+        f"Remove it with: devops config unset ai.tasks.analysis.{key}"
+    )
 
 
 def test_generic_unknown_keys_under_ai_fail_validation() -> None:

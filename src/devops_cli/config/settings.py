@@ -114,7 +114,11 @@ from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT, OPTION_TO_ENV
 from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
+from devops_cli.lang import ERRORS
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
+
+if typing.TYPE_CHECKING:
+    from devops_cli.models.config import ConfigKeyRemoval
 
 logger = logging.getLogger(__name__)
 
@@ -513,28 +517,6 @@ class AITaskOverride(BaseModel):
         description="Seconds this task's requests wait for their reply, in place of `ai.timeout`",
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_unknown_keys(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            allowed = set(cls.model_fields.keys())
-            for key in data:
-                if key not in allowed:
-                    if key in (
-                        "top_k",
-                        "min_p",
-                        "presence_penalty",
-                        "repeat_penalty",
-                        "think",
-                        "keep_alive",
-                    ):
-                        raise ValueError(
-                            f"Unknown configuration key '{key}'. Per-model sampling and serving settings "
-                            f"belong in a gateway deployment's litellm_params or the Ollama tag."
-                        )
-                    raise ValueError(f"Unknown configuration key '{key}'.")
-        return data
-
 
 class AITasksConfig(BaseModel):
     model_config = ConfigDict(
@@ -615,22 +597,6 @@ class AIConfig(BaseModel):
                     data["cache"].setdefault("append_cache", val)
                 elif "cache" not in data:
                     data["cache"] = {"append_cache": val}
-            allowed = set(cls.model_fields.keys()) | {"append_cache"}
-            for key in data:
-                if key not in allowed:
-                    if key in (
-                        "top_k",
-                        "min_p",
-                        "presence_penalty",
-                        "repeat_penalty",
-                        "think",
-                        "keep_alive",
-                    ):
-                        raise ValueError(
-                            f"Unknown configuration key '{key}'. Per-model sampling and serving settings "
-                            f"belong in a gateway deployment's litellm_params or the Ollama tag."
-                        )
-                    raise ValueError(f"Unknown configuration key '{key}'.")
         return data
 
     @property
@@ -1189,7 +1155,20 @@ def load_settings() -> Settings:
     """
     raw = _merged_config_data()
 
-    settings = Settings.model_validate(raw)
+    try:
+        settings = Settings.model_validate(raw)
+    except ValidationError as exc:
+        # A key that a section refuses gets its file, its line and the command that removes it,
+        # which the error of pydantic does not give (#2201).
+        from devops_cli.config import unknown_keys
+
+        refused = unknown_keys.refused_keys(exc)
+        if not refused:
+            raise
+        project_path = _find_project_config_path()
+        raise unknown_keys.unknown_keys_error(
+            refused, (project_path, CONFIG_PATH), active=project_path or CONFIG_PATH
+        ) from exc
     # Environment overrides stay outside the cache: they cost microseconds to reapply, and
     # a variable exported after the first load must still take effect.
     _apply_env_overrides(settings)
@@ -1313,19 +1292,76 @@ def save_settings(
 
 def _write_changes(dest_path: Path, changed: dict[tuple[str, ...], Any]) -> None:
     """Write the changed keys into `dest_path`, with its copy and its audit record."""
-    from devops_cli.config import round_trip, write_history
+    from devops_cli.config import round_trip
 
     previous = dest_path.read_bytes() if dest_path.is_file() else None
     text = previous.decode("utf-8") if previous is not None else ""
     content = round_trip.edit(text, changed, name=str(dest_path)).encode("utf-8")
+    _write_content(dest_path, previous, content)
+
+
+def _write_content(dest_path: Path, previous: bytes | None, content: bytes) -> Path | None:
+    """Write `content` into `dest_path` when it differs from the `previous` content: copy the file
+    first, and then record the write in the audit log. Return the copy, or None when the write
+    changes nothing or the file did not exist."""
+    from devops_cli.config import write_history
+
     if content == previous:
-        return
+        return None
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     backup = write_history.back_up(dest_path)
     tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_bytes(content)
     os.replace(tmp, dest_path)
     write_history.record_write(dest_path, previous, content, backup)
+    return backup
+
+
+def remove_config_key(
+    key: str, target_path: Path | None = None, *, dry_run: bool = False
+) -> ConfigKeyRemoval:
+    """Remove the dotted `key` and its value from the active config file, or from `target_path`.
+
+    The removal edits the text of the file (`round_trip`) and loads no settings, so it also removes
+    a key that stops the settings from loading (#2201). It keeps every other line and comment. A
+    write first copies the file beside itself, and then records the removed key in the audit log,
+    as a save does. A dry run returns the same removal, with no copy, and writes nothing. A key that
+    the file does not hold raises ConfigurationError, and the file stays as it is.
+    """
+    import difflib
+
+    from devops_cli.config import round_trip
+    from devops_cli.models.config import ConfigKeyRemoval
+
+    dest_path = target_path or get_active_config_path()
+    previous = dest_path.read_bytes() if dest_path.is_file() else None
+    text = previous.decode("utf-8") if previous is not None else ""
+    found = round_trip.find(text, _canonical_key(key), name=str(dest_path))
+    if found is None:
+        raise ConfigurationError(
+            ERRORS.config.key_not_in_file.format(path=dest_path, key=key), key=key
+        )
+    path, line = found
+    content = round_trip.edit(text, {path: round_trip.ABSENT}, name=str(dest_path))
+    diff = difflib.unified_diff(
+        text.splitlines(),
+        content.splitlines(),
+        fromfile=str(dest_path),
+        tofile=str(dest_path),
+        n=0,
+        lineterm="",
+    )
+    backup = None
+    if not dry_run:
+        backup = _write_content(dest_path, previous, content.encode("utf-8"))
+        reset_settings_cache()
+    return ConfigKeyRemoval(
+        path=str(dest_path),
+        key=".".join(path),
+        line=line,
+        diff="".join(f"{diff_line}\n" for diff_line in diff),
+        backup=str(backup) if backup is not None else None,
+    )
 
 
 # NOTE (Design Justification - SECURITY.md, principle 1): Every credential resolves through the single
