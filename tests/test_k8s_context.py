@@ -396,6 +396,9 @@ def test_deploy_and_teardown_stack_use_effective_context(
         patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", side_effect=mock_run_cmd),
         patch("devops_cli.commands.k8s.stack_lifecycle.net.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         # When context is None, deploy_stack resolves effective_context from settings
         res_deploy = runner.invoke(

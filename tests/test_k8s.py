@@ -561,6 +561,10 @@ def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
             "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
             return_value=_mock_proc(0),
         ) as mock_run,
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=False,
+        ),
     ):
         result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
 
@@ -798,6 +802,9 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
         # Not left to whichever keyring backend an earlier test in this worker installed.
         patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         result = runner.invoke(app, ["bootstrap", "--no-auto-start", "--stack", "infra"])
         # bootstrap keeps the push on: the base rows and the infra stack's.
@@ -821,6 +828,9 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             "devops_cli.k8s.credentials.sync_k8s_credentials",
             return_value={},
         ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         result = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
         assert result.exit_code == 0
@@ -834,6 +844,9 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             return_value=_mock_proc(0, "success"),
         ),
         patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
         assert result.exit_code == 0
@@ -1056,6 +1069,9 @@ def test_k8s_extended_subcommands(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, "deleted")),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         res_td = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
         assert res_td.exit_code == 0
@@ -1280,6 +1296,9 @@ def test_k8s_deploy_stack_no_wait() -> None:
         ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         mock_cmd.return_value = _mock_proc(0, "")
         res_exec = runner.invoke(
@@ -1308,6 +1327,9 @@ def test_k8s_deploy_stack_no_wait() -> None:
         ),
         patch("devops_cli.commands.k8s.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
     ):
         mock_cmd.return_value = _mock_proc(0, "")
         res_exec = runner.invoke(
@@ -1838,21 +1860,35 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
 
 
 def test_is_cluster_argo_managed() -> None:
-    """_is_cluster_argo_managed probes kubectl get application cluster in argocd namespace."""
+    """_is_cluster_argo_managed probes Application 'cluster' in argocd namespace via ArgoCRDService."""
     from devops_cli.commands.k8s.stack_lifecycle import _is_cluster_argo_managed
+    from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = _mock_proc(0, "cluster")
+    mock_svc = MagicMock()
+    with patch(
+        "devops_cli.commands.k8s.stack_lifecycle.get_argo_crd_service", return_value=mock_svc
+    ):
+        mock_svc.get_resource.return_value = {"metadata": {"name": "cluster"}}
         assert _is_cluster_argo_managed() is True
-        mock_cmd.assert_called_once_with(
-            ["kubectl", "-n", "argocd", "get", "application", "cluster"],
-            check=False,
-            capture=True,
-        )
+        mock_svc.get_resource.assert_called_once_with("applications", "cluster", namespace="argocd")
 
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = _mock_proc(1, "NotFound")
+    mock_svc = MagicMock()
+    with patch(
+        "devops_cli.commands.k8s.stack_lifecycle.get_argo_crd_service", return_value=mock_svc
+    ):
+        mock_svc.get_resource.side_effect = ArgoResourceNotFoundError(
+            "not found", resource="cluster"
+        )
         assert _is_cluster_argo_managed() is False
+
+    mock_svc = MagicMock()
+    with patch(
+        "devops_cli.commands.k8s.stack_lifecycle.get_argo_crd_service", return_value=mock_svc
+    ):
+        mock_svc.get_resource.side_effect = ArgoError("apiserver 403 forbidden", resource="cluster")
+        with pytest.raises(ArgoError) as exc_info:
+            _is_cluster_argo_managed()
+        assert "403 forbidden" in str(exc_info.value)
 
 
 # The configured domain has to differ from the repository's placeholder, example.com, for a
@@ -1949,10 +1985,6 @@ class _Cluster:
             return subprocess.run(cmd, input=input, capture_output=True, text=True, check=False)
         if cmd[0] == "helm" and len(cmd) > 1 and cmd[1] == "version":
             return subprocess.CompletedProcess(cmd, 0, "v4.3.0", "")
-        if cmd[1:6] == ["-n", "argocd", "get", "application", "cluster"]:
-            return subprocess.CompletedProcess(
-                cmd, 0 if self.argo else 1, "cluster" * self.argo, ""
-            )
         if cmd[1:3] == ["get", "application"]:
             path = self.paths.get(cmd[3], f"k8s/overlays/homelab/{cmd[3]}")
             source = {"repoURL": self.repo.as_uri(), "targetRevision": "main", "path": path}
@@ -1982,7 +2014,13 @@ def _configure_service(config_path: Path) -> None:
 
 def _deploy(cluster: _Cluster, *args: str, push: bool = False) -> Any:
     flag = "--push-secrets" if push else "--no-push-secrets"
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=cluster.argo,
+        ),
+    ):
         return runner.invoke(app, ["deploy-stack", flag, *_CONTEXT, *args])
 
 
@@ -2184,7 +2222,13 @@ def test_native_teardown_stack_llm_deletes_the_gateway_kustomization(
     deploy-stack applies it, so the generated ConfigMap goes with the Deployment (#1929)."""
     gateway = str(Path("k8s", "llm", "gateway"))
     cluster = _Cluster(applications_repo, argo=False)
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=False,
+        ),
+    ):
         res = runner.invoke(
             app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", *_CONTEXT]
         )
@@ -2298,7 +2342,13 @@ def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
     applications_repo: Path,
 ) -> None:
     cluster = _Cluster(applications_repo, argo=False)
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=False,
+        ),
+    ):
         res = runner.invoke(app, ["teardown-stack", "--stack", "devops", *_CONTEXT])
     delete = [
         "kubectl",
@@ -2361,6 +2411,42 @@ def test_k8s_teardown_stack_when_argo_cd_managed() -> None:
             "Refusing teardown" in res.output,
             mock_cmd.called,
         ) == (1, True, True, False)
+
+
+def test_k8s_teardown_stack_refuses_on_argo_check_error() -> None:
+    """When Argo CD Application check raises an API error (403, 500, timeout), teardown-stack refuses."""
+    from devops_cli.exceptions.argo import ArgoError
+
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            side_effect=ArgoError("403 Forbidden: user cannot get applications.argoproj.io"),
+        ),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+    ):
+        res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+        assert res.exit_code == 1
+        assert "403 Forbidden" in res.output
+        assert "Refusing teardown" in res.output
+        assert mock_cmd.called is False
+
+
+def test_k8s_teardown_stack_when_argo_not_managed_allows_teardown() -> None:
+    """When Argo CD Application returns 404, teardown-stack proceeds."""
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=False,
+        ),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.stack_lifecycle._delete_post_helm_paths"),
+    ):
+        mock_cmd.return_value = _mock_proc(0, "")
+        res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+        assert res.exit_code == 0
+        assert "Refusing teardown" not in res.output
 
 
 def test_k8s_deploy_and_teardown_dry_run_makes_no_cluster_calls() -> None:
@@ -2579,7 +2665,13 @@ def test_infra_teardown_deletes_the_template_before_the_uninstalls_and_the_names
     """The template is deleted while the chart's CRD still serves it, and the namespace goes after
     the releases that live in it (#1535)."""
     cluster = _Cluster(applications_repo, argo=False)
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=False,
+        ),
+    ):
         res = runner.invoke(
             app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", *_CONTEXT]
         )

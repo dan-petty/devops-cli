@@ -17,9 +17,14 @@ from pydantic import ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
+from devops_cli.argo.crd import get_argo_crd_service
 from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subprocess
-from devops_cli.commands.k8s.cluster_secret_push import push_for_stacks, require_keyring_for_push
+from devops_cli.commands.k8s.cluster_secret_push import (
+    push_for_stacks,
+    require_keyring_for_push,
+)
 from devops_cli.config.constants import (
+    CONST_ARGO_PLURAL_APPLICATIONS,
     CONST_HELM_DAEMONSET_RELEASES,
     CONST_HELM_MIN_VERSION,
     CONST_HELM_TEARDOWN_RETAINED_RELEASES,
@@ -33,6 +38,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_STACK,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
+from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.exceptions.k8s import (
     ClusterSecretPushError,
     KubernetesContextError,
@@ -44,7 +50,11 @@ from devops_cli.k8s.argocd_overrides import (
     host_patches,
     render_at_revision,
 )
-from devops_cli.k8s.cluster_secrets import BASE_STACK, DETACHED_STACKS, secrets_for_stacks
+from devops_cli.k8s.cluster_secrets import (
+    BASE_STACK,
+    DETACHED_STACKS,
+    secrets_for_stacks,
+)
 from devops_cli.k8s.configmap import render_active_devops_configmap
 from devops_cli.k8s.gpu_placement import ollama_tiers, placement_warnings
 from devops_cli.k8s.secret_push import namespace_exists
@@ -282,7 +292,15 @@ def _recover_stuck_helm_release(
 ) -> None:
     """If Helm release is stuck in a pending state, rollback or uninstall it before upgrade."""
     helm_ctx = ["--kube-context", context] if context else []
-    status_cmd = ["helm", "status", release_name, "-n", namespace, "-o", "json"] + helm_ctx
+    status_cmd = [
+        "helm",
+        "status",
+        release_name,
+        "-n",
+        namespace,
+        "-o",
+        "json",
+    ] + helm_ctx
     res = runtime._run_cmd(status_cmd, check=False, capture=True)
     if res.returncode != 0 or not res.stdout:
         return
@@ -464,7 +482,11 @@ def bootstrap_openwebui(
             command="devops k8s bootstrap-openwebui",
             target=display_email,
             action="bootstrap_openwebui_admin",
-            details={"email": display_email, "name": name, "context": effective_context},
+            details={
+                "email": display_email,
+                "name": name,
+                "context": effective_context,
+            },
         )
         return
 
@@ -583,14 +605,12 @@ def _build_helm_upgrade_cmd(
 
 def _is_cluster_argo_managed(effective_context: str | None = None) -> bool:
     """Check if the cluster is managed by Argo CD (Application 'cluster' exists in namespace 'argocd')."""
-    cmd = ["kubectl", "-n", "argocd", "get", "application", "cluster"]
-    if effective_context:
-        cmd.extend(["--context", effective_context])
-    proc = runtime._run_cmd(cmd, check=False, capture=True)
-    if proc.returncode != 0:
+    svc = get_argo_crd_service(context=effective_context)
+    try:
+        svc.get_resource(CONST_ARGO_PLURAL_APPLICATIONS, "cluster", namespace="argocd")
+        return True
+    except ArgoResourceNotFoundError:
         return False
-    out = (proc.stdout or "").strip()
-    return "cluster" in out
 
 
 def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
@@ -712,7 +732,10 @@ def _report_credential_sync(results: Mapping[str, CredentialSync]) -> bool:
             case SyncState.SYNCED:
                 print_success(f"{label} credentials securely stored in OS Keyring.")
             case SyncState.MISSING:
-                print_info(f"{name.capitalize()} secret not found in active cluster.", prefix=False)
+                print_info(
+                    f"{name.capitalize()} secret not found in active cluster.",
+                    prefix=False,
+                )
             case SyncState.FAILED:
                 print_error(f"{label}: {outcome.cause}", prefix=False)
                 succeeded = False
@@ -830,10 +853,16 @@ def _render_devops_configmap(k8s_dir: Path) -> str:
 def _apply_rendered(manifest: str, what: str, kubectl_ctx: list[str]) -> None:
     """Apply a manifest rendered in memory, or exit with kubectl's reason."""
     res = runtime._run_cmd(
-        ["kubectl", "apply", "-f", "-"] + kubectl_ctx, input=manifest, check=False, capture=True
+        ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
+        input=manifest,
+        check=False,
+        capture=True,
     )
     if res.returncode != 0:
-        print_error(f"Failed to apply {what}: {(res.stderr or res.stdout).strip()}", prefix=False)
+        print_error(
+            f"Failed to apply {what}: {(res.stderr or res.stdout).strip()}",
+            prefix=False,
+        )
         raise typer.Exit(1)
     print_success(f"{what} applied from the active config")
 
@@ -872,7 +901,16 @@ def _homelab_host_overrides(
         overrides = []
         with tempfile.TemporaryDirectory(prefix="devops-argocd-") as workdir:
             for application in applications:
-                read = ["kubectl", "get", "application", application, "-n", "argocd", "-o", "json"]
+                read = [
+                    "kubectl",
+                    "get",
+                    "application",
+                    application,
+                    "-n",
+                    "argocd",
+                    "-o",
+                    "json",
+                ]
                 got = runtime._run_cmd(read + kubectl_ctx, check=False, capture=True)
                 if got.returncode != 0:
                     raise KubernetesContextError(
@@ -1199,7 +1237,12 @@ def deploy_stack(
     if "llm" in selected_stacks:
         _warn_about_gpu_placement(k8s_dir, effective_context)
 
-    if _is_cluster_argo_managed(effective_context):
+    try:
+        is_argo = _is_cluster_argo_managed(effective_context)
+    except ArgoError:
+        is_argo = False
+
+    if is_argo:
         _handle_argo_managed_deployment(
             selected_stacks,
             effective_context,
@@ -1373,7 +1416,16 @@ def teardown_stack(
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
-    if _is_cluster_argo_managed(effective_context):
+    try:
+        is_argo = _is_cluster_argo_managed(effective_context)
+    except ArgoError as exc:
+        print_error(
+            f"Failed to check Argo CD management status ({exc}). Refusing teardown.",
+            prefix=False,
+        )
+        raise typer.Exit(1) from exc
+
+    if is_argo:
         print_error(
             "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
             "Refusing teardown; see GitOps in k8s/README.md.",
@@ -1389,7 +1441,10 @@ def teardown_stack(
     _delete_post_helm_paths(all_post_helm_deletes, kubectl_ctx)
     for manifest_path in all_manifest_deletes:
         flag = "-k" if Path(manifest_path).is_dir() else "-f"
-        print_info(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]", prefix=False)
+        print_info(
+            f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]",
+            prefix=False,
+        )
         runtime._run_cmd(
             ["kubectl", "delete", flag, manifest_path, "--ignore-not-found"] + kubectl_ctx,
             check=False,
@@ -1397,9 +1452,19 @@ def teardown_stack(
 
     # 2. Delete the ConfigMap deploy-stack rendered from config, which no manifest file holds
     if "devops" in selected_stacks:
-        print_info(f"[bold]Deleting ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}...[/bold]", prefix=False)
+        print_info(
+            f"[bold]Deleting ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}...[/bold]",
+            prefix=False,
+        )
         runtime._run_cmd(
-            ["kubectl", "delete", "configmap", CONST_K8S_DEVOPS_CONFIGMAP, "-n", "devops"]
+            [
+                "kubectl",
+                "delete",
+                "configmap",
+                CONST_K8S_DEVOPS_CONFIGMAP,
+                "-n",
+                "devops",
+            ]
             + ["--ignore-not-found"]
             + kubectl_ctx,
             check=False,

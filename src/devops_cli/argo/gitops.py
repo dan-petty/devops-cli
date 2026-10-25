@@ -22,6 +22,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_argocd_token, load_settings
 from devops_cli.core.paths import validate_no_path_traversal
@@ -307,7 +308,7 @@ def _build_sync_request_params(
     else:
         url = f"{base_url}/api/v1/applications/{app_name}/sync"
         headers = {"Content-Type": "application/json"}
-        payload = {"sync": {"prune": prune, "force": force}}
+        payload = build_sync_request_body(prune=prune, force=force)
     return url, headers, payload
 
 

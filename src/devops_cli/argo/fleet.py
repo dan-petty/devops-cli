@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
+from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.defaults import (
     DEFAULT_ARGO_FLEET_CONCURRENCY,
     DEFAULT_ARGO_FLEET_NAME,
@@ -54,7 +55,7 @@ def _execute_cluster_sync(
     target_app = resolve_cluster_app_name(app_name, cluster)
     base = settings.argocd.url.rstrip("/")
     url = f"{base}/api/v1/applications/{target_app}/sync"
-    payload = {"sync": {"prune": prune, "force": force}}
+    payload = build_sync_request_body(prune=prune, force=force, app_namespace="argocd")
 
     with httpx2.Client() as client:
         resp = client.post(
