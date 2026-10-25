@@ -2522,6 +2522,32 @@ devops config set [OPTIONS] <key> <value>
 |---|---|---|---|
 | `--from-file` | `filename` | - | Read the credential from this file, or from stdin to its end when the path is -. Every line and the last newline stay as the input has them, and the value never shows in the output. |
 
+### `devops config unset`
+
+**Remove a key from the config file, also a key that stops the settings from loading.**
+
+Remove a key from the config file, also a key that stops the settings from loading.
+
+The command edits the active config file and loads no settings. It keeps the other lines and
+comments, and it copies the file to `<name>.bak-<YYYYMMDD-HHMMSS>` before the change. A key
+that the file does not hold exits 1. A credential in the OS keyring stays.
+
+```bash
+devops config unset [OPTIONS] <key>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Print the change, with the lines of its unified diff, and write nothing. |
+
 ### `devops config init`
 
 **Interactive first-time setup wizard.**

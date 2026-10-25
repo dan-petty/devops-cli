@@ -888,6 +888,15 @@ class DocGenerator:
             "(`data.audit_log_path`) with the command and the dotted names of the keys that "
             "changed, never a value. A save that changes no byte of the file writes nothing.",
             "",
+            "`devops config unset <key>` removes a key and its value from the same file, with the "
+            "same copy and audit record. It edits the file and loads no settings, and "
+            "`--dry-run` prints the change, with the lines of its unified diff, and writes "
+            "nothing. The `ai` section "
+            "and each section under it refuse a key that they do not declare. Such a key stops "
+            "every command that loads the settings, with an error that names the full dotted "
+            "key, its file and line, the release that removed the key when devops-cli knows it, "
+            "and the `devops config unset` command that removes it.",
+            "",
             "---",
             "",
         ]

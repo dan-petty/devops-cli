@@ -4,7 +4,9 @@ the file keeps its text (#1999).
 `save_settings` wrote the whole settings model back to the file. A save dropped every comment and
 every key that the model does not know, and it wrote every default. ruamel.yaml in round-trip mode
 keeps the comments, the order of the keys, the quotes and the unknown keys of a file that it loads.
-This module adds four things that its round trip does not do alone:
+This module also finds the key path and the line of a dotted key in the text (`find`), for the
+removal of a key and for the error of a key that a settings section refuses (#2201). It adds four
+things that the round trip of ruamel.yaml does not do alone:
 
 - It writes with the indentation of the file: the indentation of the first nested mapping, from
   the positions that ruamel.yaml read, and the sequence indentation that ruamel.yaml guesses.
@@ -131,6 +133,38 @@ def edit(text: str, changed: Mapping[KeyPath, Any], *, name: str) -> str:
     written = io.StringIO()
     yaml.dump(document, written)
     return head + written.getvalue()
+
+
+def find(text: str, dotted: str, *, name: str) -> tuple[KeyPath, int] | None:
+    """The key path that the dotted key `dotted` names in the YAML `text`, and the line of the key,
+    counted from 1. None when the text holds no such key.
+
+    A key can hold a dot, as a model name such as `qwen3.8:27b` does. So each mapping on the way
+    takes the key that is the rest of the dotted key, else the first key that starts it. `name`
+    names the file in the error that a text which is not YAML raises. The error does not quote the
+    text, which can hold a credential (#2201).
+    """
+    try:
+        document = YAML(typ="rt").load(text)
+    except YAMLError as exc:
+        raise ConfigurationError(
+            f"Cannot read {name}: it is not valid YAML ({type(exc).__name__})."
+        ) from None
+    return _find(document, dotted, ())
+
+
+def _find(node: Any, dotted: str, prefix: KeyPath) -> tuple[KeyPath, int] | None:
+    """The key path and the line of `dotted` in the mapping `node`, under the key path `prefix`."""
+    if not isinstance(node, CommentedMap):
+        return None
+    if dotted in node:
+        return (*prefix, dotted), int(node.lc.key(dotted)[0]) + 1
+    for key, value in node.items():
+        if isinstance(key, str) and dotted.startswith(f"{key}."):
+            found = _find(value, dotted.removeprefix(f"{key}."), (*prefix, key))
+            if found is not None:
+                return found
+    return None
 
 
 def _mapping_indent(document: CommentedMap) -> int:

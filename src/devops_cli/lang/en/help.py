@@ -1430,6 +1430,7 @@ class ConfigCommandHelp:
         "Every line and the last newline stay as the input has them, and the value never shows "
         "in the output."
     )
+    unset_dry_run: str = "Print the change, with the lines of its unified diff, and write nothing."
     export_env: str = "Print environment variables as shell export statements."
     json_env: str = "Print environment variables as JSON."
     secret_key: str = "Dotted secret key, e.g. grafana.token."

@@ -45,6 +45,20 @@ CONST_CONFIG_BACKUP_STAMP_FORMAT: Final[str] = "%Y%m%d-%H%M%S"
 CONST_CONFIG_BACKUPS_KEPT: Final[int] = 10
 # The `action` of the audit record that each write of a config file appends (#1921).
 CONST_AUDIT_ACTION_CONFIG_WRITE: Final[str] = "config_write"
+# The command that removes a key from the active config file without a load of the settings, and
+# that the error of a key a settings section refuses names (#2201).
+CONST_CONFIG_UNSET_COMMAND: Final[str] = "devops config unset"
+# The type of the pydantic error for a key that a section with `extra="forbid"` does not declare.
+CONST_PYDANTIC_EXTRA_FORBIDDEN: Final[str] = "extra_forbidden"
+# The release that removed each settings key, by its dotted key, so the error of a config file that
+# still holds the key names the release. A key goes here only when the changelog of the release
+# names its removal (#2201).
+CONST_REMOVED_CONFIG_KEYS: Final[dict[str, str]] = {"ai.vllm_url": "0.2.34"}
+# The per-model sampling and serving settings. They belong in a gateway deployment's
+# `litellm_params` or in the Ollama tag, not in a section of the settings (#1070).
+CONST_AI_SERVING_SETTINGS: Final[frozenset[str]] = frozenset(
+    {"top_k", "min_p", "presence_penalty", "repeat_penalty", "think", "keep_alive"}
+)
 CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
     "github": (
         "GitHub Configuration (`github`)",

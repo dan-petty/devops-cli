@@ -50,6 +50,16 @@ class ConfigErrorMessages:
     secret_storage_failed: str = "Failed to store secret in OS keyring: {exc}"
     invalid_setting_key: str = "Invalid setting key '{key}'."
     config_file_not_found: str = "Config file not found at '{path}'."
+    unknown_key: str = (
+        "Unknown configuration key '{key}'{location}.{reason} Remove it with: {command}"
+    )
+    unknown_key_location: str = " at {path}:{line}"
+    unknown_key_removed: str = " Release {release} removed it."
+    unknown_key_serving: str = (
+        " Per-model sampling and serving settings belong in a gateway deployment's "
+        "litellm_params or the Ollama tag."
+    )
+    key_not_in_file: str = "The config file {path} does not hold the key '{key}'. Nothing changed."
 
 
 @dataclass(frozen=True)

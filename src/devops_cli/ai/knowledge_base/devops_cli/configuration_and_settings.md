@@ -104,6 +104,7 @@ AI providers handle sampling and context parameters differently:
 - **`num_ctx`**: Valid only when `provider` is `ollama`. Native Ollama passes `num_ctx` in request options. Providers using OpenAI APIs (`gateway`, `openai`, `copilot`) reject `num_ctx` with a configuration error. Configure the context size on the gateway backend or server deployment instead.
 - **`use_model_sampling`**: Boolean flag (`false` by default) set at root `ai` or per task under `ai.tasks.<task>`. When set to `true`, the client omits `temperature` and `top_p` from requests, so the model deployment uses its configured defaults.
 - **Serving and Tag Parameters**: Settings such as `top_k`, `repeat_penalty`, `presence_penalty`, `min_p`, `think`, and `keep_alive` are forbidden in `ai` and `ai.tasks.<task>`. Configure these parameters in the gateway deployment `litellm_params` or in the Ollama Modelfile.
+- **Unknown keys**: `ai`, `ai.tasks` and each `ai.tasks.<task>` refuse a key that they do not declare. Such a key stops the settings from loading. The error names the full dotted key, its file and line, the release that removed the key when devops-cli knows it, and the command that removes it, such as `devops config unset ai.vllm_url`.
 
 ---
 
@@ -123,6 +124,11 @@ devops config set ai.reasoning_effort low
 devops config set ai.allow_private_network true
 devops config set ai.tasks.embedding.ollama_urls http://192.0.2.10:11434
 devops config set github.default_org my-org
+
+# Remove a key from the config file, also a key that stops the settings from loading;
+# --dry-run prints the change and writes nothing
+devops config unset ai.vllm_url --dry-run
+devops config unset ai.vllm_url
 
 # Get specific configuration values
 devops config get ai.provider

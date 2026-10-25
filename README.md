@@ -255,6 +255,7 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 | **config** | `devops config show` | Print all configuration values, masking secrets. |
 |  | `devops config get <key>` | Print a single configuration value. |
 |  | `devops config set [OPTIONS] <key> <value>` | Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden. |
+|  | `devops config unset [OPTIONS] <key>` | Remove a key from the config file, also a key that stops the settings from loading. |
 |  | `devops config init` | Interactive first-time setup wizard. |
 |  | `devops config env-vars [OPTIONS]` | Output environment variables available for devops-cli configuration. |
 |  | `devops config env [OPTIONS]` | Output environment variables available for devops-cli configuration. |
