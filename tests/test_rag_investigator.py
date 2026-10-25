@@ -458,3 +458,45 @@ def test_settings_score_threshold_reaches_qdrant_search() -> None:
         mock_retriever_cls.assert_called_once()
         _, kwargs = mock_retriever_cls.call_args
         assert kwargs.get("default_score_threshold") == 0.5
+
+
+def test_transient_lookup_failure_is_not_cached_and_empty_lookup_is_served_from_cache() -> None:
+    """A transient error is not cached, so the query recovers, and an empty lookup is cached."""
+    clear_investigation_cache()
+    st = Settings()
+    st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
+
+    search_result = SearchResult(chunk=_chunk(), score=0.95)
+    calls: list[str] = []
+    fail = True
+
+    def retrieve_context(query: str, **kwargs: Any) -> RAGContext:
+        calls.append(query)
+        if query == "transient query" and fail:
+            raise EmbeddingsError(f"Timeout embedding {query}", is_transient=True)
+        if query == "empty query":
+            return RAGContext(query=query, results=[], formatted_text="")
+        return RAGContext(
+            query=query,
+            results=[search_result],
+            formatted_text="<rag_context>hello</rag_context>",
+        )
+
+    with (
+        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
+        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
+        patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
+    ):
+        mock_qdrant_cls.return_value.is_alive.return_value = True
+        mock_emb_cls.return_value.model = "test-embed"
+        mock_retriever_cls.return_value.retrieve_context.side_effect = retrieve_context
+
+        r1 = investigate_rag_context("transient query", settings=st)
+        fail = False
+        r2 = investigate_rag_context("transient query", settings=st)
+        assert [r1 is not None, r2 is not None] == [False, True]
+
+        r3 = investigate_rag_context("empty query", settings=st)
+        r4 = investigate_rag_context("empty query", settings=st)
+        assert (r3, r4, calls.count("empty query")) == (None, None, 1)

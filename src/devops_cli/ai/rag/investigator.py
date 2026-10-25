@@ -462,7 +462,8 @@ def investigate_rag_context(
             _report_lookup_failure(exc)
             ctx = None
         found = None if ctx is None else _recorded_results(ctx, r_span, clean_query, start_time)
-    _INVESTIGATION_CACHE[cache_key] = (now, found)
+    if ctx is not None:
+        _INVESTIGATION_CACHE[cache_key] = (now, found)
     return found
 
 
