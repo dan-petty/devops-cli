@@ -724,6 +724,20 @@ DEFAULT_K8S_DOCTOR_STUCK_SECONDS: int = 300
 DEFAULT_K8S_DOCTOR_RESTART_THRESHOLD: int = 3
 DEFAULT_K8S_DOCTOR_EVENT_COUNT_THRESHOLD: int = 5
 
+# ── Kubernetes Local-Path Volume Move Defaults (#2186) ───────────────────────
+# GNU tar, findutils, coreutils, mawk and bash, with no package to install.
+DEFAULT_K8S_VOLUME_MOVE_IMAGE: str = "debian:trixie-slim"
+# A plain kubectl request: a read, a patch, a create, a scale or a delete without a wait.
+DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS: float = 120.0
+# How long `kubectl wait` waits for a pod to be Ready or gone, a delete and a claim to bind.
+DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS: int = 300
+# How long the workloads may take to be ready again after the move.
+DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS: int = 600
+# The bound of one copy and of one side's digest, which read every byte of the volume.
+DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS: float = 3600.0
+# The characters of kubectl's error output that a failure message keeps.
+DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS: int = 400
+
 
 # ── Dashboard TUI Defaults ──────────────────────────────────────────────────
 # Retention ceiling for a streamed log view. A tail can emit hundreds of thousands

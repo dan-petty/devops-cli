@@ -109,6 +109,7 @@ class ProcessFake:
         self,
         cmd: Sequence[str],
         *,
+        input: str | None = None,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
         timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -119,7 +120,11 @@ class ProcessFake:
         check: bool = False,
         **kwargs: Any,
     ) -> subprocess.CompletedProcess[str]:
-        """Record and execute a synchronous subprocess command."""
+        """Record and execute a synchronous subprocess command.
+
+        `run_subprocess` sends a body as `input`, as the real runner takes it; the call records it
+        as `stdin`.
+        """
         full_cmd = _prepare_cmd(cmd)
         call = ProcessCall(
             argv=tuple(full_cmd),
@@ -129,7 +134,7 @@ class ProcessFake:
             capture_output=capture_output,
             intent=intent,
             local_read=local_read,
-            stdin=stdin,
+            stdin=stdin if stdin is not None else input,
             check=check,
         )
         self.calls.append(call)

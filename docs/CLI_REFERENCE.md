@@ -1389,7 +1389,7 @@ devops k8s doctor [OPTIONS]
 
 ### `devops k8s volume`
 
-**PersistentVolume inspection, maintenance, and safe orphan reclamation.**
+**Move a local-path claim to a volume on another node, and reclaim orphaned PersistentVolumes.**
 
 ```bash
 devops k8s volume COMMAND [ARGS]...
@@ -1417,6 +1417,29 @@ devops k8s volume reclaim [OPTIONS] <name>
 | `--yes`, `-y` | `boolean` | - | Confirm reclamation without interactive prompt (required in non-interactive sessions). |
 | `--patch` | `boolean` | - | Patch volume finalizers instead of issuing a DELETE request. |
 | `--context`, `-c` | `string` | - | Target context name to switch to. |
+
+#### `devops k8s volume move`
+
+**Move the data of a local-path claim to a new volume on another node, and bind the claim to it. The move pauses Argo CD from the top down, stops the workloads that mount the claim, copies the data with GNU tar through the API server, compares the two sides, binds the claim to the new volume, starts the workloads and resumes Argo CD. Before it deletes the old claim, a failure undoes its steps; after that, a failure leaves Argo CD paused and names the saved claim. The old volume stays, with reclaim policy Retain, until a person deletes it.**
+
+```bash
+devops k8s volume move [OPTIONS] <claim>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<claim>` | `string` | Yes | The claim to move, as NAMESPACE/CLAIM. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--to-node` | `string` | - | The worker node to move the volume to. Default: the worker node with the most free disk, for a volume on the control-plane node. A volume on a worker node moves only to the node that this option names. |
+| `--plan` | `boolean` | - | Read the claim, its volume, the nodes, the workloads and the Argo CD Applications, print each step with the real names, and change nothing. |
+| `--dry-run` | `boolean` | - | Make no request, reads included: print the requests a move would make, in order, with placeholders for each value that a read gives. Wins over --plan. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
 
