@@ -11,7 +11,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import (
+    CONST_ERROR_CODE_SECURITY,
+    CONST_EXIT_FAILURE,
+    CONST_GH_CLI,
+)
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
     DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
@@ -26,6 +30,7 @@ from devops_cli.core.process import (
     run_subprocess,
     run_subprocess_async,
 )
+from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 
 pytestmark = pytest.mark.live("python")
@@ -146,6 +151,63 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
     assert env.get("path") == "/usr/local/bin" or env.get("PATH") is not None
     assert "github_token" not in env
     assert "My_Secret_Key" not in env
+
+
+# Each of these variables makes the dynamic loader or the shell of a child load code that the
+# child did not ask for, so no caller can set one.
+REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "BASH_ENV",
+    "ENV",
+)
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+@pytest.mark.parametrize(
+    "key", [*REFUSED_OVERRIDE_KEYS, *(key.lower() for key in REFUSED_OVERRIDE_KEYS)]
+)
+def test_a_caller_override_that_loads_code_into_the_child_is_refused(
+    key: str, isolate_env: bool
+) -> None:
+    """A caller override of a loader or shell start-up variable raises `SecurityError` that names
+    the key, in upper and in lower case, with isolation on and off (#2151)."""
+    with pytest.raises(SecurityError) as refused:
+        build_subprocess_env(
+            env={"EXAMPLE_FLAG": "on", key: "libexample.so"}, isolate_env=isolate_env
+        )
+
+    assert (refused.value.message, refused.value.exit_code, refused.value.error_code) == (
+        f"Prohibited dangerous environment variable override: '{key}'",
+        CONST_EXIT_FAILURE,
+        CONST_ERROR_CODE_SECURITY,
+    )
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+@pytest.mark.parametrize(
+    ("override", "named_key"),
+    [
+        ({"EXAMPLE\x00FLAG": "on"}, "EXAMPLE\x00FLAG"),
+        ({"EXAMPLE_FLAG": "on\x00off"}, "EXAMPLE_FLAG"),
+    ],
+    ids=["null-byte-in-key", "null-byte-in-value"],
+)
+def test_a_caller_override_with_a_null_byte_is_refused(
+    override: dict[str, str], named_key: str, isolate_env: bool
+) -> None:
+    """A null byte in the key or in the value of a caller override raises `SecurityError` that
+    names the key (#2151)."""
+    with pytest.raises(SecurityError) as refused:
+        build_subprocess_env(env=override, isolate_env=isolate_env)
+
+    assert (refused.value.message, refused.value.exit_code, refused.value.error_code) == (
+        f"Null byte in environment variable prohibited: '{named_key}'",
+        CONST_EXIT_FAILURE,
+        CONST_ERROR_CODE_SECURITY,
+    )
 
 
 def test_run_subprocess_isolates_real_child_process(
