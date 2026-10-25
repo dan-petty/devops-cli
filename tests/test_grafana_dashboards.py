@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.grafana import app as grafana_app
@@ -743,3 +744,29 @@ def test_profiling_dashboards_query_pyroscope_service_name_without_created_by_na
         False,
         False,
     )
+
+
+def test_loki_datasource_derived_field_links_to_tempo() -> None:
+    """Verify Loki datasource in grafana-values.yaml defines derivedFields pointing to Tempo (#813)."""
+    values_path = REPO_ROOT / "k8s" / "monitoring" / "grafana-values.yaml"
+    values = yaml.safe_load(values_path.read_text(encoding="utf-8"))
+    datasources = values["datasources"]["datasources.yaml"]["datasources"]
+    loki_ds = next(ds for ds in datasources if ds["name"] == "Loki")
+    derived_fields = loki_ds.get("jsonData", {}).get("derivedFields", [])
+    assert len(derived_fields) >= 1
+    tempo_field = next(df for df in derived_fields if df.get("datasourceUid") == "tempo")
+    assert tempo_field["name"] == "TraceID"
+    assert "trace_id" in tempo_field["matcherRegex"]
+    assert tempo_field["url"] == "$${__value.raw}"
+
+
+def test_devops_cli_dashboard_includes_error_stream_panel() -> None:
+    """Verify devops-cli dashboard includes a Loki error stream logs panel (#813)."""
+    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    log_panels = [p for p in cli_dash["panels"] if p.get("type") == "logs"]
+    assert len(log_panels) >= 1
+    error_panel = next(p for p in log_panels if p.get("title") == "devops-cli Error Stream")
+    assert error_panel["datasource"]["uid"] == "loki"
+    targets = error_panel["targets"]
+    assert len(targets) >= 1
+    assert '{service_name="devops-cli"}' in targets[0]["expr"]

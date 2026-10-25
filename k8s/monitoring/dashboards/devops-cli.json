@@ -344,12 +344,48 @@
       ]
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "devops-cli error and warning logs from Loki with trace identifiers linked to Tempo.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 20,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service_name=\"devops-cli\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "devops-cli Error Stream",
+      "type": "logs"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 27
       },
       "id": 17,
       "title": "Subcommand Latency Breakdown",
@@ -378,7 +414,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 28
       },
       "id": 18,
       "options": {
@@ -462,7 +498,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 36
       },
       "id": 15,
       "options": {
@@ -525,7 +561,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 36
       },
       "id": 16,
       "options": {
@@ -554,7 +590,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 44
       },
       "id": 5,
       "title": "AI Review Findings Breakdown",
@@ -582,7 +618,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 45
       },
       "id": 13,
       "options": {
@@ -632,7 +668,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 35
+        "y": 45
       },
       "id": 14,
       "options": {
@@ -677,7 +713,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 53
       },
       "id": 6,
       "options": {
@@ -722,7 +758,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 53
       },
       "id": 7,
       "options": {
@@ -751,7 +787,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 61
       },
       "id": 8,
       "title": "AI Spend & Economics",
@@ -792,7 +828,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 52
+        "y": 62
       },
       "id": 9,
       "options": {
@@ -845,7 +881,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 52
+        "y": 62
       },
       "id": 10,
       "options": {
