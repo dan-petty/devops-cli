@@ -101,7 +101,6 @@
   "src/devops_cli/k8s/service_proxy.py": 2,
   "src/devops_cli/output/console.py": 1,
   "src/devops_cli/review/fingerprint.py": 1,
-  "src/devops_cli/roadmap/intake.py": 1,
   "src/devops_cli/roadmap/refine.py": 2,
   "src/devops_cli/roadmap/run.py": 5,
   "src/devops_cli/sandbox/engine.py": 2,

@@ -91,12 +91,11 @@ from __future__ import annotations
 
 import logging
 import string
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from functools import cached_property
-from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
@@ -1220,39 +1219,7 @@ def _write_fields(store: RoadmapStore, item: Item, decision: IntakeDecision, num
     store.set_field(item, ItemField.PRIORITY, decision.priority)
 
 
-def _should_refine_on_intake(decision: IntakeDecision) -> bool:
-    """Whether intake refines the item it placed at once: a P0 item, a critical fix or a P0
-    feature."""
-    return decision.outcome is Outcome.PLACE and decision.priority in CONST_ROADMAP_P0_PRIORITIES
-
-
-def refine_item(store: RoadmapStore, number: int, **kwargs: Any) -> Any:
-    """Refine hook called by intake when it places a P0 item."""
-    from devops_cli.roadmap.refine import refine_item as _refine_item
-
-    return _refine_item(store, number, **kwargs)
-
-
-def _maybe_refine_intake(
-    refine_hook: Callable[[RoadmapStore, int], Any],
-    store: RoadmapStore,
-    decision: IntakeDecision,
-    number: int | None,
-) -> None:
-    if not _should_refine_on_intake(decision):
-        return
-    item_number = decision.subject.number or number
-    if item_number is None:
-        return
-    try:
-        refine_hook(store, item_number)
-    except Exception as exc:
-        logger.warning("Intake refine hook failed for #%d: %s", item_number, exc)
-
-
-def _apply_decision(
-    store: RoadmapStore, decision: IntakeDecision, refine_hook: Callable[[RoadmapStore, int], Any]
-) -> IntakeApplied:
+def _apply_decision(store: RoadmapStore, decision: IntakeDecision) -> IntakeApplied:
     """One candidate's writes, and what they wrote."""
     if decision.outcome is not Outcome.PLACE:
         return IntakeApplied()
@@ -1260,7 +1227,6 @@ def _apply_decision(
     filed = () if decision.subject.number else (number,)
     if applied is None:
         return IntakeApplied(filed=filed, finished=(number,))
-    _maybe_refine_intake(refine_hook, store, applied, number)
     return IntakeApplied(placed=1, filed=filed)
 
 
@@ -1274,19 +1240,16 @@ def _failed_placement(subject: Subject, exc: GitHubOperationError) -> PlacementF
 def apply_intake(
     store: RoadmapStore,
     plan: IntakePlan,
-    *,
-    refine: Callable[[RoadmapStore, int], Any] | None = None,
 ) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time. A candidate whose write fails is
     skipped and named in `failed`, and the others are still written (#1443). A rate limit, a
     GraphQL budget refusal or a token GitHub refuses stops the round, since every later write
     would be refused too (#983)."""
-    refine_hook = refine or refine_item
     written: list[IntakeApplied] = []
     failed: list[PlacementFailure] = []
     for decision in plan.decisions:
         try:
-            written.append(_apply_decision(store, decision, refine_hook))
+            written.append(_apply_decision(store, decision))
         except GitHubRateLimitError, GitHubUnauthenticatedError:
             raise
         except GitHubOperationError as exc:
@@ -1418,7 +1381,6 @@ __all__ = [
     "intake_candidate",
     "plan_intake",
     "raise_for_failed_placements",
-    "refine_item",
     "render_intake",
     "render_intake_dry_run",
     "validate_proposal",
