@@ -45,7 +45,7 @@ body:
       description: Run `devops --version` and provide your OS and runtime details.
       placeholder: |
         - DevOps CLI Version: (e.g. 0.2.11)
-        - Python Version: (e.g. 3.14.7)
+        - Python Version: (e.g. 3.14.9)
         - OS & Architecture: (e.g. Ubuntu 24.04 LTS x86_64)
         - Execution Environment: (DevContainer / Native Workstation / Minikube)
     validations:
