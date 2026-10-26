@@ -228,6 +228,8 @@ class LLMClient(
         request_timeout_seconds: float | None = None,
         cache_enabled: bool | None = None,
         append_cache: bool | None = None,
+        transport: httpx2.BaseTransport | None = None,
+        http_client: httpx2.Client | None = None,
     ) -> None:
         if config is None:
             from devops_cli.config.settings import get_ai_api_key, load_settings
@@ -249,6 +251,9 @@ class LLMClient(
                 getattr(config, "cache", None), "append_cache", False
             )
         self._append_cache = bool(append_cache)
+        self._transport = transport
+        self._http_client = http_client
+        self._transport_client: httpx2.Client | None = None
 
     @staticmethod
     def _validate_resolved_config(cfg: AIConfig) -> None:

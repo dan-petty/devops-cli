@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
+    import httpx2
+
     from devops_cli.ai.client.unified import LLMClient
     from devops_cli.config.settings import AIConfig, Settings
 
@@ -60,6 +62,17 @@ def _handle_override(
     return cast("LLMClient", override)
 
 
+def _resolve_api_key(api_key: str | None, settings: Settings | None, cfg: AIConfig) -> str | None:
+    """Resolve API key from explicit parameter, active settings, or config."""
+    if api_key is not None:
+        return api_key
+    if settings is not None:
+        from devops_cli.config.settings import get_ai_api_key
+
+        return get_ai_api_key(settings)
+    return getattr(cfg, "api_key", None)
+
+
 def get_llm_client(
     task: str | None = None,
     *,
@@ -68,6 +81,8 @@ def get_llm_client(
     model: str | None = None,
     api_key: str | None = None,
     cache_enabled: bool | None = None,
+    transport: httpx2.BaseTransport | None = None,
+    http_client: httpx2.Client | None = None,
     **kwargs: Any,
 ) -> LLMClient:
     """Build or retrieve a configured LLMClient instance based on task or configuration (#1001).
@@ -79,11 +94,18 @@ def get_llm_client(
         model: Optional model override.
         api_key: Optional explicit API key override. If None, resolved via get_ai_api_key(settings).
         cache_enabled: Optional boolean enabling or disabling response cache.
+        transport: Optional HTTP transport override.
+        http_client: Optional HTTP client override.
         **kwargs: Additional parameters passed through to LLMClient.
 
     Returns:
         Configured LLMClient instance.
     """
+    if transport is not None:
+        kwargs["transport"] = transport
+    if http_client is not None:
+        kwargs["http_client"] = http_client
+
     if _client_override is not None:
         return _handle_override(
             _client_override, task, config, settings, model, api_key, cache_enabled, kwargs
@@ -101,14 +123,7 @@ def get_llm_client(
     if model:
         cfg = cfg.model_copy(update={"model": model})
 
-    key = api_key
-    if key is None:
-        if active_settings is not None:
-            from devops_cli.config.settings import get_ai_api_key
-
-            key = get_ai_api_key(active_settings)
-        elif getattr(cfg, "api_key", None):
-            key = getattr(cfg, "api_key", None)
+    key = _resolve_api_key(api_key, active_settings, cfg)
 
     client_kwargs: dict[str, Any] = dict(kwargs)
     if cache_enabled is not None:
