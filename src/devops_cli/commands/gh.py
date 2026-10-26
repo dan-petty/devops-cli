@@ -57,7 +57,6 @@ from devops_cli.github.metrics import (
     WorkflowRunMetric,
     collect_project_metrics_report,
     emit_project_metrics_telemetry,
-    record_project_metrics_in_registry,
 )
 from devops_cli.github.milestones import (
     MilestoneProgress,
@@ -1356,7 +1355,6 @@ def gh_status_cmd(
     from devops_cli.telemetry.service_status import (
         emit_service_status_telemetry,
         fetch_github_status,
-        record_service_status_in_registry,
         render_statuspage_summary,
     )
 
@@ -1368,7 +1366,6 @@ def gh_status_cmd(
 
     if emit_telemetry:
         emit_service_status_telemetry(summary, "github")
-        record_service_status_in_registry(summary, "github")
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
@@ -1800,7 +1797,6 @@ def project_metrics_cmd(
 
     if emit_telemetry:
         emit_project_metrics_telemetry(report)
-        record_project_metrics_in_registry(report)
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

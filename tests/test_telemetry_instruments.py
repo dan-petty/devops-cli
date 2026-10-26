@@ -8,6 +8,7 @@ now deltas that the collector adds up.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import json
 import re
@@ -181,6 +182,81 @@ def test_all_dashboards_referencing_devops_cli_metrics_name_sent_series() -> Non
         queries = _queries(dashboard)
         unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
         assert unsent == set(), f"{dashboard.name} queries unsent devops-cli metrics: {unsent}"
+
+
+def _resolve_gauge_call_arg(
+    arg: ast.AST, const_dict: dict[str, str], inst_dict: dict[str, Any]
+) -> str | None:
+    """Resolve the gauge name from an AST argument node."""
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value
+    if isinstance(arg, ast.Name) and arg.id in const_dict:
+        return const_dict[arg.id]
+    if isinstance(arg, ast.Attribute) and arg.attr == "name":
+        if isinstance(arg.value, ast.Name) and arg.value.id in inst_dict:
+            obj = inst_dict[arg.value.id]
+            if hasattr(obj, "name"):
+                return str(obj.name)
+    return None
+
+
+def _scraped_gauge_names_in_tree(tree: ast.AST) -> set[str]:
+    """Return gauge names that an AST records into an in-memory registry or exposes via Prometheus."""
+    import devops_cli.telemetry.instruments as inst_mod
+    from devops_cli.config import constants
+
+    const_dict = {
+        name: getattr(constants, name)
+        for name in dir(constants)
+        if isinstance(getattr(constants, name), str)
+    }
+    inst_dict = {name: getattr(inst_mod, name) for name in dir(inst_mod)}
+
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        first = node.args[0]
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "set_gauge":
+            name = _resolve_gauge_call_arg(first, const_dict, inst_dict)
+            if name:
+                names.add(name)
+        elif isinstance(node.func, ast.Name) and node.func.id == "GaugeMetricFamily":
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                names.add(first.value)
+    return names
+
+
+def _all_scraped_gauge_names() -> set[str]:
+    """All gauge names recorded into in-memory registries or exposed via Prometheus in src/devops_cli."""
+    gauges: set[str] = set()
+    src_dir = REPO_ROOT / "src" / "devops_cli"
+    for path in src_dir.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        gauges |= _scraped_gauge_names_in_tree(tree)
+    return gauges
+
+
+def test_no_gauge_reaches_prometheus_through_two_paths() -> None:
+    """Each gauge reaches Prometheus through one path (#2288). A check fails when two paths send the same gauge name."""
+    otlp_gauges = {
+        instrument.name for instrument in INSTRUMENTS if instrument.kind is InstrumentKind.GAUGE
+    }
+    scraped_gauges = _all_scraped_gauge_names()
+    shared = otlp_gauges & scraped_gauges
+    assert shared == set(), f"Gauges sent through both OTLP and scrape paths: {sorted(shared)}"
+
+
+def test_a_check_fails_when_two_paths_send_the_same_gauge_name(tmp_path: Path) -> None:
+    """A check fails when two paths send the same gauge name (#2288)."""
+    bad_code = "reg.set_gauge(PROJECT_ITEMS.name, 1.0)\n"
+    tree = ast.parse(bad_code, filename=str(tmp_path / "bad.py"))
+    scraped = _scraped_gauge_names_in_tree(tree)
+    otlp_gauges = {
+        instrument.name for instrument in INSTRUMENTS if instrument.kind is InstrumentKind.GAUGE
+    }
+    shared = otlp_gauges & scraped
+    assert PROJECT_ITEMS.name in shared
 
 
 def test_the_items_panels_group_only_by_labels_the_gauge_sends() -> None:

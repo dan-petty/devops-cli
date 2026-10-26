@@ -59,7 +59,6 @@ if TYPE_CHECKING:
         fetch_all_service_statuses,
         fetch_cloudflare_status,
         fetch_github_status,
-        record_service_status_in_registry,
     )
     from devops_cli.telemetry.tracer import (
         ContextPropagatingThread,
@@ -150,10 +149,6 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     ),
     "fetch_cloudflare_status": ("devops_cli.telemetry.service_status", "fetch_cloudflare_status"),
     "fetch_github_status": ("devops_cli.telemetry.service_status", "fetch_github_status"),
-    "record_service_status_in_registry": (
-        "devops_cli.telemetry.service_status",
-        "record_service_status_in_registry",
-    ),
     "ContextPropagatingThread": ("devops_cli.telemetry.tracer", "ContextPropagatingThread"),
     "ContextPropagatingThreadPoolExecutor": (
         "devops_cli.telemetry.tracer",
@@ -245,7 +240,6 @@ __all__ = [
     "query_tempo_trace",
     "record_completed_span",
     "record_metric",
-    "record_service_status_in_registry",
     "render_agent_turn_panel",
     "render_agent_turn_table",
     "render_waterfall_bar",

@@ -1,13 +1,12 @@
 """Service status monitoring client for external platforms (GitHub, Cloudflare).
 
 Fetches Atlassian Statuspage v2 summary feeds, parses operational indicators,
-key components, and active incidents, and emits OpenTelemetry metrics and in-memory gauges.
+key components, and active incidents, and emits OpenTelemetry metrics.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import httpx2
 
@@ -99,28 +98,6 @@ def emit_service_status_telemetry(summary: StatuspageSummary, service: str) -> N
     for comp in filter_key_components(summary, service):
         emit(
             UPSTREAM_COMPONENT_STATUS,
-            float(comp.status_code),
-            {"service": service, "component": comp.name, "status": comp.status},
-        )
-
-
-def record_service_status_in_registry(
-    summary: StatuspageSummary,
-    service: str,
-    registry: Any | None = None,
-) -> None:
-    """Record upstream service status and component metrics into InMemoryMetricsRegistry."""
-    from devops_cli.telemetry.metrics import GLOBAL_METRICS
-
-    reg = registry or GLOBAL_METRICS
-    reg.set_gauge(
-        UPSTREAM_SERVICE_STATUS.name,
-        float(summary.status.severity_code),
-        {"service": service, "indicator": summary.status.indicator},
-    )
-    for comp in filter_key_components(summary, service):
-        reg.set_gauge(
-            UPSTREAM_COMPONENT_STATUS.name,
             float(comp.status_code),
             {"service": service, "component": comp.name, "status": comp.status},
         )
