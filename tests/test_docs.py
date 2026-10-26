@@ -251,7 +251,7 @@ def test_sync_and_check_readme(generator: DocGenerator, tmp_path: Path) -> None:
     assert "<!-- COMMAND_MATRIX_START -->" in content
     assert "<!-- COMMAND_MATRIX_END -->" in content
     assert "<!-- COMMAND_MATRIX_START -->\n\n|" in content
-    assert "| **repos** |" in content
+    assert "| [**repos**](docs/commands/repos.md) |" in content
 
     # Check passes when synchronized
     check_ok, err = generator.check_readme(readme)
@@ -259,7 +259,7 @@ def test_sync_and_check_readme(generator: DocGenerator, tmp_path: Path) -> None:
     assert err is None
 
     # Stale table detection
-    stale_content = content.replace("| **repos** |", "| **corrupt** |")
+    stale_content = content.replace("| [**repos**](docs/commands/repos.md) |", "| **corrupt** |")
     readme.write_text(stale_content, encoding="utf-8")
     check_ok_stale, err_stale = generator.check_readme(readme)
     assert check_ok_stale is False

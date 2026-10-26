@@ -41,6 +41,12 @@
 - [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
 - [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
 - [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
+- [**Configuration Reference (`docs/CONFIGURATION.md`)**](docs/CONFIGURATION.md) — Every setting, and the order in which sources set it.
+- [**Exit Code & Error Catalog (`docs/ERRORS.md`)**](docs/ERRORS.md) — Error codes, exit codes and their categories.
+- [**Telemetry & Tracing Reference (`docs/TELEMETRY.md`)**](docs/TELEMETRY.md) — Metrics, spans and the way they reach Prometheus.
+- [**Knowledge Base Catalog (`docs/KNOWLEDGE_BASE.md`)**](docs/KNOWLEDGE_BASE.md) — The manuals that ground the AI commands.
+- [**OpenTofu Modules (`tf/README.md`)**](tf/README.md) — Managed Kubernetes cluster modules.
+- [**Agent Records (`docs/agent/README.md`)**](docs/agent/README.md) — Compacted records of the early development phases.
 
 ---
 
@@ -155,24 +161,24 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 
 | Command Group | Subcommand / Usage | Purpose & Features |
 |---|---|---|
-| **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into `repos/<org>/.`. |
+| [**repos**](docs/commands/repos.md) | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into `repos/<org>/.`. |
 |  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`). |
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos worktrees COMMAND [ARGS]...` | Clone, synchronize, and manage organization repositories. |
-| **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix. |
+| [**ssh**](docs/commands/ssh.md) | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix. |
 |  | `devops ssh register [OPTIONS]` | Generate, rotate, audit, and register Ed25519 SSH keypairs. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
 |  | `devops ssh list [OPTIONS]` | List the managed SSH keys of the project prefix with their age and rotation status. |
 |  | `devops ssh audit [OPTIONS]` | List the managed SSH keys of the project prefix with their age and rotation status. |
 |  | `devops ssh status [OPTIONS]` | Show the active SSH key and days until rotation. |
-| **branches** | `devops branches update [OPTIONS]` | Fetch and pull tracking branches across all repos. |
+| [**branches**](docs/commands/branches.md) | `devops branches update [OPTIONS]` | Fetch and pull tracking branches across all repos. |
 |  | `devops branches sync [OPTIONS]` | Fetch and pull tracking branches across all repos. |
 |  | `devops branches jira [OPTIONS] <ticket_id>` | Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]. |
 |  | `devops branches list [OPTIONS]` | List branches across all repos. |
 |  | `devops branches clean [OPTIONS]` | Delete local branches merged into main/master. |
-| **devcontainer** | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ using the published DevOps CLI devcontainer image. |
+| [**devcontainer**](docs/commands/devcontainer.md) | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ using the published DevOps CLI devcontainer image. |
 |  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
 |  | `devops devcontainer validate [OPTIONS]` | Validate .devcontainer/devcontainer.json manifest syntax and configuration schema. |
 |  | `devops devcontainer list [OPTIONS]` | List repos with their devcontainer status. |
@@ -181,16 +187,16 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 |  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
 |  | `devops devcontainer run-lifecycle [OPTIONS]` | Run specified DevContainer lifecycle hook tasks natively in Python. |
 |  | `devops devcontainer bootstrap-k8s [OPTIONS]` | Execute Minikube cluster startup in the background. |
-| **workspace** | `devops workspace add [OPTIONS] <repo_path>` | Add a folder to the VS Code workspace file. |
+| [**workspace**](docs/commands/workspace.md) | `devops workspace add [OPTIONS] <repo_path>` | Add a folder to the VS Code workspace file. |
 |  | `devops workspace remove [OPTIONS] <repo_path>` | Remove a folder from the VS Code workspace file. |
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
 |  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
-| **install-tools** | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
-| **openspec** | `devops openspec check` | Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and find a requirement that two changes rewrite. Exits 1 on any problem. |
+| [**install-tools**](docs/commands/install-tools.md) | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
+| [**openspec**](docs/commands/openspec.md) | `devops openspec check` | Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and find a requirement that two changes rewrite. Exits 1 on any problem. |
 |  | `devops openspec regenerate [OPTIONS]` | Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written. |
 |  | `devops openspec archive [OPTIONS] <change>` | Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation. |
-| **k8s** | `devops k8s contexts [OPTIONS]` | List kubeconfig contexts and mark the active one. |
+| [**k8s**](docs/commands/k8s.md) | `devops k8s contexts [OPTIONS]` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context [OPTIONS] <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status [OPTIONS]` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
@@ -224,10 +230,10 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 |  | `devops k8s gpu-matrix [OPTIONS]` | Query traditional homelab GPU matrix and model service alias mappings. |
 |  | `devops k8s doctor [OPTIONS]` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
 |  | `devops k8s volume COMMAND [ARGS]...` | Move a local-path claim to a volume on another node, and reclaim orphaned PersistentVolumes. |
-| **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
+| [**kustomize**](docs/commands/kustomize.md) | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
-| **docker** | `devops docker images [OPTIONS]` | List local Docker images. |
+| [**docker**](docs/commands/docker.md) | `devops docker images [OPTIONS]` | List local Docker images. |
 |  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |
 |  | `devops docker push [OPTIONS] <image>` | Push a Docker image to a registry. |
 |  | `devops docker prune [OPTIONS]` | Remove stopped containers, unused networks, dangling images and, with --volumes, unused volumes. |
@@ -237,22 +243,22 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 |  | `devops docker sandbox [OPTIONS] <command>` | Execute workload inside an isolated, disposable Docker container sandbox. |
 |  | `devops docker sign [OPTIONS] <image>` | Sign a container image using Sigstore Cosign (keyless or keyed). |
 |  | `devops docker verify [OPTIONS] <image>` | Verify container image signature or attestation using Sigstore Cosign. |
-| **grafana** | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
+| [**grafana**](docs/commands/grafana.md) | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
 |  | `devops grafana datasources` | List configured datasources. |
 |  | `devops grafana alerts` | List alert rules (Grafana 9+ unified alerting). |
 |  | `devops grafana dashboards COMMAND [ARGS]...` | Grafana dashboard and alert management. |
-| **prometheus** | `devops prometheus query [OPTIONS] <expr>` | Execute an instant PromQL query. |
+| [**prometheus**](docs/commands/prometheus.md) | `devops prometheus query [OPTIONS] <expr>` | Execute an instant PromQL query. |
 |  | `devops prometheus query-range [OPTIONS] <expr>` | Execute a range PromQL query and summarise the result. |
 |  | `devops prometheus analyze [OPTIONS] <expr>` | Detect anomalies and project the trend of a metric series, computed locally. |
 |  | `devops prometheus rules` | List Prometheus recording and alerting rules. |
 |  | `devops prometheus targets` | List active Prometheus scrape targets. |
-| **argo** | `devops argo sync [OPTIONS] <name>` | Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed). |
+| [**argo**](docs/commands/argo.md) | `devops argo sync [OPTIONS] <name>` | Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed). |
 |  | `devops argo cd COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo workflows COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo rollouts COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo fleet COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo gitops COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
-| **config** | `devops config show` | Print all configuration values, masking secrets. |
+| [**config**](docs/commands/config.md) | `devops config show` | Print all configuration values, masking secrets. |
 |  | `devops config get <key>` | Print a single configuration value. |
 |  | `devops config set [OPTIONS] <key> <value>` | Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden. |
 |  | `devops config unset [OPTIONS] <key>` | Remove a key from the config file, also a key that stops the settings from loading. |
@@ -263,7 +269,7 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 |  | `devops config auth-headless <key> <token>` | Load secret tokens into ephemeral memory for headless CI environments lacking DBus. |
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
 |  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited. |
-| **ci** | `devops ci test [OPTIONS] <paths>` | Run the test suite, or only the tests covering the given source files. |
+| [**ci**](docs/commands/ci.md) | `devops ci test [OPTIONS] <paths>` | Run the test suite, or only the tests covering the given source files. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 |  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
@@ -282,11 +288,11 @@ The roadmap lives on GitHub: the issues are its items, the [project board](https
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 |  | `devops ci mutate [OPTIONS] <paths>` | Mutation-test functions with mutmut and show each mutant no test killed; never a gate. |
 |  | `devops ci fail-to-pass [OPTIONS]` | Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. |
-| **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
+| [**uv**](docs/commands/uv.md) | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
 |  | `devops uv run` | Run an arbitrary command using `uv run`. |
-| **scan** | `devops scan trivy [OPTIONS] <target>` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
+| [**scan**](docs/commands/scan.md) | `devops scan trivy [OPTIONS] <target>` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
 |  | `devops scan secrets [OPTIONS] <target>` | Run Gitleaks secret pre-filter scan across workspace or targets. |
 |  | `devops scan workflows [OPTIONS] <target>` | Audit GitHub Actions workflows with zizmor offline: template injection, unpinned actions
 and excessive permissions fail it, and every other finding is shown. |
@@ -299,7 +305,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan injection [OPTIONS] <target>` | Scan target files for prompt-injection smuggling vectors and canary tokens. |
 |  | `devops scan report [OPTIONS] <target>` | Run every registered scanner and report deduplicated, correlated findings. |
 |  | `devops scan sarif [OPTIONS] <document>` | Ingest a SARIF document from any tool and report it in the unified taxonomy. |
-| **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
+| [**ai**](docs/commands/ai.md) | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
 |  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity across configured servers. |
@@ -335,7 +341,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai cost [OPTIONS] COMMAND [ARGS]...` | Track approximate lifetime spend and manage model pricing. |
 |  | `devops ai spend [OPTIONS] COMMAND [ARGS]...` | Alias for 'cost' command. |
 |  | `devops ai research COMMAND [ARGS]...` | Epistemic research, information foraging, and relational codebase exploration. |
-| **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
+| [**review**](docs/commands/review.md) | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request. |
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
@@ -348,17 +354,17 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops review samples COMMAND [ARGS]...` | AI-powered code review and security audits. |
 |  | `devops review templates COMMAND [ARGS]...` | AI-powered code review and security audits. |
 |  | `devops review rules COMMAND [ARGS]...` | AI-powered code review and security audits. |
-| **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
+| [**mcp**](docs/commands/mcp.md) | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
 |  | `devops mcp export-schemas [OPTIONS]` | Export FastMCP tool JSON schemas and instructions for MCP clients. |
-| **docs** | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
+| [**docs**](docs/commands/docs.md) | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
 |  | `devops docs check [OPTIONS]` | Check that generated documentation and README.md are up to date with codebase. |
 |  | `devops docs sync-readme [OPTIONS]` | Synchronize the Complete Command Matrix table in README.md with live CLI commands. |
-| **roadmap** | `devops roadmap intake [OPTIONS]` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. The model compares each with the board's items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
+| [**roadmap**](docs/commands/roadmap.md) | `devops roadmap intake [OPTIONS]` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. The model compares each with the board's items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
 |  | `devops roadmap refine [OPTIONS]` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, then the backlog's other New items, each place by priority. Only --limit stops a run. The number of Ready items does not stop it. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. An item refine cannot set to Ready gets one comment with its next step. The step is the questions a person answers, the split a person makes, or the open items it waits on. Refine looks at the item again after a reply, a body edit or the close of those items, or after a commit on the default branch changes a file that the block cites. The report groups every item by its next step. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
 |  | `devops roadmap run [OPTIONS]` | Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 |  | `devops roadmap return [OPTIONS] <item>` | Return an item to New on the roadmap board with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. |
-| **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
+| [**pr**](docs/commands/pr.md) | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
 |  | `devops pr wait [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
@@ -372,7 +378,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
 |  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
-| **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. |
+| [**gh**](docs/commands/gh.md) | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 |  | `devops gh status [OPTIONS]` | Display GitHub published operational status, key components, and active incidents. |
 |  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and project board items. |
@@ -386,7 +392,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops gh branch-protection COMMAND [ARGS]...` | Manage classic branch protection policies; does not cover rulesets. |
 |  | `devops gh secrets COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pr COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
-| **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
+| [**tf**](docs/commands/tf.md) | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
 |  | `devops tf apply [OPTIONS] <directory>` | Create or update OpenTofu infrastructure. |
 |  | `devops tf destroy [OPTIONS] <directory>` | Destroy OpenTofu-managed infrastructure. |
@@ -400,31 +406,31 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 |  | `devops tf notify-plan [OPTIONS]` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
 |  | `devops tf cost COMMAND [ARGS]...` | OpenTofu and Terraform Infrastructure-as-Code operations. |
-| **tls** | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
+| [**tls**](docs/commands/tls.md) | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
 |  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 |  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |
 |  | `devops tls inspect <cert_path>` | Inspect and display metadata of an X.509 certificate. |
 |  | `devops tls verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
-| **telemetry** | `devops telemetry status [OPTIONS]` | Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status. |
+| [**telemetry**](docs/commands/telemetry.md) | `devops telemetry status [OPTIONS]` | Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status. |
 |  | `devops telemetry connect [OPTIONS]` | Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there. |
 |  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry profile [OPTIONS] <command>` | Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it. |
 |  | `devops telemetry open-ui` | Print and show the Tempo HTTP API endpoint for inspecting traces. |
 |  | `devops telemetry semconv COMMAND [ARGS]...` | The GenAI semantic conventions that LLM span attributes are checked against. |
-| **cloudflare** | `devops cloudflare status [OPTIONS]` | Verify Cloudflare API token authentication and inspect zone status. |
+| [**cloudflare**](docs/commands/cloudflare.md) | `devops cloudflare status [OPTIONS]` | Verify Cloudflare API token authentication and inspect zone status. |
 |  | `devops cloudflare service-status [OPTIONS]` | Display Cloudflare published operational status, key components, and active incidents. |
 |  | `devops cloudflare dns COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
 |  | `devops cloudflare tunnel COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
 |  | `devops cloudflare access COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
-| **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
-| **test** | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
+| [**serve**](docs/commands/serve.md) | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
+| [**test**](docs/commands/test.md) | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
 |  | `devops test load [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
 |  | `devops test sandbox [OPTIONS] <command>` | Execute test command inside an isolated, disposable Docker container sandbox. |
 |  | `devops test profile-memory [OPTIONS] <target>` | Deterministic async memory and connection pool profiler using tracemalloc. |
-| **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
-| **vault** | `devops vault status [OPTIONS]` | Inspect HashiCorp Vault cluster health and initialization status. |
+| [**pipeline**](docs/commands/pipeline.md) | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
+| [**vault**](docs/commands/vault.md) | `devops vault status [OPTIONS]` | Inspect HashiCorp Vault cluster health and initialization status. |
 |  | `devops vault get [OPTIONS] <path>` | Fetch a secret from Vault, or from the OS keyring when Vault cannot answer. |
 |  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
@@ -432,7 +438,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops vault logout [OPTIONS]` | Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it. |
 |  | `devops vault leases [OPTIONS]` | Revoke a single Vault dynamic secret lease by id. |
 |  | `devops vault audit [OPTIONS]` | Show which provider satisfied each credential lookup in this session. |
-| **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |
+| [**valkey**](docs/commands/valkey.md) | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |
 |  | `devops valkey info [OPTIONS]` | Inspect server configuration, memory allocation, and operational metrics. |
 |  | `devops valkey stats [OPTIONS]` | Display quick diagnostic summary of server health, memory, and keys. |
 |  | `devops valkey keys [OPTIONS] <pattern>` | List keys matching a glob pattern. |
@@ -441,7 +447,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops valkey flush [OPTIONS]` | Flush and purge keys from current or all databases. |
 |  | `devops valkey backup [OPTIONS]` | Trigger background RDB persistence snapshot (BGSAVE). |
 |  | `devops valkey cli [OPTIONS] <command_args>` | Execute raw Valkey commands directly against the server. |
-| **sandbox** | `devops sandbox deploy [OPTIONS] <command>` | Deploy an isolated background container sandbox with security containment. |
+| [**sandbox**](docs/commands/sandbox.md) | `devops sandbox deploy [OPTIONS] <command>` | Deploy an isolated background container sandbox with security containment. |
 |  | `devops sandbox status [OPTIONS] <instance_id>` | Inspect status of deployed sandbox containers. |
 |  | `devops sandbox stop [OPTIONS] <instance_id>` | Gracefully stop and tear down a sandbox container. |
 |  | `devops sandbox exec [OPTIONS] <instance_id> <command>` | Execute a command inside an active sandbox container. |
@@ -450,12 +456,12 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops sandbox traces [OPTIONS] <identifier>` | Visualize distributed trace waterfall and cross-service latency for sandbox workloads. |
 |  | `devops sandbox logs [OPTIONS] <identifier>` | Stream stdout/stderr container logs with automated panic and crash detection. |
 |  | `devops sandbox network-policy [OPTIONS]` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
-| **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
-| **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
-| **status** | `devops status [OPTIONS]` | Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare) |
-| **survey** | `devops survey [OPTIONS]` | Outward-facing capability and upstream maturity survey. |
-| **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
-| **lint** | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
+| [**dashboard**](docs/commands/dashboard.md) | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+| [**tui**](docs/commands/tui.md) | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+| [**status**](docs/commands/status.md) | `devops status [OPTIONS]` | Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare) |
+| [**survey**](docs/commands/survey.md) | `devops survey [OPTIONS]` | Outward-facing capability and upstream maturity survey. |
+| [**format**](docs/commands/format.md) | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
+| [**lint**](docs/commands/lint.md) | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 
 <!-- COMMAND_MATRIX_END -->
 
