@@ -23,6 +23,19 @@ from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
+_REAL_RUN = subprocess.run
+
+
+def _fake_gh_rate_limit_edge(stdout: str, calls: list[list[str]]) -> Any:
+    """Fake gh at the process edge, recording commands and returning stdout."""
+
+    def gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] != "gh":
+            return _REAL_RUN(cmd, **kwargs)
+        calls.append(list(cmd[1:]))
+        return subprocess.CompletedProcess(cmd, 0, stdout, "")
+
+    return gh
 
 
 def test_gh_labels_list() -> None:
@@ -576,31 +589,28 @@ def test_gh_pr_threads_alias() -> None:
 
 
 def test_gh_rate_limit_table() -> None:
-    """devops gh rate-limit displays formatted rate limit table."""
-    mock_rate_limit = json.dumps(
-        {
-            "resources": {
-                "core": {"limit": 5000, "used": 10, "remaining": 4990, "reset": 1789249509},
-                "graphql": {"limit": 5000, "used": 5000, "remaining": 0, "reset": 1789246767},
-                "search": {"limit": 30, "used": 2, "remaining": 28, "reset": 1789245969},
-            }
+    """devops gh rate-limit starts one gh child and displays formatted rate limit table."""
+    reset = int(time.time()) + 10
+    mock_payload = {
+        "resources": {
+            "core": {"limit": 5000, "used": 10, "remaining": 4990, "reset": reset},
+            "graphql": {"limit": 5000, "used": 1000, "remaining": 4000, "reset": reset},
+            "search": {"limit": 30, "used": 2, "remaining": 28, "reset": reset},
+            "code_scanning_autofix": {"limit": 10, "used": 1, "remaining": 9, "reset": reset},
         }
-    )
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout=mock_rate_limit, stderr=""),
-        ),
+    }
+    calls: list[list[str]] = []
+    with patch(
+        "subprocess.run",
+        side_effect=_fake_gh_rate_limit_edge(json.dumps(mock_payload), calls),
     ):
         result = runner.invoke(app, ["rate-limit"])
-        assert (
-            result.exit_code,
-            "GitHub API Rate Limits" in result.output,
-            "graphql" in result.output,
-            "4990" in result.output,
-            "Rate Limiter Activity" in result.output,
-        ) == (0, True, True, True, True)
+        assert result.exit_code == 0
+        assert calls == [["api", "rate_limit"]]
+        assert "GitHub API Rate Limits" in result.output
+        for res_name in mock_payload["resources"]:
+            assert res_name in result.output
+        assert "Rate Limiter Activity" in result.output
 
 
 def test_gh_runs_list() -> None:
@@ -822,23 +832,27 @@ def test_gh_runs_view_prints_a_run_log_masked_and_gives_gh_the_run_log_timeout()
 
 
 def test_gh_rate_limit_json() -> None:
-    """devops gh rate-limit --format json outputs valid json."""
-    mock_data = json.dumps({"resources": {"core": {"limit": 5000, "remaining": 4999}}})
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout=mock_data, stderr=""),
-        ),
+    """devops gh rate-limit --format json starts one gh child and outputs valid json."""
+    reset = int(time.time()) + 10
+    mock_payload = {
+        "resources": {
+            "core": {"limit": 5000, "used": 1, "remaining": 4999, "reset": reset},
+            "graphql": {"limit": 5000, "used": 10, "remaining": 4990, "reset": reset},
+            "code_scanning_autofix": {"limit": 10, "used": 1, "remaining": 9, "reset": reset},
+        }
+    }
+    calls: list[list[str]] = []
+    with patch(
+        "subprocess.run",
+        side_effect=_fake_gh_rate_limit_edge(json.dumps(mock_payload), calls),
     ):
         result = runner.invoke(app, ["rate-limit", "--format", "json"])
+        assert result.exit_code == 0
+        assert calls == [["api", "rate_limit"]]
         parsed = json.loads(result.output)
-        assert (
-            result.exit_code,
-            "resources" in parsed,
-            "total_throttles" in parsed,
-            "total_wait_seconds" in parsed,
-        ) == (0, True, True, True)
+        assert set(parsed["resources"].keys()) == set(mock_payload["resources"].keys())
+        assert "total_throttles" in parsed
+        assert "total_wait_seconds" in parsed
 
 
 def test_gh_rate_limit_invalid_format() -> None:
