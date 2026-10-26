@@ -1987,12 +1987,14 @@ class _Cluster:
         argo: bool = True,
         fail: str | None = None,
         paths: dict[str, str] | None = None,
+        missing_crds: tuple[str, ...] = (),
     ) -> None:
         self.calls: list[tuple[list[str], str | None]] = []
         self.repo = repo
         self.argo = argo
         self.fail = fail
         self.paths = paths or {}
+        self.missing_crds = missing_crds
 
     def __call__(
         self,
@@ -2013,6 +2015,22 @@ class _Cluster:
             path = self.paths.get(cmd[3], f"k8s/overlays/homelab/{cmd[3]}")
             source = {"repoURL": self.repo.as_uri(), "targetRevision": "main", "path": path}
             return subprocess.CompletedProcess(cmd, 0, json.dumps({"spec": {"source": source}}), "")
+        if cmd[1] == "api-resources":
+            if self.fail is not None and self.fail in cmd:
+                return subprocess.CompletedProcess(cmd, 1, "", "denied")
+            group = next(
+                (arg.split("=", 1)[1] for arg in cmd if arg.startswith("--api-group=")), None
+            )
+            lines = ["NAME SHORTNAMES APIVERSION NAMESPACED KIND"]
+            if group is None or group == "argoproj.io":
+                if "argoproj.io" not in self.missing_crds:
+                    lines.append(
+                        "workflowtemplates wft,wftmpl argoproj.io/v1alpha1 true WorkflowTemplate"
+                    )
+            if group is None or group == "monitoring.coreos.com":
+                if "monitoring.coreos.com" not in self.missing_crds:
+                    lines.append("servicemonitors monitoring.coreos.com/v1 true ServiceMonitor")
+            return subprocess.CompletedProcess(cmd, 0, "\n".join(lines) + "\n", "")
         failed = self.fail is not None and self.fail in cmd
         return subprocess.CompletedProcess(cmd, int(failed), "", "denied" if failed else "")
 
@@ -2268,6 +2286,74 @@ def test_native_teardown_stack_llm_deletes_the_gateway_kustomization(
             ("delete", "-k", gateway),
         ],
     )
+
+
+def test_teardown_stack_skips_post_helm_delete_when_crd_not_installed(
+    applications_repo: Path,
+) -> None:
+    """When a post-Helm custom resource kind is not served, teardown-stack skips deleting it
+    and warns (#1818)."""
+    cluster = _Cluster(applications_repo, argo=False, missing_crds=("argoproj.io",))
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=False,
+        ),
+    ):
+        res = runner.invoke(
+            app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", *_CONTEXT]
+        )
+    assert res.exit_code == 0
+    assert (
+        "Skipped workflowtemplate-version.yaml: the cluster does not serve kind "
+        "'WorkflowTemplate' (argoproj.io/v1alpha1)." in res.output
+    )
+    deleted_post_helm = [
+        cmd
+        for cmd in cluster.writes()
+        if cmd[1] == "delete" and "workflowtemplate-version.yaml" in " ".join(cmd)
+    ]
+    assert deleted_post_helm == []
+
+
+def test_deploy_stack_reports_post_helm_apply_failure_when_crd_not_installed(
+    applications_repo: Path,
+) -> None:
+    """When a post-Helm custom resource kind is not served, deploy-stack warns and skips applying it (#1818)."""
+    cluster = _Cluster(applications_repo, argo=False, missing_crds=("argoproj.io",))
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
+            return_value=False,
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle._post_deploy_networking"),
+        patch("devops_cli.commands.k8s.stack_lifecycle._post_deploy_credentials"),
+    ):
+        res = runner.invoke(
+            app,
+            [
+                "deploy-stack",
+                "--stack",
+                "infra",
+                "--k8s-dir",
+                "k8s",
+                "--no-push-secrets",
+                *_CONTEXT,
+            ],
+        )
+    assert res.exit_code == 0
+    assert (
+        "Failed to apply workflowtemplate-version.yaml: the cluster does not serve kind "
+        "'WorkflowTemplate' (argoproj.io/v1alpha1)." in res.output
+    )
+    applied_post_helm = [
+        cmd
+        for cmd in cluster.writes()
+        if cmd[1] == "apply" and "workflowtemplate-version.yaml" in " ".join(cmd)
+    ]
+    assert applied_post_helm == []
 
 
 def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_before_writing(
@@ -2741,6 +2827,11 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
             mock_sub.called,
         ) == (0, 0, [monitor], [monitor], False, False, False, False)
 
+    def _llm_proc(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if len(cmd) > 1 and cmd[1] == "api-resources":
+            return _mock_proc(0, "servicemonitors monitoring.coreos.com/v1 true ServiceMonitor\n")
+        return _mock_proc(0)
+
     with (
         patch(
             "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
@@ -2756,7 +2847,7 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
         ),
         patch(
             "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
-            return_value=_mock_proc(0),
+            side_effect=_llm_proc,
         ) as deploy_run,
     ):
         res_deploy = runner.invoke(
@@ -2787,7 +2878,7 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
         ),
         patch(
             "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
-            return_value=_mock_proc(0),
+            side_effect=_llm_proc,
         ) as teardown_run,
     ):
         res_teardown = runner.invoke(
