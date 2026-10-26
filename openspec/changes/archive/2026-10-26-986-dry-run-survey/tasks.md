@@ -12,5 +12,5 @@
   - Verification: `design.md` contains 51-row matrix, methodology, and candidate citations
 - [x] Validate OpenSpec change folder conformance
   - Verification: `uv run pytest tests/test_change_folders.py`
-- [ ] Archive change folder upon completion
+- [x] Archive change folder upon completion
   - Verification: `uv run devops openspec archive 986-dry-run-survey`
