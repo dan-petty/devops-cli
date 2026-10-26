@@ -106,11 +106,11 @@ async with MCPToolset(
 ) as mcp:
     agent = PydanticAgent(
         name="SecurityReviewer",
-        model="claude-3-5-sonnet",
+        model="claude-sonnet-4-5",
         toolsets=[mcp],
     )
     # Enable MCP sampling so the connected MCP server can request completions
-    agent.set_mcp_sampling_model("claude-3-5-sonnet")
+    agent.set_mcp_sampling_model("claude-sonnet-4-5")
     result = await agent.run("Review Kubernetes ingress security")
 ```
 

@@ -101,7 +101,13 @@ def test_each_parser_reads_its_providers_stop_value(
     client = LLMClient(
         _CONFIGS[provider].model_copy(update={"allow_private_network": True}), api_key="sk-test"
     )
-    route_client(client, monkeypatch, lambda request: httpx2.Response(200, json=next(bodies)))
+
+    def _handle_request(request: httpx2.Request) -> httpx2.Response:
+        if "/models" in request.url.path:
+            return httpx2.Response(404, json={"error": {"type": "not_found_error"}})
+        return httpx2.Response(200, json=next(bodies))
+
+    route_client(client, monkeypatch, _handle_request)
 
     assert [(value, _REQUESTS[provider](client).finish_reason) for value, _ in table] == table
 

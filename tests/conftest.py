@@ -82,6 +82,7 @@ def isolate_kubeconfig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Non
 _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.benchmark.document_chunker": ("reset_document_chunker_cache",),
     "devops_cli.ai.benchmark.embedding_tasks": ("reset_embedding_tasks_cache",),
+    "devops_cli.ai.client.claude": ("reset_claude_model_capabilities",),
     "devops_cli.ai.client.factory": ("reset_llm_client_override",),
     "devops_cli.ai.client.network": ("reset_ollama_slots",),
     "devops_cli.ai.context_budget": ("reset_tiktoken_encoding_cache",),

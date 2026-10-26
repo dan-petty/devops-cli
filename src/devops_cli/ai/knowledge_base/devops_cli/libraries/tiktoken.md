@@ -29,7 +29,7 @@ tags:
 
 In `devops-cli`:
 - **Context Budgeting**: `devops_cli.ai.context_budget` calculates token budgets for diffs, file trees, and prompts before sending them to LLM endpoints.
-- **Cost Estimation**: Estimates LLM operational inference costs based on token counts across different model classes (`gpt-4o`, `claude-3-5-sonnet`, `deepseek-r1`).
+- **Cost Estimation**: Estimates LLM operational inference costs based on token counts across different model classes (`gpt-4o`, `claude-sonnet-4-5`, `deepseek-r1`).
 - **CLI Commands**: Powers `devops ai token-count <target>` to calculate tokens for files or arbitrary strings.
 
 ---

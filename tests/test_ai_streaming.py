@@ -17,7 +17,6 @@ from devops_cli.ai.client.network import stream_finish_reason
 from devops_cli.ai.client.streaming import (
     StreamFrame,
     StreamingTokenProcessor,
-    _claude_stream_frame,
     _find_suffix_overlap,
     _ollama_stream_frame,
     _openai_stream_frame,
@@ -33,8 +32,7 @@ from tests.llm_stream_fakes import (
     OPENAI_DONE,
     SSE,
     RecordedBody,
-    anthropic_event,
-    anthropic_text,
+    anthropic_stream_frames,
     ollama_line,
     openai_chunk,
     reply,
@@ -297,35 +295,6 @@ class TestProviderStreamFrames:
             StreamFrame(),
         ]
 
-    def test_claude_frames(self) -> None:
-        """Verify Claude events yield text and thinking, `message_stop` ends, `[DONE]` does not."""
-        events = [
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Claude text"}},
-            {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "Hm"}},
-            {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": ""}},
-            {"type": "content_block_delta", "delta": {"type": "other"}},
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
-            {"type": "message_stop"},
-            {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}},
-            {"type": "ping"},
-        ]
-
-        assert [_claude_stream_frame(_event(e)) for e in events] + [
-            _claude_stream_frame(_event("[DONE]")),
-            _claude_stream_frame(_event("{invalid json", event="message_stop")),
-        ] == [
-            StreamFrame(chunk="Claude text"),
-            StreamFrame(chunk="<think>Hm</think>"),
-            StreamFrame(),
-            StreamFrame(),
-            StreamFrame(finish_reason="stop"),
-            StreamFrame(complete=True, last=True),
-            StreamFrame(error="Overloaded"),
-            StreamFrame(),
-            StreamFrame(),
-            StreamFrame(complete=True, last=True),
-        ]
-
     def test_openai_frames(self) -> None:
         """Verify OpenAI chunks yield content and reasoning; a finish reason or `[DONE]` ends."""
         chunks = [
@@ -454,7 +423,6 @@ class TestZeroLeakageDownstream:
 
 _PROTOCOLS: dict[str, tuple[Any, Any, str]] = {
     "openai": (_read_event_stream, _openai_stream_frame, SSE),
-    "anthropic": (_read_event_stream, _claude_stream_frame, SSE),
     "ollama": (_read_ndjson_stream, _ollama_stream_frame, NDJSON),
 }
 _GITHUB_TOKEN = "ghp_" + "A" * 36
@@ -503,27 +471,6 @@ _NOT_UTF8 = "'utf-8' codec can't decode byte 0xff in position 0: invalid start b
         ("openai", [openai_chunk("Hi"), OPENAI_DONE], (["Hi"], None, None)),
         ("openai", [openai_chunk("Hel"), openai_chunk("lo")], (["Hel", "lo"], None, _ENDED_EARLY)),
         (
-            "anthropic",
-            [
-                anthropic_event("message_start", message={"id": "msg_1", "content": []}),
-                anthropic_text("Hi"),
-                anthropic_event("message_delta", delta={"stop_reason": "max_tokens"}),
-                anthropic_event("message_stop"),
-            ],
-            (["Hi"], "length", None),
-        ),
-        ("anthropic", [anthropic_text("Hi"), OPENAI_DONE], (["Hi"], None, _ENDED_EARLY)),
-        (
-            "anthropic",
-            [
-                anthropic_text("Hi"),
-                anthropic_event(
-                    "error", error={"type": "overloaded_error", "message": "Overloaded"}
-                ),
-            ],
-            (["Hi"], None, "Provider stream reported an error: Overloaded"),
-        ),
-        (
             "ollama",
             [ollama_line("Hi"), ollama_line(done=True, done_reason="length")],
             (["Hi"], "length", None),
@@ -550,9 +497,6 @@ _NOT_UTF8 = "'utf-8' codec can't decode byte 0xff in position 0: invalid start b
         "openai-reason-then-eof",
         "openai-done-alone",
         "openai-eof-without-either",
-        "anthropic-max-tokens-then-message-stop",
-        "anthropic-eof-before-message-stop",
-        "anthropic-error-event",
         "ollama-done-length",
         "ollama-eof-mid-line",
         "ollama-error-line",
@@ -581,14 +525,9 @@ def test_reading_goes_on_past_the_finish_reason_to_done() -> None:
     ("protocol", "frames", "reason"),
     [
         ("openai", [openai_chunk("Hi", "stop"), OPENAI_DONE, openai_chunk("late")], "stop"),
-        (
-            "anthropic",
-            [anthropic_text("Hi"), anthropic_event("message_stop"), anthropic_text("late")],
-            None,
-        ),
         ("ollama", [ollama_line("Hi", done=True, done_reason="stop"), ollama_line("late")], "stop"),
     ],
-    ids=["openai-done", "anthropic-message-stop", "ollama-done"],
+    ids=["openai-done", "ollama-done"],
 )
 def test_reading_stops_at_the_final_frame(
     protocol: str, frames: list[bytes], reason: str | None
@@ -857,24 +796,14 @@ def test_claude_stream_records_provider_message_usage(
     client = LLMClient(
         AIConfig(
             provider="claude",
-            model="claude-3-5-sonnet",
+            model="claude-sonnet-4-5",
             api_base_url="http://example.com",
             allow_private_network=True,
         ),
         api_key="sk-ant-test",
         cache_enabled=False,
     )
-    frames = [
-        anthropic_event("message_start", message={"id": "msg_1", "usage": {"input_tokens": 16}}),
-        anthropic_text("Hello "),
-        anthropic_text("world"),
-        anthropic_event(
-            "message_delta",
-            delta={"stop_reason": "end_turn"},
-            usage={"output_tokens": 32},
-        ),
-        anthropic_event("message_stop"),
-    ]
+    frames = anthropic_stream_frames(["Hello ", "world"], input_tokens=16, output_tokens=32)
     route_client(client, monkeypatch, lambda request: reply(frames))
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 

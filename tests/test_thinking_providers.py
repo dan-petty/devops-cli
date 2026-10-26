@@ -281,32 +281,49 @@ class TestOpenAIReasoningPayloadAndParsing:
 
 
 class TestClaudeThinkingPayloadAndParsing:
-    """Validate Anthropic Claude extended thinking payload generation and multi-block response parsing."""
+    """Validate Anthropic Claude adaptive thinking payload generation and multi-block response parsing."""
 
     def test_claude_extended_thinking_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Claude 3.7 with thinking enabled includes thinking budget and omits non-1.0 temperature."""
+        """Claude with thinking enabled includes adaptive thinking block and omits temperature."""
+        from tests.llm_stream_fakes import (
+            make_anthropic_model_info_payload as _make_model_info_payload,
+        )
+
+        model_name = "claude-sonnet-4-5"
         captured_payload: dict[str, Any] = {}
 
         def mock_post(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_payload
-            if "v1/messages" in str(request.url):
+            url_str = str(request.url)
+            if f"/v1/models/{model_name}" in url_str:
+                return httpx2.Response(
+                    200,
+                    json=_make_model_info_payload(
+                        model_name, adaptive_thinking=True, sampling=False
+                    ),
+                )
+            if "v1/messages" in url_str:
                 captured_payload = json.loads(request.content)
-            return _make_resp(
-                200,
-                {
-                    "content": [
-                        {"type": "thinking", "thinking": "Analyzing architecture invariants..."},
-                        {"type": "text", "text": "Plan approved."},
-                    ],
-                    "usage": {"input_tokens": 50, "output_tokens": 100},
-                },
-            )
+                return _make_resp(
+                    200,
+                    {
+                        "content": [
+                            {
+                                "type": "thinking",
+                                "thinking": "Analyzing architecture invariants...",
+                            },
+                            {"type": "text", "text": "Plan approved."},
+                        ],
+                        "usage": {"input_tokens": 50, "output_tokens": 100},
+                    },
+                )
+            return httpx2.Response(404)
 
         route_llm_clients(monkeypatch, mock_post)
 
         cfg = AIConfig(
             provider="claude",
-            model="claude-3-7-sonnet-20250219",
+            model=model_name,
             temperature=0.2,
             max_tokens=8192,
             allow_private_network=True,
@@ -315,40 +332,55 @@ class TestClaudeThinkingPayloadAndParsing:
 
         res = client.chat("System", "Review architecture", enable_thinking=True)
 
-        assert captured_payload.get("thinking", {}).get("type") == "enabled"
-        assert captured_payload.get("thinking", {}).get("budget_tokens", 0) >= 1024
-        assert captured_payload.get("temperature") in (None, 1.0)
+        assert captured_payload.get("thinking") == {"type": "adaptive"}
+        assert "budget_tokens" not in captured_payload.get("thinking", {})
+        assert captured_payload.get("temperature") is None
         assert res.text == "Plan approved."
         assert res.thinking == "Analyzing architecture invariants..."
         assert str(res) == "Plan approved."
 
     def test_claude_disabled_thinking_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Claude with enable_thinking=False does not include enabled thinking block."""
+        """Claude with enable_thinking=False does not include thinking block."""
+        from tests.llm_stream_fakes import (
+            make_anthropic_model_info_payload as _make_model_info_payload,
+        )
+
+        model_name = "claude-sonnet-4-5"
         captured_payload: dict[str, Any] = {}
 
         def mock_post(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_payload
-            captured_payload = json.loads(request.content)
-            return _make_resp(
-                200,
-                {
-                    "content": [{"type": "text", "text": "Direct answer"}],
-                    "usage": {"input_tokens": 10, "output_tokens": 20},
-                },
-            )
+            url_str = str(request.url)
+            if f"/v1/models/{model_name}" in url_str:
+                return httpx2.Response(
+                    200,
+                    json=_make_model_info_payload(
+                        model_name, adaptive_thinking=True, sampling=False
+                    ),
+                )
+            if "v1/messages" in url_str:
+                captured_payload = json.loads(request.content)
+                return _make_resp(
+                    200,
+                    {
+                        "content": [{"type": "text", "text": "Direct answer"}],
+                        "usage": {"input_tokens": 10, "output_tokens": 20},
+                    },
+                )
+            return httpx2.Response(404)
 
         route_llm_clients(monkeypatch, mock_post)
 
         cfg = AIConfig(
             provider="claude",
-            model="claude-3-7-sonnet-20250219",
+            model=model_name,
             allow_private_network=True,
         )
         client = LLMClient(cfg, api_key="sk-ant-test")
 
         res = client.chat("System", "Quick question", enable_thinking=False)
 
-        assert captured_payload.get("thinking", {}).get("type") != "enabled"
+        assert "thinking" not in captured_payload
         assert res.text == "Direct answer"
         assert res.thinking is None
 
@@ -394,15 +426,62 @@ class TestOllamaThinkingSeparation:
 class TestStreamingThinkingExtractors:
     """Validate SSE stream frames for thinking deltas."""
 
-    def test_extract_claude_thinking_delta(self) -> None:
-        from devops_cli.ai.client.streaming import StreamFrame, _claude_stream_frame
-
-        data = (
-            '{"type": "content_block_delta", '
-            '"delta": {"type": "thinking_delta", "thinking": "step 1 reasoning"}}'
+    def test_extract_claude_thinking_delta(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from devops_cli.ai.client import LLMClient
+        from devops_cli.config.settings import AIConfig
+        from tests.llm_stream_fakes import (
+            anthropic_event,
+            reply,
+            route_client,
         )
-        frame = _claude_stream_frame(httpx2.ServerSentEvent(event="content_block_delta", data=data))
-        assert frame == StreamFrame(chunk="<think>step 1 reasoning</think>")
+        from tests.llm_stream_fakes import (
+            make_anthropic_model_info_payload as _make_model_info_payload,
+        )
+
+        model_name = "claude-sonnet-4-5"
+        frames = [
+            anthropic_event(
+                "message_start",
+                message={"id": "msg_1", "content": [], "usage": {"input_tokens": 10}},
+            ),
+            anthropic_event(
+                "content_block_start",
+                index=0,
+                content_block={"type": "thinking", "thinking": ""},
+            ),
+            anthropic_event(
+                "content_block_delta",
+                index=0,
+                delta={"type": "thinking_delta", "thinking": "step 1 reasoning"},
+            ),
+            anthropic_event("content_block_stop", index=0),
+            anthropic_event(
+                "message_delta",
+                delta={"stop_reason": "end_turn"},
+                usage={"output_tokens": 5},
+            ),
+            anthropic_event("message_stop"),
+        ]
+
+        def handler(request: httpx2.Request) -> httpx2.Response:
+            url_path = request.url.path
+            if url_path.endswith(f"/v1/models/{model_name}"):
+                return httpx2.Response(
+                    200,
+                    json=_make_model_info_payload(
+                        model_name, adaptive_thinking=True, sampling=False
+                    ),
+                )
+            if url_path.endswith("/v1/messages"):
+                return reply(frames)
+            return httpx2.Response(404)
+
+        cfg = AIConfig(provider="claude", model=model_name, allow_private_network=True)
+        client = LLMClient(cfg, api_key="sk-ant-test")
+        route_client(client, monkeypatch, handler)
+
+        chunks = list(client.chat_stream("System", "Hello", enable_thinking=True))
+        assert "<think>step 1 reasoning</think>" in "".join(chunks)
 
     def test_extract_openai_reasoning_content_delta(self) -> None:
         from devops_cli.ai.client.streaming import StreamFrame, _openai_stream_frame

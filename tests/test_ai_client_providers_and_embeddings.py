@@ -30,7 +30,6 @@ from devops_cli.ai.client import (
 from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.streaming import (
     StreamFrame,
-    _claude_stream_frame,
     _ollama_stream_frame,
     _openai_stream_frame,
     _read_event_stream,
@@ -40,8 +39,7 @@ from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import (
     NDJSON,
     OPENAI_DONE,
-    anthropic_event,
-    anthropic_text,
+    anthropic_stream_frames,
     ollama_line,
     openai_chunk,
     reply,
@@ -221,18 +219,6 @@ def test_chunk_extractors_and_stream_helpers() -> None:
         StreamFrame(),
     )
 
-    # 2. Claude frames: Anthropic ends a stream with message_stop and never sends [DONE]
-    assert (
-        _claude_stream_frame(
-            _sse_event(
-                '{"type": "content_block_delta", '
-                '"delta": {"type": "text_delta", "text": "claude text"}}'
-            )
-        ),
-        _claude_stream_frame(_sse_event('{"type": "message_stop"}')),
-        _claude_stream_frame(_sse_event("[DONE]")),
-    ) == (StreamFrame(chunk="claude text"), StreamFrame(complete=True, last=True), StreamFrame())
-
     # 3. OpenAI frames
     assert (
         _openai_stream_frame(_sse_event('{"choices": [{"delta": {"content": "openai text"}}]}')),
@@ -339,18 +325,20 @@ def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch
     # 5. Stream dispatch for Claude and OpenAI
     claude_cfg = AIConfig(
         provider="claude",
-        model="claude-3-5-sonnet",
+        model="claude-sonnet-4-5",
         api_key="sk-ant-test",
         allow_private_network=True,
     )
     claude_client = LLMClient(claude_cfg)
     _quiet_stream_spend(monkeypatch)
-    claude_frames = [
-        anthropic_text("hello "),
-        anthropic_text("world"),
-        anthropic_event("message_stop"),
-    ]
-    route_client(claude_client, monkeypatch, lambda request: reply(claude_frames))
+    claude_frames = anthropic_stream_frames(["hello ", "world"])
+
+    def _claude_stream_handler(request: httpx2.Request) -> httpx2.Response:
+        if "models" in request.url.path:
+            return httpx2.Response(404, json={"error": "not found"})
+        return reply(claude_frames)
+
+    route_client(claude_client, monkeypatch, _claude_stream_handler)
     assert "".join(claude_client.chat_stream("system", "user")) == "hello world"
 
     # 6. OpenAI models listing
@@ -570,14 +558,6 @@ def test_streaming_extractors_edge_cases() -> None:
         _ollama_stream_frame("invalid json"),
         _ollama_stream_frame('{"message": {"thinking": "reasoning"}}'),
         _ollama_stream_frame('{"message": {"content": "token"}}'),
-        _claude_stream_frame(_sse_event("")),
-        _claude_stream_frame(_sse_event("[DONE]")),
-        _claude_stream_frame(_sse_event("invalid json")),
-        _claude_stream_frame(
-            _sse_event(
-                '{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "token"}}'
-            )
-        ),
         _openai_stream_frame(_sse_event("")),
         _openai_stream_frame(_sse_event("[DONE]")),
         _openai_stream_frame(_sse_event("invalid json")),
@@ -586,10 +566,6 @@ def test_streaming_extractors_edge_cases() -> None:
         StreamFrame(),
         StreamFrame(),
         StreamFrame(chunk="<think>reasoning</think>"),
-        StreamFrame(chunk="token"),
-        StreamFrame(),
-        StreamFrame(),
-        StreamFrame(),
         StreamFrame(chunk="token"),
         StreamFrame(),
         StreamFrame(complete=True, last=True),
@@ -693,7 +669,7 @@ def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch
 def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     claude_cfg = AIConfig(
         provider="claude",
-        model="claude-3-5-sonnet",
+        model="claude-sonnet-4-5",
         api_key="sk-ant-test",
         allow_private_network=True,
     )
@@ -701,12 +677,14 @@ def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     _quiet_stream_spend(monkeypatch)
 
     # 1. Streaming
-    claude_frames = [
-        anthropic_text("Claude "),
-        anthropic_text("stream"),
-        anthropic_event("message_stop"),
-    ]
-    route_client(client_claude, monkeypatch, lambda request: reply(claude_frames))
+    claude_frames = anthropic_stream_frames(["Claude ", "stream"])
+
+    def _claude_handler(request: httpx2.Request) -> httpx2.Response:
+        if "models" in request.url.path:
+            return httpx2.Response(404, json={"error": "not found"})
+        return reply(claude_frames)
+
+    route_client(client_claude, monkeypatch, _claude_handler)
     tokens = list(client_claude.chat_stream("system", "prompt"))
     assert "".join(tokens) == "Claude stream"
 
