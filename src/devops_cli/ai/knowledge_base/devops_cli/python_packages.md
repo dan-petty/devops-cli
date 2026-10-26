@@ -257,6 +257,7 @@ The development environment leverages modern Python engineering tools managed vi
 | :--- | :--- | :--- | :--- |
 | **`ruff`** | `0.16.8` | Extreme-speed linter and code formatter running the rule families selected in `pyproject.toml` `[tool.ruff.lint]`. | `uv run ruff check .` / `uv run ruff format .` |
 | **`mypy`** | `2.3.1` | Strict static type checker validating 100% type coverage with Pydantic v2 plugin. | `uv run mypy src` |
+| **`ty`** | `0.0.92` | Type checker that `uv check` runs. The `dev` group pins it, and `uv check` uses the version in `uv.lock`, so a new release cannot fail `main` with no change in the repository. | `uv check` |
 | **`pytest`** | `9.1.1` | Comprehensive unit and integration test runner. | `uv run pytest` |
 | **`pytest-asyncio`** | `1.4.0` | Asyncio fixture and test execution plugin for asynchronous tool loops. | Included in pytest suite |
 | **`pytest-mock`** | `3.16.0` | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |

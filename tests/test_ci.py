@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import threading
+import tomllib
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -18,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 import typer
+from packaging.requirements import Requirement
 from typer.testing import CliRunner
 
 from devops_cli.commands import ci as ci_module
@@ -386,6 +388,20 @@ def test_ci_uv_check_command(monkeypatch) -> None:
 
     result = runner.invoke(app, ["uv-check"])
     assert (result.exit_code, any("uv" in c and "check" in c for c in called)) == (0, True)
+
+
+def test_ci_uv_check_type_checks_with_the_ty_the_lockfile_pins() -> None:
+    """`uv check` runs the exact `ty` that `uv.lock` resolves when `ty` is in the dev group, so a
+    new `ty` release cannot fail `main` with no change in the repository (#2281)."""
+    dev = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "dependency-groups"
+    ]["dev"]
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
+    pinned = [str(req.specifier) for req in map(Requirement, dev) if req.name == "ty"]
+    locked = [package["version"] for package in lock if package["name"] == "ty"]
+
+    assert pinned == [f"=={version}" for version in locked]
+    assert len(locked) == 1
 
 
 def test_ci_lockfile_command(monkeypatch) -> None:
