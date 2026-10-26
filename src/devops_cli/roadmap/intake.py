@@ -1184,11 +1184,31 @@ def _on_card(decision: IntakeDecision, item: AddedItem) -> IntakeDecision | None
     the fields it holds no value for, with the milestone a restored card has kept, as an item's
     is, and the reason comment for those writes (#1403)."""
     if item.priority is not None:
+        skipped = [f.value for f, _ in decision.fields]
+        if decision.priority is not None:
+            skipped.append(ItemField.PRIORITY.value)
+        if skipped:
+            logger.info(
+                MESSAGES.roadmap.intake_skipped_fields.format(
+                    number=item.number, fields=", ".join(sorted(skipped))
+                )
+            )
         return None
-    kept = decision.subject.milestone
-    placement = _resumed(kept) if item.restored and kept is not None else decision.placement
+    kept = item.milestone or decision.subject.milestone
+    placement = (
+        _resumed(kept)
+        if kept is not None
+        and (item.restored or decision.placement is None or decision.placement.milestone is None)
+        else decision.placement
+    )
     fields = tuple((f, v) for f, v in decision.fields if _unset(item, f, v))
     held = {f.value for f, _ in decision.fields} - {f.value for f, _ in fields}
+    if held:
+        logger.info(
+            MESSAGES.roadmap.intake_skipped_fields.format(
+                number=item.number, fields=", ".join(sorted(held))
+            )
+        )
     lines = tuple(line for line in decision.reasons if line[0] not in held)
     comment = None if decision.comment is None or placement is None else _comment(placement, lines)
     return replace(decision, placement=placement, fields=fields, reasons=lines, comment=comment)
