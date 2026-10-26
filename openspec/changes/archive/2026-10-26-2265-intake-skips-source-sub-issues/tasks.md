@@ -16,9 +16,9 @@
 
 ## 3. Verification and checks
 
-- [ ] 3.1 Verify the OpenSpec gate passes
+- [x] 3.1 Verify the OpenSpec gate passes
   - Verification: `uv run devops openspec check`
-- [ ] 3.2 Verify the full CI suite passes
+- [x] 3.2 Verify the full CI suite passes
   - Verification: `uv run devops ci`
 
 ## Workflow follow-up
