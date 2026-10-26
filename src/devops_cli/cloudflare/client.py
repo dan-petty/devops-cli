@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import datetime
 import ipaddress
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx2
+import tenacity
 
 from devops_cli.config.constants import (
     CONST_CLOUDFLARE_ALLOW_POLICY_NAME,
@@ -22,6 +25,12 @@ from devops_cli.config.constants import (
     CONST_CLOUDFLARE_WILDCARD_PREFIX,
     CONST_URL_CLOUDFLARE_API_BASE,
 )
+from devops_cli.config.defaults import (
+    DEFAULT_CLOUDFLARE_MAX_RETRIES,
+    DEFAULT_CLOUDFLARE_RETRY_MAX_WAIT,
+    DEFAULT_CLOUDFLARE_RETRY_MIN_WAIT,
+)
+from devops_cli.core import clock
 from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
 from devops_cli.http.client import request_timeout
 from devops_cli.models.cloudflare import (
@@ -264,12 +273,54 @@ def _build_dns_records_params(record_type: str | None, name: str | None) -> dict
     return params
 
 
-def _is_last_dns_page(result: list[Any], info: Any, curr_page: int, per_page: int) -> bool:
-    """Determine whether the current response page is the final page."""
-    total_pages = info.get("total_pages") if isinstance(info, dict) else None
-    if total_pages is not None:
-        return curr_page >= int(total_pages)
-    return len(result) < per_page
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a Retry-After header as seconds or an HTTP date string."""
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+        if seconds >= 0:
+            return seconds
+    except ValueError:
+        pass
+    try:
+        retry_time = parsedate_to_datetime(value)
+        if retry_time.tzinfo is None:
+            retry_time = retry_time.replace(tzinfo=datetime.UTC)
+        now = datetime.datetime.now(datetime.UTC)
+        seconds = (retry_time - now).total_seconds()
+        if seconds > 0:
+            return seconds
+    except ValueError, TypeError, AssertionError:
+        pass
+    return None
+
+
+def _wait_cloudflare_retry_after(
+    state: tenacity.RetryCallState,
+    fallback_strategy: Callable[[tenacity.RetryCallState], float] | None = None,
+) -> float:
+    """Determine wait duration from the Retry-After header or exponential backoff."""
+    outcome = state.outcome
+    if outcome is not None and not outcome.failed:
+        resp = outcome.result()
+        if hasattr(resp, "headers") and resp.headers:
+            retry_after_str = resp.headers.get("retry-after")
+            delay = _parse_retry_after(retry_after_str)
+            if delay is not None:
+                return float(min(delay, DEFAULT_CLOUDFLARE_RETRY_MAX_WAIT))
+    fallback = fallback_strategy or tenacity.wait_exponential(
+        multiplier=DEFAULT_CLOUDFLARE_RETRY_MIN_WAIT, max=DEFAULT_CLOUDFLARE_RETRY_MAX_WAIT
+    )
+    return float(fallback(state))
+
+
+def _should_retry_response(resp: Any) -> bool:
+    """Check whether a response status code indicates a retryable rate limit or server error."""
+    if not hasattr(resp, "status_code"):
+        return False
+    status = int(resp.status_code)
+    return status == 429 or (500 <= status < 600)
 
 
 class CloudflareClient:
@@ -281,11 +332,13 @@ class CloudflareClient:
         account_id: str | None = None,
         zone_id: str | None = None,
         base_url: str = CONST_URL_CLOUDFLARE_API_BASE,
+        sleep: Callable[[float], None] = clock.sleep,
     ) -> None:
         self._token = token
         self._account_id = account_id
         self._zone_id = zone_id
         self._base_url = base_url.rstrip("/")
+        self._sleep = sleep
 
     @property
     def account_id(self) -> str | None:
@@ -304,20 +357,33 @@ class CloudflareClient:
         params: dict[str, Any] | None = None,
         include_info: bool = False,
     ) -> Any:
-        """Execute HTTP request against Cloudflare API with error handling."""
+        """Execute HTTP request against Cloudflare API with error handling and retries."""
         url = f"{self._base_url}/{path.lstrip('/')}"
         headers = _build_auth_headers(self._token)
         timeout = request_timeout(read=30.0)
 
-        with httpx2.Client(timeout=timeout) as client:
-            try:
-                resp = client.request(method, url, headers=headers, json=json_data, params=params)
-            except httpx2.HTTPError as exc:
-                raise CloudflareAPIError(
-                    f"Cloudflare HTTP request to {path} failed: {exc}",
-                    details={"path": path, "method": method},
-                ) from exc
+        def make_request() -> httpx2.Response:
+            with httpx2.Client(timeout=timeout) as client:
+                try:
+                    return client.request(
+                        method, url, headers=headers, json=json_data, params=params
+                    )
+                except httpx2.HTTPError as exc:
+                    raise CloudflareAPIError(
+                        f"Cloudflare HTTP request to {path} failed: {exc}",
+                        details={"path": path, "method": method},
+                    ) from exc
 
+        retrying = tenacity.Retrying(
+            stop=tenacity.stop_after_attempt(DEFAULT_CLOUDFLARE_MAX_RETRIES),
+            retry=tenacity.retry_if_result(_should_retry_response),
+            wait=_wait_cloudflare_retry_after,
+            sleep=self._sleep,
+            retry_error_callback=lambda state: (
+                state.outcome.result() if state.outcome and not state.outcome.failed else None
+            ),
+        )
+        resp = retrying(make_request)
         return self._handle_response(resp, path, method, include_info=include_info)
 
     def _handle_response(
@@ -358,6 +424,43 @@ class CloudflareClient:
             )
         return body.get("result") if isinstance(body, dict) else body
 
+    def _get_paginated(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch all pages of a collection endpoint with result_info pagination."""
+        query_params = dict(params) if params else {}
+        page = int(query_params.get("page", 1))
+        all_items: list[dict[str, Any]] = []
+
+        while True:
+            query_params["page"] = page
+            raw_res = self._request("GET", path, params=query_params, include_info=True)
+            result = raw_res[0] if isinstance(raw_res, tuple) else raw_res
+            info = raw_res[1] if isinstance(raw_res, tuple) and isinstance(raw_res[1], dict) else {}
+
+            if not isinstance(result, list) or not result:
+                break
+
+            all_items.extend(item for item in result if isinstance(item, dict))
+
+            curr_page = int(info.get("page", page)) if isinstance(info, dict) else page
+            total_pages = info.get("total_pages") if isinstance(info, dict) else None
+
+            if total_pages is not None:
+                if curr_page >= int(total_pages):
+                    break
+            else:
+                per_page = int(info.get("per_page", query_params.get("per_page", 20)))
+                if len(result) < per_page:
+                    break
+
+            page = curr_page + 1
+
+        return all_items
+
     def verify_token(self) -> CloudflareTokenStatus:
         """Verify API token validity and status."""
         result = self._request("GET", "user/tokens/verify")
@@ -395,21 +498,8 @@ class CloudflareClient:
         if not zid:
             raise CloudflareAPIError("Zone ID is required but neither passed nor configured.")
         params = _build_dns_records_params(record_type, name)
-        all_records: list[CloudflareDNSRecord] = []
-        while True:
-            raw_res = self._request(
-                "GET", f"zones/{zid}/dns_records", params=params, include_info=True
-            )
-            result = raw_res[0] if isinstance(raw_res, tuple) else raw_res
-            info = raw_res[1] if isinstance(raw_res, tuple) else {}
-            if not isinstance(result, list):
-                break
-            all_records.extend(_parse_dns_record(item) for item in result if isinstance(item, dict))
-            curr_page = int(params["page"])
-            if _is_last_dns_page(result, info, curr_page, int(params["per_page"])):
-                break
-            params["page"] = curr_page + 1
-        return all_records
+        raw_records = self._get_paginated(f"zones/{zid}/dns_records", params=params)
+        return [_parse_dns_record(item) for item in raw_records]
 
     def create_dns_record(
         self,
@@ -654,10 +744,8 @@ class CloudflareClient:
         aid = account_id or self._account_id
         if not aid:
             raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
-        result = self._request("GET", f"accounts/{aid}/access/apps")
-        if not isinstance(result, list):
-            return []
-        return [_parse_access_application(item) for item in result if isinstance(item, dict)]
+        raw_apps = self._get_paginated(f"accounts/{aid}/access/apps")
+        return [_parse_access_application(item) for item in raw_apps]
 
     def create_access_application(
         self,
@@ -687,10 +775,8 @@ class CloudflareClient:
         aid = account_id or self._account_id
         if not aid:
             raise CloudflareAPIError("Account ID is required but neither passed nor configured.")
-        result = self._request("GET", f"accounts/{aid}/access/apps/{app_id}/policies")
-        if not isinstance(result, list):
-            return []
-        return [_parse_access_policy(item) for item in result if isinstance(item, dict)]
+        raw_policies = self._get_paginated(f"accounts/{aid}/access/apps/{app_id}/policies")
+        return [_parse_access_policy(item) for item in raw_policies]
 
     def _ensure_access_application(
         self,
