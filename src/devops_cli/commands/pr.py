@@ -71,6 +71,7 @@ logger = logging.getLogger(__name__)
 app = new_typer(
     help=HELP.pr.app,
     no_args_is_help=True,
+    exit_on=GitHubOperationError,
 )
 
 
@@ -565,11 +566,7 @@ def _resolve_monitor_pr_number(number: int | None, owner: str, repo_name: str) -
         return number
     from devops_cli.github.pr_monitor import resolve_branch_pr_number
 
-    try:
-        return resolve_branch_pr_number(owner=owner, repo=repo_name)
-    except GitHubOperationError as exc:
-        print_error(str(exc))
-        raise typer.Exit(1) from exc
+    return resolve_branch_pr_number(owner=owner, repo=repo_name)
 
 
 def _emit_structured_monitor_result(output_format: str, result: Any, pr_number: int) -> None:
@@ -2700,6 +2697,7 @@ def hardening_report_cmd(
 threads_app = new_typer(
     help=HELP.pr.threads_app,
     no_args_is_help=True,
+    exit_on=GitHubOperationError,
 )
 app.add_typer(threads_app, name="threads")
 

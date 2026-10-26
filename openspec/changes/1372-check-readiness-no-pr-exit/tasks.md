@@ -9,18 +9,18 @@
 
 ## 2. Command exit seam
 
-- [ ] Configure `exit_on=GitHubOperationError` on `app` and `threads_app` in `src/devops_cli/commands/pr.py`
+- [x] Configure `exit_on=GitHubOperationError` on `app` and `threads_app` in `src/devops_cli/commands/pr.py`
   - Verification: `uv run devops ci test tests/test_pr_cmd.py`
-- [ ] Remove manual exception catch in `_resolve_monitor_pr_number` in `src/devops_cli/commands/pr.py`
+- [x] Remove manual exception catch in `_resolve_monitor_pr_number` in `src/devops_cli/commands/pr.py`
   - Verification: `uv run devops ci test tests/test_pr_cmd.py`
-- [ ] Regenerate documentation
+- [x] Regenerate documentation
   - Verification: `uv run devops docs generate --sync-readme`
 
 ## 3. Static checks and OpenSpec validation
 
-- [ ] Verify fail-to-pass check run passes against base
+- [x] Verify fail-to-pass check run passes against base
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] Verify full static checks pass
+- [x] Verify full static checks pass
   - Verification: `uv run devops ci`
 
 ## Workflow follow-up
