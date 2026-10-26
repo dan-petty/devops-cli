@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2](https://github.com/dan-petty/devops-cli/compare/v0.6.1...v0.6.2) (2026-10-26)
+
+
+### Bug Fixes
+
+* **ai:** the claude provider sends what current Claude models accept, built by the anthropic SDK ([#2285](https://github.com/dan-petty/devops-cli/issues/2285)) ([59471a4](https://github.com/dan-petty/devops-cli/commit/59471a48278a1d16f9e1840a66c62c6a21189d7a))
+* **ai:** the openai provider without ai.api_base_url calls the OpenAI API's /v1 routes, built by the openai SDK ([#2286](https://github.com/dan-petty/devops-cli/issues/2286)) ([a7dd605](https://github.com/dan-petty/devops-cli/commit/a7dd605e2d6946f2554dd88b441f1352d77d8ad2)), closes [#1427](https://github.com/dan-petty/devops-cli/issues/1427)
+* **ci:** pin ty in the dev group so a new release cannot fail uv check on main ([#2284](https://github.com/dan-petty/devops-cli/issues/2284)) ([3936fe6](https://github.com/dan-petty/devops-cli/commit/3936fe6ed4fab934b4a7f9c6f173e52585b76f99)), closes [#2281](https://github.com/dan-petty/devops-cli/issues/2281)
+* **security:** query documented radar api with token and mark failed lookups unverified ([#2289](https://github.com/dan-petty/devops-cli/issues/2289)) ([c52af09](https://github.com/dan-petty/devops-cli/commit/c52af092d021e342b492063df92587e9592aedc0))
+* **telemetry:** the project items gauge counts the items of the project board by milestone, state, type and priority ([#2290](https://github.com/dan-petty/devops-cli/issues/2290)) ([853296c](https://github.com/dan-petty/devops-cli/commit/853296c393b1ed6954937e211c69762a06fa1059))
+
 ## [0.6.1](https://github.com/dan-petty/devops-cli/compare/v0.6.0...v0.6.1) (2026-10-26)
 
 
