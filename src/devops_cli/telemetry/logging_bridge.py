@@ -14,7 +14,6 @@ from devops_cli.telemetry.tracer import (
     _normalize_code_filepath,
     _to_otlp_any_value,
     get_current_span_context,
-    get_tracer,
 )
 
 _LOG_RECURSION_GUARD = threading.local()
@@ -170,10 +169,11 @@ def _resolve_exporter(
     """Resolve active log exporter callable."""
     if configured is not None:
         return configured
-    tracer = get_tracer()
-    if not tracer.enabled:
+    import devops_cli.telemetry.tracer as tr
+
+    if tr._GLOBAL_TRACER is None or not tr._GLOBAL_TRACER.enabled:
         return None
-    return tracer.export_log_record
+    return tr._GLOBAL_TRACER.export_log_record
 
 
 class OTelLoggingHandler(logging.Handler):
