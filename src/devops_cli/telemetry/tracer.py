@@ -1400,6 +1400,8 @@ class OTelTelemetryClient:
         try:
             url = f"{self.endpoint}{path}"
             client = self._get_http_client()
+            if not self.enabled:
+                return
             response = client.post(url, json=payload)
             if response.status_code >= 400:
                 raise RuntimeError(f"HTTP {response.status_code}")
@@ -1461,14 +1463,14 @@ class OTelTelemetryClient:
         wait happens before taking the client lock, which the exports need.
         """
         self.flush()
+        if self._executor is not None:
+            try:
+                self._executor.shutdown(wait=True, cancel_futures=True)
+            except Exception as exc:
+                logger.debug("Failed closing OTel executor: %s", exc)
+            self._executor = None
         with self._client_lock:
             self._shutdown_meter_provider()
-            if self._executor is not None:
-                try:
-                    self._executor.shutdown(wait=False, cancel_futures=True)
-                except Exception as exc:
-                    logger.debug("Failed closing OTel executor: %s", exc)
-                self._executor = None
             if self._grpc_exporter is not None:
                 try:
                     self._grpc_exporter.shutdown()
@@ -1537,13 +1539,13 @@ def reset_tracer() -> None:
     The dropped tracer is shut down first, which waits for its exports in flight: one left
     running carried a test's exports into the next test.
     """
+    from devops_cli.telemetry.logging_bridge import detach_otel_logging_handler
+
+    detach_otel_logging_handler()
     global _GLOBAL_TRACER
     dropped, _GLOBAL_TRACER = _GLOBAL_TRACER, None
     if dropped is not None:
         dropped.shutdown()
-    from devops_cli.telemetry.logging_bridge import detach_otel_logging_handler
-
-    detach_otel_logging_handler()
     if hasattr(_detect_vcs_metadata, "cache_clear"):
         _detect_vcs_metadata.cache_clear()
     if hasattr(_detect_k8s_context, "cache_clear"):
