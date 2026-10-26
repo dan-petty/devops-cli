@@ -463,3 +463,56 @@ def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None
         None,
         labels["app.kubernetes.io/name"],
     )
+
+
+def _extract_metadata_names(selector: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    match_labels = selector.get("matchLabels", {})
+    if isinstance(match_labels, dict) and "kubernetes.io/metadata.name" in match_labels:
+        names.append(match_labels["kubernetes.io/metadata.name"])
+    for expr in selector.get("matchExpressions", []):
+        if isinstance(expr, dict) and expr.get("key") == "kubernetes.io/metadata.name":
+            names.extend(expr.get("values", []))
+    return names
+
+
+def _extract_namespace_selectors(data: Any) -> list[str]:
+    """Recursively find all kubernetes.io/metadata.name values inside namespaceSelector objects."""
+    names: list[str] = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k == "namespaceSelector" and isinstance(v, dict):
+                names.extend(_extract_metadata_names(v))
+            else:
+                names.extend(_extract_namespace_selectors(v))
+    elif isinstance(data, list):
+        for item in data:
+            names.extend(_extract_namespace_selectors(item))
+    return names
+
+
+def test_every_network_policy_namespace_selector_names_a_declared_or_builtin_namespace() -> None:
+    """Verify every kubernetes.io/metadata.name in a namespaceSelector under k8s/ names a declared or built-in namespace (#1656).
+
+    A selector that names a namespace that does not exist matches zero pods and states an
+    intent that the policy does not enforce.
+    """
+    declared = {
+        doc["metadata"]["name"]
+        for doc in yaml.safe_load_all((K8S_DIR / "namespaces.yaml").read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "Namespace"
+    }
+    allowed = declared | {"kube-system", "default"}
+
+    violations: list[tuple[str, str]] = []
+    for path in sorted(K8S_DIR.rglob("*.y*ml")):
+        try:
+            docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+        for doc in docs:
+            for namespace in _extract_namespace_selectors(doc):
+                if namespace not in allowed:
+                    violations.append((str(path.relative_to(K8S_DIR)), namespace))
+
+    assert violations == []

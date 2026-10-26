@@ -16,11 +16,8 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow incoming API requests to port 8787 from devops-cli stack workloads and monitoring
+    # Allow incoming API requests to port 8787 from stack workloads and monitoring
     - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: devops-cli
         - podSelector:
             matchLabels:
               app.kubernetes.io/part-of: devops-cli-stack

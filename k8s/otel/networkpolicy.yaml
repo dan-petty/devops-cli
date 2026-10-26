@@ -21,9 +21,6 @@ spec:
               kubernetes.io/metadata.name: monitoring
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: kube-system
           podSelector:
             matchLabels:
