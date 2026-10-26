@@ -981,3 +981,212 @@ def test_cli_cloudflare_access_policies(mock_settings: Settings) -> None:
             "bypass" in result.output,
             "Allow homelab authorized emails" in result.output,
         ) == (0, True, True, True)
+
+
+def test_cloudflare_client_sync_access_application_finds_page_two_app() -> None:
+    """With an existing application on page 2 of a two-page answer, sync finds it and creates nothing."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+
+    app1_page = {
+        "success": True,
+        "result": [
+            {
+                "id": "app-1",
+                "name": "App 1",
+                "domain": "other.example.com",
+                "type": "self_hosted",
+                "session_duration": "24h",
+            }
+        ],
+        "result_info": {
+            "page": 1,
+            "per_page": 1,
+            "total_pages": 2,
+            "count": 1,
+            "total_count": 2,
+        },
+    }
+    app2_page = {
+        "success": True,
+        "result": [
+            {
+                "id": "app-2",
+                "name": "Homelab Ingress",
+                "domain": "example.com",
+                "type": "self_hosted",
+                "session_duration": "24h",
+            }
+        ],
+        "result_info": {
+            "page": 2,
+            "per_page": 1,
+            "total_pages": 2,
+            "count": 1,
+            "total_count": 2,
+        },
+    }
+    policy_list = {
+        "success": True,
+        "result": [
+            {
+                "id": "pol-1",
+                "name": "Allow homelab authorized emails",
+                "decision": "allow",
+                "include": [{"email": {"email": "admin@example.com"}}],
+            }
+        ],
+        "result_info": {
+            "page": 1,
+            "per_page": 10,
+            "total_pages": 1,
+            "count": 1,
+            "total_count": 1,
+        },
+    }
+    policy_update = {
+        "success": True,
+        "result": {
+            "id": "pol-1",
+            "name": "Allow homelab authorized emails",
+            "decision": "allow",
+            "include": [{"email": {"email": "admin@example.com"}}],
+        },
+    }
+
+    def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.is_success = True
+        params = kwargs.get("params") or {}
+        if url.endswith("/access/apps"):
+            assert method == "GET", "Should only GET access/apps, never POST to create a duplicate"
+            page = int(params.get("page", 1))
+            resp.json.return_value = app1_page if page == 1 else app2_page
+        elif "/policies" in url:
+            resp.json.return_value = policy_update if method == "PUT" else policy_list
+        else:
+            resp.json.return_value = {"success": True, "result": {}}
+        return resp
+
+    with patch("httpx2.Client.request", side_effect=fake_request):
+        res = client.sync_access_application(
+            domain="example.com",
+            allowed_emails=["admin@example.com"],
+        )
+        assert res["app_id"] == "app-2"
+        assert res["app_action"] == "existing"
+
+
+def test_cloudflare_client_get_access_policies_paginated() -> None:
+    """Access policies spread over two pages are all returned."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+
+    page1 = {
+        "success": True,
+        "result": [
+            {
+                "id": "pol-1",
+                "name": "Policy 1",
+                "decision": "allow",
+                "include": [{"email": {"email": "admin@example.com"}}],
+            }
+        ],
+        "result_info": {
+            "page": 1,
+            "per_page": 1,
+            "total_pages": 2,
+            "count": 1,
+            "total_count": 2,
+        },
+    }
+    page2 = {
+        "success": True,
+        "result": [
+            {
+                "id": "pol-2",
+                "name": "Policy 2",
+                "decision": "bypass",
+                "include": [{"ip": {"ip": "192.0.2.1/32"}}],
+            }
+        ],
+        "result_info": {
+            "page": 2,
+            "per_page": 1,
+            "total_pages": 2,
+            "count": 1,
+            "total_count": 2,
+        },
+    }
+
+    def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.is_success = True
+        params = kwargs.get("params") or {}
+        page = int(params.get("page", 1))
+        resp.json.return_value = page1 if page == 1 else page2
+        return resp
+
+    with patch("httpx2.Client.request", side_effect=fake_request):
+        policies = client.get_access_policies("app-1")
+        assert len(policies) == 2
+        assert [p.id for p in policies] == ["pol-1", "pol-2"]
+
+
+def test_cloudflare_client_request_retries_429_with_retry_after() -> None:
+    """A 429 with Retry-After: 1 followed by a 200 succeeds without a real sleep: the test injects tenacity's sleep."""
+    sleep_calls: list[float] = []
+
+    def mock_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    client = CloudflareClient(token="test-token", sleep=mock_sleep)
+
+    resp_429 = MagicMock()
+    resp_429.status_code = 429
+    resp_429.is_success = False
+    resp_429.headers = {"retry-after": "1"}
+    resp_429.json.return_value = {
+        "success": False,
+        "errors": [{"message": "Rate limit exceeded"}],
+    }
+
+    resp_200 = MagicMock()
+    resp_200.status_code = 200
+    resp_200.is_success = True
+    resp_200.headers = {}
+    resp_200.json.return_value = {
+        "success": True,
+        "result": {"id": "token-123", "status": "active"},
+    }
+
+    with patch("httpx2.Client.request", side_effect=[resp_429, resp_200]) as mock_req:
+        res = client.verify_token()
+        assert (res.id, res.status) == ("token-123", "active")
+        assert mock_req.call_count == 2
+        assert sleep_calls == [1.0]
+
+
+def test_cloudflare_client_request_does_not_retry_403() -> None:
+    """A 403 is not retried."""
+    sleep_calls: list[float] = []
+
+    def mock_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    client = CloudflareClient(token="test-token", sleep=mock_sleep)
+
+    resp_403 = MagicMock()
+    resp_403.status_code = 403
+    resp_403.is_success = False
+    resp_403.headers = {}
+    resp_403.json.return_value = {
+        "success": False,
+        "errors": [{"message": "Forbidden"}],
+    }
+
+    with patch("httpx2.Client.request", return_value=resp_403) as mock_req:
+        with pytest.raises(CloudflareAuthError):
+            client.verify_token()
+        assert mock_req.call_count == 1
+        assert len(sleep_calls) == 0
