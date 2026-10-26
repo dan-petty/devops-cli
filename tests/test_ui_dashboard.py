@@ -796,3 +796,33 @@ def test_get_latest_review_session_dir_rejects_forbidden_system_paths(
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "/etc")
     assert _get_latest_review_session_dir() is None
+
+
+@pytest.mark.usefixtures("empty_docker_engine")
+@pytest.mark.parametrize("invalid_tab", ["nope", "ai", "5", "tab-nope", "tab-ai", "tab-5"])
+def test_dashboard_cli_rejects_unknown_tab(invalid_tab: str) -> None:
+    """An unknown --tab value is rejected at the command boundary with a typed error naming valid tabs."""
+    from devops_cli.config.constants import CONST_DASHBOARD_DOMAINS
+
+    res = runner.invoke(dashboard_app, ["--tab", invalid_tab])
+    assert res.exit_code == 1
+    assert "Traceback" not in res.output
+    for domain in CONST_DASHBOARD_DOMAINS:
+        assert domain in res.output
+
+
+def test_resolve_initial_tab_rejects_unknown_tab_with_validation_error() -> None:
+    """_resolve_initial_tab raises ValidationError on an unknown tab, naming valid dashboard domains."""
+    from devops_cli.commands.dashboard import _resolve_initial_tab
+    from devops_cli.config.constants import CONST_DASHBOARD_DOMAINS
+    from devops_cli.exceptions.validation import ValidationError
+
+    with pytest.raises(ValidationError) as exc_info:
+        _resolve_initial_tab("nope")
+
+    err = exc_info.value
+    assert err.exit_code == 1
+    assert err.error_code == "VALIDATION_ERROR"
+    assert err.details.get("field") == "tab"
+    for domain in CONST_DASHBOARD_DOMAINS:
+        assert domain in err.message

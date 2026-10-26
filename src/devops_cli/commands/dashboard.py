@@ -12,8 +12,9 @@ from devops_cli.config.defaults import (
     DEFAULT_DASHBOARD_REFRESH_SECONDS,
     DEFAULT_DASHBOARD_SUMMARY_POD_ROWS,
 )
-from devops_cli.core.cli import new_typer
-from devops_cli.lang import HELP
+from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.exceptions.validation import ValidationError
+from devops_cli.lang import ERRORS, HELP
 from devops_cli.output import (
     Group,
     Panel,
@@ -52,6 +53,7 @@ TAB_NUM_MAP: Final[dict[str, str]] = {
         str(index): f"tab-{domain}" for index, domain in enumerate(CONST_DASHBOARD_DOMAINS, start=1)
     },
     **{domain: f"tab-{domain}" for domain in CONST_DASHBOARD_DOMAINS},
+    **{f"tab-{domain}": f"tab-{domain}" for domain in CONST_DASHBOARD_DOMAINS},
 }
 
 app = new_typer(
@@ -207,7 +209,14 @@ def _render_summary() -> None:
 
 def _resolve_initial_tab(tab: str) -> str:
     cleaned = tab.strip().lower()
-    return TAB_NUM_MAP.get(cleaned, cleaned if cleaned.startswith("tab-") else f"tab-{cleaned}")
+    resolved = TAB_NUM_MAP.get(cleaned)
+    if resolved is None:
+        choices = ", ".join(CONST_DASHBOARD_DOMAINS)
+        raise ValidationError(
+            ERRORS.dashboard.unknown_tab.format(value=tab, choices=choices),
+            field="tab",
+        )
+    return resolved
 
 
 def _run_dashboard_or_summary(
@@ -216,13 +225,15 @@ def _run_dashboard_or_summary(
     tab: str,
     dry_run: bool = False,
 ) -> None:
+    with exit_on_error(ValidationError):
+        resolved_tab = _resolve_initial_tab(tab)
+
     if summary or dry_run or not sys.stdout.isatty():
         _render_summary()
         return
 
     from devops_cli.ui.dashboard import DashboardApp
 
-    resolved_tab = _resolve_initial_tab(tab)
     tui_app = DashboardApp(initial_tab=resolved_tab, refresh_interval=refresh_interval)
     tui_app.run()
 

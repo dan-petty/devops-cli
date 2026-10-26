@@ -66,7 +66,6 @@ from devops_cli.ui.projections import (
 from devops_cli.ui.refresh import (
     DOMAIN_FETCHERS,
     pod_log_source,
-    refresh_all,
     refresh_domain,
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
@@ -472,15 +471,6 @@ def test_refresh_domain_reports_an_unregistered_domain_as_an_error(
     snapshot = refresh_domain(state, "nonexistent")
     assert snapshot is not None
     assert snapshot.error == "No provider registered for domain 'nonexistent'"
-
-
-def test_refresh_all_publishes_every_requested_domain(
-    state: DashboardState, patched_fetchers: Callable[..., None]
-) -> None:
-    """The sequential path covers each domain once."""
-    patched_fetchers()
-    published = refresh_all(state, CONST_DASHBOARD_DOMAINS)
-    assert [snap.domain for snap in published] == list(CONST_DASHBOARD_DOMAINS)
 
 
 def test_every_configured_domain_has_a_registered_provider() -> None:

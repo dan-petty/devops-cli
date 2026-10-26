@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
@@ -22,7 +22,6 @@ from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAIN_VALKEY,
-    CONST_DASHBOARD_DOMAINS,
 )
 from devops_cli.config.defaults import DEFAULT_LOG_TAIL_LINES
 from devops_cli.ui.data_providers import (
@@ -71,24 +70,10 @@ def refresh_domain(state: DashboardState, domain: str) -> DomainSnapshot | None:
         state.finish_refresh(domain)
 
 
-def refresh_all(
-    state: DashboardState,
-    domains: Sequence[str] = CONST_DASHBOARD_DOMAINS,
-) -> list[DomainSnapshot]:
-    """Refresh every domain in sequence, returning the snapshots that were published.
-
-    Callers wanting concurrency run :func:`refresh_domain` per domain on its own worker;
-    this exists for the non-interactive summary path, where sequential is correct.
-    """
-    published = [refresh_domain(state, domain) for domain in domains]
-    return [snapshot for snapshot in published if snapshot is not None]
-
-
 __all__ = [
     "DOMAIN_FETCHERS",
     "PodLogSource",
     "pod_log_source",
-    "refresh_all",
     "refresh_domain",
 ]
 
