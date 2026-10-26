@@ -490,6 +490,9 @@ CONST_DOCS_NAME_CHECKED_CLASSES: Final[tuple[str, ...]] = (
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
 # Bound on the length of command output returned to an MCP client.
 CONST_MCP_MAX_COMMAND_OUTPUT_CHARS: Final[int] = 4000
+# Name of the thread that runs an in-process MCP command. A command that passes its timeout
+# leaves this thread running, and the test floor waits for it by name (#2277).
+CONST_MCP_DISPATCH_THREAD_NAME: Final[str] = "devops-mcp-dispatch"
 # The class of mistake a refused MCP tool argument is reported as, so a model can correct the
 # call in one turn (#862).
 CONST_ARGUMENT_HALLUCINATED: Final[str] = "HALLUCINATED_PARAM"

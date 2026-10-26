@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from devops_cli.config.constants import CONST_MCP_DOMAINS
+from devops_cli.config.constants import CONST_MCP_DISPATCH_THREAD_NAME, CONST_MCP_DOMAINS
 from devops_cli.config.defaults import (
     DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
@@ -340,7 +340,9 @@ class InProcessDispatcher:
                             ) as exc:
                                 worker_exc = exc
 
-                        t = threading.Thread(target=_worker, daemon=True)
+                        t = threading.Thread(
+                            target=_worker, name=CONST_MCP_DISPATCH_THREAD_NAME, daemon=True
+                        )
                         t.start()
                         t.join(timeout=timeout)
 

@@ -315,6 +315,53 @@ def test_process_wide_state_resets_between_tests(
     result.assert_outcomes(passed=2)
 
 
+def test_a_dispatch_worker_abandoned_by_a_timeout_is_finished_before_the_next_test_starts(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dispatch that passes its timeout leaves its worker running. The floor waits for that
+    worker while the test's isolation holds: a worker that finishes later reads the real
+    settings, builds an enabled tracer, and exports to port 4318 during another test (#2277)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import threading
+        import time
+
+        from devops_cli.ai.mcp.dispatcher import InProcessDispatcher
+        from devops_cli.main import app
+
+        finished = []
+
+        def test_the_dispatch_times_out_and_the_command_is_released(monkeypatch):
+            release = threading.Event()
+
+            def slow_success(span, cmd_name, seconds):
+                time.sleep(0.5)
+                finished.append(cmd_name)
+
+            monkeypatch.setattr("devops_cli.core.cli._record_cli_success", slow_success)
+
+            @app.command(name="_hang_2277", hidden=True)
+            def _hang():
+                release.wait(10)
+
+            try:
+                code, _ = InProcessDispatcher().dispatch(["devops", "_hang_2277"], timeout=0.1)
+                assert code == 124
+            finally:
+                release.set()
+                app.registered_commands = [
+                    c for c in app.registered_commands if c.name != "_hang_2277"
+                ]
+
+        def test_the_worker_finished_before_this_test_started():
+            assert finished == ["_hang_2277"]
+        """,
+    )
+    result.assert_outcomes(passed=2)
+
+
 def test_cli_fixture_runs_app_in_process_with_stdin(cli: Callable[..., Any]) -> None:
     """`cli` invokes `devops <args>` in-process with the floor's terminal settings and `input=`."""
     version_result = cli("--version")

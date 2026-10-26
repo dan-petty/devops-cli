@@ -1063,6 +1063,37 @@ def isolate_devops_cli_config(
     reset_tracer()
 
 
+# How long the floor waits for a worker that a dispatch timeout abandoned. A test releases its
+# hung command at once, so a worker alive after this wait is a command the test never released.
+_DISPATCH_WORKER_JOIN_SECONDS = 5.0
+
+
+@pytest.fixture(autouse=True)
+def finish_abandoned_dispatch_workers(isolate_devops_cli_config: Path) -> Iterator[None]:
+    """Wait for the dispatch workers that a timeout abandoned, while the test's isolation holds (#2277).
+
+    A dispatch that passes its timeout returns and leaves its worker running. When the worker ends
+    its command it calls `get_tracer()`. After the floor has reset the tracer and restored the
+    environment, that call builds a tracer from the real settings, which export to port 4318 from
+    a `devops-otel` thread during whichever test runs next. Depending on `isolate_devops_cli_config`
+    puts this teardown before the reset of that fixture and before the restore of the environment,
+    so the worker ends against the isolated tracer.
+    """
+    yield
+    from devops_cli.config.constants import CONST_MCP_DISPATCH_THREAD_NAME
+
+    workers = [t for t in threading.enumerate() if t.name == CONST_MCP_DISPATCH_THREAD_NAME]
+    for worker in workers:
+        worker.join(timeout=_DISPATCH_WORKER_JOIN_SECONDS)
+    if running := [w for w in workers if w.is_alive()]:
+        pytest.fail(
+            f"{len(running)} in-process dispatch worker(s) still running {_DISPATCH_WORKER_JOIN_SECONDS:g} "
+            "seconds after the test ended. Release the command that the dispatch abandoned before "
+            "the test returns.",
+            pytrace=False,
+        )
+
+
 def _deep_merge_config(base: dict[str, Any], updates: Mapping[str, Any]) -> dict[str, Any]:
     """Recursively merge `updates` into a copy of `base`."""
     merged = dict(base)
