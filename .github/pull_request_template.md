@@ -1,10 +1,5 @@
-## Summary
-<!-- What this pull request changes, and why. The title is a Conventional Commit (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, `test:`, `build:`, `ci:`, `style:`, `chore:`, `revert:`). The squash commit takes the title, and release-please writes the changelog from it. -->
+<!-- The squash merge makes one commit on main: the title is its subject, and this body is its message. Write the body as it will read in `git log` after the merge: what the change does, and why. The title is a Conventional Commit (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, `test:`, `build:`, `ci:`, `style:`, `chore:`, `revert:`), and release-please writes the changelog from it. Put test results, check status, steps for a person and the history of the issue in a comment on the pull request, not in the body (CONTRIBUTING.md). End the body with the one issue this pull request delivers and its archived OpenSpec change. Archive the change in the last commit with `uv run devops openspec archive <issue>-<slug>`. `devops pr check-readiness` blocks a pull request whose body closes no issue or several, or that does not add `openspec/changes/archive/<date>-<issue>-<slug>/` for that issue. Delete this comment. -->
 
----
-
-## Item
-<!-- Name the one issue this pull request delivers and its OpenSpec change. Archive the change in the last commit with `uv run devops openspec archive <issue>-<slug>`. `devops pr check-readiness` blocks a pull request whose body closes no issue or several, or that does not add `openspec/changes/archive/<date>-<issue>-<slug>/` for that issue. -->
 Closes #<issue>
 
-Change: `openspec/changes/<issue>-<slug>/`
+Change: `openspec/changes/archive/<date>-<issue>-<slug>/`
