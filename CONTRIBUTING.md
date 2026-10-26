@@ -73,11 +73,7 @@ uv run pre-commit install
 
 ## 4. Git Hygiene & Branch Management
 
-- **Branch Naming**: Use descriptive topic branch prefixes:
-  - `feat/<short-description>`: New features
-  - `fix/<short-description>`: Defect repairs
-  - `refactor/<short-description>`: Code structure improvements
-  - `docs/<short-description>`: Documentation changes
+- **Branch Naming**: [Section 5](#5-naming) gives the form of a branch name. The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks it.
 - **Branch Targeting**: Every topic branch targets `main`. A maintainer squash-merges the pull request.
 - **Drafts First**:
   - Open every pull request with `devops pr create`. It always opens a draft.
@@ -113,6 +109,36 @@ uv run pre-commit install
 
 ---
 
-## 5. Routine Tasks Checklist
+## 5. Naming
+
+This table holds the naming rules of the project. Each rule names the check that enforces it. A rule with no check is a convention: follow it, and expect a reviewer to ask for it.
+
+| Artifact | Form | Check |
+| :--- | :--- | :--- |
+| Branch | `<type>/<issue>-<slug>` | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks the form. |
+| Pull request title and commit subject | `<type>(<scope>): <summary>` | The `Semantic PR title` check for the title. None for a commit on a branch. |
+| Change folder | `<issue>-<slug>`, archived as `<YYYY-MM-DD>-<issue>-<slug>` | `devops openspec check` and `tests/test_change_folders.py`. |
+| Python module, class, function and variable | PEP 8 | Ruff `N`. |
+| Constant | `CONST_<NAME>` in `config/constants.py`; `DEFAULT_<NAME>` for a tunable value in `config/defaults.py` | None. |
+| Test file and test function | The behavior it checks, in the terms of [CONTEXT.md](CONTEXT.md) ([docs/TESTING.md](docs/TESTING.md#names-and-assertions)) | None. |
+| `devops` command and option | Lowercase words joined by hyphens | None. |
+| Environment variable | `DEVOPS_CLI_<SECTION>_<NAME>` | The settings model sets the prefix, and `docs/ENV_VARS.md` is generated from it. |
+| Metric | `devops_cli_<name>`; a counter ends in `_total` and no other metric does | `tests/test_telemetry_instruments.py` checks the `_total` suffix. |
+| Issue label | `<category>/<value>`, from `.github/labels.yml` | `devops gh labels sync`. |
+| Decision record | `docs/adr/<NNNN>-<slug>.md` | None. |
+| Release tag | `v<major>.<minor>.<patch>` | release-please writes it. Nobody tags by hand. |
+| Agent file, worktree and scratch script | Under `.data/agent/` | `.gitignore`. |
+
+The parts of a branch name:
+
+- `<type>` is the type of the pull request title: `feat`, `fix`, `perf`, `refactor`, `revert`, `docs`, `test`, `build`, `ci`, `style` or `chore`. `release-please-config.json` lists the same types. Only the first five add a line to the changelog.
+- `<issue>` is the number of the one issue that the pull request closes.
+- `<slug>` is lowercase words and digits, joined by single hyphens. It is the slug of the change folder.
+
+The rule covers the branches that you push to this repository. GitHub makes the branches of bots (`release-please--*` and `renovate/*`), and nobody commits on them locally. `devops branches jira` and `devops scan fix` name branches of other repositories.
+
+---
+
+## 6. Routine Tasks Checklist
 
 Before opening a pull request or handing off work, verify all applicable tasks from [`docs/ROUTINE_TASKS.md`](docs/ROUTINE_TASKS.md) have been completed.

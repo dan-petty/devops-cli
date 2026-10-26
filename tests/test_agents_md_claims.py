@@ -45,6 +45,14 @@ CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
     "filing quota",
     "budget/borrowed",
     "#1153",
+    # A branch is `<type>/<issue>-<slug>`, stated once in CONTRIBUTING.md (#2292).
+    "topic branch prefixes",
+    "feat/<",
+    "fix/<",
+    "docs/<",
+    "refactor/<",
+    "<type>/<name>",
+    "feature/<name>",
     # The pre-push hook runs only the fast static checks (#1752).
     "pre-push gate",
     "pre-push `uv run devops ci`",
@@ -447,6 +455,34 @@ def test_contributing_md_names_the_changelog_types_release_please_shows() -> Non
     exactly the visible sections of `release-please-config.json`, in their order, so a change to
     the configuration changes the guide in the same pull request."""
     assert _changelog_rows(_CONTRIBUTING_MD) == [_visible_changelog_rows()]
+
+
+_NAMING_TABLE_HEADER = ["Artifact", "Form", "Check"]
+
+
+def _naming_section(document: Path) -> str:
+    """The text of the "Naming" section of the contributor guide, up to the next section."""
+    text = document.read_text(encoding="utf-8")
+    start = text.index("\n## 5. Naming\n")
+    return text[start : text.find("\n## ", start + 1)]
+
+
+def test_contributing_md_states_the_branch_form_once_and_names_each_check() -> None:
+    """The one table of naming rules gives every artifact its form and the check that enforces
+    it, or says that none does. The branch row holds the form, and the text after the table names
+    each type that release-please reads, so a branch type and a title type are the same list
+    (#2292)."""
+    [rows] = [rows for header, *rows in _tables(_CONTRIBUTING_MD) if header == _NAMING_TABLE_HEADER]
+    forms = {artifact: form for artifact, form, _check in rows}
+    sections = json.loads(_RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))["changelog-sections"]
+    section = _naming_section(_CONTRIBUTING_MD)
+
+    assert (
+        forms["Branch"],
+        [artifact for artifact, _form, check in rows if not check.strip()],
+        [f"`{item['type']}`" for item in sections if f"`{item['type']}`" not in section],
+        section.count("`<type>/<issue>-<slug>`"),
+    ) == ("`<type>/<issue>-<slug>`", [], [], 1)
 
 
 def test_a_changelog_table_without_a_visible_type_does_not_match(tmp_path: Path) -> None:
