@@ -664,6 +664,54 @@ def test_renew_token_returns_new_lifetime() -> None:
         assert registry.renew_token() == 7200
 
 
+def test_get_lease_registry_rebuilds_on_credential_change() -> None:
+    """The session registry caches for identical credentials and rebuilds when token or address changes."""
+    from devops_cli.security.vault_lease import (
+        LeaseRegistry,
+        get_lease_registry,
+        reset_lease_registry,
+    )
+
+    reset_lease_registry()
+    reg1 = LeaseRegistry(vault_addr="http://example.com:8200", token="s.token-1", namespace=None)
+    reg1.track("lease-1", 100, renewable=True)
+
+    # First call caches reg1
+    cached = get_lease_registry(reg1)
+    assert cached is reg1
+    assert len(cached.leases()) == 1
+
+    # Same credentials reuse cached registry (keeping tracked leases)
+    reg2 = LeaseRegistry(vault_addr="http://example.com:8200", token="s.token-1", namespace=None)
+    assert get_lease_registry(reg2) is reg1
+    assert len(get_lease_registry(reg2).leases()) == 1
+
+    # Changed token rebuilds the registry
+    reg3 = LeaseRegistry(vault_addr="http://example.com:8200", token="s.token-2", namespace=None)
+    rebuilt = get_lease_registry(reg3)
+    assert rebuilt is reg3
+    assert len(rebuilt.leases()) == 0
+
+    # Changed address rebuilds the registry
+    reg4 = LeaseRegistry(
+        vault_addr="http://other.example.com:8200", token="s.token-2", namespace=None
+    )
+    assert get_lease_registry(reg4) is reg4
+
+    # Changed namespace rebuilds the registry
+    reg5 = LeaseRegistry(
+        vault_addr="http://other.example.com:8200", token="s.token-2", namespace="team-a"
+    )
+    assert get_lease_registry(reg5) is reg5
+
+    # reset_lease_registry clears the cached registry
+    reset_lease_registry()
+    reg6 = LeaseRegistry(
+        vault_addr="http://other.example.com:8200", token="s.token-2", namespace="team-a"
+    )
+    assert get_lease_registry(reg6) is reg6
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. Vault HTTP boundary
 # ─────────────────────────────────────────────────────────────────────────────

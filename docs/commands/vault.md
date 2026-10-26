@@ -157,11 +157,11 @@ devops vault logout [OPTIONS]
 
 ## `devops vault leases`
 
-**Inspect, renew, or revoke tracked Vault dynamic secret leases.**
+**Revoke a single Vault dynamic secret lease by id.**
 
-Inspect, renew, or revoke tracked Vault dynamic secret leases.
+Revoke a single Vault dynamic secret lease by id.
 
-Every mode needs a usable token and fails before any request without one.
+Needs a usable token and fails before any request without one.
 
 ```bash
 devops vault leases [OPTIONS]
@@ -171,7 +171,6 @@ devops vault leases [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--renew` | `boolean` | - | Renew every tracked lease nearing expiry |
 | `--revoke` | `string` | - | Revoke a single lease by id |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

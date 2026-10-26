@@ -430,7 +430,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
 |  | `devops vault login [OPTIONS]` | Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount. |
 |  | `devops vault logout [OPTIONS]` | Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it. |
-|  | `devops vault leases [OPTIONS]` | Inspect, renew, or revoke tracked Vault dynamic secret leases. |
+|  | `devops vault leases [OPTIONS]` | Revoke a single Vault dynamic secret lease by id. |
 |  | `devops vault audit [OPTIONS]` | Show which provider satisfied each credential lookup in this session. |
 | **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |
 |  | `devops valkey info [OPTIONS]` | Inspect server configuration, memory allocation, and operational metrics. |

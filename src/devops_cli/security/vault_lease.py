@@ -316,10 +316,34 @@ class LeaseRegistry:
         )
 
 
+_LEASE_REGISTRY: LeaseRegistry | None = None
+
+
+def get_lease_registry(default: LeaseRegistry) -> LeaseRegistry:
+    """Return the session-scoped lease registry, rebuilding when Vault coordinates or token change."""
+    global _LEASE_REGISTRY
+    if (
+        _LEASE_REGISTRY is None
+        or _LEASE_REGISTRY.vault_addr != default.vault_addr
+        or _LEASE_REGISTRY.token != default.token
+        or _LEASE_REGISTRY.namespace != default.namespace
+    ):
+        _LEASE_REGISTRY = default
+    return _LEASE_REGISTRY
+
+
+def reset_lease_registry() -> None:
+    """Reset the session lease registry for clean test isolation."""
+    global _LEASE_REGISTRY
+    _LEASE_REGISTRY = None
+
+
 __all__ = [
     "LeaseRegistry",
+    "get_lease_registry",
     "login_approle",
     "login_kubernetes",
     "read_service_account_token",
+    "reset_lease_registry",
     "revoke_self",
 ]
