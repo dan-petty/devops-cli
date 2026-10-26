@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
+
 from devops_cli.config.constants import (
     CONST_K8S_CONDITION_READY,
     CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR,
@@ -16,6 +18,7 @@ from devops_cli.config.constants import (
     CONST_K8S_DOCTOR_RULE_POD_NOT_READY,
     CONST_K8S_DOCTOR_RULE_POD_STUCK_TERMINATING,
     CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE,
+    CONST_K8S_DOCTOR_RULE_VERSION_SKEW,
     CONST_K8S_DOCTOR_RULE_VOLUME_RECLAIM_STUCK,
     CONST_K8S_DOCTOR_RULE_WARNING_EVENTS,
     CONST_K8S_KIND_PERSISTENT_VOLUME,
@@ -45,6 +48,7 @@ class Snapshot:
     """Raw objects collected from the Kubernetes API for health diagnosis."""
 
     context: str = ""
+    server_version: str = ""
     nodes: list[Any] = field(default_factory=list)
     pods: list[Any] = field(default_factory=list)
     events: list[Any] = field(default_factory=list)
@@ -66,6 +70,7 @@ def plan_doctor_requests(
         else f"all namespaces, field_selector={CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR}"
     )
     return [
+        PlannedRequest(method="get_code", target="cluster"),
         PlannedRequest(method="list_node", target="cluster"),
         PlannedRequest(method=pod_method, target=pod_target),
         PlannedRequest(method=evt_method, target=evt_target),
@@ -472,6 +477,174 @@ def _diagnose_warning_events(events: list[Any], claimed_resources: set[str]) -> 
     return findings
 
 
+def _node_kubelet_version(node: Any) -> str:
+    """Extract kubelet version string from a Kubernetes node object or dictionary."""
+    status = getattr(node, "status", None) if not isinstance(node, dict) else node.get("status")
+    if status is None:
+        return ""
+    node_info = getattr(status, "node_info", None)
+    if node_info is None and hasattr(status, "nodeInfo"):
+        node_info = getattr(status, "nodeInfo", None)
+    if node_info is None and isinstance(status, dict):
+        node_info = status.get("node_info") or status.get("nodeInfo")
+    if node_info is None:
+        return ""
+    if isinstance(node_info, dict):
+        return str(node_info.get("kubelet_version") or node_info.get("kubeletVersion") or "")
+    return str(
+        getattr(node_info, "kubelet_version", None)
+        or getattr(node_info, "kubeletVersion", None)
+        or ""
+    )
+
+
+def _parse_version(ver_str: str) -> Version | None:
+    """Parse a version string using packaging.version.Version."""
+    clean = ver_str.strip()
+    if not clean:
+        return None
+    try:
+        return Version(clean)
+    except InvalidVersion:
+        return None
+
+
+def _resolve_kubectl_version(kubectl_version: str | None = None) -> str | None:
+    """Resolve kubectl version from argument or tools.lock."""
+    if kubectl_version is not None:
+        return kubectl_version
+    try:
+        from devops_cli.tools_lock import load_tools_lock
+
+        lock = load_tools_lock()
+        kubectl_tool = lock.binary.get("kubectl")
+        if kubectl_tool:
+            return kubectl_tool.version
+    except FileNotFoundError, KeyError:
+        return None
+    return None
+
+
+def check_kubectl_version_skew(
+    server_version: str,
+    kubectl_version: str | None = None,
+) -> str | None:
+    """Check version skew between kubectl and server, returning a warning message if skewed."""
+    if not server_version:
+        return None
+
+    k_version = _resolve_kubectl_version(kubectl_version)
+    if not k_version:
+        return None
+
+    s_ver = _parse_version(server_version)
+    k_ver = _parse_version(k_version)
+    if s_ver is None or k_ver is None:
+        return None
+
+    if s_ver.major != k_ver.major or abs(s_ver.minor - k_ver.minor) > 1:
+        min_minor = max(0, k_ver.minor - 1)
+        max_minor = k_ver.minor + 1
+        return (
+            f"kubectl version {k_version} is outside the supported skew for Kubernetes API server "
+            f"{server_version}. The supported server range is 1.{min_minor} to 1.{max_minor}."
+        )
+    return None
+
+
+def _diagnose_kubelet_skew(
+    server_ver_parsed: Version,
+    server_version_raw: str,
+    nodes: list[Any],
+) -> list[Finding]:
+    """Diagnose kubelets outside supported version skew relative to API server."""
+    findings: list[Finding] = []
+    min_supported_minor = max(0, server_ver_parsed.minor - 3)
+    max_supported_minor = server_ver_parsed.minor
+
+    for n in nodes:
+        k_ver_raw = _node_kubelet_version(n)
+        if not k_ver_raw:
+            continue
+        k_ver_parsed = _parse_version(k_ver_raw)
+        if k_ver_parsed is None:
+            continue
+
+        is_skewed = (
+            k_ver_parsed.major != server_ver_parsed.major
+            or k_ver_parsed.minor < min_supported_minor
+            or k_ver_parsed.minor > max_supported_minor
+        )
+        if is_skewed:
+            name = str(getattr(getattr(n, "metadata", None), "name", "") or "")
+            if not name and isinstance(n, dict):
+                name = str(n.get("metadata", {}).get("name", "") or "")
+            findings.append(
+                Finding(
+                    rule=CONST_K8S_DOCTOR_RULE_VERSION_SKEW,
+                    severity="warning",
+                    class_="cluster",
+                    resource=f"Node/{name}",
+                    cause=(
+                        f"kubelet version {k_ver_raw} on node {name} is outside the supported "
+                        f"skew for API server {server_version_raw}"
+                    ),
+                    evidence=[
+                        f"kubelet version: {k_ver_raw}",
+                        f"server version: {server_version_raw}",
+                        f"supported kubelet range: 1.{min_supported_minor} to 1.{max_supported_minor}",
+                    ],
+                    remediation=f"Upgrade the kubelet on node {name} to a supported version.",
+                )
+            )
+    return findings
+
+
+def diagnose_version_skew(
+    server_version_str: str,
+    nodes: list[Any],
+    kubectl_version_str: str | None = None,
+) -> list[Finding]:
+    """Diagnose kubectl and kubelet version skew against Kubernetes API server."""
+    if not server_version_str:
+        return []
+
+    s_ver_parsed = _parse_version(server_version_str)
+    if s_ver_parsed is None:
+        return []
+
+    findings: list[Finding] = []
+
+    # 1. Kubectl skew
+    warn_msg = check_kubectl_version_skew(server_version_str, kubectl_version_str)
+    if warn_msg:
+        k_version = _resolve_kubectl_version(kubectl_version_str)
+        k_parsed = _parse_version(k_version or "")
+        k_minor = k_parsed.minor if k_parsed else 0
+        min_minor = max(0, k_minor - 1)
+        max_minor = k_minor + 1
+        findings.append(
+            Finding(
+                rule=CONST_K8S_DOCTOR_RULE_VERSION_SKEW,
+                severity="warning",
+                class_="cluster",
+                resource="kubectl",
+                cause=warn_msg,
+                evidence=[
+                    f"kubectl version: {k_version or 'unknown'}",
+                    f"server version: {server_version_str}",
+                    f"supported server range: 1.{min_minor} to 1.{max_minor}",
+                ],
+                remediation="Upgrade the Kubernetes cluster to a supported version.",
+            )
+        )
+
+    # 2. Node kubelet skew
+    findings.extend(_diagnose_kubelet_skew(s_ver_parsed, server_version_str, nodes))
+
+    return findings
+
+
 def _sort_findings(findings: list[Finding], pod_restarts: dict[str, int]) -> list[Finding]:
     """Rank findings: cluster before workload, critical before warning, affected count, restarts, name."""
 
@@ -490,6 +663,7 @@ def _sort_findings(findings: list[Finding], pod_restarts: dict[str, int]) -> lis
 def diagnose(
     snapshot: Snapshot | None = None,
     *,
+    server_version: str = "",
     nodes: list[Any] | None = None,
     pods: list[Any] | None = None,
     events: list[Any] | None = None,
@@ -500,6 +674,7 @@ def diagnose(
     """Apply the fixed diagnostic rule table over cluster snapshot and return DoctorReport."""
     s = snapshot or Snapshot(
         context=context,
+        server_version=server_version,
         nodes=nodes or [],
         pods=pods or [],
         events=events or [],
@@ -535,6 +710,11 @@ def diagnose(
     event_findings = _diagnose_warning_events(s.events, claimed_resources)
     findings.extend(event_findings)
 
+    # 5. Cluster rules: version skew
+    effective_server_ver = getattr(s, "server_version", "") or server_version
+    skew_findings = diagnose_version_skew(effective_server_ver, s.nodes)
+    findings.extend(skew_findings)
+
     # Restarts map for ranking
     pod_restarts: dict[str, int] = {}
     for p in s.pods:
@@ -559,13 +739,49 @@ def diagnose(
     )
 
 
+def _resolve_version_api(core: Any, version_api: Any = None) -> Any:
+    """Resolve an API client exposing get_code for Kubernetes version detection."""
+    if version_api is not None:
+        return version_api
+    if hasattr(core, "version_api"):
+        return getattr(core, "version_api")
+    if hasattr(core, "get_code"):
+        return core
+    if hasattr(core, "api_client"):
+        from kubernetes import client as k8s_client  # type: ignore[import-untyped]
+
+        return k8s_client.VersionApi(core.api_client)
+    return None
+
+
+def _fetch_server_version(core: Any, version_api: Any = None, context: str = "") -> str:
+    """Fetch the Kubernetes server version string using VersionApi or KubernetesService."""
+    v_api = _resolve_version_api(core, version_api)
+    if v_api is not None:
+        try:
+            info = v_api.get_code(_request_timeout=DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS)
+            if isinstance(info, dict):
+                return str(info.get("git_version") or "")
+            return str(getattr(info, "git_version", "") or "")
+        except AttributeError, OSError, TypeError, ValueError:
+            return ""
+    if context:
+        from devops_cli.k8s.service import KubernetesService
+
+        return str(KubernetesService.get_instance().server_version(context=context) or "")
+    return ""
+
+
 def collect(
     core: Any,
     namespace: str | None = None,
     tail: int = DEFAULT_K8S_DOCTOR_LOG_TAIL_LINES,
     context: str = "",
+    version_api: Any = None,
 ) -> Snapshot:
     """Collect nodes, pods, warning events, and logs for flagged pods from the Kubernetes API."""
+    server_version = _fetch_server_version(core, version_api=version_api, context=context)
+
     node_resp = core.list_node(_request_timeout=DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS)
     nodes = list(getattr(node_resp, "items", []))
 
@@ -591,7 +807,15 @@ def collect(
     events = list(getattr(evt_resp, "items", []))
 
     # Pre-diagnose to identify pods flagged by workload rules
-    pre_report = diagnose(Snapshot(context=context, nodes=nodes, pods=pods, events=events))
+    pre_report = diagnose(
+        Snapshot(
+            context=context,
+            server_version=server_version,
+            nodes=nodes,
+            pods=pods,
+            events=events,
+        )
+    )
     flagged_pod_keys: set[tuple[str, str]] = set()
     for f in pre_report.findings:
         if f.class_ == "workload" and f.resource.startswith("Pod/"):
@@ -616,6 +840,7 @@ def collect(
 
     return Snapshot(
         context=context,
+        server_version=server_version,
         nodes=nodes,
         pods=pods,
         events=events,
@@ -626,7 +851,7 @@ def collect(
 
 def get_k8s_client(context: str | None = None) -> Any:
     """Retrieve an initialized Kubernetes CoreV1Api client for the specified context."""
-    from kubernetes import client, config  # type: ignore[import-untyped]
+    from kubernetes import client, config
 
     from devops_cli.k8s.context import resolve_context
 
@@ -637,8 +862,10 @@ def get_k8s_client(context: str | None = None) -> Any:
 
 __all__ = [
     "Snapshot",
+    "check_kubectl_version_skew",
     "collect",
     "diagnose",
+    "diagnose_version_skew",
     "get_k8s_client",
     "plan_doctor_requests",
 ]

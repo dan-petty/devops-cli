@@ -978,6 +978,19 @@ def _warn_about_gpu_placement(k8s_dir: Path, context: str | None) -> None:
         print_warning(warning)
 
 
+def _warn_about_version_skew(context: str | None) -> None:
+    """Warn when kubectl version skew exceeds the Kubernetes version skew policy."""
+    from devops_cli.k8s.doctor import check_kubectl_version_skew
+    from devops_cli.k8s.service import KubernetesService
+
+    server_ver = KubernetesService.get_instance().server_version(context=context)
+    if not server_ver:
+        return
+    warning = check_kubectl_version_skew(server_ver)
+    if warning:
+        print_warning(warning)
+
+
 def _apply_post_helm_paths(
     paths: Sequence[Path],
     kubectl_ctx: list[str],
@@ -1234,6 +1247,7 @@ def deploy_stack(
     # 3. Verify cluster reachability, then warn about GPU nodes no Ollama tier accepts. The read
     # comes before the Argo CD early return, so the warning prints on either kind of cluster.
     _verify_cluster_ready(effective_context)
+    _warn_about_version_skew(effective_context)
     if "llm" in selected_stacks:
         _warn_about_gpu_placement(k8s_dir, effective_context)
 

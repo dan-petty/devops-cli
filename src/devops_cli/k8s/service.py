@@ -188,14 +188,41 @@ class KubernetesService:
 
         try:
             if self._version_api:
-                self._version_api.get_code(_request_timeout=timeout)
+                info = self._version_api.get_code(_request_timeout=timeout)
+                version_str = (
+                    getattr(info, "git_version", "")
+                    or (info.get("git_version") if isinstance(info, dict) else "")
+                    or ""
+                )
                 self._set_cached(cache_key, True, ttl=self._cache_ttl)
+                if version_str:
+                    self._set_cached(
+                        f"server_version:{context or 'default'}",
+                        version_str,
+                        ttl=self._cache_ttl,
+                    )
                 return True
         except Exception as exc:
             logger.debug("Cluster reachability probe failed: %s", exc)
 
         self._set_cached(cache_key, False, ttl=2.0)
         return False
+
+    def server_version(
+        self,
+        context: str | None = None,
+        timeout: float = DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
+    ) -> str:
+        """Return the Kubernetes control plane version string, caching the result."""
+        cache_key = f"server_version:{context or 'default'}"
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return str(cached)
+
+        if not self.is_cluster_reachable(context=context, timeout=timeout):
+            return ""
+
+        return str(self._get_cached(cache_key) or "")
 
     def list_contexts(self) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """List available contexts and identify the active one without spawning kubectl."""

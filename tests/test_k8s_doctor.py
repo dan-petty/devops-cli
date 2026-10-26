@@ -24,7 +24,7 @@ from devops_cli.config.constants import (
     CONST_K8S_DOCTOR_RULE_WARNING_EVENTS,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
-from devops_cli.k8s.doctor import collect, diagnose
+from devops_cli.k8s.doctor import Snapshot, collect, diagnose
 from devops_cli.models.k8s import Finding
 from tests.k8s_fakes import (
     NOW,
@@ -483,3 +483,77 @@ def test_doctor_dry_run_makes_no_request() -> None:
         any("list_event_for_all_namespaces" in line for line in lines),
         any("read_namespaced_pod_log" in line for line in lines),
     ) == (True, True, True, True)
+
+
+def test_doctor_dry_run_includes_get_code() -> None:
+    """Doctor dry-run request plan includes VersionApi.get_code."""
+    from devops_cli.k8s.doctor import plan_doctor_requests
+
+    planned = plan_doctor_requests()
+    methods = [req.method for req in planned]
+    assert "get_code" in methods
+
+
+def test_doctor_warns_on_kubectl_version_skew() -> None:
+    """A snapshot whose server minor is more than one away from locked kubectl minor yields one warning finding."""
+    snap = Snapshot(nodes=[node("worker-1")])
+    setattr(snap, "server_version", "v1.31.4+k3s1")
+    report = diagnose(snap)
+    findings = [f for f in report.findings if f.rule == "version-skew"]
+    assert len(findings) == 1
+    f = findings[0]
+    assert (f.severity, f.class_, f.resource) == ("warning", "cluster", "kubectl")
+    assert "1.37.1" in f.cause
+    assert "v1.31.4+k3s1" in f.cause or "1.31.4" in f.cause or "1.31" in f.cause
+    assert any("1.36" in ev or "1.38" in ev for ev in f.evidence) or "1.36" in f.cause
+
+
+def test_doctor_accepts_kubectl_within_supported_skew() -> None:
+    """A snapshot whose server minor is within one minor of locked kubectl yields no kubectl skew finding."""
+    snap = Snapshot(nodes=[node("worker-1")])
+    setattr(snap, "server_version", "v1.37.0")
+    report = diagnose(snap)
+    findings = [f for f in report.findings if f.rule == "version-skew" and f.resource == "kubectl"]
+    assert findings == []
+
+
+def test_doctor_warns_on_kubelet_older_than_skew_policy() -> None:
+    """Kubelets older than the API server by more than the skew policy allow yield a finding per node."""
+    from kubernetes import client as k8s_client
+
+    n1 = node("worker-ok")
+    n1.status.node_info = k8s_client.V1NodeSystemInfo(
+        architecture="amd64",
+        boot_id="",
+        container_runtime_version="containerd://1.7.0",
+        kernel_version="",
+        kube_proxy_version="v1.35.0",
+        kubelet_version="v1.35.0",
+        machine_id="",
+        operating_system="linux",
+        os_image="",
+        system_uuid="",
+    )
+    n2 = node("worker-old")
+    n2.status.node_info = k8s_client.V1NodeSystemInfo(
+        architecture="amd64",
+        boot_id="",
+        container_runtime_version="containerd://1.7.0",
+        kernel_version="",
+        kube_proxy_version="v1.31.0",
+        kubelet_version="v1.31.0",
+        machine_id="",
+        operating_system="linux",
+        os_image="",
+        system_uuid="",
+    )
+    snap = Snapshot(nodes=[n1, n2])
+    setattr(snap, "server_version", "v1.35.0")
+    report = diagnose(snap)
+    kubelet_findings = [
+        f for f in report.findings if f.rule == "version-skew" and f.resource.startswith("Node/")
+    ]
+    assert len(kubelet_findings) == 1
+    f = kubelet_findings[0]
+    assert (f.severity, f.class_, f.resource) == ("warning", "cluster", "Node/worker-old")
+    assert "1.31.0" in f.cause
