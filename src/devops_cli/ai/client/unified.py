@@ -632,9 +632,10 @@ class LLMClient(
     ) -> LLMResponse | None:
         """Check cache for existing valid response."""
         cached_entry = self._cache.get(cache_key)
-        if cached_entry is None or not self._validate_response_text(
-            cached_entry.content, validator
-        ):
+        if cached_entry is None:
+            return None
+        if not self._validate_response_text(cached_entry.content, validator):
+            self._cache.delete(cache_key)
             return None
         span_h.set_attribute("llm.cached", True)
         span_h.set_attribute("llm.wall_seconds", 0.0)
@@ -685,7 +686,11 @@ class LLMClient(
         identical call reaches the provider again rather than the cut reply.
         """
         self._record_chat_telemetry(span_h, res)
-        if use_cache and res.finish_reason not in CONST_UNCACHED_FINISH_REASONS:
+        if (
+            use_cache
+            and res.finish_reason not in CONST_UNCACHED_FINISH_REASONS
+            and bool(res.content and res.content.strip())
+        ):
             self._cache_chat_entry(cache_key, system, out_messages, res, context_tag)
         return res
 

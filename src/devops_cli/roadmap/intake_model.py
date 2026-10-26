@@ -61,7 +61,7 @@ class ModelProposal(BaseModel):
     both items ask for before it names an original (#1755).
     """
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     shared_change: str = ""
     # A number, or text such as "#740": code reads it, and `related_to`, against the shortlist.
@@ -71,11 +71,11 @@ class ModelProposal(BaseModel):
     related_reason: str = ""
     type: str = ""
     type_reason: str = ""
-    priority: str = ""
+    priority: str
     priority_reason: str = ""
-    value: str = ""
+    value: str
     value_reason: str = ""
-    effort: str = ""
+    effort: str
     effort_reason: str = ""
     evidence: ModelEvidence | None = None
     evidence_reason: str = ""

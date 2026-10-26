@@ -326,7 +326,9 @@ def _sent_system() -> str:
 
 def _cached_texts(tmp_path: Path) -> list[str]:
     """The reply each entry the per-test response cache wrote to disk holds."""
-    files = (tmp_path / "test_llm_cache").rglob("*.json")
+    from devops_cli.ai.response_cache import get_llm_response_cache
+
+    files = get_llm_response_cache()._resolve_cache_dir().rglob("*.json")
     return [json.loads(path.read_text(encoding="utf-8"))["content"] for path in files]
 
 
@@ -544,3 +546,26 @@ def test_the_validation_error_holds_no_key_the_model_invented(
         False,
         False,
     )
+
+
+def test_model_proposal_schema_forbids_extra_and_requires_fields() -> None:
+    """Verify ModelProposal forbids extra fields and requires priority, value, and effort."""
+    from pydantic import ValidationError
+
+    from devops_cli.roadmap.intake_model import ModelProposal
+
+    assert ModelProposal.model_config.get("extra") == "forbid"
+
+    # Extra fields are rejected
+    with pytest.raises(ValidationError):
+        ModelProposal.model_validate(
+            {"priority": "P1", "value": "High", "effort": "Low", "unrecognized_extra": "bad"}
+        )
+
+    # Missing required fields (priority, value, effort) are rejected
+    with pytest.raises(ValidationError):
+        ModelProposal.model_validate({"value": "High", "effort": "Low"})
+    with pytest.raises(ValidationError):
+        ModelProposal.model_validate({"priority": "P1", "effort": "Low"})
+    with pytest.raises(ValidationError):
+        ModelProposal.model_validate({"priority": "P1", "value": "High"})

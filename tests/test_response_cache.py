@@ -651,3 +651,61 @@ def test_client_with_cache_disabled_never_reads_or_writes_cache(
 
     cache_files = list(cache_dir.glob("*.json"))
     assert cache_files == []
+
+
+def test_empty_content_with_thinking_is_not_cached(
+    isolate_data_dir: Path, monkeypatch: pytest.MonkeyPatch, public_dns: str
+) -> None:
+    """Verify that an LLM response with empty content and thinking blocks is returned to the
+    caller but is never saved to the response cache."""
+    reset_llm_response_cache()
+    cache_dir = isolate_data_dir / "cache" / "llm"
+    cache = get_llm_response_cache(cache_dir=cache_dir, enabled=True)
+
+    config = AIConfig(
+        provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
+    )
+    client = LLMClient(config=config, api_key="sk")
+
+    body = {
+        "model": "demo-model",
+        "choices": [
+            {
+                "message": {"content": "   ", "reasoning_content": "deep thoughts"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+    route_client(client, monkeypatch, lambda _req: httpx2.Response(200, json=body))
+
+    res = client.chat("system", "prompt")
+    assert res.content == "   "
+    assert res.thinking == "deep thoughts"
+    assert res.cached is False
+
+    stats = cache.get_stats()
+    assert stats.disk_entries == 0
+    assert stats.memory_entries == 0
+    assert list(cache_dir.glob("*.json")) == []
+
+
+def test_check_chat_cache_deletes_rejected_entry(clean_cache: LLMResponseCache) -> None:
+    """Verify that when a cached response fails validator validation during _check_chat_cache,
+    the entry is purged from both in-memory cache and disk."""
+    from unittest.mock import MagicMock
+
+    config = AIConfig(
+        provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
+    )
+    client = LLMClient(config=config, api_key="sk")
+    client._cache = clean_cache
+    valid_k = _valid_test_key("rejected_lookup")
+    clean_cache.set(valid_k, "gateway", "demo-model", "sys", "prompt", "rejected text")
+    assert clean_cache.get(valid_k) is not None
+    assert (clean_cache._resolve_cache_dir() / f"{valid_k}.json").exists()
+
+    res = client._check_chat_cache(valid_k, lambda text: False, MagicMock())
+    assert res is None
+    assert clean_cache.get(valid_k) is None
+    assert not (clean_cache._resolve_cache_dir() / f"{valid_k}.json").exists()
