@@ -583,3 +583,32 @@ def test_gh_cli_client_lists_every_label() -> None:
     argv = run_gh.call_args.args[0]
     # Without --limit, gh lists 30.
     assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
+
+
+def test_parse_paginated_json() -> None:
+    """Verify parse_paginated_json handles empty strings, lists, dicts, and concatenated arrays."""
+    from devops_cli.github.client import parse_paginated_json
+
+    assert parse_paginated_json("") == []
+    assert parse_paginated_json("   ") == []
+    assert parse_paginated_json("not json") == []
+    assert parse_paginated_json('[{"id": 1}]') == [{"id": 1}]
+    assert parse_paginated_json('{"id": 2}') == [{"id": 2}]
+    concatenated = '[{"id": 1}, {"id": 2}]\n[{"id": 3}]'
+    assert parse_paginated_json(concatenated) == [{"id": 1}, {"id": 2}, {"id": 3}]
+
+
+def test_gh_cli_client_api_paginate() -> None:
+    """GhCliClient.api adds --paginate and sets paginate timeout when requested."""
+    from devops_cli.config.defaults import DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS
+
+    mock_proc = MagicMock(returncode=0, stdout='[{"id": 1}]', stderr="")
+    with patch("devops_cli.github.client.run_gh", return_value=mock_proc) as run_gh:
+        res = GhCliClient().api("repos/owner/repo/issues", paginate=True)
+        assert res == '[{"id": 1}]'
+        run_gh.assert_called_once_with(
+            [CONST_GH_CLI, "api", "--paginate", "repos/owner/repo/issues"],
+            check=False,
+            quiet=True,
+            timeout=DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS,
+        )

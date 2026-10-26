@@ -294,6 +294,21 @@ def test_get_label_taxonomy_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (team_core.count, cli_scope.count) == (2, 2)
 
 
+def test_label_taxonomy_metrics_counts_all_pages_and_skips_pull_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The taxonomy metrics count every open issue across all pages and no pull requests (#1541)."""
+    github = GitHubFake("example/test-repo")
+    for i in range(1, 251):
+        github.seed_issue(i, f"Issue {i}", labels=["type/bug"])
+    github.seed_issue(251, "PR 251", labels=["type/bug"], pull_request=True)
+    github.seed_issue(252, "PR 252", labels=["scope/cli"], pull_request=True)
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+
+    metrics = get_label_taxonomy_metrics("example/test-repo")
+    assert [(m.label, m.count) for m in metrics] == [("type/bug", 250)]
+
+
 def test_collect_project_metrics_report(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git: Callable[..., None]
 ) -> None:
