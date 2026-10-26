@@ -263,7 +263,7 @@ devops ai test
 devops review branch
 
 # Or explicitly review a specific feature branch against main
-devops review branch feat/my-feature --base main
+devops review branch feat/123-my-feature --base main
 
 # Run targeted review on a specific directory
 devops review path src/

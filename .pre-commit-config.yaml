@@ -8,6 +8,16 @@ repos:
       - id: no-commit-to-branch
         args: [--branch, main]
         stages: [pre-commit]
+      # The hook fails when the pattern matches the branch name, so the lookahead matches each
+      # name that is not `<type>/<issue>-<slug>`. The types are those of release-please-config.json
+      # (CONTRIBUTING.md, Naming).
+      - id: no-commit-to-branch
+        alias: branch-name
+        name: branch name is <type>/<issue>-<slug> (CONTRIBUTING.md, Naming)
+        args:
+          - --pattern
+          - '^(?!(?:feat|fix|perf|refactor|revert|docs|test|build|ci|style|chore)/[0-9]+-[a-z0-9]+(?:-[a-z0-9]+)*$)'
+        stages: [pre-commit]
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md, --markdown-linebreak-ext=markdown]
         # syrupy writes a blank line of a snapshot as its two-space indent; trimming it breaks the

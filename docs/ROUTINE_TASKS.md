@@ -34,7 +34,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Final Pre-Commit / Pre-PR** | Full Parallel Test Suite | Step 2 | `uv run pytest` | Complete parallel test run (`addopts`' `-n logical --dist worksteal`) | All tests pass |
 | **Final Pre-Commit / Pre-PR** | Full CI Validation Suite | Step 3 | `uv run devops ci` | Runs the full automated verification suite by hand, when you want it before the push. The required checks of CI gate the merge | All checks show `✓ pass` |
 | **Final Pre-Commit / Pre-PR** | Observability, Log & Trace Audit | Step 4 | `devops telemetry status` / `.data/logs/` | Audit CLI command outputs, application logs, metrics, and OpenTelemetry tracing data for performance issues and misconfigurations | Zero unhandled exceptions or warnings in logs/spans |
-| **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <type>/<name> origin/main` | Dedicated topic branch branching off `main` | Clean branch based on `origin/main` |
+| **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <branch> origin/main` | Dedicated topic branch branching off `main`, named as [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) says | Clean branch based on `origin/main` |
 | **Feature / PR Lifecycle** | PR Submission | Step 2 | `devops pr create --title "<type>(<scope>): <summary>"` | Opens a draft PR into `main`; the title becomes the changelog line | Draft PR opened with Conventional Commit title |
 | **Feature / PR Lifecycle** | Taxonomy Linking | Step 3 | `devops gh labels audit` | Audits open PRs for mandatory `type/*` and `scope/*` labels | Zero taxonomy audit findings |
 | **Feature / PR Lifecycle** | Project Field Sync | Step 4 | `devops gh project sync` | Reconciles Status and Priority on the cards already on the board; the board's built-in `Pull request linked to issue` workflow moves the issue's card to In Review | Issue card fields populated; the PR gets no card |
@@ -159,9 +159,9 @@ sequenceDiagram
     participant CI as GitHub Actions
     actor Maintainer as Human Maintainer
 
-    Dev->>Git: git checkout -b feat/my-feature origin/main
+    Dev->>Git: git checkout -b <branch> origin/main
     Dev->>Git: Code, Test, Format, devops ci
-    Dev->>Hub: git push -u origin feat/my-feature
+    Dev->>Hub: git push -u origin <branch>
     Dev->>Hub: devops pr create (opens a draft into main)
     Hub->>CI: Trigger CI Validation
     CI-->>Hub: CI Checks Pass (Green)
@@ -171,11 +171,7 @@ sequenceDiagram
 ```
 
 #### Rules & Methodology:
-- **Dedicated Branch Naming**:
-  - Features: `feat/<name>` or `feature/<name>`
-  - Fixes: `fix/<name>`
-  - Docs: `docs/<name>`
-  - Chores/Refactors: `chore/<name>` or `refactor/<name>`
+- **Dedicated Branch Naming**: Name a branch as [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) says.
 - **Base Branch Targeting**: Every PR targets `main`. The PR title is a Conventional Commit, and the squash commit takes it as the changelog line.
 - **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
   - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting `main`. `devops pr create` opens it as a draft.

@@ -78,7 +78,7 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - The project board holds the Status of each item (ADR 0001), and GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and the Issues views (`https://github.com/dan-petty/devops-cli/issues/views`) show it. A change folder holds no status, milestone, priority or pull request number (`tests/test_change_folders.py`).
 5. **Topic Branch Creation**:
    - Fetch the remote (`git fetch origin`).
-   - Create an isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/main`.
+   - Create an isolated topic branch from fresh upstream: `git checkout -b <branch> origin/main`. [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) gives the form of the branch name.
    - Before the first push of the branch, fetch again and rebase it onto `origin/main` if `main` moved, so the branch holds the latest `main` when the pull request opens. A pull request that is open needs no rebase to catch up with `main`. Update it when it has a conflict or a check fails (Phase 6).
 
 ---
@@ -271,7 +271,7 @@ gitGraph
 ```
 
 #### Branch Governance & Hierarchy
-- **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
+- **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches, named as [`CONTRIBUTING.md`](../CONTRIBUTING.md#5-naming) says.
 - **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request, and a person merges it. Agents change the release workflow and its configuration through ordinary pull requests ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)).
 - **Required Checks Gate the Merge**: The `main` ruleset requires `Static Analysis`, `Tests & Coverage` and `Semantic PR title`. A pull request merges only when the three checks pass on the pull request. The release pull request runs the same checks on each new `main`, so its status shows a defect that two pull requests make together ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)): the pre-push hook runs only the fast static checks (Phase 4), so these checks are the first run of the test suite on a branch, unless the author runs `uv run devops ci` by hand ([ADR 0014](adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md)).
 - **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.

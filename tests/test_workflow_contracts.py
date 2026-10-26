@@ -436,6 +436,60 @@ def test_no_pre_commit_hook_runs_the_test_suite() -> None:
     assert (bool(commit_entries), runs_tests) == (True, [])
 
 
+def _branch_name_pattern() -> str:
+    """The pattern of the `no-commit-to-branch` hook that refuses a branch by its name."""
+    config = yaml.safe_load(PRE_COMMIT_PATH.read_text(encoding="utf-8"))
+    [pattern] = [
+        hook["args"][hook["args"].index("--pattern") + 1]
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if hook["id"] == "no-commit-to-branch" and "--pattern" in hook.get("args", [])
+    ]
+    return str(pattern)
+
+
+def test_a_commit_on_a_branch_that_breaks_the_naming_form_is_refused() -> None:
+    """The hook refuses a commit when its pattern matches the branch name (`re.match`), so the
+    pattern matches each name that is not `<type>/<issue>-<slug>`: one of the types that
+    release-please reads, the number of the issue, and a slug of lowercase words and digits
+    (#2292)."""
+    sections = json.loads(Path("release-please-config.json").read_text(encoding="utf-8"))
+    types = [section["type"] for section in sections["changelog-sections"]]
+    pattern = _branch_name_pattern()
+    accepted = [f"{kind}/2292-naming-section" for kind in types] + ["fix/1-a", "docs/2292-a1-b2"]
+    refused = [
+        "main",
+        "implement_issue_1388",
+        "fix/pin-ty-redundant-cast",
+        "feat/12",
+        "feat/12-",
+        "fix/12-a--b",
+        "fix/12-Upper",
+        "fix/12-a/b",
+        "Fix/12-a",
+        "fix/x12-a",
+        "feature/12-widget",
+        "wip/12-widget",
+    ]
+    assert (
+        len(types),
+        [name for name in accepted if re.match(pattern, name)],
+        [name for name in refused if not re.match(pattern, name)],
+    ) == (11, [], [])
+
+
+def test_the_main_branch_stays_refused_by_name() -> None:
+    """The first `no-commit-to-branch` entry names `main`, which the pattern entry also refuses."""
+    config = yaml.safe_load(PRE_COMMIT_PATH.read_text(encoding="utf-8"))
+    args = [
+        hook.get("args", [])
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if hook["id"] == "no-commit-to-branch"
+    ]
+    assert ["--branch", "main"] in args
+
+
 # The fast static checks that a push runs (#1752): rows of the `devops ci` check table.
 FAST_STATIC_CHECKS = ["lint", "format", "actionlint", "zizmor"]
 
