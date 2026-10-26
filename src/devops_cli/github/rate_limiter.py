@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -35,11 +35,21 @@ from tenacity import RetryCallState, Retrying, wait_random_exponential
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
     CONST_GH_API_DEFAULT_METHOD,
+    CONST_GH_API_GRAPHQL_ENDPOINT,
+    CONST_GH_API_SUBCOMMAND,
     CONST_GH_CLI,
+    CONST_GH_GRAPHQL_GROUPS,
+    CONST_GH_GRAPHQL_PORCELAIN_COMMANDS,
     CONST_GH_QUOTA_CACHE_FILENAME,
     CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS,
     CONST_GH_READ_VERBS,
+    CONST_GH_REST_AUTOFIX_SEGMENT,
+    CONST_GH_REST_CODE_SCANNING_SEGMENT,
+    CONST_GH_REST_REPOS_PREFIX,
+    CONST_GH_REST_SBOM_SEGMENTS,
+    CONST_GH_REST_SEARCH_CODE_PREFIX,
+    CONST_GH_REST_SEARCH_PREFIX,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
     CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
 )
@@ -432,57 +442,73 @@ def calculate_request_delay(
     return time_until_reset / remaining
 
 
-def _is_graphql_command(clean_args: list[str]) -> bool:
-    """Predicate checking if command targets GraphQL."""
-    return clean_args[0] == "project" or any("graphql" in arg for arg in clean_args)
-
-
-def _is_code_search_command(clean_args: list[str]) -> bool:
-    """Predicate checking if command targets code search."""
-    if len(clean_args) >= 2 and clean_args[0] == "search" and clean_args[1] == "code":
-        return True
-    return any("search/code" in arg for arg in clean_args)
-
-
-def _is_code_scanning_autofix_command(clean_args: list[str]) -> bool:
-    """Predicate checking if command targets code scanning autofix."""
-    return any(
-        ("code-scanning" in arg or "code_scanning" in arg) and "autofix" in arg
-        for arg in clean_args
-    )
-
-
-def _is_general_search_command(clean_args: list[str]) -> bool:
-    """Predicate checking if command targets general search."""
-    return clean_args[0] == "search" or any("search/" in arg for arg in clean_args)
-
-
-def _detect_resource(args: list[str]) -> str:
-    """Determine the GitHub API rate limit resource / subcommand category."""
-    if not args:
+def _detect_porcelain_resource(clean_args: Sequence[str]) -> str:
+    """The rate-limit resource a gh porcelain command spends."""
+    words = gh_command_words(clean_args)
+    if words is None:
         return "core"
-    clean_args = [a.lower() for a in args if a not in (CONST_GH_CLI, "gh")]
-    if not clean_args:
+    group, verb = words
+    if group is None:
         return "core"
-
-    if _is_graphql_command(clean_args):
+    group_lower = group.lower()
+    if group_lower in CONST_GH_GRAPHQL_GROUPS:
         return "graphql"
-    if _is_code_search_command(clean_args):
-        return "code_search"
-    if _is_code_scanning_autofix_command(clean_args):
-        return "code_scanning_autofix"
-    if _is_general_search_command(clean_args):
+    if verb is not None:
+        verb_lower = verb.lower()
+        if (group_lower, verb_lower) in CONST_GH_GRAPHQL_PORCELAIN_COMMANDS:
+            return "graphql"
+    if group_lower == "search":
+        if verb is not None and verb.lower() == "code":
+            return "code_search"
         return "search"
-    if any("dependency-graph/sbom" in arg for arg in clean_args):
-        return "dependency_sbom"
-
     return "core"
 
 
-def gh_request_resource(args: list[str]) -> str:
+def _detect_api_resource(api_args: Sequence[str]) -> str:
+    """The rate-limit resource a `gh api` command spends, decided from its endpoint."""
+    args = parse_gh_api_args(api_args)
+    if args is None or args.endpoint is None:
+        return "core"
+    clean_endpoint = args.endpoint.strip().lstrip("/").split("?", 1)[0].lower()
+    if clean_endpoint == CONST_GH_API_GRAPHQL_ENDPOINT:
+        return "graphql"
+    if clean_endpoint == CONST_GH_REST_SEARCH_CODE_PREFIX or clean_endpoint.startswith(
+        f"{CONST_GH_REST_SEARCH_CODE_PREFIX}/"
+    ):
+        return "code_search"
+    if clean_endpoint == CONST_GH_REST_SEARCH_PREFIX or clean_endpoint.startswith(
+        f"{CONST_GH_REST_SEARCH_PREFIX}/"
+    ):
+        return "search"
+    parts = clean_endpoint.split("/")
+    if len(parts) >= 5 and parts[0] == CONST_GH_REST_REPOS_PREFIX:
+        if (parts[3], parts[4]) == CONST_GH_REST_SBOM_SEGMENTS:
+            return "dependency_sbom"
+        if (
+            len(parts) >= 6
+            and parts[3] in (CONST_GH_REST_CODE_SCANNING_SEGMENT, "code_scanning")
+            and CONST_GH_REST_AUTOFIX_SEGMENT in parts[4:]
+        ):
+            return "code_scanning_autofix"
+    return "core"
+
+
+def _detect_resource(args: Sequence[str]) -> str:
+    """Determine the GitHub API rate limit resource / subcommand category."""
+    if not args:
+        return "core"
+    clean_args = _normalize_gh_args(list(args))
+    if not clean_args:
+        return "core"
+    if clean_args[0].lower() == CONST_GH_API_SUBCOMMAND:
+        return _detect_api_resource(clean_args[1:])
+    return _detect_porcelain_resource(clean_args)
+
+
+def gh_request_resource(args: Sequence[str]) -> str:
     """The rate-limit resource a `gh` command spends (`core`, `graphql`, `search`, ...), as
     `run_gh` paces it."""
-    return _detect_resource(_normalize_gh_args(args))
+    return _detect_resource(_normalize_gh_args(list(args)))
 
 
 def gh_request_is_paced(args: list[str]) -> bool:
