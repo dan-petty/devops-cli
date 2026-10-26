@@ -436,6 +436,12 @@ class K8sMessages:
         "Validating Kubernetes manifests at '{path}' (k8s: {k8s_version})..."
     )
     applying_manifest: str = "[bold]Applying manifest {name}...[/bold]"
+    post_helm_delete_skipped: str = (
+        "Skipped {path}: the cluster does not serve kind '{kind}' ({api_version})."
+    )
+    post_helm_apply_failed: str = (
+        "Failed to apply {path}: the cluster does not serve kind '{kind}' ({api_version})."
+    )
     installing_release: str = "[bold]Installing {name}...[/bold]"
     table_title_tls_secrets: str = "Kubernetes TLS Secret Deployment"
     table_title_pods: str = "Kubernetes Pods"

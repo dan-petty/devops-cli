@@ -991,6 +991,58 @@ def _warn_about_version_skew(context: str | None) -> None:
         print_warning(warning)
 
 
+def _cluster_serves_kind(api_version: str, kind: str, kubectl_ctx: list[str]) -> bool:
+    """Return whether the cluster serves the specified apiVersion and kind."""
+    api_group = api_version.split("/")[0] if "/" in api_version else ""
+    cmd = ["kubectl", "api-resources"]
+    if api_group:
+        cmd.append(f"--api-group={api_group}")
+    cmd.extend(kubectl_ctx)
+    res = runtime._run_cmd(cmd, check=False, capture=True)
+    if res.returncode != 0:
+        return False
+    for line in res.stdout.splitlines():
+        tokens = line.split()
+        if len(tokens) >= 4 and tokens[0] != "NAME":
+            line_kind = tokens[-1]
+            line_api_version = tokens[-3]
+            if line_kind == kind and (
+                line_api_version == api_version
+                or (api_group and line_api_version == api_version.split("/")[-1])
+            ):
+                return True
+    return False
+
+
+def _unserved_manifest_kinds(path: Path, kubectl_ctx: list[str]) -> list[tuple[str, str]]:
+    """Return distinct (apiVersion, kind) pairs in the manifest that the cluster does not serve."""
+    if not path.is_file():
+        return []
+    import yaml
+
+    try:
+        content = path.read_text(encoding="utf-8")
+        docs = yaml.safe_load_all(content)
+        pairs: list[tuple[str, str]] = []
+        for doc in docs:
+            if isinstance(doc, dict):
+                api_version = doc.get("apiVersion")
+                kind = doc.get("kind")
+                if (
+                    isinstance(api_version, str)
+                    and isinstance(kind, str)
+                    and (api_version, kind) not in pairs
+                ):
+                    pairs.append((api_version, kind))
+        return [
+            (api_version, kind)
+            for api_version, kind in pairs
+            if not _cluster_serves_kind(api_version, kind, kubectl_ctx)
+        ]
+    except yaml.YAMLError, OSError:
+        return []
+
+
 def _apply_post_helm_paths(
     paths: Sequence[Path],
     kubectl_ctx: list[str],
@@ -1001,13 +1053,34 @@ def _apply_post_helm_paths(
         if path.is_dir() or not path.suffix:
             _apply_kustomizations([path], kubectl_ctx)
         else:
+            unserved = _unserved_manifest_kinds(path, kubectl_ctx)
+            if unserved:
+                for api_version, kind in unserved:
+                    print_warning(
+                        MESSAGES.k8s.post_helm_apply_failed.format(
+                            path=path.name, kind=kind, api_version=api_version
+                        )
+                    )
+                continue
             _apply_manifest_files([str(path)], kubectl_ctx, domain=domain)
 
 
 def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> None:
     """Delete post-Helm kustomizations (`-k`) and manifest files (`-f`) before Helm uninstalls."""
     for path in paths:
-        flag = "-k" if (path.is_dir() or not path.suffix) else "-f"
+        if path.is_dir() or not path.suffix:
+            flag = "-k"
+        else:
+            unserved = _unserved_manifest_kinds(path, kubectl_ctx)
+            if unserved:
+                for api_version, kind in unserved:
+                    print_warning(
+                        MESSAGES.k8s.post_helm_delete_skipped.format(
+                            path=path.name, kind=kind, api_version=api_version
+                        )
+                    )
+                continue
+            flag = "-f"
         print_info(f"[bold]Deleting {path.name}...[/bold]", prefix=False)
         runtime._run_cmd(["kubectl", "delete", flag, str(path), "--ignore-not-found"] + kubectl_ctx)
 
