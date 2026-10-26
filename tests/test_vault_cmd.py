@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 
 import devops_cli.main  # noqa: F401  # loaded here, not in a test: MCP dispatches through it
 from devops_cli.ai.mcp.server import vault_status
-from devops_cli.commands.vault import _validate_vault_path, app, reset_lease_registry
+from devops_cli.commands.vault import _validate_vault_path, app
 from devops_cli.config.constants import CONST_VAULT_LOGIN_KEYRING_KEY
 from devops_cli.config.settings import (
     _EPHEMERAL_CI_SECRETS,
@@ -29,6 +29,15 @@ from devops_cli.models.vault import (
 )
 from devops_cli.security.secrets import reset_resolver
 from devops_cli.security.vault_broker import VaultStatus
+
+
+def reset_lease_registry() -> None:
+    from devops_cli.security import vault_lease
+
+    fn = getattr(vault_lease, "reset_lease_registry", None)
+    if fn is not None:
+        fn()
+
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -291,12 +300,10 @@ def test_vault_set_failure_reports_the_status() -> None:
         ["set", "secret/data/app", "KEY=VAL"],
         ["sync", "secret/data/app"],
         ["leases", "--revoke", "lease-1"],
-        ["leases", "--renew"],
-        ["leases"],
     ],
 )
 def test_commands_needing_a_token_exit_before_any_request_without_one(command: list[str]) -> None:
-    """With no usable token, set, sync and every leases mode name the token sources and stop."""
+    """With no usable token, set, sync and leases --revoke name the token sources and stop."""
     with patch(_REQUEST) as mock_request:
         res = runner.invoke(app, command)
 
@@ -396,12 +403,20 @@ def test_leases_revoke_with_a_rejected_token_names_its_source(
     assert "Vault rejected the token from the environment (HTTP 403)" in res.output
 
 
-def test_leases_list_and_renew_with_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_leases_without_revoke_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Running vault leases without --revoke fails with a usage error."""
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
-    listed = runner.invoke(app, ["leases"])
-    renewed = runner.invoke(app, ["leases", "--renew"])
-    assert (listed.exit_code, "No Vault leases" in listed.output) == (0, True)
-    assert (renewed.exit_code, "Renewed 0 lease(s)" in renewed.output) == (0, True)
+    res = runner.invoke(app, ["leases"])
+    assert res.exit_code != 0
+    assert "Missing option '--revoke'" in res.output or "Missing option" in res.output
+
+
+def test_leases_renew_flag_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The removed --renew flag is rejected as an unknown option."""
+    monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
+    res = runner.invoke(app, ["leases", "--renew"])
+    assert res.exit_code != 0
+    assert "No such option: --renew" in res.output or "no such option" in res.output.lower()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

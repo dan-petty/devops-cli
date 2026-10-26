@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
@@ -49,8 +49,10 @@ from devops_cli.security.vault_broker import VaultSecretBroker
 from devops_cli.security.vault_http import vault_url
 from devops_cli.security.vault_lease import (
     LeaseRegistry,
+    get_lease_registry,
     login_approle,
     login_kubernetes,
+    reset_lease_registry,
     revoke_self,
 )
 
@@ -62,22 +64,6 @@ _NO_STORE_HINT = (
     "without an OS keyring, such as CI runners and pods, take VAULT_TOKEN from their platform's "
     "Vault integration."
 )
-
-_LEASE_REGISTRY: Any = None
-
-
-def get_lease_registry(default: Any) -> Any:
-    """Return the session-scoped lease registry, creating it on first use."""
-    global _LEASE_REGISTRY
-    if _LEASE_REGISTRY is None:
-        _LEASE_REGISTRY = default
-    return _LEASE_REGISTRY
-
-
-def reset_lease_registry() -> None:
-    """Reset the session lease registry for clean test isolation."""
-    global _LEASE_REGISTRY
-    _LEASE_REGISTRY = None
 
 
 def _validate_vault_path(path: str) -> None:
@@ -496,6 +482,7 @@ def vault_logout(
         return
     revoke_failure = _revoke_stored_login(login)
     _delete_stored_login()
+    reset_lease_registry()
     issuer = login.issuer() if login else "the Vault that issued it"
     if revoke_failure is None:
         print_success(
@@ -560,17 +547,15 @@ def _delete_stored_login() -> None:
 
 @app.command("leases")
 def vault_leases(
-    renew: Annotated[
-        bool, typer.Option("--renew", help="Renew every tracked lease nearing expiry")
-    ] = False,
     revoke: Annotated[
-        str | None, typer.Option("--revoke", help="Revoke a single lease by id")
-    ] = None,
+        str,
+        typer.Option("--revoke", help="Revoke a single lease by id"),
+    ],
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
-    """Inspect, renew, or revoke tracked Vault dynamic secret leases.
+    """Revoke a single Vault dynamic secret lease by id.
 
-    Every mode needs a usable token and fails before any request without one.
+    Needs a usable token and fails before any request without one.
     """
     broker = VaultSecretBroker()
     if dry_run or is_dry_run():
@@ -578,7 +563,6 @@ def vault_leases(
             command="devops vault leases",
             action="vault_lease_lifecycle",
             details={
-                "renew": renew,
                 "revoke": revoke,
                 "vault_addr": broker.vault_addr,
                 "token_source": broker.token_source.source,
@@ -594,13 +578,7 @@ def vault_leases(
                 namespace=broker.vault_namespace,
             )
         )
-        if revoke:
-            _revoke_lease(registry, revoke, broker)
-            return
-        if renew:
-            _renew_leases(registry)
-            return
-    _list_leases(registry)
+        _revoke_lease(registry, revoke, broker)
 
 
 def _revoke_lease(registry: LeaseRegistry, lease_id: str, broker: VaultSecretBroker) -> None:
@@ -618,40 +596,6 @@ def _revoke_lease(registry: LeaseRegistry, lease_id: str, broker: VaultSecretBro
             status_code=status,
         ) from exc
     print_success(f"✓ Revoked lease '{masked}'.")
-
-
-def _renew_leases(registry: LeaseRegistry) -> None:
-    """Renew the tracked leases close to expiry; exit 1 when any renewal failed."""
-    report = registry.renew_expiring()
-    print_success(
-        f"✓ Renewed {len(report.renewed)} lease(s); "
-        f"{len(report.failed)} failed, {len(report.skipped)} still within lifetime."
-    )
-    if report.failed:
-        raise typer.Exit(1)
-
-
-def _list_leases(registry: LeaseRegistry) -> None:
-    """Print the leases tracked in this session."""
-    leases = registry.leases()
-    if not leases:
-        print_success("No Vault leases are currently tracked in this session.")
-        return
-
-    print_table(
-        title="Vault Dynamic Secret Leases",
-        columns=[("Lease", "cyan"), "Path", "Remaining", "Renewable", "Renewals"],
-        rows=[
-            [
-                mask_secrets(lease.lease_id),
-                lease.secret_path or "—",
-                f"{lease.remaining_seconds():.0f}s",
-                "yes" if lease.renewable else "no",
-                str(lease.renewal_count),
-            ]
-            for lease in leases
-        ],
-    )
 
 
 # =============================================================================
