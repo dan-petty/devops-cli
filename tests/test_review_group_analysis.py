@@ -1603,6 +1603,44 @@ def _analyze_group(client: LLMClient) -> Any:
     )
 
 
+def _plan_payload(finding_id: str = "fp-a") -> str:
+    """A reply that parses and passes every G10 check for the one finding review plan."""
+    return json.dumps(
+        {
+            "summary": "Review remediation plan",
+            "steps": [
+                {
+                    "step_number": 1,
+                    "title": "Remediate F401",
+                    "description": "Fix import issue in src/app.py",
+                    "finding_ids": [finding_id],
+                    "shared_keys": [],
+                }
+            ],
+            "deferred": [],
+        }
+    )
+
+
+def _analyze_plan(client: LLMClient) -> tuple[Any, list[str], bool]:
+    """Run review plan job over the one admitted finding through `client`."""
+    from devops_cli.review.analysis import (
+        SamplingRecord,
+        default_environment_facts,
+        run_review_plan_job,
+    )
+
+    finding = _make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")
+    return run_review_plan_job(
+        [finding],
+        correlation_table=[],
+        group_records=[],
+        llm_client=client,
+        sampling=SamplingRecord(),
+        environment=default_environment_facts([finding]),
+    )
+
+
 def _cache_entries(tmp_path: Path) -> list[dict[str, Any]]:
     """The entries the per-test response cache wrote to disk."""
     files = (tmp_path / "test_llm_cache").rglob("*.json")
@@ -1736,6 +1774,171 @@ def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_cal
         report.groups[0].status,
         [entry["content"] for entry in _cache_entries(tmp_path)],
     ) == (["not json"], 1, "verified", [_group_payload()])
+
+
+def test_a_plan_reply_that_is_not_json_is_rejected_after_one_call_and_never_cached(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A plan reply that does not parse costs one model call, records `schema-validation-failed`
+    and is not cached, so the next run asks the model again (#1810)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("not json")])
+
+    record_1, reasons_1, is_cached_1 = _analyze_plan(client)
+    calls_after_first = len(sent)
+    cached_after_first = _cache_entries(tmp_path)
+    record_2, reasons_2, is_cached_2 = _analyze_plan(client)
+
+    assert (
+        calls_after_first,
+        record_1.status,
+        record_1.rejected_reasons,
+        reasons_1,
+        is_cached_1,
+        cached_after_first,
+        len(sent),
+        record_2.status,
+        reasons_2,
+        is_cached_2,
+    ) == (
+        1,
+        "rejected",
+        ["schema-validation-failed"],
+        ["schema-validation-failed"],
+        False,
+        [],
+        2,
+        "rejected",
+        ["schema-validation-failed"],
+        False,
+    )
+
+
+def test_a_plan_reply_citing_an_unknown_finding_is_rejected_after_one_call_and_never_cached(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A plan reply that parses but fails a G10 check records that check's reason and is not cached
+    (#1810)."""
+    client, sent = _group_client(monkeypatch, [_group_reply(_plan_payload("fp-unknown"))])
+
+    record, reasons, is_cached = _analyze_plan(client)
+
+    assert (
+        len(sent),
+        record.status,
+        record.rejected_reasons,
+        reasons,
+        _cache_entries(tmp_path),
+        is_cached,
+    ) == (
+        1,
+        "rejected",
+        ["unknown-finding-id", "plan-incomplete-coverage"],
+        ["unknown-finding-id", "plan-incomplete-coverage"],
+        [],
+        False,
+    )
+
+
+def test_a_verified_plan_reply_is_cached_and_answers_the_next_run(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A plan reply that passes its checks is cached, and the next run is verified from the cache
+    without a model call (#1810)."""
+    client, sent = _group_client(monkeypatch, [_group_reply(_plan_payload())])
+
+    rec_1, reasons_1, cached_1 = _analyze_plan(client)
+    rec_2, reasons_2, cached_2 = _analyze_plan(client)
+
+    assert (
+        len(sent),
+        rec_1.status,
+        rec_2.status,
+        reasons_1,
+        reasons_2,
+        cached_1,
+        cached_2,
+        [entry["content"] for entry in _cache_entries(tmp_path)],
+    ) == (1, "verified", "verified", [], [], False, True, [_plan_payload()])
+
+
+def test_a_cut_plan_reply_that_is_not_json_is_rejected_as_truncated_after_one_call(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A plan reply cut at the token cap that also fails to parse is `reply-truncated`, not
+    `schema-validation-failed`: the rejection keeps the reply's finish reason (#1810)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("not json", finish_reason="length")])
+
+    record, reasons, is_cached = _analyze_plan(client)
+
+    assert (len(sent), record.rejected_reasons, reasons, _cache_entries(tmp_path), is_cached) == (
+        1,
+        [CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED],
+        [CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED],
+        [],
+        False,
+    )
+
+
+def test_an_empty_plan_reply_is_one_model_call_and_a_model_call_error(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """An empty plan reply is not resent: one model call, recorded as `model-call-error` (#1810)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("")])
+
+    record, reasons, is_cached = _analyze_plan(client)
+
+    assert (len(sent), record.rejected_reasons, reasons, _cache_entries(tmp_path), is_cached) == (
+        1,
+        ["model-call-error"],
+        ["model-call-error"],
+        [],
+        False,
+    )
+
+
+def test_an_empty_plan_reply_with_reasoning_is_rejected_after_one_call_and_never_cached(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """An empty plan reply that carries reasoning reaches the checks, fails to parse, and is not
+    cached or resent (#1810)."""
+    client, sent = _group_client(monkeypatch, [_group_reply("", reasoning="thinking it over")])
+
+    record, reasons, is_cached = _analyze_plan(client)
+
+    assert (len(sent), record.rejected_reasons, reasons, _cache_entries(tmp_path), is_cached) == (
+        1,
+        ["schema-validation-failed"],
+        ["schema-validation-failed"],
+        [],
+        False,
+    )
+
+
+def test_a_cached_plan_reply_that_fails_its_checks_is_replaced_by_one_model_call(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+) -> None:
+    """A cached plan reply the checks reject is not served: the plan makes one model call, is
+    verified, and the entry then holds the new reply (#1810)."""
+    replies = [_group_reply("not json")]
+    client, sent = _group_client(monkeypatch, replies)
+    _analyze_plan(client)
+    request = json.loads(sent[0].content)
+    system, user = (message["content"] for message in request["messages"])
+    client.chat(system, user)
+    seeded = [entry["content"] for entry in _cache_entries(tmp_path)]
+    calls_before = len(sent)
+    replies[:] = [_group_reply(_plan_payload())]
+
+    record, reasons, is_cached = _analyze_plan(client)
+
+    assert (
+        seeded,
+        len(sent) - calls_before,
+        record.status,
+        reasons,
+        is_cached,
+        [entry["content"] for entry in _cache_entries(tmp_path)],
+    ) == (["not json"], 1, "verified", [], False, [_plan_payload()])
 
 
 def test_group_analysis_failure_counts_failed_and_dispatched_apart(tmp_path: Path) -> None:
