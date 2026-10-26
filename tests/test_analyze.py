@@ -940,3 +940,28 @@ def test_analyze_branch_compares_a_renamed_file_with_its_old_path(
         [("merge-sha", "old_name.py")],
         [("new_name.py", "renamed", ["fresh"], ["dropped"], ["moved"])],
     )
+
+
+def test_analyze_pr_dry_run_previews_and_contacts_no_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`analyze pr --dry-run` renders the preview and opens no GitHub session."""
+    (tmp_path / ".git").mkdir(exist_ok=True)
+    monkeypatch.chdir(tmp_path)
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("dry run contacted GitHub")
+
+    monkeypatch.setattr("devops_cli.github.session.get_github_session", forbidden)
+    monkeypatch.setattr("subprocess.run", forbidden)
+    monkeypatch.setattr("subprocess.Popen", forbidden)
+    with patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path):
+        result = runner.invoke(analyze_app, ["pr", "42", "--dry-run"])
+        monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+        env_result = runner.invoke(analyze_app, ["pr", "42"])
+
+    assert result.exit_code == 0, result.output
+    assert "devops ai analyze pr" in result.output
+    assert "42" in result.output
+    assert env_result.exit_code == 0, env_result.output
+    assert not (tmp_path / ".data" / "analysis").exists()
