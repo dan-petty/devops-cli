@@ -168,7 +168,7 @@ devops scan complexity [OPTIONS] <target>
 
 ## `devops scan sbom`
 
-**Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format.**
+**Generate Software Bill of Materials (SBOM) using Trivy (#1439).**
 
 ```bash
 devops scan sbom [OPTIONS] <target>

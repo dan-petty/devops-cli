@@ -147,6 +147,21 @@ def build_trivy_scan_cmd(
     ]
 
 
+def build_trivy_sbom_cmd(
+    target: Path | str,
+    format_type: str = "cyclonedx",
+) -> list[str]:
+    """Build an Aqua Trivy SBOM generation command (#1439)."""
+    trivy_format = "spdx-json" if format_type in ("spdx", "spdx-json") else "cyclonedx"
+    return [
+        BIN_TRIVY,
+        "fs",
+        "--format",
+        trivy_format,
+        str(target),
+    ]
+
+
 def build_osv_scan_cmd(
     target_path: Path | str,
     *,
