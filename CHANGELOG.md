@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.4](https://github.com/dan-petty/devops-cli/compare/v0.6.3...v0.6.4) (2026-10-26)
+
+
+### Bug Fixes
+
+* **devcontainer:** report a developer tool's failed installer download as a failure ([#2304](https://github.com/dan-petty/devops-cli/issues/2304)) ([6ca95c1](https://github.com/dan-petty/devops-cli/commit/6ca95c152453032254245dcd44121d90128779ec))
+* **k8s:** network policy peers name only namespaces that exist ([#1656](https://github.com/dan-petty/devops-cli/issues/1656)) ([#2302](https://github.com/dan-petty/devops-cli/issues/2302)) ([c77b6e3](https://github.com/dan-petty/devops-cli/commit/c77b6e396480495bad19b7a652f92504f63bf9a9))
+* **k8s:** skip post-Helm deletes whose CRD is not installed ([#2307](https://github.com/dan-petty/devops-cli/issues/2307)) ([fe01b30](https://github.com/dan-petty/devops-cli/commit/fe01b30d0e29d6ae348dd86561005bb668fbed44)), closes [#1818](https://github.com/dan-petty/devops-cli/issues/1818)
+* **k8s:** warn on kubectl and kubelet version skew in doctor and deploy-stack ([#2306](https://github.com/dan-petty/devops-cli/issues/2306)) ([001a7af](https://github.com/dan-petty/devops-cli/commit/001a7af8981b9dbe702828fdc9381744a4aa9911)), closes [#1640](https://github.com/dan-petty/devops-cli/issues/1640)
+* **review:** do not cache rejected review plan replies ([#1810](https://github.com/dan-petty/devops-cli/issues/1810)) ([#2308](https://github.com/dan-petty/devops-cli/issues/2308)) ([aece067](https://github.com/dan-petty/devops-cli/commit/aece067ac6610b68bfe58c8a0de418c03e94519a))
+
+
+### Performance Improvements
+
+* **ci:** the Static Analysis job runs Bandit once ([#2305](https://github.com/dan-petty/devops-cli/issues/2305)) ([9cca449](https://github.com/dan-petty/devops-cli/commit/9cca449ac5ca6953fe2d150beb1efdf99f08813c)), closes [#1746](https://github.com/dan-petty/devops-cli/issues/1746)
+
 ## [0.6.3](https://github.com/dan-petty/devops-cli/compare/v0.6.2...v0.6.3) (2026-10-26)
 
 
