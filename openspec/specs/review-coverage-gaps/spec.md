@@ -42,3 +42,11 @@ Pre-analysis SHALL analyze a file again when the time of its cached metadata doe
 #### Scenario: A cached time with no time zone or that does not parse
 - **WHEN** a review of a path runs pre-analysis on files whose cached metadata has the time `2026-01-01T00:00:00` or `not a time`
 - **THEN** pre-analysis analyzes each file again and reuses no cached metadata
+
+### Requirement: A base revision file that cannot be read is a coverage gap
+A review SHALL record each base revision file that it cannot read as a coverage gap with the reason `Base revision: <error>`. A base revision file that does not exist SHALL NOT be a coverage gap.
+
+#### Scenario: A base revision file read fails from GitHub
+- **WHEN** a pull request review reads a base revision file and the GitHub API returns an error
+- **THEN** the review records the file as a coverage gap with the reason `Base revision: <error>`
+- **AND** the review continues scanning the remaining candidate files

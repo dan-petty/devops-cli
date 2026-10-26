@@ -54,6 +54,7 @@ from gidgethub.httpx import GitHubAPI
 from devops_cli.config.constants import (
     CONST_GH_API_SUBCOMMAND,
     CONST_GITHUB_API_VERSION,
+    CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_GITHUB_HEADER_API_VERSION,
     CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE,
     CONST_GITHUB_USER_AGENT,
@@ -232,6 +233,7 @@ class SessionGitHubAPI(GitHubAPI):
             pace_request, method, url, self._identity, abandon_on_cancel=True
         )
         answer = await super()._request(method, url, headers, body)
+        self._last_body_empty = (answer[2] == b"") and bool(answer[1].get("content-type"))
         await anyio.to_thread.run_sync(charge_response, answer[1], resource, self._identity)
         return answer
 
@@ -307,6 +309,12 @@ class SessionGitHubAPI(GitHubAPI):
                 b"" if body is None else body,
                 accept or sansio.accept_format(),
             )
+            if (
+                answer is None
+                and getattr(self, "_last_body_empty", False)
+                and accept == CONST_GITHUB_DIFF_MEDIA_TYPE
+            ):
+                answer = ""
         except DevOpsCLIError:
             raise
         except (HTTPException, *_UNREAD) as error:

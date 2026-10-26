@@ -103,6 +103,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.exceptions import SecurityError
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
@@ -2033,10 +2034,18 @@ def _run_scanners_for_buckets(
     return findings
 
 
+def _base_read_failure(exc: Exception) -> str:
+    """Format the reason a base revision file could not be read."""
+    if isinstance(exc, OSError) and exc.strerror:
+        return f"Base revision: {exc.strerror}"
+    return _format_error_detail("Base revision", exc)
+
+
 def _write_base_revision_files(
     base_revision: Any,
     tmp_root: Path,
     candidates: set[str],
+    coverage_gaps: dict[str, str] | None = None,
 ) -> list[str]:
     """Write base revision file contents to temporary root directory."""
     written: list[str] = []
@@ -2046,13 +2055,15 @@ def _write_base_revision_files(
             continue
         try:
             content = base_revision.read(clean)
-            if content is not None:
-                dest = tmp_root / clean
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_text(content, encoding="utf-8", errors="replace")
-                written.append(clean)
-        except Exception:
+        except (DevOpsCLIError, OSError, RuntimeError) as exc:
+            if coverage_gaps is not None:
+                _record_coverage_gap(coverage_gaps, clean, _base_read_failure(exc))
             continue
+        if content is not None:
+            dest = tmp_root / clean
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8", errors="replace")
+            written.append(clean)
     return written
 
 
@@ -2062,6 +2073,7 @@ def _populate_gomod_for_dir(
     dir_path: Path,
     written_paths: Sequence[str],
     extra_lockfiles: list[str],
+    coverage_gaps: dict[str, str] | None = None,
 ) -> None:
     """Populate nearest go.mod from base revision for a directory containing Go files (#603)."""
     curr: Path | None = dir_path
@@ -2071,14 +2083,17 @@ def _populate_gomod_for_dir(
             break
         try:
             mod_content = base_revision.read(mod_rel)
-            if mod_content is not None:
-                dest = tmp_root / mod_rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_text(mod_content, encoding="utf-8", errors="replace")
-                extra_lockfiles.append(mod_rel)
-                break
-        except (OSError, UnicodeDecodeError, KeyError) as exc:
+        except (DevOpsCLIError, OSError, RuntimeError, KeyError) as exc:
+            if coverage_gaps is not None:
+                _record_coverage_gap(coverage_gaps, mod_rel, _base_read_failure(exc))
             logger.debug("Failed reading base revision %s: %s", mod_rel, exc)
+            break
+        if mod_content is not None:
+            dest = tmp_root / mod_rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(mod_content, encoding="utf-8", errors="replace")
+            extra_lockfiles.append(mod_rel)
+            break
         if curr == Path(".") or not curr.parts:
             break
         curr = curr.parent if curr.parent != curr else None
@@ -2088,6 +2103,7 @@ def _write_base_revision_lockfiles(
     base_revision: Any,
     tmp_root: Path,
     written_paths: list[str],
+    coverage_gaps: dict[str, str] | None = None,
 ) -> list[str]:
     """Populate base revision lockfiles beside written files."""
     dirs = {Path(p).parent for p in written_paths}
@@ -2099,13 +2115,15 @@ def _write_base_revision_lockfiles(
                 continue
             try:
                 lf_content = base_revision.read(lf_rel)
-                if lf_content is not None:
-                    lf_dest = tmp_root / lf_rel
-                    lf_dest.parent.mkdir(parents=True, exist_ok=True)
-                    lf_dest.write_text(lf_content, encoding="utf-8", errors="replace")
-                    extra_lockfiles.append(lf_rel)
-            except Exception:
+            except (DevOpsCLIError, OSError, RuntimeError) as exc:
+                if coverage_gaps is not None:
+                    _record_coverage_gap(coverage_gaps, lf_rel, _base_read_failure(exc))
                 continue
+            if lf_content is not None:
+                lf_dest = tmp_root / lf_rel
+                lf_dest.parent.mkdir(parents=True, exist_ok=True)
+                lf_dest.write_text(lf_content, encoding="utf-8", errors="replace")
+                extra_lockfiles.append(lf_rel)
     if any(p.endswith(".go") for p in written_paths):
         for d in dirs:
             _populate_gomod_for_dir(
@@ -2114,6 +2132,7 @@ def _write_base_revision_lockfiles(
                 d,
                 written_paths,
                 extra_lockfiles,
+                coverage_gaps=coverage_gaps,
             )
     return extra_lockfiles
 
@@ -2140,11 +2159,17 @@ def _collect_base_revision_fingerprints(
     with tempfile.TemporaryDirectory(prefix="devops-base-rev-") as tmp_dir_str:
         tmp_root = Path(tmp_dir_str)
         candidates = set(file_paths) | set(secret_scan_files)
-        written = _write_base_revision_files(base_revision, tmp_root, candidates)
+        written = _write_base_revision_files(
+            base_revision, tmp_root, candidates, coverage_gaps=coverage_gaps
+        )
         if not written:
             return set()
 
-        written.extend(_write_base_revision_lockfiles(base_revision, tmp_root, written))
+        written.extend(
+            _write_base_revision_lockfiles(
+                base_revision, tmp_root, written, coverage_gaps=coverage_gaps
+            )
+        )
         base_resolved = [tmp_root / p for p in written if (tmp_root / p).is_file()]
         extra_leak_files = [tmp_root / p for p in secret_scan_files if (tmp_root / p).is_file()]
 
@@ -2339,6 +2364,7 @@ def _evaluate_session_complexity_deltas(
     base_revision: Any,
     cap: int,
     max_increase: int | None,
+    coverage_gaps: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[Finding]]:
     """Compute complexity deltas and findings across reviewed python files (#873)."""
     if not python_paths:
@@ -2362,7 +2388,9 @@ def _evaluate_session_complexity_deltas(
                 base_content = base_revision.read(rel_p)
                 if base_content is not None:
                     base_files[rel_p] = base_content
-            except (OSError, KeyError, ValueError, RuntimeError) as exc:
+            except (DevOpsCLIError, OSError, KeyError, ValueError, RuntimeError) as exc:
+                if coverage_gaps is not None:
+                    _record_coverage_gap(coverage_gaps, rel_p, _base_read_failure(exc))
                 logger.debug("Failed reading base file %s: %s", rel_p, exc)
     return compute_complexity_deltas(
         base_files,
@@ -2675,137 +2703,132 @@ class ReviewPipelineOrchestrator:
         static_findings_by_file: dict[str, list[SavedFinding]] = {}
         all_static_findings: list[SavedFinding] = []
         n_paths = len(file_paths)
-        try:
-            print_info("  • Running static security analyzers...", prefix=False)
+        print_info("  • Running static security analyzers...", prefix=False)
 
-            with trace_span(
-                "security.static_scanners", attributes={"file_count": n_paths}
-            ) as sc_span:
-                all_resolved = [self._resolve_file_path(f) for f in file_paths]
-                observed_outcomes: dict[str, Any] = {}
-                buckets = _classify_scanner_files(
-                    all_resolved,
-                    [self._resolve_file_path(f) for f in self.secret_scan_files],
-                    self.path_classes,
+        with trace_span("security.static_scanners", attributes={"file_count": n_paths}) as sc_span:
+            all_resolved = [self._resolve_file_path(f) for f in file_paths]
+            observed_outcomes: dict[str, Any] = {}
+            buckets = _classify_scanner_files(
+                all_resolved,
+                [self._resolve_file_path(f) for f in self.secret_scan_files],
+                self.path_classes,
+            )
+            py_paths = buckets.python
+            yaml_paths = buckets.yaml
+            docker_lock_paths = buckets.container
+
+            self._ensure_tool_canaries(
+                [
+                    *(("bandit",) if py_paths else ()),
+                    *(("kube-linter", "pluto") if yaml_paths else ()),
+                    *(("semgrep",) if buckets.any_files else ()),
+                ]
+            )
+
+            all_static_findings.extend(
+                _run_scanners_for_buckets(
+                    buckets,
+                    tree=reviewed_tree(self.target_dir),
+                    observed_outcomes=observed_outcomes,
+                    kubernetes_version=self.kubernetes_version,
+                    require_kubernetes_version=True,
+                    tool_executor=self.tool_executor,
                 )
-                py_paths = buckets.python
-                yaml_paths = buckets.yaml
-                docker_lock_paths = buckets.container
+            )
 
-                self._ensure_tool_canaries(
-                    [
-                        *(("bandit",) if py_paths else ()),
-                        *(("kube-linter", "pluto") if yaml_paths else ()),
-                        *(("semgrep",) if buckets.any_files else ()),
-                    ]
-                )
-
-                all_static_findings.extend(
-                    _run_scanners_for_buckets(
-                        buckets,
-                        tree=reviewed_tree(self.target_dir),
-                        observed_outcomes=observed_outcomes,
-                        kubernetes_version=self.kubernetes_version,
-                        require_kubernetes_version=True,
-                        tool_executor=self.tool_executor,
-                    )
-                )
-
-                if self.base_revision is not None:
-                    self.base_fingerprints = _collect_base_revision_fingerprints(
-                        self.base_revision,
-                        file_paths=file_paths,
-                        secret_scan_files=self.secret_scan_files,
-                        coverage_gaps=self.errored_files,
-                        path_classes=self.path_classes,
-                        severity_caps=self.severity_caps,
-                        tool_executor=self.tool_executor,
-                    )
-
-                if self.manifest_objects is None:
-                    from devops_cli.review.manifests import collect_manifest_objects
-
-                    candidates = _collect_manifest_candidates(
-                        file_paths, self.secret_scan_files, all_static_findings
-                    )
-                    read_for_manifests = partial(
-                        _read_cited_file,
-                        worktree_root=reviewed_tree(self.target_dir),
-                        resolve_file_path=self._resolve_file_path,
-                        coverage_gaps=self.errored_files,
-                    )
-                    self.manifest_objects = collect_manifest_objects(
-                        candidates, content_getter=read_for_manifests
-                    )
-
-                eff_added = (
-                    added_diff_lines
-                    if added_diff_lines is not None
-                    else getattr(self, "added_diff_lines", None)
-                )
-                admitted_frozen, admitted_saved = _admit_scanner_findings(
-                    all_static_findings,
-                    session_id=self.session_id,
-                    worktree_root=reviewed_tree(self.target_dir),
+            if self.base_revision is not None:
+                self.base_fingerprints = _collect_base_revision_fingerprints(
+                    self.base_revision,
                     file_paths=file_paths,
                     secret_scan_files=self.secret_scan_files,
-                    resolve_file_path=self._resolve_file_path,
                     coverage_gaps=self.errored_files,
                     path_classes=self.path_classes,
                     severity_caps=self.severity_caps,
-                    suppressions=getattr(self, "suppressions", None),
-                    added_diff_lines=eff_added,
-                    base_fingerprints=getattr(self, "base_fingerprints", None),
-                    canary_results=self.canary_results,
-                    rejection_counts=self.rejection_counts,
-                    manifest_objects=self.manifest_objects,
-                )
-                self.admitted_scanner_findings = admitted_frozen
-                all_static_findings = admitted_saved
-                self._record_static_analyzers(
-                    buckets.as_kind_map(),
-                    observed_outcomes=observed_outcomes,
-                )
-                self.static_severities = Counter(f.severity for f in all_static_findings)
-
-                tools = [name for name, _, _ in _STATIC_ANALYZERS]
-                all_files_to_cover = sorted(set(file_paths) | set(self.secret_scan_files))
-                tool_effective_states = _resolve_effective_tool_states(
-                    self.static_analyzers,
-                    self.static_analyzer_reasons,
-                    self.static_analyzer_unscanned,
-                )
-                self.coverage = _compute_coverage_matrix(
-                    tools,
-                    all_files_to_cover,
-                    self._resolve_file_path,
-                    tool_effective_states,
-                    self.path_classes,
-                    self.static_analyzer_unscanned,
-                    failed_files=self.static_analyzer_failed_files,
-                )
-                active_prof = active_profiler()
-                if active_prof:
-                    active_prof.set_coverage(self.coverage)
-                    active_prof.set_rejections(self.rejection_counts)
-
-                static_findings_by_file = _match_static_findings_to_files(
-                    all_static_findings, [*file_paths, *self.secret_scan_files]
+                    tool_executor=self.tool_executor,
                 )
 
-                sc_attrs = {
-                    "findings_count": len(all_static_findings),
-                    "python_files": len(py_paths),
-                    "yaml_files": len(yaml_paths),
-                    "docker_files": len(docker_lock_paths),
-                    "go_files": len(buckets.go),
-                }
-                sc_span.set_attributes(sc_attrs)
+            if self.manifest_objects is None:
+                from devops_cli.review.manifests import collect_manifest_objects
 
-            for line in _static_analyzer_summary(self.static_analyzers, len(all_static_findings)):
-                print_info(line, prefix=False)
-        except Exception as exc:
-            logger.debug("Static security scanning failed or skipped: %s", exc)
+                candidates = _collect_manifest_candidates(
+                    file_paths, self.secret_scan_files, all_static_findings
+                )
+                read_for_manifests = partial(
+                    _read_cited_file,
+                    worktree_root=reviewed_tree(self.target_dir),
+                    resolve_file_path=self._resolve_file_path,
+                    coverage_gaps=self.errored_files,
+                )
+                self.manifest_objects = collect_manifest_objects(
+                    candidates, content_getter=read_for_manifests
+                )
+
+            eff_added = (
+                added_diff_lines
+                if added_diff_lines is not None
+                else getattr(self, "added_diff_lines", None)
+            )
+            admitted_frozen, admitted_saved = _admit_scanner_findings(
+                all_static_findings,
+                session_id=self.session_id,
+                worktree_root=reviewed_tree(self.target_dir),
+                file_paths=file_paths,
+                secret_scan_files=self.secret_scan_files,
+                resolve_file_path=self._resolve_file_path,
+                coverage_gaps=self.errored_files,
+                path_classes=self.path_classes,
+                severity_caps=self.severity_caps,
+                suppressions=getattr(self, "suppressions", None),
+                added_diff_lines=eff_added,
+                base_fingerprints=getattr(self, "base_fingerprints", None),
+                canary_results=self.canary_results,
+                rejection_counts=self.rejection_counts,
+                manifest_objects=self.manifest_objects,
+            )
+            self.admitted_scanner_findings = admitted_frozen
+            all_static_findings = admitted_saved
+            self._record_static_analyzers(
+                buckets.as_kind_map(),
+                observed_outcomes=observed_outcomes,
+            )
+            self.static_severities = Counter(f.severity for f in all_static_findings)
+
+            tools = [name for name, _, _ in _STATIC_ANALYZERS]
+            all_files_to_cover = sorted(set(file_paths) | set(self.secret_scan_files))
+            tool_effective_states = _resolve_effective_tool_states(
+                self.static_analyzers,
+                self.static_analyzer_reasons,
+                self.static_analyzer_unscanned,
+            )
+            self.coverage = _compute_coverage_matrix(
+                tools,
+                all_files_to_cover,
+                self._resolve_file_path,
+                tool_effective_states,
+                self.path_classes,
+                self.static_analyzer_unscanned,
+                failed_files=self.static_analyzer_failed_files,
+            )
+            active_prof = active_profiler()
+            if active_prof:
+                active_prof.set_coverage(self.coverage)
+                active_prof.set_rejections(self.rejection_counts)
+
+            static_findings_by_file = _match_static_findings_to_files(
+                all_static_findings, [*file_paths, *self.secret_scan_files]
+            )
+
+            sc_attrs = {
+                "findings_count": len(all_static_findings),
+                "python_files": len(py_paths),
+                "yaml_files": len(yaml_paths),
+                "docker_files": len(docker_lock_paths),
+                "go_files": len(buckets.go),
+            }
+            sc_span.set_attributes(sc_attrs)
+
+        for line in _static_analyzer_summary(self.static_analyzers, len(all_static_findings)):
+            print_info(line, prefix=False)
 
         return static_findings_by_file
 
@@ -2817,80 +2840,78 @@ class ReviewPipelineOrchestrator:
         """Run Ruff, mypy, and C901 complexity evidence with project settings (#873)."""
         evidence_findings_by_file: dict[str, list[SavedFinding]] = {}
         all_evidence: list[SavedFinding] = []
-        try:
-            from devops_cli.core.repo import main_worktree_root
-            from devops_cli.security.mypy import run_mypy_scan
-            from devops_cli.security.ruff import run_ruff_scan
+        from devops_cli.core.repo import main_worktree_root
+        from devops_cli.security.mypy import run_mypy_scan
+        from devops_cli.security.ruff import run_ruff_scan
 
-            py_paths = [
-                self._resolve_file_path(f)
-                for f in file_paths
-                if f.endswith(".py") and self._resolve_file_path(f).is_file()
-            ]
-            if not py_paths:
-                return evidence_findings_by_file
+        py_paths = [
+            self._resolve_file_path(f)
+            for f in file_paths
+            if f.endswith(".py") and self._resolve_file_path(f).is_file()
+        ]
+        if not py_paths:
+            return evidence_findings_by_file
 
-            self._ensure_tool_canaries(("ruff", "mypy"))
-            rev_tree = reviewed_tree(self.target_dir)
-            checkout_root = main_worktree_root(self.target_dir) if self.target_dir else None
-            is_branch_pr = self.subject.get("type") in ("branch", "pr")
-            hunks = getattr(self, "diff_hunks", None)
-            ruff_res = run_ruff_scan(
-                py_paths,
-                advisory_rules=self.advisory_rules,
-                diff_hunks=hunks,
-                is_branch_or_pr=is_branch_pr,
-                isolated=True,
-                tree=rev_tree,
-                require_version=True,
-                tool_executor=self.tool_executor,
-            )
-            all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
+        self._ensure_tool_canaries(("ruff", "mypy"))
+        rev_tree = reviewed_tree(self.target_dir)
+        checkout_root = main_worktree_root(self.target_dir) if self.target_dir else None
+        is_branch_pr = self.subject.get("type") in ("branch", "pr")
+        hunks = getattr(self, "diff_hunks", None)
+        ruff_res = run_ruff_scan(
+            py_paths,
+            advisory_rules=self.advisory_rules,
+            diff_hunks=hunks,
+            is_branch_or_pr=is_branch_pr,
+            isolated=True,
+            tree=rev_tree,
+            require_version=True,
+            tool_executor=self.tool_executor,
+        )
+        all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
 
-            mypy_res = run_mypy_scan(
-                py_paths,
-                tree=rev_tree,
-                checkout_root=checkout_root,
-                tool_executor=self.tool_executor,
-            )
-            all_evidence.extend(_wrap_static_findings(mypy_res.findings, tool="mypy"))
+        mypy_res = run_mypy_scan(
+            py_paths,
+            tree=rev_tree,
+            checkout_root=checkout_root,
+            tool_executor=self.tool_executor,
+        )
+        all_evidence.extend(_wrap_static_findings(mypy_res.findings, tool="mypy"))
 
-            deltas, c901_findings = _evaluate_session_complexity_deltas(
-                py_paths,
-                self.target_dir,
-                self.base_revision,
-                self.complexity_cap,
-                self.complexity_max_increase,
-            )
-            self.complexity_deltas = deltas
-            if c901_findings:
-                all_evidence.extend(_wrap_static_findings(c901_findings, tool="c901"))
+        deltas, c901_findings = _evaluate_session_complexity_deltas(
+            py_paths,
+            self.target_dir,
+            self.base_revision,
+            self.complexity_cap,
+            self.complexity_max_increase,
+            coverage_gaps=self.errored_files,
+        )
+        self.complexity_deltas = deltas
+        if c901_findings:
+            all_evidence.extend(_wrap_static_findings(c901_findings, tool="c901"))
 
-            eff_added = (
-                added_diff_lines
-                if added_diff_lines is not None
-                else getattr(self, "added_diff_lines", None)
-            )
-            admitted_frozen, admitted_saved = _admit_scanner_findings(
-                all_evidence,
-                session_id=self.session_id,
-                worktree_root=rev_tree,
-                file_paths=file_paths,
-                secret_scan_files=self.secret_scan_files,
-                resolve_file_path=self._resolve_file_path,
-                coverage_gaps=self.errored_files,
-                path_classes=self.path_classes,
-                suppressions=getattr(self, "suppressions", None),
-                added_diff_lines=eff_added,
-                base_fingerprints=getattr(self, "base_fingerprints", None),
-                canary_results=self.canary_results,
-                rejection_counts=self.rejection_counts,
-                manifest_objects=getattr(self, "manifest_objects", None),
-            )
-            self.admitted_scanner_findings.extend(admitted_frozen)
-            evidence_findings_by_file = _match_static_findings_to_files(admitted_saved, file_paths)
-        except (OSError, RuntimeError, ValueError) as exc:
-            logger.debug("Review evidence scanning failed: %s", exc)
+        eff_added = (
+            added_diff_lines
+            if added_diff_lines is not None
+            else getattr(self, "added_diff_lines", None)
+        )
+        admitted_frozen, admitted_saved = _admit_scanner_findings(
+            all_evidence,
+            session_id=self.session_id,
+            worktree_root=rev_tree,
+            file_paths=file_paths,
+            secret_scan_files=self.secret_scan_files,
+            resolve_file_path=self._resolve_file_path,
+            coverage_gaps=self.errored_files,
+            path_classes=self.path_classes,
+            suppressions=getattr(self, "suppressions", None),
+            added_diff_lines=eff_added,
+            base_fingerprints=getattr(self, "base_fingerprints", None),
+            canary_results=self.canary_results,
+            rejection_counts=self.rejection_counts,
+            manifest_objects=getattr(self, "manifest_objects", None),
+        )
+        self.admitted_scanner_findings.extend(admitted_frozen)
+        evidence_findings_by_file = _match_static_findings_to_files(admitted_saved, file_paths)
 
         return evidence_findings_by_file
 

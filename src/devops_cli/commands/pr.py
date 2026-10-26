@@ -34,7 +34,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_CONFIG_PATH,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_PR_LIMIT,
     DEFAULT_PR_STATE,
     DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
@@ -47,6 +46,7 @@ from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.client import PullRequestFile
 from devops_cli.github.defect_classifier import (
     PRHardeningAudit,
     audit_pr_hardening,
@@ -1327,17 +1327,10 @@ def _check_run_blockers(
     return blockers
 
 
-class ChangedFile(NamedTuple):
-    """A file a pull request changes, with GitHub's status for it (`added`, `removed`, ...)."""
-
-    filename: str
-    status: str
-
-
 class _ChangedFilesRead(NamedTuple):
     """The files a pull request changes, or why they could not be read."""
 
-    files: list[ChangedFile]
+    files: list[PullRequestFile]
     error: str = ""
 
 
@@ -1348,35 +1341,13 @@ def _gh_failure(res: Any) -> str:
     ]
 
 
-_PR_FILES_API = "the pull request files API"
-
-
-def _changed_file(entry: Any) -> ChangedFile:
-    """Read one `pulls/{n}/files` entry, raising on one without a filename and status."""
-    if not isinstance(entry, dict):
-        raise GitHubOperationError(f"{_PR_FILES_API} returned a non-object entry")
-    filename, status = entry.get("filename"), entry.get("status")
-    if not isinstance(filename, str) or not isinstance(status, str):
-        raise GitHubOperationError(
-            f"{_PR_FILES_API} returned an entry without a filename or status"
-        )
-    return ChangedFile(filename, status)
-
-
-def _fetch_pr_files(pr_num: int, owner: str, repo_name: str) -> list[ChangedFile]:
-    """Read every file a pull request changes, page by linked page through the GitHub session,
-    raising when GitHub can't say which: a failed or malformed page raises, never a shorter
-    list."""
-    from devops_cli.github.session import get_github_session
-
-    files = f"/repos/{owner}/{repo_name}/pulls/{pr_num}/files?per_page={DEFAULT_GH_REST_PER_PAGE}"
-    return [_changed_file(entry) for entry in get_github_session().paginate(files)]
-
-
 def _read_pr_files(pr_num: int, owner: str, repo_name: str) -> _ChangedFilesRead:
     """Read the changed files once per readiness run, keeping a failure for the caller to judge."""
+    from devops_cli.github.session import get_github_session
+
     try:
-        return _ChangedFilesRead(_fetch_pr_files(pr_num, owner, repo_name))
+        files = get_github_session().client.get_pull_files(f"{owner}/{repo_name}", pr_num)
+        return _ChangedFilesRead(files)
     except GitHubOperationError as exc:
         return _ChangedFilesRead([], str(exc))
 
@@ -1712,7 +1683,7 @@ def _changed_files_were_read(grounding: _Grounding) -> str | None:
     )
 
 
-def _archives(changed: ChangedFile, issue: int) -> bool:
+def _archives(changed: PullRequestFile, issue: int) -> bool:
     """Whether this change adds a file to an archived change folder of `issue`."""
     match = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, changed.filename)
     return (
@@ -1722,7 +1693,7 @@ def _archives(changed: ChangedFile, issue: int) -> bool:
     )
 
 
-def _change_named_by(changed: ChangedFile) -> re.Match[str] | None:
+def _change_named_by(changed: PullRequestFile) -> re.Match[str] | None:
     """The change folder that `changed` leaves in the PR's head: an active folder it does not
     remove, or an archived folder it adds. None for any other file."""
     if changed.status in CONST_PR_FILE_ADDED_STATUSES:
@@ -1733,7 +1704,7 @@ def _change_named_by(changed: ChangedFile) -> re.Match[str] | None:
     return re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, changed.filename)
 
 
-def _its_change(files: list[ChangedFile], issue: int) -> str:
+def _its_change(files: list[PullRequestFile], issue: int) -> str:
     """The name of the change of `issue` that the PR leaves in its head, or the placeholder
     `<issue>-<slug>` when it leaves none."""
     matches = (match for changed in files if (match := _change_named_by(changed)))
