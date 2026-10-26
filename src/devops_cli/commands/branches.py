@@ -11,6 +11,7 @@ import typer
 from devops_cli.config.constants import CONST_GIT_DIR_NAME
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.git.operations import (
     create_branch,
     delete_merged_branches,
@@ -43,14 +44,19 @@ def update(
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
 
+    failed = False
     for repo_dir in iter_workspace_repos(root):
         label = repo_label(repo_dir)
         try:
             fetch_all(repo_dir)
             pull_tracking(repo_dir)
             print_success(label)
-        except (OSError, ValueError) as exc:
+        except (DevOpsCLIError, OSError, ValueError) as exc:
+            failed = True
             print_error(f"{label}: {exc}")
+
+    if failed:
+        raise typer.Exit(1)
 
 
 # =============================================================================

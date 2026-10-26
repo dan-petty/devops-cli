@@ -28,6 +28,7 @@ from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError, GitOperationError
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
 from devops_cli.git.worktree_inventory import inventory_worktrees, prune_worktrees
@@ -367,6 +368,7 @@ def update(
         print_warning(MESSAGES.repos.no_repos_found, prefix=False)
         raise typer.Exit(0)
 
+    failed = False
     for repo_dir in track_progress(repos_list, description="Updating..."):
         label = repo_label(repo_dir)
         try:
@@ -374,10 +376,13 @@ def update(
             if pull:
                 pull_tracking(repo_dir)
             print_success(f"{label}")
-        except (OSError, subprocess.SubprocessError, Exception) as exc:
+        except (DevOpsCLIError, OSError, subprocess.SubprocessError, Exception) as exc:
+            failed = True
             print_error(f"{label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
+    if failed:
+        raise typer.Exit(1)
 
 
 # =============================================================================

@@ -162,20 +162,56 @@ def fetch_all(repo_dir: Path) -> None:
     for remote in repo.remotes:
         try:
             remote.fetch(prune=True)
-        except gitlib.GitCommandError:
-            pass
+        except gitlib.GitCommandError as exc:
+            from devops_cli.security.sanitizer import mask_secrets
+
+            stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+            reason = mask_secrets(stderr.strip() or str(exc))
+            raise GitOperationError(
+                f"Failed to fetch remote '{remote.name}' in '{repo_dir}': {reason}",
+                operation="fetch",
+                details={
+                    "repository": str(repo_dir)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                    "remote": str(remote.name)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                },
+            ) from exc
 
 
 def pull_tracking(repo_dir: Path) -> None:
     """Pull the current tracking branch if one is configured."""
     repo = gitlib.Repo(str(repo_dir))
+    if repo.head.is_detached:
+        return
+    tracking = repo.active_branch.tracking_branch()
+    if not tracking:
+        return
+    remote_name = tracking.remote_name
     try:
-        if not repo.head.is_detached:
-            tracking = repo.active_branch.tracking_branch()
-            if tracking:
-                repo.remotes[tracking.remote_name].pull(repo.active_branch.name)
-    except gitlib.GitCommandError, IndexError:
-        pass
+        remote = repo.remotes[remote_name]
+    except IndexError as exc:
+        raise GitOperationError(
+            f"Remote '{remote_name}' configured for tracking in '{repo_dir}' not found",
+            operation="pull",
+            details={
+                "repository": str(repo_dir)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                "remote": str(remote_name)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+            },
+        ) from exc
+    try:
+        remote.pull(repo.active_branch.name)
+    except gitlib.GitCommandError as exc:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        reason = mask_secrets(stderr.strip() or str(exc))
+        raise GitOperationError(
+            f"Failed to pull remote '{remote_name}' in '{repo_dir}': {reason}",
+            operation="pull",
+            details={
+                "repository": str(repo_dir)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                "remote": str(remote_name)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+            },
+        ) from exc
 
 
 def create_branch(repo_dir: Path, branch_name: str) -> None:

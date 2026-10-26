@@ -124,8 +124,18 @@ def test_fetch_all(tmp_path: Path) -> None:
         mock_remote.fetch.assert_called_once_with(prune=True)
 
         # Exception handling
+        mock_remote.name = "origin"
         mock_remote.fetch.side_effect = gitlib.GitCommandError("fetch", "network error")
-        fetch_all(tmp_path)
+        with pytest.raises(GitOperationError) as exc_info:
+            fetch_all(tmp_path)
+        assert (
+            "network error" in str(exc_info.value),
+            str(tmp_path) in str(exc_info.value),
+            "origin" in str(exc_info.value),
+            exc_info.value.details["operation"],
+            exc_info.value.details["repository"],
+            exc_info.value.details["remote"],
+        ) == (True, True, True, "fetch", str(tmp_path), "origin")
 
 
 def test_pull_tracking(tmp_path: Path) -> None:
@@ -276,7 +286,7 @@ def test_is_git_clean_and_get_latest_tag(tmp_path: Path) -> None:
 
 def test_git_operations_edge_cases(tmp_path: Path) -> None:
     """Verify pull_tracking error handling, delete_merged_branches empty branches, and keyscan failure."""
-    # 1. pull_tracking handles GitCommandError and IndexError
+    # 1. pull_tracking raises GitOperationError on GitCommandError
     with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
         mock_repo = MagicMock()
         mock_repo.head.is_detached = False
@@ -291,7 +301,16 @@ def test_git_operations_edge_cases(tmp_path: Path) -> None:
         mock_repo.remotes = {"origin": mock_remote}
         mock_repo_cls.return_value = mock_repo
 
-        pull_tracking(tmp_path)
+        with pytest.raises(GitOperationError) as exc_info:
+            pull_tracking(tmp_path)
+        assert (
+            "network down" in str(exc_info.value),
+            str(tmp_path) in str(exc_info.value),
+            "origin" in str(exc_info.value),
+            exc_info.value.details["operation"],
+            exc_info.value.details["repository"],
+            exc_info.value.details["remote"],
+        ) == (True, True, True, "pull", str(tmp_path), "origin")
 
     # 2. delete_merged_branches with no default branch
     with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
@@ -505,3 +524,75 @@ def test_commit_snapshot_makes_the_same_one_commit_of_the_same_files(
         "main",
         1,
     )
+
+
+def test_fetch_all_refused_by_bare_remote_raises_git_operation_error(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A bare remote that refuses fetch raises GitOperationError with repository, remote, and reason."""
+    bare = tmp_path / "remote.git"
+    bare.mkdir()
+    git(bare, "init", "--bare", "--initial-branch=main", "--quiet")
+    repo = tmp_path / "clone"
+    git(tmp_path, "clone", "--quiet", str(bare), str(repo))
+    (repo / "file.txt").write_text("content", encoding="utf-8")
+    git(repo, "add", ".")
+    git(repo, "commit", "--quiet", "-m", "init")
+    git(repo, "push", "--quiet", "origin", "main")
+
+    objects_dir = bare / "objects"
+    objects_dir.chmod(0o000)
+    try:
+        with pytest.raises(GitOperationError) as raised:
+            fetch_all(repo)
+    finally:
+        objects_dir.chmod(0o755)
+
+    msg = str(raised.value)
+    assert (
+        str(repo) in msg,
+        "origin" in msg,
+        raised.value.details["operation"],
+        raised.value.details["repository"],
+        raised.value.details["remote"],
+    ) == (True, True, "fetch", str(repo), "origin")
+
+
+def test_pull_tracking_divergent_branch_raises_git_operation_error(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A divergent tracking branch that cannot fast-forward raises GitOperationError."""
+    bare = tmp_path / "remote.git"
+    bare.mkdir()
+    git(bare, "init", "--bare", "--initial-branch=main", "--quiet")
+
+    clone1 = tmp_path / "clone1"
+    git(tmp_path, "clone", "--quiet", str(bare), str(clone1))
+    (clone1 / "file1.txt").write_text("c1", encoding="utf-8")
+    git(clone1, "add", ".")
+    git(clone1, "commit", "--quiet", "-m", "commit 1")
+    git(clone1, "push", "--quiet", "origin", "main")
+
+    clone2 = tmp_path / "clone2"
+    git(tmp_path, "clone", "--quiet", str(bare), str(clone2))
+
+    (clone1 / "file2.txt").write_text("c2", encoding="utf-8")
+    git(clone1, "add", ".")
+    git(clone1, "commit", "--quiet", "-m", "commit 2")
+    git(clone1, "push", "--quiet", "origin", "main")
+
+    (clone2 / "file3.txt").write_text("c3", encoding="utf-8")
+    git(clone2, "add", ".")
+    git(clone2, "commit", "--quiet", "-m", "commit 3")
+
+    with pytest.raises(GitOperationError) as raised:
+        pull_tracking(clone2)
+
+    msg = str(raised.value)
+    assert (
+        str(clone2) in msg,
+        "origin" in msg,
+        raised.value.details["operation"],
+        raised.value.details["repository"],
+        raised.value.details["remote"],
+    ) == (True, True, "pull", str(clone2), "origin")
