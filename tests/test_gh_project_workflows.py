@@ -59,19 +59,21 @@ def test_find_project_via_repo_found() -> None:
 
 
 def test_find_project_via_repo_not_found_or_error() -> None:
-    """_find_project_via_repo returns None when no matching project exists or query errors."""
+    """_find_project_via_repo returns None when no matching project exists and raises on error."""
     mock_empty = {"data": {"repository": {"projectsV2": {"nodes": []}}}}
     with patch(
         "devops_cli.github.projects.run_gh", return_value=_mock_proc(json.dumps(mock_empty))
     ):
         res1 = _find_project_via_repo("dan-petty", "devops-cli", "Nonexistent")
+    assert res1 is None
 
-    with patch("devops_cli.github.projects.run_gh", return_value=_mock_proc("", returncode=1)):
-        res2 = _find_project_via_repo(
+    with (
+        patch("devops_cli.github.projects.run_gh", return_value=_mock_proc("", returncode=1)),
+        pytest.raises(GitHubOperationError),
+    ):
+        _find_project_via_repo(
             "dan-petty", "devops-cli", "DevOps CLI — Enterprise Development & Release Roadmap"
         )
-
-    assert (res1, res2) == (None, None)
 
 
 def test_find_remote_project_prefers_repo_link() -> None:

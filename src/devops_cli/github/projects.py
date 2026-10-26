@@ -33,9 +33,15 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.git import GitHubOperationError, GitHubScopeError
+from devops_cli.exceptions.git import (
+    GitHubNotFoundError,
+    GitHubOperationError,
+    GitHubScopeError,
+    GitHubUnreadError,
+)
 from devops_cli.github.error_classifier import (
     classify_gh_failure,
+    gh_http_status,
     is_gh_owner_lookup_failure,
     unlisted_entry,
 )
@@ -231,20 +237,6 @@ def _repository_boards_args(owner: str, repo: str) -> list[str]:
     ]
 
 
-def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | None:
-    """Attempt to locate a remote project via GitHub REST API."""
-    for endpoint in _OWNER_BOARD_ENDPOINTS:
-        proc = run_gh([CONST_GH_CLI, *_owner_boards_args(endpoint, owner)], check=False, quiet=True)
-        if proc.returncode != 0 or not proc.stdout.strip():
-            continue
-        data = extract_json_payload(proc.stdout)
-        if isinstance(data, list):
-            match = _find_project_in_list(data, name_or_short)
-            if match:
-                return match
-    return None
-
-
 _CURRENT_USER_CACHE: str | None = None
 _PROJECT_OWNER_ARG_CACHE: dict[str, str] = {}
 
@@ -265,6 +257,94 @@ def _get_authenticated_user() -> str | None:
     if proc.returncode == 0 and proc.stdout.strip():
         _CURRENT_USER_CACHE = proc.stdout.strip().lower()
         return _CURRENT_USER_CACHE
+    return None
+
+
+def _project_login(owner: str) -> str:
+    """The login a board read names its owner by; `@me` is the signed-in user's."""
+    login = owner.strip()
+    return (_get_authenticated_user() or login) if login == "@me" else login
+
+
+def _gh_command(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """One gh command of a board read, through `run_gh`, never from its response cache."""
+    return run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
+
+
+def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
+    """The error a read of `what` that exited non-zero raises: the class the gh classifier
+    names from gh's stderr, else a failed read of `what` quoting stderr, or stdout when gh wrote
+    nothing to stderr. A board read's `--owner <login>` has no `@me` fallback, so an owner
+    lookup gh dropped the cause of is decided by GraphQL's own budget (#983)."""
+    err_output = _gh_output(proc)
+    said = err_output or (proc.stdout or "").strip()
+    classified = classify_gh_failure(err_output, exit_code=proc.returncode, operation=operation)
+    if classified is not None and is_gh_owner_lookup_failure(err_output):
+        return owner_lookup_failure(
+            classified, read=_gh_command, failed=f"Failed to read {what}", operation=operation
+        )
+    return classified or GitHubOperationError(
+        f"Failed to read {what} (exit {proc.returncode}): {said[:256]}",
+        operation=operation,
+        details={"read": what[:256]},
+    )
+
+
+def _read_lookup_failure(
+    proc: subprocess.CompletedProcess[str], what: str, operation: str
+) -> Exception:
+    """The error a lookup read of `what` that exited non-zero raises: the class the gh
+    classifier names from gh's stderr, else GitHubNotFoundError on 404, or GitHubUnreadError."""
+    err_output = _gh_output(proc)
+    said = err_output or (proc.stdout or "").strip()
+    classified = classify_gh_failure(err_output, exit_code=proc.returncode, operation=operation)
+    if classified is not None:
+        return classified
+    if gh_http_status(err_output) == 404:
+        return GitHubNotFoundError(
+            f"GitHub has no {what} (HTTP 404)",
+            operation=operation,
+            details={"read": what[:256], "exit_code": proc.returncode, "status": 404},
+        )
+    return GitHubUnreadError(
+        f"Failed to read {what} (exit {proc.returncode}): {said[:256]}",
+        operation=operation,
+        details={"read": what[:256], "exit_code": proc.returncode},
+    )
+
+
+def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | None:
+    """Attempt to locate a remote project via GitHub REST API."""
+    for endpoint in _OWNER_BOARD_ENDPOINTS:
+        proc = run_gh([CONST_GH_CLI, *_owner_boards_args(endpoint, owner)], check=False, quiet=True)
+        if proc.returncode != 0:
+            err_output = _gh_output(proc)
+            if gh_http_status(err_output) == 404:
+                continue
+            raise _read_lookup_failure(
+                proc, what=f"projects for {owner}", operation="find_remote_project"
+            )
+        if not proc.stdout.strip():
+            raise GitHubUnreadError(
+                f"GitHub returned empty projects list for {owner}",
+                operation="find_remote_project",
+                details={"owner": owner},
+            )
+        data = extract_json_payload(proc.stdout)
+        if isinstance(data, list):
+            match = _find_project_in_list(data, name_or_short)
+            if match:
+                return match
+        elif isinstance(data, dict) and isinstance(data.get("projects"), list):
+            match = _find_project_in_list(data["projects"], name_or_short)
+            if match:
+                return match
+        else:
+            raise GitHubUnreadError(
+                f"GitHub returned malformed projects response for {owner}",
+                operation="find_remote_project",
+                details={"owner": owner},
+            )
     return None
 
 
@@ -305,31 +385,72 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
     owner_arg = _resolve_project_owner_arg(owner)
     proc = _run_project_cli([CONST_GH_CLI, *_project_list_args(owner_arg)], owner_arg=owner_arg)
     if proc.returncode != 0:
-        refused = classify_gh_failure(
-            _gh_output(proc), exit_code=proc.returncode, operation="find_remote_project"
+        raise _read_lookup_failure(proc, what=f"{owner} projects", operation="find_remote_project")
+    if not proc.stdout.strip():
+        raise GitHubUnreadError(
+            f"GitHub returned empty projects list for {owner}",
+            operation="find_remote_project",
+            details={"owner": owner},
         )
-        if refused is not None:
-            raise refused
-        return None
     data = extract_json_payload(proc.stdout)
+    if not isinstance(data, (dict, list)):
+        raise GitHubUnreadError(
+            f"GitHub returned malformed projects response for {owner}",
+            operation="find_remote_project",
+            details={"owner": owner},
+        )
     projects = (
         data.get("projects", [])
         if isinstance(data, dict)
         else (data if isinstance(data, list) else [])
     )
+    if not isinstance(projects, list):
+        raise GitHubUnreadError(
+            f"GitHub returned malformed projects response for {owner}",
+            operation="find_remote_project",
+            details={"owner": owner},
+        )
     return _find_project_in_list(projects, name_or_short)
 
 
 def _find_project_via_repo(owner: str, repo: str, name_or_short: str) -> dict[str, Any] | None:
     """Locate an existing remote project linked to the target repository."""
     proc = run_gh([CONST_GH_CLI, *_repository_boards_args(owner, repo)], check=False, quiet=True)
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
+    if proc.returncode != 0:
+        err_output = _gh_output(proc)
+        if gh_http_status(err_output) == 404:
+            return None
+        raise _read_lookup_failure(
+            proc, what=f"projects linked to {owner}/{repo}", operation="find_remote_project"
+        )
+    if not proc.stdout.strip():
+        raise GitHubUnreadError(
+            f"GitHub returned empty response for projects linked to {owner}/{repo}",
+            operation="find_remote_project",
+            details={"owner": owner, "repo": repo},
+        )
     data = extract_json_payload(proc.stdout)
     if not isinstance(data, dict):
+        raise GitHubUnreadError(
+            f"GitHub returned malformed response for projects linked to {owner}/{repo}",
+            operation="find_remote_project",
+            details={"owner": owner, "repo": repo},
+        )
+    repo_data = data.get("data", {}).get("repository")
+    if repo_data is None:
+        if data.get("errors"):
+            raise _read_lookup_failure(
+                proc, what=f"projects linked to {owner}/{repo}", operation="find_remote_project"
+            )
         return None
-    nodes = data.get("data", {}).get("repository", {}).get("projectsV2", {}).get("nodes", [])
-    return _find_project_in_list(nodes, name_or_short) if isinstance(nodes, list) else None
+    nodes = repo_data.get("projectsV2", {}).get("nodes", [])
+    if not isinstance(nodes, list):
+        raise GitHubUnreadError(
+            f"GitHub returned malformed nodes for projects linked to {owner}/{repo}",
+            operation="find_remote_project",
+            details={"owner": owner, "repo": repo},
+        )
+    return _find_project_in_list(nodes, name_or_short)
 
 
 def find_remote_project(
@@ -386,8 +507,14 @@ def create_remote_project(owner: str, title: str) -> dict[str, Any]:
         owner_arg=owner_arg,
     )
     if proc.returncode != 0:
+        refused = classify_gh_failure(
+            _gh_output(proc), exit_code=proc.returncode, operation="create_remote_project"
+        )
+        if refused is not None:
+            raise refused
+        said = _gh_output(proc) or (proc.stdout or "").strip()
         raise GitHubOperationError(
-            f"Failed to create GitHub Projects v2 board '{title}': {proc.stderr or proc.stdout}",
+            f"Failed to create GitHub Projects v2 board '{title}': {said}",
             operation="create_remote_project",
             details={"owner": owner, "title": title},
         )
@@ -417,7 +544,23 @@ def link_project_to_repository(project_number: int, owner: str, repo: str) -> bo
         check=False,
         quiet=True,
     )
-    return proc.returncode == 0
+    if proc.returncode != 0:
+        refused = classify_gh_failure(
+            _gh_output(proc), exit_code=proc.returncode, operation="link_project_to_repository"
+        )
+        if refused is not None:
+            raise refused
+        said = _gh_output(proc) or (proc.stdout or "").strip()
+        raise GitHubOperationError(
+            f"Failed to link project #{project_number} to {full_repo} (exit {proc.returncode}): {said[:256]}",
+            operation="link_project_to_repository",
+            details={
+                "project_number": project_number,
+                "repo": full_repo,
+                "exit_code": proc.returncode,
+            },
+        )
+    return True
 
 
 def _fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
@@ -501,37 +644,38 @@ def _provision_single_field(owner: str, project_number: int, field: ProjectField
     else:
         cmd.extend(["--data-type", "TEXT"])
     proc = _run_project_cli(cmd, owner_arg=owner_arg)
-    return proc.returncode == 0
+    if proc.returncode != 0:
+        refused = classify_gh_failure(
+            _gh_output(proc), exit_code=proc.returncode, operation="provision_remote_project_fields"
+        )
+        if refused is not None:
+            raise refused
+        said = _gh_output(proc) or (proc.stdout or "").strip()
+        raise GitHubOperationError(
+            f"Failed to create field '{field.name}' on project #{project_number} (exit {proc.returncode}): {said[:256]}",
+            operation="provision_remote_project_fields",
+            details={
+                "project_number": project_number,
+                "field": field.name,
+                "exit_code": proc.returncode,
+            },
+        )
+    return True
 
 
-def _fetch_existing_fields_by_name(
-    owner_arg: str, project_number: int
-) -> dict[str, dict[str, Any]]:
-    """Retrieve existing fields indexed by lowercase name."""
-    list_proc = _run_project_cli(
-        [
-            CONST_GH_CLI,
-            "project",
-            "field-list",
-            str(project_number),
-            "--owner",
-            owner_arg,
-            "--format",
-            "json",
-        ],
-        owner_arg=owner_arg,
+def _fetch_existing_fields_by_name(owner: str, project_number: int) -> dict[str, Any]:
+    """Retrieve existing fields indexed by lowercase name through fail-closed FieldListingPayload."""
+    from devops_cli.roadmap.github_store import FieldListingPayload, field_list_args
+
+    login = _project_login(owner)
+    what = f"project #{project_number} fields"
+    listing = _gh_read(
+        field_list_args(login, project_number), FieldListingPayload, what, "fetch_project_fields"
     )
-    if list_proc.returncode != 0 or not list_proc.stdout.strip():
-        return {}
-    data = extract_json_payload(list_proc.stdout)
-    raw_fields = (
-        data.get("fields", [])
-        if isinstance(data, dict)
-        else (data if isinstance(data, list) else [])
+    _require_whole(
+        project_number, len(listing.fields), listing.total_count, what, "fetch_project_fields"
     )
-    return {
-        str(rf["name"]).lower(): rf for rf in raw_fields if isinstance(rf, dict) and "name" in rf
-    }
+    return {field.name.lower(): field for field in listing.fields}
 
 
 def provision_remote_project_fields(
@@ -545,7 +689,7 @@ def provision_remote_project_fields(
     which keep ids.
     """
     owner_arg = _resolve_project_owner_arg(owner)
-    existing_fields_by_name = _fetch_existing_fields_by_name(owner_arg, project_number)
+    existing_fields_by_name = _fetch_existing_fields_by_name(owner, project_number)
     missing = [field for field in fields if field.name.lower() not in existing_fields_by_name]
     return [
         field.name for field in missing if _provision_single_field(owner_arg, project_number, field)
@@ -579,36 +723,6 @@ def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
     }
 
 
-def _project_login(owner: str) -> str:
-    """The login a board read names its owner by; `@me` is the signed-in user's."""
-    login = owner.strip()
-    return (_get_authenticated_user() or login) if login == "@me" else login
-
-
-def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
-    """The error a read of `what` that exited non-zero raises: the class the gh classifier
-    names from gh's stderr, else a failed read of `what` quoting stderr, or stdout when gh wrote
-    nothing to stderr. A board read's `--owner <login>` has no `@me` fallback, so an owner
-    lookup gh dropped the cause of is decided by GraphQL's own budget (#983)."""
-    err_output = _gh_output(proc)
-    said = err_output or (proc.stdout or "").strip()
-    classified = classify_gh_failure(err_output, exit_code=proc.returncode, operation=operation)
-    if classified is not None and is_gh_owner_lookup_failure(err_output):
-        return owner_lookup_failure(
-            classified, read=_gh_command, failed=f"Failed to read {what}", operation=operation
-        )
-    return classified or GitHubOperationError(
-        f"Failed to read {what} (exit {proc.returncode}): {said[:256]}",
-        operation=operation,
-        details={"read": what[:256]},
-    )
-
-
-def _gh_command(args: list[str]) -> subprocess.CompletedProcess[str]:
-    """One gh command of a board read, through `run_gh`, never from its response cache."""
-    return run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
-
-
 def _gh_read[Payload: BaseModel](
     args: list[str], model: type[Payload], what: str, operation: str = "fetch_project_items"
 ) -> Payload:
@@ -617,8 +731,14 @@ def _gh_read[Payload: BaseModel](
     proc = _gh_command(args)
     if proc.returncode != 0:
         raise _read_failure(proc, what, operation)
+    if not proc.stdout or not proc.stdout.strip():
+        raise GitHubUnreadError(
+            f"GitHub returned empty {what}.",
+            operation=operation,
+            details={"read": what[:256]},
+        )
     try:
-        return model.model_validate_json(proc.stdout or "")
+        return model.model_validate_json(proc.stdout)
     except ValueError as exc:
         raise GitHubOperationError(
             f"GitHub returned malformed {what}: {str(exc)[:256]}",
@@ -1328,7 +1448,14 @@ def _list_projects_via_rest(owner: str) -> list[dict[str, Any]]:
     for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
         cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
         proc = run_gh(cmd, check=False, quiet=True)
-        if proc.returncode != 0 or not proc.stdout.strip():
+        if proc.returncode != 0:
+            err_output = _gh_output(proc)
+            if gh_http_status(err_output) == 404:
+                continue
+            raise _read_lookup_failure(
+                proc, what=f"projects for {owner}", operation="list_remote_projects"
+            )
+        if not proc.stdout.strip():
             continue
         data = extract_json_payload(proc.stdout)
         if isinstance(data, list) and data:
@@ -1363,14 +1490,32 @@ def _list_projects_via_cli(owner: str) -> list[dict[str, Any]]:
     owner_arg = _resolve_project_owner_arg(owner)
     cmd = [CONST_GH_CLI, "project", "list", "--owner", owner_arg, "--format", "json"]
     proc = _run_project_cli(cmd, owner_arg=owner_arg)
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return []
+    if proc.returncode != 0:
+        raise _read_lookup_failure(proc, what=f"{owner} projects", operation="list_remote_projects")
+    if not proc.stdout.strip():
+        raise GitHubUnreadError(
+            f"GitHub returned empty projects list for {owner}",
+            operation="list_remote_projects",
+            details={"owner": owner},
+        )
     data = extract_json_payload(proc.stdout)
+    if not isinstance(data, (dict, list)):
+        raise GitHubUnreadError(
+            f"GitHub returned malformed projects response for {owner}",
+            operation="list_remote_projects",
+            details={"owner": owner},
+        )
     raw = (
         data.get("projects", [])
         if isinstance(data, dict)
         else (data if isinstance(data, list) else [])
     )
+    if not isinstance(raw, list):
+        raise GitHubUnreadError(
+            f"GitHub returned malformed projects response for {owner}",
+            operation="list_remote_projects",
+            details={"owner": owner},
+        )
     return [_format_project_list_entry(p) for p in raw if isinstance(p, dict)]
 
 

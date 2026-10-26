@@ -16,6 +16,7 @@ from devops_cli.exceptions.git import (
     GitHubRateLimitError,
     GitHubScopeError,
     GitHubUnauthenticatedError,
+    GitHubUnreadError,
 )
 from devops_cli.github.projects import (
     ProjectTemplate,
@@ -424,7 +425,8 @@ def test_find_and_create_remote_project() -> None:
     # Subprocess error
     mock_fail = MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="error"))
     with patch("devops_cli.github.projects.run_gh", mock_fail):
-        assert find_remote_project("dan-petty", "My Project") is None
+        with pytest.raises(GitHubOperationError):
+            find_remote_project("dan-petty", "My Project")
         with pytest.raises(GitHubOperationError):
             create_remote_project("dan-petty", "My Project")
 
@@ -465,7 +467,7 @@ def test_provision_remote_project_fields() -> None:
         provision_remote_project_fields,
     )
 
-    existing = {"fields": [{"name": "Status"}, {"name": "Assignees"}]}
+    existing = {"fields": [{"name": "Status"}, {"name": "Assignees"}], "totalCount": 2}
     mock_proc = MagicMock(
         side_effect=[
             MagicMock(returncode=0, stdout=json.dumps(existing), stderr=""),  # list
@@ -707,13 +709,14 @@ def test_the_cli_board_lookup_raises_the_class_gh_s_failure_names(
     assert (type(raised.value), raised.value.details.get("status")) == (error, status)
 
 
-def test_the_cli_board_lookup_finds_no_board_on_a_failure_the_gh_table_names_no_class_for(
+def test_the_cli_board_lookup_raises_unread_on_server_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failure the classifier names no class for, such as a 500, leaves the lookup with no
-    board, for the caller's other lookups."""
+    """A failure such as HTTP 500 raises GitHubUnreadError so a transient failure does not look
+    like a missing board."""
     _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
-    assert projects_mod._find_project_via_cli("octo-org", "Roadmap") is None
+    with pytest.raises(GitHubUnreadError):
+        projects_mod._find_project_via_cli("octo-org", "Roadmap")
 
 
 _PARTIAL_GRAPHQL_ANSWER = (
@@ -930,6 +933,7 @@ def test_project_sync_sends_no_option_update_when_the_template_options_differ() 
     )
 
     board_fields = {
+        "totalCount": 1,
         "fields": [
             {
                 "id": "PVTSSF_status",
@@ -947,7 +951,7 @@ def test_project_sync_sends_no_option_update_when_the_template_options_differ() 
                     )
                 ],
             }
-        ]
+        ],
     }
     template = ProjectTemplate(
         name="Roadmap",
@@ -1195,3 +1199,144 @@ def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None
         [cmd[1:3] for cmd in sent],
         limiter.points_charged("graphql") - before,
     ) == (150, "Ready", False, [["api", "graphql"]] * 3, 5)
+
+
+def test_fetch_existing_fields_fails_closed_on_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_fetch_existing_fields_by_name raises on failed gh command or malformed output."""
+    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    with pytest.raises(GitHubOperationError):
+        projects_mod._fetch_existing_fields_by_name("owner", 2)
+
+
+def test_fetch_existing_fields_fails_closed_on_missing_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_fetch_existing_fields_by_name raises GitHubScopeError when token lacks scope."""
+    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    with pytest.raises(GitHubScopeError):
+        projects_mod._fetch_existing_fields_by_name("owner", 2)
+
+
+def test_fetch_existing_fields_fails_closed_on_empty_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_fetch_existing_fields_by_name raises GitHubUnreadError on empty output."""
+    monkeypatch.setattr(
+        projects_mod,
+        "run_gh",
+        lambda *_, **__: subprocess.CompletedProcess(["gh"], 0, "", ""),
+    )
+    with pytest.raises(GitHubOperationError):
+        projects_mod._fetch_existing_fields_by_name("owner", 2)
+
+
+def test_fetch_existing_fields_fails_closed_on_incomplete_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_fetch_existing_fields_by_name raises when field count is less than totalCount."""
+    payload = {"fields": [{"id": "f1", "name": "Status"}], "totalCount": 2}
+    monkeypatch.setattr(
+        projects_mod,
+        "run_gh",
+        lambda *_, **__: subprocess.CompletedProcess(["gh"], 0, json.dumps(payload), ""),
+    )
+    with pytest.raises(GitHubOperationError, match="incomplete"):
+        projects_mod._fetch_existing_fields_by_name("owner", 2)
+
+
+def test_provision_single_field_raises_on_missing_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_provision_single_field raises GitHubScopeError when token lacks project scope."""
+    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    field = projects_mod.ProjectField(name="TestField", type="text")
+    with pytest.raises(GitHubScopeError):
+        projects_mod._provision_single_field("owner", 2, field)
+
+
+def test_provision_single_field_raises_on_unclassified_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_provision_single_field raises GitHubOperationError on non-zero exit."""
+    _fail_every_gh_command(monkeypatch, 1, "gh: unclassified field error")
+    field = projects_mod.ProjectField(name="TestField", type="text")
+    with pytest.raises(GitHubOperationError):
+        projects_mod._provision_single_field("owner", 2, field)
+
+
+def test_link_project_to_repository_raises_on_missing_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """link_project_to_repository raises GitHubScopeError when token lacks project scope."""
+    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    with pytest.raises(GitHubScopeError):
+        projects_mod.link_project_to_repository(2, "owner", "repo")
+
+
+def test_link_project_to_repository_raises_on_unclassified_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """link_project_to_repository raises GitHubOperationError on non-zero exit."""
+    _fail_every_gh_command(monkeypatch, 1, "gh: link failure")
+    with pytest.raises(GitHubOperationError):
+        projects_mod.link_project_to_repository(2, "owner", "repo")
+
+
+def test_create_remote_project_raises_on_missing_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_remote_project raises GitHubScopeError when token lacks project scope."""
+    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    with pytest.raises(GitHubScopeError):
+        projects_mod.create_remote_project("owner", "Board Title")
+
+
+def test_find_project_via_repo_raises_on_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_find_project_via_repo raises GitHubUnreadError on server error."""
+    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    with pytest.raises(GitHubUnreadError):
+        projects_mod._find_project_via_repo("owner", "repo", "Roadmap")
+
+
+def test_find_project_via_repo_raises_on_empty_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_find_project_via_repo raises GitHubUnreadError on empty output."""
+    monkeypatch.setattr(
+        projects_mod,
+        "run_gh",
+        lambda *_, **__: subprocess.CompletedProcess(["gh"], 0, "", ""),
+    )
+    with pytest.raises(GitHubUnreadError):
+        projects_mod._find_project_via_repo("owner", "repo", "Roadmap")
+
+
+def test_find_project_via_rest_raises_on_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_find_project_via_rest raises GitHubUnreadError on server error."""
+    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    with pytest.raises(GitHubUnreadError):
+        projects_mod._find_project_via_rest("owner", "Roadmap")
+
+
+def test_list_projects_via_cli_raises_on_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_list_projects_via_cli raises GitHubUnreadError on server error."""
+    _fail_every_gh_command(monkeypatch, 1, "gh: Server Error (HTTP 500)")
+    with pytest.raises(GitHubUnreadError):
+        projects_mod._list_projects_via_cli("owner")
+
+
+def test_list_projects_via_cli_raises_on_missing_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_list_projects_via_cli raises GitHubScopeError on missing scope."""
+    _fail_every_gh_command(monkeypatch, 1, _PROJECT_SCOPE_MISSING)
+    with pytest.raises(GitHubScopeError):
+        projects_mod._list_projects_via_cli("owner")
