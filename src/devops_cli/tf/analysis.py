@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+import subprocess
 from collections import deque
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_TF_BACKEND_CACHE_KEY,
     CONST_TF_STATE_FILE_NAMES,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.models.tf import (
     IaCBlastRadius,
     IaCConfiguration,
@@ -138,6 +141,11 @@ def _parse_resource_blocks(
     for resource_type, named in _iter_labelled_blocks(document.get(block_type)):
         for name, body in _iter_labelled_blocks([named]) if isinstance(named, dict) else []:
             attributes = _strip_block_markers(body) if isinstance(body, dict) else {}
+            provider = ""
+            if isinstance(body, dict) and "provider" in body:
+                provider = _unquote(str(body["provider"]))
+                if provider.startswith("${") and provider.endswith("}"):
+                    provider = provider[2:-1].strip()
             resources.append(
                 IaCResource(
                     address=f"{prefix}{resource_type}.{name}",
@@ -145,7 +153,7 @@ def _parse_resource_blocks(
                     resource_type=resource_type,
                     name=name,
                     source_file=source_file,
-                    provider=resource_type.split("_", 1)[0],
+                    provider=provider,
                     references=sorted(extract_references(body)),
                     attributes=attributes if isinstance(attributes, dict) else {},
                 )
@@ -224,13 +232,9 @@ def parse_hcl_directory(directory: Path) -> IaCConfiguration:
 # =============================================================================
 
 
-def resolve_state_file(directory: Path) -> Path | None:
-    """Locate the state file backing a configuration directory, if one exists."""
-    for candidate in CONST_TF_STATE_FILE_NAMES:
-        path = directory / candidate
-        if path.is_file():
-            return path
-    return None
+def is_directory_initialized(directory: Path) -> bool:
+    """Report whether a configuration directory has been initialized with OpenTofu or Terraform."""
+    return (directory / ".terraform").is_dir()
 
 
 def _is_backend_configuration_cache(path: Path) -> bool:
@@ -255,57 +259,169 @@ def holds_local_resource_state(directory: Path) -> bool:
     )
 
 
-def _project_state_resource(entry: dict[str, Any]) -> IaCStateResource:
-    """Project one state resource record into a typed model."""
-    module = str(entry.get("module", "") or "")
-    resource_type = str(entry.get("type", ""))
-    name = str(entry.get("name", ""))
-    mode = str(entry.get("mode", "managed"))
+def _extract_show_resources(
+    module_node: dict[str, Any], module_prefix: str = ""
+) -> list[IaCStateResource]:
+    """Recursively collect managed and data resource instances from show module nodes."""
+    resources: list[IaCStateResource] = []
+    current_module = str(module_node.get("address", "") or module_prefix)
 
-    bare = f"{resource_type}.{name}"
-    address = bare if mode == "managed" else f"{CONST_HCL_BLOCK_DATA}.{bare}"
-    instances = entry.get("instances")
+    for item in module_node.get("resources", []):
+        if not isinstance(item, dict):
+            continue
+        address = str(item.get("address", ""))
+        mode = str(item.get("mode", "managed"))
+        resource_type = str(item.get("type", ""))
+        name = str(item.get("name", ""))
+        provider = str(item.get("provider_name", "") or item.get("provider", ""))
+        resources.append(
+            IaCStateResource(
+                address=address,
+                mode=mode,
+                resource_type=resource_type,
+                name=name,
+                provider=provider,
+                module=current_module,
+                instance_count=1,
+            )
+        )
 
-    return IaCStateResource(
-        address=f"{module}.{address}" if module else address,
-        mode=mode,
-        resource_type=resource_type,
-        name=name,
-        provider=str(entry.get("provider", "")),
-        module=module,
-        instance_count=len(instances) if isinstance(instances, list) else 0,
-    )
+    for child in module_node.get("child_modules", []):
+        if isinstance(child, dict):
+            child_address = str(child.get("address", ""))
+            resources.extend(_extract_show_resources(child, child_address))
+
+    return resources
 
 
-def load_state(directory: Path) -> IaCState | None:
-    """Load and project a state file, returning ``None`` when none is present."""
-    state_path = resolve_state_file(directory)
-    if state_path is None:
-        return None
+def parse_show_state(payload: dict[str, Any] | str) -> IaCState:
+    """Project `tofu show -json` output into typed state models."""
+    if isinstance(payload, str):
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            return IaCState()
+    else:
+        data = payload
 
-    try:
-        payload = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.debug("Failed reading state file %s: %s", state_path, exc)
-        return None
+    if not isinstance(data, dict):
+        return IaCState()
 
-    if not isinstance(payload, dict):
-        return None
+    values = data.get("values")
+    root_module = values.get("root_module") if isinstance(values, dict) else None
+    resources = _extract_show_resources(root_module) if isinstance(root_module, dict) else []
+    outputs = values.get("outputs") if isinstance(values, dict) else {}
 
-    raw_resources = payload.get("resources")
-    outputs = payload.get("outputs")
+    format_version = str(data.get("format_version", "1")).split(".")[0]
+    version = int(format_version) if format_version.isdigit() else 1
+
     return IaCState(
-        version=int(payload.get("version", 0) or 0),
-        terraform_version=str(payload.get("terraform_version", "") or ""),
-        serial=int(payload.get("serial", 0) or 0),
-        lineage=str(payload.get("lineage", "") or ""),
-        resources=[
-            _project_state_resource(entry)
-            for entry in (raw_resources if isinstance(raw_resources, list) else [])
-            if isinstance(entry, dict)
-        ],
+        version=version,
+        terraform_version=str(data.get("terraform_version", "") or ""),
+        serial=int(data.get("serial", 0) or 0),
+        lineage=str(data.get("lineage", "") or ""),
+        resources=resources,
         outputs=outputs if isinstance(outputs, dict) else {},
     )
+
+
+def read_state(directory: Path, binary: str | None = None) -> IaCState | None:
+    """Read and project state by executing `tofu show -json` in the target directory."""
+    if not is_directory_initialized(directory):
+        return None
+
+    tf_binary = binary or "tofu"
+    cmd = [tf_binary, "show", "-json"]
+    try:
+        res = run_subprocess(cmd, cwd=directory, capture_output=True, check=False)
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.debug("Failed running %s in %s: %s", cmd, directory, exc)
+        return None
+
+    if res.returncode != 0:
+        logger.debug("%s exited %s: %s", cmd, res.returncode, res.stderr)
+        return None
+
+    stdout = (res.stdout or "").strip()
+    if not stdout:
+        return None
+
+    return parse_show_state(stdout)
+
+
+def _extract_drift_addr(item: dict[str, Any]) -> str:
+    """Extract address string from a drift event payload."""
+    change = item.get("change")
+    if isinstance(change, dict):
+        resource = change.get("resource")
+        if isinstance(resource, dict):
+            addr = resource.get("addr") or resource.get("resource")
+            if addr:
+                return str(addr)
+    return str(item.get("address", "") or "")
+
+
+def _extract_drift_from_dict(data: dict[str, Any]) -> list[str]:
+    """Collect addresses from a static plan JSON structure."""
+    drifted: list[str] = []
+    for entry in data.get("resource_drift", []):
+        if not isinstance(entry, dict):
+            continue
+        addr = str(entry.get("address", "") or _extract_drift_addr(entry))
+        if addr:
+            drifted.append(addr)
+    return sorted(set(drifted))
+
+
+def _drift_from_record(item: Any) -> list[str]:
+    """Extract drifted addresses from a decoded JSON record."""
+    if not isinstance(item, dict):
+        return []
+    if "resource_drift" in item:
+        return _extract_drift_from_dict(item)
+    if item.get("type") == "resource_drift":
+        addr = _extract_drift_addr(item)
+        return [addr] if addr else []
+    return []
+
+
+def parse_plan_drift(raw_output: str | dict[str, Any]) -> list[str]:
+    """Extract drifted resource addresses from `tofu plan -refresh-only -json` output."""
+    if isinstance(raw_output, dict):
+        return _drift_from_record(raw_output)
+
+    text = raw_output.strip()
+    if not text:
+        return []
+
+    drifted: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        drifted.extend(_drift_from_record(item))
+
+    return sorted(set(drifted))
+
+
+def read_plan_drift(directory: Path, binary: str | None = None) -> list[str]:
+    """Execute `tofu plan -refresh-only -json` and return drifted resource addresses."""
+    if not is_directory_initialized(directory):
+        return []
+
+    tf_binary = binary or "tofu"
+    cmd = [tf_binary, "plan", "-refresh-only", "-json"]
+    try:
+        res = run_subprocess(cmd, cwd=directory, capture_output=True, check=False)
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.debug("Failed running %s in %s: %s", cmd, directory, exc)
+        return []
+
+    return parse_plan_drift(res.stdout or "")
 
 
 # =============================================================================
@@ -359,41 +475,77 @@ def compute_blast_radius(graph: dict[str, list[str]], address: str) -> IaCBlastR
     )
 
 
-def detect_drift(config: IaCConfiguration, state: IaCState | None) -> IaCDriftReport:
-    """Compare declared configuration against recorded state.
+def detect_drift(
+    config: IaCConfiguration,
+    state: IaCState | None,
+    *,
+    drifted_addresses: Sequence[str] | None = None,
+) -> IaCDriftReport:
+    """Compare declared configuration against recorded state and live drift.
 
-    This reports *structural* drift — resources declared but never applied, and resources
-    still tracked in state after their declaration was removed. It does not compare
-    attribute values against live infrastructure, which requires a provider refresh.
+    State comes from `tofu show -json` and live attribute changes come from
+    `tofu plan -refresh-only -json`. An uninitialized directory has state None.
     """
     declared = {
         resource.address
         for resource in config.resources
         if resource.block_type == CONST_HCL_BLOCK_RESOURCE
     }
-    recorded = {
-        resource.address
-        for resource in (state.resources if state else [])
-        if resource.mode == "managed"
-    }
 
-    missing = sorted(declared - recorded)
-    orphaned = sorted(recorded - declared)
+    if state is None:
+        return IaCDriftReport(
+            directory=config.directory,
+            declared_count=len(declared),
+            state_count=0,
+            missing_from_state=sorted(declared),
+            orphaned_in_state=[],
+            drifted=[],
+            in_sync=[],
+            drift_detected=bool(declared),
+            state_present=False,
+        )
+
+    declared_modules = {module.address for module in config.modules}
+    recorded_resources = [r for r in state.resources if r.mode == "managed"]
+    recorded_addresses = {r.address for r in recorded_resources}
+    drifted_set = set(drifted_addresses or ())
+
+    missing = sorted(declared - recorded_addresses)
+    orphaned: list[str] = []
+    in_sync: list[str] = []
+    drifted: list[str] = []
+
+    for resource in recorded_resources:
+        is_module_resource = bool(resource.module and resource.module in declared_modules) or any(
+            resource.address.startswith(f"{m}.") for m in declared_modules
+        )
+        is_declared = resource.address in declared or is_module_resource
+
+        if not is_declared:
+            orphaned.append(resource.address)
+        elif resource.address in drifted_set:
+            drifted.append(resource.address)
+        else:
+            in_sync.append(resource.address)
+
     return IaCDriftReport(
         directory=config.directory,
         declared_count=len(declared),
-        state_count=len(recorded),
+        state_count=len(recorded_addresses),
         missing_from_state=missing,
-        orphaned_in_state=orphaned,
-        in_sync=sorted(declared & recorded),
-        drift_detected=bool(missing or orphaned),
-        state_present=state is not None,
+        orphaned_in_state=sorted(orphaned),
+        drifted=sorted(drifted),
+        in_sync=sorted(in_sync),
+        drift_detected=bool(missing or orphaned or drifted),
+        state_present=True,
     )
 
 
-def analyze_directory(directory: Path) -> tuple[IaCConfiguration, IaCState | None]:
-    """Parse a configuration directory and load its state in one pass."""
-    return parse_hcl_directory(directory), load_state(directory)
+def analyze_directory(
+    directory: Path, binary: str | None = None
+) -> tuple[IaCConfiguration, IaCState | None]:
+    """Parse a configuration directory and load its state through tofu show -json."""
+    return parse_hcl_directory(directory), read_state(directory, binary=binary)
 
 
 __all__ = [
@@ -403,7 +555,10 @@ __all__ = [
     "detect_drift",
     "extract_references",
     "holds_local_resource_state",
-    "load_state",
+    "is_directory_initialized",
     "parse_hcl_directory",
-    "resolve_state_file",
+    "parse_plan_drift",
+    "parse_show_state",
+    "read_plan_drift",
+    "read_state",
 ]

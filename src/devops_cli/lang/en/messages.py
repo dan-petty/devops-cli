@@ -763,10 +763,11 @@ class TfMessages:
     graph_unknown_address: str = "Resource address '{address}' is not declared in '{directory}'."
     blast_radius_summary: str = "{address} impacts {impact} address(es); depends on {depends}."
     drift_no_state: str = "No state file found in '{directory}'; all {declared} declared resource(s) are pending apply."
+    state_unavailable: str = "State unavailable (run tofu init)."
     drift_in_sync: str = "✓ Configuration and state agree on all {count} resource(s)."
     drift_summary: str = (
         "{missing} declared but not in state, {orphaned} in state but not declared, "
-        "{synced} in sync."
+        "{drifted} drifted, {synced} in sync."
     )
     parse_failures: str = "{count} file(s) could not be parsed: {files}"
     init_success: str = "✓ OpenTofu initialization successful."
