@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.3](https://github.com/dan-petty/devops-cli/compare/v0.6.2...v0.6.3) (2026-10-26)
+
+
+### Bug Fixes
+
+* **github:** devops gh rate-limit reads only the free /rate_limit endpoint ([#2300](https://github.com/dan-petty/devops-cli/issues/2300)) ([706e386](https://github.com/dan-petty/devops-cli/commit/706e38605387bdb98a773bf2ba48c566d4f215d2)), closes [#1441](https://github.com/dan-petty/devops-cli/issues/1441)
+* **github:** the label taxonomy metrics count every open issue across all pages and no pull requests ([#2298](https://github.com/dan-petty/devops-cli/issues/2298)) ([f5cd022](https://github.com/dan-petty/devops-cli/commit/f5cd02270be22002c10489d99fe8801a2ef39359))
+* **infra:** cloudflare access sync reads every page of applications and policies and retries rate-limited requests ([#2296](https://github.com/dan-petty/devops-cli/issues/2296)) ([a86aa4b](https://github.com/dan-petty/devops-cli/commit/a86aa4bd7061150ffe8e4003d33eaca7f463b7b8))
+* **review:** the review dry run shows the request the model client would send, built by that client ([#2291](https://github.com/dan-petty/devops-cli/issues/2291)) ([9383fd5](https://github.com/dan-petty/devops-cli/commit/9383fd5f0ad17f609fac334eaf4b91a0cb415f8b))
+* **security:** devops scan sbom is produced by trivy's cyclonedx and spdx writers ([#2301](https://github.com/dan-petty/devops-cli/issues/2301)) ([d5e47ff](https://github.com/dan-petty/devops-cli/commit/d5e47ffb151f4ceeb82aee761ee5ce08a9cae112))
+* **terraform:** drift reads state through tofu show -json, so encrypted state and module resources are no longer misreported ([#2297](https://github.com/dan-petty/devops-cli/issues/2297)) ([169859a](https://github.com/dan-petty/devops-cli/commit/169859ad88aadba6e8c4ef1d8296d5bd3eb56e7f))
+
 ## [0.6.2](https://github.com/dan-petty/devops-cli/compare/v0.6.1...v0.6.2) (2026-10-26)
 
 
