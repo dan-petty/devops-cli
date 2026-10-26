@@ -101,6 +101,8 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
         "GIT_EXEC_PATH",
         "CI",
         "PYTEST_CURRENT_TEST",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
     }
 )
 
@@ -344,7 +346,7 @@ def _pin_github_token(
     git runs without one.
     """
     client = _github_client_name(cmd)
-    if client is None:
+    if client is None or is_dry_run():
         return
     for name in CONST_GH_TOKEN_ENV_VARS:
         sub_env.pop(name, None)

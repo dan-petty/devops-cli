@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -10,6 +11,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import httpx2
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
@@ -47,6 +49,7 @@ from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
 from devops_cli.output import (
@@ -72,6 +75,7 @@ from devops_cli.review.targets import (
     is_secret_scan_only,
 )
 from devops_cli.security.sanitizer import (
+    mask_secrets,
     redact_text,
 )
 from devops_cli.telemetry import trace_span
@@ -99,6 +103,182 @@ def _debug_block(title: str, payload: dict[str, Any]) -> None:
 
     print_warning(f"[dry-run] {title}", prefix=False)
     print_dry_run_result(payload)
+
+
+class LLMRequestPreview(dict[str, Any]):
+    """Captured model request preview for review dry runs (#1430)."""
+
+    def __init__(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: Any,
+        provider: str = "",
+        raw_request: httpx2.Request | None = None,
+    ) -> None:
+        super().__init__(
+            provider=provider,
+            method=method,
+            endpoint=url,
+            url=url,
+            headers=headers,
+            json=body,
+            body=body,
+        )
+        self.provider = provider
+        self.method = method
+        self.endpoint = url
+        self.url = url
+        self.headers = headers
+        self.json = body
+        self.body = body
+        self._raw_request = raw_request
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(f"'LLMRequestPreview' object has no attribute '{name}'") from None
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, httpx2.Request):
+            try:
+                other_body = json.loads(other.content.decode("utf-8")) if other.content else None
+            except json.JSONDecodeError, UnicodeDecodeError:
+                other_body = other.content
+            return (
+                self.method == other.method
+                and self.url == str(other.url)
+                and self.body == other_body
+            )
+        return super().__eq__(other)
+
+
+def _mask_request_headers(headers: httpx2.Headers) -> dict[str, str]:
+    """Mask sensitive authentication tokens in request headers."""
+    masked: dict[str, str] = {}
+    for k, v in headers.items():
+        lower_k = k.lower()
+        if lower_k == "authorization":
+            if v.lower().startswith("bearer "):
+                masked[k] = "Bearer <masked-token>"
+            else:
+                masked[k] = "<masked-token>"
+        elif lower_k in {"x-api-key", "api-key"}:
+            masked[k] = "<masked-api-key>"
+        else:
+            masked[k] = mask_secrets(v)
+    return masked
+
+
+def _canned_preview_response(request: httpx2.Request) -> httpx2.Response:
+    """Return a minimal valid response matching provider requirements for request capture."""
+    path = request.url.path
+    if request.method == "GET":
+        return httpx2.Response(200, json={"id": "test-model", "type": "model", "capabilities": {}})
+    if "/messages" in path:
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_preview",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "preview ok"}],
+                "model": "preview-model",
+                "usage": {"input_tokens": 10, "output_tokens": 10},
+            },
+        )
+    if "/api/chat" in path or path.endswith("/chat"):
+        return httpx2.Response(
+            200,
+            json={"message": {"role": "assistant", "content": "preview ok"}, "done": True},
+        )
+    return httpx2.Response(
+        200,
+        json={
+            "id": "chatcmpl_preview",
+            "object": "chat.completion",
+            "created": 12345,
+            "model": "preview-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "preview ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+        },
+    )
+
+
+def _llm_request_preview(
+    client: Any,
+    system: str,
+    user: str,
+    **kwargs: Any,
+) -> LLMRequestPreview:
+    """Capture the request that the model client sends during review dry runs (#1430)."""
+    cfg = getattr(client, "_config", None) or getattr(client, "config", None)
+    if cfg is None:
+        from devops_cli.config.settings import load_settings
+
+        cfg = load_settings().ai
+
+    provider = str(getattr(cfg, "provider", "") or "")
+    if provider == "ollama" and not getattr(cfg, "get_ollama_urls", None):
+        raise ConfigurationError(
+            "No Ollama server URLs configured. Run: devops config set ai.ollama_urls <url>",
+            key="ai.ollama_urls",
+        )
+
+    api_key = getattr(client, "_api_key", None) or getattr(client, "api_key", None)
+
+    recorded_requests: list[httpx2.Request] = []
+
+    def _record_handler(req: httpx2.Request) -> httpx2.Response:
+        _ = req.content
+        recorded_requests.append(req)
+        return _canned_preview_response(req)
+
+    transport = httpx2.MockTransport(_record_handler)
+    from devops_cli.ai.client.unified import LLMClient
+
+    preview_client = LLMClient(
+        config=cfg,
+        api_key=api_key,
+        transport=transport,
+        cache_enabled=False,
+    )
+
+    try:
+        preview_client.chat(system, user, **kwargs)
+    except Exception as exc:
+        if isinstance(exc.__cause__, ConfigurationError):
+            raise exc.__cause__ from None
+        if isinstance(exc, ConfigurationError):
+            raise
+        if not recorded_requests:
+            raise
+
+    post_requests = [r for r in recorded_requests if r.method == "POST"]
+    last_req = post_requests[-1] if post_requests else recorded_requests[-1]
+
+    try:
+        body: Any = json.loads(last_req.content.decode("utf-8")) if last_req.content else {}
+    except json.JSONDecodeError, UnicodeDecodeError:
+        body = last_req.content
+
+    masked_headers = _mask_request_headers(last_req.headers)
+
+    return LLMRequestPreview(
+        method=last_req.method,
+        url=str(last_req.url),
+        headers=masked_headers,
+        body=body,
+        provider=provider,
+        raw_request=last_req,
+    )
 
 
 def _find_session_dir(session_arg: str | None) -> Path | None:

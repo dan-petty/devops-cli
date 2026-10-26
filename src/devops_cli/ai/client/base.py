@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import cast
 
 import httpx2
 
@@ -36,6 +37,9 @@ class BaseLLMProviderMixin:
     _config: AIConfig
     _api_key: str
     _request_timeout_seconds: float | None
+    _transport: httpx2.BaseTransport | None
+    _http_client: httpx2.Client | None
+    _transport_client: httpx2.Client | None
 
     @property
     def backend_type(self) -> str:
@@ -67,6 +71,13 @@ class BaseLLMProviderMixin:
         The factory builds it at the configured egress level; an error building it is raised,
         never answered with a client that skips the check.
         """
+        if getattr(self, "_http_client", None) is not None:
+            return cast("httpx2.Client", self._http_client)
+        if getattr(self, "_transport", None) is not None:
+            return httpx2.Client(
+                transport=cast("httpx2.BaseTransport", self._transport),
+                timeout=timeout or self._request_timeout(),
+            )
         return new_http_client(
             level=self._egress_level(),
             timeout=timeout or self._request_timeout(),
@@ -84,6 +95,15 @@ class BaseLLMProviderMixin:
         The client is shared and deliberately never closed by the caller; per-request
         concerns such as timeouts are passed to the request itself.
         """
+        if getattr(self, "_http_client", None) is not None:
+            return cast("httpx2.Client", self._http_client)
+        if getattr(self, "_transport", None) is not None:
+            if getattr(self, "_transport_client", None) is None:
+                self._transport_client = httpx2.Client(
+                    transport=cast("httpx2.BaseTransport", self._transport),
+                    timeout=self._request_timeout(),
+                )
+            return cast("httpx2.Client", self._transport_client)
         try:
             b_type = self.backend_type
         except Exception:
