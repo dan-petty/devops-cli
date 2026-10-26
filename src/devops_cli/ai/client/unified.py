@@ -254,6 +254,14 @@ class LLMClient(
     @staticmethod
     def _validate_resolved_config(cfg: AIConfig) -> None:
         """Ensure resolved configuration does not contain disallowed options for the provider."""
+        if cfg.provider == "claude" and not (cfg.model and cfg.model.strip()):
+            task_label = f"task '{cfg.task_name}'" if cfg.task_name else "task"
+            key = f"ai.tasks.{cfg.task_name}.model" if cfg.task_name else "ai.model"
+            raise ConfigurationError(
+                f"The {task_label} requires a configured model for provider 'claude'. "
+                f"Set ai.model or configure ai.tasks.{cfg.task_name}.model.",
+                key=key,
+            )
         if cfg.num_ctx is not None and cfg.provider in (
             CONST_AI_GATEWAY_PROVIDER,
             "gateway",

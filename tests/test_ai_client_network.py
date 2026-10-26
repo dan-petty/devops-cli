@@ -34,14 +34,12 @@ _LIMIT = 4096
 _KIB = b"x" * 1024
 _MESSAGES = [ChatMessage(role="user", content="hi")]
 _OLLAMA = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
-_CLAUDE = AIConfig(provider="claude", api_base_url="https://example.com")
 _OPENAI = AIConfig(provider="openai", api_base_url="https://example.com/v1")
 
 # Each provider call that reads a whole JSON reply: (its client's config, the call).
 _PROVIDER_CALLS: dict[str, tuple[AIConfig, Callable[[LLMClient], Any]]] = {
     "ollama-chat": (_OLLAMA, lambda client: client._ollama_messages("sys", _MESSAGES)),
     "ollama-tags": (_OLLAMA, lambda client: client._ollama_models()),
-    "claude-messages": (_CLAUDE, lambda client: client._claude_messages("sys", _MESSAGES)),
     "openai-chat": (_OPENAI, lambda client: client._openai_compat_messages("sys", _MESSAGES)),
     "openai-models": (_OPENAI, lambda client: client._openai_models()),
 }

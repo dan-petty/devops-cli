@@ -772,6 +772,7 @@ name = "devops-cli"
 version = "0.6.1"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "anyio" },
     { name = "cachetools" },
     { name = "click" },
@@ -869,6 +870,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = "==1.12.1" },
     { name = "anyio", specifier = "==4.15.1" },
     { name = "cachetools", specifier = "==7.1.8" },
     { name = "click", specifier = "==8.5.0" },

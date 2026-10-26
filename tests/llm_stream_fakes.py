@@ -36,15 +36,81 @@ def openai_chunk(content: str | None = None, finish_reason: str | None = None) -
 
 def anthropic_event(event_type: str, **fields: Any) -> bytes:
     """One Anthropic Messages stream event, named in both its `event:` line and its data."""
+    if event_type == "message_start":
+        msg = fields.get("message")
+        if isinstance(msg, dict) and "content" not in msg:
+            fields["message"] = {"content": [], **msg}
     data = json.dumps({"type": event_type, **fields}, ensure_ascii=False)
     return f"event: {event_type}\ndata: {data}\n\n".encode()
 
 
-def anthropic_text(text: str) -> bytes:
+def anthropic_text(text: str, index: int = 0) -> bytes:
     """An Anthropic text delta."""
     return anthropic_event(
-        "content_block_delta", index=0, delta={"type": "text_delta", "text": text}
+        "content_block_delta", index=index, delta={"type": "text_delta", "text": text}
     )
+
+
+def anthropic_stream_frames(
+    chunks: Sequence[str],
+    *,
+    input_tokens: int = 10,
+    output_tokens: int = 20,
+    stop_reason: str = "end_turn",
+    thinking: str | None = None,
+) -> list[bytes]:
+    """Build a complete sequence of valid Anthropic Messages SSE frames."""
+    frames = [
+        anthropic_event(
+            "message_start",
+            message={"id": "msg_test", "content": [], "usage": {"input_tokens": input_tokens}},
+        ),
+    ]
+    idx = 0
+    if thinking:
+        frames.extend(
+            [
+                anthropic_event(
+                    "content_block_start",
+                    index=idx,
+                    content_block={"type": "thinking", "thinking": ""},
+                ),
+                anthropic_event(
+                    "content_block_delta",
+                    index=idx,
+                    delta={"type": "thinking_delta", "thinking": thinking},
+                ),
+                anthropic_event("content_block_stop", index=idx),
+            ]
+        )
+        idx += 1
+    frames.append(
+        anthropic_event(
+            "content_block_start",
+            index=idx,
+            content_block={"type": "text", "text": ""},
+        )
+    )
+    for chunk in chunks:
+        frames.append(
+            anthropic_event(
+                "content_block_delta",
+                index=idx,
+                delta={"type": "text_delta", "text": chunk},
+            )
+        )
+    frames.extend(
+        [
+            anthropic_event("content_block_stop", index=idx),
+            anthropic_event(
+                "message_delta",
+                delta={"stop_reason": stop_reason},
+                usage={"output_tokens": output_tokens},
+            ),
+            anthropic_event("message_stop"),
+        ]
+    )
+    return frames
 
 
 def ollama_line(content: str = "", **fields: Any) -> bytes:
@@ -172,3 +238,49 @@ def route_retrying_client(
         lambda self, timeout=None: _make_client(timeout),
     )
     return sent
+
+
+def make_anthropic_model_info_payload(
+    model_id: str,
+    *,
+    adaptive_thinking: bool = True,
+    sampling: bool = False,
+) -> dict[str, Any]:
+    """Build a valid Anthropic Models API response payload."""
+    return {
+        "id": model_id,
+        "created_at": "2026-01-01T00:00:00Z",
+        "type": "model",
+        "display_name": f"Claude Model {model_id}",
+        "lifecycle": "active",
+        "capabilities": {
+            "batch": {"supported": True},
+            "citations": {"supported": True},
+            "code_execution": {"supported": True},
+            "context_management": {"supported": False},
+            "effort": {
+                "supported": adaptive_thinking,
+                "low": {"supported": True},
+                "medium": {"supported": True},
+                "high": {"supported": True},
+                "max": {"supported": True},
+            },
+            "image_input": {"supported": True},
+            "pdf_input": {"supported": True},
+            "server_tools": {
+                "supported": False,
+                "code_execution": {"supported": False},
+                "web_search": {"supported": False},
+            },
+            "structured_outputs": {"supported": True},
+            "thinking": {
+                "supported": adaptive_thinking,
+                "types": {
+                    "adaptive": {"supported": adaptive_thinking},
+                    "disabled": {"supported": True},
+                    "enabled": {"supported": True},
+                },
+            },
+            "sampling": {"supported": sampling},
+        },
+    }

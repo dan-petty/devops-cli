@@ -129,7 +129,7 @@ from devops_cli.ai.agents.tools import AgentTool, MCPToolset
 async with MCPToolset(url="http://localhost:8000/sse") as mcp:
     agent = PydanticAgent(
         name="DevSecOps",
-        model="claude-3-5-sonnet",
+        model="claude-sonnet-4-5",
         toolsets=[mcp],
     )
     result = await agent.run("Audit Kubernetes security policies")

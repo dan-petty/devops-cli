@@ -59,8 +59,7 @@ def supports_thinking(
     if model_name:
         lowered = model_name.lower()
         return any(
-            pattern in lowered
-            for pattern in ("r1", "deepseek", "qwen", "claude-3-7", ":thinking", "thinking")
+            pattern in lowered for pattern in ("r1", "deepseek", "qwen", ":thinking", "thinking")
         )
     return False
 

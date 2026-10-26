@@ -94,7 +94,7 @@ Slow governance does not prevent AI adoption—it drives engineers toward unmoni
 - **Axis 1: Complexity (How Hard?)**:
   - **Simple Tier** (rewording, formatting, entity extraction): Route to lightweight local models or fast mini models (`gpt-4o-mini`, `qwen2.5-coder:7b`).
   - **Moderate Tier** (API design, standard refactoring, query generation): Route to balanced models (`deepseek-chat`, `qwen2.5-coder:32b`, `granite-3.2`).
-  - **Complex Tier** (system architecture, multi-file reasoning, security threat modeling): Route to frontier reasoning models (`claude-3-7-sonnet`, `o3-mini`, `deepseek-r1`).
+  - **Complex Tier** (system architecture, multi-file reasoning, security threat modeling): Route to frontier reasoning models (`claude-sonnet-4-5`, `o3-mini`, `deepseek-r1`).
 - **Axis 2: Freshness (Needs Live Facts?)**:
   - Dynamic decision layer determining whether prompt requires live web/MCP search or can be answered strictly from model knowledge and local RAG context.
   - Trivial prompts skip live search; fresh queries inject concise, grounded markdown context.
@@ -121,7 +121,7 @@ Agent harnesses partition reasoning into modular, swappable "slots":
 Systems built solely around cutting-edge frontier models ("The Beyond") risk catastrophic failure when dropped into lower-intelligence fallback models ("The Slow Zone") due to sudden vendor outages, export controls, or policy revocations.
 
 - **"Chaos Monkey for Models"**:
-  - Deliberately inject model degradation experiments: Pull the primary frontier model and verify that secondary/local models (e.g. `llama-3.3-70b`, `qwen2.5-coder:14b`, `claude-3-5-haiku`) can operate the repository tools, CLI commands, and CI workflows without human intervention.
+  - Deliberately inject model degradation experiments: Pull the primary frontier model and verify that secondary/local models (e.g. `llama-3.3-70b`, `qwen2.5-coder:14b`, `claude-haiku-4-5`) can operate the repository tools, CLI commands, and CI workflows without human intervention.
 - **"It's Not the Model, It's the Documentation"**:
   - When models fail to operate tools, the root cause is rarely model deficiency—it is out-of-date `--help` output, incomplete documentation, or missing schemas.
   - Maintaining 100% documentation synchronization (`devops docs generate --sync-readme`) is a primary operational resilience control.
