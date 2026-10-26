@@ -1075,6 +1075,101 @@ def test_rejected_dependency_advisory_is_omitted_and_counted(tmp_path: Path) -> 
     )
 
 
+def test_base_revision_dependency_advisory_is_preexisting(tmp_path: Path) -> None:
+    """An advisory the base revision already has is listed under Pre-existing, and a new pin's under Introduced (#1353)."""
+    from devops_cli.ai.analyze.symbols import BaseRevision
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.models.vulnerability import (
+        DependencySpec,
+        PackageLookupResult,
+        VulnerabilityRecord,
+    )
+
+    base_content = "requests==2.20.0\n"
+    head_content = "requests==2.20.0\nflask==0.12.0\n"
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    req_file = src_dir / "requirements.txt"
+    req_file.write_text(head_content, encoding="utf-8")
+
+    base_rev = BaseRevision(
+        changes=(),
+        read=lambda p: base_content if p in ("src/requirements.txt", "requirements.txt") else None,
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s1353-preexisting-adv",
+        target_dir=tmp_path,
+        base_revision=base_rev,
+    )
+
+    dep_requests = DependencySpec(
+        name="requests", version_range="2.20.0", ecosystem="PyPI", line_number=1
+    )
+    dep_flask = DependencySpec(
+        name="flask", version_range="0.12.0", ecosystem="PyPI", line_number=2
+    )
+
+    vuln_requests = VulnerabilityRecord(
+        id="GHSA-xxxx-yyyy",
+        summary="Remote Code Execution in requests",
+        severity="CRITICAL",
+        source="OSV",
+        details_url="https://example.com/requests",
+    )
+    vuln_flask = VulnerabilityRecord(
+        id="GHSA-aaaa-bbbb",
+        summary="Denial of Service in flask",
+        severity="HIGH",
+        source="OSV",
+        details_url="https://example.com/flask",
+    )
+
+    dep_cache = {
+        ("requests", "2.20.0", "PyPI"): PackageLookupResult(
+            status="ok", vulnerabilities=[vuln_requests]
+        ),
+        ("flask", "0.12.0", "PyPI"): PackageLookupResult(status="ok", vulnerabilities=[vuln_flask]),
+    }
+
+    findings = orchestrator._audit_file_dependencies(
+        "src/requirements.txt", [dep_requests, dep_flask], dep_cache
+    )
+    admitted = orchestrator.admitted_scanner_findings
+    by_rule = {af.rule_id: af for af in admitted}
+
+    assert "GHSA-xxxx-yyyy" in by_rule
+    assert "GHSA-aaaa-bbbb" in by_rule
+
+    preexisting_adv = by_rule["GHSA-xxxx-yyyy"]
+    introduced_adv = by_rule["GHSA-aaaa-bbbb"]
+
+    assert (
+        preexisting_adv.baseline_state,
+        preexisting_adv.introduced,
+        introduced_adv.baseline_state,
+        introduced_adv.introduced,
+    ) == (
+        "unchanged",
+        False,
+        "new",
+        True,
+    )
+
+    preexisting_section = orchestrator._build_preexisting_findings_section(findings)
+    introduced_section = orchestrator._build_introduced_findings_section(findings)
+
+    preexisting_text = "\n".join(preexisting_section)
+    introduced_text = "\n".join(introduced_section)
+
+    assert "GHSA-xxxx-yyyy" in preexisting_text
+    assert "GHSA-aaaa-bbbb" not in preexisting_text
+
+    assert "GHSA-aaaa-bbbb" in introduced_text
+    assert "GHSA-xxxx-yyyy" not in introduced_text
+
+
 @pytest.mark.parametrize(
     ("tool", "line_text", "state"),
     [
