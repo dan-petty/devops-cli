@@ -2993,6 +2993,7 @@ CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL: Final[str] = "pod-image-pull"
 CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE: Final[str] = "pod-unschedulable"
 CONST_K8S_DOCTOR_RULE_POD_NOT_READY: Final[str] = "pod-not-ready"
 CONST_K8S_DOCTOR_RULE_WARNING_EVENTS: Final[str] = "warning-events"
+CONST_K8S_DOCTOR_RULE_VERSION_SKEW: Final[str] = "version-skew"
 
 # ── Kubernetes Doctor: the Gitea stack (#2187) ───────────────────────────────
 CONST_K8S_DOCTOR_STACK_GITEA: Final[str] = "gitea"

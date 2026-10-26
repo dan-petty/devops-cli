@@ -20,6 +20,8 @@ Register each manifest, Helm release and post-Helm step that runs in the cluster
 - kubectl and helm on PATH (installed by devcontainer features)
 - standard Kubernetes context configuration (the CLI uses `$KUBECONFIG` or defaults to `~/.kube/config`)
 
+Kubernetes supports `kubectl` within one minor version of the API server. The `tools.lock` file tracks a current `kubectl` release. The homelab cluster runs Kubernetes 1.31 (`v1.31.4+k3s1`), which stays outside the supported skew range until dan-petty/homelab#3 lands. We do not pin `kubectl` to 1.31 or 1.32, because both versions are end of life and the devcontainer minikube runs a current release.
+
 ## Quick Start
 
 ```bash

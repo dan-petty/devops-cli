@@ -165,6 +165,30 @@ def test_k8s_deploy_stack_fails_when_cluster_unreachable(
     assert "Kubernetes cluster is not reachable" in result.output
 
 
+@patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push")
+@patch("devops_cli.commands.k8s._cluster_reachable", return_value=True)
+def test_deploy_stack_warns_on_kubectl_version_skew(
+    mock_reachable: MagicMock, mock_keyring: MagicMock
+) -> None:
+    """deploy-stack warns when kubectl version skew exceeds one minor version."""
+    from devops_cli.k8s.service import KubernetesService
+
+    service = KubernetesService.get_instance()
+    service._set_cached("server_version:default", "v1.31.4+k3s1", ttl=60.0)
+    service._set_cached("server_version:local-k3s", "v1.31.4+k3s1", ttl=60.0)
+
+    with patch("devops_cli.commands.k8s.stack_lifecycle._handle_argo_managed_deployment"):
+        with patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
+        ):
+            res = runner.invoke(
+                app, ["deploy-stack", "--context", "local-k3s", "--no-push-secrets"]
+            )
+            assert "1.37.1" in res.output
+            assert "1.31.4" in res.output or "v1.31.4" in res.output
+            assert "supported" in res.output or "skew" in res.output
+
+
 @patch("devops_cli.commands.k8s._verify_url_reachability")
 def test_resolve_accessible_url_fallback(mock_verify: MagicMock) -> None:
     """_resolve_accessible_url falls back to localhost when minikube IP is unreachable."""
