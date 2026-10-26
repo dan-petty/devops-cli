@@ -211,6 +211,18 @@ class _IssuePayload(BaseModel):
     updated_at: datetime | None = None
     closed_at: datetime | None = None
     sub_issues: int = Field(default=0, validation_alias=AliasPath("sub_issues_summary", "total"))
+    repository_url: str | None = None
+    parent_issue_url: str | None = None
+
+    @property
+    def parent(self) -> int | None:
+        """The number of the parent when it is an issue of this issue's repository: the parent's
+        URL is the repository's URL, then `/issues/<number>`. A parent in another repository
+        names another issue, whatever its number."""
+        if self.parent_issue_url is None or self.repository_url is None:
+            return None
+        number = self.parent_issue_url.removeprefix(f"{self.repository_url}/issues/")
+        return int(number) if number.isdecimal() else None
 
     def record(self) -> IssueRecord:
         return IssueRecord(
@@ -228,6 +240,7 @@ class _IssuePayload(BaseModel):
             updated_at=self.updated_at,
             closed_at=self.closed_at,
             sub_issues=self.sub_issues,
+            parent=self.parent,
         )
 
 
