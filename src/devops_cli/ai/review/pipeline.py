@@ -2192,6 +2192,103 @@ def _audit_single_dep(
     return vulns
 
 
+def _parse_requirements_pin(
+    clean_line: str,
+    line_num: int,
+    fpath: str,
+    default_ecosystem: str,
+) -> DependencySpec | None:
+    """Parse a PyPI pin from a requirement line if present."""
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    if default_ecosystem == "PyPI" or "==" in clean_line:
+        try:
+            req = Requirement(clean_line)
+            for spec in req.specifier:
+                if spec.operator in ("==", "==="):
+                    return DependencySpec(
+                        name=req.name,
+                        version_range=spec.version,
+                        ecosystem="PyPI",
+                        source_file=fpath,
+                        line_number=line_num,
+                    )
+        except InvalidRequirement:
+            logger.debug("Skipping unparseable requirement line: %s", clean_line)
+
+    m = re.match(r"^([A-Za-z0-9_.-]+)\s*==\s*([A-Za-z0-9_.-]+)", clean_line)
+    if m:
+        return DependencySpec(
+            name=m.group(1),
+            version_range=m.group(2),
+            ecosystem=default_ecosystem,
+            source_file=fpath,
+            line_number=line_num,
+        )
+    return None
+
+
+def _parse_manifest_pin(
+    clean: str,
+    line_num: int,
+    fpath: str,
+    default_ecosystem: str,
+) -> DependencySpec | None:
+    """Parse an npm or cargo pin from a manifest line if present."""
+    if fpath.endswith(".json") or default_ecosystem == "npm":
+        m_npm = re.search(r'"(@?[A-Za-z0-9_./-]+)"\s*:\s*"([0-9][A-Za-z0-9_.-]*)"', clean)
+        if m_npm and m_npm.group(1) not in (
+            "version",
+            "name",
+            "description",
+            "main",
+            "scripts",
+        ):
+            return DependencySpec(
+                name=m_npm.group(1),
+                version_range=m_npm.group(2),
+                ecosystem="npm",
+                source_file=fpath,
+                line_number=line_num,
+            )
+
+    if fpath.endswith((".toml", ".lock")) or default_ecosystem == "crates.io":
+        m_toml = re.match(r'^([A-Za-z0-9_.-]+)\s*=\s*"([0-9][A-Za-z0-9_.-]*)"', clean)
+        if m_toml and m_toml.group(1) not in ("name", "version", "edition"):
+            return DependencySpec(
+                name=m_toml.group(1),
+                version_range=m_toml.group(2),
+                ecosystem="crates.io" if "cargo" in fpath.lower() else default_ecosystem,
+                source_file=fpath,
+                line_number=line_num,
+            )
+    return None
+
+
+def _extract_base_pinned_dependencies(
+    content: str,
+    fpath: str,
+    default_ecosystem: str = "PyPI",
+) -> list[DependencySpec]:
+    """Extract pinned dependencies with line numbers from base file content (#1353)."""
+    deps: list[DependencySpec] = []
+    lines = content.splitlines()
+
+    for line_num, raw_line in enumerate(lines, start=1):
+        clean = raw_line.split("#")[0].rstrip("\\").strip()
+        if not clean or clean.startswith(("-", "@")):
+            continue
+        clean_no_hash = re.sub(r"--\S+(=|\s+)\S+", "", clean).strip()
+
+        dep = _parse_requirements_pin(clean_no_hash, line_num, fpath, default_ecosystem)
+        if dep is None:
+            dep = _parse_manifest_pin(clean, line_num, fpath, default_ecosystem)
+        if dep is not None:
+            deps.append(dep)
+
+    return deps
+
+
 def _parse_review_toml_advisory_and_complexity(
     parsed_cfg: dict[str, Any],
 ) -> tuple[list[str], int, int | None]:
@@ -2943,6 +3040,46 @@ class ReviewPipelineOrchestrator:
             self.admitted_scanner_findings.append(frozen)
         return admitted_sf
 
+    def _admit_base_dependencies(
+        self,
+        fpath: str,
+        base_content: str,
+        base_deps: list[DependencySpec],
+        dep_cache: dict[tuple[str, str, str], Any],
+    ) -> None:
+        """Audit base revision dependencies against cache and record fingerprints (#1353)."""
+        if getattr(self, "base_fingerprints", None) is None:
+            self.base_fingerprints = set()
+
+        wt_root = reviewed_tree(self.target_dir) if getattr(self, "target_dir", None) else None
+        from devops_cli.review.location import normalize_finding_path
+
+        norm_fpath, _ = normalize_finding_path(fpath, wt_root)
+        commit_files = {
+            fpath,
+            norm_fpath,
+            fpath.replace("\\", "/").lstrip("./"),
+            Path(fpath).as_posix(),
+        }
+
+        for base_dep in base_deps:
+            for v in _audit_single_dep(base_dep, dep_cache):
+                raw = _build_vulnerability_finding(fpath, base_dep, v, session_id="base-revision")
+                frozen, _ = _admit_single_candidate(
+                    raw,
+                    len(self.base_fingerprints),
+                    session_id="base-revision",
+                    worktree_root=wt_root or Path("/"),
+                    commit_files=commit_files,
+                    file_content_getter=lambda _: base_content,
+                    path_classes=getattr(self, "path_classes", None),
+                    suppressions=getattr(self, "suppressions", None),
+                    base_fingerprints=getattr(self, "base_fingerprints", None),
+                    rejection_counts=None,
+                )
+                if frozen is not None and getattr(frozen, "fingerprint_v2", None):
+                    self.base_fingerprints.add(frozen.fingerprint_v2)
+
     def _audit_file_dependencies(
         self,
         fpath: str,
@@ -2950,6 +3087,22 @@ class ReviewPipelineOrchestrator:
         dep_cache: dict[tuple[str, str, str], Any],
     ) -> list[SavedFinding]:
         """Audit dependencies against vulnerability cache and return any vulnerability findings."""
+        base_rev = getattr(self, "base_revision", None)
+        if base_rev is not None and callable(getattr(base_rev, "read", None)):
+            clean_p = fpath.replace("\\", "/").lstrip("./")
+            base_content = base_rev.read(clean_p)
+            if base_content is None and clean_p != fpath:
+                base_content = base_rev.read(fpath)
+            if base_content is not None:
+                if isinstance(base_content, bytes):
+                    base_content = base_content.decode("utf-8", errors="replace")
+                default_eco = file_deps[0].ecosystem if file_deps else "PyPI"
+                base_deps = _extract_base_pinned_dependencies(
+                    base_content, fpath, default_ecosystem=default_eco
+                )
+                if base_deps:
+                    self._admit_base_dependencies(fpath, base_content, base_deps, dep_cache)
+
         findings: list[SavedFinding] = []
         wt_root = reviewed_tree(self.target_dir) if getattr(self, "target_dir", None) else None
         has_file = wt_root is not None and (wt_root / fpath).is_file()

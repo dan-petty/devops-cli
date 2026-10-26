@@ -155,15 +155,26 @@ def admit(
         else None
     )
 
-    fp_v2 = compute_fingerprint_v2(
-        tool=tool,
-        rule_id=rule_id,
-        path=loc_res.normalized_path,
-        start_line=loc_res.start_line,
-        file_content=file_content,
-        enclosing_symbol=symbol,
-        logical_location=loc_res.logical_location,
-    )
+    eff_logical_loc = loc_res.logical_location
+    if isinstance(anchor, AdvisoryAnchor) and not eff_logical_loc:
+        eff_logical_loc = f"{anchor.purl}@{anchor.locked_version}"
+
+    if isinstance(anchor, AdvisoryAnchor):
+        fp_v2 = compute_fingerprint_v2(
+            tool=tool,
+            rule_id=rule_id,
+            logical_location=eff_logical_loc,
+        )
+    else:
+        fp_v2 = compute_fingerprint_v2(
+            tool=tool,
+            rule_id=rule_id,
+            path=loc_res.normalized_path,
+            start_line=loc_res.start_line,
+            file_content=file_content,
+            enclosing_symbol=symbol,
+            logical_location=eff_logical_loc,
+        )
 
     state, supp_reason, supp_expiry, supp_by_change = _check_suppressions(
         suppressions=suppressions,
@@ -193,7 +204,7 @@ def admit(
         end_line=loc_res.end_line,
         symbol=symbol.strip() if symbol else None,
         region_sha256=loc_res.region_sha256,
-        logical_location=loc_res.logical_location,
+        logical_location=eff_logical_loc,
         message=message.strip(),
         description=description.strip(),
         fix=fix.strip(),
