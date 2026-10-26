@@ -110,7 +110,7 @@ def test_scan_sbom_unsupported_format(tmp_path: Path) -> None:
     assert "Unsupported SBOM format" in res.output
 
 
-def test_scan_sbom_dry_run(tmp_path: Path) -> None:
+def test_scan_sbom_dry_run(process_fake: ProcessFake, tmp_path: Path) -> None:
     """Verify devops scan sbom previews execution plan in dry-run mode."""
     res = runner.invoke(scan_app, ["sbom", str(tmp_path), "--dry-run"])
     assert res.exit_code == 0

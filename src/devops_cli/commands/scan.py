@@ -651,10 +651,6 @@ def scan_sbom(
         )
         raise typer.Exit(1)
 
-    if not check_binary(BIN_TRIVY):
-        print_error(f"Required dependency '{BIN_TRIVY}' is not installed.", prefix=False)
-        raise typer.Exit(1)
-
     if is_dry_run():
         return CommandDryRunResult(
             command=f"devops scan sbom {target} --format {format_type}",
@@ -664,6 +660,10 @@ def scan_sbom(
                 "format": norm_format,
             },
         )
+
+    if not check_binary(BIN_TRIVY):
+        print_error(f"Required dependency '{BIN_TRIVY}' is not installed.", prefix=False)
+        raise typer.Exit(1)
 
     if output_file:
         print_muted(f"Generating {norm_format.upper()} SBOM for {target_abs}...")
