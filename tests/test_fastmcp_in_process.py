@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -240,3 +241,60 @@ def test_ci_argv_contains_check_and_timeout_exceeds_budget() -> None:
             "--check" in cmd,
             call_kwargs["timeout"] >= CONST_CI_TEST_BUDGET_SECONDS,
         ) == (True, True)
+
+
+def test_in_process_dispatcher_timeout_stops_command_within_budget() -> None:
+    """A command that does not return stops at its timeout and returns exit code 124 with a diagnostic."""
+    cmd_name = "_test_hang_1356"
+    release_event = threading.Event()
+
+    @app.command(name=cmd_name, hidden=True)
+    def _test_hang() -> None:
+        release_event.wait(10)
+
+    try:
+        dispatcher = InProcessDispatcher()
+        code, out = dispatcher.dispatch(["devops", cmd_name], timeout=0.1)
+
+        assert (
+            code,
+            "timed out after 0.1 seconds" in out,
+            cmd_name in out,
+        ) == (124, True, True)
+    finally:
+        release_event.set()
+        app.registered_commands = [c for c in app.registered_commands if c.name != cmd_name]
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_stops_at_timeout_when_command_never_returns() -> None:
+    """An MCP tool stops at its timeout when an in-process command never returns, returning isError."""
+    from fastmcp import FastMCP
+
+    cmd_name = "_test_hung_tool_1356"
+    release_event = threading.Event()
+
+    @app.command(name=cmd_name, hidden=True)
+    def _test_hung_cmd() -> None:
+        release_event.wait(10)
+
+    try:
+        test_mcp = FastMCP("test-timeout-server")
+
+        @test_mcp.tool(name="_test_hung_tool")
+        def _test_hung_tool() -> str:
+            return _run_mcp_cmd(["uv", "run", "devops", cmd_name], timeout=0.1)
+
+        async with Client(test_mcp) as client:
+            res = await client.call_tool("_test_hung_tool", {}, raise_on_error=False)
+            text = "\n".join(getattr(b, "text", "") for b in res.content)
+
+            assert (
+                res.is_error,
+                "Command exited with status 124:" in text,
+                "timed out after 0.1 seconds" in text,
+                cmd_name in text,
+            ) == (True, True, True, True)
+    finally:
+        release_event.set()
+        app.registered_commands = [c for c in app.registered_commands if c.name != cmd_name]
