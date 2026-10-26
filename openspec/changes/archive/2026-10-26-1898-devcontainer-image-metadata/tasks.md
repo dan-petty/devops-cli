@@ -16,9 +16,9 @@
 
 ## 3. Verification and static checks
 
-- [ ] 3.1 Verify the fail-to-pass check run passes against origin/main
+- [x] 3.1 Verify the fail-to-pass check run passes against origin/main
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] 3.2 Verify the full static checks and test suite pass
+- [x] 3.2 Verify the full static checks and test suite pass
   - Verification: `uv run devops ci`
 
 ## Workflow follow-up
