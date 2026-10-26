@@ -11,6 +11,7 @@ from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
 DEVCONTAINER_JSON = REPO_ROOT / ".devcontainer" / "devcontainer.json"
+DEVCONTAINER_IMAGE_JSON = REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json"
 CLAUDE_SETTINGS_JSON = REPO_ROOT / ".claude" / "settings.json"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
@@ -195,6 +196,50 @@ def test_devcontainer_disables_telemetry() -> None:
     assert actual_settings == expected_settings
 
 
+def test_devcontainer_image_disables_telemetry() -> None:
+    """Verify .devcontainer/image/devcontainer.json specifies telemetry opt-out variables."""
+    assert DEVCONTAINER_IMAGE_JSON.is_file(), f"Missing {DEVCONTAINER_IMAGE_JSON}"
+
+    data = json.loads(DEVCONTAINER_IMAGE_JSON.read_text(encoding="utf-8"))
+    env = data.get("containerEnv", {})
+
+    actual_env = (
+        env.get("DO_NOT_TRACK"),
+        env.get("HF_HUB_DISABLE_TELEMETRY"),
+        env.get("SCARF_NO_ANALYTICS"),
+        env.get("NEXT_TELEMETRY_DISABLED"),
+        env.get("CHECKPOINT_DISABLE"),
+        env.get("DOTNET_CLI_TELEMETRY_OPTOUT"),
+        env.get("ANONYMIZED_TELEMETRY"),
+        env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
+        env.get("DISABLE_TELEMETRY"),
+        env.get("GOTELEMETRY"),
+        env.get("PIP_DISABLE_PIP_VERSION_CHECK"),
+        env.get("npm_config_update_notifier"),
+        env.get("DOCKER_CLI_HINTS"),
+        env.get("MINIKUBE_WANTUPDATENOTIFICATION"),
+        env.get("MINIKUBE_WANTREPORTERRORPROMPT"),
+    )
+    expected_env = (
+        "1",
+        "1",
+        "true",
+        "1",
+        "1",
+        "1",
+        "false",
+        "1",
+        "1",
+        "off",
+        "1",
+        "false",
+        "false",
+        "false",
+        "false",
+    )
+    assert actual_env == expected_env
+
+
 def _rendered_devcontainer_template() -> dict[str, Any]:
     """The devcontainer a project scaffolded from the packaged template gets."""
     rendered: dict[str, Any] = json.loads(
@@ -212,15 +257,20 @@ def _rendered_devcontainer_template() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    "devcontainer",
-    [json.loads(DEVCONTAINER_JSON.read_text(encoding="utf-8")), _rendered_devcontainer_template()],
-    ids=["this-repository", "scaffolded-template"],
+    "source",
+    ["this-repository", "image-configuration", "scaffolded-template"],
 )
 def test_a_devcontainer_opts_out_of_openspec_telemetry_and_its_update_check(
-    devcontainer: dict[str, Any],
+    source: str,
 ) -> None:
     """OpenSpec sends events to a PostHog proxy and asks the npm registry for a newer release on
     every `validate`, `list`, `update` and `version --check`, unless the environment says not to."""
+    if source == "this-repository":
+        devcontainer = json.loads(DEVCONTAINER_JSON.read_text(encoding="utf-8"))
+    elif source == "image-configuration":
+        devcontainer = json.loads(DEVCONTAINER_IMAGE_JSON.read_text(encoding="utf-8"))
+    else:
+        devcontainer = _rendered_devcontainer_template()
     env = devcontainer["containerEnv"]
 
     assert {key: env.get(key) for key in OPENSPEC_OPT_OUTS} == OPENSPEC_OPT_OUTS

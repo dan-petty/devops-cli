@@ -1,6 +1,6 @@
 name: Build the DevContainer image with its features
 description: >-
-  Build .devcontainer/devcontainer.json with the Dev Containers CLI that tools.lock pins, so the
+  Build .devcontainer/image/devcontainer.json with the Dev Containers CLI that tools.lock pins, so the
   image holds the Dev Container Features, the user vscode and the devcontainer.metadata label a
   child repository reads, for linux/amd64 only and with no emulation, and push it by digest
   (#1895). The pull request job and the release job
@@ -51,7 +51,7 @@ runs:
     # `devcontainer build --label` adds nothing to a Dockerfile configuration
     # (devcontainers/cli#930), so the labels, the SBOM, the provenance and the metadata file that
     # holds the digest reach `docker buildx build` through `build.options`. The configuration
-    # stays in .devcontainer/, where its relative paths and devcontainer-lock.json resolve.
+    # stays in .devcontainer/image/, where its relative paths and devcontainer-lock.json resolve.
     - name: Write the build configuration
       shell: bash
       env:
@@ -62,7 +62,7 @@ runs:
           .build.options = (.build.options // [])
             + [$labels | split("\n")[] | select(length > 0) | ("--label", .)]
             + ["--sbom=true", "--provenance=mode=max", "--metadata-file", $metadata]
-        ' .devcontainer/devcontainer.json > .devcontainer/devcontainer.build.json
+        ' .devcontainer/image/devcontainer.json > .devcontainer/image/devcontainer.build.json
 
     - name: Build the image with its features and push it by digest
       id: build
@@ -79,7 +79,7 @@ runs:
         if [ -n "$CACHE_TO" ]; then CACHE_ARGS+=(--cache-to "$CACHE_TO"); fi
         devcontainer build \
           --workspace-folder . \
-          --config .devcontainer/devcontainer.build.json \
+          --config .devcontainer/image/devcontainer.build.json \
           --frozen-lockfile \
           --image-name "$IMAGE" \
           --platform linux/amd64 \

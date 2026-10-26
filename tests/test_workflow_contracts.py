@@ -838,7 +838,7 @@ def _composite_steps(name: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
 
 def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli() -> None:
-    """The action builds .devcontainer/devcontainer.json with the Dev Containers CLI that the tools
+    """The action builds .devcontainer/image/devcontainer.json with the Dev Containers CLI that the tools
     lock pins, so the Dev Container Features and the user vscode are in the image, for linux/amd64
     only, with no emulation, pushed by digest. The labels, the SBOM, the provenance and the metadata file that
     holds the digest reach buildx through `build.options`, which the CLI passes on for a
@@ -879,7 +879,7 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
                 "  .build.options = (.build.options // [])\n"
                 '    + [$labels | split("\\n")[] | select(length > 0) | ("--label", .)]\n'
                 '    + ["--sbom=true", "--provenance=mode=max", "--metadata-file", $metadata]\n'
-                "' .devcontainer/devcontainer.json > .devcontainer/devcontainer.build.json\n",
+                "' .devcontainer/image/devcontainer.json > .devcontainer/image/devcontainer.build.json\n",
             },
             {
                 "name": "Build the image with its features and push it by digest",
@@ -895,7 +895,7 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
                 'if [ -n "$CACHE_TO" ]; then CACHE_ARGS+=(--cache-to "$CACHE_TO"); fi\n'
                 "devcontainer build \\\n"
                 "  --workspace-folder . \\\n"
-                "  --config .devcontainer/devcontainer.build.json \\\n"
+                "  --config .devcontainer/image/devcontainer.build.json \\\n"
                 "  --frozen-lockfile \\\n"
                 '  --image-name "$IMAGE" \\\n'
                 "  --platform linux/amd64 \\\n"
