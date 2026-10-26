@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import shlex
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -1091,6 +1093,19 @@ def scan_injection(
     return None
 
 
+def _parse_scanner_names(names: Sequence[str] | None) -> list[str]:
+    """Parse repeatable or comma-separated scanner names into a normalized list."""
+    if not names:
+        return []
+    parsed: list[str] = []
+    for item in names:
+        for part in item.split(","):
+            cleaned = part.strip()
+            if cleaned and cleaned not in parsed:
+                parsed.append(cleaned)
+    return parsed
+
+
 @app.command("report")
 def scan_report(
     target: Annotated[
@@ -1100,6 +1115,10 @@ def scan_report(
     scanners: Annotated[
         list[str] | None,
         typer.Option("--scanner", "-s", help=HELP.scan.scanners),
+    ] = None,
+    skip: Annotated[
+        list[str] | None,
+        typer.Option("--skip", "--skip-scanner", help=HELP.scan.skip_scanners),
     ] = None,
     sarif: Annotated[
         Path | None,
@@ -1140,11 +1159,29 @@ def scan_report(
     policy = _load_policy_or_exit(suppress)
 
     registry = global_scanner_registry
-    selected = scanners or registry.list_scanners()
-    unknown = [name for name in selected if registry.get(name) is None]
-    if unknown:
-        print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
+    all_registered = registry.list_scanners()
+
+    selected_names = _parse_scanner_names(scanners)
+    skip_names = _parse_scanner_names(skip)
+
+    if selected_names and skip_names:
+        print_error("Cannot combine --scanner and --skip options.")
         raise typer.Exit(2)
+
+    if selected_names:
+        unknown = [name for name in selected_names if registry.get(name) is None]
+        if unknown:
+            print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
+            raise typer.Exit(2)
+        selected = selected_names
+    elif skip_names:
+        unknown = [name for name in skip_names if registry.get(name) is None]
+        if unknown:
+            print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
+            raise typer.Exit(2)
+        selected = [name for name in all_registered if name not in skip_names]
+    else:
+        selected = all_registered
 
     results = registry.scan_all(target_abs, names=selected)
     report = build_report(results, target_abs, policy=policy, min_severity=min_severity)
@@ -1167,9 +1204,54 @@ def scan_report(
     _evaluate_fail_on(
         report,
         fail_on=fail_on,
-        explicit_scanners=scanners,
+        explicit_scanners=selected_names if selected_names else None,
         json_output=(resolved != CONST_OUTPUT_FORMAT_TABLE),
     )
+
+
+def _extract_report_tokens(command_line: str) -> list[str] | None:
+    tokens = shlex.split(command_line.strip())
+    for i in range(len(tokens) - 2):
+        if tokens[i : i + 3] == ["devops", "scan", "report"]:
+            return tokens[i + 3 :]
+    return None
+
+
+def _extract_flag_arguments(tokens: list[str], flag_names: tuple[str, ...]) -> list[str]:
+    values: list[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        for flag in flag_names:
+            if tok.startswith(f"{flag}="):
+                values.append(tok.split("=", 1)[1])
+                break
+            if tok == flag and i + 1 < len(tokens):
+                values.append(tokens[i + 1])
+                i += 1
+                break
+        i += 1
+    return values
+
+
+def resolve_scan_report_scanners(command_line: str) -> list[str]:
+    """Resolve security scanner names reached by a given workflow or CLI command line."""
+    tokens = _extract_report_tokens(command_line)
+    if tokens is None:
+        return []
+
+    scanner_vals = _extract_flag_arguments(tokens, ("--scanner", "-s"))
+    skip_vals = _extract_flag_arguments(tokens, ("--skip", "--skip-scanner"))
+
+    selected_names = _parse_scanner_names(scanner_vals)
+    skip_names = _parse_scanner_names(skip_vals)
+
+    all_registered = global_scanner_registry.list_scanners()
+    if selected_names:
+        return [s for s in selected_names if s in all_registered]
+    if skip_names:
+        return [s for s in all_registered if s not in skip_names]
+    return all_registered
 
 
 @app.command("sarif")

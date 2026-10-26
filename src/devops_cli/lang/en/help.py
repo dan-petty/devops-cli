@@ -1344,6 +1344,7 @@ class ScanCommandHelp:
     )
     target_report: str = "Target directory or file to scan with all registered scanners."
     scanners: str = "Limit the run to these scanners (repeatable). Defaults to all registered."
+    skip_scanners: str = "Skip these scanners (repeatable or comma-separated)."
     sarif_output: str = "Write findings to this path as a SARIF 2.1.0 document."
     sarif_import: str = "SARIF document to ingest, from this or any other SARIF-emitting tool."
     min_severity: str = "Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO)."

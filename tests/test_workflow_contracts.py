@@ -719,6 +719,71 @@ def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() 
     )
 
 
+def test_the_static_job_starts_bandit_once() -> None:
+    """The Static Analysis CI job runs Bandit once: the gate's security row covers it, and the
+    scan report step skips it (#1746)."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "ci.yml")
+    steps = workflow["jobs"]["static"]["steps"]
+
+    bandit_starts = 0
+    for step in steps:
+        run = str(step.get("run", ""))
+        if not run:
+            continue
+        if "security" in resolve_step_rows(run):
+            bandit_starts += 1
+        try:
+            from devops_cli.commands.scan import resolve_scan_report_scanners
+
+            scanners = resolve_scan_report_scanners(run)
+        except ImportError:
+            scanners = (
+                []
+                if ("--skip" in run or "--skip-scanner" in run) and "bandit" in run
+                else ["bandit"]
+                if "devops scan report" in run
+                else []
+            )
+        if "bandit" in scanners:
+            bandit_starts += 1
+
+    assert bandit_starts == 1
+
+
+def test_the_static_job_starts_bandit_once_mutation() -> None:
+    """Omitting --skip bandit causes Bandit to run twice and fails the contract (#1746)."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "ci.yml")
+    steps = copy.deepcopy(workflow["jobs"]["static"]["steps"])
+    for step in steps:
+        if "devops scan report" in str(step.get("run", "")):
+            step["run"] = "uv run devops scan report --sarif .data/scan.sarif"
+
+    bandit_starts = 0
+    for step in steps:
+        run = str(step.get("run", ""))
+        if not run:
+            continue
+        if "security" in resolve_step_rows(run):
+            bandit_starts += 1
+        try:
+            from devops_cli.commands.scan import resolve_scan_report_scanners
+
+            scanners = resolve_scan_report_scanners(run)
+        except ImportError:
+            scanners = (
+                []
+                if ("--skip" in run or "--skip-scanner" in run) and "bandit" in run
+                else ["bandit"]
+                if "devops scan report" in run
+                else []
+            )
+        if "bandit" in scanners:
+            bandit_starts += 1
+
+    with pytest.raises(AssertionError):
+        assert bandit_starts == 1
+
+
 def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() -> None:
     """GitHub runs the `copilot-setup-steps` job from the default branch before the Copilot cloud
     agent starts. The file is written by hand, since `openspec init --copilot-cloud` writes a
