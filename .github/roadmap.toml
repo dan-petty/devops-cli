@@ -3,4 +3,4 @@
 # `--ref`, which defaults to the default branch.
 
 # The project board (number) that holds the roadmap's Items. It has no default.
-board = 2
+board = 12

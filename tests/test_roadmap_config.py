@@ -39,9 +39,9 @@ def test_every_key_can_be_set() -> None:
     assert parse_roadmap_config("board = 3\n") == RoadmapConfig(board=3)
 
 
-def test_this_repositorys_file_names_board_2() -> None:
+def test_this_repositorys_file_names_board_12() -> None:
     text = (REPO_ROOT / ".github" / "roadmap.toml").read_text(encoding="utf-8")
-    assert parse_roadmap_config(text) == RoadmapConfig(board=2)
+    assert parse_roadmap_config(text) == RoadmapConfig(board=12)
 
 
 def test_the_file_is_read_at_the_ref_and_a_failed_read_stops() -> None:
