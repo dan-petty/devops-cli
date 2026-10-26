@@ -299,7 +299,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
 |  | `devops scan iac [OPTIONS] <target>` | Run Checkov IaC static policy and security compliance scan. |
 |  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |
-|  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
+|  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) using Trivy (#1439). |
 |  | `devops scan aibom [OPTIONS] <target>` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
 |  | `devops scan fix [OPTIONS] <target>` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
 |  | `devops scan injection [OPTIONS] <target>` | Scan target files for prompt-injection smuggling vectors and canary tokens. |

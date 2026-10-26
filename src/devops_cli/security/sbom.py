@@ -1,194 +1,78 @@
-"""Software Bill of Materials (SBOM) Generator in CycloneDX, SPDX, and JSON formats."""
+"""Software Bill of Materials (SBOM) generation via Aqua Trivy (#1439)."""
 
 from __future__ import annotations
 
-import importlib.metadata
-import logging
-import tomllib
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from devops_cli.config.defaults import DEFAULT_PROJECT_NAME
+from devops_cli.config.commands import build_trivy_sbom_cmd
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+    DEFAULT_TRIVY_SCAN_TYPE,
+    DEFAULT_TRIVY_SEVERITIES,
+)
+from devops_cli.exceptions.tools import DependencyError, ToolExecutionError
+from devops_cli.security.trivy import TrivyScanner
 
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class SBOMComponent:
-    """A single software component in an SBOM."""
-
-    name: str
-    version: str
-    purl: str
-    type: str = "library"
-    description: str = ""
-    licenses: list[str] = field(default_factory=list)
+if TYPE_CHECKING:
+    from devops_cli.ai.review_schema import Finding
+    from devops_cli.security.tool_executor import ToolExecutor
 
 
-@dataclass
-class SBOMDocument:
-    """Structured SBOM metadata document."""
+class TrivySbomScanner(TrivyScanner):
+    """Aqua Trivy SBOM generator using the security scanner base."""
 
-    format: str
-    spec_version: str
-    timestamp: str
-    root_component: str
-    components: list[SBOMComponent] = field(default_factory=list)
+    def build_command(
+        self,
+        target_path: Path,
+        scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
+        severity: str = DEFAULT_TRIVY_SEVERITIES,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Build argument command list for invoking Trivy SBOM generation."""
+        format_type = str(kwargs.get("format_type", "cyclonedx"))
+        return build_trivy_sbom_cmd(target_path, format_type=format_type)
 
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        """SBOM generation produces raw documents rather than review findings."""
+        return []
 
-def extract_workspace_components(workspace_dir: Path) -> list[SBOMComponent]:
-    """Extract installed or locked dependencies from uv.lock or active Python runtime."""
-    components: list[SBOMComponent] = []
-    uv_lock = workspace_dir / "uv.lock"
+    def run_sbom(
+        self,
+        target_path: Path,
+        format_type: str = "cyclonedx",
+        timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+    ) -> str:
+        """Execute Trivy to generate an SBOM document through the scanner base."""
+        if not self._check_binary():
+            raise DependencyError(tool_name=self.binary_name)
 
-    if uv_lock.exists():
-        try:
-            lock_data = tomllib.loads(uv_lock.read_text(encoding="utf-8"))
-            for pkg in lock_data.get("package", []):
-                name = pkg.get("name", "")
-                version = pkg.get("version", "")
-                if name:
-                    purl = f"pkg:pypi/{name}@{version}" if version else f"pkg:pypi/{name}"
-                    components.append(
-                        SBOMComponent(
-                            name=name,
-                            version=version,
-                            purl=purl,
-                            type="library",
-                        )
-                    )
-            return sorted(components, key=lambda c: c.name.lower())
-        except (tomllib.TOMLDecodeError, OSError, ValueError, KeyError) as exc:
-            logger.warning(
-                "Failed to parse %s: %s, falling back to runtime distributions", uv_lock, exc
+        cmd = self.build_command(target_path, format_type=format_type)
+        cwd = self._resolve_cwd(target_path)
+        proc = self._run_tool(cmd, cwd, target_path, timeout)
+        if proc.returncode != 0:
+            raise ToolExecutionError(
+                f"Trivy SBOM generation failed with code {proc.returncode}: {proc.stderr.strip()}",
+                tool_name=self.binary_name,
+                exit_code=proc.returncode or 1,
             )
-
-    # Fallback to runtime installed distributions
-    for dist in importlib.metadata.distributions():
-        name = dist.metadata.get("Name", "")
-        version = dist.metadata.get("Version", "")
-        if name:
-            purl = f"pkg:pypi/{name}@{version}" if version else f"pkg:pypi/{name}"
-            components.append(
-                SBOMComponent(
-                    name=name,
-                    version=version,
-                    purl=purl,
-                    description=dist.metadata.get("Summary", ""),
-                )
-            )
-
-    return sorted(components, key=lambda c: c.name.lower())
+        return str(proc.stdout or "")
 
 
-def generate_cyclonedx_sbom(
-    workspace_dir: Path,
-    project_name: str = DEFAULT_PROJECT_NAME,
-    project_version: str | None = None,
-) -> dict[str, Any]:
-    """Generate CycloneDX 1.5 JSON SBOM representation."""
-    from devops_cli import __version__
-
-    effective_version = project_version or __version__
-    components = extract_workspace_components(workspace_dir)
-    timestamp = datetime.now(UTC).isoformat()
-
-    return {
-        "bomFormat": "CycloneDX",
-        "specVersion": "1.5",
-        "version": 1,
-        "metadata": {
-            "timestamp": timestamp,
-            "tools": [
-                {
-                    "vendor": "devops-cli",
-                    "name": "devops scan sbom",
-                    "version": effective_version,
-                }
-            ],
-            "component": {
-                "name": project_name,
-                "version": effective_version,
-                "type": "application",
-                "purl": f"pkg:pypi/{project_name}@{effective_version}",
-            },
-        },
-        "components": [
-            {
-                "type": c.type,
-                "name": c.name,
-                "version": c.version,
-                "purl": c.purl,
-                "description": c.description,
-            }
-            for c in components
-        ],
-    }
+def run_trivy_sbom(
+    target: Path = DEFAULT_CURRENT_PATH,
+    format_type: str = "cyclonedx",
+    *,
+    tool_executor: ToolExecutor | None = None,
+    timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+) -> str:
+    """Generate an SBOM document using Trivy through the scanner base."""
+    scanner = TrivySbomScanner(tool_executor=tool_executor)
+    return scanner.run_sbom(target, format_type=format_type, timeout=timeout)
 
 
-def generate_spdx_sbom(
-    workspace_dir: Path,
-    project_name: str = DEFAULT_PROJECT_NAME,
-    project_version: str | None = None,
-) -> dict[str, Any]:
-    """Generate SPDX 2.3 JSON SBOM representation."""
-    from devops_cli import __version__
-
-    effective_version = project_version or __version__
-    components = extract_workspace_components(workspace_dir)
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    spdx_id_root = f"SPDXRef-Package-{project_name}"
-
-    packages: list[dict[str, Any]] = [
-        {
-            "SPDXID": spdx_id_root,
-            "name": project_name,
-            "versionInfo": effective_version,
-            "downloadLocation": "NOASSERTION",
-            "filesAnalyzed": False,
-        }
-    ]
-
-    relationships: list[dict[str, Any]] = []
-
-    for i, c in enumerate(components, start=1):
-        pkg_id = f"SPDXRef-Package-{c.name}-{i}"
-        packages.append(
-            {
-                "SPDXID": pkg_id,
-                "name": c.name,
-                "versionInfo": c.version,
-                "downloadLocation": "NOASSERTION",
-                "filesAnalyzed": False,
-                "externalRefs": [
-                    {
-                        "referenceCategory": "PACKAGE-MANAGER",
-                        "referenceType": "purl",
-                        "referenceLocator": c.purl,
-                    }
-                ],
-            }
-        )
-        relationships.append(
-            {
-                "spdxElementId": spdx_id_root,
-                "relationshipType": "DEPENDS_ON",
-                "relatedSpdxElement": pkg_id,
-            }
-        )
-
-    return {
-        "spdxVersion": "SPDX-2.3",
-        "dataLicense": "CC0-1.0",
-        "SPDXID": "SPDXRef-DOCUMENT",
-        "name": f"{project_name}-sbom",
-        "documentNamespace": f"https://spdx.org/spdxdocs/{project_name}-{project_version}-{timestamp}",
-        "creationInfo": {
-            "created": timestamp,
-            "creators": ["Tool: devops-cli scan sbom"],
-        },
-        "packages": packages,
-        "relationships": relationships,
-    }
+__all__ = [
+    "TrivySbomScanner",
+    "run_trivy_sbom",
+]

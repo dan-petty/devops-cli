@@ -122,7 +122,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`scan_iac`](#scan-iac) | `true` | Run Checkov IaC static policy and security compliance scan. |
 | [`scan_injection`](#scan-injection) | `true` | Scan target files for prompt-injection smuggling vectors and canary tokens. |
 | [`scan_sast`](#scan-sast) | `true` | Run static application security testing (SAST) via Semgrep. |
-| [`scan_sbom`](#scan-sbom) | `true` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
+| [`scan_sbom`](#scan-sbom) | `true` | Generate Software Bill of Materials (SBOM) using Trivy (#1439). |
 | [`scan_secrets`](#scan-secrets) | `true` | Run Gitleaks secret pre-filter scan across workspace or targets. |
 | [`scan_trivy`](#scan-trivy) | `true` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
 | [`scan_uv_audit`](#scan-uv-audit) | `true` | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
@@ -2021,7 +2021,7 @@ Run static application security testing (SAST) via Semgrep.
 
 ### `scan_sbom`
 
-Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format.
+Generate Software Bill of Materials (SBOM) using Trivy (#1439).
 
 **Annotations:** `readOnlyHint: true`
 

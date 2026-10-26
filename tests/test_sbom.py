@@ -1,116 +1,125 @@
-"""Tests for SBOM generation and devops scan sbom command."""
+"""Tests for SBOM generation and devops scan sbom command (#1439)."""
 
 from __future__ import annotations
 
-import json
+import shutil
 from pathlib import Path
+from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
+import devops_cli.security.sbom as sbom
 from devops_cli.commands.scan import app as scan_app
-from devops_cli.security.sbom import (
-    extract_workspace_components,
-    generate_cyclonedx_sbom,
-    generate_spdx_sbom,
-)
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
 
 
-def test_extract_workspace_components(tmp_path: Path) -> None:
-    """Extract components from mock uv.lock file."""
-    mock_lock = tmp_path / "uv.lock"
-    mock_lock.write_text(
-        '[[package]]\nname = "pydantic"\nversion = "2.13.4"\n\n'
-        '[[package]]\nname = "rich"\nversion = "15.0.0"\n',
-        encoding="utf-8",
+def test_build_trivy_sbom_cmd(tmp_path: Path) -> None:
+    """Verify build_trivy_sbom_cmd formats argv for CycloneDX and SPDX."""
+    from devops_cli.config.commands import build_trivy_sbom_cmd
+
+    cmd_cyclonedx = build_trivy_sbom_cmd(tmp_path, "cyclonedx")
+    assert cmd_cyclonedx == ["trivy", "fs", "--format", "cyclonedx", str(tmp_path)]
+
+    cmd_spdx = build_trivy_sbom_cmd(tmp_path, "spdx")
+    assert cmd_spdx == ["trivy", "fs", "--format", "spdx-json", str(tmp_path)]
+
+    cmd_spdx_json = build_trivy_sbom_cmd(tmp_path, "spdx-json")
+    assert cmd_spdx_json == ["trivy", "fs", "--format", "spdx-json", str(tmp_path)]
+
+
+def test_scan_sbom_cyclonedx_argv_and_output_to_file(
+    process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """Verify devops scan sbom invokes Trivy with CycloneDX format and writes output unchanged."""
+    recorded_output = '{"bomFormat": "CycloneDX", "specVersion": "1.5"}'
+    process_fake.answer(
+        ("trivy", "fs", "--format", "cyclonedx"),
+        ProcessAnswer(returncode=0, stdout=recorded_output),
     )
-    components = extract_workspace_components(tmp_path)
-    assert len(components) == 2
-    names = [c.name for c in components]
-    assert "pydantic" in names
-    assert "rich" in names
-    assert any(c.purl == "pkg:pypi/pydantic@2.13.4" for c in components)
 
-
-def test_generate_cyclonedx_sbom(tmp_path: Path) -> None:
-    """Generate CycloneDX 1.5 JSON SBOM."""
-    mock_lock = tmp_path / "uv.lock"
-    mock_lock.write_text(
-        '[[package]]\nname = "typer"\nversion = "0.27.1"\n',
-        encoding="utf-8",
-    )
-    sbom = generate_cyclonedx_sbom(tmp_path, project_name="devops-cli", project_version="0.2.6")
-    assert sbom["bomFormat"] == "CycloneDX"
-    assert sbom["specVersion"] == "1.5"
-    assert sbom["metadata"]["component"]["name"] == "devops-cli"
-    assert len(sbom["components"]) == 1
-    assert sbom["components"][0]["name"] == "typer"
-
-
-def test_generate_spdx_sbom(tmp_path: Path) -> None:
-    """Generate SPDX 2.3 JSON SBOM."""
-    mock_lock = tmp_path / "uv.lock"
-    mock_lock.write_text(
-        '[[package]]\nname = "cryptography"\nversion = "50.0.1"\n',
-        encoding="utf-8",
-    )
-    sbom = generate_spdx_sbom(tmp_path, project_name="devops-cli", project_version="0.2.6")
-    assert sbom["spdxVersion"] == "SPDX-2.3"
-    assert len(sbom["packages"]) == 2  # Root + 1 dependency
-    assert len(sbom["relationships"]) == 1
-
-
-def test_scan_sbom_cli(tmp_path: Path) -> None:
-    """Test devops scan sbom command in CycloneDX, SPDX, and file output modes."""
-    mock_lock = tmp_path / "uv.lock"
-    mock_lock.write_text(
-        '[[package]]\nname = "httpx2"\nversion = "2.9.0"\n',
-        encoding="utf-8",
-    )
-    # Output to stdout
-    res = runner.invoke(scan_app, ["sbom", str(tmp_path)])
+    out_file = tmp_path / "sbom.cdx.json"
+    res = runner.invoke(scan_app, ["sbom", str(tmp_path), "--output", str(out_file)])
     assert res.exit_code == 0
-    assert "CycloneDX" in res.output
-    assert "httpx2" in res.output
+    assert any(
+        call.argv == ("trivy", "fs", "--format", "cyclonedx", str(tmp_path.resolve()))
+        for call in process_fake.calls
+    )
+    assert out_file.exists()
+    assert out_file.read_text(encoding="utf-8") == recorded_output
 
-    # Output to file in SPDX format
+
+def test_scan_sbom_spdx_argv_and_output_to_file(process_fake: ProcessFake, tmp_path: Path) -> None:
+    """Verify devops scan sbom invokes Trivy with SPDX format and writes output unchanged."""
+    recorded_output = '{"spdxVersion": "SPDX-2.3", "SPDXID": "SPDXRef-DOCUMENT"}'
+    process_fake.answer(
+        ("trivy", "fs", "--format", "spdx-json"),
+        ProcessAnswer(returncode=0, stdout=recorded_output),
+    )
+
     out_file = tmp_path / "sbom.spdx.json"
-    res_file = runner.invoke(
+    res = runner.invoke(
         scan_app, ["sbom", str(tmp_path), "--format", "spdx", "--output", str(out_file)]
     )
-    assert res_file.exit_code == 0
+    assert res.exit_code == 0
+    assert any(
+        call.argv == ("trivy", "fs", "--format", "spdx-json", str(tmp_path.resolve()))
+        for call in process_fake.calls
+    )
     assert out_file.exists()
-    data = json.loads(out_file.read_text(encoding="utf-8"))
-    assert data["spdxVersion"] == "SPDX-2.3"
-
-    # JSON format alias
-    res_json = runner.invoke(scan_app, ["sbom", str(tmp_path), "--format", "json"])
-    assert res_json.exit_code == 0
-    assert "CycloneDX" in res_json.output
-
-    # Invalid format rejection
-    res_invalid = runner.invoke(scan_app, ["sbom", str(tmp_path), "--format", "invalid_fmt"])
-    assert res_invalid.exit_code == 1
-    assert "Unsupported SBOM format" in res_invalid.output
-
-    # Dry run
-    res_dry = runner.invoke(scan_app, ["sbom", str(tmp_path), "--dry-run"])
-    assert res_dry.exit_code == 0
+    assert out_file.read_text(encoding="utf-8") == recorded_output
 
 
-def test_extract_workspace_components_runtime_fallback(tmp_path: Path) -> None:
-    """Verify fallback to importlib.metadata.distributions when uv.lock is missing or corrupted."""
-    # 1. Missing uv.lock
-    empty_dir = tmp_path / "empty_proj"
-    empty_dir.mkdir()
-    comps_fallback = extract_workspace_components(empty_dir)
-    assert len(comps_fallback) > 0  # Should extract installed runtime packages
-    assert any(c.name for c in comps_fallback)
+def test_scan_sbom_stdout(process_fake: ProcessFake, tmp_path: Path) -> None:
+    """Verify devops scan sbom outputs Trivy SBOM content unchanged to stdout."""
+    recorded_output = '{"bomFormat": "CycloneDX", "version": 1}'
+    process_fake.answer(
+        ("trivy", "fs", "--format", "cyclonedx"),
+        ProcessAnswer(returncode=0, stdout=recorded_output),
+    )
 
-    # 2. Corrupted uv.lock
-    bad_dir = tmp_path / "bad_lock"
-    bad_dir.mkdir()
-    (bad_dir / "uv.lock").write_text("INVALID TOML [[", encoding="utf-8")
-    comps_bad = extract_workspace_components(bad_dir)
-    assert len(comps_bad) > 0
+    res = runner.invoke(scan_app, ["sbom", str(tmp_path)])
+    assert res.exit_code == 0
+    assert recorded_output in res.output
+
+
+def test_scan_sbom_missing_trivy_reports_not_installed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify devops scan sbom exits non-zero and reports not installed when Trivy is missing."""
+    real_which = shutil.which
+
+    def fake_which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
+        if cmd == "trivy":
+            return None
+        return real_which(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+
+    res = runner.invoke(scan_app, ["sbom", str(tmp_path)])
+    assert res.exit_code != 0
+    assert "not installed" in res.output
+
+
+def test_scan_sbom_unsupported_format(tmp_path: Path) -> None:
+    """Verify devops scan sbom rejects unsupported format."""
+    res = runner.invoke(scan_app, ["sbom", str(tmp_path), "--format", "invalid_fmt"])
+    assert res.exit_code == 1
+    assert "Unsupported SBOM format" in res.output
+
+
+def test_scan_sbom_dry_run(process_fake: ProcessFake, tmp_path: Path) -> None:
+    """Verify devops scan sbom previews execution plan in dry-run mode."""
+    res = runner.invoke(scan_app, ["sbom", str(tmp_path), "--dry-run"])
+    assert res.exit_code == 0
+
+
+def test_security_sbom_deletes_hand_rolled_builders() -> None:
+    """Verify custom SBOM data classes and dictionary generators are deleted."""
+    assert not hasattr(sbom, "extract_workspace_components")
+    assert not hasattr(sbom, "generate_cyclonedx_sbom")
+    assert not hasattr(sbom, "generate_spdx_sbom")
+    assert not hasattr(sbom, "SBOMComponent")
+    assert not hasattr(sbom, "SBOMDocument")

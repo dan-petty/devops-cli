@@ -9,7 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.commands import build_zizmor_cmd
+from devops_cli.config.commands import BIN_TRIVY, build_zizmor_cmd
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE, CONST_SCAN_NO_RESULT_STATUSES
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -19,6 +19,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TRIVY_SEVERITIES,
     DEFAULT_WORKFLOWS_SCAN_PATH,
 )
+from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
@@ -43,7 +44,7 @@ from devops_cli.security.gitleaks import run_gitleaks_scan
 from devops_cli.security.pipeline import ScanReport, build_report, report_from_findings
 from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.sarif import SarifError, read_sarif, write_sarif
-from devops_cli.security.sbom import generate_cyclonedx_sbom, generate_spdx_sbom
+from devops_cli.security.sbom import run_trivy_sbom
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.semgrep_registry import (
     CachedRuleset,
@@ -635,34 +636,20 @@ def scan_sbom(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> CommandDryRunResult | None:
-    """Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."""
+    """Generate Software Bill of Materials (SBOM) using Trivy (#1439)."""
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run():
-        print_muted(f"Generating {format_type.upper()} SBOM for {target_abs}...")
-
     norm_format = format_type.lower().strip()
     if norm_format in ("cyclonedx", "json"):
-        sbom_data = generate_cyclonedx_sbom(workspace_dir=target_abs)
-    elif norm_format == "spdx":
-        sbom_data = generate_spdx_sbom(workspace_dir=target_abs)
+        trivy_format = "cyclonedx"
+    elif norm_format in ("spdx", "spdx-json"):
+        trivy_format = "spdx-json"
     else:
         print_error(
             f"Unsupported SBOM format: '{format_type}'. Supported formats: 'cyclonedx', 'spdx', 'json'."
         )
         raise typer.Exit(1)
-
-    rendered_json = format_json(sbom_data) + "\n"
-
-    if output_file:
-        out_path = output_file.resolve()
-        if not is_dry_run():
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(rendered_json, encoding="utf-8")
-            print_success(f"✓ Generated {norm_format.upper()} SBOM at {out_path}")
-    else:
-        write_stdout(rendered_json)
 
     if is_dry_run():
         return CommandDryRunResult(
@@ -671,9 +658,30 @@ def scan_sbom(
             action="generate_sbom",
             details={
                 "format": norm_format,
-                "components_count": len(sbom_data.get("components", sbom_data.get("packages", []))),
             },
         )
+
+    if not check_binary(BIN_TRIVY):
+        print_error(f"Required dependency '{BIN_TRIVY}' is not installed.", prefix=False)
+        raise typer.Exit(1)
+
+    if output_file:
+        print_muted(f"Generating {norm_format.upper()} SBOM for {target_abs}...")
+
+    try:
+        sbom_output = run_trivy_sbom(target=target_abs, format_type=trivy_format)
+    except ToolExecutionError as exc:
+        print_error(f"Failed to generate SBOM: {exc}", prefix=False)
+        raise typer.Exit(exc.exit_code or 1) from exc
+
+    if output_file:
+        out_path = output_file.resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(sbom_output, encoding="utf-8")
+        print_success(f"✓ Generated {norm_format.upper()} SBOM at {out_path}")
+    else:
+        write_stdout(sbom_output)
+
     return None
 
 
