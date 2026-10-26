@@ -29,6 +29,7 @@ None.
 ## Impact
 
 - Files: `.github/roadmap.toml`.
+- Tests: `tests/test_roadmap_config.py`.
 - Board: a new project board of the owner, and the removal of board 2 after the roadmap has run on the new board.
 
 ## Feasibility
@@ -39,5 +40,4 @@ None.
 
 ## Existing Tool Considered
 
-The GitHub GraphQL API and its `copyProjectV2` mutation cover the need. GitHub has no mutation that moves a card between boards, and its Support is the only way to remove the dangling link from board 2. This change adds no library and no code.
-The change deletes no code.
+The GitHub GraphQL API and its `copyProjectV2` mutation cover the need. GitHub has no mutation that moves a card between boards, and its Support is the only way to remove the dangling link from board 2. This change adds no library and no code, and it deletes no code.

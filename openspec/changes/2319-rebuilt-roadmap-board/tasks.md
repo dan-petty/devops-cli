@@ -1,6 +1,11 @@
 # Tasks
 
-## 1. The rebuilt board
+## 1. Failing test
+
+- [x] Pin board 12 as the board that `.github/roadmap.toml` names, in `tests/test_roadmap_config.py`
+  - Verification: `uv run devops ci test tests/test_roadmap_config.py`
+
+## 2. The rebuilt board
 
 - [x] Copy board 2 with `copyProjectV2`, set the copy public, and link it to the repository
   - Verification: `devops gh project list`
@@ -9,13 +14,15 @@
 - [x] Copy the "Roadmap run record" draft with its Job record
   - Verification: compare the draft's fields on both boards; they are equal
 
-## 2. The switch
+## 3. The switch
 
 - [x] Set `board` in `.github/roadmap.toml` to the rebuilt board
   - Verification: `uv run devops roadmap intake --plan --limit 1`
 
-## 3. Verification and static checks
+## 4. Verification and static checks
 
+- [x] Verify the fail-to-pass check run against `origin/main`
+  - Verification: `uv run devops ci fail-to-pass --base origin/main`
 - [x] Verify that the full static checks pass
   - Verification: `uv run devops ci`
 
