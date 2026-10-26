@@ -1941,6 +1941,40 @@ class TestPrCommands:
             assert result.exit_code == 1
             assert "Unable to retrieve details" in result.output
 
+    def test_check_readiness_no_open_pr(self, runner: CliRunner) -> None:
+        """devops pr check-readiness on a branch with no open PR exits 1 with a one-line error."""
+        mock_proc = MagicMock(returncode=1, stdout="", stderr="no pull requests found")
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.github.pr_monitor._resolve_current_git_branch",
+                return_value="feat/untracked",
+            ),
+            patch("devops_cli.github.pr_monitor.run_gh", return_value=mock_proc),
+        ):
+            result = runner.invoke(app, ["check-readiness"], catch_exceptions=False)
+            assert result.exit_code == 1
+            assert "No open pull request found for branch 'feat/untracked'" in result.output
+            assert "Traceback" not in result.output
+
+    def test_pr_monitor_no_open_pr(self, runner: CliRunner) -> None:
+        """devops pr monitor on a branch with no open PR exits 1 with a one-line error."""
+        mock_proc = MagicMock(returncode=1, stdout="", stderr="no pull requests found")
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.github.pr_monitor._resolve_current_git_branch",
+                return_value="feat/untracked",
+            ),
+            patch("devops_cli.github.pr_monitor.run_gh", return_value=mock_proc),
+        ):
+            result = runner.invoke(app, ["monitor"], catch_exceptions=False)
+            assert result.exit_code == 1
+            assert "No open pull request found for branch 'feat/untracked'" in result.output
+            assert "Traceback" not in result.output
+
     def test_render_threads_table_masks_secrets(self) -> None:
         """_render_threads_table masks secret tokens in comment bodies."""
         from devops_cli.commands.pr import _render_threads_table
