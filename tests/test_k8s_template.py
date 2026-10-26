@@ -173,24 +173,25 @@ def test_render_manifest_path_missing_raises() -> None:
         render_manifest_path("non_existent_file.yaml", domain="example.com")
 
 
-def test_k8s_apply_cli_template_dry_run(tmp_path: Path) -> None:
-    """devops k8s apply --template executes template rendering and applies with --dry-run=client."""
+def test_k8s_apply_cli_template_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """devops k8s apply --template --dry-run renders the preview and starts no kubectl child."""
+
+    def _forbid_subprocess(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("dry run started a child process")
+
+    monkeypatch.setattr("subprocess.run", _forbid_subprocess)
+    monkeypatch.setattr("subprocess.Popen", _forbid_subprocess)
+
     manifest = tmp_path / "ingress.yaml"
     manifest.write_text("host: chat.example.com", encoding="utf-8")
 
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run:
-        result = runner.invoke(
-            k8s_app,
-            ["apply", str(manifest), "--template", "--domain", "example.com", "--dry-run"],
-        )
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        input_data = mock_run.call_args[1].get("input")
-        assert (cmd, input_data) == (
-            ["kubectl", "apply", "-f", "-", "--dry-run=client"],
-            "host: chat.example.com",
-        )
+    result = runner.invoke(
+        k8s_app,
+        ["apply", str(manifest), "--template", "--domain", "example.com", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "devops k8s apply" in result.output
+    assert "kubectl_apply_template" in result.output
 
 
 def test_k8s_apply_cli_template_global_dry_run(tmp_path: Path) -> None:
