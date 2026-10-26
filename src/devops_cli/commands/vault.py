@@ -197,7 +197,7 @@ def _render_secret(path: str, key: str | None, lookup: VaultSecretLookup, *, sho
         print_table(f"Vault Secrets: {path} (from {lookup.source})", columns=columns, rows=rows)
     else:
         display_val = str(lookup.value) if show else "***REDACTED***"
-        print_success(f"✓ {key or 'Secret'} (from {lookup.source}): {display_val}")
+        print_success(f"{key or 'Secret'} (from {lookup.source}): {display_val}")
     if lookup.fallback_reason:
         print_info(f"Answered from the OS keyring: {lookup.fallback_reason}.", safe=True)
 
@@ -251,7 +251,7 @@ def vault_set(
 
     with exit_on_error(VaultError):
         broker.set_secret(path, payload)
-    print_success(f"✓ Successfully stored {len(payload)} secret(s) at '{path}'")
+    print_success(f"Successfully stored {len(payload)} secret(s) at '{path}'")
     return None
 
 
@@ -304,7 +304,7 @@ def vault_sync(
 
 def _report_sync(path: str, report: VaultSyncReport) -> None:
     """Print what a sync stored, skipped and could not store; exit 1 when anything was lost."""
-    print_success(f"✓ Synchronized {len(report.synced)} secret(s) from '{path}' into OS Keyring")
+    print_success(f"Synchronized {len(report.synced)} secret(s) from '{path}' into OS Keyring")
     if report.skipped:
         print_warning(
             f"Skipped {', '.join(report.skipped)}: that keyring entry holds the token "
@@ -395,7 +395,7 @@ def vault_login(
 
     kept = "kept the token in the OS keyring" if store else "did not keep the token (--no-store)"
     print_success(
-        f"✓ Authenticated with Vault at {broker.vault_addr} via {result.method} and {kept}. "
+        f"Authenticated with Vault at {broker.vault_addr} via {result.method} and {kept}. "
         f"Lease: {result.lease_duration}s, renewable: {result.renewable}, "
         f"policies: {', '.join(result.policies) or 'none'}.",
         safe=True,
@@ -486,7 +486,7 @@ def vault_logout(
     issuer = login.issuer() if login else "the Vault that issued it"
     if revoke_failure is None:
         print_success(
-            f"✓ Revoked the stored Vault token at {issuer} and deleted it from the OS keyring.",
+            f"Revoked the stored Vault token at {issuer} and deleted it from the OS keyring.",
             safe=True,
         )
         return
@@ -595,7 +595,7 @@ def _revoke_lease(registry: LeaseRegistry, lease_id: str, broker: VaultSecretBro
             vault_addr=broker.vault_addr,
             status_code=status,
         ) from exc
-    print_success(f"✓ Revoked lease '{masked}'.")
+    print_success(f"Revoked lease '{masked}'.")
 
 
 # =============================================================================

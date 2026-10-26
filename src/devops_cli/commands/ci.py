@@ -2122,7 +2122,7 @@ def maintain(
     if not _run_audits():
         raise typer.Exit(1)
 
-    print_success("✓ Toolchain and lockfile maintenance checks passed.")
+    print_success("Toolchain and lockfile maintenance checks passed.")
 
 
 @app.command()

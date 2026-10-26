@@ -589,7 +589,7 @@ def scan_complexity(
         return None
 
     if not findings:
-        print_success("✓ Code complexity and indentation depth within standard limits.")
+        print_success("Code complexity and indentation depth within standard limits.")
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan complexity {target}",
@@ -680,7 +680,7 @@ def scan_sbom(
         out_path = output_file.resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(sbom_output, encoding="utf-8")
-        print_success(f"✓ Generated {norm_format.upper()} SBOM at {out_path}")
+        print_success(f"Generated {norm_format.upper()} SBOM at {out_path}")
     else:
         write_stdout(sbom_output)
 
@@ -729,7 +729,7 @@ def scan_aibom(
         if not is_dry_run():
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(rendered_json, encoding="utf-8")
-            print_success(f"✓ Generated AIBOM manifest at {out_path}")
+            print_success(f"Generated AIBOM manifest at {out_path}")
     else:
         write_stdout(rendered_json)
 
@@ -845,7 +845,7 @@ def scan_fix(
     ]
     print_table("Remediation Execution Results", columns=res_columns, rows=res_rows)
     if exec_result.branch_name:
-        print_success(f"✓ Changes staged on git branch '{exec_result.branch_name}'")
+        print_success(f"Changes staged on git branch '{exec_result.branch_name}'")
     return None
 
 

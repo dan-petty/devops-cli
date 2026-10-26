@@ -1168,3 +1168,78 @@ def test_cli_help_panel_renders_at_conftest_width_under_github_actions(monkeypat
         max(len(line) for line in lines),
         any(len(line) > 80 for line in lines),
     ) == (0, True, 250, True)
+
+
+def _leading_text(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr) and node.values:
+        first = node.values[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            return first.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _leading_text(node.left)
+    return None
+
+
+def _call_prefix_violation(
+    node: ast.Call,
+    prefix_map: dict[str, tuple[str, ...]],
+) -> str | None:
+    func_name = None
+    if isinstance(node.func, ast.Name):
+        func_name = node.func.id
+    elif isinstance(node.func, ast.Attribute):
+        func_name = node.func.attr
+
+    if func_name not in prefix_map or not node.args:
+        return None
+
+    prefix_kw = next((kw for kw in node.keywords if kw.arg == "prefix"), None)
+    if (
+        prefix_kw is not None
+        and isinstance(prefix_kw.value, ast.Constant)
+        and prefix_kw.value.value is False
+    ):
+        return None
+
+    text = _leading_text(node.args[0])
+    if text is None:
+        return None
+
+    stripped = text.lstrip()
+    forbidden = prefix_map[func_name]
+    if any(stripped.startswith(pfx) for pfx in forbidden):
+        return f"{func_name} called with duplicate prefix: {text!r}"
+    return None
+
+
+def test_leveled_print_calls_do_not_duplicate_level_prefixes(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
+    """Verify that no leveled print call starts with the prefix symbol added by the function (#2261)."""
+    src_dir = REPO_ROOT / "src" / "devops_cli"
+    prefix_map: dict[str, tuple[str, ...]] = {
+        "print_success": ("✓",),
+        "print_error": ("✗",),
+        "print_warning": ("!",),
+        "print_info": ("ℹ",),
+        "print_step": ("➔",),
+    }
+
+    violations: list[str] = []
+    for py_file, tree in sorted(parsed_source_trees.items()):
+        if not py_file.is_relative_to(src_dir):
+            continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            violation = _call_prefix_violation(node, prefix_map)
+            if violation is not None:
+                rel_path = py_file.relative_to(REPO_ROOT)
+                violations.append(f"{rel_path}:{node.lineno}: {violation}")
+
+    assert not violations, "Found leveled print calls with duplicate prefixes:\n" + "\n".join(
+        violations
+    )

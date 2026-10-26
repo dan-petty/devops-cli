@@ -175,7 +175,7 @@ def run_test_cmd(
     with trace_span("test.pytest", attributes={"targets": ",".join(target_paths)}):
         res = run_subprocess(["uv", "run", *test_args], cwd=repo_root, check=False)
         if res.returncode == 0:
-            print_success("✓ Test suite passed cleanly.")
+            print_success("Test suite passed cleanly.")
         else:
             print_error(f"Test run failed with exit code {res.returncode}.", prefix=False)
             raise typer.Exit(res.returncode)
@@ -411,7 +411,7 @@ def test_sandbox(
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
-    print_success(f"✓ Sandbox workload completed in {format_duration(res.duration_seconds)}")
+    print_success(f"Sandbox workload completed in {format_duration(res.duration_seconds)}")
 
 
 def _render_memory_report(report: MemoryProfileReport) -> None:

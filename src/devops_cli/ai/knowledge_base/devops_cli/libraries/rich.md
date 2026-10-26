@@ -80,9 +80,9 @@ print_table(title="Review Findings Summary", columns=columns, rows=rows, border_
 ```python
 from devops_cli.output import print_error, print_info, print_muted, print_success, print_warning
 
-print_success("✓ All 10 CI quality gates passed cleanly.")
-print_warning("⚠ SSH key expires in 5 days; rotation recommended.")
-print_error("✗ Failed to establish connection to Minikube cluster.")
+print_success("All 10 CI quality gates passed cleanly.")
+print_warning("SSH key expires in 5 days; rotation recommended.")
+print_error("Failed to establish connection to Minikube cluster.")
 print_muted("Parsing AST symbol tree across 45 source files...")
 ```
 
