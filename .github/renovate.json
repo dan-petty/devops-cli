@@ -5,6 +5,9 @@
   ],
   "labels": ["type/chore", "scope/ci"],
   "commitMessagePrefix": "chore(deps):",
+  "kubernetes": {
+    "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
+  },
   "packageRules": [
     {
       "matchManagers": ["pep621", "pip_requirements", "pip-compile", "setup-cfg"],
@@ -16,6 +19,10 @@
     },
     {
       "matchManagers": ["dockerfile", "docker-compose"],
+      "labels": ["type/chore", "scope/infra"]
+    },
+    {
+      "matchManagers": ["kubernetes"],
       "labels": ["type/chore", "scope/infra"]
     },
     {
