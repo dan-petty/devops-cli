@@ -490,6 +490,16 @@ def analyze_pr(  # noqa: C901
 
         render_explanation("analyze")
         return
+    if dry_run or is_dry_run():
+        from devops_cli.output.console import render_dry_run_result
+
+        render_dry_run_result(
+            command="devops ai analyze pr",
+            action="analyze pull request and save metadata",
+            target=str(pr_number),
+            details={"enhanced": enhanced, "update_all": update_all},
+        )
+        return
     from devops_cli.github.session import get_github_session
 
     repo = find_repo_root()
@@ -497,7 +507,7 @@ def analyze_pr(  # noqa: C901
         session = get_github_session()
 
     ai_client = None
-    if enhanced and not (dry_run or is_dry_run()):
+    if enhanced:
         try:
             from devops_cli.ai.client import get_llm_client
 
@@ -573,10 +583,7 @@ def analyze_pr(  # noqa: C901
 
     title = f"{repo.name} PR #{pr_number} analysis: {pull.title}"
     ref_str = str(pr_number)
-    out_file = save_analysis_metadata(
-        "pr", ref_str, title, file_metas, repo, enhanced=enhanced, dry_run=dry_run
-    )
+    out_file = save_analysis_metadata("pr", ref_str, title, file_metas, repo, enhanced=enhanced)
 
-    if not (dry_run or is_dry_run()):
-        payload_data = json.loads(out_file.read_text(encoding="utf-8"))
-        _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
+    payload_data = json.loads(out_file.read_text(encoding="utf-8"))
+    _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
