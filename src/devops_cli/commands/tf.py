@@ -556,6 +556,30 @@ def tf_graph(
 # =============================================================================
 
 
+def _drift_rows(report: Any) -> list[list[str]]:
+    """Render divergence rows for missing, orphaned, and attribute-drifted resources."""
+    rows: list[list[str]] = []
+    for address in report.missing_from_state:
+        rows.append([address, "declared, not in state"])
+    for address in report.orphaned_in_state:
+        rows.append([address, "in state, not declared"])
+    for address in report.drifted:
+        rows.append([address, "attribute changed"])
+    return rows
+
+
+def _emit_state_unavailable(config: Any, resolved_format: str) -> None:
+    """Surface state unavailable warning or serialized empty report."""
+    from devops_cli.tf.analysis import detect_drift
+
+    report = detect_drift(config, None)
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved_format)
+        return
+    _report_parse_failures(config)
+    print_warning(MESSAGES.tf.state_unavailable)
+
+
 @app.command("drift")
 def tf_drift(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
@@ -567,7 +591,13 @@ def tf_drift(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Compare declared configuration against recorded state."""
-    from devops_cli.tf.analysis import analyze_directory, detect_drift
+    from devops_cli.tf.analysis import (
+        detect_drift,
+        is_directory_initialized,
+        parse_hcl_directory,
+        read_plan_drift,
+        read_state,
+    )
 
     resolved_format = resolve_format(output_format, json_output=json_output)
     target = validate_dir(directory)
@@ -579,20 +609,26 @@ def tf_drift(
         )
         return
 
-    config, state = analyze_directory(target)
-    report = detect_drift(config, state)
+    config = parse_hcl_directory(target)
+
+    if not is_directory_initialized(target):
+        _emit_state_unavailable(config, resolved_format)
+        return
+
+    binary = _resolve_tf_binary()
+    state = read_state(target, binary=binary)
+    if state is None:
+        _emit_state_unavailable(config, resolved_format)
+        return
+
+    drifted_addresses = read_plan_drift(target, binary=binary)
+    report = detect_drift(config, state, drifted_addresses=drifted_addresses)
 
     if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(report.model_dump(), resolved_format)
         return
 
     _report_parse_failures(config)
-
-    if not report.state_present:
-        print_warning(
-            MESSAGES.tf.drift_no_state.format(directory=target.name, declared=report.declared_count)
-        )
-        return
 
     if not report.drift_detected:
         print_success(MESSAGES.tf.drift_in_sync.format(count=len(report.in_sync)))
@@ -601,13 +637,13 @@ def tf_drift(
     print_table(
         title=MESSAGES.tf.table_title_drift.format(directory=target.name),
         columns=[("Address", "cyan"), "Divergence"],
-        rows=[[address, "declared, not in state"] for address in report.missing_from_state]
-        + [[address, "in state, not declared"] for address in report.orphaned_in_state],
+        rows=_drift_rows(report),
     )
     print_info(
         MESSAGES.tf.drift_summary.format(
             missing=len(report.missing_from_state),
             orphaned=len(report.orphaned_in_state),
+            drifted=len(report.drifted),
             synced=len(report.in_sync),
         )
     )

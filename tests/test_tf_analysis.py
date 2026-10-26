@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.tf import app as tf_app
+from devops_cli.tf import analysis as tf_analysis
 from devops_cli.tf.analysis import (
     analyze_directory,
     build_dependency_graph,
@@ -16,10 +18,14 @@ from devops_cli.tf.analysis import (
     detect_drift,
     extract_references,
     holds_local_resource_state,
-    load_state,
     parse_hcl_directory,
-    resolve_state_file,
 )
+
+is_directory_initialized: Any = getattr(tf_analysis, "is_directory_initialized", None)
+parse_plan_drift: Any = getattr(tf_analysis, "parse_plan_drift", None)
+parse_show_state: Any = getattr(tf_analysis, "parse_show_state", None)
+read_plan_drift: Any = getattr(tf_analysis, "read_plan_drift", None)
+read_state: Any = getattr(tf_analysis, "read_state", None)
 
 runner = CliRunner()
 
@@ -52,28 +58,34 @@ module "db" {
 output "vpc_id" { value = aws_vpc.main.id }
 """
 
-_STATE = {
-    "version": 4,
+_SHOW_STATE = {
+    "format_version": "1.0",
     "terraform_version": "1.9.0",
     "serial": 12,
     "lineage": "abc-123",
-    "resources": [
-        {
-            "mode": "managed",
-            "type": "aws_vpc",
-            "name": "main",
-            "provider": 'provider["registry.terraform.io/hashicorp/aws"]',
-            "instances": [{}],
+    "values": {
+        "root_module": {
+            "resources": [
+                {
+                    "address": "aws_vpc.main",
+                    "mode": "managed",
+                    "type": "aws_vpc",
+                    "name": "main",
+                    "provider_name": "registry.terraform.io/hashicorp/aws",
+                    "values": {"cidr_block": "10.0.0.0/16"},
+                },
+                {
+                    "address": "aws_s3_bucket.legacy",
+                    "mode": "managed",
+                    "type": "aws_s3_bucket",
+                    "name": "legacy",
+                    "provider_name": "registry.terraform.io/hashicorp/aws",
+                    "values": {"bucket": "legacy"},
+                },
+            ]
         },
-        {
-            "mode": "managed",
-            "type": "aws_s3_bucket",
-            "name": "legacy",
-            "provider": 'provider["registry.terraform.io/hashicorp/aws"]',
-            "instances": [{}, {}],
-        },
-    ],
-    "outputs": {"vpc_id": {"value": "vpc-1"}},
+        "outputs": {"vpc_id": {"value": "vpc-1"}},
+    },
 }
 
 
@@ -86,9 +98,23 @@ def tf_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def tf_dir_with_state(tf_dir: Path) -> Path:
-    """Provide a configuration directory alongside a recorded state file."""
-    (tf_dir / "terraform.tfstate").write_text(json.dumps(_STATE), encoding="utf-8")
+    """Provide an initialized configuration directory alongside recorded state."""
+    (tf_dir / ".terraform").mkdir(parents=True, exist_ok=True)
     return tf_dir
+
+
+@pytest.fixture(autouse=True)
+def _stub_tf_show_for_state(process_fake: Any) -> None:
+    from tests.support.fakes.process import ProcessAnswer
+
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv,
+        ProcessAnswer(stdout=json.dumps(_SHOW_STATE)),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(stdout=""),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,15 +142,24 @@ def test_parse_hcl_directory_projects_declarations(tf_dir: Path) -> None:
 
 
 def test_parsed_resources_carry_provider_and_source(tf_dir: Path) -> None:
-    """Each declaration records its provider prefix and originating file."""
+    """Each declaration records its source file and empty provider when unstated."""
     vpc = next(r for r in parse_hcl_directory(tf_dir).resources if r.address == "aws_vpc.main")
     assert (vpc.provider, vpc.source_file, vpc.block_type, vpc.resource_type, vpc.name) == (
-        "aws",
+        "",
         "main.tf",
         "resource",
         "aws_vpc",
         "main",
     )
+
+
+def test_parsed_resources_record_explicit_provider(tmp_path: Path) -> None:
+    """An explicit provider or alias is recorded without prefix guessing."""
+    (tmp_path / "main.tf").write_text(
+        'resource "aws_vpc" "west" { provider = aws.west }\n', encoding="utf-8"
+    )
+    res = parse_hcl_directory(tmp_path).resources[0]
+    assert res.provider == "aws.west"
 
 
 def test_string_literals_are_unquoted(tf_dir: Path) -> None:
@@ -279,27 +314,26 @@ def test_blast_radius_terminates_on_a_dependency_cycle(tmp_path: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_load_state_projects_typed_records(tf_dir_with_state: Path) -> None:
+def test_parse_show_state_projects_typed_records() -> None:
     """State metadata and resource records project into typed models."""
-    state = load_state(tf_dir_with_state)
+    state = parse_show_state(_SHOW_STATE)
 
-    assert state is not None
     assert (state.version, state.terraform_version, state.serial, state.lineage) == (
-        4,
+        1,
         "1.9.0",
         12,
         "abc-123",
     )
     assert [(r.address, r.instance_count) for r in state.resources] == [
         ("aws_vpc.main", 1),
-        ("aws_s3_bucket.legacy", 2),
+        ("aws_s3_bucket.legacy", 1),
     ]
     assert state.outputs["vpc_id"]["value"] == "vpc-1"
 
 
-def test_load_state_returns_none_without_a_state_file(tf_dir: Path) -> None:
-    """A configuration that has never been applied has no state to load."""
-    assert (load_state(tf_dir), resolve_state_file(tf_dir)) == (None, None)
+def test_read_state_returns_none_without_an_initialized_directory(tf_dir: Path) -> None:
+    """A configuration directory without .terraform has no state to read."""
+    assert (read_state(tf_dir), is_directory_initialized(tf_dir)) == (None, False)
 
 
 @pytest.mark.parametrize(
@@ -332,51 +366,53 @@ def test_local_resource_state_excludes_the_backend_configuration_cache(
     assert holds_local_resource_state(tf_dir) is expected
 
 
-def test_load_state_tolerates_malformed_json(tf_dir: Path) -> None:
-    """A corrupt state file degrades to None rather than raising."""
-    (tf_dir / "terraform.tfstate").write_text("{not json", encoding="utf-8")
-    assert load_state(tf_dir) is None
+def test_parse_show_state_tolerates_malformed_json() -> None:
+    """A corrupt show payload degrades to an empty state rather than raising."""
+    assert parse_show_state("{not json").resources == []
 
 
-def test_state_data_sources_use_the_data_prefix(tf_dir: Path) -> None:
-    """Data sources recorded in state keep their canonical addressing."""
-    (tf_dir / "terraform.tfstate").write_text(
-        json.dumps(
-            {
-                "version": 4,
+def test_show_state_data_sources_use_the_data_prefix() -> None:
+    """Data sources recorded in show state keep their canonical addressing."""
+    payload = {
+        "values": {
+            "root_module": {
                 "resources": [
-                    {"mode": "data", "type": "aws_ami", "name": "ubuntu", "instances": [{}]}
-                ],
+                    {
+                        "address": "data.aws_ami.ubuntu",
+                        "mode": "data",
+                        "type": "aws_ami",
+                        "name": "ubuntu",
+                    }
+                ]
             }
-        ),
-        encoding="utf-8",
-    )
-    state = load_state(tf_dir)
-    assert state is not None
+        }
+    }
+    state = parse_show_state(payload)
     assert state.resources[0].address == "data.aws_ami.ubuntu"
 
 
-def test_state_records_module_scoped_addresses(tf_dir: Path) -> None:
+def test_show_state_records_module_scoped_addresses() -> None:
     """Resources inside a module keep their module path in the address."""
-    (tf_dir / "terraform.tfstate").write_text(
-        json.dumps(
-            {
-                "version": 4,
-                "resources": [
+    payload = {
+        "values": {
+            "root_module": {
+                "child_modules": [
                     {
-                        "mode": "managed",
-                        "module": "module.db",
-                        "type": "aws_db_instance",
-                        "name": "primary",
-                        "instances": [{}],
+                        "address": "module.db",
+                        "resources": [
+                            {
+                                "address": "module.db.aws_db_instance.primary",
+                                "mode": "managed",
+                                "type": "aws_db_instance",
+                                "name": "primary",
+                            }
+                        ],
                     }
-                ],
+                ]
             }
-        ),
-        encoding="utf-8",
-    )
-    state = load_state(tf_dir)
-    assert state is not None
+        }
+    }
+    state = parse_show_state(payload)
     assert state.resources[0].address == "module.db.aws_db_instance.primary"
 
 
@@ -419,18 +455,23 @@ def test_detect_drift_reports_clean_when_aligned(tmp_path: Path) -> None:
     (tmp_path / "main.tf").write_text(
         'resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }', encoding="utf-8"
     )
-    (tmp_path / "terraform.tfstate").write_text(
-        json.dumps(
-            {
-                "version": 4,
-                "resources": [
-                    {"mode": "managed", "type": "aws_vpc", "name": "main", "instances": [{}]}
-                ],
+    config = parse_hcl_directory(tmp_path)
+    state = parse_show_state(
+        {
+            "values": {
+                "root_module": {
+                    "resources": [
+                        {
+                            "address": "aws_vpc.main",
+                            "mode": "managed",
+                            "type": "aws_vpc",
+                            "name": "main",
+                        }
+                    ]
+                }
             }
-        ),
-        encoding="utf-8",
+        }
     )
-    config, state = analyze_directory(tmp_path)
     report = detect_drift(config, state)
 
     assert (report.drift_detected, report.in_sync) == (False, ["aws_vpc.main"])
@@ -502,10 +543,10 @@ def test_cli_drift_json_output(tf_dir_with_state: Path) -> None:
 
 
 def test_cli_drift_warns_when_state_absent(tf_dir: Path) -> None:
-    """A configuration with no state reports everything as pending apply."""
+    """A configuration with no state reports that state is unavailable."""
     result = runner.invoke(tf_app, ["drift", str(tf_dir)])
     assert result.exit_code == 0
-    assert "No state file found" in result.output
+    assert "state unavailable (run tofu init)" in result.output.lower()
 
 
 def test_cli_commands_support_dry_run(tf_dir: Path) -> None:
@@ -516,3 +557,267 @@ def test_cli_commands_support_dry_run(tf_dir: Path) -> None:
     assert (graph_result.exit_code, drift_result.exit_code) == (0, 0)
     assert "analyze_iac_dependency_graph" in graph_result.output
     assert "detect_iac_configuration_drift" in drift_result.output
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. OpenTofu CLI state inspection and live drift detection (#1437)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_parse_show_state_projects_child_modules_and_providers() -> None:
+    """Recorded `tofu show -json` output projects root and child module resources with provider names."""
+    from devops_cli.tf.analysis import parse_show_state
+
+    show_payload = {
+        "format_version": "1.0",
+        "terraform_version": "1.9.0",
+        "values": {
+            "root_module": {
+                "resources": [
+                    {
+                        "address": "aws_vpc.main",
+                        "mode": "managed",
+                        "type": "aws_vpc",
+                        "name": "main",
+                        "provider_name": "registry.terraform.io/hashicorp/aws",
+                        "values": {"cidr_block": "10.0.0.0/16"},
+                    }
+                ],
+                "child_modules": [
+                    {
+                        "address": "module.db",
+                        "resources": [
+                            {
+                                "address": "module.db.aws_db_instance.primary",
+                                "mode": "managed",
+                                "type": "aws_db_instance",
+                                "name": "primary",
+                                "provider_name": "registry.terraform.io/hashicorp/aws",
+                                "values": {"instance_class": "db.t3.micro"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    }
+    state = parse_show_state(show_payload)
+    assert len(state.resources) == 2
+    vpc = next(r for r in state.resources if r.address == "aws_vpc.main")
+    db = next(r for r in state.resources if r.address == "module.db.aws_db_instance.primary")
+    assert vpc.provider == "registry.terraform.io/hashicorp/aws"
+    assert (db.module, db.provider) == ("module.db", "registry.terraform.io/hashicorp/aws")
+
+
+def test_parse_show_state_recovers_encrypted_state_resources() -> None:
+    """Decrypted `tofu show -json` output populates state resources for an encrypted backend."""
+    from devops_cli.tf.analysis import parse_show_state
+
+    show_payload = {
+        "format_version": "1.0",
+        "terraform_version": "1.9.0",
+        "values": {
+            "root_module": {
+                "resources": [
+                    {
+                        "address": "aws_vpc.secure",
+                        "mode": "managed",
+                        "type": "aws_vpc",
+                        "name": "secure",
+                        "provider_name": "registry.terraform.io/hashicorp/aws",
+                        "values": {"cidr_block": "10.10.0.0/16"},
+                    }
+                ]
+            }
+        },
+    }
+    state = parse_show_state(show_payload)
+    assert len(state.resources) == 1
+    assert state.resources[0].address == "aws_vpc.secure"
+
+
+def test_parse_plan_drift_extracts_drifted_addresses() -> None:
+    """`tofu plan -refresh-only -json` output streams or structures extract drifted resource addresses."""
+    event_stream = (
+        '{"@level":"info","@message":"aws_vpc.main: Drift detected","type":"resource_drift",'
+        '"change":{"resource":{"addr":"aws_vpc.main","resource_type":"aws_vpc","resource_name":"main"},"action":"update"}}\n'
+        '{"@level":"info","@message":"random_pet.name: Planned change","type":"planned_change"}\n'
+    )
+    assert parse_plan_drift(event_stream) == ["aws_vpc.main"]
+
+    plan_obj = {
+        "resource_drift": [
+            {
+                "address": "module.db.aws_db_instance.primary",
+                "change": {"actions": ["update"]},
+            }
+        ]
+    }
+    assert parse_plan_drift(plan_obj) == ["module.db.aws_db_instance.primary"]
+
+
+def test_read_plan_drift_returns_empty_when_uninitialized(tmp_path: Path) -> None:
+    """`read_plan_drift` returns an empty list when .terraform/ does not exist."""
+    assert read_plan_drift(tmp_path) == []
+
+
+def test_detect_drift_with_module_reports_in_sync_not_orphaned(tmp_path: Path) -> None:
+    """Recorded `tofu show -json` output for a configuration with a module reports the module's resources as in sync, not orphaned."""
+    from devops_cli.tf.analysis import detect_drift, parse_hcl_directory, parse_show_state
+
+    (tmp_path / "main.tf").write_text(
+        """
+        resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }
+        module "db" { source = "./modules/db" }
+        """,
+        encoding="utf-8",
+    )
+    config = parse_hcl_directory(tmp_path)
+
+    show_payload = {
+        "format_version": "1.0",
+        "terraform_version": "1.9.0",
+        "values": {
+            "root_module": {
+                "resources": [
+                    {
+                        "address": "aws_vpc.main",
+                        "mode": "managed",
+                        "type": "aws_vpc",
+                        "name": "main",
+                        "provider_name": "registry.terraform.io/hashicorp/aws",
+                    }
+                ],
+                "child_modules": [
+                    {
+                        "address": "module.db",
+                        "resources": [
+                            {
+                                "address": "module.db.aws_db_instance.primary",
+                                "mode": "managed",
+                                "type": "aws_db_instance",
+                                "name": "primary",
+                                "provider_name": "registry.terraform.io/hashicorp/aws",
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    }
+    state = parse_show_state(show_payload)
+    report = detect_drift(config, state)
+
+    assert report.orphaned_in_state == []
+    assert report.missing_from_state == []
+    assert set(report.in_sync) == {"aws_vpc.main", "module.db.aws_db_instance.primary"}
+    assert report.drift_detected is False
+
+
+def test_detect_drift_with_attribute_drift_reports_divergence(tmp_path: Path) -> None:
+    """Recorded `tofu plan -refresh-only -json` output with a changed attribute reports drift on that resource."""
+    from devops_cli.tf.analysis import detect_drift, parse_hcl_directory, parse_show_state
+
+    (tmp_path / "main.tf").write_text(
+        'resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }\n',
+        encoding="utf-8",
+    )
+    config = parse_hcl_directory(tmp_path)
+    show_payload = {
+        "values": {
+            "root_module": {
+                "resources": [
+                    {
+                        "address": "aws_vpc.main",
+                        "mode": "managed",
+                        "type": "aws_vpc",
+                        "name": "main",
+                    }
+                ]
+            }
+        }
+    }
+    state = parse_show_state(show_payload)
+    report = detect_drift(config, state, drifted_addresses=["aws_vpc.main"])
+
+    assert report.drifted == ["aws_vpc.main"]
+    assert "aws_vpc.main" not in report.in_sync
+    assert report.drift_detected is True
+
+
+def test_cli_drift_uninitialized_directory_reports_state_unavailable(
+    tmp_path: Path,
+) -> None:
+    """An uninitialised directory reports the state as unavailable and names tofu init."""
+    (tmp_path / "main.tf").write_text('resource "aws_vpc" "main" {}\n', encoding="utf-8")
+    result = runner.invoke(tf_app, ["drift", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "state unavailable (run tofu init)" in result.output.lower()
+
+
+def test_cli_drift_replays_recorded_show_and_plan_with_process_fake(
+    tmp_path: Path,
+    process_fake: Any,
+) -> None:
+    """CLI drift detection replays recorded `tofu show -json` and `tofu plan -refresh-only -json`."""
+    (tmp_path / "main.tf").write_text(
+        """
+        resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }
+        module "db" { source = "./modules/db" }
+        """,
+        encoding="utf-8",
+    )
+    (tmp_path / ".terraform").mkdir(parents=True, exist_ok=True)
+
+    from tests.support.fakes.process import ProcessAnswer
+
+    show_json = json.dumps(
+        {
+            "format_version": "1.0",
+            "values": {
+                "root_module": {
+                    "resources": [
+                        {
+                            "address": "aws_vpc.main",
+                            "mode": "managed",
+                            "type": "aws_vpc",
+                            "name": "main",
+                        }
+                    ],
+                    "child_modules": [
+                        {
+                            "address": "module.db",
+                            "resources": [
+                                {
+                                    "address": "module.db.aws_db_instance.primary",
+                                    "mode": "managed",
+                                    "type": "aws_db_instance",
+                                    "name": "primary",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+    )
+    plan_json = (
+        '{"@level":"info","type":"resource_drift",'
+        '"change":{"resource":{"addr":"module.db.aws_db_instance.primary"},"action":"update"}}\n'
+    )
+
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv,
+        ProcessAnswer(stdout=show_json),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(stdout=plan_json),
+    )
+
+    result = runner.invoke(tf_app, ["drift", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "module.db.aws_db_instance.primary" in result.output
+    assert "attribute changed" in result.output
+    assert "1 drifted, 1 in sync" in result.output

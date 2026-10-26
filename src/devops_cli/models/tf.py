@@ -146,7 +146,9 @@ class IaCResource(BaseModel):
     resource_type: str = Field(default="", description="Provider resource type")
     name: str = Field(default="", description="Local resource name")
     source_file: str = Field(default="", description="File the declaration was parsed from")
-    provider: str = Field(default="", description="Provider prefix derived from the resource type")
+    provider: str = Field(
+        default="", description="Explicit provider configuration or alias if declared"
+    )
     references: list[str] = Field(
         default_factory=list, description="Addresses this resource interpolates or depends on"
     )
@@ -219,6 +221,10 @@ class IaCDriftReport(BaseModel):
     )
     orphaned_in_state: list[str] = Field(
         default_factory=list, description="Recorded in state but no longer declared"
+    )
+    drifted: list[str] = Field(
+        default_factory=list,
+        description="Resources with attribute drift against live infrastructure",
     )
     in_sync: list[str] = Field(
         default_factory=list, description="Addresses present in both configuration and state"
