@@ -2468,3 +2468,42 @@ def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() 
         {"repository": "24", "template": "24"},
         True,
     )
+
+
+def test_devcontainer_image_configuration_omits_workspace_settings() -> None:
+    """The image configuration in .devcontainer/image/devcontainer.json builds the published
+    image without workspace mounts, lifecycle commands, or editor customizations (#1898)."""
+    image_config_path = REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json"
+    assert image_config_path.is_file(), f"Missing {image_config_path}"
+
+    image_config = json.loads(image_config_path.read_text(encoding="utf-8"))
+    assert image_config.get("name") == "devops-cli"
+    assert image_config.get("build") == {
+        "dockerfile": "../Dockerfile",
+        "context": "../..",
+    }
+    assert image_config.get("remoteUser") == "vscode"
+    assert "mounts" not in image_config
+    assert "postCreateCommand" not in image_config
+    assert "postStartCommand" not in image_config
+    assert "customizations" not in image_config
+
+
+def test_devcontainer_image_features_and_lock_match_workspace() -> None:
+    """The image configuration and the workspace configuration define the identical set of
+    Dev Container Features and lock their versions identically (#1898)."""
+    workspace_config = json.loads(
+        (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text("utf-8")
+    )
+    image_config = json.loads(
+        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json").read_text("utf-8")
+    )
+    workspace_lock = json.loads(
+        (REPO_ROOT / ".devcontainer" / "devcontainer-lock.json").read_text("utf-8")
+    )
+    image_lock = json.loads(
+        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer-lock.json").read_text("utf-8")
+    )
+
+    assert image_config["features"] == workspace_config["features"]
+    assert image_lock["features"] == workspace_lock["features"]
