@@ -1830,4 +1830,4 @@ def project_metrics_cmd(
         _render_traffic_tables(report.traffic, target_repo)
 
     if emit_telemetry:
-        print_success("✓ Emitted project velocity metrics over OpenTelemetry to Prometheus.")
+        print_success("Emitted project velocity metrics over OpenTelemetry to Prometheus.")

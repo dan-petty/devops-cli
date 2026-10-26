@@ -784,6 +784,5 @@ def audit_keys_cmd(
         raise typer.Exit(1)
     if not plaintext_leaks:
         print_success(
-            "✓ Zero-Trust Secret Isolation: All configuration files verified free of plaintext secrets.",
-            prefix=False,
+            "Zero-Trust Secret Isolation: All configuration files verified free of plaintext secrets.",
         )

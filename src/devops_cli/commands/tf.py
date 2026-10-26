@@ -805,7 +805,7 @@ def tf_lint(
         return
 
     if not findings:
-        print_success("✓ No Terraform / OpenTofu lint issues detected.")
+        print_success("No Terraform / OpenTofu lint issues detected.")
         return
 
     print(format_tflint_table(findings, target_dir.name or str(target_dir)))
@@ -884,7 +884,7 @@ def tf_notify_plan(
         return
 
     print_success(
-        f"✓ Formatted Terraform plan notification (Adds: {adds}, Changes: {changes}, Destroys: {destroys}):"
+        f"Formatted Terraform plan notification (Adds: {adds}, Changes: {changes}, Destroys: {destroys}):"
     )
     write_stdout(comment_body + "\n")
 

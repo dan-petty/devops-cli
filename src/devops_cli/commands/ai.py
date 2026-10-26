@@ -722,7 +722,10 @@ def _render_prewarm_results(
     print_info(f"{action} model [cyan]{model}[/cyan] ({status_word} VRAM)...", prefix=False)
     for endpoint, ok in results.items():
         if ok:
-            print_success(f"  ✓ {endpoint}: confirmed HTTP 200 (keep_alive={keep_alive})")
+            print_success(
+                f"  ✓ {endpoint}: confirmed HTTP 200 (keep_alive={keep_alive})",
+                prefix=False,
+            )
         else:
             print_error(f"  ✗ {endpoint}: request failed or timed out", prefix=False)
     return all_ok
@@ -1451,7 +1454,7 @@ def spec_verify_cmd(
 
     if report.failed_rules == 0:
         print_success(
-            f"✓ Architecture specification verified: {report.passed_rules} invariants satisfied."
+            f"Architecture specification verified: {report.passed_rules} invariants satisfied."
         )
         return
 
@@ -2053,7 +2056,7 @@ def test_gen_cmd(
         emit_serialized(res.to_dict(), resolved)
         return
 
-    print_success(f"✓ Generated {res.test_count} unit test scaffold(s) for {res.target_file}:")
+    print_success(f"Generated {res.test_count} unit test scaffold(s) for {res.target_file}:")
     write_stdout(f"```python\n{res.test_code}\n```\n")
 
 

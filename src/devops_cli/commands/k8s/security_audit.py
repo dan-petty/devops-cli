@@ -295,7 +295,7 @@ def k8s_validate(
         return
 
     if not findings:
-        print_success(f"✓ All Kubernetes manifests at '{target_path}' are valid schemas.")
+        print_success(f"All Kubernetes manifests at '{target_path}' are valid schemas.")
         return
 
     print(format_k8s_schema_table(findings, target_path.name or str(target_path)))
@@ -349,7 +349,7 @@ def validate_policy_cmd(
 
     if report.failed_count == 0:
         print_success(
-            f"✓ All manifests passed {report.engine.upper()} policy evaluation ({report.passed_count} rules passed)."
+            f"All manifests passed {report.engine.upper()} policy evaluation ({report.passed_count} rules passed)."
         )
         return
 

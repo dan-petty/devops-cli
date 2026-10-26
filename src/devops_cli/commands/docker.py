@@ -574,7 +574,7 @@ def docker_sandbox(
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
-    print_success(f"✓ Sandbox workload completed in {format_duration(res.duration_seconds)}")
+    print_success(f"Sandbox workload completed in {format_duration(res.duration_seconds)}")
 
 
 # =============================================================================
@@ -647,7 +647,7 @@ def docker_sign(
 
     try:
         res = runner.sign_image(req)
-        print_success(f"✓ Image '{image}' signed successfully. (signature: {res.signature_ref})")
+        print_success(f"Image '{image}' signed successfully. (signature: {res.signature_ref})")
     except (DependencyError, CosignError) as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
@@ -726,7 +726,7 @@ def docker_verify(
     try:
         res = runner.verify_image(req)
         print_success(
-            f"✓ Image '{image}' signature verified successfully ({len(res.signatures)} signatures)."
+            f"Image '{image}' signature verified successfully ({len(res.signatures)} signatures)."
         )
     except (DependencyError, CosignVerificationError) as exc:
         print_error(str(exc))

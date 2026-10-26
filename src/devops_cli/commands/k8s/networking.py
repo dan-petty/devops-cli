@@ -1239,7 +1239,7 @@ def port_forward_stop(
 
     mgr = get_daemon_manager()
     stopped = mgr.stop_forwards(service_filter=service)
-    print_success(f"✓ Terminated {stopped} active port-forward daemon(s)")
+    print_success(f"Terminated {stopped} active port-forward daemon(s)")
 
 
 def service_url(
