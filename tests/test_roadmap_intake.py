@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import subprocess
 import time
 from collections.abc import Callable, Sequence
@@ -2299,6 +2300,89 @@ def test_a_finished_card_a_person_archived_in_a_milestone_gets_only_its_restore(
         [],
         {"status": "In Progress", "priority": "P1-High", "job record": None, "isArchived": None},
         (0, (1,)),
+    )
+
+
+def test_intake_skips_fields_when_person_adds_card_with_priority_during_planning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The issue already carries a type/* label, and a person adds it to the board between
+    plan_intake and apply_intake and sets Priority. Intake's only write is the add: no label,
+    field, job record, milestone or comment write. The issue appears in IntakeApplied.finished
+    and intake logs the skipped fields (#1404)."""
+    github, store = on_github()
+    github.seed_issue(1, "feat: issue one", labels=("type/feature",))
+    _, apply = _intake_on_github(store, FakeModel())
+    github._put_card(1, {"priority": "P2-Medium"})
+    start = len(github.calls)
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.intake"):
+        applied = apply()
+    writes = [args[:2] for args in github.calls[start:] if args[0] == "project"]
+    assert (
+        writes,
+        [args for args in github.calls[start:] if "--method" in args or "-X" in args],
+        github.comments.get(1, []),
+        (applied.placed, applied.finished),
+        getattr(
+            MESSAGES.roadmap,
+            "intake_skipped_fields",
+            "Intake skipped fields for #{number}: {fields}.",
+        ).format(number=1, fields="Effort, Priority, Status, Value")
+        in caplog.text,
+    ) == (
+        [["project", "item-add"]],
+        [],
+        [],
+        (0, (1,)),
+        True,
+    )
+
+
+def test_intake_skips_fields_when_person_sets_value_and_milestone_during_planning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The same as test_intake_skips_fields_when_person_adds_card_with_priority_during_planning,
+    but the person sets Value and a milestone with no Priority. Intake writes Status, Effort and
+    Priority and its reason comment, which gives no Value and says the issue stays in the
+    person's milestone. The person's Value and milestone stay, and the job record holds
+    neither (#1404)."""
+    github, store = on_github()
+    github.seed_issue(1, "feat: issue one", labels=("type/feature",))
+    _, apply = _intake_on_github(store, FakeModel())
+    github._put_card(1, {"value": "High"})
+    github.issues[1]["milestone"] = github._milestone(PLANNED)
+    start = len(github.calls)
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.intake"):
+        applied = apply()
+    card = github.card(1) or {}
+    comments = github.comments.get(1, [])
+    assert (
+        applied.placed,
+        applied.finished,
+        [field for field, _ in _edits(github, start)][1::2],
+        {key: card.get(key) for key in ("status", "priority", "value", "effort")},
+        github.issues[1]["milestone"]["title"],
+        len(comments),
+        "- Value:" not in comments[0],
+        f"Intake placed this item kept in milestone {PLANNED}" in comments[0],
+        json.loads(card.get("job record", "{}")),
+        getattr(
+            MESSAGES.roadmap,
+            "intake_skipped_fields",
+            "Intake skipped fields for #{number}: {fields}.",
+        ).format(number=1, fields="Value")
+        in caplog.text,
+    ) == (
+        1,
+        (),
+        [field_id("Status"), field_id("Effort"), field_id("Priority")],
+        {"status": "New", "priority": "P2-Medium", "value": "High", "effort": "Low"},
+        PLANNED,
+        1,
+        True,
+        True,
+        {"Status": "New", "Effort": "Low", "Priority": "P2-Medium"},
+        True,
     )
 
 

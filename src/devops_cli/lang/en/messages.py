@@ -1854,6 +1854,7 @@ class RoadmapMessages:
         "#{number}'s card holds a Priority, so it was already placed: the add restored the "
         "card if a person had archived it, and intake wrote nothing else to it."
     )
+    intake_skipped_fields: str = "Intake skipped fields for #{number}: {fields}."
     intake_skipped: str = (
         "Intake skipped {name}: its writes failed, and the next run tries it again: {error}"
     )
