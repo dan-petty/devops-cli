@@ -284,6 +284,48 @@ def test_scan_report_runs_only_the_scanners_it_is_given(tmp_path: Path) -> None:
     ) == (0, 1, 0, ["named"])
 
 
+def test_scan_report_skips_named_scanners(tmp_path: Path) -> None:
+    """Verify `scan report --skip` skips the scanner it names and runs other registered ones."""
+    named, other = MagicMock(), MagicMock()
+    named.name, other.name = "named", "other"
+    named.scan.return_value = ScanOutcome("ran", [])
+    other.scan.return_value = ScanOutcome("ran", [])
+    registry = ScannerRegistry()
+    registry.register(named)
+    registry.register(other)
+    with patch("devops_cli.commands.scan.global_scanner_registry", registry):
+        result = runner.invoke(scan_app, ["report", str(tmp_path), "--skip", "named", "--json"])
+
+    assert (
+        result.exit_code,
+        named.scan.call_count,
+        other.scan.call_count,
+        json.loads(result.stdout)["tools"],
+    ) == (0, 0, 1, ["other"])
+
+
+def test_scan_report_cannot_combine_scanner_and_skip(tmp_path: Path) -> None:
+    """Verify combining --scanner and --skip raises an error with exit code 2."""
+    named = MagicMock()
+    named.name = "named"
+    registry = ScannerRegistry()
+    registry.register(named)
+    with patch("devops_cli.commands.scan.global_scanner_registry", registry):
+        result = runner.invoke(
+            scan_app, ["report", str(tmp_path), "--scanner", "named", "--skip", "named"]
+        )
+
+    assert result.exit_code == 2
+    assert "Cannot combine --scanner and --skip options." in result.output
+
+
+def test_scan_report_unknown_skip_scanner(tmp_path: Path) -> None:
+    """Verify unknown scanner in --skip raises an error with exit code 2."""
+    result = runner.invoke(scan_app, ["report", str(tmp_path), "--skip", "nonexistent_scanner"])
+    assert result.exit_code == 2
+    assert "Unknown scanner(s): nonexistent_scanner" in result.output
+
+
 def test_a_scan_outcome_records_when_the_scanner_started_and_finished(tmp_path: Path) -> None:
     """SARIF invocations carry the scanner's execution window in UTC."""
     utc_millis = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")

@@ -288,6 +288,7 @@ devops scan report [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--scanner`, `-s` | `string` | - | Limit the run to these scanners (repeatable). Defaults to all registered. |
+| `--skip`, `--skip-scanner` | `string` | - | Skip these scanners (repeatable or comma-separated). |
 | `--sarif` | `path` | - | Write findings to this path as a SARIF 2.1.0 document. |
 | `--min-severity` | `string` | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
 | `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |

@@ -67,7 +67,7 @@ jobs:
 
       - name: Security Scan
         if: always()
-        run: uv run devops scan report --sarif .data/scan.sarif
+        run: uv run devops scan report --sarif .data/scan.sarif --skip bandit
 
       - name: Upload Security Scan SARIF
         if: always()

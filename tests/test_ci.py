@@ -2644,7 +2644,7 @@ def test_ci_workflow_publishes_scanner_sarif_to_code_scanning() -> None:
         upload_step.get("if"),
     ) == (
         "write",
-        "uv run devops scan report --sarif .data/scan.sarif",
+        "uv run devops scan report --sarif .data/scan.sarif --skip bandit",
         "always()",
         True,
         ".data/scan.sarif",
