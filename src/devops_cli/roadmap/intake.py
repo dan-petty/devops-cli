@@ -11,7 +11,8 @@ and every issue closed as not planned, plus the candidates this run placed befor
 candidate is also compared with the open agent issues off the board. An issue that has
 sub-issues is compared with no candidate. Its sub-issues deliver it, one pull request each (ADR
 0012), so no candidate asks for its change. A new candidate is not compared with the issue its
-source links, such as the issue it splits (#1985). Each text is embedded once, and the model
+source links, such as the issue it splits, nor with that issue's sub-issues, the other parts of
+the split (#1985, #2265). Each text is embedded once, and the model
 judges the candidate against its nearest `DEFAULT_ROADMAP_INTAKE_SHORTLIST` items, by cosine
 similarity. A duplicate asks for the same change as its original: the same result and
 acceptance criteria, so that the delivery of one delivers the other. A shared theme, goal,
@@ -633,6 +634,15 @@ def _source_issue(run: _Run, subject: Subject) -> int | None:
     return next((issue.number for issue in run.issues if issue.url == link), None)
 
 
+def _apart(run: _Run, subject: Subject) -> set[int]:
+    """The issues a candidate is compared with none of: itself, the issue its source links, and
+    that issue's sub-issues, the other parts of the split, which are planned to be different
+    changes (#1985, #2265)."""
+    source = _source_issue(run, subject)
+    siblings = [] if source is None else [i.number for i in run.issues if i.parent == source]
+    return {number for number in (subject.number, source, *siblings) if number is not None}
+
+
 def _with_regression_reference(subject: Subject, entry: _Entry) -> Subject:
     """Add a regression reference to the candidate's body when it matches a Done item."""
     ref = f"regression of #{entry.number}"
@@ -998,11 +1008,9 @@ class _Planner:
         return [self.entries[index] for index in nearest[:DEFAULT_ROADMAP_INTAKE_SHORTLIST]]
 
     def _decide(self, subject: Subject, vector: list[float] | None) -> IntakeDecision:
-        """The candidate's decision, compared with neither itself nor the issue its source
-        links (#1985)."""
-        own = (subject.number, _source_issue(self.run, subject))
-        apart = {number for number in own if number is not None}
-        shortlist = self._shortlist(vector, apart)
+        """The candidate's decision, compared with neither itself, nor the issue its source
+        links, nor that issue's sub-issues (#1985, #2265)."""
+        shortlist = self._shortlist(vector, _apart(self.run, subject))
         request = ProposalRequest(
             title=subject.title,
             body=subject.body[:DEFAULT_ROADMAP_INTAKE_TEXT_CHARS],

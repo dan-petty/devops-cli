@@ -1101,8 +1101,8 @@ class RoadmapCommandHelp:
     intake_body_file: str = "File holding the new candidate's body. Needs --title."
     intake_source: str = (
         "Link the new candidate came from, such as the item it splits or the review that found "
-        "it; the filed body ends with it. Intake never names the issue that this link names as "
-        "a possible duplicate of the candidate."
+        "it; the filed body ends with it. Intake never names the issue that this link names, "
+        "or a sub-issue of that issue, as a possible duplicate of the candidate."
     )
     intake_filed_by: str = (
         "Who files the new candidate: an agent's is labeled source/agent; a person's is not."

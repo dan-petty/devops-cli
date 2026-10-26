@@ -665,6 +665,40 @@ def test_a_part_that_repeats_an_item_other_than_its_source_names_it_as_the_possi
     )
 
 
+@pytest.mark.parametrize(
+    ("sourced", "linked_to_source", "compared"),
+    [
+        pytest.param(True, True, False, id="sub-issue-of-the-source"),
+        pytest.param(True, False, True, id="sub-issue-of-another-issue"),
+        pytest.param(False, True, True, id="candidate-with-no-source"),
+    ],
+)
+def test_a_part_is_compared_with_a_sibling_unless_it_is_a_sub_issue_of_the_source(
+    roadmap: Roadmap,
+    model_fake: ModelFake,
+    *,
+    sourced: bool,
+    linked_to_source: bool,
+    compared: bool,
+) -> None:
+    """The parts of one split are planned to be different changes, so a sub-issue of the
+    candidate's source stays off its shortlist, whatever its title. A sub-issue of another issue,
+    or any sub-issue when the candidate has no source, is compared as before (#2265)."""
+    parent = roadmap.finished(PARENT_TITLE, body=PARENT_BODY, sub_issues=2)
+    other = roadmap.finished("feat: an unrelated tracker", sub_issues=1)
+    sibling = roadmap.finished(
+        STEP_B.title, body=STEP_B.body, parent=parent if linked_to_source else other
+    )
+    answer = {
+        "shared_change": "valkey.url keeps its scheme",
+        "duplicate_of": sibling,
+        "duplicate_reason": "the sibling asks for the same step.",
+    }
+    source = _link(parent) if sourced else None
+    _, original, _, sent = _split(roadmap, model_fake, answer, source=source)
+    assert (original, sent) == ((sibling, [[sibling]]) if compared else (None, [[]]))
+
+
 def test_an_issue_with_sub_issues_is_never_the_original_of_a_candidate(
     roadmap: Roadmap, model_fake: ModelFake
 ) -> None:
@@ -2359,6 +2393,26 @@ def test_an_item_whose_issue_github_lists_with_sub_issues_is_on_no_shortlist() -
         [[neighbour.number for neighbour in request.shortlist] for request in model.requests],
         [decision.outcome for decision in plan.decisions],
     ) == ([[2]], [Outcome.PLACE])
+
+
+def test_an_item_whose_issue_github_lists_as_a_sub_issue_of_the_source_is_on_no_shortlist() -> None:
+    """GitHub's issue listing gives each sub-issue the URL of its parent (`parent_issue_url`),
+    and intake reads it there, with no other request. A parent in another repository, which
+    may have the source's number, names another issue (#2265)."""
+    github, store = on_github()
+    finished = {"status": "Ready", "priority": "P3-Low", "value": "Low", "effort": "Low"}
+    github.seed_issue(1, PARENT_TITLE, labels=("type/bug",), card=finished, sub_issues=2)
+    github.seed_issue(2, STEP_C, labels=("type/bug",), card=finished, parent=1)
+    github.seed_issue(
+        3, STEP_B.title, labels=("type/bug",), card=finished, parent=1, parent_repo="example/other"
+    )
+    model = FakeModel()
+    part = replace(STEP_B, source=_link(1))
+    plan, _ = _intake_on_github(store, model, new=part)
+    assert (
+        [[neighbour.number for neighbour in request.shortlist] for request in model.requests],
+        [decision.outcome for decision in plan.decisions],
+    ) == ([[3]], [Outcome.PLACE])
 
 
 def test_candidate_matching_only_done_item_is_filed_with_reference_in_body(

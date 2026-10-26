@@ -211,7 +211,8 @@ class IssueRecord(BaseModel):
     `milestone` is the title of the issue's milestone. `author_association` is GitHub's word for
     the author's relation to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`.
     `updated_at` is when the issue last changed: any write to it, a comment included, moves it.
-    `sub_issues` is how many sub-issues GitHub records for the issue, open or closed.
+    `sub_issues` is how many sub-issues GitHub records for the issue, open or closed. `parent` is
+    the number of the issue of the same repository that has the issue as a sub-issue.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -230,6 +231,7 @@ class IssueRecord(BaseModel):
     updated_at: datetime | None = None
     closed_at: datetime | None = None
     sub_issues: int = 0
+    parent: int | None = None
 
 
 class IssueComment(BaseModel):

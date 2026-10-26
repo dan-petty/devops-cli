@@ -317,13 +317,23 @@ class GitHubFake:
         milestone: str | None = None,
         card: dict[str, str] | None = None,
         sub_issues: int = 0,
+        parent: int | None = None,
+        parent_repo: str | None = None,
     ) -> None:
         """Issue `number`, and its card holding `card`'s fields when it is on the board. It has
-        `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`."""
+        `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`. It is
+        a sub-issue of issue `parent` of `parent_repo`, this repository by default, which GitHub
+        gives in each issue's `parent_issue_url`."""
         self.issues[number] = {
             "number": number,
             "title": title or f"Issue {number}",
             "html_url": f"https://github.com/{self.repo}/issues/{number}",
+            "repository_url": f"https://api.github.com/repos/{self.repo}",
+            "parent_issue_url": (
+                None
+                if parent is None
+                else f"https://api.github.com/repos/{parent_repo or self.repo}/issues/{parent}"
+            ),
             "body": "",
             "state": state,
             "labels": [{"name": label} for label in labels],
