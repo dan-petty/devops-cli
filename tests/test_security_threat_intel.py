@@ -14,6 +14,14 @@ from devops_cli.security.vulnerability_lookup import CloudflareRadarClient
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 
+pytestmark = pytest.mark.usefixtures("mock_keyring")
+
+
+@pytest.fixture(autouse=True)
+def mock_cf_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set configured Cloudflare token for threat intel cache tests."""
+    monkeypatch.setenv("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "mock-cf-token")
+
 
 @pytest.fixture
 def mock_valkey() -> MagicMock:
@@ -162,7 +170,8 @@ def test_cloudflare_radar_error_not_saved_to_valkey_l2(mock_valkey: MagicMock) -
 
         rec = client.check_domain("transient-error-domain.org")
         assert rec.target == "transient-error-domain.org"
-        assert rec.reputation_summary == "Verified domain reference"
+        assert rec.outcome == "failed"
+        assert "Verified domain reference" not in rec.reputation_summary
 
         # Transient error fallback must NOT be saved to distributed L2 cache
         mock_valkey.set.assert_not_called()

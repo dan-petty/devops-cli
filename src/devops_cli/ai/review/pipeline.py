@@ -849,6 +849,21 @@ def _build_malicious_network_finding(
     )
 
 
+def _determine_network_security_status(net: NetworkReference, rep: NetworkReputationRecord) -> str:
+    """Return the security status string for a network reference based on threat intel."""
+    if rep.is_malicious:
+        return f"⚠️ Flagged ({rep.reputation_summary})"
+    if rep.outcome in ("unavailable", "failed"):
+        return "Unchecked"
+    if net.is_example:
+        return "✓ Safe (Documented Example)"
+    if net.is_local:
+        return "✓ Safe (Local)"
+    if rep.ports:
+        return f"✓ Safe (Ports: {', '.join(map(str, rep.ports[:3]))})"
+    return "✓ Safe / Low Risk"
+
+
 def _checked_session_dir(session_dir: Path) -> Path:
     """A review session directory, refused when it escapes the places sessions may be written.
 
@@ -909,7 +924,10 @@ def _fetch_domains_threat_intel(
     try:
         return radar_client.check_domains_batch(domain_targets)
     except Exception:
-        return {d: NetworkReputationRecord(target=d, ip="") for d in domain_targets}
+        return {
+            d: NetworkReputationRecord(target=d, ip="", source="Cloudflare Radar", outcome="failed")
+            for d in domain_targets
+        }
 
 
 def _fetch_ip_threat_intel(
@@ -3127,13 +3145,7 @@ class ReviewPipelineOrchestrator:
         for net in file_nets:
             rep = net_cache.get(net.target, NetworkReputationRecord(target=net.target, ip=""))
             net.reputation = rep
-            if rep.is_malicious:
-                net.security_status = f"⚠️ Flagged ({rep.reputation_summary})"
-            elif rep.ports:
-                net.security_status = f"✓ Safe (Ports: {', '.join(map(str, rep.ports[:3]))})"
-            else:
-                net.security_status = "✓ Safe / Low Risk"
-
+            net.security_status = _determine_network_security_status(net, rep)
             if rep.is_malicious:
                 findings.append(_build_malicious_network_finding(fpath, net, rep))
         return findings

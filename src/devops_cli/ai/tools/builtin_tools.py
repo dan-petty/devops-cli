@@ -535,6 +535,12 @@ def _radar_reply(domain: str) -> str:
     from devops_cli.security.vulnerability_lookup import CloudflareRadarClient
 
     rep = CloudflareRadarClient().check_domain(domain)
+    if rep.outcome in ("unavailable", "failed"):
+        return (
+            f"Cloudflare Radar Intelligence for Domain {domain}:\n"
+            f"- Threat Categories: None\n"
+            f"- Reputation Summary: {rep.reputation_summary}"
+        )
     return (
         f"Cloudflare Radar Intelligence for Domain {domain}:\n"
         f"- Threat Categories: {', '.join(rep.tags) or 'General'}\n"
