@@ -6,6 +6,7 @@ import ast
 import hashlib
 import logging
 import mimetypes
+import uuid
 import warnings
 from pathlib import Path
 
@@ -315,7 +316,7 @@ class SemanticChunker:
             content, language=language, symbols=sym_list, file_path=file_path
         )
         return CodeChunk(
-            id=self._generate_id(file_path, start_line, end_line),
+            id=self._generate_id(file_path, start_line, end_line, project_name=project_name),
             file_path=file_path,
             start_line=start_line,
             end_line=end_line,
@@ -590,7 +591,7 @@ class SemanticChunker:
             if not sec_content:
                 continue
 
-            c_id = self._generate_id(file_path, start_idx + 1, end_idx)
+            c_id = self._generate_id(file_path, start_idx + 1, end_idx, project_name=project_name)
             chunks.append(
                 CodeChunk(
                     id=c_id,
@@ -622,7 +623,7 @@ class SemanticChunker:
         project_name: str,
     ) -> CodeChunk:
         """Create a CodeChunk from a line-window or sub-window slice."""
-        c_id = self._generate_id(file_path, start_line, end_line)
+        c_id = self._generate_id(file_path, start_line, end_line, project_name=project_name)
         meta = (
             extract_doc_metadata(content, file_path=file_path)
             if category == "docs"
@@ -653,7 +654,7 @@ class SemanticChunker:
         )
         return [
             CodeChunk(
-                id=self._generate_id(chunk.file_path, s, e),
+                id=self._generate_id(chunk.file_path, s, e, project_name=chunk.project_name),
                 file_path=chunk.file_path,
                 start_line=s,
                 end_line=e,
@@ -718,11 +719,15 @@ class SemanticChunker:
         return chunks
 
     @staticmethod
-    def _generate_id(file_path: str, start_line: int, end_line: int) -> str:
-        """Generate a deterministic UUID-compatible SHA256 hex ID."""
-        raw = f"{file_path}:{start_line}:{end_line}"
-        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+    def _generate_id(
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        project_name: str = "default",
+    ) -> str:
+        """Generate a deterministic UUID-5 ID based on project, relative path, and line range."""
+        raw = f"{project_name}:{file_path}:{start_line}:{end_line}"
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, raw))
 
     @staticmethod
     def _hash_content(content: str) -> str:

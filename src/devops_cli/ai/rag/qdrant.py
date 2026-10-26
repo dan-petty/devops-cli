@@ -337,6 +337,7 @@ class QdrantClient:
                 "points_count": points_count,
                 "vectors_count": vectors_count,
                 "vector_size": vector_size,
+                "payload_schema": getattr(info, "payload_schema", {}) or {},
             }
         except Exception as exc:
             err_str = str(exc)
@@ -377,6 +378,7 @@ class QdrantClient:
                     },
                 )
             elif isinstance(curr_size, int):
+                self._ensure_payload_indexes(name, info.get("payload_schema", {}))
                 self._verified_collections[name] = vector_size
                 return True
 
@@ -391,11 +393,51 @@ class QdrantClient:
                 "create_collection",
                 name,
             )
+            self._ensure_payload_indexes(name, {})
             self._verified_collections[name] = vector_size
             return True
         except Exception as exc:
             logger.error("Error creating collection %s in Qdrant: %s", name, exc)
             raise QdrantClientError(f"Error creating collection '{name}': {exc}") from exc
+
+    def _ensure_payload_indexes(self, name: str, existing_schema: dict[str, Any]) -> None:
+        """Create missing payload indexes on the collection."""
+        from devops_cli.config.constants import CONST_RAG_PAYLOAD_INDEXES
+
+        for spec in CONST_RAG_PAYLOAD_INDEXES:
+            field_name = spec["field_name"]
+            if field_name in existing_schema:
+                continue
+            is_tenant = spec.get("is_tenant", False)
+            if is_tenant:
+                field_schema = qmodels.KeywordIndexParams(
+                    type=qmodels.PayloadSchemaType.KEYWORD,
+                    is_tenant=True,
+                )
+            else:
+                field_schema = qmodels.PayloadSchemaType.KEYWORD
+
+            def _create_idx(
+                client: NativeQdrantClient, fn: str = field_name, fs: Any = field_schema
+            ) -> Any:
+                return client.create_payload_index(
+                    collection_name=name,
+                    field_name=fn,
+                    field_schema=fs,
+                    wait=True,
+                )
+
+            try:
+                self._execute_with_retry(
+                    _create_idx,
+                    "create_payload_index",
+                    f"{name}:{field_name}",
+                )
+            except Exception as exc:
+                logger.error("Error creating payload index %s on %s: %s", field_name, name, exc)
+                raise QdrantClientError(
+                    f"Error creating payload index '{field_name}' on collection '{name}': {exc}"
+                ) from exc
 
     def delete_collection(self, name: str) -> bool:
         """Delete a collection from Qdrant."""
@@ -581,12 +623,11 @@ class QdrantClient:
         file_paths: Sequence[str],
         *,
         project_name: str | None = None,
-        wait: bool = False,
+        wait: bool = True,
     ) -> bool:
         """Delete all indexed chunks for multiple file paths in batches, optionally scoped to a project."""
         if not file_paths:
             return True
-        success = True
         batch_size = 100
         for i in range(0, len(file_paths), batch_size):
             batch = list(file_paths[i : i + batch_size])
@@ -629,11 +670,47 @@ class QdrantClient:
                     project_name,
                     exc,
                 )
-                success = False
-        return success
+                raise QdrantClientError(f"Delete failed in '{name}': {exc}") from exc
+        return True
 
-    def delete_points_by_file(
-        self, name: str, file_path: str, *, project_name: str | None = None
+    def delete_points_by_project(
+        self,
+        name: str,
+        project_name: str,
+        *,
+        wait: bool = True,
     ) -> bool:
-        """Delete all indexed chunks for a file path, optionally scoped to a project."""
-        return self.delete_points_by_files(name, [file_path], project_name=project_name, wait=False)
+        """Delete all indexed chunks for a project."""
+        if not project_name:
+            return True
+        proj_filter = qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key="project_name",
+                    match=qmodels.MatchValue(value=project_name),
+                )
+            ]
+        )
+
+        def _delete_proj(client: NativeQdrantClient) -> Any:
+            return client.delete(
+                collection_name=name,
+                points_selector=qmodels.FilterSelector(filter=proj_filter),
+                wait=wait,
+            )
+
+        try:
+            self._execute_with_retry(
+                _delete_proj,
+                "delete_points_by_project",
+                f"{name}, project={project_name}",
+            )
+            return True
+        except Exception as exc:
+            logger.debug(
+                "Failed to delete points by project in %s (project: %s): %s",
+                name,
+                project_name,
+                exc,
+            )
+            raise QdrantClientError(f"Delete by project failed in '{name}': {exc}") from exc

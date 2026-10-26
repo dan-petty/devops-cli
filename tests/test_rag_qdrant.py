@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from devops_cli.ai.rag.embeddings import EmbeddingsError
-from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -17,6 +17,7 @@ def test_qdrant_is_alive() -> None:
     mock_native = MagicMock()
     mock_native.get_collections.return_value = MagicMock(collections=[])
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     assert client.is_alive() is True
 
@@ -30,6 +31,7 @@ def test_qdrant_list_collections() -> None:
     c2.name = "devops_docs"
     mock_native.get_collections.return_value = MagicMock(collections=[c1, c2])
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     colls = client.list_collections()
     assert colls == ["devops_code", "devops_docs"]
@@ -40,6 +42,7 @@ def test_qdrant_ensure_collection() -> None:
     mock_native = MagicMock()
     mock_native.get_collection.side_effect = Exception("Collection not found")
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     assert client.ensure_collection("devops_code", vector_size=384) is True
     mock_native.create_collection.assert_called_once()
@@ -67,6 +70,7 @@ def test_qdrant_upsert_and_search() -> None:
     )
     mock_native.query_points.return_value = MagicMock(points=[hit])
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     points = [{"id": "1", "vector": [0.1] * 384, "payload": {"file_path": "src/main.py"}}]
     upserted = client.upsert_points("devops_code", points)
@@ -87,6 +91,7 @@ def test_qdrant_upsert_dimension_mismatch_fails_without_recreating() -> None:
     info.status = "green"
     mock_native.get_collection.return_value = info
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     # Upsert with 1024 dims
     points = [{"id": "1", "vector": [0.1] * 1024, "payload": {"file_path": "src/main.py"}}]
@@ -107,6 +112,7 @@ def test_qdrant_search_dimension_mismatch_raises_permanent_error() -> None:
         "Vector dimension error: expected dim: 768, got 1024"
     )
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     with pytest.raises(EmbeddingsError) as exc_info:
         client.search_points("devops_code", query_vector=[0.1] * 1024)
@@ -123,6 +129,7 @@ def test_qdrant_delete_collection() -> None:
     mock_native = MagicMock()
     mock_native.delete_collection.return_value = True
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     assert client.delete_collection("devops_code") is True
 
@@ -132,20 +139,36 @@ def test_qdrant_delete_points_by_files() -> None:
     mock_native = MagicMock()
     mock_native.delete.return_value = True
     client._client = mock_native
+    client._build_client = lambda: mock_native
 
     # Empty list returns True with no calls
     assert client.delete_points_by_files("devops_code", []) is True
     assert mock_native.delete.call_count == 0
 
-    # Single file via delete_points_by_file
-    assert client.delete_points_by_file("devops_code", "src/main.py", project_name="devops") is True
+    # Single file via delete_points_by_files
+    assert (
+        client.delete_points_by_files("devops_code", ["src/main.py"], project_name="devops") is True
+    )
     assert mock_native.delete.call_count == 1
+    assert mock_native.delete.call_args.kwargs.get("wait") is True
+
+    # Delete points by project
+    assert client.delete_points_by_project("devops_code", "devops") is True
+    assert mock_native.delete.call_count == 2
+    assert mock_native.delete.call_args.kwargs.get("wait") is True
 
     # 150 files should be split into 2 batches (100 + 50)
     assert (
         client.delete_points_by_files("devops_code", [f"file_{i}.py" for i in range(150)]) is True
     )
-    assert mock_native.delete.call_count == 3
+    assert mock_native.delete.call_count == 4
+
+    # Deletes raise QdrantClientError on failure
+    mock_native.delete.side_effect = RuntimeError("network timeout")
+    with pytest.raises(QdrantClientError):
+        client.delete_points_by_files("devops_code", ["src/main.py"])
+    with pytest.raises(QdrantClientError):
+        client.delete_points_by_project("devops_code", "devops")
 
 
 def test_qdrant_build_client_port_resolution(monkeypatch: pytest.MonkeyPatch) -> None:

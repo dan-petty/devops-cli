@@ -123,7 +123,7 @@ class Tool(NativeTool):
             from devops_cli.exceptions.ai import ApprovalRequired
 
             raise ApprovalRequired(f"Tool '{self.name}' requires human approval")
-        fn = cast(Callable[..., Any], self.function)
+        fn: Any = self.function
         res = fn(ctx, **kwargs) if self.takes_ctx and ctx is not None else fn(**kwargs)
         if inspect.isawaitable(res):
             return _run_coroutine_sync(res)

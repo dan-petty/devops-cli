@@ -66,21 +66,15 @@ class FakeQdrantClient(QdrantClient):
         file_paths: Sequence[str],
         *,
         project_name: str | None = None,
-        wait: bool = False,
-    ) -> bool:
-        for f in file_paths:
-            self.delete_points_by_file(name, f, project_name=project_name)
-        return True
-
-    def delete_points_by_file(
-        self, name: str, file_path: str, *, project_name: str | None = None
+        wait: bool = True,
     ) -> bool:
         if name in self.collections:
+            path_set = set(file_paths)
             self.collections[name] = [
                 p
                 for p in self.collections[name]
                 if not (
-                    p.get("payload", {}).get("file_path") == file_path
+                    p.get("payload", {}).get("file_path") in path_set
                     and (
                         project_name is None
                         or p.get("payload", {}).get("project_name") == project_name
@@ -88,6 +82,33 @@ class FakeQdrantClient(QdrantClient):
                 )
             ]
         return True
+
+    def delete_points_by_project(
+        self,
+        name: str,
+        project_name: str,
+        *,
+        wait: bool = True,
+    ) -> bool:
+        if name in self.collections:
+            self.collections[name] = [
+                p
+                for p in self.collections[name]
+                if p.get("payload", {}).get("project_name") != project_name
+            ]
+        return True
+
+    def count_points(self, name: str, filter_payload: dict | None = None) -> int:
+        if name not in self.collections:
+            return 0
+        if not filter_payload:
+            return len(self.collections[name])
+        count = 0
+        for p in self.collections[name]:
+            payload = p.get("payload", {})
+            if all(payload.get(k) == v for k, v in filter_payload.items()):
+                count += 1
+        return count
 
     def search_points(
         self,

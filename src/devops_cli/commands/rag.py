@@ -617,7 +617,10 @@ def clear_cmd(
         print_success(f"Cleared collection: {coll}")
 
     # Remove local cache
-    from devops_cli.config.constants import CONST_INDEX_CACHE_FILENAME
+    from devops_cli.config.constants import (
+        CONST_INDEX_CACHE_FILENAME,
+        CONST_INDEX_COUNTS_FILENAME,
+    )
     from devops_cli.config.settings import load_settings
     from devops_cli.core.repo import resolve_data_path
 
@@ -626,6 +629,9 @@ def clear_cmd(
     if cache_file.exists():
         cache_file.unlink()
         print_success(MESSAGES.rag.reset_cache_success)
+    counts_file = rag_dir / CONST_INDEX_COUNTS_FILENAME
+    if counts_file.exists():
+        counts_file.unlink()
 
 
 # =============================================================================
