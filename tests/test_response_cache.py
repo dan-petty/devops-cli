@@ -510,7 +510,7 @@ def test_loaded_entry_with_mismatched_key_is_not_served_and_deleted(
     assert not parent_file.exists()
 
     # 2. Entry stored with absolute key field and empty content
-    abs_target = Path("/tmp/abs_escaped.json")
+    abs_target = (cdir.parent / "abs_escaped.json").resolve()
     if abs_target.exists():
         abs_target.unlink()
 
