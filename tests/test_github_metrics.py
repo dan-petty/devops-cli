@@ -41,11 +41,9 @@ from devops_cli.github.metrics import (
     get_milestone_metrics,
     get_release_cadence_metrics,
     get_repository_traffic_metrics,
-    record_project_metrics_in_registry,
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.telemetry.instruments import PROJECT_ITEM_LABELS, PROJECT_ITEMS
-from devops_cli.telemetry.metrics import InMemoryMetricsRegistry
 from tests.roadmap_board_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.telemetry_capture import Captured
@@ -508,9 +506,6 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
     assert expected_instruments.issubset(set(instrument_names))
 
 
-ITEM_SET = {"milestone": "2026-10-01", "type": "bug", "priority": "P1-High"}
-
-
 def _snapshot(*items: ItemCountMetric) -> ProjectMetricsReport:
     """A report that holds only `items`."""
     return ProjectMetricsReport(
@@ -713,109 +708,4 @@ def test_get_repository_traffic_metrics_success_and_fallback(
         0,
         [],
         [],
-    )
-
-
-def test_record_project_metrics_in_registry() -> None:
-    """Verify in-memory metrics registry is populated with gauges and exports Prometheus text."""
-    reg = InMemoryMetricsRegistry()
-    report = ProjectMetricsReport(
-        repo="example/repo",
-        generated_at="2026-10-02 00:00:00 UTC",
-        total_releases=2,
-        average_cadence_days=3.0,
-        releases=[
-            ReleaseCadenceMetric(
-                tag="v0.2.25",
-                published_at="2026-10-01",
-                days_since_prev=3.0,
-                commit_count=12,
-                pr_count=8,
-            )
-        ],
-        workflow_runs=[
-            WorkflowRunMetric(
-                workflow="CI Quality Gate",
-                total_runs=2,
-                passed=2,
-                failed=0,
-                other=0,
-                pass_rate=100.0,
-            )
-        ],
-        milestones=[
-            MilestoneMetric(
-                milestone="2026-10-01",
-                state="open",
-                open_items=3,
-                closed_items=7,
-                total_items=10,
-                completion_rate=70.0,
-            )
-        ],
-        items=[
-            ItemCountMetric(
-                milestone="2026-10-01", state="open", type="bug", priority="P1-High", count=3
-            ),
-            ItemCountMetric(
-                milestone="2026-10-01", state="closed", type="bug", priority="P1-High", count=7
-            ),
-        ],
-        taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=2)],
-        traffic=TrafficSummaryMetric(
-            views_count=150,
-            views_uniques=45,
-            clones_count=80,
-            clones_uniques=20,
-            stars=25,
-            forks=5,
-            open_issues=12,
-            referrers=[TrafficReferrerMetric(referrer="github.com", count=60, uniques=30)],
-            paths=[TrafficPathMetric(path="/repo", title="Repo", count=100, uniques=40)],
-        ),
-    )
-
-    record_project_metrics_in_registry(report, registry=reg)
-
-    assert (
-        reg.get_gauge("devops_cli_project_releases"),
-        reg.get_gauge("devops_cli_project_traffic_views"),
-        reg.get_gauge("devops_cli_project_traffic_views_uniques"),
-        reg.get_gauge("devops_cli_project_traffic_clones"),
-        reg.get_gauge("devops_cli_project_traffic_clones_uniques"),
-        reg.get_gauge("devops_cli_project_stars"),
-        reg.get_gauge("devops_cli_project_forks"),
-        reg.get_gauge("devops_cli_project_traffic_referrers", {"referrer": "github.com"}),
-        reg.get_gauge("devops_cli_project_traffic_paths", {"path": "/repo"}),
-        reg.get_gauge("devops_cli_project_commits", {"release": "v0.2.25"}),
-        reg.get_gauge("devops_cli_project_prs", {"release": "v0.2.25"}),
-        reg.get_gauge("devops_cli_project_items", {**ITEM_SET, "state": "open"}),
-        reg.get_gauge("devops_cli_project_items", {**ITEM_SET, "state": "closed"}),
-    ) == (
-        2.0,
-        150.0,
-        45.0,
-        80.0,
-        20.0,
-        25.0,
-        5.0,
-        60.0,
-        100.0,
-        12.0,
-        8.0,
-        3.0,
-        7.0,
-    )
-
-    prom_text = reg.export_prometheus_text()
-    assert (
-        "devops_cli_project_releases 2.0" in prom_text,
-        "devops_cli_project_traffic_views 150.0" in prom_text,
-        'devops_cli_project_traffic_referrers{referrer="github.com"} 60.0' in prom_text,
-        'devops_cli_project_traffic_paths{path="/repo"} 100.0' in prom_text,
-    ) == (
-        True,
-        True,
-        True,
-        True,
     )

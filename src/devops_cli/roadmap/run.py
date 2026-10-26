@@ -400,40 +400,35 @@ def _run_metrics_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
-    counting the items of the board of `store`, and the GitHub and Cloudflare status, into the
-    in-memory registry and OTLP (#1358). A failed collection or status read is logged and
-    skipped; a missing clone fails the job."""
+    counting the items of the board of `store`, and the GitHub and Cloudflare status, into OTLP
+    (#1358). A failed collection or status read is logged and skipped; a missing clone fails the
+    job."""
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
-        record_project_metrics_in_registry,
     )
     from devops_cli.telemetry.service_status import (
         emit_service_status_telemetry,
         fetch_cloudflare_status,
         fetch_github_status,
-        record_service_status_in_registry,
     )
 
     clone = _job_clone("metrics", clone_path)
     try:
         target_repo = repo or None
         report = collect_project_metrics_report(root=clone, repo=target_repo, store=store)
-        record_project_metrics_in_registry(report)
         emit_project_metrics_telemetry(report)
     except Exception as exc:
         logger.warning("Project metrics collection failed for %s: %s", repo, exc)
 
     try:
         gh_status = fetch_github_status()
-        record_service_status_in_registry(gh_status, "github")
         emit_service_status_telemetry(gh_status, "github")
     except Exception as exc:
         logger.warning("GitHub service status collection failed: %s", exc)
 
     try:
         cf_status = fetch_cloudflare_status()
-        record_service_status_in_registry(cf_status, "cloudflare")
         emit_service_status_telemetry(cf_status, "cloudflare")
     except Exception as exc:
         logger.warning("Cloudflare service status collection failed: %s", exc)

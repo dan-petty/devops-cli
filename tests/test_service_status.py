@@ -17,7 +17,6 @@ from devops_cli.models.statuspage import (
     StatuspageComponent,
     StatuspageSummary,
 )
-from devops_cli.telemetry.metrics import InMemoryMetricsRegistry
 from devops_cli.telemetry.service_status import (
     emit_service_status_telemetry,
     fetch_all_service_statuses,
@@ -26,7 +25,6 @@ from devops_cli.telemetry.service_status import (
     fetch_statuspage_summary,
     filter_key_components,
     format_status_badge,
-    record_service_status_in_registry,
     render_statuspage_summary,
 )
 
@@ -234,24 +232,6 @@ def test_fetch_github_and_cloudflare_status() -> None:
         cf.page.name,
         set(all_res.keys()),
     ) == ("Mock Cloud", "Mock Cloud", {"github", "cloudflare"})
-
-
-def test_record_service_status_in_registry() -> None:
-    """Validate recording service status gauges in InMemoryMetricsRegistry."""
-    summary = StatuspageSummary.model_validate(_MOCK_PAYLOAD_DEGRADED)
-    reg = InMemoryMetricsRegistry()
-
-    record_service_status_in_registry(summary, "github", registry=reg)
-
-    svc_gauge = reg.get_gauge(
-        "devops_cli_upstream_service_status", {"service": "github", "indicator": "major"}
-    )
-    comp_gauge = reg.get_gauge(
-        "devops_cli_upstream_component_status",
-        {"service": "github", "component": "Actions", "status": "major_outage"},
-    )
-
-    assert (svc_gauge, comp_gauge) == (2.0, 3.0)
 
 
 def test_emit_service_status_telemetry() -> None:

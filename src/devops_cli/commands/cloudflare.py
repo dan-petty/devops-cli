@@ -164,7 +164,6 @@ def cloudflare_service_status(
     from devops_cli.telemetry.service_status import (
         emit_service_status_telemetry,
         fetch_cloudflare_status,
-        record_service_status_in_registry,
         render_statuspage_summary,
     )
 
@@ -176,7 +175,6 @@ def cloudflare_service_status(
 
     if emit_telemetry:
         emit_service_status_telemetry(summary, "cloudflare")
-        record_service_status_in_registry(summary, "cloudflare")
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

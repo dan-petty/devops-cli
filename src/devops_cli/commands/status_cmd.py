@@ -100,7 +100,6 @@ def status_main(
             results[svc] = summary
             if emit_telemetry:
                 service_status.emit_service_status_telemetry(summary, svc)
-                service_status.record_service_status_in_registry(summary, svc)
         except ServiceStatusError as exc:
             print_error(f"Failed to fetch {svc} status: {exc.message}")
 

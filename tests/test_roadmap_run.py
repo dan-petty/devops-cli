@@ -97,7 +97,6 @@ from devops_cli.roadmap.store import (
 )
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_ITEMS, PROJECT_RELEASES
-from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
@@ -943,6 +942,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     caplog: pytest.LogCaptureFixture,
     stub_web: StubWeb,
     git: Callable[..., None],
+    captured: Any,
 ) -> None:
     """The default table's metrics row clones the repository and walks its version tags there,
     not in the working directory, which in the Service is no git repository (#1358). The gauge
@@ -961,8 +961,6 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         json.dumps({"login": "test-bot"}),
         headers={"content-type": "application/json"},
     )
-    GLOBAL_METRICS.clear_metric(PROJECT_RELEASES.name)
-    GLOBAL_METRICS.clear_metric(PROJECT_ITEMS.name)
     seeded_store.seed_issue("feat: export", labels=("type/feature",), on_board=True)
     data_dir = tmp_path / "data"
     with caplog.at_level(logging.WARNING):
@@ -974,18 +972,15 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         (row.needs_clone, row.first_run_due, row.interval),
         ran,
         (clone / ".git").is_dir(),
-        GLOBAL_METRICS.get_gauge(PROJECT_RELEASES.name),
-        GLOBAL_METRICS.get_gauge(
-            PROJECT_ITEMS.name,
-            {"milestone": "", "state": "open", "type": "feature", "priority": ""},
-        ),
+        captured.points(PROJECT_RELEASES.name),
+        captured.points(PROJECT_ITEMS.name),
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
     ) == (
         (True, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES)),
         ("metrics",),
         True,
-        2.0,
-        1.0,
+        [({}, 2.0)],
+        [({"milestone": "", "state": "open", "type": "feature", "priority": ""}, 1.0)],
         [],
     )
 
