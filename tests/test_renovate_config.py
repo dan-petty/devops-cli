@@ -31,7 +31,7 @@ def test_kubernetes_manager_has_a_file_pattern() -> None:
     """The `kubernetes` manager matches no file by default, so the config must name `k8s/`."""
     patterns = _renovate().get("kubernetes", {}).get("managerFilePatterns", [])
 
-    assert patterns
+    assert patterns == ["/^k8s/.+\\.ya?ml$/"]
 
 
 def test_every_manifest_that_pins_an_image_tag_matches_a_pattern() -> None:
