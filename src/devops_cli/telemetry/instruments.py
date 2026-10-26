@@ -140,8 +140,11 @@ PROJECT_ITEMS = Instrument(
     "devops_cli_project_items",
     InstrumentKind.GAUGE,
     "1",
-    "Project items by milestone, type, priority and state",
+    "Project board items by milestone, state, type and priority. "
+    "A label is empty when the item has no value for it",
 )
+PROJECT_ITEM_LABELS = ("milestone", "state", "type", "priority")
+"""The labels of `PROJECT_ITEMS`, in the order the dashboard names them."""
 PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
     "devops_cli_project_release_interval_days",
     InstrumentKind.HISTOGRAM,
@@ -285,6 +288,7 @@ __all__ = [
     "PROJECT_COMMITS",
     "PROJECT_FORKS",
     "PROJECT_ITEMS",
+    "PROJECT_ITEM_LABELS",
     "PROJECT_PRS",
     "PROJECT_RELEASES",
     "PROJECT_RELEASE_INTERVAL_DAYS",

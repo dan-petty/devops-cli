@@ -4,7 +4,8 @@ Provides analysis and aggregations for:
 - Release frequency and cadence (intervals in days between releases).
 - Commits and merged pull requests per release.
 - CI quality gate checks and workflow run pass rates.
-- Items grouped by milestone and taxonomy labels (type, scope).
+- Project board items counted by milestone, state, type and priority.
+- Open issues grouped by taxonomy label (type, scope).
 - OpenTelemetry instrumentation for Prometheus export and Grafana visualization.
 """
 
@@ -16,17 +17,22 @@ import logging
 import re
 import subprocess
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.config.constants import CONST_ROADMAP_TYPE_LABEL_PREFIX
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.github.client import GhCliClient
+from devops_cli.roadmap.config import open_roadmap
+from devops_cli.roadmap.store import RoadmapStore
 from devops_cli.telemetry.instruments import (
     PROJECT_CI_RUNS,
     PROJECT_COMMITS,
     PROJECT_FORKS,
+    PROJECT_ITEM_LABELS,
     PROJECT_ITEMS,
     PROJECT_PRS,
     PROJECT_RELEASE_INTERVAL_DAYS,
@@ -78,6 +84,23 @@ class MilestoneMetric(BaseModel):
     completion_rate: float = 0.0
 
 
+class ItemCountMetric(BaseModel):
+    """The project board items that share a milestone, a state, a type and a priority.
+
+    A value is empty when the item has none: no milestone, no `type/*` label or no Priority.
+    """
+
+    milestone: str = ""
+    state: str
+    type: str = ""
+    priority: str = ""
+    count: int
+
+    def labels(self) -> dict[str, str]:
+        """The labels of this count on the `PROJECT_ITEMS` gauge."""
+        return {label: getattr(self, label) for label in PROJECT_ITEM_LABELS}
+
+
 class LabelTaxonomyMetric(BaseModel):
     """Metrics tracking items categorized by taxonomy label."""
 
@@ -127,6 +150,7 @@ class ProjectMetricsReport(BaseModel):
     releases: list[ReleaseCadenceMetric] = Field(default_factory=list)
     workflow_runs: list[WorkflowRunMetric] = Field(default_factory=list)
     milestones: list[MilestoneMetric] = Field(default_factory=list)
+    items: list[ItemCountMetric] = Field(default_factory=list)
     taxonomy_labels: list[LabelTaxonomyMetric] = Field(default_factory=list)
     traffic: TrafficSummaryMetric = Field(default_factory=TrafficSummaryMetric)
 
@@ -360,6 +384,34 @@ def get_milestone_metrics(repo: str, milestone_filter: str | None = None) -> lis
     return metrics
 
 
+def _item_type(labels: Iterable[str]) -> str:
+    """The `type/*` label of an item without its prefix, or empty when it has none."""
+    return next(
+        (
+            label.removeprefix(CONST_ROADMAP_TYPE_LABEL_PREFIX)
+            for label in labels
+            if label.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX)
+        ),
+        "",
+    )
+
+
+def get_item_metrics(
+    store: RoadmapStore, milestone_filter: str | None = None
+) -> list[ItemCountMetric]:
+    """Count the items of the board of `store`, open and closed, by milestone, state, type and
+    priority (#2263). Raises when the board cannot be read, so a failed read is no empty board."""
+    counts = Counter(
+        (item.milestone or "", item.state.value, _item_type(item.labels), item.priority or "")
+        for item in store.items()
+        if milestone_filter is None or item.milestone == milestone_filter
+    )
+    return [
+        ItemCountMetric(milestone=milestone, state=state, type=kind, priority=priority, count=count)
+        for (milestone, state, kind, priority), count in sorted(counts.items())
+    ]
+
+
 def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
     """Count open issues categorized by taxonomy label prefixes."""
     client = GhCliClient()
@@ -497,8 +549,14 @@ def collect_project_metrics_report(
     release_limit: int = 10,
     ci_limit: int = 50,
     milestone_filter: str | None = None,
+    store: RoadmapStore | None = None,
 ) -> ProjectMetricsReport:
-    """Aggregate complete project metrics across releases, CI checks, and milestones.
+    """Aggregate complete project metrics across releases, CI checks, milestones, and the items
+    of the project board.
+
+    The items are read through `store`, the roadmap store on the board; without one, through
+    the board that `.github/roadmap.toml` of the repository names. A board that cannot be read
+    raises.
 
     The releases are the `v*` tags of the git repository at `root`, taken as it is, so a clone
     nested in another checkout, as the roadmap jobs keep under the data directory, reports its
@@ -509,6 +567,8 @@ def collect_project_metrics_report(
     target_repo = repo or get_repo_origin_name(project_root) or "repository"
     now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
+    board = store if store is not None else open_roadmap(target_repo, ref=None)[1]
+    items = get_item_metrics(board, milestone_filter=milestone_filter)
     releases = get_release_cadence_metrics(project_root, limit=release_limit)
     workflow_runs = get_ci_workflow_metrics(target_repo, limit=ci_limit)
     milestones = get_milestone_metrics(target_repo, milestone_filter=milestone_filter)
@@ -527,9 +587,32 @@ def collect_project_metrics_report(
         releases=releases,
         workflow_runs=workflow_runs,
         milestones=milestones,
+        items=items,
         taxonomy_labels=taxonomy_labels,
         traffic=traffic,
     )
+
+
+_sent_item_series: set[tuple[tuple[str, str], ...]] = set()
+"""The labels of each items series that the last snapshot of this process sent."""
+
+
+def reset_sent_item_series() -> None:
+    """Forget the items series sent, as a new process has sent none."""
+    _sent_item_series.clear()
+
+
+def _emit_item_counts(items: list[ItemCountMetric]) -> None:
+    """Send the item counts, and 0 once for each label set that the last snapshot sent and this
+    one lacks: Prometheus keeps the last sample of a series that stops, so `last_over_time`
+    would keep counting the items that left that label set (#2263)."""
+    series = {tuple(item.labels().items()) for item in items}
+    for gone in _sent_item_series - series:
+        emit(PROJECT_ITEMS, 0.0, dict(gone))
+    for item in items:
+        emit(PROJECT_ITEMS, float(item.count), item.labels())
+    _sent_item_series.clear()
+    _sent_item_series.update(series)
 
 
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
@@ -570,17 +653,7 @@ def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
             {"workflow": run.workflow, "status": "completed", "conclusion": "failure"},
         )
 
-    for ms in report.milestones:
-        emit(
-            PROJECT_ITEMS,
-            float(ms.open_items),
-            {"milestone": ms.milestone, "state": "open"},
-        )
-        emit(
-            PROJECT_ITEMS,
-            float(ms.closed_items),
-            {"milestone": ms.milestone, "state": "closed"},
-        )
+    _emit_item_counts(report.items)
 
 
 def _record_releases_and_traffic(
@@ -625,11 +698,11 @@ def _record_releases_breakdown(
         reg.set_gauge(PROJECT_PRS.name, float(rel.pr_count), {"release": rel.tag})
 
 
-def _record_workflow_and_milestone_metrics(
+def _record_workflow_and_item_metrics(
     reg: Any,
     report: ProjectMetricsReport,
 ) -> None:
-    """Record CI workflow runs and milestone items in in-memory registry."""
+    """Record CI workflow runs and board item counts in in-memory registry."""
     reg.clear_metric(PROJECT_CI_RUNS.name)
     for run in report.workflow_runs:
         reg.set_gauge(
@@ -644,17 +717,8 @@ def _record_workflow_and_milestone_metrics(
         )
 
     reg.clear_metric(PROJECT_ITEMS.name)
-    for ms in report.milestones:
-        reg.set_gauge(
-            PROJECT_ITEMS.name,
-            float(ms.open_items),
-            {"milestone": ms.milestone, "state": "open"},
-        )
-        reg.set_gauge(
-            PROJECT_ITEMS.name,
-            float(ms.closed_items),
-            {"milestone": ms.milestone, "state": "closed"},
-        )
+    for item in report.items:
+        reg.set_gauge(PROJECT_ITEMS.name, float(item.count), item.labels())
 
 
 def record_project_metrics_in_registry(
@@ -667,10 +731,11 @@ def record_project_metrics_in_registry(
     reg = registry if registry is not None else GLOBAL_METRICS
     _record_releases_and_traffic(reg, report)
     _record_releases_breakdown(reg, report)
-    _record_workflow_and_milestone_metrics(reg, report)
+    _record_workflow_and_item_metrics(reg, report)
 
 
 __all__ = [
+    "ItemCountMetric",
     "LabelTaxonomyMetric",
     "MilestoneMetric",
     "ProjectMetricsReport",
@@ -682,9 +747,11 @@ __all__ = [
     "collect_project_metrics_report",
     "emit_project_metrics_telemetry",
     "get_ci_workflow_metrics",
+    "get_item_metrics",
     "get_label_taxonomy_metrics",
     "get_milestone_metrics",
     "get_release_cadence_metrics",
     "get_repository_traffic_metrics",
     "record_project_metrics_in_registry",
+    "reset_sent_item_series",
 ]

@@ -1,14 +1,18 @@
 """Metric payloads an enabled telemetry client would send, captured instead (#1312).
 
 A test hands a `Captured` sink to the client in place of its sender and reads back the data
-points of each metric. #1319's OTLP fake starts from here.
+points of each metric. The `captured` fixture does it for the tracer that `emit` reaches.
+#1319's OTLP fake starts from here.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from devops_cli.telemetry import tracer as tracer_module
+from devops_cli.telemetry.tracer import OTelTelemetryClient
 
 
 class Captured:
@@ -49,3 +53,13 @@ class Captured:
                 attrs = {a["key"]: next(iter(a["value"].values())) for a in point["attributes"]}
                 found.append((attrs, point.get("asDouble", point.get("sum"))))
         return found
+
+
+@pytest.fixture
+def captured(monkeypatch: pytest.MonkeyPatch) -> Captured:
+    """An enabled telemetry client whose payloads are captured instead of sent."""
+    sink = Captured()
+    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+    monkeypatch.setattr(client, "_send_payload", sink)
+    monkeypatch.setattr(tracer_module, "get_tracer", lambda: client)
+    return sink

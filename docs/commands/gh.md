@@ -67,7 +67,7 @@ devops gh status [OPTIONS]
 
 ## `devops gh metrics`
 
-**Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones.**
+**Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and project board items.**
 
 ```bash
 devops gh metrics [OPTIONS]

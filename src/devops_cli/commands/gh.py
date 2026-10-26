@@ -1889,7 +1889,7 @@ def project_metrics_cmd(
         ),
     ] = False,
 ) -> None:
-    """Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones."""
+    """Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and project board items."""
     target_repo = _resolve_repo(repo)
     report = collect_project_metrics_report(
         repo=target_repo,

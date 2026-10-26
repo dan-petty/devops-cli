@@ -394,13 +394,15 @@ def _run_refine_adapter(
 
 
 def _run_metrics_adapter(
+    store: RoadmapStore,
     repo: str = "",
     clone_path: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Collect the project metrics, walking the version tags of the job's clone of `repo`, and the
-    GitHub and Cloudflare status, into the in-memory registry and OTLP (#1358). A failed
-    collection or status read is logged and skipped; a missing clone fails the job."""
+    """Collect the project metrics, walking the version tags of the job's clone of `repo` and
+    counting the items of the board of `store`, and the GitHub and Cloudflare status, into the
+    in-memory registry and OTLP (#1358). A failed collection or status read is logged and
+    skipped; a missing clone fails the job."""
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
@@ -416,7 +418,7 @@ def _run_metrics_adapter(
     clone = _job_clone("metrics", clone_path)
     try:
         target_repo = repo or None
-        report = collect_project_metrics_report(root=clone, repo=target_repo)
+        report = collect_project_metrics_report(root=clone, repo=target_repo, store=store)
         record_project_metrics_in_registry(report)
         emit_project_metrics_telemetry(report)
     except Exception as exc:
