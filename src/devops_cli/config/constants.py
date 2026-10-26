@@ -2446,6 +2446,34 @@ CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# gh porcelain command groups that use the GraphQL API (#1415).
+CONST_GH_GRAPHQL_GROUPS: Final[frozenset[str]] = frozenset({"project"})
+
+# gh porcelain commands that use the GraphQL API (#1415).
+CONST_GH_GRAPHQL_PORCELAIN_COMMANDS: Final[frozenset[tuple[str, str]]] = frozenset(
+    {
+        ("issue", "create"),
+        ("issue", "list"),
+        ("issue", "view"),
+        ("pr", "checks"),
+        ("pr", "close"),
+        ("pr", "create"),
+        ("pr", "edit"),
+        ("pr", "list"),
+        ("pr", "ready"),
+        ("pr", "view"),
+        ("release", "list"),
+    }
+)
+
+# REST endpoint segments for GitHub rate-limit resource detection (#1415).
+CONST_GH_REST_SEARCH_CODE_PREFIX: Final[str] = "search/code"
+CONST_GH_REST_SEARCH_PREFIX: Final[str] = "search"
+CONST_GH_REST_REPOS_PREFIX: Final[str] = "repos"
+CONST_GH_REST_CODE_SCANNING_SEGMENT: Final[str] = "code-scanning"
+CONST_GH_REST_AUTOFIX_SEGMENT: Final[str] = "autofix"
+CONST_GH_REST_SBOM_SEGMENTS: Final[tuple[str, str]] = ("dependency-graph", "sbom")
+
 # ── AI Gateway & Distributed Router Constants ─────────────────────────────────
 CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-chat",

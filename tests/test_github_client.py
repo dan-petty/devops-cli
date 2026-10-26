@@ -474,10 +474,11 @@ def test_an_answer_that_is_no_diff_raises_the_unread_error(
 
 def _scripted_gh(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
     """Answer `gh auth token` with token A, `gh api rate_limit` with a fresh quota, the rest empty."""
+    fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
     answers = {
         ("auth", "token"): "A\n",
         ("api", "rate_limit"): json.dumps(
-            {"resources": {"core": {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}}}
+            {"resources": {"core": fresh_quota, "graphql": fresh_quota}}
         ),
     }
     return subprocess.CompletedProcess(

@@ -291,14 +291,76 @@ def test_detect_resource_helper() -> None:
         _detect_resource(["project", "item-add", "1", "--url", "http://example.com"]) == "graphql"
     )
     assert _detect_resource(["api", "user", "-i"]) == "core"
-    assert _detect_resource(["issue", "list"]) == "core"
-    assert _detect_resource(["pr", "checks", "123"]) == "core"
+    assert _detect_resource(["issue", "list"]) == "graphql"
+    assert _detect_resource(["pr", "checks", "123"]) == "graphql"
     assert _detect_resource(["search", "code", "foo"]) == "code_search"
     assert _detect_resource(["search", "issues", "bar"]) == "search"
     assert (
         _detect_resource(["api", "repos/owner/repo/code-scanning/alerts/1/autofix"])
         == "code_scanning_autofix"
     )
+
+
+def test_gh_request_resource_classifies_porcelain_graphql_commands() -> None:
+    """GraphQL-backed porcelain commands return graphql."""
+    from devops_cli.github.rate_limiter import gh_request_resource
+
+    assert gh_request_resource(["pr", "checks", "1"]) == "graphql"
+    assert gh_request_resource(["pr", "list"]) == "graphql"
+    assert gh_request_resource(["issue", "list"]) == "graphql"
+    assert gh_request_resource(["release", "list"]) == "graphql"
+    assert gh_request_resource(["issue", "create"]) == "graphql"
+    assert gh_request_resource(["pr", "view", "1"]) == "graphql"
+    assert gh_request_resource(["pr", "edit", "1"]) == "graphql"
+    assert gh_request_resource(["pr", "ready", "1"]) == "graphql"
+    assert gh_request_resource(["pr", "close", "1"]) == "graphql"
+    assert gh_request_resource(["project", "list"]) == "graphql"
+    assert gh_request_resource(["project", "item-add", "1"]) == "graphql"
+    assert gh_request_resource(["label", "list"]) == "core"
+    assert gh_request_resource(["issue", "close", "5"]) == "core"
+
+
+def test_gh_request_resource_classifies_rest_endpoints_without_substring_false_positives() -> None:
+    """REST endpoints with graphql or search in repo, branch or path return core."""
+    from devops_cli.github.rate_limiter import gh_request_resource
+
+    assert gh_request_resource(["api", "repos/graphql/graphql-js/issues"]) == "core"
+    assert gh_request_resource(["api", "repos/octo/research/issues"]) == "core"
+    assert gh_request_resource(["api", "repos/octo/app/contents/docs/search/index.md"]) == "core"
+    assert (
+        gh_request_resource(
+            [
+                "api",
+                "-X",
+                "POST",
+                "repos/o/r/issues/1/comments",
+                "-f",
+                "body=see search/issues for details",
+            ]
+        )
+        == "core"
+    )
+    assert gh_request_resource(["api", "repos/o/r/contents/docs/graphql.md"]) == "core"
+    assert gh_request_resource(["issue", "close", "5", "--reason", "Fix GraphQL quota"]) == "core"
+    assert gh_request_resource(["api", "graphql", "-f", "query=x"]) == "graphql"
+    assert gh_request_resource(["api", "search/issues"]) == "search"
+    assert gh_request_resource(["api", "search/code"]) == "code_search"
+    assert gh_request_resource(["search", "issues", "x"]) == "search"
+    assert gh_request_resource(["search", "code", "x"]) == "code_search"
+
+
+def test_planned_gh_labels_graphql_porcelain_commands() -> None:
+    """planned_gh matches GraphQL read and write labels for porcelain commands."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    assert planned_gh(["pr", "checks", "1"], "target").method == "GraphQL read"
+    assert planned_gh(["pr", "view", "1"], "target").method == "GraphQL read"
+    assert planned_gh(["pr", "edit", "1"], "target").method == "GraphQL write"
+    assert planned_gh(["pr", "ready", "1"], "target").method == "GraphQL write"
+    assert planned_gh(["pr", "close", "1"], "target").method == "GraphQL write"
+    assert planned_gh(["issue", "list"], "target").method == "GraphQL read"
+    assert planned_gh(["issue", "create"], "target").method == "GraphQL write"
+    assert planned_gh(["release", "list"], "target").method == "GraphQL read"
 
 
 def test_run_gh_normalizes_leading_gh_arg() -> None:
