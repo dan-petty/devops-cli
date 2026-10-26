@@ -85,6 +85,7 @@ dev = [
     "pytest-mock==3.16.0",
     "ruff==0.16.8",
     "mypy==2.3.1",
+    "ty==0.0.92",
     "types-PyYAML==6.0.12.20260906",
     "pytest-cov==7.1.0",
     "diff-cover==10.6.0",
