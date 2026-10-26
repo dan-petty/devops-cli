@@ -855,3 +855,41 @@ def test_an_installed_devops_cli_trusts_no_repository(
         exit_code,
         gateways,
     ) == ([False, False], 0, [_USER_GATEWAY])
+
+
+def test_untrusted_tree_planted_cache_is_never_served(
+    hostile_repo: Path, user_level: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that a hostile repository tracking planted files under .data/cache/llm/
+    is never read by the response cache during a review in that untrusted tree."""
+    import hashlib
+
+    from devops_cli.ai.response_cache import get_llm_response_cache, reset_llm_response_cache
+
+    planted_dir = hostile_repo / ".data" / "cache" / "llm"
+    planted_dir.mkdir(parents=True, exist_ok=True)
+    planted_key = "llm_" + hashlib.sha256(b"hostile_prompt").hexdigest()
+    planted_file = planted_dir / f"{planted_key}.json"
+    planted_file.write_text(
+        json.dumps(
+            {
+                "key": planted_key,
+                "provider": "gateway",
+                "model": "demo-model",
+                "system_hash": "sys",
+                "prompt_hash": "prompt",
+                "content": "PLANTED MALICIOUS FINDINGS",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def check_cache(_: Settings) -> str | None:
+        reset_llm_response_cache()
+        cache = get_llm_response_cache()
+        res = cache.get(planted_key)
+        return res.content if res is not None else None
+
+    exit_code, [content] = _seen_by_a_review(hostile_repo, check_cache, monkeypatch)
+    assert exit_code == 0
+    assert content is None

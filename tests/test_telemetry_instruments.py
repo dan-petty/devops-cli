@@ -735,9 +735,11 @@ def test_response_cache_lookups_and_writes_send_no_metric_of_their_own(
 ) -> None:
     """Verify a cache write, hit and miss send nothing: the requests counter's `cached` label
     carries the hits, and a gauge of 1 from a short-lived process counted nothing (#816)."""
+    valid_key = "llm_" + "a" * 64
+    missing_key = "llm_" + "b" * 64
     cache = get_llm_response_cache()
-    cache.set("llm_key", "openai", "gpt-4o", "system", "user", "reply")
-    lookups = (cache.get("llm_key") is not None, cache.get("llm_missing") is None)
+    cache.set(valid_key, "openai", "gpt-4o", "system", "user", "reply")
+    lookups = (cache.get(valid_key) is not None, cache.get(missing_key) is None)
 
     assert (lookups, captured.metrics) == ((True, True), [])
 

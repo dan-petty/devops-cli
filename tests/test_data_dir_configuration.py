@@ -27,7 +27,6 @@ def test_default_data_constants_and_settings() -> None:
         DEFAULT_CACHE_DATA_DIR,
         DEFAULT_DATA_DIR,
         DEFAULT_FEEDBACK_DATASET_PATH,
-        DEFAULT_LLM_CACHE_DATA_DIR,
         DEFAULT_LOGS_DATA_DIR,
         DEFAULT_MODELS_DATA_DIR,
         DEFAULT_RAG_DATA_DIR,
@@ -42,7 +41,6 @@ def test_default_data_constants_and_settings() -> None:
     assert DEFAULT_LOGS_DATA_DIR == Path(".data/logs")
     assert DEFAULT_MODELS_DATA_DIR == Path(".data/models")
     assert DEFAULT_CACHE_DATA_DIR == Path(".data/cache")
-    assert DEFAULT_LLM_CACHE_DATA_DIR == Path(".data/cache/llm")
     assert DEFAULT_BENCHMARKS_DATA_DIR == Path(".data/benchmarks")
     assert DEFAULT_RAG_DATA_DIR == Path(".data/rag")
     assert DEFAULT_AUDIT_LOG_PATH == Path(".data/logs/audit.jsonl")

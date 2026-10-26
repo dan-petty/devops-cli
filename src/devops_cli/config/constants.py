@@ -653,6 +653,12 @@ CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
 CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})
 CONST_LLM_CACHE_DIR_NAME = "llm"
+# The prefix of an LLM response cache key.
+CONST_LLM_CACHE_KEY_PREFIX: Final[str] = "llm_"
+# The length of the SHA-256 digest in hexadecimal format.
+CONST_SHA256_HEX_LENGTH: Final[int] = 64
+# The valid hexadecimal characters for cache key verification.
+CONST_HEX_CHARACTERS: Final[frozenset[str]] = frozenset("0123456789abcdefABCDEF")
 # The incremental mypy caches of reviews, below the data cache directory, one for each reviewed
 # tree, Python version and environment lock (#2034).
 CONST_MYPY_CACHE_DIR_NAME: Final[str] = "mypy"

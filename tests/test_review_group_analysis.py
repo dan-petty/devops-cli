@@ -1643,7 +1643,9 @@ def _analyze_plan(client: LLMClient) -> tuple[Any, list[str], bool]:
 
 def _cache_entries(tmp_path: Path) -> list[dict[str, Any]]:
     """The entries the per-test response cache wrote to disk."""
-    files = (tmp_path / "test_llm_cache").rglob("*.json")
+    from devops_cli.ai.response_cache import get_llm_response_cache
+
+    files = get_llm_response_cache()._resolve_cache_dir().rglob("*.json")
     return [json.loads(path.read_text(encoding="utf-8")) for path in files]
 
 

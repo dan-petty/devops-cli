@@ -72,7 +72,6 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
-    DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
     DEFAULT_LLM_CACHE_TTL_SECONDS,
@@ -475,7 +474,6 @@ class AIRAGConfig(BaseModel):
 class AICacheConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     enabled: bool = DEFAULT_LLM_CACHE_ENABLED
-    dir: Path = DEFAULT_LLM_CACHE_DATA_DIR
     ttl_seconds: int = Field(default=DEFAULT_LLM_CACHE_TTL_SECONDS, gt=0)
     max_entries: int = Field(default=DEFAULT_LLM_CACHE_MAX_ENTRIES, gt=0)
     append_cache: bool = False
