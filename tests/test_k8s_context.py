@@ -92,6 +92,52 @@ def test_k8s_apply_rejects_path_traversal() -> None:
         apply("../../sensitive/secret.yaml")
 
 
+def _forbid_subprocess(*_args: object, **_kwargs: object) -> None:
+    raise AssertionError("dry run started a child process")
+
+
+def test_k8s_apply_dry_run_previews_and_starts_no_kubectl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`k8s apply --dry-run` renders the preview and starts no kubectl child."""
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
+
+    monkeypatch.setattr("subprocess.run", _forbid_subprocess)
+    monkeypatch.setattr("subprocess.Popen", _forbid_subprocess)
+
+    result = runner.invoke(app, ["apply", str(manifest), "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "devops k8s apply" in result.output
+    assert "kubectl_apply" in result.output
+
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    env_result = runner.invoke(app, ["apply", str(manifest)])
+    assert env_result.exit_code == 0, env_result.output
+    assert "devops k8s apply" in env_result.output
+    assert "kubectl_apply" in env_result.output
+
+
+def test_k8s_apply_template_dry_run_previews_and_starts_no_kubectl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`k8s apply --template --dry-run` renders the preview and starts no kubectl child."""
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "apiVersion: v1\nkind: ConfigMap\ndata:\n  host: example.com\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr("subprocess.run", _forbid_subprocess)
+    monkeypatch.setattr("subprocess.Popen", _forbid_subprocess)
+
+    result = runner.invoke(
+        app, ["apply", str(manifest), "--template", "--domain", "example.com", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "devops k8s apply" in result.output
+    assert "kubectl_apply_template" in result.output
+
+
 def test_k8s_config_default_context() -> None:
     from devops_cli.config.settings import Settings
 
