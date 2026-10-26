@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -35,6 +36,11 @@ def clean_cache(tmp_path: Path) -> LLMResponseCache:
     return cache
 
 
+def _valid_test_key(tag: str) -> str:
+    """Return a deterministic valid 64-hex SHA-256 cache key for test usage."""
+    return f"llm_{hashlib.sha256(tag.encode('utf-8')).hexdigest()}"
+
+
 def test_cache_key_generation_deterministic() -> None:
     """Verify deterministic SHA-256 generation across varied message shapes."""
     k1 = LLMResponseCache.generate_key("ollama", "gemma4:26b", "sys-1", "user prompt")
@@ -54,7 +60,7 @@ def test_cache_key_generation_deterministic() -> None:
 
 def test_cache_set_and_get_memory_and_disk(clean_cache: LLMResponseCache) -> None:
     """Verify storing and loading from memory and disk cache."""
-    key = "llm_test_key_123"
+    key = _valid_test_key("test_key_123")
     entry = clean_cache.set(
         key=key,
         provider="ollama",
@@ -93,7 +99,7 @@ def test_cache_ttl_expiration(tmp_path: Path) -> None:
         enabled=True,
         ttl_seconds=60.0,
     )
-    key = "llm_expiring_key"
+    key = _valid_test_key("expiring_key")
     entry = short_cache.set(
         key=key,
         provider="ollama",
@@ -118,7 +124,7 @@ def test_cache_ttl_expiration(tmp_path: Path) -> None:
 def test_starting_point_lookup_and_formatting(clean_cache: LLMResponseCache) -> None:
     """Verify looking up cached response by context_tag and formatting baseline starting point."""
     clean_cache.set(
-        key="llm_item_v1",
+        key=_valid_test_key("item_v1"),
         provider="ollama",
         model="gemma4:26b",
         system="sys",
@@ -151,11 +157,11 @@ def test_cache_capacity_enforcement(tmp_path: Path) -> None:
         enabled=True,
         max_entries=2,
     )
-    small_cache.set("llm_1", "p", "m", "s", "p1", "c1")
+    small_cache.set(_valid_test_key("1"), "p", "m", "s", "p1", "c1")
     time.sleep(0.01)
-    small_cache.set("llm_2", "p", "m", "s", "p2", "c2")
+    small_cache.set(_valid_test_key("2"), "p", "m", "s", "p2", "c2")
     time.sleep(0.01)
-    small_cache.set("llm_3", "p", "m", "s", "p3", "c3")
+    small_cache.set(_valid_test_key("3"), "p", "m", "s", "p3", "c3")
 
     stats = small_cache.get_stats()
     assert stats.memory_entries <= 2
@@ -164,9 +170,11 @@ def test_cache_capacity_enforcement(tmp_path: Path) -> None:
 
 def test_cache_clear_and_stats(clean_cache: LLMResponseCache) -> None:
     """Verify cache clear and statistics computation."""
-    clean_cache.set("llm_k1", "ollama", "gemma4:26b", "sys", "p1", "c1")
-    clean_cache.get("llm_k1")  # hit
-    clean_cache.get("llm_nonexistent")  # miss
+    k_k1 = _valid_test_key("k1")
+    k_nonexistent = _valid_test_key("nonexistent")
+    clean_cache.set(k_k1, "ollama", "gemma4:26b", "sys", "p1", "c1")
+    clean_cache.get(k_k1)  # hit
+    clean_cache.get(k_nonexistent)  # miss
 
     stats = clean_cache.get_stats()
     assert stats.hits == 1
@@ -223,11 +231,13 @@ def test_a_cache_entry_keeps_the_backend_and_model_that_served_it(
         prompt="prompt",
         content="reply",
     )
-    store(key="llm_served", served_by="https://example.com:11434", response_model="served-model")
-    store(key="llm_unserved")
+    k_served = _valid_test_key("served")
+    k_unserved = _valid_test_key("unserved")
+    store(key=k_served, served_by="https://example.com:11434", response_model="served-model")
+    store(key=k_unserved)
     clean_cache._memory_cache.clear()
 
-    read = [clean_cache.get(key) for key in ("llm_served", "llm_unserved")]
+    read = [clean_cache.get(key) for key in (k_served, k_unserved)]
 
     assert [
         (entry.model, entry.served_by, entry.response_model) for entry in read if entry is not None
@@ -310,7 +320,7 @@ def test_llm_client_starting_point_warm_refinement(
 
     # Prime cache with an initial version tagged with context_tag
     clean_cache.set(
-        key="llm_prime_key",
+        key=_valid_test_key("prime_key"),
         provider="ollama",
         model="gemma4:26b",
         system="system prompt",
@@ -390,7 +400,7 @@ def test_ai_cache_cli_commands(clean_cache: LLMResponseCache) -> None:
     runner = CliRunner()
 
     # Populate cache entry
-    clean_cache.set("llm_cmd_test", "ollama", "gemma4:26b", "sys", "prompt", "content")
+    clean_cache.set(_valid_test_key("cmd_test"), "ollama", "gemma4:26b", "sys", "prompt", "content")
 
     # Test status table
     res_status = runner.invoke(ai_app, ["cache", "status"])
@@ -433,3 +443,89 @@ def test_ai_config_append_cache_deduplication_and_migration() -> None:
     assert migrated_cfg.append_cache is True
     assert migrated_cfg.cache.append_cache is True
     assert "append_cache" not in migrated_cfg.model_dump(mode="json")
+
+
+def test_cache_refuses_malformed_keys_before_file_access(clean_cache: LLMResponseCache) -> None:
+    """Verify keys not matching 'llm_' followed by 64 hex characters are refused."""
+    invalid_keys = [
+        "../escaped",
+        "/abs/path",
+        "llm_short",
+        "llm_" + "a" * 63,
+        "llm_" + "a" * 65,
+        "llm_" + "a" * 63 + "z",
+        "not_llm_" + "a" * 60,
+    ]
+    for bad_key in invalid_keys:
+        assert clean_cache.get(bad_key) is None
+        entry = clean_cache.set(bad_key, "p", "m", "s", "p", "c")
+        assert entry.key == bad_key
+        assert bad_key not in clean_cache._memory_cache
+        cdir = clean_cache._resolve_cache_dir()
+        assert not list(cdir.glob("*"))
+        if hasattr(clean_cache, "delete"):
+            clean_cache.delete(bad_key)
+
+
+def test_loaded_entry_with_mismatched_key_is_not_served_and_deleted(
+    clean_cache: LLMResponseCache,
+) -> None:
+    """Verify that a disk entry whose stored key field differs from requested key is deleted
+    and not served, and no file is created outside the cache directory."""
+    cdir = clean_cache._resolve_cache_dir()
+    cdir.mkdir(parents=True, exist_ok=True)
+    req_key = "llm_" + "a" * 64
+
+    # 1. Entry stored with key field "../escaped_by_key_field"
+    parent_file = cdir.parent / "escaped_by_key_field.json"
+    if parent_file.exists():
+        parent_file.unlink()
+
+    bad_entry = {
+        "key": "../escaped_by_key_field",
+        "provider": "ollama",
+        "model": "m",
+        "system_hash": "sys",
+        "prompt_hash": "prompt",
+        "content": "malicious content",
+    }
+    target_file = cdir / f"{req_key}.json"
+    target_file.write_text(json.dumps(bad_entry), encoding="utf-8")
+
+    assert clean_cache.get(req_key) is None
+    assert not target_file.exists()
+    assert not parent_file.exists()
+
+    # 2. Entry stored with absolute key field and empty content
+    abs_target = Path("/tmp/abs_escaped.json")
+    if abs_target.exists():
+        abs_target.unlink()
+
+    bad_entry_abs = {
+        "key": str(abs_target.with_suffix("")),
+        "provider": "ollama",
+        "model": "m",
+        "system_hash": "sys",
+        "prompt_hash": "prompt",
+        "content": "",
+    }
+    target_file.write_text(json.dumps(bad_entry_abs), encoding="utf-8")
+
+    assert clean_cache.get(req_key) is None
+    assert not target_file.exists()
+    assert not abs_target.exists()
+
+
+def test_cache_delete_removes_entry_from_memory_and_disk(
+    clean_cache: LLMResponseCache,
+) -> None:
+    """Verify delete() removes entry from memory and disk."""
+    valid_key = "llm_" + "b" * 64
+    clean_cache.set(valid_key, "ollama", "gemma", "sys", "prompt", "content")
+    assert valid_key in clean_cache._memory_cache
+    target_file = clean_cache._resolve_cache_dir() / f"{valid_key}.json"
+    assert target_file.exists()
+
+    clean_cache.delete(valid_key)
+    assert valid_key not in clean_cache._memory_cache
+    assert not target_file.exists()

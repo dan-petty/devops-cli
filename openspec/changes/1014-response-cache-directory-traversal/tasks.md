@@ -2,9 +2,9 @@
 
 ## 1. Response cache directory confinement and key validation
 
-- [ ] 1.1 Write failing tests in `tests/test_response_cache.py` asserting that keys must be `llm_` followed by 64 hexadecimal characters, that malformed keys (`../x`, `/abs/x`, non-hex) are rejected before any filesystem access, that entries on disk with mismatched keys are deleted and not served, and that `delete()` removes entries from memory and disk. Verify with `uv run devops ci test tests/test_response_cache.py`.
-- [ ] 1.2 Implement `is_valid_cache_key`, strict key validation before disk operations, key equality verification on disk load, and `delete()` in `src/devops_cli/ai/response_cache.py`. Update existing tests in `tests/test_response_cache.py` that used arbitrary non-hex keys. Verify with `uv run devops ci test tests/test_response_cache.py` and `uv run mypy src/devops_cli/ai/response_cache.py`.
-- [ ] 1.3 Regenerate CLI documentation. Verify with `uv run devops docs generate --sync-readme` and `uv run devops docs check`.
+- [x] 1.1 Write failing tests in `tests/test_response_cache.py` asserting that keys must be `llm_` followed by 64 hexadecimal characters, that malformed keys (`../x`, `/abs/x`, non-hex) are rejected before any filesystem access, that entries on disk with mismatched keys are deleted and not served, and that `delete()` removes entries from memory and disk. Verify with `uv run devops ci test tests/test_response_cache.py`.
+- [x] 1.2 Implement `is_valid_cache_key`, strict key validation before disk operations, key equality verification on disk load, and `delete()` in `src/devops_cli/ai/response_cache.py`. Update existing tests in `tests/test_response_cache.py` that used arbitrary non-hex keys. Verify with `uv run devops ci test tests/test_response_cache.py` and `uv run mypy src/devops_cli/ai/response_cache.py`.
+- [x] 1.3 Regenerate CLI documentation. Verify with `uv run devops docs generate --sync-readme` and `uv run devops docs check`.
 
 ## 2. Response cache configuration and singleton alignment
 

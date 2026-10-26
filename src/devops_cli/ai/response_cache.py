@@ -12,6 +12,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.config.constants import (
+    CONST_HEX_CHARACTERS,
+    CONST_LLM_CACHE_KEY_PREFIX,
+    CONST_SHA256_HEX_LENGTH,
+)
 from devops_cli.config.defaults import (
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
@@ -145,6 +150,17 @@ def _find_starting_point_candidates(
     ]
 
 
+def is_valid_cache_key(key: Any) -> bool:
+    """Validate that key is 'llm_' followed by 64 hexadecimal characters."""
+    if not isinstance(key, str):
+        return False
+    expected_len = len(CONST_LLM_CACHE_KEY_PREFIX) + CONST_SHA256_HEX_LENGTH
+    if len(key) != expected_len or not key.startswith(CONST_LLM_CACHE_KEY_PREFIX):
+        return False
+    hex_part = key[len(CONST_LLM_CACHE_KEY_PREFIX) :]
+    return all(c in CONST_HEX_CHARACTERS for c in hex_part)
+
+
 class LLMResponseCache:
     """Multi-tiered in-memory and persistent disk cache for LLM responses."""
 
@@ -210,13 +226,18 @@ class LLMResponseCache:
 
     def get(self, key: str) -> CachedLLMResponse | None:
         """Retrieve a cached LLM response by key if valid and not expired."""
-        if not self.enabled:
+        if not self.enabled or not is_valid_cache_key(key):
             return None
 
         with self._lock:
             # 1. Check memory cache first
             cached = self._memory_cache.get(key)
             if cached is not None:
+                if cached.key != key:
+                    del self._memory_cache[key]
+                    self._delete_disk_file(key)
+                    self._misses += 1
+                    return None
                 if cached.is_expired(self.ttl_seconds):
                     del self._memory_cache[key]
                     self._delete_disk_file(key)
@@ -244,6 +265,14 @@ class LLMResponseCache:
 
             self._misses += 1
             return None
+
+    def delete(self, key: str) -> None:
+        """Delete a cache entry from memory and disk."""
+        if not is_valid_cache_key(key):
+            return
+        with self._lock:
+            self._memory_cache.pop(key, None)
+            self._delete_disk_file(key)
 
     def set(
         self,
@@ -286,7 +315,7 @@ class LLMResponseCache:
             response_model=response_model,
         )
 
-        if not self.enabled:
+        if not self.enabled or not is_valid_cache_key(key):
             return entry
 
         with self._lock:
@@ -374,6 +403,8 @@ class LLMResponseCache:
 
     def _save_to_disk(self, entry: CachedLLMResponse) -> None:
         """Save a single cached response entry to disk atomically."""
+        if not is_valid_cache_key(entry.key):
+            return
         try:
             cdir = self._resolve_cache_dir()
             cdir.mkdir(parents=True, exist_ok=True)
@@ -386,12 +417,18 @@ class LLMResponseCache:
 
     def _load_from_disk(self, key: str) -> CachedLLMResponse | None:
         """Load a cached response entry from disk if present."""
+        if not is_valid_cache_key(key):
+            return None
         try:
             target_file = self._resolve_cache_dir() / f"{key}.json"
             if not target_file.is_file():
                 return None
             data = target_file.read_text(encoding="utf-8")
-            return CachedLLMResponse.model_validate_json(data)
+            entry = CachedLLMResponse.model_validate_json(data)
+            if entry.key != key:
+                self._delete_disk_file(key)
+                return None
+            return entry
         except Exception as exc:
             logger.debug("Failed to load LLM response cache file for key '%s': %s", key, exc)
             return None
@@ -404,8 +441,16 @@ class LLMResponseCache:
             return entries
         for p in cdir.glob("llm_*.json"):
             try:
+                if not is_valid_cache_key(p.stem):
+                    continue
                 data = p.read_text(encoding="utf-8")
                 item = CachedLLMResponse.model_validate_json(data)
+                if item.key != p.stem:
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
+                    continue
                 if not item.is_expired(self.ttl_seconds):
                     entries.append(item)
             except Exception:
@@ -414,6 +459,8 @@ class LLMResponseCache:
 
     def _delete_disk_file(self, key: str) -> None:
         """Delete a single cache file on disk."""
+        if not is_valid_cache_key(key):
+            return
         try:
             target = self._resolve_cache_dir() / f"{key}.json"
             if target.exists():
