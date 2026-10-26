@@ -1253,104 +1253,6 @@ def _format_reset_time(epoch_seconds: int | float) -> str:
     return f"{dt_str} (in {mins}m {secs}s)"
 
 
-def _extract_rest_rate_limit_headers() -> dict[str, int]:
-    """Fetch live HTTP response headers from GitHub REST API to get accurate core rate limits."""
-    res = run_gh(["api", "user", "-i"], check=False, quiet=True, use_cache=False)
-    if res.returncode != 0 or not res.stdout:
-        return {}
-    headers: dict[str, int] = {}
-    for line in res.stdout.splitlines():
-        if ":" not in line:
-            continue
-        key, val = line.split(":", 1)
-        k_lower = key.strip().lower()
-        if k_lower in (
-            "x-ratelimit-limit",
-            "x-ratelimit-remaining",
-            "x-ratelimit-used",
-            "x-ratelimit-reset",
-        ):
-            try:
-                headers[k_lower] = int(val.strip())
-            except ValueError:
-                pass
-    return headers
-
-
-def _extract_graphql_rate_limit() -> dict[str, Any]:
-    """Fetch live rate limit status from GitHub GraphQL API query { rateLimit { ... } }."""
-    query = "query { rateLimit { limit remaining used resetAt } }"
-    res = run_gh(
-        ["api", "graphql", "-f", f"query={query}"],
-        check=False,
-        quiet=True,
-        use_cache=False,
-    )
-    if res.returncode != 0 or not res.stdout:
-        return {}
-    try:
-        payload = json.loads(res.stdout)
-        rl_data = payload.get("data", {}).get("rateLimit", {})
-        if not isinstance(rl_data, dict):
-            return {}
-        reset_at = rl_data.get("resetAt")
-        epoch: float | None = None
-        if reset_at:
-            try:
-                dt = datetime.datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
-                epoch = dt.timestamp()
-            except ValueError, TypeError:
-                epoch = None
-        limit_val = rl_data.get("limit")
-        rem_val = rl_data.get("remaining")
-        used_val = rl_data.get("used")
-        return {
-            "limit": int(limit_val) if limit_val is not None else None,
-            "remaining": int(rem_val) if rem_val is not None else None,
-            "used": int(used_val) if used_val is not None else None,
-            "reset": epoch,
-        }
-    except json.JSONDecodeError:
-        return {}
-
-
-def _enrich_rate_limit_resources(resources: dict[str, Any]) -> dict[str, Any]:
-    """Augment deprecated GitHub /rate_limit endpoint dictionary with live REST and GraphQL quotas."""
-    rest_headers = _extract_rest_rate_limit_headers()
-    if rest_headers:
-        core_res = resources.get("core", {}) if isinstance(resources.get("core"), dict) else {}
-        limit = rest_headers.get("x-ratelimit-limit", core_res.get("limit"))
-        remaining = rest_headers.get("x-ratelimit-remaining", core_res.get("remaining"))
-        used = rest_headers.get("x-ratelimit-used", core_res.get("used"))
-        reset_epoch = rest_headers.get("x-ratelimit-reset", core_res.get("reset"))
-        resources["core"] = {
-            "limit": limit,
-            "used": used,
-            "remaining": remaining,
-            "reset": reset_epoch,
-        }
-
-    gql_limits = _extract_graphql_rate_limit()
-    if gql_limits:
-        resources["graphql"] = gql_limits
-
-    for _res_name, info in resources.items():
-        if not isinstance(info, dict):
-            continue
-        lim_val = info.get("limit")
-        rem_val = info.get("remaining")
-        used_val = info.get("used")
-        if (
-            used_val is None
-            and lim_val is not None
-            and rem_val is not None
-            and int(lim_val) >= int(rem_val)
-        ):
-            info["used"] = int(lim_val) - int(rem_val)
-
-    return resources
-
-
 def _parse_rate_limit_payload(stdout: str) -> dict[str, Any]:
     """Parse and validate JSON payload from GitHub rate_limit API."""
     try:
@@ -1368,8 +1270,6 @@ def _parse_rate_limit_payload(stdout: str) -> dict[str, Any]:
         print_error("Invalid rate limit response: missing 'resources' object")
         raise typer.Exit(1)
 
-    resources = _enrich_rate_limit_resources(resources)
-    data["resources"] = resources
     return data
 
 
