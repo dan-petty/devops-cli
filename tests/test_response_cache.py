@@ -233,7 +233,11 @@ def test_a_cache_entry_keeps_the_backend_and_model_that_served_it(
     )
     k_served = _valid_test_key("served")
     k_unserved = _valid_test_key("unserved")
-    store(key=k_served, served_by="https://example.com:11434", response_model="served-model")
+    store(
+        key=k_served,
+        served_by="https://example.com:11434",
+        response_model="served-model",
+    )
     store(key=k_unserved)
     clean_cache._memory_cache.clear()
 
@@ -264,7 +268,9 @@ def _served_gateway_client(
     }
     headers = {CONST_AI_GATEWAY_SERVED_BY_HEADER: served_by}
     sent = route_client(
-        client, monkeypatch, lambda _request: httpx2.Response(200, json=body, headers=headers)
+        client,
+        monkeypatch,
+        lambda _request: httpx2.Response(200, json=body, headers=headers),
     )
     return client, sent
 
@@ -302,7 +308,12 @@ def test_the_backend_a_cached_gateway_reply_records_carries_no_credentials(
     text = entry_file.read_text(encoding="utf-8")
     entry = json.loads(text)
 
-    assert ("secret" in text, entry["served_by"], entry["response_model"], entry["model"]) == (
+    assert (
+        "secret" in text,
+        entry["served_by"],
+        entry["response_model"],
+        entry["model"],
+    ) == (
         False,
         "https://example.com:11434",
         "served-model",
@@ -445,7 +456,9 @@ def test_ai_config_append_cache_deduplication_and_migration() -> None:
     assert "append_cache" not in migrated_cfg.model_dump(mode="json")
 
 
-def test_cache_refuses_malformed_keys_before_file_access(clean_cache: LLMResponseCache) -> None:
+def test_cache_refuses_malformed_keys_before_file_access(
+    clean_cache: LLMResponseCache,
+) -> None:
     """Verify keys not matching 'llm_' followed by 64 hex characters are refused."""
     invalid_keys = [
         "../escaped",
@@ -529,3 +542,112 @@ def test_cache_delete_removes_entry_from_memory_and_disk(
     clean_cache.delete(valid_key)
     assert valid_key not in clean_cache._memory_cache
     assert not target_file.exists()
+
+
+def test_response_cache_resolves_under_data_cache_dir(
+    isolate_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that get_llm_response_cache resolves under <DATA_DIR>/cache/llm and AICacheConfig has no dir."""
+    from devops_cli.config.constants import CONST_LLM_CACHE_DIR_NAME
+    from devops_cli.config.settings import AICacheConfig, reset_settings_cache
+
+    assert "dir" not in AICacheConfig.model_fields
+
+    reset_llm_response_cache()
+    reset_settings_cache()
+    custom_data = isolate_data_dir / "custom_data_dir"
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(custom_data))
+    reset_settings_cache()
+
+    cache = get_llm_response_cache()
+    expected_cache_dir = custom_data / "cache" / CONST_LLM_CACHE_DIR_NAME
+    assert cache.cache_dir == expected_cache_dir
+
+
+def test_ai_cache_status_and_clear_read_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify devops ai cache status and clear read settings and inspect <DATA_DIR>/cache/llm."""
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.ai import app as ai_app
+    from devops_cli.config.settings import reset_settings_cache
+
+    data_dir = tmp_path / "custom_data"
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        "ai:\n"
+        "  provider: ollama\n"
+        "  cache:\n"
+        "    enabled: false\n"
+        "    max_entries: 777\n"
+        "    ttl_seconds: 9999\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", cfg_file)
+    reset_llm_response_cache()
+    reset_settings_cache()
+
+    runner = CliRunner()
+    res_status = runner.invoke(ai_app, ["cache", "status", "--format", "json"])
+    assert res_status.exit_code == 0
+    data = json.loads(res_status.output)
+    assert data["enabled"] is False
+    assert data["max_entries"] == 777
+    assert data["ttl_seconds"] == 9999
+    expected_dir = data_dir / "cache" / "llm"
+    assert Path(data["cache_directory"]) == expected_dir
+
+    expected_dir.mkdir(parents=True, exist_ok=True)
+    test_key = _valid_test_key("clear_target")
+    file_path = expected_dir / f"{test_key}.json"
+    file_path.write_text("{}", encoding="utf-8")
+    assert file_path.exists()
+
+    res_clear = runner.invoke(ai_app, ["cache", "clear"])
+    assert res_clear.exit_code == 0
+    assert not file_path.exists()
+
+
+def test_client_with_cache_disabled_never_reads_or_writes_cache(
+    isolate_data_dir: Path, monkeypatch: pytest.MonkeyPatch, public_dns: str
+) -> None:
+    """Verify that LLMClient with cache_enabled=False neither reads nor writes the cache even when
+    a global singleton cache exists and is enabled."""
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.config.settings import AIConfig
+    from tests.llm_stream_fakes import route_client
+
+    reset_llm_response_cache()
+    cache_dir = isolate_data_dir / "cache" / "llm"
+    singleton = get_llm_response_cache(cache_dir=cache_dir, enabled=True)
+
+    config = AIConfig(
+        provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
+    )
+    client = LLMClient(config=config, api_key="sk", cache_enabled=False)
+
+    body = {
+        "model": "demo-model",
+        "choices": [{"message": {"content": "fresh reply"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+    sent = route_client(client, monkeypatch, lambda _req: httpx2.Response(200, json=body))
+
+    res1 = client.chat("system", "hello")
+    res2 = client.chat("system", "hello")
+
+    assert len(sent) == 2
+    assert res1.cached is False
+    assert res2.cached is False
+
+    stats = singleton.get_stats()
+    assert stats.hits == 0
+    assert stats.misses == 0
+    assert stats.memory_entries == 0
+    assert stats.disk_entries == 0
+
+    cache_files = list(cache_dir.glob("*.json"))
+    assert cache_files == []

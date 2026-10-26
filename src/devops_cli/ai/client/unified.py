@@ -6,7 +6,6 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Generator
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlsplit
 
@@ -169,12 +168,6 @@ def _resolve_llm_cache(config: AIConfig | None, cache_enabled: bool | None) -> A
         cache_enabled = getattr(cache_cfg, "enabled", True) if cache_cfg is not None else True
     if not isinstance(cache_enabled, bool):
         cache_enabled = True
-    cache_dir_raw = getattr(cache_cfg, "dir", None) if cache_cfg is not None else None
-    cache_dir: Path | None = None
-    if isinstance(cache_dir_raw, Path):
-        cache_dir = cache_dir_raw
-    elif isinstance(cache_dir_raw, str):
-        cache_dir = Path(cache_dir_raw)
     cache_ttl = getattr(cache_cfg, "ttl_seconds", 86400 * 7) if cache_cfg is not None else 86400 * 7
     if not isinstance(cache_ttl, (int, float)):
         cache_ttl = 86400 * 7
@@ -186,17 +179,11 @@ def _resolve_llm_cache(config: AIConfig | None, cache_enabled: bool | None) -> A
 
     if not cache_enabled:
         return LLMResponseCache(
-            cache_dir=cache_dir,
             enabled=False,
             ttl_seconds=cache_ttl,
             max_entries=cache_max,
         )
-    return get_llm_response_cache(
-        cache_dir=cache_dir,
-        enabled=cache_enabled,
-        ttl_seconds=cache_ttl,
-        max_entries=cache_max,
-    )
+    return get_llm_response_cache()
 
 
 class LLMClient(

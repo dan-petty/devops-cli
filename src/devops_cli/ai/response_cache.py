@@ -491,19 +491,37 @@ _CACHE_LOCK = threading.Lock()
 
 def get_llm_response_cache(
     cache_dir: Path | None = None,
-    enabled: bool = DEFAULT_LLM_CACHE_ENABLED,
-    ttl_seconds: float = float(DEFAULT_LLM_CACHE_TTL_SECONDS),
-    max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES,
+    enabled: bool | None = None,
+    ttl_seconds: float | None = None,
+    max_entries: int | None = None,
 ) -> LLMResponseCache:
     """Retrieve global singleton LLM response cache instance."""
     global _GLOBAL_LLM_CACHE
     with _CACHE_LOCK:
         if _GLOBAL_LLM_CACHE is None:
+            from devops_cli.config.constants import CONST_LLM_CACHE_DIR_NAME
+            from devops_cli.config.settings import load_settings
+
+            settings = load_settings()
+            resolved_cache_dir = (
+                cache_dir
+                if cache_dir is not None
+                else settings.data.cache_dir / CONST_LLM_CACHE_DIR_NAME
+            )
+            resolved_enabled = enabled if enabled is not None else settings.ai.cache.enabled
+            resolved_ttl = (
+                float(ttl_seconds)
+                if ttl_seconds is not None
+                else float(settings.ai.cache.ttl_seconds)
+            )
+            resolved_max_entries = (
+                max_entries if max_entries is not None else settings.ai.cache.max_entries
+            )
             _GLOBAL_LLM_CACHE = LLMResponseCache(
-                cache_dir=cache_dir,
-                enabled=enabled,
-                ttl_seconds=ttl_seconds,
-                max_entries=max_entries,
+                cache_dir=resolved_cache_dir,
+                enabled=resolved_enabled,
+                ttl_seconds=resolved_ttl,
+                max_entries=resolved_max_entries,
             )
         return _GLOBAL_LLM_CACHE
 
