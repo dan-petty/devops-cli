@@ -7,14 +7,16 @@ import re
 import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.pr import ChangedFile, app
+from devops_cli.commands.pr import app
 from devops_cli.config.constants import CONST_ROADMAP_CONFIG_PATH
+from devops_cli.github.client import PullRequestFile
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
@@ -68,6 +70,14 @@ class _RoutedSession:
     def __init__(self, gh: Callable[..., MagicMock]) -> None:
         self._gh = gh
         self.reads: list[str] = []
+
+    @property
+    def client(self) -> Any:
+        from typing import cast
+
+        from devops_cli.github.client import GitHubClient
+
+        return GitHubClient(cast(Any, self))
 
     def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[object]:
         from devops_cli.commands import pr as pr_module
@@ -2516,15 +2526,17 @@ def test_the_changed_files_are_read_from_every_linked_page(github_api: GitHubApi
 
     PR #738 changed 51 files; a read stopping at GitHub's default page of 30 missed the rest.
     """
-    from devops_cli.commands import pr as pr_module
+    from devops_cli.github.session import get_github_session
 
     first = [_file(f"src/m{n}.py") for n in range(100)]
     github_api.route("GET", f"/{_FILES_READ}", github_json(first, headers=next_page(_FILES_PAGE_2)))
     github_api.route("GET", _FILES_PAGE_2, github_json([_ARCHIVE_704]))
-    files = pr_module._fetch_pr_files(335, "dan-petty", "devops-cli")
+    files = get_github_session().client.get_pull_files("dan-petty/devops-cli", 335)
     assert (len(files), files[-1], len(github_api.sent)) == (
         101,
-        ChangedFile("openspec/changes/archive/2026-10-23-704-x/proposal.md", "added"),
+        PullRequestFile(
+            filename="openspec/changes/archive/2026-10-23-704-x/proposal.md", status="added"
+        ),
         2,
     )
 
@@ -2546,17 +2558,18 @@ def test_a_changed_files_page_that_is_no_list_is_a_read_failure(github_api: GitH
 
 
 @pytest.mark.parametrize(
-    ("entry", "error"),
+    "entry",
     [
-        ("not an object", "returned a non-object entry"),
-        ({"filename": "a.py"}, "returned an entry without a filename or status"),
+        pytest.param("not an object", id="non-object"),
+        pytest.param({"filename": "a.py"}, id="no-status"),
     ],
-    ids=["non-object", "no-status"],
 )
-def test_a_malformed_files_entry_is_a_read_failure(entry: object, error: str) -> None:
+def test_a_malformed_files_entry_is_a_read_failure(entry: object) -> None:
     gh = _grounding_gh([entry])
     blockers = _blockers(_ready_pr(), gh=gh)
-    assert [error in blocker for blocker in blockers] == [True], blockers
+    assert ["is no PullRequestFile: 1 invalid field(s)" in blocker for blocker in blockers] == [
+        True
+    ], blockers
 
 
 # =============================================================================

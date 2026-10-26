@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli.commands.pr import ChangedFile, _ChangedFilesRead, _check_pr_perimeter_changes
+from devops_cli.commands.pr import _ChangedFilesRead, _check_pr_perimeter_changes
+from devops_cli.github.client import PullRequestFile
 
 _REVIEW_TOML = """\
 [[suppressions]]
@@ -34,7 +35,10 @@ def test_a_pull_request_touching_a_suppressed_file_names_the_suppression(
     (tmp_path / ".devops" / "review.toml").write_text(_REVIEW_TOML, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     changed = _ChangedFilesRead(
-        [ChangedFile("src/a.py", "modified"), ChangedFile("src/b.py", "modified")]
+        [
+            PullRequestFile(filename="src/a.py", status="modified"),
+            PullRequestFile(filename="src/b.py", status="modified"),
+        ]
     )
 
     _check_pr_perimeter_changes(changed)
@@ -59,6 +63,8 @@ def test_a_pull_request_touching_no_suppressed_file_prints_nothing(
     (tmp_path / ".devops" / "review.toml").write_text(_REVIEW_TOML, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    _check_pr_perimeter_changes(_ChangedFilesRead([ChangedFile("docs/notes.md", "modified")]))
+    _check_pr_perimeter_changes(
+        _ChangedFilesRead([PullRequestFile(filename="docs/notes.md", status="modified")])
+    )
 
     assert capsys.readouterr().out == ""

@@ -13,8 +13,12 @@ import pytest
 
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
+    _evaluate_session_complexity_deltas,
     _lockfiles_beside,
     _match_static_findings_to_files,
+    _populate_gomod_for_dir,
+    _write_base_revision_files,
+    _write_base_revision_lockfiles,
 )
 from devops_cli.ai.review.runner import (
     _materialize_pr_head,
@@ -385,3 +389,74 @@ def test_lockfiles_beside_reviewed_files_reach_the_scanners(tmp_path: Path) -> N
     attached = _match_static_findings_to_files([finding], ["svc/app.py", "svc/pyproject.toml"])
 
     assert ([p.name for p in lockfiles], list(attached)) == (["uv.lock"], ["svc/pyproject.toml"])
+
+
+def test_a_base_revision_file_read_failure_records_a_coverage_gap(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
+    """A failed read of a base revision file records a coverage gap with the reason (#1907)."""
+    _route_a_modified_python_file(github_api)
+    github_api.route(
+        "GET",
+        f"/repos/base/app/contents/mod.py?ref={_MERGE_BASE}",
+        github_json({"message": "Server Error"}, status=500),
+    )
+    *_, base_revision = _prepare_pr_content(7, "base/app", head_dir=tmp_path)
+    assert base_revision is not None
+
+    gaps: dict[str, str] = {}
+    written = _write_base_revision_files(
+        base_revision, tmp_path / "base", {"mod.py"}, coverage_gaps=gaps
+    )
+    assert (
+        written,
+        "mod.py" in gaps,
+        "Base revision:" in gaps.get("mod.py", ""),
+        "HTTP 500" in gaps.get("mod.py", ""),
+    ) == (
+        [],
+        True,
+        True,
+        True,
+    )
+
+    complexity_gaps: dict[str, str] = {}
+    (tmp_path / "mod.py").write_text("x = 2\n", encoding="utf-8")
+    _evaluate_session_complexity_deltas(
+        [tmp_path / "mod.py"], tmp_path, base_revision, 10, None, coverage_gaps=complexity_gaps
+    )
+    assert (
+        "mod.py" in complexity_gaps,
+        "Base revision:" in complexity_gaps.get("mod.py", ""),
+        "HTTP 500" in complexity_gaps.get("mod.py", ""),
+    ) == (True, True, True)
+
+    lockfile_gaps: dict[str, str] = {}
+    github_api.route(
+        "GET",
+        f"/repos/base/app/contents/uv.lock?ref={_MERGE_BASE}",
+        github_json({"message": "Server Error"}, status=500),
+    )
+    _write_base_revision_lockfiles(
+        base_revision, tmp_path / "base", ["mod.py"], coverage_gaps=lockfile_gaps
+    )
+    assert (
+        "uv.lock" in lockfile_gaps,
+        "Base revision:" in lockfile_gaps.get("uv.lock", ""),
+        "HTTP 500" in lockfile_gaps.get("uv.lock", ""),
+    ) == (True, True, True)
+
+    gomod_gaps: dict[str, str] = {}
+    github_api.route(
+        "GET",
+        f"/repos/base/app/contents/go.mod?ref={_MERGE_BASE}",
+        github_json({"message": "Server Error"}, status=500),
+    )
+    _populate_gomod_for_dir(
+        base_revision, tmp_path / "base", Path("pkg"), [], [], coverage_gaps=gomod_gaps
+    )
+    assert (
+        "go.mod" in gomod_gaps,
+        "Base revision:" in gomod_gaps.get("go.mod", ""),
+        "HTTP 500" in gomod_gaps.get("go.mod", ""),
+    ) == (True, True, True)

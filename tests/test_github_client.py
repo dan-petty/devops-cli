@@ -455,6 +455,18 @@ def test_get_pr_diff_normal_and_redirect(
     )
 
 
+def test_get_pr_diff_empty_diff_returns_empty_string(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """A pull request with no changes returns an empty string, not an unread error (#1907)."""
+    github_api.route(
+        "GET",
+        "/repos/octo/repo/pulls/42",
+        github_text("", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
+    )
+    assert _client().get_pr_diff("octo/repo", 42) == ""
+
+
 @pytest.mark.parametrize(
     "answer",
     [

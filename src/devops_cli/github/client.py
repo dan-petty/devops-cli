@@ -66,8 +66,8 @@ class PullRequestFile(BaseModel):
     filename: str
     status: str
     previous_filename: str | None = None
-    additions: int
-    changes: int
+    additions: int = 0
+    changes: int = 0
 
 
 class _FileContents(BaseModel):
@@ -203,7 +203,7 @@ class GitHubClient:
         """The pull request's unified diff, read through the GitHub session.
 
         GitHub sends a diff as text; any other answer, JSON or a body without a content type,
-        raises `GitHubUnreadError`.
+        raises `GitHubUnreadError`. A pull request with no changes returns an empty string.
         """
         path = _repo_path(repo, f"pulls/{number}")
         diff = self._session.rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
