@@ -53,6 +53,14 @@ def _get_benchmarks_base_dir() -> Path:
     return d
 
 
+def _provider_default_api_base(provider: str) -> str | None:
+    if provider == "openai":
+        import openai
+
+        return str(openai.OpenAI(api_key="none").base_url).rstrip("/")
+    return CONST_AI_PROVIDER_API_BASES.get(provider)
+
+
 def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
     """The configured AI key when `client_config` sends it to an endpoint the configuration names.
 
@@ -68,7 +76,7 @@ def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
         for url in (
             configured.api_base_url,
             configured.gateway_url,
-            CONST_AI_PROVIDER_API_BASES.get(configured.provider.lower()),
+            _provider_default_api_base(configured.provider.lower()),
         )
         if url and (origin := get_url_origin(url))
     }
@@ -76,7 +84,7 @@ def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
     endpoint = (
         client_config.gateway_url
         if provider == CONST_AI_GATEWAY_PROVIDER
-        else client_config.api_base_url or CONST_AI_PROVIDER_API_BASES.get(provider)
+        else client_config.api_base_url or _provider_default_api_base(provider)
     )
     if endpoint and get_url_origin(endpoint) in trusted:
         return get_ai_api_key(settings) or ""

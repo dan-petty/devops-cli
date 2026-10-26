@@ -23,7 +23,9 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_SERVED_MODEL_HEADER,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AI_MAX_RESPONSE_BYTES,
+    DEFAULT_AI_MAX_RESPONSE_BYTES as DEFAULT_AI_MAX_RESPONSE_BYTES,
+)
+from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_MAX_PARALLEL,

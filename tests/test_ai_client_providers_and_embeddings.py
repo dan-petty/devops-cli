@@ -31,7 +31,6 @@ from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.streaming import (
     StreamFrame,
     _ollama_stream_frame,
-    _openai_stream_frame,
     _read_event_stream,
 )
 from devops_cli.config.settings import AIConfig
@@ -219,12 +218,6 @@ def test_chunk_extractors_and_stream_helpers() -> None:
         StreamFrame(),
     )
 
-    # 3. OpenAI frames
-    assert (
-        _openai_stream_frame(_sse_event('{"choices": [{"delta": {"content": "openai text"}}]}')),
-        _openai_stream_frame(_sse_event("[DONE]")),
-    ) == (StreamFrame(chunk="openai text"), StreamFrame(complete=True, last=True))
-
     # 4. JSON error payload detector
     assert _is_json_error_payload('{"error": "model not found"}') is True
     assert _is_json_error_payload('{"error_code": 404}') is True
@@ -311,11 +304,13 @@ def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch
 
     # 3. Stream max bytes exceeded
     with (
-        streamed([openai_chunk("huge line of stream tokens")] * 100) as response,
+        streamed([b"data: huge line of stream tokens\n\n"] * 100) as response,
         pytest.raises(AIClientError, match="exceeded maximum stream size"),
     ):
         list(
-            _read_event_stream(response, _openai_stream_frame, "TestProvider", max_stream_bytes=50)
+            _read_event_stream(
+                response, lambda ev: StreamFrame(chunk=ev.data), "TestProvider", max_stream_bytes=50
+            )
         )
 
     # 4. Ollama semaphore and active tracking
@@ -558,18 +553,10 @@ def test_streaming_extractors_edge_cases() -> None:
         _ollama_stream_frame("invalid json"),
         _ollama_stream_frame('{"message": {"thinking": "reasoning"}}'),
         _ollama_stream_frame('{"message": {"content": "token"}}'),
-        _openai_stream_frame(_sse_event("")),
-        _openai_stream_frame(_sse_event("[DONE]")),
-        _openai_stream_frame(_sse_event("invalid json")),
-        _openai_stream_frame(_sse_event('{"choices": [{"delta": {"content": "token"}}] }')),
     ) == (
         StreamFrame(),
         StreamFrame(),
         StreamFrame(chunk="<think>reasoning</think>"),
-        StreamFrame(chunk="token"),
-        StreamFrame(),
-        StreamFrame(complete=True, last=True),
-        StreamFrame(),
         StreamFrame(chunk="token"),
     )
 
@@ -830,3 +817,78 @@ def test_augment_messages_starting_point(monkeypatch: pytest.MonkeyPatch) -> Non
         use_cache=False,
     )
     assert str(res) == "Augmented response"
+
+
+def test_openai_default_routes_use_v1(monkeypatch: pytest.MonkeyPatch) -> None:
+    openai_cfg = AIConfig(
+        provider="openai", model="gpt-4o", api_key="test-key", allow_private_network=True
+    )
+    client_openai = LLMClient(openai_cfg)
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(200, json={"data": [{"id": "gpt-4o"}]})
+        body_text = request.read().decode()
+        if "stream" in body_text:
+            return reply([openai_chunk("hello"), OPENAI_DONE])
+        return httpx2.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    sent = route_client(client_openai, monkeypatch, answer)
+    client_openai.chat("sys", "hello")
+    list(client_openai.chat_stream("sys", "hello"))
+    client_openai.list_models()
+
+    urls = [str(r.url) for r in sent]
+    assert urls == [
+        "https://api.openai.com/v1/chat/completions",
+        "https://api.openai.com/v1/chat/completions",
+        "https://api.openai.com/v1/models",
+    ]
+
+
+def test_copilot_and_gateway_preserve_configured_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client_copilot = LLMClient(
+        AIConfig(provider="copilot", model="gpt-4o", api_key="test-key", allow_private_network=True)
+    )
+    client_gateway = LLMClient(
+        AIConfig(
+            provider="gateway",
+            model="gpt-4o",
+            gateway_url="https://example.com/v1",
+            api_key="test-key",
+            allow_private_network=True,
+        )
+    )
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    sent_copilot = route_client(client_copilot, monkeypatch, answer)
+    client_copilot.chat("sys", "hello")
+    assert [str(r.url) for r in sent_copilot] == ["https://api.githubcopilot.com/chat/completions"]
+
+    sent_gateway = route_client(client_gateway, monkeypatch, answer)
+    client_gateway.chat("sys", "hello")
+    assert [str(r.url) for r in sent_gateway] == ["https://example.com/v1/chat/completions"]
+
+
+def test_openai_sdk_client_uses_factory_transport() -> None:
+    client = LLMClient(
+        AIConfig(provider="openai", model="gpt-4o", api_key="test-key", allow_private_network=True)
+    )
+    sdk_client = client._openai_client()
+    assert sdk_client._client is client._shared_client()

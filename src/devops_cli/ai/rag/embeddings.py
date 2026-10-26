@@ -1000,7 +1000,11 @@ class EmbeddingsEngine:
                     key="ai.gateway_url",
                 )
             return gw_url
-        return self.ai_config.api_base_url or "https://api.openai.com/v1"
+        if self.ai_config.api_base_url:
+            return self.ai_config.api_base_url
+        import openai
+
+        return str(openai.OpenAI(api_key="none").base_url).rstrip("/")
 
     def _resolve_openai_endpoint_and_model(
         self, base_url: str, is_gateway: bool

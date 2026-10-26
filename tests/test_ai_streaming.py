@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import json
-from collections.abc import Iterable, Iterator
-from typing import Any
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any, Final
 
 import httpx2
 import pytest
@@ -19,7 +19,6 @@ from devops_cli.ai.client.streaming import (
     StreamingTokenProcessor,
     _find_suffix_overlap,
     _ollama_stream_frame,
-    _openai_stream_frame,
     _read_event_stream,
     _read_ndjson_stream,
 )
@@ -32,7 +31,9 @@ from tests.llm_stream_fakes import (
     OPENAI_DONE,
     SSE,
     RecordedBody,
+    anthropic_event,
     anthropic_stream_frames,
+    anthropic_text,
     ollama_line,
     openai_chunk,
     reply,
@@ -269,8 +270,98 @@ def _event(data: object, event: str = "message") -> httpx2.ServerSentEvent:
     )
 
 
+def _claude_delta_text(delta: object) -> str | None:
+    """A content block delta's text, or its thinking wrapped in think tags."""
+    if not isinstance(delta, dict):
+        return None
+    delta_type = delta.get("type")
+    if delta_type == "text_delta" and delta.get("text"):
+        return str(delta["text"])
+    if delta_type == "thinking_delta" and delta.get("thinking"):
+        return f"<think>{delta['thinking']}</think>"
+    return None
+
+
+def _claude_message_start(_payload: dict[str, Any]) -> StreamFrame:
+    return StreamFrame()
+
+
+def _claude_message_delta(payload: dict[str, Any]) -> StreamFrame:
+    delta = payload.get("delta")
+    stop_reason = delta.get("stop_reason") if isinstance(delta, dict) else None
+    reason = (
+        "stop"
+        if stop_reason == "end_turn"
+        else ("length" if stop_reason == "max_tokens" else stop_reason)
+    )
+    return StreamFrame(finish_reason=reason)
+
+
+_CLAUDE_EVENT_FRAMES: Final[dict[str, Callable[[dict[str, Any]], StreamFrame]]] = {
+    "message_start": _claude_message_start,
+    "content_block_delta": lambda payload: StreamFrame(
+        chunk=_claude_delta_text(payload.get("delta"))
+    ),
+    "message_delta": _claude_message_delta,
+    "message_stop": lambda _payload: StreamFrame(complete=True, last=True),
+    "error": lambda payload: StreamFrame(
+        error=str(
+            payload.get("error", {}).get("message")
+            if isinstance(payload.get("error"), dict)
+            else payload.get("error")
+        )
+    ),
+}
+
+
+def _claude_stream_frame(event: httpx2.ServerSentEvent) -> StreamFrame:
+    if event.data.strip() == "[DONE]":
+        return StreamFrame()
+    if not event.data.strip():
+        return StreamFrame()
+    try:
+        payload = json.loads(event.data)
+    except Exception:
+        return (
+            StreamFrame(complete=True, last=True)
+            if event.event == "message_stop"
+            else StreamFrame()
+        )
+    frame_for = _CLAUDE_EVENT_FRAMES.get(str(payload.get("type") or event.event))
+    return frame_for(payload) if frame_for else StreamFrame()
+
+
 class TestProviderStreamFrames:
     """Each provider's frames: the text they carry, and whether and why the reply ended."""
+
+    def test_claude_frames(self) -> None:
+        """Verify Claude events yield text and thinking, `message_stop` ends, `[DONE]` does not."""
+        events = [
+            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Claude text"}},
+            {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "Hm"}},
+            {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": ""}},
+            {"type": "content_block_delta", "delta": {"type": "other"}},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+            {"type": "message_stop"},
+            {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}},
+            {"type": "ping"},
+        ]
+
+        assert [_claude_stream_frame(_event(e)) for e in events] + [
+            _claude_stream_frame(_event("[DONE]")),
+            _claude_stream_frame(_event("{invalid json", event="message_stop")),
+        ] == [
+            StreamFrame(chunk="Claude text"),
+            StreamFrame(chunk="<think>Hm</think>"),
+            StreamFrame(),
+            StreamFrame(),
+            StreamFrame(finish_reason="stop"),
+            StreamFrame(complete=True, last=True),
+            StreamFrame(error="Overloaded"),
+            StreamFrame(),
+            StreamFrame(),
+            StreamFrame(complete=True, last=True),
+        ]
 
     def test_ollama_frames(self) -> None:
         """Verify an Ollama line yields its content or thinking; `done: true` ends the stream."""
@@ -292,35 +383,6 @@ class TestProviderStreamFrames:
             StreamFrame(),
             StreamFrame(error="model 'llama3' not found"),
             StreamFrame(),
-            StreamFrame(),
-        ]
-
-    def test_openai_frames(self) -> None:
-        """Verify OpenAI chunks yield content and reasoning; a finish reason or `[DONE]` ends."""
-        chunks = [
-            {"choices": [{"delta": {"content": "OpenAI answer"}}]},
-            {"choices": [{"delta": {"reasoning_content": "OpenAI reasoning"}}]},
-            {"choices": [{"delta": {"reasoning": "More reasoning"}}]},
-            {"choices": [{"delta": {}}]},
-            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
-            {"choices": [{"delta": {}, "finish_reason": "unheard_of"}]},
-            {"choices": [], "usage": {"completion_tokens": 3}},
-            {"error": {"message": "upstream timed out"}},
-        ]
-
-        assert [_openai_stream_frame(_event(c)) for c in chunks] + [
-            _openai_stream_frame(_event("[DONE]")),
-            _openai_stream_frame(_event("{invalid json")),
-        ] == [
-            StreamFrame(chunk="OpenAI answer"),
-            StreamFrame(chunk="<think>OpenAI reasoning</think>"),
-            StreamFrame(chunk="<think>More reasoning</think>"),
-            StreamFrame(),
-            StreamFrame(complete=True, finish_reason="tool_call"),
-            StreamFrame(complete=True),
-            StreamFrame(),
-            StreamFrame(error="upstream timed out"),
-            StreamFrame(complete=True, last=True),
             StreamFrame(),
         ]
 
@@ -422,7 +484,7 @@ class TestZeroLeakageDownstream:
 # ── Stream readers, fed by an httpx2 MockTransport (no socket is opened) ──────────────────────
 
 _PROTOCOLS: dict[str, tuple[Any, Any, str]] = {
-    "openai": (_read_event_stream, _openai_stream_frame, SSE),
+    "anthropic": (_read_event_stream, _claude_stream_frame, SSE),
     "ollama": (_read_ndjson_stream, _ollama_stream_frame, NDJSON),
 }
 _GITHUB_TOKEN = "ghp_" + "A" * 36
@@ -459,17 +521,26 @@ _NOT_UTF8 = "'utf-8' codec can't decode byte 0xff in position 0: invalid start b
     ("protocol", "frames", "expected"),
     [
         (
-            "openai",
-            [openai_chunk("Hel"), openai_chunk("lo", "length"), OPENAI_DONE],
-            (["Hel", "lo"], "length", None),
+            "anthropic",
+            [
+                anthropic_event("message_start", message={"id": "msg_1", "content": []}),
+                anthropic_text("Hi"),
+                anthropic_event("message_delta", delta={"stop_reason": "max_tokens"}),
+                anthropic_event("message_stop"),
+            ],
+            (["Hi"], "length", None),
         ),
+        ("anthropic", [anthropic_text("Hi"), OPENAI_DONE], (["Hi"], None, _ENDED_EARLY)),
         (
-            "openai",
-            [openai_chunk("Hi"), openai_chunk(finish_reason="stop")],
-            (["Hi"], "stop", None),
+            "anthropic",
+            [
+                anthropic_text("Hi"),
+                anthropic_event(
+                    "error", error={"type": "overloaded_error", "message": "Overloaded"}
+                ),
+            ],
+            (["Hi"], None, "Provider stream reported an error: Overloaded"),
         ),
-        ("openai", [openai_chunk("Hi"), OPENAI_DONE], (["Hi"], None, None)),
-        ("openai", [openai_chunk("Hel"), openai_chunk("lo")], (["Hel", "lo"], None, _ENDED_EARLY)),
         (
             "ollama",
             [ollama_line("Hi"), ollama_line(done=True, done_reason="length")],
@@ -482,25 +553,18 @@ _NOT_UTF8 = "'utf-8' codec can't decode byte 0xff in position 0: invalid start b
             (["Hi"], None, "Provider stream reported an error: model requires more system memory"),
         ),
         (
-            "openai",
-            [openai_chunk("Hi"), sse_data({"error": {"message": "upstream timed out"}})],
-            (["Hi"], None, "Provider stream reported an error: upstream timed out"),
-        ),
-        (
             "ollama",
             [ollama_line("Hi"), b"\xff\n"],
             (["Hi"], None, f"Provider stream line is not UTF-8: {_NOT_UTF8}"),
         ),
     ],
     ids=[
-        "openai-length-then-done",
-        "openai-reason-then-eof",
-        "openai-done-alone",
-        "openai-eof-without-either",
+        "anthropic-max-tokens-then-message-stop",
+        "anthropic-eof-before-message-stop",
+        "anthropic-error-event",
         "ollama-done-length",
         "ollama-eof-mid-line",
         "ollama-error-line",
-        "openai-error-object",
         "ollama-line-not-utf8",
     ],
 )
@@ -511,23 +575,17 @@ def test_a_stream_is_complete_only_at_its_final_frame(
     assert _read(protocol, frames) == expected
 
 
-def test_reading_goes_on_past_the_finish_reason_to_done() -> None:
-    """Verify a usage chunk after the finish reason is still read, through to `[DONE]`."""
-    usage = sse_data({"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}})
-    body = RecordedBody(
-        [openai_chunk("Hi"), openai_chunk(finish_reason="stop"), usage, OPENAI_DONE]
-    )
-
-    assert (_read("openai", body), body.read) == ((["Hi"], "stop", None), 4)
-
-
 @pytest.mark.parametrize(
     ("protocol", "frames", "reason"),
     [
-        ("openai", [openai_chunk("Hi", "stop"), OPENAI_DONE, openai_chunk("late")], "stop"),
+        (
+            "anthropic",
+            [anthropic_text("Hi"), anthropic_event("message_stop"), anthropic_text("late")],
+            None,
+        ),
         ("ollama", [ollama_line("Hi", done=True, done_reason="stop"), ollama_line("late")], "stop"),
     ],
-    ids=["openai-done", "ollama-done"],
+    ids=["anthropic-message-stop", "ollama-done"],
 )
 def test_reading_stops_at_the_final_frame(
     protocol: str, frames: list[bytes], reason: str | None
@@ -538,12 +596,12 @@ def test_reading_stops_at_the_final_frame(
     assert (_read(protocol, body), body.read) == ((["Hi"], reason, None), len(frames) - 1)
 
 
-@pytest.mark.parametrize("protocol", ["openai", "ollama"])
+@pytest.mark.parametrize("protocol", ["anthropic", "ollama"])
 def test_an_error_frame_is_masked_and_cut(protocol: str) -> None:
     """Verify a token in a provider's error message never reaches the raised error."""
     message = f"bad credentials {_GITHUB_TOKEN} " + "x" * 400
     error_frames = {
-        "openai": sse_data({"error": {"message": message}}),
+        "anthropic": anthropic_event("error", error={"message": message}),
         "ollama": (json.dumps({"error": message}) + "\n").encode(),
     }
 
@@ -557,22 +615,23 @@ def test_an_error_frame_is_masked_and_cut(protocol: str) -> None:
     )
 
 
-@pytest.mark.parametrize("protocol", ["openai", "ollama"])
+@pytest.mark.parametrize("protocol", ["anthropic", "ollama"])
 def test_a_frame_split_across_chunks_reads_as_whole(protocol: str) -> None:
     """Verify frames split mid-line and mid-code-point, and a raw U+2028, read intact."""
     text = "naïve € \u2028 end"
     frames = {
-        "openai": [openai_chunk(text, "stop"), OPENAI_DONE],
+        "anthropic": [anthropic_text(text), anthropic_event("message_stop")],
         "ollama": [ollama_line(text, done=True, done_reason="stop")],
     }[protocol]
     whole = b"".join(frames)
     one_byte_chunks = [whole[i : i + 1] for i in range(len(whole))]
 
+    expected_reason = "stop" if protocol == "ollama" else None
     assert (
         "\u2028".encode() in whole,
         _read(protocol, [whole]),
         _read(protocol, one_byte_chunks),
-    ) == (True, ([text], "stop", None), ([text], "stop", None))
+    ) == (True, ([text], expected_reason, None), ([text], expected_reason, None))
 
 
 def test_an_oversized_event_or_line_is_refused() -> None:
@@ -581,7 +640,11 @@ def test_an_oversized_event_or_line_is_refused() -> None:
     line_limit = "Provider stream line exceeded the 64 bytes limit."
 
     assert (
-        _read("openai", [openai_chunk("x" * 200), OPENAI_DONE], max_event_bytes=64),
+        _read(
+            "anthropic",
+            [anthropic_text("x" * 200), anthropic_event("message_stop")],
+            max_event_bytes=64,
+        ),
         _read("ollama", endless_line, max_line_bytes=64)[2],
         endless_line.read < len(endless_line.frames),
         _read("ollama", [ollama_line("x" * 200, done=True)], max_line_bytes=64),
@@ -598,7 +661,8 @@ def test_an_oversized_event_or_line_is_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    ("protocol", "frame"), [("openai", openai_chunk("x" * 10)), ("ollama", ollama_line("x" * 10))]
+    ("protocol", "frame"),
+    [("anthropic", anthropic_text("x" * 10)), ("ollama", ollama_line("x" * 10))],
 )
 def test_a_stream_past_its_size_limit_is_refused(protocol: str, frame: bytes) -> None:
     """Verify the whole-stream limit counts every frame and raises once it is passed."""
@@ -613,7 +677,10 @@ def test_a_stream_past_its_size_limit_is_refused(protocol: str, frame: bytes) ->
 @pytest.mark.parametrize(
     ("protocol", "frames"),
     [
-        ("openai", [openai_chunk("Hel"), openai_chunk("lo", "stop"), OPENAI_DONE]),
+        (
+            "anthropic",
+            [anthropic_text("Hel"), anthropic_text("lo"), anthropic_event("message_stop")],
+        ),
         ("ollama", [ollama_line("Hel"), ollama_line("lo"), ollama_line(done=True)]),
     ],
 )
@@ -631,7 +698,11 @@ def test_chunks_reach_the_caller_as_they_arrive(protocol: str, frames: list[byte
 
 def test_an_event_stream_of_another_content_type_is_refused() -> None:
     """Verify an SSE reply sent as `application/json` raises, naming the type."""
-    _, _, error = _read("openai", [openai_chunk("Hi"), OPENAI_DONE], "application/json")
+    _, _, error = _read(
+        "anthropic",
+        [anthropic_text("Hi"), anthropic_event("message_stop")],
+        "application/json",
+    )
 
     assert error == (
         "Provider stream could not be read: Expected response with content type "

@@ -846,12 +846,10 @@ CONST_GITHUB_SSH_KEY_REFRESH_SCOPES: Final[str] = ",".join(
 
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
 CONST_URL_GITHUB_COPILOT_API_BASE = "https://api.githubcopilot.com"
-CONST_URL_OPENAI_API_BASE = "https://api.openai.com"
 # The API a hosted provider's requests, and the AI key, go to when no api_base_url is set.
 CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
     "claude": CONST_URL_ANTHROPIC_API_BASE,
     "copilot": CONST_URL_GITHUB_COPILOT_API_BASE,
-    "openai": CONST_URL_OPENAI_API_BASE,
 }
 # What `backend_host` reports for a provider with no configured or default endpoint. It names
 # no server, so LLM spans write no `server.address` for it.

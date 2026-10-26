@@ -15,13 +15,11 @@ from devops_cli.ai.client.network import (
     StreamUsage,
     size_limit_text,
     stream_finish_reason,
-    stream_model,
     stream_usage,
 )
 from devops_cli.ai.thinking_stream import ThinkingFSM
 from devops_cli.config.constants import (
     CONST_OLLAMA_DONE_REASONS,
-    CONST_OPENAI_FINISH_REASONS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_STREAM_MAX_EVENT_BYTES,
@@ -277,63 +275,6 @@ def _ollama_stream_frame(line: str) -> StreamFrame:
         complete=done,
         last=done,
         finish_reason=provider_finish_reason(CONST_OLLAMA_DONE_REASONS, payload.get("done_reason")),
-    )
-
-
-def _openai_delta_text(delta: object) -> str | None:
-    """A chat completion delta's reasoning, wrapped in think tags, or else its content."""
-    if not isinstance(delta, dict):
-        return None
-    if reasoning := delta.get("reasoning_content") or delta.get("reasoning"):
-        return f"<think>{reasoning}</think>"
-    content = delta.get("content")
-    return str(content) if content else None
-
-
-def _first_choice(payload: dict[str, Any]) -> dict[str, Any]:
-    """A completion chunk's first choice; an empty one when it has none, as a usage chunk."""
-    choices = payload.get("choices")
-    first = choices[0] if isinstance(choices, list) and choices else None
-    return first if isinstance(first, dict) else {}
-
-
-def _openai_stream_frame(event: httpx2.ServerSentEvent) -> StreamFrame:
-    """One event of an OpenAI-compatible chat completion stream.
-
-    A chunk with a finish reason completes the stream, and so does `[DONE]`, the server's own end
-    marker, with no reason before it. Reading goes on past the reason to `[DONE]` or EOF, so a
-    usage chunk sent after it is still read.
-    """
-    if event.data.strip() == "[DONE]":
-        return StreamFrame(complete=True, last=True)
-    payload = _json_object(event.data)
-    if payload.get("error") is not None:
-        return StreamFrame(error=_error_text(payload["error"]))
-    model = payload.get("model")
-    if model and stream_model.get() is None:
-        stream_model.set(str(model))
-    usage = payload.get("usage")
-    if isinstance(usage, dict):
-        details = usage.get("completion_tokens_details") or {}
-        r_tok = details.get("reasoning_tokens")
-        p_tok = usage.get("prompt_tokens")
-        c_tok = usage.get("completion_tokens")
-        t_tok = usage.get("total_tokens")
-        if p_tok is not None or c_tok is not None:
-            stream_usage.set(
-                StreamUsage(
-                    prompt_tokens=p_tok,
-                    completion_tokens=c_tok,
-                    total_tokens=t_tok,
-                    reasoning_tokens=r_tok,
-                )
-            )
-    choice = _first_choice(payload)
-    reason = choice.get("finish_reason")
-    return StreamFrame(
-        chunk=_openai_delta_text(choice.get("delta")),
-        complete=reason is not None,
-        finish_reason=provider_finish_reason(CONST_OPENAI_FINISH_REASONS, reason),
     )
 
 

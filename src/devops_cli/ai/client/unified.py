@@ -38,7 +38,6 @@ from devops_cli.config.constants import (
     CONST_UNCACHED_FINISH_REASONS,
     CONST_URL_ANTHROPIC_API_BASE,
     CONST_URL_GITHUB_COPILOT_API_BASE,
-    CONST_URL_OPENAI_API_BASE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
@@ -310,13 +309,15 @@ class LLMClient(
             return self._resolve_ollama_backend_host()
         base_url = getattr(self._config, "api_base_url", None) if p != "gateway" else None
         if not isinstance(base_url, str) or not base_url:
-            provider_defaults = {
-                "claude": CONST_URL_ANTHROPIC_API_BASE,
-                "copilot": CONST_URL_GITHUB_COPILOT_API_BASE,
-                "openai": CONST_URL_OPENAI_API_BASE,
-                "gateway": getattr(self._config, "gateway_url", None),
-            }
-            base_url = provider_defaults.get(p)
+            if p == "openai":
+                base_url = str(self._openai_client().base_url).rstrip("/")
+            else:
+                provider_defaults = {
+                    "claude": CONST_URL_ANTHROPIC_API_BASE,
+                    "copilot": CONST_URL_GITHUB_COPILOT_API_BASE,
+                    "gateway": getattr(self._config, "gateway_url", None),
+                }
+                base_url = provider_defaults.get(p)
         if isinstance(base_url, str) and base_url:
             parsed = urlparse(base_url)
             return str(parsed.netloc or parsed.path or base_url)
