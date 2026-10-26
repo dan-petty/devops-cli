@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.5](https://github.com/dan-petty/devops-cli/compare/v0.6.4...v0.6.5) (2026-10-26)
+
+
+### Bug Fixes
+
+* **ai:** analyze pr previews under --dry-run and contacts no service ([#2327](https://github.com/dan-petty/devops-cli/issues/2327)) ([c402b6d](https://github.com/dan-petty/devops-cli/commit/c402b6d67ecbee2df4a83681da03253d0ec17d04))
+* **dashboard:** reject unknown tab option values and remove refresh_all ([#2310](https://github.com/dan-petty/devops-cli/issues/2310)) ([27f8c60](https://github.com/dan-petty/devops-cli/commit/27f8c60d3b66c985e98ca6d42a23fd16fba9462e)), closes [#1904](https://github.com/dan-petty/devops-cli/issues/1904)
+* **deps:** renovate updates the image tags in k8s/ manifests ([#2325](https://github.com/dan-petty/devops-cli/issues/2325)) ([b0ebce0](https://github.com/dan-petty/devops-cli/commit/b0ebce0a343b1fd5b705fa6d57c3dce20e598e0a))
+* **devcontainer:** isolate image build metadata from workspace settings ([#2309](https://github.com/dan-petty/devops-cli/issues/2309)) ([7672c71](https://github.com/dan-petty/devops-cli/commit/7672c7151a7b2eba9f455582a641f265450d2603))
+* **output:** remove duplicated check marks from success messages ([#2313](https://github.com/dan-petty/devops-cli/issues/2313)) ([db7c3c4](https://github.com/dan-petty/devops-cli/commit/db7c3c488a058053f7acb0d4f48002f2bab2b500))
+* **review:** record coverage gaps on base read failures and accept empty diffs ([#2326](https://github.com/dan-petty/devops-cli/issues/2326)) ([a307ac0](https://github.com/dan-petty/devops-cli/commit/a307ac08be6e17881361697e86c9fd0167cde794))
+* **roadmap:** the roadmap runs on a rebuilt board, because GitHub refuses to add 149 issues to board 2 ([#2320](https://github.com/dan-petty/devops-cli/issues/2320)) ([48c78ca](https://github.com/dan-petty/devops-cli/commit/48c78ca94dcb5ef557482da4f7711266d31a7673))
+* **security:** cloudflared 2026.10.4 replaces 2026.9.3, which trusts eight compromised eMudhra certificates ([#2324](https://github.com/dan-petty/devops-cli/issues/2324)) ([e6750be](https://github.com/dan-petty/devops-cli/commit/e6750bee2ebdb9ada41b950a6e9a35dd5c392433))
+* **security:** prevent directory traversal in response cache and isolate storage ([#2321](https://github.com/dan-petty/devops-cli/issues/2321)) ([1967695](https://github.com/dan-petty/devops-cli/commit/19676954d486853cd1c83489f16ecafe7a9ee8e0))
+* **telemetry:** send project gauges through OTLP only ([#2288](https://github.com/dan-petty/devops-cli/issues/2288)) ([#2315](https://github.com/dan-petty/devops-cli/issues/2315)) ([aeaa52e](https://github.com/dan-petty/devops-cli/commit/aeaa52e5b1362e21aa08722c0a947d4ca494acb2))
+
 ## [0.6.4](https://github.com/dan-petty/devops-cli/compare/v0.6.3...v0.6.4) (2026-10-26)
 
 
