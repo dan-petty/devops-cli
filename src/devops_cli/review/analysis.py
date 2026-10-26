@@ -1051,6 +1051,44 @@ def _judge_group_reply(
     )
 
 
+def _chat_and_judge[T](
+    *,
+    llm_client: Any,
+    system_prompt: str,
+    user_prompt: str,
+    sampling: SamplingRecord,
+    judge: Callable[[str], tuple[T | None, list[str]]],
+) -> tuple[T | None, list[str], bool]:
+    """Execute one model chat turn under a validator judge, max_retries=0, and ReplyRejectedError handling (#1013, #1810)."""
+    judged: dict[str, tuple[T | None, list[str]]] = {}
+
+    def accept(text: str) -> bool:
+        judged[text] = judge(text)
+        return judged[text][0] is not None
+
+    # A reply the checks refuse is neither cached nor served, and is not asked for again: the
+    # job makes one model call, and reads the rejected reply's finish reason from the rejection.
+    try:
+        raw = llm_client.chat(
+            system_prompt,
+            user_prompt,
+            temperature=sampling.temperature,
+            top_p=sampling.top_p,
+            seed=sampling.seed,
+            max_retries=0,
+            validator=accept,
+        )
+    except ReplyRejectedError as rejected:
+        raw = rejected.reply
+    is_cached = bool(getattr(raw, "cached", False))
+    if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
+        reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
+        return None, [reason], is_cached
+    text = str(raw).strip()
+    verified, reasons = judged[text] if text in judged else judge(text)
+    return verified, reasons, is_cached
+
+
 def _execute_single_group_job(
     job_input: AnalysisJobInput,
     *,
@@ -1070,32 +1108,13 @@ def _execute_single_group_job(
         python_block_checker=python_block_checker,
         correlation_table=correlation_table,
     )
-    judged: dict[str, _GroupVerdict] = {}
-
-    def accept(text: str) -> bool:
-        judged[text] = judge(text)
-        return judged[text][0] is not None
-
-    # A reply the checks refuse is neither cached nor served, and is not asked for again: the
-    # job makes one model call, and reads the rejected reply's finish reason from the rejection.
-    try:
-        raw = llm_client.chat(
-            system_prompt,
-            job_input.model_dump_json(indent=2),
-            temperature=sampling.temperature,
-            top_p=sampling.top_p,
-            seed=sampling.seed,
-            max_retries=0,
-            validator=accept,
-        )
-    except ReplyRejectedError as rejected:
-        raw = rejected.reply
-    is_cached = bool(getattr(raw, "cached", False))
-    if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
-        reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
-        return (_rejected_group_record(job_input, sampling, reason), [reason], is_cached)
-    text = str(raw).strip()
-    verified, reasons = judged[text] if text in judged else judge(text)
+    verified, reasons, is_cached = _chat_and_judge(
+        llm_client=llm_client,
+        system_prompt=system_prompt,
+        user_prompt=job_input.model_dump_json(indent=2),
+        sampling=sampling,
+        judge=judge,
+    )
     return _group_record(job_input, sampling, verified, reasons), reasons, is_cached
 
 
@@ -1298,6 +1317,44 @@ def verify_review_plan(
     return (None if reasons else plan), reasons
 
 
+_PlanVerdict = tuple[ReviewPlanOutput | None, list[str]]
+
+
+def _judge_plan_reply(
+    text: str,
+    *,
+    admitted: Sequence[Finding],
+    correlation_table: Sequence[CorrelationEntry],
+    environment: EnvironmentFacts | None,
+    python_block_checker: Callable[[str, str], list[str]] | None,
+) -> _PlanVerdict:
+    """Parse a review plan reply and run the G10 checks on it (#1148, #1810)."""
+    extracted = extract_json_block(text, default=None)
+    candidate = extracted if isinstance(extracted, dict) else None
+    if candidate is None:
+        try:
+            parsed = json.loads(text)
+            candidate = parsed if isinstance(parsed, dict) else None
+        except ValueError:
+            pass
+
+    if candidate is None or "steps" not in candidate:
+        return None, [CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED]
+
+    try:
+        parsed_plan = ReviewPlanOutput.model_validate(candidate)
+    except PydanticValidationError:
+        return None, [CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED]
+
+    return verify_review_plan(
+        parsed_plan,
+        admitted,
+        correlation_table,
+        environment=environment,
+        python_block_checker=python_block_checker,
+    )
+
+
 def run_review_plan_job(
     findings: Sequence[Finding],
     correlation_table: Sequence[CorrelationEntry],
@@ -1308,7 +1365,7 @@ def run_review_plan_job(
     environment: EnvironmentFacts,
     python_block_checker: Callable[[str, str], list[str]] | None = None,
 ) -> tuple[ReviewPlanRecord, list[str], bool]:
-    """Execute one model review plan job across admitted findings under G10 checks (#1148)."""
+    """Execute one model review plan job across admitted findings under G10 checks (#1148, #1810)."""
     admitted = [f for f in findings if f.state != FindingState.SUPPRESSED]
     if not admitted or llm_client is None:
         plan = build_deterministic_review_plan(findings, correlation_table, group_records)
@@ -1349,14 +1406,22 @@ def run_review_plan_job(
         ],
     }
 
+    judge = functools.partial(
+        _judge_plan_reply,
+        admitted=admitted,
+        correlation_table=correlation_table,
+        environment=environment,
+        python_block_checker=python_block_checker,
+    )
+
     try:
         system_prompt = load_task_prompt(CONST_ANALYSIS_PLAN_PROMPT_FILENAME)
-        raw = llm_client.chat(
-            system_prompt,
-            json.dumps(plan_input, indent=2),
-            temperature=sampling.temperature,
-            top_p=sampling.top_p,
-            seed=sampling.seed,
+        verified_plan, reasons, is_cached = _chat_and_judge(
+            llm_client=llm_client,
+            system_prompt=system_prompt,
+            user_prompt=json.dumps(plan_input, indent=2),
+            sampling=sampling,
+            judge=judge,
         )
     except RuntimeError, ValueError, OSError, TimeoutError, TypeError, KeyError:
         reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
@@ -1366,51 +1431,6 @@ def run_review_plan_job(
             False,
         )
 
-    is_cached = bool(getattr(raw, "cached", False))
-
-    if getattr(raw, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
-        reason = CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED
-        return (
-            ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]),
-            [reason],
-            is_cached,
-        )
-
-    text = raw if isinstance(raw, str) else str(getattr(raw, "content", raw))
-    extracted = extract_json_block(text, default=None)
-    candidate = extracted if isinstance(extracted, dict) else None
-    if candidate is None:
-        try:
-            parsed = json.loads(text)
-            candidate = parsed if isinstance(parsed, dict) else None
-        except ValueError:
-            pass
-
-    if candidate is None or "steps" not in candidate:
-        reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
-        return (
-            ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]),
-            [reason],
-            is_cached,
-        )
-
-    try:
-        parsed_plan = ReviewPlanOutput.model_validate(candidate)
-    except PydanticValidationError:
-        reason = CONST_ANALYSIS_REJECTION_SCHEMA_VALIDATION_FAILED
-        return (
-            ReviewPlanRecord(status="rejected", output=None, rejected_reasons=[reason]),
-            [reason],
-            is_cached,
-        )
-
-    verified_plan, reasons = verify_review_plan(
-        parsed_plan,
-        admitted,
-        correlation_table,
-        environment=environment,
-        python_block_checker=python_block_checker,
-    )
     return (
         ReviewPlanRecord(
             status="verified" if verified_plan is not None else "rejected",
