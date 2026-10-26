@@ -677,7 +677,7 @@ class DocGenerator:
 
         for group in groups:
             first = True
-            group_name = f"**{group.name}**"
+            group_name = f"[**{group.name}**](docs/commands/{group.name}.md)"
             if not group.commands:
                 lines.append(f"| {group_name} | `devops {group.name}` | {group.summary} |")
                 continue

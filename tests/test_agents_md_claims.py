@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
 from itertools import pairwise
 from pathlib import Path
 from typing import Final
@@ -22,6 +23,9 @@ from devops_cli.ai.personas import Persona
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_MAX_CHARS,
     CONST_AGENTS_MD_ROUTES,
+    CONST_DOCS_CLASS_GENERATED,
+    CONST_DOCS_CLASS_HAND_WRITTEN,
+    CONST_DOCS_INVENTORY,
 )
 from tests.support.paths import REPO_ROOT
 
@@ -287,6 +291,52 @@ def _broken_links(document: Path) -> list[str]:
         if not target.exists()
         or (fragment and target.suffix == ".md" and fragment not in _heading_ids(target))
     ]
+
+
+def _documents_within(start: Path, links: int) -> set[Path]:
+    """`start` and each Markdown file that a chain of at most `links` links from it reaches."""
+    reached = {start.resolve(): 0}
+    queue = deque(reached)
+    while queue:
+        document = queue.popleft()
+        if reached[document] == links:
+            continue
+        for target, _fragment in _relative_links(document).values():
+            if target.suffix == ".md" and target.is_file() and target not in reached:
+                reached[target] = reached[document] + 1
+                queue.append(target)
+    return set(reached)
+
+
+def test_every_hand_written_and_generated_document_is_within_two_links_of_agents_md() -> None:
+    """An agent reads AGENTS.md, and a document that no chain of two links from it reaches is a
+    document that the router does not route to: the settings, error, metric and command
+    references, the OpenTofu guide and the pages of each command group were such documents
+    (#2293). Decision records, prompts and the tools' own files are out of scope."""
+    reached = _documents_within(_AGENTS_MD, 2)
+    documents = sorted(
+        path.resolve()
+        for kind in (CONST_DOCS_CLASS_HAND_WRITTEN, CONST_DOCS_CLASS_GENERATED)
+        for pattern in CONST_DOCS_INVENTORY[kind]
+        for path in REPO_ROOT.glob(pattern)
+    )
+
+    assert (
+        len(documents) > 100,
+        [str(path.relative_to(REPO_ROOT)) for path in documents if path not in reached],
+    ) == (True, [])
+
+
+def test_a_document_three_links_from_the_start_is_not_within_two(tmp_path: Path) -> None:
+    """Negative control: the walk counts links, and stops at the limit."""
+    names = ["start", "one", "two", "three"]
+    for name, following in pairwise(names):
+        (tmp_path / f"{name}.md").write_text(f"[next]({following}.md)\n", encoding="utf-8")
+    (tmp_path / "three.md").write_text("The end.\n", encoding="utf-8")
+
+    assert _documents_within(tmp_path / "start.md", 2) == {
+        (tmp_path / f"{name}.md").resolve() for name in names[:3]
+    }
 
 
 def test_every_document_that_stated_test_rules_links_testing_md() -> None:
