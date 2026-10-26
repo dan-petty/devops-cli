@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0](https://github.com/dan-petty/devops-cli/compare/v0.5.0...v0.6.0) (2026-10-26)
+
+
+### Features
+
+* **k8s:** devops k8s doctor checks the gitea stack: tunnel host, anonymous refusal, clone url, registry token and no egress ([#2200](https://github.com/dan-petty/devops-cli/issues/2200)) ([4af6ea6](https://github.com/dan-petty/devops-cli/commit/4af6ea67c9bd4833eeb7c86b993c2747bd07c364)), closes [#2187](https://github.com/dan-petty/devops-cli/issues/2187)
+* **telemetry:** centralized loki logql streamer, prometheus sparklines & trace waterfalls (tab-telemetry) ([#2213](https://github.com/dan-petty/devops-cli/issues/2213)) ([5d368c8](https://github.com/dan-petty/devops-cli/commit/5d368c8bf2b1efac5f54258a7cf456df2a90068c)), closes [#691](https://github.com/dan-petty/devops-cli/issues/691)
+* **telemetry:** send devops-cli logs with trace ids to Loki ([#2224](https://github.com/dan-petty/devops-cli/issues/2224)) ([28c1607](https://github.com/dan-petty/devops-cli/commit/28c160790b09a902116ff62de1402d7329aa0acc)), closes [#813](https://github.com/dan-petty/devops-cli/issues/813)
+
+
+### Bug Fixes
+
+* **ai:** a transient rag lookup failure is not cached, so the same query recovers as soon as the backend answers ([#2222](https://github.com/dan-petty/devops-cli/issues/2222)) ([6f49beb](https://github.com/dan-petty/devops-cli/commit/6f49beb3bb33245b7234d3e27fab367214bf8fd2))
+* **ai:** rag chunks stay under the embedder's real token limit, not a four-characters-per-token estimate ([#2221](https://github.com/dan-petty/devops-cli/issues/2221)) ([a21ad61](https://github.com/dan-petty/devops-cli/commit/a21ad61bf94c5a4191cfb1e19ef67ee5d9ffeeaa))
+* **cli:** devops --dry-run on a command group given only its own options ([de49122](https://github.com/dan-petty/devops-cli/commit/de491222c60bd6c8b5c4f04d6a65dcfa2cf40e08))
+* **cli:** devops --dry-run on a command group given only its own options previews it instead of crashing with IndexError ([#2259](https://github.com/dan-petty/devops-cli/issues/2259)) ([de49122](https://github.com/dan-petty/devops-cli/commit/de491222c60bd6c8b5c4f04d6a65dcfa2cf40e08))
+* **cli:** drop devcontainer k8s auto-deploy for printed deploy-stack command ([#2227](https://github.com/dan-petty/devops-cli/issues/2227)) ([9278d3e](https://github.com/dan-petty/devops-cli/commit/9278d3eab20d59875c7107b8307a300db1bcde4b))
+* **config:** service clients use only configured urls and never fall back to an unconfigured localhost default ([#2219](https://github.com/dan-petty/devops-cli/issues/2219)) ([5b3817d](https://github.com/dan-petty/devops-cli/commit/5b3817d4e237f78d75e5ad051d0afe4f89c522ae))
+* **git:** git output the code parses is read NUL-separated, and git outcomes come from exit codes ([#2257](https://github.com/dan-petty/devops-cli/issues/2257)) ([db1d234](https://github.com/dan-petty/devops-cli/commit/db1d234954bba1e119cca1d4bfd632466b9ea8b8))
+* **github:** devops pr check-readiness on a branch with no open pull request exits with a clean error ([#2270](https://github.com/dan-petty/devops-cli/issues/2270)) ([0a1b312](https://github.com/dan-petty/devops-cli/commit/0a1b312979334d8df86c066494749de06dc5b71e))
+* **github:** project sync's board lookup and field provisioning fail closed on a failed read ([#2272](https://github.com/dan-petty/devops-cli/issues/2272)) ([40138f4](https://github.com/dan-petty/devops-cli/commit/40138f432b908cf030358ca59f92f2e192c17f2e))
+* **k8s:** argo cd sync honours --prune and --force, rollout promote and abort reach the status subresource, and teardown's argo check fails closed ([#2246](https://github.com/dan-petty/devops-cli/issues/2246)) ([7f3743b](https://github.com/dan-petty/devops-cli/commit/7f3743bf161ca26b2b73db086747a64664f73643))
+* **k8s:** authenticate service proxy with client auth settings and stream typed pod watch ([#2242](https://github.com/dan-petty/devops-cli/issues/2242)) ([1be8a79](https://github.com/dan-petty/devops-cli/commit/1be8a7926d8256dbd46af1087c8d8e94f686449f))
+* **k8s:** dcgm-exporter's memory request and limit fit its measured footprint ([#2264](https://github.com/dan-petty/devops-cli/issues/2264)) ([4776f63](https://github.com/dan-petty/devops-cli/commit/4776f63206ffe667e11c35bf74b6073eaa00ea66))
+* **k8s:** deploy-stack decides helm recovery from helm's json status and adopts existing resources with --take-ownership ([#2243](https://github.com/dan-petty/devops-cli/issues/2243)) ([c5dbafc](https://github.com/dan-petty/devops-cli/commit/c5dbafc4561d85b775c2962b3cf88896d8782a3e))
+* **k8s:** send LogQL to Loki unchanged and restrict kubectl fallback ([#2228](https://github.com/dan-petty/devops-cli/issues/2228)) ([29743af](https://github.com/dan-petty/devops-cli/commit/29743af0da2f0a58b8a11cde778ab83f5ff2c614)), closes [#1431](https://github.com/dan-petty/devops-cli/issues/1431)
+* **k8s:** the argo cd and grafana credential sync revokes and mints a token only when the service refused the old one, and reports every other failure ([#2210](https://github.com/dan-petty/devops-cli/issues/2210)) ([1bb164b](https://github.com/dan-petty/devops-cli/commit/1bb164bda6401d150741eaee4aa00ba62104da21))
+* **mcp:** an mcp tool stops at its timeout, also when its command runs in-process ([#2269](https://github.com/dan-petty/devops-cli/issues/2269)) ([6cf8ff0](https://github.com/dan-petty/devops-cli/commit/6cf8ff0cdd1b01ea296febdfbb6bdfc4672cc9fb))
+* **review:** a dependency advisory that admission rejects is not reported ([#2217](https://github.com/dan-petty/devops-cli/issues/2217)) ([4326906](https://github.com/dan-petty/devops-cli/commit/43269067f42638d8e2b284024db5cba6c14b9ede))
+* **review:** a dependency advisory the base revision's pins already have is listed as pre-existing ([#2268](https://github.com/dan-petty/devops-cli/issues/2268)) ([00b3572](https://github.com/dan-petty/devops-cli/commit/00b3572ab6873580d0a09fec6f375fffb39bce13))
+* **review:** a scanner finding that names a kubernetes object the reviewed commit lacks is rejected as object-not-in-commit ([#2225](https://github.com/dan-petty/devops-cli/issues/2225)) ([e69a4ff](https://github.com/dan-petty/devops-cli/commit/e69a4ff32c3405452cb368d40c27ae3f7a038265)), closes [#1352](https://github.com/dan-petty/devops-cli/issues/1352)
+* **roadmap:** delete intake's refine hook; the cross-job rule is the one same-round refine trigger ([#2262](https://github.com/dan-petty/devops-cli/issues/2262)) ([90fc109](https://github.com/dan-petty/devops-cli/commit/90fc109ac53c367e56f78a19af18c01e892c5325))
+* **roadmap:** intake files and places a candidate that the model judges a duplicate, and names the possible original, instead of dropping or closing it ([#2223](https://github.com/dan-petty/devops-cli/issues/2223)) ([050620d](https://github.com/dan-petty/devops-cli/commit/050620dfd4250884ec4177e19c97876a87aa7a09))
+* **roadmap:** the roadmap service logs each failed job's own error with its repository, and a configuration error without a traceback ([#2229](https://github.com/dan-petty/devops-cli/issues/2229)) ([96238be](https://github.com/dan-petty/devops-cli/commit/96238be2d0ac27cd2431ba0861e21e16aaab6c23))
+* **security:** the pluto, popeye and gitleaks adapters read what those tools actually write ([#2220](https://github.com/dan-petty/devops-cli/issues/2220)) ([6789a80](https://github.com/dan-petty/devops-cli/commit/6789a800d501d094708426e5c88c2185e5d60f21))
+* **security:** vault leases requires --revoke and lease registry rebuilds on credential changes ([#2271](https://github.com/dan-petty/devops-cli/issues/2271)) ([efab944](https://github.com/dan-petty/devops-cli/commit/efab94453631c0f521dd6708af3e0c0273358360))
+* **telemetry:** grafana aggregate lines sum and average the lines shown, read as dashed reference lines, and reach calls in flight ([#2215](https://github.com/dan-petty/devops-cli/issues/2215)) ([2084172](https://github.com/dan-petty/devops-cli/commit/2084172898662d8fef26e47f545ba7402f921fbd))
+* **telemetry:** wait for background exporter threads on client shutdown ([#2274](https://github.com/dan-petty/devops-cli/issues/2274)) ([e6b86b2](https://github.com/dan-petty/devops-cli/commit/e6b86b27f6fb8b0b4dbd37878ac1c5968de2d431)), closes [#2273](https://github.com/dan-petty/devops-cli/issues/2273)
+
 ## [0.5.0](https://github.com/dan-petty/devops-cli/compare/v0.4.3...v0.5.0) (2026-10-25)
 
 
