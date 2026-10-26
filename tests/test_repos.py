@@ -297,6 +297,8 @@ def test_repos_update_syncs_workspace(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.fetch_all"),
+        patch("devops_cli.commands.repos.pull_tracking"),
         patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
         patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
     ):
@@ -896,7 +898,47 @@ def test_repos_sync_pull_and_errors(tmp_path: Path) -> None:
         # Fetch error handled gracefully
         mock_fetch.side_effect = RuntimeError("Git network timeout")
         res_err = runner.invoke(repos_app, ["sync"])
-        assert res_err.exit_code == 0
+        assert res_err.exit_code == 1
+
+
+def test_repos_sync_reports_failures_and_exits_nonzero(
+    tmp_path: Path, git: Callable[..., None], process_fake: Any
+) -> None:
+    """`repos sync` reports failed repos with git's reason, finishes remaining repos, and exits 1."""
+    repos_dir = tmp_path / "repos"
+    bare1 = tmp_path / "bare1.git"
+    bare2 = tmp_path / "bare2.git"
+    bare1.mkdir()
+    bare2.mkdir()
+    git(bare1, "init", "--bare", "--initial-branch=main", "--quiet")
+    git(bare2, "init", "--bare", "--initial-branch=main", "--quiet")
+
+    repo1 = repos_dir / "group" / "repo1"
+    repo2 = repos_dir / "group" / "repo2"
+    git(tmp_path, "clone", "--quiet", str(bare1), str(repo1))
+    git(tmp_path, "clone", "--quiet", str(bare2), str(repo2))
+
+    (repo1 / "f.txt").write_text("1", encoding="utf-8")
+    git(repo1, "add", ".")
+    git(repo1, "commit", "--quiet", "-m", "init")
+    git(repo1, "push", "--quiet", "origin", "main")
+
+    (repo2 / "f.txt").write_text("2", encoding="utf-8")
+    git(repo2, "add", ".")
+    git(repo2, "commit", "--quiet", "-m", "init")
+    git(repo2, "push", "--quiet", "origin", "main")
+
+    # Make bare1 refuse fetch
+    objects_dir = bare1 / "objects"
+    objects_dir.chmod(0o000)
+
+    try:
+        res = runner.invoke(repos_app, ["sync", "--base-dir", str(repos_dir)])
+        assert res.exit_code == 1
+        assert "group/repo1" in res.output
+        assert "group/repo2" in res.output
+    finally:
+        objects_dir.chmod(0o755)
 
 
 def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:

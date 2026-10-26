@@ -134,3 +134,43 @@ def test_jira_prints_gits_reason_when_git_refuses_the_branch(
     assert isinstance(result.exception, SystemExit)
     assert "Traceback" not in result.output
     assert "'refs/heads/feature' exists" in result.output
+
+
+def test_branches_sync_reports_failures_and_exits_nonzero(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """`branches sync` reports failed repos with git's reason, finishes remaining repos, and exits 1."""
+    repos_dir = tmp_path / "repos"
+    bare1 = tmp_path / "bare1.git"
+    bare2 = tmp_path / "bare2.git"
+    bare1.mkdir()
+    bare2.mkdir()
+    git(bare1, "init", "--bare", "--initial-branch=main", "--quiet")
+    git(bare2, "init", "--bare", "--initial-branch=main", "--quiet")
+
+    repo1 = repos_dir / "group" / "repo1"
+    repo2 = repos_dir / "group" / "repo2"
+    git(tmp_path, "clone", "--quiet", str(bare1), str(repo1))
+    git(tmp_path, "clone", "--quiet", str(bare2), str(repo2))
+
+    (repo1 / "f.txt").write_text("1", encoding="utf-8")
+    git(repo1, "add", ".")
+    git(repo1, "commit", "--quiet", "-m", "init")
+    git(repo1, "push", "--quiet", "origin", "main")
+
+    (repo2 / "f.txt").write_text("2", encoding="utf-8")
+    git(repo2, "add", ".")
+    git(repo2, "commit", "--quiet", "-m", "init")
+    git(repo2, "push", "--quiet", "origin", "main")
+
+    # Make bare1 refuse fetch
+    objects_dir = bare1 / "objects"
+    objects_dir.chmod(0o000)
+
+    try:
+        res = runner.invoke(branches_app, ["sync", "--base-dir", str(repos_dir)])
+        assert res.exit_code == 1
+        assert "group/repo1" in res.output
+        assert "group/repo2" in res.output
+    finally:
+        objects_dir.chmod(0o755)
