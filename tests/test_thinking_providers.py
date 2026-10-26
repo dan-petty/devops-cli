@@ -483,12 +483,22 @@ class TestStreamingThinkingExtractors:
         chunks = list(client.chat_stream("System", "Hello", enable_thinking=True))
         assert "<think>step 1 reasoning</think>" in "".join(chunks)
 
-    def test_extract_openai_reasoning_content_delta(self) -> None:
-        from devops_cli.ai.client.streaming import StreamFrame, _openai_stream_frame
+    def test_extract_openai_reasoning_content_delta(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from devops_cli.models.ai import ChatMessage
+        from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, route_client, sse_data
 
-        data = '{"choices": [{"delta": {"reasoning_content": "step 1 reasoning"}}]}'
-        frame = _openai_stream_frame(httpx2.ServerSentEvent(data=data))
-        assert frame == StreamFrame(chunk="<think>step 1 reasoning</think>")
+        cfg = AIConfig(provider="openai", model="deepseek-reasoner", allow_private_network=True)
+        client = LLMClient(cfg, api_key="sk-test-token")
+        frames = [
+            sse_data(
+                {"choices": [{"index": 0, "delta": {"reasoning_content": "step 1 reasoning"}}]}
+            ),
+            openai_chunk("42", "stop"),
+            OPENAI_DONE,
+        ]
+        route_client(client, monkeypatch, lambda request: reply(frames))
+        chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+        assert chunks == ["<think>step 1 reasoning</think>", "42"]
 
 
 class TestGatewayReasoningPayloadRouting:

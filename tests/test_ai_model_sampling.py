@@ -106,8 +106,8 @@ def test_streamed_openai_compat_payload_includes_sampling() -> None:
     cfg = AIConfig(provider="gateway", temperature=0.7, top_p=0.85)
     client = LLMClient(config=cfg)
 
-    payload_unstreamed = client._build_compat_payload("sys", [], stream=False)
-    payload_streamed = client._build_compat_payload("sys", [], stream=True)
+    payload_unstreamed = client._prepare_params("sys", [], stream=False)
+    payload_streamed = client._prepare_params("sys", [], stream=True)
 
     assert payload_unstreamed.get("temperature") == 0.7
     assert payload_unstreamed.get("top_p") == 0.85
@@ -120,7 +120,7 @@ def test_streamed_openai_compat_payload_omits_sampling_when_use_model_sampling()
     cfg = AIConfig(provider="gateway", temperature=0.7, top_p=0.85, use_model_sampling=True)
     client = LLMClient(config=cfg)
 
-    payload = client._build_compat_payload("sys", [], stream=True)
+    payload = client._prepare_params("sys", [], stream=True)
     assert "temperature" not in payload
     assert "top_p" not in payload
 

@@ -12,7 +12,6 @@ from typer.testing import CliRunner
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.benchmark.tasks import BENCHMARK_TASKS, get_benchmark_tasks
 from devops_cli.commands.ai import app as ai_app
-from devops_cli.config.constants import CONST_URL_OPENAI_API_BASE
 from devops_cli.config.settings import AIConfig, Settings
 from devops_cli.models.benchmark import (
     BenchmarkReport,
@@ -227,8 +226,8 @@ def test_benchmark_runner_concurrent_execution() -> None:
         ("openai", "https://example.com/v1", "m@https://example.com:8443", ""),
         ("openai", "https://example.com/v1", "m@https://example.com", "sk-test-configured"),
         ("gateway", None, "m@https://example.com:8443", "sk-test-configured"),
-        ("openai", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", "sk-test-configured"),
-        ("claude", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", ""),
+        ("openai", None, "m@https://api.openai.com/v1", "sk-test-configured"),
+        ("claude", None, "m@https://api.openai.com/v1", ""),
         ("openai", "https://example.com/v1", "m@https://example.com\\@192.0.2.1/v1", ""),
         ("openai", "https://example.com/v1", "m@https://example.com:443/v1", "sk-test-configured"),
         (

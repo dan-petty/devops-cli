@@ -275,7 +275,7 @@ def test_reasoning_models_use_max_completion_tokens() -> None:
             supports_reasoning=True,
         )
         provider = LLMClient(config=cfg)
-        payload = provider._build_compat_payload(
+        payload = provider._prepare_params(
             system="system prompt",
             messages=[ChatMessage(role="user", content="hello")],
         )

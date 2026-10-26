@@ -10,7 +10,6 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_URL_ANTHROPIC_API_BASE,
     CONST_URL_GITHUB_COPILOT_API_BASE,
-    CONST_URL_OPENAI_API_BASE,
 )
 from devops_cli.exceptions import ConfigurationError
 
@@ -87,7 +86,11 @@ def _resolve_cloud_or_custom_endpoint(provider: str, cfg: Any) -> ResolvedAIEndp
             provider="copilot", urls=(str(base_url).rstrip("/"),), models=models
         )
     if provider == "openai":
-        base_url = getattr(cfg, "api_base_url", None) or CONST_URL_OPENAI_API_BASE
+        import openai
+
+        base_url = getattr(cfg, "api_base_url", None) or str(
+            openai.OpenAI(api_key="none").base_url
+        ).rstrip("/")
         return ResolvedAIEndpoint(
             provider="openai", urls=(str(base_url).rstrip("/"),), models=models
         )
