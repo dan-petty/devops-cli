@@ -168,7 +168,7 @@ def _apply_template(
     if namespace:
         cmd += ["--namespace", namespace]
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s apply",
             target=path,
@@ -220,7 +220,7 @@ def apply(
         cmd += ["--dry-run=client"]
     if namespace:
         cmd += ["--namespace", namespace]
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s apply",
             target=path,
