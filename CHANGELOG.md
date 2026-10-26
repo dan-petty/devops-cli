@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1](https://github.com/dan-petty/devops-cli/compare/v0.6.0...v0.6.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **ai:** the rag index keeps each project's chunks apart, deletes a removed file's points before forgetting it, and refills a project its collection lost ([#2283](https://github.com/dan-petty/devops-cli/issues/2283)) ([ad7c38b](https://github.com/dan-petty/devops-cli/commit/ad7c38b1ede444477af0c4f3a0f09615b0f40b18))
+* **cli:** repos sync and branches sync report a failed fetch or pull instead of printing success ([#2276](https://github.com/dan-petty/devops-cli/issues/2276)) ([bf72be1](https://github.com/dan-petty/devops-cli/commit/bf72be1b9fe9064abac361e8f0b0f39b372c0d78))
+* **github:** pace GraphQL porcelain commands against graphql quota ([#2280](https://github.com/dan-petty/devops-cli/issues/2280)) ([7f1145a](https://github.com/dan-petty/devops-cli/commit/7f1145a4971391f7f0b3b8545bbf59fa4907a243)), closes [#1415](https://github.com/dan-petty/devops-cli/issues/1415)
+* **roadmap:** intake keeps the fields a person set on a card added during its planning ([#2278](https://github.com/dan-petty/devops-cli/issues/2278)) ([21654c6](https://github.com/dan-petty/devops-cli/commit/21654c619bfd0578bbd7e985237502d104b8fcd7))
+* **roadmap:** intake leaves the sub-issues of a candidate's source out of the duplicate check ([#2275](https://github.com/dan-petty/devops-cli/issues/2275)) ([214028c](https://github.com/dan-petty/devops-cli/commit/214028cfb4e17f3a9f84170252ebebb995e9e564))
+* **telemetry:** wait for abandoned dispatch workers before a test ends ([#2282](https://github.com/dan-petty/devops-cli/issues/2282)) ([51e8e61](https://github.com/dan-petty/devops-cli/commit/51e8e61c6dfe58f37e8d65588faf456c3a60a447))
+
 ## [0.6.0](https://github.com/dan-petty/devops-cli/compare/v0.5.0...v0.6.0) (2026-10-26)
 
 
