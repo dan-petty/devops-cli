@@ -708,7 +708,7 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
     tool_installers: tuple[tuple[str, list[str], str, str], ...] = (
         (
             "uv",
-            ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+            ["bash", "-o", "pipefail", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
             "Installed standalone uv binary into $HOME/.local/bin",
             "Warning: Failed to install standalone uv binary",
         ),
@@ -720,7 +720,7 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
         ),
         (
             "claude",
-            ["sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+            ["bash", "-o", "pipefail", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
             "Installed standalone claude CLI into $HOME/.local/bin",
             "Warning: Failed to install standalone claude CLI",
         ),

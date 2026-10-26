@@ -685,6 +685,106 @@ class TestDevcontainerCli:
             "Warning: Failed to install standalone claude CLI" in result.output,
         ) == (0, True)
 
+    @pytest.mark.live("bash", "sh", "curl")
+    def test_post_create_reports_failure_warning_when_uv_download_fails(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When curl download fails for uv, post-create reports the failure warning and not the install."""
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        fake_curl = fake_bin / "curl"
+        fake_curl.write_text("#!/bin/sh\nexit 7\n")
+        fake_curl.chmod(0o755)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ.get('PATH', '')}")
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: "/usr/local/bin/" + prog if prog in ("pre-commit", "claude") else None,
+        )
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Warning: Failed to install standalone uv binary" in result.output
+        assert "Installed standalone uv binary" not in result.output
+
+    @pytest.mark.live("bash", "sh", "curl")
+    def test_post_create_reports_failure_warning_when_claude_download_fails(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When curl download fails for claude, post-create reports the failure warning and not the install."""
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        fake_curl = fake_bin / "curl"
+        fake_curl.write_text("#!/bin/sh\nexit 7\n")
+        fake_curl.chmod(0o755)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ.get('PATH', '')}")
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
+        )
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Warning: Failed to install standalone claude CLI" in result.output
+        assert "Installed standalone claude CLI" not in result.output
+
+    @pytest.mark.live("bash", "sh", "curl")
+    def test_post_create_reports_install_when_uv_download_succeeds(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When curl download succeeds for uv, post-create reports the install."""
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        fake_curl = fake_bin / "curl"
+        fake_curl.write_text("#!/bin/sh\necho 'echo mock uv'\nexit 0\n")
+        fake_curl.chmod(0o755)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ.get('PATH', '')}")
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: "/usr/local/bin/" + prog if prog in ("pre-commit", "claude") else None,
+        )
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Installed standalone uv binary into $HOME/.local/bin" in result.output
+        assert "Warning: Failed to install standalone uv binary" not in result.output
+
+    @pytest.mark.live("bash", "sh", "curl")
+    def test_post_create_reports_install_when_claude_download_succeeds(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When curl download succeeds for claude, post-create reports the install."""
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        fake_curl = fake_bin / "curl"
+        fake_curl.write_text("#!/bin/sh\necho 'echo mock claude'\nexit 0\n")
+        fake_curl.chmod(0o755)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ.get('PATH', '')}")
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
+        )
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Installed standalone claude CLI into $HOME/.local/bin" in result.output
+        assert "Warning: Failed to install standalone claude CLI" not in result.output
+
     def test_post_create_warns_and_succeeds_when_a_node_tool_has_no_npm_to_install_with(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
