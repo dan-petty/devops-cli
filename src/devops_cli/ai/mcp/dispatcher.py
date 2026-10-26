@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -293,7 +294,7 @@ class InProcessDispatcher:
         if sub_args is None:
             code, out = self._dispatch_subprocess(cmd, timeout=timeout, env=env)
         else:
-            code, out = self._dispatch_typer(sub_args, env=env)
+            code, out = self._dispatch_typer(sub_args, env=env, timeout=timeout, cmd=cmd)
 
         fallback = "Success" if code == 0 else "no output captured"
         return code, out or fallback
@@ -302,6 +303,8 @@ class InProcessDispatcher:
         self,
         sub_args: list[str],
         env: dict[str, str] | None = None,
+        timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        cmd: list[str] | None = None,
     ) -> tuple[int, str]:
         """Execute command in-process via Typer CliRunner while isolating child stdout."""
         from typer.testing import CliRunner
@@ -310,25 +313,66 @@ class InProcessDispatcher:
 
         with self._lock:
             runner = CliRunner()
+            saved_sys_stdout = sys.stdout
+            saved_sys_stderr = sys.stderr
+            saved_sys_stdin = sys.stdin
             try:
                 start_t = time.perf_counter()
+                res: Any = None
+                worker_exc: BaseException | None = None
+
                 with _isolate_child_stdio() as (out_f, err_f):
                     with _dry_run_invocation(sub_args):
-                        res = runner.invoke(app, sub_args, env=env)
-                    child_out = _read_stream(out_f)
-                    child_err = _read_stream(err_f)
+
+                        def _worker() -> None:
+                            nonlocal res, worker_exc
+                            try:
+                                res = runner.invoke(app, sub_args, env=env)
+                            except (
+                                RuntimeError,
+                                ValueError,
+                                OSError,
+                                SystemExit,
+                                KeyError,
+                                TypeError,
+                                AttributeError,
+                                TimeoutError,
+                            ) as exc:
+                                worker_exc = exc
+
+                        t = threading.Thread(target=_worker, daemon=True)
+                        t.start()
+                        t.join(timeout=timeout)
+
+                        if t.is_alive():
+                            sys.stdout = saved_sys_stdout
+                            sys.stderr = saved_sys_stderr
+                            sys.stdin = saved_sys_stdin
+                            logger.warning("In-process dispatch timed out after %.2fs", timeout)
+                            target = " ".join(cmd) if cmd else f"devops {' '.join(sub_args)}"
+                            return 124, f"Command timed out after {timeout} seconds: {target}"
+
+                        child_out = _read_stream(out_f)
+                        child_err = _read_stream(err_f)
+
+                if worker_exc is not None:
+                    raise worker_exc
 
                 dur_ms = (time.perf_counter() - start_t) * 1000
                 logger.debug("In-process dispatch finished in %.2fms", dur_ms)
 
+                res_exit = res.exit_code if res is not None else 1
+                res_output = res.output if res is not None else ""
+                res_stderr = res.stderr if res is not None else ""
+
                 out = _combine_output_parts(
-                    res.output or "",
+                    res_output or "",
                     child_out,
-                    res.stderr or "",
+                    res_stderr or "",
                     child_err,
                 )
-                fallback = "Success" if res.exit_code == 0 else "no output captured"
-                return res.exit_code, out or fallback
+                fallback = "Success" if res_exit == 0 else "no output captured"
+                return res_exit, out or fallback
             except Exception as exc:
                 logger.debug("In-process dispatch failed: %s", type(exc).__name__)
                 return 1, f"In-process execution error: {type(exc).__name__}"
@@ -351,6 +395,8 @@ class InProcessDispatcher:
             out = (proc.stdout + ("\n" + proc.stderr if proc.stderr else "")).strip()
             fallback = "Success" if proc.returncode == 0 else "no output captured"
             return proc.returncode, out or fallback
+        except subprocess.TimeoutExpired:
+            return 124, f"Command timed out after {timeout} seconds: {' '.join(cmd)}"
         except Exception as exc:
             return 1, f"Execution failed: {exc}"
 
