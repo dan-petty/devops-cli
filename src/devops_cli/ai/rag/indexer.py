@@ -20,11 +20,13 @@ from devops_cli.ai.kb import knowledge_base_digest
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_INDEX_CACHE_FILENAME,
+    CONST_INDEX_COUNTS_FILENAME,
     CONST_RAG_INCOMPLETE_FILE_MARKER,
     CONST_RAG_KB_PROJECT,
     CONST_RAG_SKIPPED_LOCKFILES,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_RAG_CACHE_DIR,
     DEFAULT_RAG_CHUNK_OVERLAP,
@@ -35,6 +37,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
 from devops_cli.lang.en.errors import ERRORS
+from devops_cli.output.file_writer import write_json_file
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -200,27 +203,36 @@ def _get_single_collection_stat(
     )
 
 
-def _safe_delete_points_by_files(
-    qdrant: Any,
-    collection_name: str,
-    file_paths: Sequence[str],
-    *,
-    project_name: str | None = None,
-) -> bool:
-    """Delete points for file paths in batches if supported, falling back to per-file deletion."""
-    if not file_paths:
-        return True
-    if hasattr(qdrant, "delete_points_by_files"):
-        return bool(
-            qdrant.delete_points_by_files(
-                collection_name, file_paths, project_name=project_name, wait=False
-            )
-        )
-    if hasattr(qdrant, "delete_points_by_file"):
-        for f in file_paths:
-            qdrant.delete_points_by_file(collection_name, f, project_name=project_name)
-        return True
-    return False
+def _collect_deleted_keys_by_project(
+    cache: dict[str, str],
+    file_hashes: dict[str, str],
+    scanned_projects: set[str],
+) -> dict[str, list[str]]:
+    """Group deleted cache keys by project name."""
+    current_keys = set(file_hashes.keys())
+    by_proj: dict[str, list[str]] = defaultdict(list)
+    for k in cache:
+        proj, _, rel_path = k.partition(":")
+        if proj in scanned_projects and k not in current_keys and rel_path:
+            by_proj[proj].append(rel_path)
+    return by_proj
+
+
+def _purge_deleted_batch(
+    qdrant: QdrantClient,
+    code_collection: str,
+    docs_collection: str,
+    proj: str,
+    chunk: list[str],
+    cache: dict[str, str],
+    save_cache_fn: Callable[[dict[str, str]], None],
+) -> None:
+    """Purge a batch of deleted files and update local cache."""
+    qdrant.delete_points_by_files(code_collection, chunk, project_name=proj, wait=True)
+    qdrant.delete_points_by_files(docs_collection, chunk, project_name=proj, wait=True)
+    for r in chunk:
+        cache.pop(f"{proj}:{r}", None)
+    save_cache_fn(cache)
 
 
 def _purge_deleted_vectors(
@@ -230,37 +242,38 @@ def _purge_deleted_vectors(
     code_collection: str,
     docs_collection: str,
     save_cache_fn: Callable[[dict[str, str]], None],
+    *,
+    project: str | None = None,
+    projects: set[str] | Sequence[str] | None = None,
     progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> int:
     """Purge obsolete points from Qdrant when files are deleted on disk."""
-    scanned_projects = {k.partition(":")[0] for k in file_hashes.keys()}
-    current_keys = set(file_hashes.keys())
-    deleted_keys = [
-        k for k in cache if k.partition(":")[0] in scanned_projects and k not in current_keys
-    ]
-    if not deleted_keys:
+    if projects is not None:
+        scanned_projects = set(projects)
+    else:
+        scanned_projects = {k.partition(":")[0] for k in file_hashes}
+        if project:
+            scanned_projects.add(project)
+
+    by_proj = _collect_deleted_keys_by_project(cache, file_hashes, scanned_projects)
+    total_deleted = sum(len(paths) for paths in by_proj.values())
+    if total_deleted == 0:
         return 0
 
-    total_deleted = len(deleted_keys)
     if progress_callback:
         progress_callback("Purging deleted files", 0, total_deleted)
 
-    by_proj: dict[str, list[str]] = defaultdict(list)
-    for dkey in deleted_keys:
-        dproj, _, d_rel_path = dkey.partition(":")
-        if d_rel_path:
-            by_proj[dproj].append(d_rel_path)
-        del cache[dkey]
-
     processed = 0
     for proj, rel_paths in by_proj.items():
-        _safe_delete_points_by_files(qdrant, code_collection, rel_paths, project_name=proj)
-        _safe_delete_points_by_files(qdrant, docs_collection, rel_paths, project_name=proj)
-        processed += len(rel_paths)
-        if progress_callback:
-            progress_callback("Purging deleted files", processed, total_deleted)
+        for i in range(0, len(rel_paths), 100):
+            chunk = rel_paths[i : i + 100]
+            _purge_deleted_batch(
+                qdrant, code_collection, docs_collection, proj, chunk, cache, save_cache_fn
+            )
+            processed += len(chunk)
+            if progress_callback:
+                progress_callback("Purging deleted files", processed, total_deleted)
 
-    save_cache_fn(cache)
     return total_deleted
 
 
@@ -294,8 +307,8 @@ def _purge_obsolete_points(
         batch_size = 100
         for i in range(0, len(rel_paths), batch_size):
             chunk = rel_paths[i : i + batch_size]
-            _safe_delete_points_by_files(qdrant, code_collection, chunk, project_name=fproj)
-            _safe_delete_points_by_files(qdrant, docs_collection, chunk, project_name=fproj)
+            qdrant.delete_points_by_files(code_collection, chunk, project_name=fproj, wait=True)
+            qdrant.delete_points_by_files(docs_collection, chunk, project_name=fproj, wait=True)
             processed += len(chunk)
             if progress_callback:
                 progress_callback("Purging obsolete vectors", processed, total_files)
@@ -342,7 +355,7 @@ def _resolve_indexing_target_metadata(
         pass
 
     if is_kb:
-        proj_name = "devops-cli-kb"
+        proj_name = CONST_RAG_KB_PROJECT
         rel_base = kb_dir
     else:
         proj_name = project or detect_project_name(file_path, root_dir)
@@ -623,6 +636,7 @@ class WorkspaceIndexer:
         self.docs_collection = docs_collection
         self.cache_dir = cache_dir
         self.cache_file = cache_dir / CONST_INDEX_CACHE_FILENAME
+        self.counts_file = cache_dir / CONST_INDEX_COUNTS_FILENAME
         self.chunker = SemanticChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def _load_cache(self) -> dict[str, str]:
@@ -634,11 +648,48 @@ class WorkspaceIndexer:
         return {}
 
     def _save_cache(self, cache: dict[str, str]) -> None:
-        try:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.cache_file.write_text(json.dumps(cache, indent=2), encoding="utf-8")
-        except Exception as exc:
-            logger.debug("Failed to write index cache: %s", exc)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        write_json_file(self.cache_file, cache, indent=2, atomic=True)
+
+    def _load_counts(self) -> dict[str, dict[str, int]]:
+        if self.counts_file.exists():
+            try:
+                data = json.loads(self.counts_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except Exception as exc:
+                logger.debug("Failed to read index counts file: %s", exc)
+        return {}
+
+    def _save_counts(self, counts: dict[str, dict[str, int]]) -> None:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        write_json_file(self.counts_file, counts, indent=2, atomic=True)
+
+    def _check_project_points_intact(self, project: str) -> tuple[bool, str | None]:
+        counts = self._load_counts()
+        if project in counts:
+            proj_counts = counts[project]
+            for coll in (self.code_collection, self.docs_collection):
+                prev_count = proj_counts.get(coll, 0)
+                if prev_count > 0:
+                    current = self.qdrant.count_points(coll, {"project_name": project})
+                    if current == 0:
+                        return False, coll
+            return True, None
+
+        cache = self._load_cache()
+        if any(k.partition(":")[0] == project for k in cache):
+            code_count = self.qdrant.count_points(self.code_collection, {"project_name": project})
+            docs_count = self.qdrant.count_points(self.docs_collection, {"project_name": project})
+            if code_count == 0 and docs_count == 0:
+                return False, f"{self.code_collection}, {self.docs_collection}"
+
+        return True, None
+
+    def points_intact(self, project: str) -> bool:
+        """Check whether the points for a project remain intact in Qdrant collections."""
+        intact, _ = self._check_project_points_intact(project)
+        return intact
 
     @staticmethod
     def collect_files(root_dir: Path) -> list[Path]:
@@ -687,11 +738,154 @@ class WorkspaceIndexer:
 
         return self.index_workspace(
             kb_dir,
-            project="devops-cli-kb",
+            project=CONST_RAG_KB_PROJECT,
             force=force,
             include_kb=False,
             progress_callback=progress_callback,
         )
+
+    def _ensure_collections(self) -> None:
+        """Ensure collections exist and have payload schema indexes."""
+        for coll_name in {self.code_collection, self.docs_collection}:
+            _verify_collection_compatibility_for_indexing(self.qdrant, self.embedder, coll_name)
+
+        model_dim = (
+            _extract_embedder_dimension(self.embedder) or DEFAULT_DRY_RUN_EMBEDDING_DIMENSION
+        )
+        if hasattr(self.qdrant, "ensure_collection"):
+            self.qdrant.ensure_collection(self.code_collection, vector_size=model_dim)
+            self.qdrant.ensure_collection(self.docs_collection, vector_size=model_dim)
+
+    def _resolve_scanned_projects(
+        self,
+        files: Sequence[Path],
+        root_dir: Path,
+        kb_dir: Path,
+        project: str | None,
+        include_kb: bool,
+    ) -> set[str]:
+        """Determine unique project names across collected files."""
+        if project:
+            scanned = {project}
+        else:
+            scanned = {
+                _resolve_indexing_target_metadata(f, root_dir, kb_dir, None)[0] for f in files
+            }
+            if not scanned:
+                scanned = {detect_project_name(root_dir, root_dir)}
+        if include_kb:
+            scanned.add(CONST_RAG_KB_PROJECT)
+        return scanned
+
+    def _prepare_force_projects(self, scanned_projects: set[str], *, force: bool) -> set[str]:
+        """Detect and purge projects requiring full re-indexing."""
+        force_projects: set[str] = set()
+        if force:
+            force_projects.update(scanned_projects)
+        else:
+            for proj in sorted(scanned_projects):
+                intact, lost_coll = self._check_project_points_intact(proj)
+                if not intact:
+                    logger.info(
+                        "Project '%s' lost points in collection '%s'; refilling index",
+                        proj,
+                        lost_coll,
+                    )
+                    force_projects.add(proj)
+
+        for proj in sorted(force_projects):
+            self.qdrant.delete_points_by_project(self.code_collection, proj, wait=True)
+            self.qdrant.delete_points_by_project(self.docs_collection, proj, wait=True)
+
+        return force_projects
+
+    def _save_project_counts(self, scanned_projects: set[str]) -> None:
+        """Record point counts per project and collection to counts file."""
+        counts = self._load_counts()
+        for p in sorted(scanned_projects):
+            counts[p] = {
+                self.code_collection: self.qdrant.count_points(
+                    self.code_collection, {"project_name": p}
+                ),
+                self.docs_collection: self.qdrant.count_points(
+                    self.docs_collection, {"project_name": p}
+                ),
+            }
+        self._save_counts(counts)
+
+    def _scan_workspace_files(
+        self,
+        files: Sequence[Path],
+        root_dir: Path,
+        kb_dir: Path,
+        project: str | None,
+        cache: dict[str, str],
+        force_projects: set[str],
+        *,
+        force: bool,
+        progress_callback: Callable[[str, int, int], None] | None,
+    ) -> tuple[dict[str, str], list[CodeChunk], list[tuple[Path, str, str]]]:
+        """Scan and chunk all indexable workspace files."""
+        file_hashes: dict[str, str] = {}
+        all_chunks: list[CodeChunk] = []
+        files_to_reindex: list[tuple[Path, str, str]] = []
+
+        for idx, file_path in enumerate(files, 1):
+            if progress_callback:
+                progress_callback("Scanning files", idx, len(files))
+
+            proj_name, _, _ = _resolve_indexing_target_metadata(
+                file_path, root_dir, kb_dir, project
+            )
+            file_forced = force or (proj_name in force_projects)
+            scanned = _scan_single_file_for_indexing(
+                file_path,
+                root_dir,
+                kb_dir,
+                project,
+                self.chunker,
+                cache,
+                file_hashes,
+                file_forced,
+            )
+            if scanned is not None:
+                file_info, file_chunks = scanned
+                files_to_reindex.append(file_info)
+                all_chunks.extend(file_chunks)
+
+        return file_hashes, all_chunks, files_to_reindex
+
+    def _upsert_partitioned_chunks(
+        self,
+        all_chunks: list[CodeChunk],
+        cache: dict[str, str],
+        file_hashes: dict[str, str],
+        progress_callback: Callable[[str, int, int], None] | None,
+    ) -> tuple[list[CodeChunk], list[CodeChunk]]:
+        """Partition chunks into code and docs, then upsert to Qdrant."""
+        code_chunks, doc_chunks = _partition_chunks(all_chunks)
+        pending = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
+        if code_chunks:
+            self._upsert_chunks(
+                self.code_collection,
+                code_chunks,
+                cache,
+                file_hashes,
+                pending=pending,
+                progress_callback=progress_callback,
+                progress_title="Embedding code",
+            )
+        if doc_chunks:
+            self._upsert_chunks(
+                self.docs_collection,
+                doc_chunks,
+                cache,
+                file_hashes,
+                pending=pending,
+                progress_callback=progress_callback,
+                progress_title="Embedding docs",
+            )
+        return code_chunks, doc_chunks
 
     def index_workspace(
         self,
@@ -703,8 +897,7 @@ class WorkspaceIndexer:
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """Incrementally index workspace files into Qdrant."""
-        for coll_name in {self.code_collection, self.docs_collection}:
-            _verify_collection_compatibility_for_indexing(self.qdrant, self.embedder, coll_name)
+        self._ensure_collections()
 
         with trace_span(
             "ai.rag.index_workspace",
@@ -716,31 +909,35 @@ class WorkspaceIndexer:
             },
         ) as root_span:
             files = _collect_all_indexing_files(self.collect_files, root_dir, include_kb)
-            cache = {} if force else self._load_cache()
-            file_hashes: dict[str, str] = {}
-
-            all_chunks: list[CodeChunk] = []
-            files_to_reindex: list[tuple[Path, str, str]] = []
-
             from devops_cli.ai.kb import get_knowledge_base_dir
 
             kb_dir = get_knowledge_base_dir().resolve()
+            scanned_projects = self._resolve_scanned_projects(
+                files, root_dir, kb_dir, project, include_kb
+            )
+            force_projects = self._prepare_force_projects(scanned_projects, force=force)
 
-            for idx, file_path in enumerate(files, 1):
-                if progress_callback:
-                    progress_callback("Scanning files", idx, len(files))
+            cache = self._load_cache()
+            if force_projects:
+                cache = {
+                    k: v for k, v in cache.items() if k.partition(":")[0] not in force_projects
+                }
 
-                scanned = _scan_single_file_for_indexing(
-                    file_path, root_dir, kb_dir, project, self.chunker, cache, file_hashes, force
-                )
-                if scanned is not None:
-                    file_info, file_chunks = scanned
-                    files_to_reindex.append(file_info)
-                    all_chunks.extend(file_chunks)
+            file_hashes, all_chunks, files_to_reindex = self._scan_workspace_files(
+                files,
+                root_dir,
+                kb_dir,
+                project,
+                cache,
+                force_projects,
+                force=force,
+                progress_callback=progress_callback,
+            )
 
-            # Purge files deleted from disk since last index (scoped to scanned projects)
+            # Purge files deleted from disk since last index (scoped to scanned projects not forced)
             removed_files_count = 0
-            if not force:
+            projects_to_purge = scanned_projects - force_projects
+            if projects_to_purge:
                 removed_files_count = _purge_deleted_vectors(
                     self.qdrant,
                     cache,
@@ -748,10 +945,12 @@ class WorkspaceIndexer:
                     self.code_collection,
                     self.docs_collection,
                     self._save_cache,
+                    projects=projects_to_purge,
                     progress_callback=progress_callback,
                 )
 
             if not all_chunks:
+                self._save_project_counts(scanned_projects)
                 root_span.set_attribute("rag.indexed_files", 0)
                 root_span.set_attribute("rag.total_chunks", 0)
                 return {
@@ -777,32 +976,11 @@ class WorkspaceIndexer:
                 progress_callback=progress_callback,
             )
 
-            code_chunks, doc_chunks = _partition_chunks(all_chunks)
-            pending = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
-
-            # Upsert chunks to their respective collections with batch embeddings
-            if code_chunks:
-                self._upsert_chunks(
-                    self.code_collection,
-                    code_chunks,
-                    cache,
-                    file_hashes,
-                    pending=pending,
-                    progress_callback=progress_callback,
-                    progress_title="Embedding code",
-                )
-            if doc_chunks:
-                self._upsert_chunks(
-                    self.docs_collection,
-                    doc_chunks,
-                    cache,
-                    file_hashes,
-                    pending=pending,
-                    progress_callback=progress_callback,
-                    progress_title="Embedding docs",
-                )
-
+            code_chunks, doc_chunks = self._upsert_partitioned_chunks(
+                all_chunks, cache, file_hashes, progress_callback
+            )
             self._save_cache(cache)
+            self._save_project_counts(scanned_projects)
 
             record_metric("rag.indexed_files", len(files) - len(files_to_reindex))
             record_metric("rag.total_chunks", len(all_chunks))

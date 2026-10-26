@@ -11,6 +11,7 @@ Verifies:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
@@ -92,6 +93,44 @@ class InMemoryQdrantClient:
             self.collections[name] = []
         self.collections[name].extend(points)
         return len(points)
+
+    def delete_points_by_files(
+        self,
+        name: str,
+        file_paths: Sequence[str],
+        *,
+        project_name: str | None = None,
+        wait: bool = True,
+    ) -> bool:
+        if name in self.collections:
+            path_set = set(file_paths)
+            self.collections[name] = [
+                p
+                for p in self.collections[name]
+                if not (
+                    p.get("payload", {}).get("file_path") in path_set
+                    and (
+                        project_name is None
+                        or p.get("payload", {}).get("project_name") == project_name
+                    )
+                )
+            ]
+        return True
+
+    def delete_points_by_project(
+        self,
+        name: str,
+        project_name: str,
+        *,
+        wait: bool = True,
+    ) -> bool:
+        if name in self.collections:
+            self.collections[name] = [
+                p
+                for p in self.collections[name]
+                if p.get("payload", {}).get("project_name") != project_name
+            ]
+        return True
 
 
 class DummyEmbedder:
