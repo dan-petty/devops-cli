@@ -7,11 +7,11 @@
 
 ## 2. Devcontainer image configuration and build action
 
-- [ ] 2.1 Add `.devcontainer/image/devcontainer.json` and `.devcontainer/image/devcontainer-lock.json` without workspace mounts, lifecycle commands, or editor customizations
+- [x] 2.1 Add `.devcontainer/image/devcontainer.json` and `.devcontainer/image/devcontainer-lock.json` without workspace mounts, lifecycle commands, or editor customizations
   - Verification: `uv run devops ci test tests/test_devcontainer.py -k devcontainer_image`
-- [ ] 2.2 Update `.github/actions/devcontainer-image/action.yml` to build `.devcontainer/image/devcontainer.json`
+- [x] 2.2 Update `.github/actions/devcontainer-image/action.yml` to build `.devcontainer/image/devcontainer.json`
   - Verification: `uv run devops ci test tests/test_workflow_contracts.py -k devcontainer_image`
-- [ ] 2.3 Update telemetry and node version tests to include `.devcontainer/image/`
+- [x] 2.3 Update telemetry and node version tests to include `.devcontainer/image/`
   - Verification: `uv run devops ci test tests/test_third_party_telemetry.py tests/test_devcontainer.py`
 
 ## 3. Verification and static checks

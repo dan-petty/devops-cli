@@ -2440,6 +2440,9 @@ def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() 
 
     pinned = (REPO_ROOT / ".node-version").read_text(encoding="utf-8").strip()
     repository = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text("utf-8"))
+    image_config = json.loads(
+        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json").read_text("utf-8")
+    )
     scaffolded = json.loads(
         render_json_template(
             "devcontainer.json.j2",
@@ -2452,6 +2455,9 @@ def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() 
         )
     )
     lock = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer-lock.json").read_text("utf-8"))
+    image_lock = json.loads(
+        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer-lock.json").read_text("utf-8")
+    )
 
     feature = "ghcr.io/devcontainers/features/node"
     versions = {
@@ -2460,12 +2466,19 @@ def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() 
         )
         for name, features in (
             ("repository", repository["features"]),
+            ("image", image_config["features"]),
             ("template", scaffolded["features"]),
         )
     }
-    assert (pinned, versions, any(ref.startswith(feature) for ref in lock["features"])) == (
+    assert (
+        pinned,
+        versions,
+        any(ref.startswith(feature) for ref in lock["features"]),
+        any(ref.startswith(feature) for ref in image_lock["features"]),
+    ) == (
         "24",
-        {"repository": "24", "template": "24"},
+        {"repository": "24", "image": "24", "template": "24"},
+        True,
         True,
     )
 

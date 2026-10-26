@@ -1,0 +1,65 @@
+{
+  "name": "devops-cli",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "../.."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": "true",
+      "configureZshAsDefaultShell": "true",
+      "username": "vscode",
+      "userUid": "1000",
+      "userGid": "1000",
+      "upgradePackages": "true"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": false,
+      "enableNonRootDocker": true
+    },
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "latest",
+      "helm": "latest",
+      "minikube": "latest"
+    },
+    "ghcr.io/devcontainers/features/copilot-cli:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "24"
+    },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
+  "containerEnv": {
+    "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+    "GIT_CONFIG_COUNT": "4",
+    "GIT_CONFIG_KEY_0": "credential.https://github.com.helper",
+    "GIT_CONFIG_VALUE_0": "",
+    "GIT_CONFIG_KEY_1": "credential.https://github.com.helper",
+    "GIT_CONFIG_VALUE_1": "!gh auth git-credential",
+    "GIT_CONFIG_KEY_2": "credential.https://gist.github.com.helper",
+    "GIT_CONFIG_VALUE_2": "",
+    "GIT_CONFIG_KEY_3": "credential.https://gist.github.com.helper",
+    "GIT_CONFIG_VALUE_3": "!gh auth git-credential",
+    "UV_MALWARE_CHECK": "1",
+    "DO_NOT_TRACK": "1",
+    "OPENSPEC_TELEMETRY": "0",
+    "OPENSPEC_NO_UPDATE_CHECK": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "SCARF_NO_ANALYTICS": "true",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "CHECKPOINT_DISABLE": "1",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "ANONYMIZED_TELEMETRY": "false",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "GOTELEMETRY": "off",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    "npm_config_update_notifier": "false",
+    "DOCKER_CLI_HINTS": "false",
+    "MINIKUBE_WANTUPDATENOTIFICATION": "false",
+    "MINIKUBE_WANTREPORTERRORPROMPT": "false"
+  },
+  "remoteUser": "vscode"
+}
