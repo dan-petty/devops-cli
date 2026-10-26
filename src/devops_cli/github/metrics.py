@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_ROADMAP_TYPE_LABEL_PREFIX
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
-from devops_cli.github.client import GhCliClient
+from devops_cli.github.client import GhCliClient, parse_paginated_json
 from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.store import RoadmapStore
 from devops_cli.telemetry.instruments import (
@@ -417,18 +417,15 @@ def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
     client = GhCliClient()
     endpoint = f"repos/{repo}/issues?state=open&per_page=100"
     try:
-        raw_output = client.api(endpoint)
-        issues = json.loads(raw_output)
+        raw_output = client.api(endpoint, paginate=True)
+        issues = parse_paginated_json(raw_output)
     except Exception as err:
         logger.warning("Failed to query open issues for %s: %s", repo, err)
         return []
 
-    if not isinstance(issues, list):
-        return []
-
     counts: Counter[tuple[str, str]] = Counter()
     for issue in issues:
-        if not isinstance(issue, dict):
+        if not isinstance(issue, dict) or "pull_request" in issue:
             continue
         labels = issue.get("labels", [])
         for lbl in labels:

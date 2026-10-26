@@ -15,7 +15,12 @@ from devops_cli.config.constants import (
     CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
-from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT, DEFAULT_GH_REST_PER_PAGE
+from devops_cli.config.defaults import (
+    DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS,
+    DEFAULT_GH_LABEL_LIST_LIMIT,
+    DEFAULT_GH_REST_PER_PAGE,
+    DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError, GitHubUnreadError
 from devops_cli.github.rate_limiter import run_gh
 
@@ -210,6 +215,32 @@ class GitHubClient:
         return diff
 
 
+def parse_paginated_json(text: str) -> list[dict[str, Any]]:
+    """Parse one or multiple concatenated JSON documents or arrays from gh api --paginate."""
+    cleaned = text.strip()
+    if not cleaned:
+        return []
+    decoder = json.JSONDecoder()
+    items: list[dict[str, Any]] = []
+    idx = 0
+    length = len(cleaned)
+    while idx < length:
+        while idx < length and cleaned[idx].isspace():
+            idx += 1
+        if idx >= length:
+            break
+        try:
+            obj, end_idx = decoder.raw_decode(cleaned, idx)
+            idx = end_idx
+            if isinstance(obj, list):
+                items.extend(item for item in obj if isinstance(item, dict))
+            elif isinstance(obj, dict):
+                items.append(obj)
+        except json.JSONDecodeError:
+            break
+    return items
+
+
 class GhCliClient:
     """GitHub client backed by the gh CLI tool for local operations without raw PATs."""
 
@@ -284,9 +315,18 @@ class GhCliClient:
             cmd.extend(["--repo", target_repo])
         self._run_label_command(cmd)
 
-    def api(self, endpoint: str) -> str:
+    def api(self, endpoint: str, paginate: bool = False) -> str:
         """Execute a GitHub API request via rate-managed run_gh."""
-        res = run_gh([CONST_GH_CLI, "api", endpoint], check=False, quiet=True)
+        cmd = [CONST_GH_CLI, "api"]
+        if paginate:
+            cmd.append("--paginate")
+        cmd.append(endpoint)
+        timeout = (
+            DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS
+            if paginate
+            else DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS
+        )
+        res = run_gh(cmd, check=False, quiet=True, timeout=timeout)
         if res.returncode != 0:
             raise GitHubOperationError(
                 f"gh api call failed with exit code {res.returncode}: {res.stderr.strip()}",

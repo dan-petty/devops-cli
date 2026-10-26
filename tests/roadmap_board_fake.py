@@ -319,6 +319,7 @@ class GitHubFake:
         sub_issues: int = 0,
         parent: int | None = None,
         parent_repo: str | None = None,
+        pull_request: bool = False,
     ) -> None:
         """Issue `number`, and its card holding `card`'s fields when it is on the board. It has
         `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`. It is
@@ -343,6 +344,11 @@ class GitHubFake:
             "created_at": "2026-10-01T00:00:00Z",
             "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},
         }
+        if pull_request:
+            self.issues[number]["pull_request"] = {
+                "url": f"https://api.github.com/repos/{self.repo}/pulls/{number}",
+                "html_url": f"https://github.com/{self.repo}/pull/{number}",
+            }
         if card is not None:
             self._put_card(number, card)
 
@@ -513,7 +519,32 @@ class GitHubFake:
             open_issues = sum(issue["state"] == "open" for issue in self.issues.values())
             return {"stargazers_count": 0, "forks_count": 0, "open_issues_count": open_issues}
         parts = url.path.removeprefix(f"repos/{self.repo}/").split("/")
+        if "--paginate" in args:
+            return self._paginate_rest(method, url.path, parts, query, fields, args)
         return self._rest_route(method, url.path, parts, query, fields, args)
+
+    def _paginate_rest(
+        self,
+        method: str,
+        path: str,
+        parts: list[str],
+        query: dict[str, str],
+        fields: dict[str, str],
+        args: list[str],
+    ) -> Any:
+        per_page = int(query.get("per_page", "100"))
+        pages: list[Any] = []
+        page = 1
+        while True:
+            page_query = {**query, "page": str(page)}
+            entries = self._rest_route(method, path, parts, page_query, fields, args)
+            if not isinstance(entries, list):
+                return entries
+            pages.append(entries)
+            if len(entries) < per_page:
+                break
+            page += 1
+        return "".join(json.dumps(p) for p in pages)
 
     def _rest_route(
         self,
@@ -556,7 +587,8 @@ class GitHubFake:
             if query.get("state", "open") in ("all", issue["state"])
             and self._in_milestone(issue, query.get("milestone"))
         ]
-        return listed[(page - 1) * 100 : page * 100]
+        per_page = int(query.get("per_page", "100"))
+        return listed[(page - 1) * per_page : page * per_page]
 
     def _issue_route(
         self, method: str, number: int, rest: list[str], fields: dict[str, str], page: int
