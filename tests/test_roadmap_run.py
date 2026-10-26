@@ -96,7 +96,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
 )
 from devops_cli.server.service import ServiceManager, TriggerBatch
-from devops_cli.telemetry.instruments import PROJECT_RELEASES
+from devops_cli.telemetry.instruments import PROJECT_ITEMS, PROJECT_RELEASES
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
@@ -946,8 +946,8 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
 ) -> None:
     """The default table's metrics row clones the repository and walks its version tags there,
     not in the working directory, which in the Service is no git repository (#1358). The gauge
-    reads the remote's two past tags, and the job logs no warning, so every GitHub and status
-    read it made was answered."""
+    reads the remote's two past tags, and the job counts the open item of the store it was given
+    (#2263). It logs no warning, so every GitHub and status read it made was answered."""
     row = next(row for row in DEFAULT_DUE_TABLE if row.name == "metrics")
     remote = _make_bare_remote(tmp_path)
     for tag in ("v0.1.0", "v0.2.0"):
@@ -962,6 +962,8 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         headers={"content-type": "application/json"},
     )
     GLOBAL_METRICS.clear_metric(PROJECT_RELEASES.name)
+    GLOBAL_METRICS.clear_metric(PROJECT_ITEMS.name)
+    seeded_store.seed_issue("feat: export", labels=("type/feature",), on_board=True)
     data_dir = tmp_path / "data"
     with caplog.at_level(logging.WARNING):
         ran = run_due_jobs(
@@ -973,17 +975,23 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         ran,
         (clone / ".git").is_dir(),
         GLOBAL_METRICS.get_gauge(PROJECT_RELEASES.name),
+        GLOBAL_METRICS.get_gauge(
+            PROJECT_ITEMS.name,
+            {"milestone": "", "state": "open", "type": "feature", "priority": ""},
+        ),
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
     ) == (
         (True, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES)),
         ("metrics",),
         True,
         2.0,
+        1.0,
         [],
     )
 
 
 def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_on(
+    seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -1000,7 +1008,7 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
         subprocess, "run", GitHubFake(REPO, milestones=[milestone]).process(subprocess.run)
     )
     with caplog.at_level(logging.WARNING):
-        outcome = _run_metrics_adapter(repo=REPO, clone_path=clone)
+        outcome = _run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
     job = [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.run"]
     status_pages = {CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY}
     assert (

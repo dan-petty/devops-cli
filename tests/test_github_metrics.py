@@ -15,7 +15,9 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.gh import app as gh_app
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.github.metrics import (
+    ItemCountMetric,
     LabelTaxonomyMetric,
     MilestoneMetric,
     ProjectMetricsReport,
@@ -34,16 +36,53 @@ from devops_cli.github.metrics import (
     collect_project_metrics_report,
     emit_project_metrics_telemetry,
     get_ci_workflow_metrics,
+    get_item_metrics,
     get_label_taxonomy_metrics,
     get_milestone_metrics,
     get_release_cadence_metrics,
     get_repository_traffic_metrics,
     record_project_metrics_in_registry,
 )
+from devops_cli.roadmap.github_store import GitHubRoadmapStore
+from devops_cli.telemetry.instruments import PROJECT_ITEM_LABELS, PROJECT_ITEMS
 from devops_cli.telemetry.metrics import InMemoryMetricsRegistry
 from tests.roadmap_board_fake import GitHubFake
+from tests.support.fakes.github import RunnerSession
+from tests.support.telemetry_capture import Captured
 
 runner = CliRunner()
+REPO = "example/test-repo"
+PLANNED = "2026-11-01"
+
+
+def _board_store(github: GitHubFake) -> GitHubRoadmapStore:
+    """The roadmap store on `github`'s board, as the Service opens it."""
+    return GitHubRoadmapStore(
+        github.repo,
+        board_owner="example",
+        board_number=1,
+        runner=github,
+        session=RunnerSession(github),
+    )
+
+
+def _board_with_items() -> GitHubFake:
+    """A board of five cards: two open bugs in no milestone, an open and a closed feature in the
+    planned milestone, and a card with no type, priority or milestone; and an open issue with no
+    card."""
+    github = GitHubFake(REPO, milestones=[{"number": 1, "title": PLANNED, "state": "open"}])
+    for number in (1, 2):
+        github.seed_issue(
+            number, labels=("type/bug",), card={"status": "New", "priority": "P1-High"}
+        )
+    feature = {"labels": ("type/feature",), "milestone": PLANNED}
+    github.seed_issue(3, **feature, card={"status": "In Progress", "priority": "P2-Medium"})
+    github.seed_issue(
+        4, state="closed", **feature, card={"status": "Done", "priority": "P2-Medium"}
+    )
+    github.seed_issue(5, card={})
+    github.seed_issue(6, labels=("type/bug",))
+    return github
 
 
 def test_parse_tag_datetime_valid_and_invalid() -> None:
@@ -273,23 +312,77 @@ def test_collect_project_metrics_report(
         git(root, "tag", tag)
     milestone = {"title": "2026-10-01", "state": "closed", "open_issues": 1, "closed_issues": 3}
     github = GitHubFake("example/test-repo", milestones=[milestone])
-    github.seed_issue(1, "feat: export", labels=("type/feature",))
+    github.seed_issue(1, "feat: export", labels=("type/feature",), card={"priority": "P2-Medium"})
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
 
-    report = collect_project_metrics_report(root=root, repo="example/test-repo")
+    report = collect_project_metrics_report(
+        root=root, repo="example/test-repo", store=_board_store(github)
+    )
     assert (
         report.repo,
         [release.tag for release in report.releases],
         report.average_cadence_days,
         [(found.milestone, found.completion_rate) for found in report.milestones],
         [(found.label, found.count) for found in report.taxonomy_labels],
+        report.items,
     ) == (
         "example/test-repo",
         ["v0.2.25", "v0.2.24", "v0.2.23"],
         2.5,
         [("2026-10-01", 75.0)],
         [("type/feature", 1)],
+        [ItemCountMetric(state="open", type="feature", priority="P2-Medium", count=1)],
     )
+
+
+def test_an_open_item_in_no_milestone_is_counted() -> None:
+    """The board's items are counted by milestone, state, type and priority, each empty when the
+    item has none (#2263). An issue with no card is no item."""
+    assert get_item_metrics(_board_store(_board_with_items())) == [
+        ItemCountMetric(state="open", count=1),
+        ItemCountMetric(state="open", type="bug", priority="P1-High", count=2),
+        ItemCountMetric(
+            milestone=PLANNED, state="closed", type="feature", priority="P2-Medium", count=1
+        ),
+        ItemCountMetric(
+            milestone=PLANNED, state="open", type="feature", priority="P2-Medium", count=1
+        ),
+    ]
+
+
+def test_the_items_of_one_milestone_are_counted() -> None:
+    """`--milestone` limits the item counts to the milestone, as it limits the milestones."""
+    assert get_item_metrics(_board_store(_board_with_items()), milestone_filter=PLANNED) == [
+        ItemCountMetric(
+            milestone=PLANNED, state="closed", type="feature", priority="P2-Medium", count=1
+        ),
+        ItemCountMetric(
+            milestone=PLANNED, state="open", type="feature", priority="P2-Medium", count=1
+        ),
+    ]
+
+
+def test_a_board_that_cannot_be_read_stops_the_collection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A failed read of the board raises. It is no empty board: the 0 for each label set that
+    left the last snapshot would otherwise erase every count."""
+    _tagged_repository(git, tmp_path / "repo", ("v0.2.25",))
+    github = GitHubFake(REPO)
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+
+    def unavailable(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 1, "", "HTTP 503: Service Unavailable")
+
+    store = GitHubRoadmapStore(
+        REPO,
+        board_owner="example",
+        board_number=1,
+        runner=unavailable,
+        session=RunnerSession(unavailable),
+    )
+    with pytest.raises(DevOpsCLIError):
+        collect_project_metrics_report(root=tmp_path / "repo", repo=REPO, store=store)
 
 
 def _tagged_repository(git: Callable[..., None], repo: Path, tags: Sequence[str]) -> None:
@@ -317,7 +410,9 @@ def test_a_given_root_is_walked_as_it_is_even_inside_another_checkout(
     github = GitHubFake("example/roadmap")
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     with caplog.at_level(logging.WARNING):
-        report = collect_project_metrics_report(root=clone, repo="example/roadmap")
+        report = collect_project_metrics_report(
+            root=clone, repo="example/roadmap", store=_board_store(github)
+        )
     assert (
         [release.tag for release in report.releases],
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
@@ -362,6 +457,7 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
                 completion_rate=70.0,
             )
         ],
+        items=[ItemCountMetric(milestone="2026-10-01", state="open", type="bug", count=3)],
         taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=2)],
         traffic=TrafficSummaryMetric(
             views_count=100,
@@ -395,6 +491,62 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
         "devops_cli_project_traffic_paths",
     }
     assert expected_instruments.issubset(set(instrument_names))
+
+
+ITEM_SET = {"milestone": "2026-10-01", "type": "bug", "priority": "P1-High"}
+
+
+def _snapshot(*items: ItemCountMetric) -> ProjectMetricsReport:
+    """A report that holds only `items`."""
+    return ProjectMetricsReport(
+        repo=REPO, generated_at="2026-10-26 00:00:00 UTC", items=list(items)
+    )
+
+
+def _sent_items(captured: Captured, already_read: int = 0) -> dict[tuple[str, ...], float]:
+    """The value of each items series that the client sent after the first `already_read`
+    points, by its label values in the order of `PROJECT_ITEM_LABELS`."""
+    points = captured.points(PROJECT_ITEMS.name)[already_read:]
+    return {tuple(attrs[label] for label in PROJECT_ITEM_LABELS): value for attrs, value in points}
+
+
+def test_the_items_gauge_is_sent_with_the_labels_of_its_description(captured: Captured) -> None:
+    """The gauge carries the labels that its instrument names, and an item in no milestone has
+    an empty `milestone`."""
+    emit_project_metrics_telemetry(
+        _snapshot(
+            ItemCountMetric(state="open", type="bug", priority="P1-High", count=2),
+            ItemCountMetric(milestone=PLANNED, state="closed", type="feature", count=5),
+        )
+    )
+
+    assert PROJECT_ITEM_LABELS == ("milestone", "state", "type", "priority")
+    assert _sent_items(captured) == {
+        ("", "open", "bug", "P1-High"): 2.0,
+        (PLANNED, "closed", "feature", ""): 5.0,
+    }
+
+
+def test_a_label_set_with_no_items_is_sent_as_zero_once(captured: Captured) -> None:
+    """A series that is not sent again keeps its last value in `last_over_time`, so an item
+    that closes would stay in the open count. The set it left is sent as 0, once."""
+    opened = ItemCountMetric(state="open", type="bug", count=1)
+    closed = ItemCountMetric(state="closed", type="bug", count=1)
+
+    emit_project_metrics_telemetry(_snapshot(opened))
+    first = _sent_items(captured)
+    sent = len(captured.points(PROJECT_ITEMS.name))
+    emit_project_metrics_telemetry(_snapshot(closed))
+    second = _sent_items(captured, sent)
+    sent = len(captured.points(PROJECT_ITEMS.name))
+    emit_project_metrics_telemetry(_snapshot(closed))
+    third = _sent_items(captured, sent)
+
+    assert (first, second, third) == (
+        {("", "open", "bug", ""): 1.0},
+        {("", "open", "bug", ""): 0.0, ("", "closed", "bug", ""): 1.0},
+        {("", "closed", "bug", ""): 1.0},
+    )
 
 
 def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -586,6 +738,14 @@ def test_record_project_metrics_in_registry() -> None:
                 completion_rate=70.0,
             )
         ],
+        items=[
+            ItemCountMetric(
+                milestone="2026-10-01", state="open", type="bug", priority="P1-High", count=3
+            ),
+            ItemCountMetric(
+                milestone="2026-10-01", state="closed", type="bug", priority="P1-High", count=7
+            ),
+        ],
         taxonomy_labels=[LabelTaxonomyMetric(category="type", label="type/bug", count=2)],
         traffic=TrafficSummaryMetric(
             views_count=150,
@@ -614,8 +774,8 @@ def test_record_project_metrics_in_registry() -> None:
         reg.get_gauge("devops_cli_project_traffic_paths", {"path": "/repo"}),
         reg.get_gauge("devops_cli_project_commits", {"release": "v0.2.25"}),
         reg.get_gauge("devops_cli_project_prs", {"release": "v0.2.25"}),
-        reg.get_gauge("devops_cli_project_items", {"milestone": "2026-10-01", "state": "open"}),
-        reg.get_gauge("devops_cli_project_items", {"milestone": "2026-10-01", "state": "closed"}),
+        reg.get_gauge("devops_cli_project_items", {**ITEM_SET, "state": "open"}),
+        reg.get_gauge("devops_cli_project_items", {**ITEM_SET, "state": "closed"}),
     ) == (
         2.0,
         150.0,

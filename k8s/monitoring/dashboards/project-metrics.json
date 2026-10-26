@@ -287,7 +287,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Open and closed items tracked per milestone. It shows the latest value of each series in the time range, and no data when none was sent in it.",
+      "description": "Items of the project board by milestone and state. An item in no milestone shows as none. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -303,7 +303,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (milestone, state) (last_over_time(devops_cli_project_items[$__range]))",
+          "expr": "label_replace(sum by (milestone, state) (last_over_time(devops_cli_project_items[$__range])), \"milestone\", \"none\", \"milestone\", \"^$\")",
           "legendFormat": "{{milestone}} ({{state}})",
           "refId": "A"
         }
@@ -311,7 +311,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Aggregate open vs closed items across all milestones. It shows the latest value of each series in the time range, and no data when none was sent in it.",
+      "description": "Open and closed items of the project board, in all milestones and in none. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

@@ -51,7 +51,7 @@ native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 | `devops_cli_project_commits` | Gauge | `1` | Project commits count by release. |
 | `devops_cli_project_prs` | Gauge | `1` | Project pull requests merged by release. |
 | `devops_cli_project_ci_runs` | Gauge | `1` | CI workflow runs by name, status and conclusion. |
-| `devops_cli_project_items` | Gauge | `1` | Project items by milestone, type, priority and state. |
+| `devops_cli_project_items` | Gauge | `1` | Project board items by milestone, state, type and priority. A label is empty when the item has no value for it. |
 | `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases. |
 | `devops_cli_project_traffic_views` | Gauge | `1` | GitHub repository total page views count. |
 | `devops_cli_project_traffic_views_uniques` | Gauge | `1` | GitHub repository unique visitors count. |

@@ -375,7 +375,7 @@ and excessive permissions fail it, and every other finding is shown. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 |  | `devops gh status [OPTIONS]` | Display GitHub published operational status, key components, and active incidents. |
-|  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones. |
+|  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and project board items. |
 |  | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |

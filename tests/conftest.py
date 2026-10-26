@@ -113,6 +113,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.docker.engine": ("DockerEngineService.reset_instance",),
     "devops_cli.dry_run.state": ("reset_dry_run_state",),
     "devops_cli.git.operations": ("reset_known_host_cache",),
+    "devops_cli.github.metrics": ("reset_sent_item_series",),
     "devops_cli.github.projects": ("reset_project_caches",),
     "devops_cli.github.rate_limiter": ("reset_github_rate_limiter",),
     "devops_cli.github.request_classifier": ("reset_request_classifier_cache",),

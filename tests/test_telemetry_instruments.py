@@ -32,6 +32,7 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import (
     INSTRUMENTS,
+    PROJECT_ITEM_LABELS,
     PROJECT_ITEMS,
     REVIEW_DURATION,
     UPSTREAM_SERVICE_STATUS,
@@ -180,6 +181,39 @@ def test_all_dashboards_referencing_devops_cli_metrics_name_sent_series() -> Non
         queries = _queries(dashboard)
         unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
         assert unsent == set(), f"{dashboard.name} queries unsent devops-cli metrics: {unsent}"
+
+
+def test_the_items_panels_group_only_by_labels_the_gauge_sends() -> None:
+    """A panel that groups `devops_cli_project_items` by a label that the gauge does not send
+    shows one series for all items (#2263)."""
+    queries = [query for query in _all_queries() if PROJECT_ITEMS.name in query]
+    grouped = {
+        label.strip()
+        for query in queries
+        for labels in re.findall(r"\bby\s*\(([^)]*)\)", query)
+        for label in labels.split(",")
+        if label.strip()
+    }
+
+    assert len(queries) == 2
+    assert grouped - set(PROJECT_ITEM_LABELS) == set()
+
+
+def test_the_milestone_panel_shows_an_item_in_no_milestone_as_none() -> None:
+    """An item in no milestone has an empty `milestone`, which a legend shows as a blank."""
+    queries = {
+        panel["title"]: _panel_queries(panel)
+        for panel in _panels(DASHBOARDS / "project-metrics.json")
+    }
+
+    assert queries["Items by Milestone"] == (
+        "label_replace(sum by (milestone, state) "
+        '(last_over_time(devops_cli_project_items[$__range])), "milestone", "none", '
+        '"milestone", "^$")'
+    )
+    assert queries["Active Items by State"] == (
+        "sum by (state) (last_over_time(devops_cli_project_items[$__range]))"
+    )
 
 
 def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
@@ -360,16 +394,6 @@ def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> No
         or "histogram_count(" not in _panel_queries(panel)
     ]
     assert (len(duration_panels), missing) == (5, [])
-
-
-@pytest.fixture
-def captured(monkeypatch: pytest.MonkeyPatch) -> Captured:
-    """An enabled telemetry client whose payloads are captured instead of sent."""
-    sink = Captured()
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
-    monkeypatch.setattr(client, "_send_payload", sink)
-    monkeypatch.setattr(tracer_module, "get_tracer", lambda: client)
-    return sink
 
 
 def test_counters_are_monotonic_deltas_from_the_host_not_the_process(captured: Captured) -> None:
