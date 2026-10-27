@@ -220,3 +220,15 @@ class TestConstellationCLI:
         force = runner.invoke(app, ["ai", "failover", "--force"])
         drain = runner.invoke(app, ["ai", "quiesce", "--drain-timeout", "5"])
         assert (force.exit_code, drain.exit_code) == (2, 2)
+
+    def test_failover_help_describes_route_recording_and_gateway_fallbacks(self) -> None:
+        """Verify the help text of `ai failover` states that it records a fallback route in the
+        constellation flag, that `ai gateway failover` records a failover route for a virtual model,
+        and that the gateway's own fallbacks move the traffic (#2079)."""
+        result = runner.invoke(app, ["ai", "failover", "--help"])
+        assert result.exit_code == 0
+        assert (
+            "records a failover route for a virtual model, and the gateway's own fallbacks move the traffic"
+            in result.stdout
+        )
+        assert "reroutes requests" not in result.stdout

@@ -325,7 +325,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Generate failing pytest unit test scaffolds for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
 |  | `devops ai quiesce [OPTIONS]` | Set the constellation quiesce flag with a reason; it stops nothing. |
-|  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests. |
+|  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic. |
 |  | `devops ai resume [OPTIONS]` | Clear the constellation quiesce or failover flag. |
 |  | `devops ai constellation [OPTIONS]` | Show the constellation flag: state, reason and recorded fallback route. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered code review and group analysis system. |
