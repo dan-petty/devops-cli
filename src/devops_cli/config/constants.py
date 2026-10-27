@@ -460,6 +460,7 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     CONST_DOCS_CLASS_TOOL_GENERATED: (
         ".claude/skills/openspec-*/SKILL.md",
         ".agents/skills/openspec-*/SKILL.md",
+        ".kilocode/skills/openspec-*/SKILL.md",
     ),
     CONST_DOCS_CLASS_HAND_WRITTEN: (
         ".github/pull_request_template.md",
@@ -3481,6 +3482,7 @@ CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "openspec/**",
     ".claude/skills/openspec-*/**",
     ".agents/skills/openspec-*/**",
+    ".kilocode/skills/openspec-*/**",
     ".agents/skills/.openspec-target",
 )
 # The scanner results that are secrets, by tool, with the rule ids that are (None: every rule).
@@ -4200,6 +4202,7 @@ CONST_OPENSPEC_ISOLATED_SETTINGS: Final[tuple[tuple[str, str], ...]] = (
 CONST_OPENSPEC_GENERATED_GLOBS: Final[tuple[str, ...]] = (
     ".claude/skills/openspec-*/**/*",
     ".agents/skills/openspec-*/**/*",
+    ".kilocode/skills/openspec-*/**/*",
     ".agents/skills/.openspec-target",
 )
 # The artifacts whose instructions the gate renders for a probe change, and that change's name.

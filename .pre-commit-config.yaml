@@ -100,7 +100,7 @@ repos:
         entry: uv run devops ci --only openspec
         language: system
         stages: [pre-commit]
-        files: ^(openspec/|\.claude/skills/|\.agents/skills/)
+        files: ^(openspec/|\.claude/skills/|\.agents/skills/|\.kilocode/skills/)
         pass_filenames: false
         require_serial: true
 

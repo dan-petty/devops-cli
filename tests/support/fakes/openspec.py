@@ -125,7 +125,7 @@ class OpenSpecFake:
 
         configured = tuple(
             tree
-            for tree in (".claude", ".agents")
+            for tree in (".claude", ".agents", ".kilocode")
             if any(
                 entry.name.startswith("openspec-") or entry.name == ".openspec-target"
                 for entry in (cwd / tree / "skills").glob("*")
