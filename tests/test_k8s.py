@@ -21,6 +21,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
 from devops_cli.prometheus.promql import selectors, validate_promql
+from devops_cli.security.base import ScanOutcome
 from tests.k8s_manifests import applied_documents
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES, REPO_ROOT
@@ -916,9 +917,12 @@ def test_k8s_security_tools_and_scans(tmp_path: Path) -> None:
         fix="Set runAsNonRoot: true",
     )
 
-    with patch("devops_cli.security.kubelinter.run_kubelinter_scan", return_value=[mock_finding]):
+    with patch(
+        "devops_cli.security.kubelinter.run_kubelinter_scan",
+        return_value=ScanOutcome("ran", [mock_finding]),
+    ):
         res_lint = runner.invoke(app, ["lint", str(tmp_path)])
-        assert res_lint.exit_code == 0
+        assert res_lint.exit_code == 1
 
         res_lint_dry = runner.invoke(app, ["lint", str(tmp_path), "--dry-run"])
         assert res_lint_dry.exit_code == 0
@@ -945,6 +949,50 @@ def test_k8s_security_tools_and_scans(tmp_path: Path) -> None:
 
         res_val_json = runner.invoke(app, ["validate", str(tmp_path), "--json"])
         assert res_val_json.exit_code == 0
+
+
+def test_k8s_lint_exit_codes(tmp_path: Path) -> None:
+    """k8s lint exits 0 on a clean run, non-zero on findings and when kube-linter is unavailable."""
+    from devops_cli.ai.review_schema import Finding
+
+    manifest = tmp_path / "deploy.yaml"
+    manifest.write_text("apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8")
+
+    finding = Finding(
+        category="security",
+        severity="HIGH",
+        location="deploy.yaml:10",
+        title="use a fixed image tag",
+        fix="Set image to a fixed tag",
+    )
+
+    # A clean run passes: exit 0, reports the audit passed.
+    with patch(
+        "devops_cli.security.kubelinter.run_kubelinter_scan",
+        return_value=ScanOutcome("ran", []),
+    ):
+        res = runner.invoke(app, ["lint", str(manifest)])
+        assert res.exit_code == 0
+        assert "Kube-linter audit passed" in res.output
+
+    # A run with findings fails: exit non-zero, never reports a pass.
+    with patch(
+        "devops_cli.security.kubelinter.run_kubelinter_scan",
+        return_value=ScanOutcome("ran", [finding]),
+    ):
+        res = runner.invoke(app, ["lint", str(manifest)])
+        assert res.exit_code == 1
+        assert "Kube-linter audit passed" not in res.output
+
+    # An unavailable kube-linter fails: exit non-zero, says so, never reports a pass.
+    with patch(
+        "devops_cli.security.kubelinter.run_kubelinter_scan",
+        return_value=ScanOutcome("unavailable", [], "Binary 'kube-linter' not found on PATH"),
+    ):
+        res = runner.invoke(app, ["lint", str(manifest)])
+        assert res.exit_code == 1
+        assert "Kube-linter audit passed" not in res.output
+        assert "unavailable" in res.output
 
 
 def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
@@ -1129,7 +1177,10 @@ def test_k8s_extended_subcommands(tmp_path: Path) -> None:
     manifest.write_text("apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8")
 
     with (
-        patch("devops_cli.security.kubelinter.run_kubelinter_scan", return_value=[]),
+        patch(
+            "devops_cli.security.kubelinter.run_kubelinter_scan",
+            return_value=ScanOutcome("ran", []),
+        ),
         patch("devops_cli.security.popeye.run_popeye_scan", return_value=[]),
         patch("devops_cli.security.pluto.run_pluto_scan", return_value=[]),
         patch("devops_cli.security.kubeconform.run_kubeconform_validation", return_value=[]),

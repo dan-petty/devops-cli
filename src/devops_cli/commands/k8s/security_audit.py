@@ -133,11 +133,19 @@ def k8s_lint(
         )
         return
 
+    if findings.status != "ran":
+        print_error(
+            MESSAGES.k8s.kube_linter_not_run.format(status=findings.status, reason=findings.reason),
+            safe=True,
+        )
+        raise typer.Exit(1)
+
     if not findings:
         print_success(MESSAGES.k8s.kube_linter_passed)
         return
 
     print(format_k8s_lint_table(findings, target_abs.name or str(target_abs)))
+    raise typer.Exit(1)
 
 
 def k8s_audit(
