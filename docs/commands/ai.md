@@ -454,7 +454,7 @@ devops ai quiesce [OPTIONS]
 
 ## `devops ai failover`
 
-**Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests.**
+**Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic.**
 
 ```bash
 devops ai failover [OPTIONS]
