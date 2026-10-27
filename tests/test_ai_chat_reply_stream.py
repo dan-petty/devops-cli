@@ -152,11 +152,17 @@ def test_a_stream_past_the_response_size_limit_fails(monkeypatch: pytest.MonkeyP
     )
 
 
+@pytest.mark.parametrize(
+    "frames",
+    [[PING, openai_chunk("Hel")], [PING, OPENAI_DONE]],
+    ids=["cut-after-a-chunk", "no-chunk"],
+)
 def test_a_stream_that_stops_before_its_final_frame_fails(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, frames: list[bytes]
 ) -> None:
-    """A stream cut after one chunk has no `[DONE]` and no finish reason."""
-    route_llm_clients(monkeypatch, lambda request: _streamed([PING, openai_chunk("Hel")]))
+    """A stream cut after one chunk has no `[DONE]` and no finish reason, and a stream of
+    pings and `[DONE]` has no chunk to make a reply of."""
+    route_llm_clients(monkeypatch, lambda request: _streamed(frames))
 
     assert _failure(_gateway_client()) == (
         AIClientError,

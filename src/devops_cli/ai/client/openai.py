@@ -424,31 +424,28 @@ def _watch_frames(stream: Any, limit_bytes: int | None = None) -> list[bool]:
     and the frames are refused once their decoded data passes `limit_bytes`."""
     seen_done = [False]
     orig_iter_events = getattr(stream, "_iter_events", None)
-    if not callable(orig_iter_events):
-        return seen_done
+    if callable(orig_iter_events):
 
-    def _wrapped_iter_events() -> Any:
-        received = 0
-        for sse in orig_iter_events():
-            data = getattr(sse, "data", "")
-            if data.startswith("[DONE]"):
-                seen_done[0] = True
-            received += len(data.encode())
-            if limit_bytes is not None and received > limit_bytes:
-                raise _response_size_error(limit_bytes)
-            yield sse
+        def _wrapped_iter_events() -> Any:
+            received = 0
+            for sse in orig_iter_events():
+                data = getattr(sse, "data", "")
+                if data.startswith("[DONE]"):
+                    seen_done[0] = True
+                received += len(data.encode())
+                if limit_bytes is not None and received > limit_bytes:
+                    raise _response_size_error(limit_bytes)
+                yield sse
 
-    stream._iter_events = _wrapped_iter_events
+        stream._iter_events = _wrapped_iter_events
     return seen_done
 
 
 def _frame_status(exc: openai.APIError) -> int | None:
     """The HTTP status that an error frame names in its `code`, as LiteLLM writes it; None when
     the code is no status."""
-    code = exc.code
-    if isinstance(code, int):
-        return code
-    return int(code) if isinstance(code, str) and code.isdigit() else None
+    code = str(exc.code)
+    return int(code) if code.isdigit() else None
 
 
 def _read_completion(stream: Any, limit_bytes: int) -> ParsedChatCompletionSnapshot:
