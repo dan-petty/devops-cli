@@ -1,16 +1,17 @@
-"""Worktree inventory, status inspection, and safe orphan reclamation (#700).
+"""Worktree inventory, status inspection, and safe worktree reclamation (#700, #2341).
 
-Provides NUL-separated porcelain parsing for `git worktree list -z`,
-ahead-of-main calculation, dirty-path counting, contained ref detection,
-and safe orphan worktree pruning.
+Provides NUL-separated porcelain parsing for `git worktree list -z`, ahead-of-main calculation,
+dirty-path counting, and pruning. A worktree is removable only when GitHub reports a merged pull
+request whose head is the tip of the worktree: the repository squash-merges, so no ref that
+contains a tip shows that its work is merged.
 """
 
 from __future__ import annotations
 
-import logging
-import shutil
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from pydantic import BaseModel, Field
 
@@ -24,14 +25,17 @@ from devops_cli.config.constants import (
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
     CONST_GIT_PRUNABLE_TOKEN,
     CONST_GIT_WORKTREE_PREFIX,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root
+from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.exceptions.git import GitOperationError
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 CONST_REFS_HEADS_PREFIX: Final[str] = "refs/heads/"
-CONST_REFS_REMOTES_PREFIX: Final[str] = "refs/remotes/"
 
 
 class WorktreeInfo(BaseModel):
@@ -50,14 +54,14 @@ class WorktreeInfo(BaseModel):
 
 
 class WorktreeEntry(BaseModel):
-    """Enriched worktree record with ahead, dirty, and contained metrics."""
+    """Enriched worktree record with ahead and dirty metrics. `dirty` is None when `git status`
+    failed in the worktree, which is not the same as clean."""
 
     path: str
     head: str
     branch: str | None = None
     ahead: int
-    dirty: int
-    contained: bool
+    dirty: int | None
     locked: bool = False
     lock_reason: str | None = None
     prunable: bool = False
@@ -74,11 +78,14 @@ class WorktreePruneItem(BaseModel):
 
 
 class WorktreePruneReport(BaseModel):
-    """Summary report of worktree prune execution."""
+    """Summary report of worktree prune execution. `requests` lists the GitHub requests that a
+    dry run would make, and is empty for a run that made them."""
 
     removed_count: int = 0
     refused_count: int = 0
+    failed_count: int = 0
     items: list[WorktreePruneItem] = Field(default_factory=list)
+    requests: list[str] = Field(default_factory=list)
 
 
 def _parse_single_record(record: list[str], *, is_main: bool) -> WorktreeInfo | None:
@@ -166,16 +173,23 @@ def parse_worktree_porcelain_z(raw_output: str | bytes) -> list[WorktreeInfo]:
     return worktrees
 
 
-def count_dirty_paths(worktree_dir: Path) -> int:
-    """Count uncommitted, modified, and untracked paths via git status --porcelain -z."""
+def count_dirty_paths(worktree_dir: Path) -> int | None:
+    """Count uncommitted, modified, and untracked paths via git status --porcelain -z.
+
+    A directory that is gone has nothing uncommitted, so it counts 0. None means `git status`
+    failed, so nothing is known about the directory.
+    """
     if not worktree_dir.is_dir():
         return 0
     proc = run_subprocess(
         ["git", "-C", str(worktree_dir), "status", "--porcelain", "-z"],
         check=False,
         quiet=True,
+        local_read=True,
     )
-    if proc.returncode != 0 or not proc.stdout:
+    if proc.returncode != 0:
+        return None
+    if not proc.stdout:
         return 0
     raw_str = (
         proc.stdout.decode("utf-8", errors="surrogateescape")
@@ -209,6 +223,7 @@ def _resolve_base_ref(repo_root: Path, preferred: str) -> str | None:
             ["git", "-C", str(repo_root), "rev-parse", "--verify", "--quiet", candidate],
             check=False,
             quiet=True,
+            local_read=True,
         )
         if proc.returncode == 0:
             return candidate
@@ -233,6 +248,7 @@ def count_commits_ahead_of_main(
         ["git", "-C", str(repo_root), "rev-list", "--count", rev_range],
         check=False,
         quiet=True,
+        local_read=True,
     )
     if proc.returncode != 0:
         return 0
@@ -247,52 +263,13 @@ def count_commits_ahead_of_main(
         return 0
 
 
-def is_tip_contained_in_other_ref(
-    repo_root: Path,
-    head: str,
-    own_branch: str | None = None,
-) -> bool:
-    """Determine whether any local or remote ref other than own_branch contains the tip commit."""
-    if not head:
-        return False
-
-    proc = run_subprocess(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "for-each-ref",
-            "--format=%(refname)%00",
-            "--contains",
-            head,
-            "refs/heads",
-            "refs/remotes",
-        ],
-        check=False,
-        quiet=True,
-    )
-    if proc.returncode != 0 or not proc.stdout:
-        return False
-
-    raw_str = (
-        proc.stdout.decode("utf-8", errors="surrogateescape")
-        if isinstance(proc.stdout, bytes)
-        else proc.stdout
-    )
-    refs = [r.strip() for r in raw_str.split("\0") if r.strip()]
-    if own_branch:
-        other_refs = [r for r in refs if r != own_branch]
-    else:
-        other_refs = refs
-    return len(other_refs) > 0
-
-
 def list_worktree_infos(repo_root: Path) -> list[WorktreeInfo]:
     """Execute git worktree list --porcelain -z and parse records."""
     proc = run_subprocess(
         ["git", "-C", str(repo_root), "worktree", "list", "--porcelain", "-z"],
         check=False,
         quiet=True,
+        local_read=True,
     )
     if proc.returncode != 0 or not proc.stdout:
         return []
@@ -304,10 +281,9 @@ def enrich_worktree_entry(
     info: WorktreeInfo,
     base_ref: str = CONST_GIT_MAIN_BRANCH,
 ) -> WorktreeEntry:
-    """Enrich a WorktreeInfo record with ahead, dirty, and contained metrics."""
+    """Enrich a WorktreeInfo record with ahead and dirty metrics."""
     dirty = count_dirty_paths(info.path)
     ahead = count_commits_ahead_of_main(repo_root, info.head, main_ref=base_ref)
-    contained = is_tip_contained_in_other_ref(repo_root, info.head, own_branch=info.branch)
     branch_display = (
         info.branch.removeprefix(CONST_REFS_HEADS_PREFIX)
         if info.branch
@@ -319,7 +295,6 @@ def enrich_worktree_entry(
         branch=branch_display,
         ahead=ahead,
         dirty=dirty,
-        contained=contained,
         locked=info.locked,
         lock_reason=info.lock_reason,
         prunable=info.prunable,
@@ -332,97 +307,158 @@ def inventory_worktrees(
     repo_root: Path | None = None,
     base_ref: str = CONST_GIT_MAIN_BRANCH,
 ) -> list[WorktreeEntry]:
-    """Collect all repository worktrees with ahead, dirty, contained, and lock states."""
+    """Collect all repository worktrees with ahead, dirty, and lock states."""
     effective_root = repo_root or find_repo_root()
     infos = list_worktree_infos(effective_root)
     return [enrich_worktree_entry(effective_root, info, base_ref=base_ref) for info in infos]
 
 
-def _evaluate_single_prune_candidate(
-    entry: WorktreeEntry,
-    *,
-    force: bool,
-) -> tuple[bool, str]:
-    """Evaluate whether an individual entry is removable and provide the decision reason."""
+@dataclass(frozen=True)
+class _Decision:
+    """Whether one worktree is removable, and why or why not."""
+
+    entry: WorktreeEntry
+    removable: bool
+    reason: str
+
+
+def _decided_by_local_state(entry: WorktreeEntry, *, force: bool) -> _Decision | None:
+    """What git shows of the worktree decides, or None when the pull request of its tip must.
+
+    The main worktree stays under `--force` too. A worktree whose directory is gone is removable:
+    it holds nothing, and removing it drops only git's record.
+    """
     if entry.is_main:
-        return False, "main worktree"
+        return _Decision(entry, removable=False, reason="main worktree")
     if force:
-        return True, "forced"
+        return _Decision(entry, removable=True, reason="forced")
     if entry.locked:
         reason = f"locked ({entry.lock_reason})" if entry.lock_reason else "locked"
-        return False, reason
+        return _Decision(entry, removable=False, reason=reason)
+    if entry.prunable:
+        return _Decision(entry, removable=True, reason="directory is missing")
+    if entry.dirty is None:
+        return _Decision(entry, removable=False, reason="dirty state unknown (git status failed)")
     if entry.dirty > 0:
         plural = "s" if entry.dirty != 1 else ""
-        return False, f"dirty ({entry.dirty} uncommitted path{plural})"
-    if not entry.contained:
-        return False, "unmerged (tip not contained in any other ref)"
-    return True, "clean and contained"
+        return _Decision(
+            entry, removable=False, reason=f"dirty ({entry.dirty} uncommitted path{plural})"
+        )
+    return None
 
 
-def evaluate_prune_candidates(
+def _decide(
+    entry: WorktreeEntry, *, force: bool, merged_pull: Callable[[str], int | None]
+) -> _Decision:
+    """Decide one worktree: local state first, then the merged pull request of its tip."""
+    local = _decided_by_local_state(entry, force=force)
+    if local is not None:
+        return local
+    number = merged_pull(entry.head)
+    if number is None:
+        return _Decision(
+            entry, removable=False, reason="no merged pull request has this commit as its head"
+        )
+    return _Decision(entry, removable=True, reason=f"head of merged pull request #{number}")
+
+
+def _require_repo(repo: str | None) -> str:
+    """The GitHub repository whose pull requests are read, or the error that names why none is."""
+    if repo is None:
+        raise GitOperationError(
+            "The checkout has no GitHub origin, so the merged pull requests of its worktrees "
+            "cannot be read; add an origin remote, or use --force",
+            operation="worktrees prune",
+        )
+    return repo
+
+
+def plan_prune(
     entries: list[WorktreeEntry],
     *,
+    repo: str | None,
     force: bool = False,
-) -> list[tuple[WorktreeEntry, bool, str]]:
-    """Determine for each entry whether it is removable and the reason if refused."""
-    return [
-        (entry, is_rem, reason)
-        for entry in entries
-        for is_rem, reason in [_evaluate_single_prune_candidate(entry, force=force)]
-    ]
+) -> WorktreePruneReport:
+    """The dry run of `prune_worktrees`: what local state decides, and the GitHub requests that
+    the other worktrees would need. It makes no request."""
+    items: list[WorktreePruneItem] = []
+    requests: list[str] = []
+    for entry in entries:
+        local = _decided_by_local_state(entry, force=force)
+        if local is None:
+            requests.append(
+                PlannedRequest("GET", f"/repos/{repo}/commits/{entry.head}/pulls").line()
+            )
+            item = WorktreePruneItem(
+                path=entry.path,
+                status="would check",
+                reason="the merged pull request of its tip is read",
+            )
+        else:
+            status = "would remove" if local.removable else "refused"
+            item = WorktreePruneItem(path=entry.path, status=status, reason=local.reason)
+        items.append(item)
+    return WorktreePruneReport(
+        refused_count=sum(1 for item in items if item.status == "refused"),
+        items=items,
+        requests=requests,
+    )
+
+
+def _git_message(proc: subprocess.CompletedProcess[str]) -> str:
+    """What a failed git command said, or its exit status when it said nothing."""
+    said = " ".join(str(proc.stderr or "").split())
+    return said[:CONST_MAX_ERROR_DETAIL_LENGTH] or f"git exited with status {proc.returncode}"
 
 
 def prune_worktrees(
     repo_root: Path,
     entries: list[WorktreeEntry],
     *,
+    repo: str | None,
     force: bool = False,
-    dry_run: bool = False,
+    confirm: bool = False,
 ) -> WorktreePruneReport:
-    """Safely prune worktrees, requiring clean and contained status unless forced."""
-    evaluated = evaluate_prune_candidates(entries, force=force)
+    """Prune worktrees whose tip heads a merged pull request, or all of them under `force`.
+
+    Every worktree is decided before any is removed, so a failed GitHub read ends the run with
+    nothing removed. Without `confirm` the run removes nothing and reports `would remove`. A
+    removal that git refuses is reported as `failed`, with git's message, and its directory stays.
+    """
+
+    def merged_pull(tip: str) -> int | None:
+        from devops_cli.github.session import get_github_session
+
+        client = get_github_session().client
+        for pull in client.get_commit_pulls(_require_repo(repo), tip):
+            if pull.merged_at is not None and pull.head_sha == tip:
+                return pull.number
+        return None
+
+    decisions = [_decide(entry, force=force, merged_pull=merged_pull) for entry in entries]
     items: list[WorktreePruneItem] = []
-    removed_count = 0
-    refused_count = 0
-
-    for entry, is_removable, reason in evaluated:
-        if not is_removable:
-            refused_count += 1
-            items.append(WorktreePruneItem(path=entry.path, status="refused", reason=reason))
-            continue
-
-        if dry_run:
-            items.append(WorktreePruneItem(path=entry.path, status="would remove", reason=reason))
-            continue
-
-        dest_dir = Path(entry.path)
-        cmd = ["git", "-C", str(repo_root), "worktree", "remove"]
-        if force:
-            cmd.append("--force")
-        cmd.append(str(dest_dir))
-        proc = run_subprocess(cmd, check=False, quiet=True)
-        if proc.returncode == 0:
-            removed_count += 1
-            items.append(WorktreePruneItem(path=entry.path, status="removed", reason=None))
-        else:
-            if dest_dir.exists():
-                shutil.rmtree(dest_dir, ignore_errors=True)
-            removed_count += 1
-            items.append(WorktreePruneItem(path=entry.path, status="removed", reason=None))
-
-    if not dry_run:
-        prune_proc = run_subprocess(
-            ["git", "-C", str(repo_root), "worktree", "prune"],
-            check=False,
-            quiet=True,
-        )
-        if prune_proc.returncode != 0:
-            logger.debug(
-                "git worktree prune failed (%s): %s", prune_proc.returncode, prune_proc.stderr
+    for decision in decisions:
+        path = decision.entry.path
+        if not decision.removable:
+            items.append(WorktreePruneItem(path=path, status="refused", reason=decision.reason))
+        elif not confirm:
+            items.append(
+                WorktreePruneItem(path=path, status="would remove", reason=decision.reason)
             )
-
+        else:
+            cmd = ["git", "-C", str(repo_root), "worktree", "remove"]
+            if force:
+                cmd.append("--force")
+            proc = run_subprocess([*cmd, path], check=False, quiet=True)
+            if proc.returncode == 0:
+                items.append(WorktreePruneItem(path=path, status="removed"))
+            else:
+                items.append(
+                    WorktreePruneItem(path=path, status="failed", reason=_git_message(proc))
+                )
     return WorktreePruneReport(
-        removed_count=removed_count,
-        refused_count=refused_count,
+        removed_count=sum(1 for item in items if item.status == "removed"),
+        refused_count=sum(1 for item in items if item.status == "refused"),
+        failed_count=sum(1 for item in items if item.status == "failed"),
         items=items,
     )

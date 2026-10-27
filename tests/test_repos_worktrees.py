@@ -1,193 +1,424 @@
-"""Tests for devops repos worktrees status and prune (#700)."""
+"""Tests for devops repos worktrees status and prune (#700, #2341)."""
 
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.repos import app
 from devops_cli.git.worktree_inventory import (
     count_dirty_paths,
     parse_worktree_porcelain_z,
 )
+from tests.support.fakes.github import github_json
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
+
+ORIGIN_URL = "https://github.com/example-org/app.git"
+PULLS_PATH = "/repos/example-org/app/commits/{sha}/pulls?per_page=100"
+SQUASH_MERGED_AT = "2026-10-24T18:35:41Z"
+
+Git = Callable[..., None]
+Cli = Callable[..., Any]
 
 
 @pytest.fixture
-def git_repo(tmp_path: Path) -> Path:
-    """Create a minimal git repository with a committed main branch."""
+def git_repo(tmp_path: Path, git: Git) -> Path:
+    """A repository with a committed main branch and a GitHub origin."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
+    git(repo, "init", "-b", "main")
     (repo / "file.txt").write_text("base\n", encoding="utf-8")
-    subprocess.run(["git", "add", "file.txt"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+    git(repo, "add", "file.txt")
+    git(repo, "commit", "-m", "init")
+    git(repo, "remote", "add", "origin", ORIGIN_URL)
     return repo
 
 
-def _add_worktree(repo: Path, branch: str, path: Path) -> None:
-    """Helper to create a git worktree on a new branch."""
-    subprocess.run(
-        ["git", "-C", str(repo), "worktree", "add", "-b", branch, str(path)],
-        check=True,
-        capture_output=True,
-    )
+def _tip(path: Path) -> str:
+    """The commit a worktree is at."""
+    return subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
 
 
-def test_worktrees_status_table_and_lock_reason(git_repo: Path, tmp_path: Path) -> None:
-    """Criteria 1 & 7: status lists worktrees with ahead, dirty, contained, and lock reason."""
-    wt_merged = tmp_path / "wt_merged"
-    _add_worktree(git_repo, "branch-merged", wt_merged)
+def _add_worktree(git: Git, repo: Path, branch: str, path: Path, *, commit: bool = False) -> str:
+    """Add a worktree on a new branch, with one commit of its own when asked; return its tip."""
+    git(repo, "worktree", "add", "-b", branch, str(path))
+    if commit:
+        (path / f"{branch}.txt").write_text(f"{branch}\n", encoding="utf-8")
+        git(path, "add", f"{branch}.txt")
+        git(path, "commit", "-m", f"work on {branch}")
+    return _tip(path)
 
+
+def _pull(head_sha: str, *, number: int = 7, merged_at: str | None = SQUASH_MERGED_AT) -> Any:
+    """A pull request as `GET /repos/{repo}/commits/{sha}/pulls` lists it, cut to what is read."""
+    return {
+        "number": number,
+        "state": "closed" if merged_at else "open",
+        "merged_at": merged_at,
+        "head": {"sha": head_sha, "ref": "feature"},
+    }
+
+
+def _route_pulls(api: GitHubApiFake, tip: str, *pulls: Any) -> str:
+    """Answer the pull request lookup of `tip` with `pulls`; return the request it should get."""
+    api.route("GET", PULLS_PATH.format(sha=tip), github_json(list(pulls)))
+    return f"GET https://api.github.com{PULLS_PATH.format(sha=tip)}"
+
+
+def _outcomes(report: dict[str, Any]) -> dict[str, tuple[str, str | None]]:
+    """Each entry of a prune report as its directory name and its status and reason."""
+    return {Path(i["path"]).name: (i["status"], i["reason"]) for i in report["items"]}
+
+
+def test_worktrees_status_table_and_lock_reason(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+) -> None:
+    """Criteria 1 & 7: status lists worktrees with ahead, dirty and lock reason."""
+    _add_worktree(git, git_repo, "branch-new", tmp_path / "wt_new")
     wt_ahead = tmp_path / "wt_ahead"
-    _add_worktree(git_repo, "branch-ahead", wt_ahead)
-    (wt_ahead / "new_file.txt").write_text("feature\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "-C", str(wt_ahead), "add", "new_file.txt"], check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "-C", str(wt_ahead), "commit", "-m", "ahead commit"],
-        check=True,
-        capture_output=True,
-    )
+    _add_worktree(git, git_repo, "branch-ahead", wt_ahead, commit=True)
+    git(git_repo, "worktree", "lock", "--reason", "agent-42", str(wt_ahead))
 
-    # Lock wt_ahead with owner marker
-    subprocess.run(
-        ["git", "-C", str(git_repo), "worktree", "lock", "--reason", "agent-42", str(wt_ahead)],
-        check=True,
-        capture_output=True,
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["worktrees", "status", "--repo-dir", str(git_repo)])
+    result = cli("repos", "worktrees", "status", "--repo-dir", str(git_repo))
 
     assert (
         result.exit_code,
-        "branch-merged" in result.stdout,
+        "branch-new" in result.stdout,
         "branch-ahead" in result.stdout,
         "locked=true" in result.stdout,
         "agent-42" in result.stdout,
-    ) == (0, True, True, True, True)
+        "contained" in result.stdout,
+    ) == (0, True, True, True, True, False)
 
 
-def test_worktrees_status_json_schema(git_repo: Path, tmp_path: Path) -> None:
-    """Criterion 2: devops repos worktrees status --json emits typed JSON array."""
-    wt_one = tmp_path / "wt_one"
-    _add_worktree(git_repo, "branch-one", wt_one)
+def test_worktrees_status_json_schema(git_repo: Path, tmp_path: Path, git: Git, cli: Cli) -> None:
+    """Criterion 2: status --json emits a typed array whose entries have no merge verdict."""
+    _add_worktree(git, git_repo, "branch-one", tmp_path / "wt_one")
 
-    runner = CliRunner()
-    result = runner.invoke(app, ["worktrees", "status", "--repo-dir", str(git_repo), "--json"])
+    result = cli("repos", "worktrees", "status", "--repo-dir", str(git_repo), "--json")
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert {
+        (
+            type(e["ahead"]),
+            type(e["dirty"]),
+            type(e["locked"]),
+            type(e["prunable"]),
+            "contained" in e,
+        )
+        for e in payload
+    } == {(int, int, bool, bool, False)}
+
+
+def test_worktree_with_unreadable_status_has_unknown_dirty_count(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+) -> None:
+    """A failed `git status` is an unknown count, which status shows as null, never as clean."""
+    broken = tmp_path / "wt_broken"
+    _add_worktree(git, git_repo, "branch-broken", broken)
+    (broken / ".git").write_text("not a gitdir pointer\n", encoding="utf-8")
+
+    result = cli("repos", "worktrees", "status", "--repo-dir", str(git_repo), "--json")
+
+    dirty = {Path(e["path"]).name: e["dirty"] for e in json.loads(result.stdout)}
+    assert dirty == {"repo": 0, "wt_broken": None}
+
+
+def test_prune_removes_worktree_whose_tip_heads_a_merged_pull_request(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """A squash merge leaves the branch tip out of main; the merged pull request is the record."""
+    merged = tmp_path / "wt_merged"
+    tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
+    request = _route_pulls(github_api, tip, _pull(tip, number=2134))
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    report = json.loads(result.stdout)
+    assert (result.exit_code, merged.exists(), github_api.requested) == (0, False, [request])
+    assert _outcomes(report) == {
+        "repo": ("refused", "main worktree"),
+        "wt_merged": ("removed", None),
+    }
+    assert (report["removed_count"], report["refused_count"], report["failed_count"]) == (1, 1, 0)
+
+
+def test_prune_keeps_new_worktree_at_the_tip_of_main(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """A new worktree has no commit of its own: main contains its tip, but no pull request has it
+    as head, even when GitHub names the squash merge that put the tip into main."""
+    fresh = tmp_path / "wt_fresh"
+    tip = _add_worktree(git, git_repo, "branch-fresh", fresh)
+    _route_pulls(github_api, tip, _pull("0f" * 20, number=2339))
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    assert (result.exit_code, fresh.exists()) == (0, True)
+    assert _outcomes(json.loads(result.stdout))["wt_fresh"] == (
+        "refused",
+        "no merged pull request has this commit as its head",
+    )
+
+
+def test_prune_keeps_pushed_branch_with_an_open_pull_request(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """The remote ref of the branch itself contains the tip, but the pull request is not merged."""
+    pushed = tmp_path / "wt_pushed"
+    tip = _add_worktree(git, git_repo, "branch-pushed", pushed, commit=True)
+    git(git_repo, "update-ref", "refs/remotes/origin/branch-pushed", tip)
+    _route_pulls(github_api, tip, _pull(tip, merged_at=None))
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    assert (result.exit_code, pushed.exists()) == (0, True)
+    assert _outcomes(json.loads(result.stdout))["wt_pushed"][0] == "refused"
+
+
+def test_prune_keeps_worktree_with_a_commit_after_the_merge(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """The merged pull request ended on an earlier commit than the tip of the worktree."""
+    later = tmp_path / "wt_later"
+    tip = _add_worktree(git, git_repo, "branch-later", later, commit=True)
+    _route_pulls(github_api, tip, _pull("1a" * 20))
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    assert (result.exit_code, later.exists()) == (0, True)
+    assert _outcomes(json.loads(result.stdout))["wt_later"][0] == "refused"
+
+
+def test_prune_keeps_commit_that_github_does_not_know(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """GitHub answers 422 for a commit that was never pushed; the worktree stays and prune works."""
+    local = tmp_path / "wt_local"
+    tip = _add_worktree(git, git_repo, "branch-local", local, commit=True)
+    github_api.route(
+        "GET",
+        PULLS_PATH.format(sha=tip),
+        github_json({"message": f"No commit found for SHA: {tip}"}, status=422),
+    )
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    assert (result.exit_code, local.exists()) == (0, True)
+    assert _outcomes(json.loads(result.stdout))["wt_local"][0] == "refused"
+
+
+def test_prune_reads_no_pull_request_for_locked_dirty_or_unreadable_worktrees(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """Local state decides first: lock, uncommitted paths and a failed `git status` each keep the
+    worktree, and none of them costs a request."""
+    locked = tmp_path / "wt_locked"
+    _add_worktree(git, git_repo, "branch-locked", locked, commit=True)
+    git(git_repo, "worktree", "lock", "--reason", "agent-42", str(locked))
+    dirty = tmp_path / "wt_dirty"
+    _add_worktree(git, git_repo, "branch-dirty", dirty, commit=True)
+    (dirty / "scratch.txt").write_text("wip\n", encoding="utf-8")
+    broken = tmp_path / "wt_broken"
+    _add_worktree(git, git_repo, "branch-broken", broken, commit=True)
+    (broken / ".git").write_text("not a gitdir pointer\n", encoding="utf-8")
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    assert (result.exit_code, github_api.requested) == (0, [])
+    assert _outcomes(json.loads(result.stdout)) == {
+        "repo": ("refused", "main worktree"),
+        "wt_locked": ("refused", "locked (agent-42)"),
+        "wt_dirty": ("refused", "dirty (1 uncommitted path)"),
+        "wt_broken": ("refused", "dirty state unknown (git status failed)"),
+    }
+    assert [p.exists() for p in (locked, dirty, broken)] == [True, True, True]
+
+
+def test_prune_removes_the_record_of_a_worktree_whose_directory_is_gone(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """A deleted directory holds nothing, so prune drops git's record of it without a lookup."""
+    gone = tmp_path / "wt_gone"
+    _add_worktree(git, git_repo, "branch-gone", gone, commit=True)
+    shutil.rmtree(gone)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    listed = subprocess.run(
+        ["git", "-C", str(git_repo), "worktree", "list"], check=True, capture_output=True, text=True
+    ).stdout
+    assert (result.exit_code, "wt_gone" in listed, github_api.requested) == (0, False, [])
+    assert _outcomes(json.loads(result.stdout))["wt_gone"] == ("removed", None)
+
+
+def test_prune_removes_nothing_when_a_pull_request_read_fails(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """Every worktree is decided before one is removed: a read that fails ends the run first."""
+    merged = tmp_path / "wt_merged"
+    tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
+    _route_pulls(github_api, tip, _pull(tip))
+    unread = tmp_path / "wt_unread"
+    _add_worktree(git, git_repo, "branch-unread", unread, commit=True)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm")
+
+    assert (result.exit_code, merged.exists(), unread.exists()) == (1, True, True)
+
+
+def test_prune_without_confirm_reads_github_and_removes_nothing(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """The default run is a preview: it reads, lists and changes nothing."""
+    merged = tmp_path / "wt_merged"
+    tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
+    request = _route_pulls(github_api, tip, _pull(tip, number=2134))
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--json")
+
+    report = json.loads(result.stdout)
+    assert (result.exit_code, merged.exists(), github_api.requested) == (0, True, [request])
+    assert _outcomes(report)["wt_merged"] == ("would remove", "head of merged pull request #2134")
+    assert report["removed_count"] == 0
+
+
+def test_prune_dry_run_makes_no_request_and_lists_the_requests(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """A dry run reads local git only and returns the report with the requests a run would make."""
+    merged = tmp_path / "wt_merged"
+    tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
+    locked = tmp_path / "wt_locked"
+    _add_worktree(git, git_repo, "branch-locked", locked, commit=True)
+    git(git_repo, "worktree", "lock", "--reason", "agent-42", str(locked))
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--dry-run", "--json")
+
+    report = json.loads(result.stdout)
+    assert (result.exit_code, merged.exists(), github_api.requested) == (0, True, [])
+    assert report["requests"] == [f"GET /repos/example-org/app/commits/{tip}/pulls"]
+    assert _outcomes(report) == {
+        "repo": ("refused", "main worktree"),
+        "wt_merged": ("would check", "the merged pull request of its tip is read"),
+        "wt_locked": ("refused", "locked (agent-42)"),
+    }
+
+
+def test_prune_dry_run_prints_the_request_plan(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """The table output of a dry run is the numbered request plan."""
+    tip = _add_worktree(git, git_repo, "branch-merged", tmp_path / "wt_merged", commit=True)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--dry-run")
+
+    assert (result.exit_code, github_api.requested) == (0, [])
+    assert f"1. GET /repos/example-org/app/commits/{tip}/pulls" in result.stdout
+
+
+def test_prune_refuses_dry_run_with_confirm(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+) -> None:
+    """A dry run changes nothing, so a confirmed dry run is a contradiction, not a removal."""
+    wt = tmp_path / "wt_one"
+    _add_worktree(git, git_repo, "branch-one", wt, commit=True)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--dry-run", "--confirm")
+
+    assert (result.exit_code, wt.exists(), "--dry-run" in result.output) == (1, True, True)
+
+
+def test_prune_without_a_github_origin_names_the_cause(
+    tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """The merged pull request is read from the origin; without one prune stops before any read."""
+    repo = tmp_path / "plain"
+    repo.mkdir()
+    git(repo, "init", "-b", "main")
+    (repo / "file.txt").write_text("base\n", encoding="utf-8")
+    git(repo, "add", "file.txt")
+    git(repo, "commit", "-m", "init")
+    wt = tmp_path / "wt_one"
+    _add_worktree(git, repo, "branch-one", wt, commit=True)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(repo), "--confirm")
+
+    assert (result.exit_code, wt.exists(), github_api.requested, "origin" in result.output) == (
+        1,
+        True,
+        [],
+        True,
+    )
+
+
+def test_forced_prune_of_a_locked_worktree_reports_the_failure_and_keeps_the_directory(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """Git refuses to remove a locked worktree with one --force; prune says so and deletes nothing."""
+    locked = tmp_path / "wt_locked"
+    _add_worktree(git, git_repo, "branch-locked", locked, commit=True)
+    git(git_repo, "worktree", "lock", "--reason", "agent-42", str(locked))
+
+    result = cli(
+        "repos", "worktrees", "prune", "-r", str(git_repo), "--force", "--confirm", "--json"
+    )
+
+    report = json.loads(result.stdout)
+    listed = subprocess.run(
+        ["git", "-C", str(git_repo), "worktree", "list"], check=True, capture_output=True, text=True
+    ).stdout
+    status, reason = _outcomes(report)["wt_locked"]
+    assert (result.exit_code, status, "agent-42" in (reason or "")) == (1, "failed", True)
+    assert (locked.exists(), "wt_locked" in listed, report["failed_count"]) == (True, True, 1)
+    assert github_api.requested == []
+
+
+def test_forced_prune_removes_an_unmerged_worktree_without_reading_github(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """Criteria 5 & 6: --force --confirm removes any other worktree and cleans git metadata."""
+    unmerged = tmp_path / "wt_force"
+    _add_worktree(git, git_repo, "branch-force", unmerged, commit=True)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--force", "--confirm")
+
+    listed = subprocess.run(
+        ["git", "-C", str(git_repo), "worktree", "list"], check=True, capture_output=True, text=True
+    ).stdout
+    assert (result.exit_code, unmerged.exists(), "wt_force" in listed, github_api.requested) == (
+        0,
+        False,
+        False,
+        [],
+    )
+
+
+def test_prune_report_in_table_names_removed_and_refused_worktrees(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    """The table output reports each outcome and the totals."""
+    tip = _add_worktree(git, git_repo, "branch-merged", tmp_path / "wt_merged", commit=True)
+    _route_pulls(github_api, tip, _pull(tip))
+    _add_worktree(git, git_repo, "branch-new", tmp_path / "wt_new")
+    _route_pulls(github_api, _tip(tmp_path / "wt_new"))
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm")
 
     assert result.exit_code == 0
-    payload = json.loads(result.stdout)
-    assert isinstance(payload, list)
-    assert len(payload) >= 2
-
-    # Check types on each entry
-    for obj in payload:
-        assert isinstance(obj["ahead"], int)
-        assert isinstance(obj["dirty"], int)
-        assert isinstance(obj["contained"], bool)
-        assert isinstance(obj["locked"], bool)
-        assert isinstance(obj["prunable"], bool)
-
-
-def test_worktrees_prune_unmerged_refused_without_delete(git_repo: Path, tmp_path: Path) -> None:
-    """Criterion 3: prune defaults to preview, unmerged commits are refused and not deleted."""
-    wt_unmerged = tmp_path / "wt_unmerged"
-    _add_worktree(git_repo, "branch-unmerged", wt_unmerged)
-    (wt_unmerged / "data.txt").write_text("unmerged\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "-C", str(wt_unmerged), "add", "data.txt"], check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "-C", str(wt_unmerged), "commit", "-m", "unmerged commit"],
-        check=True,
-        capture_output=True,
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["worktrees", "prune", "--repo-dir", str(git_repo)])
-
-    assert (
-        result.exit_code,
-        wt_unmerged.exists(),
-        "refused" in result.stdout,
-    ) == (0, True, True)
-
-
-def test_worktrees_prune_removes_clean_contained_and_refuses_unmerged(
-    git_repo: Path, tmp_path: Path
-) -> None:
-    """Criterion 4: prune removes clean and contained worktree, refuses unmerged one."""
-    # Worktree 1: merged into main (clean and contained)
-    wt_clean = tmp_path / "wt_clean"
-    _add_worktree(git_repo, "branch-clean", wt_clean)
-
-    # Worktree 2: unmerged commit
-    wt_unmerged = tmp_path / "wt_unmerged2"
-    _add_worktree(git_repo, "branch-unmerged2", wt_unmerged)
-    (wt_unmerged / "feature.txt").write_text("feature\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "-C", str(wt_unmerged), "add", "feature.txt"], check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "-C", str(wt_unmerged), "commit", "-m", "unmerged"], check=True, capture_output=True
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["worktrees", "prune", "--repo-dir", str(git_repo)])
-
-    assert (
-        result.exit_code,
-        wt_clean.exists(),
-        wt_unmerged.exists(),
-        "removed" in result.stdout,
-        "refused" in result.stdout,
-    ) == (0, False, True, True, True)
-
-
-def test_worktrees_prune_force_removes_unmerged(git_repo: Path, tmp_path: Path) -> None:
-    """Criterion 5 & 6: prune --force removes entries regardless of state and cleans git metadata."""
-    wt_unmerged = tmp_path / "wt_force"
-    _add_worktree(git_repo, "branch-force", wt_unmerged)
-    (wt_unmerged / "draft.txt").write_text("draft\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "-C", str(wt_unmerged), "add", "draft.txt"], check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "-C", str(wt_unmerged), "commit", "-m", "force candidate"],
-        check=True,
-        capture_output=True,
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["worktrees", "prune", "--force", "--repo-dir", str(git_repo)])
-
-    proc = subprocess.run(
-        ["git", "-C", str(git_repo), "worktree", "list"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    assert (
-        result.exit_code,
-        wt_unmerged.exists(),
-        "branch-force" in proc.stdout,
-    ) == (0, False, False)
+    assert "removed " in result.stdout
+    assert "refused " in result.stdout
+    assert "Prune complete: 1 removed, 2 refused, 0 failed" in result.stdout
 
 
 def test_worktrees_nul_separated_path_with_newline() -> None:
@@ -250,3 +481,8 @@ def test_count_dirty_paths_handles_modifications_and_renames(git_repo: Path) -> 
     (git_repo / "file.txt").write_text("modified\n", encoding="utf-8")
 
     assert count_dirty_paths(git_repo) == 2
+
+
+def test_count_dirty_paths_is_unknown_when_git_status_fails(tmp_path: Path) -> None:
+    """A directory that git cannot read has no count, which is not zero."""
+    assert count_dirty_paths(tmp_path) is None
