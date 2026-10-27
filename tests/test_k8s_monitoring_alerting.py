@@ -368,6 +368,35 @@ def test_the_image_gc_rule_warns_on_the_root_disk_of_nodes_with_local_path_pods(
     )
 
 
+def test_the_log_or_metric_volume_disk_rule_evaluates_while_a_pod_moves() -> None:
+    """`LogOrMetricVolumeDiskLow` evaluates while a pod moves between nodes (#2148).
+
+    Joining `kube_pod_info` on the left of `group_left (persistentvolumeclaim)` ensures that
+    when a moving pod has series on multiple nodes in `kube_pod_info`, Prometheus allows the
+    many-to-one match because the right-hand side has at most one series for the pod's claim.
+    """
+    (rule,) = [rule for rule in _rules() if rule["alert"] == "LogOrMetricVolumeDiskLow"]
+    assert (
+        [(s.metric, s.labels) for s in selectors(rule["expr"])],
+        "group_left (node)" in rule["expr"],
+        "group_left (persistentvolumeclaim)" in rule["expr"],
+        rule["for"],
+    ) == (
+        [
+            ("node_filesystem_avail_bytes", frozenset({"mountpoint"})),
+            ("node_filesystem_size_bytes", frozenset({"mountpoint"})),
+            ("kube_pod_info", frozenset()),
+            (
+                "kube_pod_spec_volumes_persistentvolumeclaims_info",
+                frozenset({"persistentvolumeclaim", "namespace"}),
+            ),
+        ],
+        False,
+        True,
+        "30m",
+    )
+
+
 def test_the_size_cap_rule_reads_this_server_only() -> None:
     """#550's `PrometheusNearRetentionSizeCap` reads this server's self-scrape, by `job`.
 
