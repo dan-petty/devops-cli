@@ -69,6 +69,7 @@ This scaffolds:
 2. `.vscode/mcp.json`: Model Context Protocol configuration exposing `devops-cli` tools to AI coding assistants (Claude Desktop, Cursor, VS Code, Antigravity IDE).
 3. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md`: The rules for every agent task, and a table that routes each task to its document.
 4. `.mcp.json`: the same MCP server for Claude Code.
+5. `kilo.jsonc`: the same MCP server for Kilo Code. Kilo Code reads `AGENTS.md` itself, so it needs no pointer stub.
 
 ---
 

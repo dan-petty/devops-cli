@@ -1,0 +1,23 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    {{ project_name | tojson }}: {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "--with",
+        "fastmcp",
+        "devops",
+        "mcp",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "environment": {
+        "PATH": "${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      },
+      "enabled": true
+    }
+  }
+}

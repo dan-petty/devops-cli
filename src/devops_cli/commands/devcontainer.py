@@ -30,6 +30,7 @@ from devops_cli.config.constants import (
     CONST_K8S_MINIKUBE_CONTEXT,
     CONST_KEYRING_PACKAGES,
     CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
+    CONST_KILO_CONFIG_NAME,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
     CONST_ROOT_DIR,
@@ -179,6 +180,16 @@ def init(
             render_json_template("claude_mcp.json.j2", project_name=name),
         )
         print_success(MESSAGES.devcontainer.created_file.format(path=claude_mcp_file))
+
+    # Kilo Code reads `AGENTS.md` itself, but its MCP servers come from `kilo.jsonc`, which
+    # names the command as one array and the variables as `environment`.
+    kilo_config_file = repo_path / CONST_KILO_CONFIG_NAME
+    if not kilo_config_file.exists() or force:
+        write_text_file(
+            kilo_config_file,
+            render_json_template("kilo_mcp.json.j2", project_name=name),
+        )
+        print_success(MESSAGES.devcontainer.created_file.format(path=kilo_config_file))
 
     # Scaffold AI agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, .github/copilot-instructions.md)
     agent_files = scaffold_agent_instructions(repo_path, force=force, template=True)
@@ -649,6 +660,18 @@ def _apply_configured_k8s_context(*, dry_run: bool = False) -> list[str]:
     return [f"Set kubectl current-context to configured context '{desired}'"]
 
 
+def _scaffold_client_mcp_file(
+    workspace_dir: Path, target: Path, template: str, *, dry_run: bool
+) -> bool:
+    """Write a missing project-scoped MCP file of one client; True when it is, or would be, written."""
+    if target.exists() or not (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
+        return False
+    if not dry_run:
+        name = re.sub(r"[^a-zA-Z0-9._-]+", "_", workspace_dir.name)
+        write_text_file(target, render_json_template(template, project_name=name))
+    return True
+
+
 def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Scaffold and synchronize MCP configuration across IDE and agent paths."""
     actions: list[str] = []
@@ -663,15 +686,13 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
             )
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
 
-    claude_mcp = workspace_dir / CONST_CLAUDE_MCP_JSON_NAME
-    if not claude_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
-        if not dry_run:
-            claude_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", workspace_dir.name)
-            write_text_file(
-                claude_mcp,
-                render_json_template("claude_mcp.json.j2", project_name=claude_name),
-            )
-        actions.append(f"Scaffolded Claude MCP configuration at {claude_mcp}")
+    for client, filename, template in (
+        ("Claude", CONST_CLAUDE_MCP_JSON_NAME, "claude_mcp.json.j2"),
+        ("Kilo Code", CONST_KILO_CONFIG_NAME, "kilo_mcp.json.j2"),
+    ):
+        client_file = workspace_dir / filename
+        if _scaffold_client_mcp_file(workspace_dir, client_file, template, dry_run=dry_run):
+            actions.append(f"Scaffolded {client} MCP configuration at {client_file}")
 
     if vscode_mcp.exists():
         for mcp_dest in (
