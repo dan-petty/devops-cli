@@ -345,6 +345,9 @@ serverFiles:
           # through its pod to the node, so the alert moves with the volume. The result keeps the
           # claim's `node` label, so a node silence covers it. HostFilesystemSpaceLow
           # (homelab-storage) watches the same filesystem at the same 10% without naming a claim.
+          # Joining kube_pod_info on the left of group_left (persistentvolumeclaim) ensures that
+          # when a moving pod has series on multiple nodes in kube_pod_info, the rule still
+          # evaluates without a many-to-many match error (#2148).
           - alert: LogOrMetricVolumeDiskLow
             expr: |
               min by (instance) (
@@ -354,9 +357,11 @@ serverFiles:
               * on (instance) group_right ()
               label_replace(
                 max by (node, namespace, persistentvolumeclaim) (
-                  kube_pod_spec_volumes_persistentvolumeclaims_info{namespace=~"logging|monitoring", persistentvolumeclaim=~"storage-loki-0|prometheus-server"}
-                  * on (namespace, pod) group_left (node)
                   max by (namespace, pod, node) (kube_pod_info)
+                  * on (namespace, pod) group_left (persistentvolumeclaim)
+                  max by (namespace, pod, persistentvolumeclaim) (
+                    kube_pod_spec_volumes_persistentvolumeclaims_info{namespace=~"logging|monitoring", persistentvolumeclaim=~"storage-loki-0|prometheus-server"}
+                  )
                 ),
                 "instance", "$1", "node", "(.+)"
               )
