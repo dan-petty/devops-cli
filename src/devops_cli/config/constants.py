@@ -653,6 +653,11 @@ CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_
 # of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
+# `devops ci` gate slots (#2336): a directory directly under the data directory, outside the
+# subdirectories that `devops workspace clean` prunes, holds one lock file for each slot.
+CONST_CI_GATE_SLOTS_DIRNAME: Final[str] = "ci-gate-slots"
+CONST_CI_GATE_SLOT_FILENAME: Final[str] = "slot-{index}.lock"
+CONST_CI_GATE_SLOT_WAIT_METRIC: Final[str] = "ci.gate_slot_wait_seconds"
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
 CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})

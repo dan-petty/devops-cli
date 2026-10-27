@@ -1237,6 +1237,11 @@ class CIMessages:
         "of times longer than on a Linux filesystem, so the tests run several times slower. "
         "Clone the repository into the WSL filesystem or a container volume and reopen it there."
     )
+    gate_slot_wait: str = (
+        "Waiting for a CI gate slot. Allowed at one time: {slots}. Held by: {holders}."
+    )
+    gate_slot_holder: str = "process {pid} in {worktree}"
+    gate_slot_holder_unknown: str = "another run"
     test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
     coverage_index_tree_changed: str = (
         "Files changed during the run; index not saved:\n{files}\n"
