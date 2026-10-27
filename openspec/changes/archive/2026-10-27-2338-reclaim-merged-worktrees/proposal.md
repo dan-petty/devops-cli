@@ -30,7 +30,7 @@ None.
 ## Impact
 
 - `src/devops_cli/git/worktree_inventory.py`, `src/devops_cli/git/worktree_add.py`, `src/devops_cli/commands/repos.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
-- Tests: `tests/test_repos_worktrees.py` and `tests/test_repos_worktrees_reclaim.py` (new).
+- Tests: `tests/test_repos_worktrees.py`, `tests/test_repos_worktrees_reclaim.py` (new) and `tests/test_repos_worktrees_add.py`, whose helper passes `--no-reclaim` because those tests use a local bare repository as `origin`.
 - Documents: `CONTRIBUTING.md` and the generated `docs/CLI_REFERENCE.md` and `docs/commands/repos.md`.
 
 ## Feasibility
