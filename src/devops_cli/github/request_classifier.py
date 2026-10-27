@@ -69,6 +69,7 @@ class GhApiArgs:
     typed_fields: tuple[str, ...]
     input_path: str | None
     prints_body: bool
+    hostname: str | None = None
 
     @property
     def has_params(self) -> bool:
@@ -127,6 +128,7 @@ def parse_gh_api_args(api_args: Sequence[str]) -> GhApiArgs | None:
     typed_fields = tuple(parsed.field or ())
     has_params = bool(raw_fields or typed_fields) or parsed.input is not None
     default = CONST_GH_API_PARAMS_METHOD if has_params else CONST_GH_API_DEFAULT_METHOD
+    hostname = parsed.hostname[0] if parsed.hostname else None
     return GhApiArgs(
         endpoint=parsed.endpoint,
         method=parsed.method.upper() if parsed.method is not None else default,
@@ -134,6 +136,7 @@ def parse_gh_api_args(api_args: Sequence[str]) -> GhApiArgs | None:
         typed_fields=typed_fields,
         input_path=parsed.input,
         prints_body=not parsed.output_flags,
+        hostname=hostname,
     )
 
 
