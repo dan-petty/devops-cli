@@ -51,7 +51,7 @@ def test_uv_python_install_and_run_edge_cases(tmp_path: Path) -> None:
     assert res_no_args.exit_code == 1
 
     # 2. python-install from .python-version file
-    (tmp_path / ".python-version").write_text("3.14.9\n", encoding="utf-8")
+    (tmp_path / ".python-version").write_text("3.14.10\n", encoding="utf-8")
     with (
         patch("devops_cli.commands.uv._get_project_root", return_value=tmp_path),
         patch("devops_cli.commands.uv.run_subprocess", return_value=_mock_proc(0)),

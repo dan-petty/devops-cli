@@ -37,7 +37,7 @@ runs:
         # Pinned rather than floating. Every `uses:` in this action is SHA-pinned, but the
         # toolchain it installs was not, so a broken or tampered uv release would enter
         # every job silently and reproducing a past CI run was impossible.
-        version: "0.13.5"
+        version: "0.13.6"
         python-version: "3.14"
 
     - name: Restore tooling caches
