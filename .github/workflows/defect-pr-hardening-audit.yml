@@ -66,7 +66,10 @@ jobs:
           Defect Pull Request #${PR_NUMBER} was merged without adding guardrails or lessons to any declared hardening surface.
 
           ### Declared Hardening Surfaces
-          - `AGENTS.md`
+          - `docs/TESTING.md`
+          - `ARCHITECTURE.md`
+          - `SECURITY.md`
+          - `CONTRIBUTING.md`
           - `src/devops_cli/ai/tasks/*.md`
           - `src/devops_cli/ai/knowledge_base/`
           - `.devops/review.toml`

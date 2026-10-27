@@ -3394,9 +3394,12 @@ CONST_PR_CLOSING_ISSUE_CARDS_PAGE: Final[int] = 100
 # The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
 # so a pull request that a bot or another person owns is never updated.
 CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
-# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151).
+# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151, #1979).
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
-    "AGENTS.md",
+    "docs/TESTING.md",
+    "ARCHITECTURE.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
     "src/devops_cli/ai/tasks/*.md",
     "src/devops_cli/ai/knowledge_base/",
     ".devops/review.toml",
