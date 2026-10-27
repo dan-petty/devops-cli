@@ -36,7 +36,7 @@ CONFIG_KEYS = frozenset({"schema", "context", "rules", "operations"})
 # The YAML scalar styles that read a text as written: folded (`>`) and literal (`|`).
 BLOCK_SCALAR_STYLES = frozenset({">", "|"})
 SKILL_WORKFLOWS = ("apply-change", "explore", "propose", "update-change")
-SKILL_TREES = (".claude/skills", ".agents/skills")
+SKILL_TREES = (".claude/skills", ".agents/skills", ".kilocode/skills")
 
 
 def _text_nodes(node: yaml.Node, *, is_item: bool = False) -> list[yaml.ScalarNode]:
@@ -151,15 +151,19 @@ def test_the_skills_are_the_four_workflows_of_the_custom_profile_in_both_trees()
         for tree in SKILL_TREES
     }
     expected = sorted(f"openspec-{name}" for name in SKILL_WORKFLOWS)
-    claude, agents = (REPO_ROOT / tree for tree in SKILL_TREES)
-    assert (found, filecmp.dircmp(claude, agents, ignore=[".openspec-target"]).diff_files) == (
-        {tree: expected for tree in SKILL_TREES},
-        [],
-    )
+    claude, agents, kilo = (REPO_ROOT / tree for tree in SKILL_TREES)
+    assert (
+        found,
+        [
+            filecmp.dircmp(claude, other, ignore=[".openspec-target"]).diff_files
+            for other in (agents, kilo)
+        ],
+    ) == ({tree: expected for tree in SKILL_TREES}, [[], []])
     assert [
-        filecmp.cmp(claude / name / "SKILL.md", agents / name / "SKILL.md", shallow=False)
+        filecmp.cmp(claude / name / "SKILL.md", other / name / "SKILL.md", shallow=False)
+        for other in (agents, kilo)
         for name in expected
-    ] == [True] * 4
+    ] == [True] * 8
     assert (agents / ".openspec-target").read_text(encoding="utf-8") == "agents\n"
 
 
@@ -194,6 +198,7 @@ def test_git_keeps_the_generated_skills_and_nothing_else_under_claude() -> None:
         ".claude/skills/openspec-explore/SKILL.md": False,
         ".agents/skills/openspec-explore/SKILL.md": False,
         ".agents/skills/.openspec-target": False,
+        ".kilocode/skills/openspec-explore/SKILL.md": False,
         ".claude/settings.json": False,
         ".claude/skills/other-skill/SKILL.md": True,
         ".claude/settings.local.json": True,
@@ -220,6 +225,7 @@ def test_the_documentation_inventory_classifies_the_openspec_documents() -> None
         classes("openspec/specs/widget-export/spec.md"),
         classes(".claude/skills/openspec-explore/SKILL.md"),
         classes(".agents/skills/openspec-apply-change/SKILL.md"),
+        classes(".kilocode/skills/openspec-apply-change/SKILL.md"),
         [
             name
             for name in (
@@ -233,6 +239,7 @@ def test_the_documentation_inventory_classifies_the_openspec_documents() -> None
         [CONST_DOCS_CLASS_RECORD],
         [CONST_DOCS_CLASS_RECORD],
         [CONST_DOCS_CLASS_TOOL_OWNED],
+        [CONST_DOCS_CLASS_TOOL_GENERATED],
         [CONST_DOCS_CLASS_TOOL_GENERATED],
         [CONST_DOCS_CLASS_TOOL_GENERATED],
         [],
@@ -255,9 +262,10 @@ def test_a_review_routes_the_openspec_files_off_the_persona_pages() -> None:
         routed(".claude/skills/openspec-explore/SKILL.md"),
         routed(".agents/skills/openspec-explore/SKILL.md"),
         routed(".agents/skills/.openspec-target"),
+        routed(".kilocode/skills/openspec-explore/SKILL.md"),
         routed("openspec/changes/archive/2026-10-23-1847-x/tasks.md"),
         routed("src/devops_cli/openspec/gate.py"),
-    ] == [True, True, True, True, True, True, True, False]
+    ] == [True, True, True, True, True, True, True, True, False]
 
 
 def test_every_devops_ci_runs_the_openspec_row_and_the_hook_runs_it_on_its_files() -> None:
@@ -271,6 +279,7 @@ def test_every_devops_ci_runs_the_openspec_row_and_the_hook_runs_it_on_its_files
         "openspec/changes/1900-widget-export/tasks.md",
         ".claude/skills/openspec-explore/SKILL.md",
         ".agents/skills/.openspec-target",
+        ".kilocode/skills/openspec-explore/SKILL.md",
     ]
     assert (
         get_check_spec("openspec").cmd,
@@ -280,6 +289,6 @@ def test_every_devops_ci_runs_the_openspec_row_and_the_hook_runs_it_on_its_files
     ) == (
         ["uv", "run", "devops", "openspec", "check"],
         ("uv run devops ci --only openspec", False, ["pre-commit"]),
-        [True] * 4,
+        [True] * 5,
         None,
     )
