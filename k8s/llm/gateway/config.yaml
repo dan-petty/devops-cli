@@ -32,7 +32,7 @@ model_list:
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
 
   # Every serving tier holds the embedding model. The router tries the order 1 deployments
-  # first, least-busy among them, and an order 2 deployment only when they all fail (#1987).
+  # first, shuffled among them, and an order 2 deployment only when they all fail (#1987, #2027).
   # The 48gib-fast and 64gib-standard tiers embed a 32-chunk RAG batch in under 5 s, beside
   # their chat model. The 16gib-fast tier is faster, but its chat model leaves no VRAM for
   # the embedder, so each embedding evicts it. The background tier ollama-48gib-slow takes
@@ -186,6 +186,13 @@ router_settings:
   # least-busy routes requests to the backend with the fewest in-flight requests,
   # preventing pile-ups behind long generations across Ollama nodes.
   routing_strategy: least-busy
+  # Spread embedding batches across order 1 tiers (#2027). Under least-busy, zero-in-flight
+  # ties select the first deployment every time.
+  routing_groups:
+    - group_name: embedding
+      models:
+        - qwen3-embedding:0.6b
+      routing_strategy: simple-shuffle
   num_retries: 5
   allowed_fails: 3
   cooldown_time: 30
