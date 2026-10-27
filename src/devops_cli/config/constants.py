@@ -124,6 +124,10 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Sandbox Configuration (`sandbox`)",
         "Isolated container sandbox runtime, resource limits, and network policy settings.",
     ),
+    "ci": (
+        "CI Gate Configuration (`ci`)",
+        "Limit on how many CPU-heavy `devops ci` gates run at once on one host.",
+    ),
     "ai": (
         "AI & LLM Configuration (`ai`)",
         "AI code review, multi-agent pipelines, RAG semantic search, and embeddings.",

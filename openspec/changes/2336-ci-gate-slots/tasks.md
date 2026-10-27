@@ -8,13 +8,13 @@
 
 - [x] 2.1 Write the failing tests in `tests/test_ci_gate_slots.py`: a free slot is taken; a run waits while every slot is held and starts when one is freed (the test passes a `sleep` that frees the slot); the slot is free after a normal exit and after an exception; a slot held by a child process is free after SIGKILL; the wait message names the process number and the worktree of each holder; the default number of slots is 1 for 4 CPUs and for 16 CPUs, and 2 for 32 CPUs. Verify: `uv run devops ci test tests/test_ci_gate_slots.py` fails because the module does not exist.
 - [x] 2.2 Add `filelock` as a direct dependency with `uv add filelock`. Add `src/devops_cli/ci/gate_slots.py`. The command imports it when it takes a slot, so `devops --help` does not import `filelock`. The module holds one context manager that takes a slot, waits with a `sleep` parameter, writes the holder text and releases the slot in a `finally` block. Verify: `uv run devops ci test tests/test_ci_gate_slots.py` passes and `uv run devops ci lockfile` passes.
-- [x] 2.3 Add the wait message and the refusal message to `src/devops_cli/lang/en/messages.py` in ASD-STE100, with no hard wrap. Verify: `uv run devops ci test tests/test_ci_gate_slots.py` passes and the invariant tests on messages pass (`uv run devops ci test tests/test_architectural_invariants.py`).
+- [x] 2.3 Add the wait message to `src/devops_cli/lang/en/messages.py` in ASD-STE100, with no hard wrap. Verify: `uv run devops ci test tests/test_ci_gate_slots.py` passes and the invariant tests on messages pass (`uv run devops ci test tests/test_architectural_invariants.py`).
 
 ## 3. The `ci.gate_slots` setting
 
-- [ ] 3.1 Add failing tests to `tests/test_ci_gate_slots.py`: the setting is read from the config file and from `DEVOPS_CLI_CI_GATE_SLOTS`; the value 0 is refused with an error that names `ci.gate_slots`; an unset setting gives the number from the CPU count. Verify: `uv run devops ci test tests/test_ci_gate_slots.py` fails on the new tests.
-- [ ] 3.2 Add `CIConfig` with the field `gate_slots` to `src/devops_cli/config/settings.py`, register the key in `src/devops_cli/config/options.py`, and describe it in `config.example.yaml`. Verify: `uv run devops ci test tests/test_ci_gate_slots.py tests/test_config_audit_keys.py tests/test_config_commands.py` passes.
-- [ ] 3.3 Run `uv run devops docs generate --sync-readme`. Verify: `uv run devops ci docs` passes and `docs/ENV_VARS.md` and `docs/CONFIGURATION.md` name `ci.gate_slots`.
+- [x] 3.1 Add failing tests to `tests/test_ci_gate_slots.py`: the setting is read from the config file and from `DEVOPS_CLI_CI_GATE_SLOTS`; the value 0 is refused with an error that names `ci.gate_slots`; an unset setting gives the number from the CPU count. Verify: `uv run devops ci test tests/test_ci_gate_slots.py` fails on the new tests.
+- [x] 3.2 Add `CIConfig` with the field `gate_slots` to `src/devops_cli/config/settings.py`, register the key in `src/devops_cli/config/options.py`, and describe it in `config.example.yaml`. Verify: `uv run devops ci test tests/test_ci_gate_slots.py tests/test_config_audit_keys.py tests/test_config_commands.py` passes.
+- [x] 3.3 Run `uv run devops docs generate --sync-readme`. Verify: `uv run devops ci docs` passes and `docs/ENV_VARS.md` and `docs/CONFIGURATION.md` name `ci.gate_slots`.
 
 ## 4. Take a slot in `devops ci`
 

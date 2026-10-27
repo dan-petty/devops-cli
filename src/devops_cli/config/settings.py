@@ -377,6 +377,18 @@ class TelemetryConfig(BaseModel):
     logfire_send_to_logfire: bool | str = "if-token-present"
 
 
+class CIConfig(BaseModel):
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    gate_slots: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Number of CPU-heavy devops ci gates that run at once on this host "
+            "(default: one for each 16 CPUs)"
+        ),
+    )
+
+
 class SandboxConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     exclude_home_dir: bool = Field(
@@ -820,6 +832,7 @@ class Settings(BaseSettings):
         description="Default domain name for the environment or workstation",
     )
     sandbox: SandboxConfig = SandboxConfig()
+    ci: CIConfig = CIConfig()
     ai: AIConfig = AIConfig()
     open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()

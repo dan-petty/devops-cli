@@ -167,6 +167,14 @@ Isolated container sandbox runtime, resource limits, and network policy settings
 |---|---|---|---|---|
 | `exclude_home_dir` | `bool` | `True` | - | Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*) |
 
+## CI Gate Configuration (`ci`)
+
+Limit on how many CPU-heavy `devops ci` gates run at once on one host.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `gate_slots` | `Union` | - | `DEVOPS_CLI_CI_GATE_SLOTS` | Number of CPU-heavy devops ci gates that run at once on this host (default: one for each 16 CPUs) |
+
 ## AI & LLM Configuration (`ai`)
 
 AI code review, multi-agent pipelines, RAG semantic search, and embeddings.

@@ -200,3 +200,10 @@ cloudflare:
 sandbox:
   # Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*).
   exclude_home_dir: true
+
+
+# ── CI ────────────────────────────────────────────────────────────────────────
+ci:
+  # Number of CPU-heavy devops ci gates that run at once on this host; the others wait for a slot.
+  # Unset: one for each 16 CPUs, and at least one.
+  gate_slots: null

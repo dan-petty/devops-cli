@@ -132,6 +132,9 @@ SERVICE_WEBHOOK_SECRETS = "service.webhook_secrets"
 # Search Provider Configuration
 TAVILY_API_KEY = "tavily.api_key"
 
+# CI Gate Configuration
+CI_GATE_SLOTS = "ci.gate_slots"
+
 CONFIG_OPTIONS: tuple[str, ...] = (
     GITHUB_DEFAULT_ORG,
     SSH_KEY_DIR,
@@ -230,6 +233,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     SERVICE_DRAIN_TIMEOUT_SECONDS,
     SERVICE_WEBHOOK_SECRETS,
     TAVILY_API_KEY,
+    CI_GATE_SLOTS,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
