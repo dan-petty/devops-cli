@@ -143,6 +143,46 @@ def test_configure_urls_saves_valkey_url_as_a_valkey_url(
     assert _valkey_url_after_detection(saved, detected, reachable) == url
 
 
+def test_as_valkey_url_converts_http_and_preserves_brackets_and_ports() -> None:
+    """_as_valkey_url converts http URLs to valkey URLs and formats IPv6 addresses with brackets."""
+    from devops_cli.commands.k8s.networking import _as_valkey_url
+
+    assert _as_valkey_url(None) is None
+    assert _as_valkey_url("http://192.0.2.7:30637") == "valkey://192.0.2.7:30637"
+    assert _as_valkey_url("http://[2001:db8::5]:30637") == "valkey://[2001:db8::5]:30637"
+    assert _as_valkey_url("valkey://localhost:6380") == "valkey://localhost:6380"
+    assert _as_valkey_url("invalid-url-:::bad") is None
+
+
+def test_obsolete_valkey_update_predicates_are_removed() -> None:
+    """_has_non_default_valkey_port and _should_update_valkey must be removed (#1990)."""
+    import devops_cli.commands.k8s.networking as net_mod
+
+    assert not hasattr(net_mod, "_has_non_default_valkey_port")
+    assert not hasattr(net_mod, "_should_update_valkey")
+
+
+def test_no_tcp_scheme_literals_remain_in_valkey_and_k8s_subsystems() -> None:
+    """Pin acceptance criterion 5: no tcp:// or 'tcp' scheme literals remain in networking or valkey."""
+    import re
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    targets = [
+        repo_root / "src/devops_cli/commands/k8s/networking.py",
+        repo_root / "src/devops_cli/commands/ai_runs.py",
+        repo_root / "src/devops_cli/ai/run_store.py",
+        repo_root / "src/devops_cli/valkey",
+    ]
+    pattern = re.compile(r'tcp://|"tcp"')
+    for target in targets:
+        files = [target] if target.is_file() else list(target.rglob("*.py"))
+        for path in files:
+            content = path.read_text(encoding="utf-8")
+            matches = [line for line in content.splitlines() if pattern.search(line)]
+            assert not matches, f"Unexpected tcp scheme occurrence in {path}: {matches}"
+
+
 def test_update_ollama_urls_endpoint_preservation() -> None:
     """_update_ollama_urls protects custom remote Ollama endpoints from localhost clobbering."""
     settings_custom = Settings()
@@ -501,7 +541,7 @@ def test_configure_fqdn_urls() -> None:
         configured.get("ai.gateway_url"),
         settings.ai.gateway_enabled,
         settings.ai.tasks.analysis.api_base_url,
-        settings.ai.tasks.chat.api_base_url,
+        getattr(settings.ai.tasks.chat, "api_base_url"),
     ) == (
         "https://argocd.example.com",
         "https://chat.example.com",
