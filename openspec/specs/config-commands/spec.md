@@ -59,6 +59,10 @@ Each command that saves the settings SHALL write only the keys that it changes. 
 - **WHEN** `devops k8s configure-urls --stack infra` detects the ArgoCD, Grafana, Prometheus, Pyroscope and Tempo services
 - **THEN** the one config write names `argocd.url`, `grafana.url`, `prometheus.url`, `pyroscope.url`, `telemetry.endpoint` and `tempo.url`
 
+#### Scenario: devops k8s configure-urls task gateway URLs
+- **WHEN** `devops k8s configure-urls` changes only task gateway URLs
+- **THEN** the one config write names each changed `ai.tasks.<task>.api_base_url` key, and the report displays the changed keys
+
 #### Scenario: devops k8s switch-context
 - **WHEN** the config file holds `k8s.context: default`, and `devops k8s switch-context production-cluster` runs
 - **THEN** the file holds `k8s.context: production-cluster` and nothing more
