@@ -410,7 +410,8 @@ def _format_worktree_table_row(entry: Any) -> list[str]:
         if (entry.prunable and entry.prunable_reason)
         else ("prunable=true" if entry.prunable else "prunable=false")
     )
-    return [entry.path, branch, str(entry.ahead), dirty, locked, prunable]
+    issue = "" if entry.issue is None else str(entry.issue)
+    return [entry.path, branch, issue, str(entry.ahead), dirty, locked, prunable]
 
 
 @worktrees_app.command("status")
@@ -444,6 +445,7 @@ def worktrees_status(
         columns=[
             ("Worktree", "cyan"),
             ("Branch", "green"),
+            ("Issue", "cyan"),
             ("Ahead", "magenta"),
             ("Dirty", "yellow"),
             ("Locked", "red"),

@@ -18,12 +18,12 @@
 
 ## 4. The issue in `status`
 
-- [ ] 4.1 Add failing tests to `tests/test_repos_worktrees.py`: `status --json` gives the issue of `fix/2337-other` and null for `main` and for a detached head, and the table shows an `Issue` column. Verify: `uv run devops ci test tests/test_repos_worktrees.py` fails on the new tests.
-- [ ] 4.2 Add `issue` to `WorktreeEntry`, set it from the branch with the reader of `worktree_add.py`, and add the `Issue` column to the table in `src/devops_cli/commands/repos.py`. Run `uv run devops docs generate --sync-readme`. Verify: `uv run devops ci test tests/test_repos_worktrees.py tests/test_repos_worktrees_add.py` passes and `uv run devops ci docs` passes.
+- [x] 4.1 Add failing tests to `tests/test_repos_worktrees.py`: `status --json` gives the issue of `fix/2337-other` and null for `main` and for a detached head, and the table shows an `Issue` column. Verify: `uv run devops ci test tests/test_repos_worktrees.py` fails on the new tests.
+- [x] 4.2 Add `issue` to `WorktreeEntry`, set it from the branch with the reader of `worktree_add.py`, and add the `Issue` column to the table in `src/devops_cli/commands/repos.py`. Run `uv run devops docs generate --sync-readme`. Verify: `uv run devops ci test tests/test_repos_worktrees.py tests/test_repos_worktrees_add.py` passes and `uv run devops ci docs` passes.
 
 ## 5. Documents and the real host
 
-- [ ] 5.1 In `CONTRIBUTING.md` section 5, change the Branch row and the worktree row of the naming table, and the paragraph "The parts of a branch name", to name `devops repos worktrees add <issue> --type <type> --slug <slug>`, the standard path, and the refusal of a held issue. Verify: `uv run devops ci docs` passes and the text names the command.
+- [x] 5.1 In `CONTRIBUTING.md` section 5, change the Branch row and the worktree row of the naming table, and the paragraph "The parts of a branch name", to name `devops repos worktrees add <issue> --type <type> --slug <slug>`, the standard path, and the refusal of a held issue. Verify: `uv run devops ci docs` passes and the text names the command.
 - [ ] 5.2 From the main checkout of this host, run `add` for an issue that a real worktree holds, then for a free issue number with `--dry-run`, then for a free number. Verify: the first run exits 1 and names the holder, the second creates nothing, and the third creates `w-<issue>` that `worktrees status` lists with its issue.
 - [ ] 5.3 Run the full `uv run devops ci --check --no-cache` in the worktree. Verify: every check passes.
 

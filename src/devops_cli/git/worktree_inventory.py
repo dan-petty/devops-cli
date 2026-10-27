@@ -31,6 +31,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitOperationError
+from devops_cli.git.branch_form import issue_of_branch
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -55,11 +56,13 @@ class WorktreeInfo(BaseModel):
 
 class WorktreeEntry(BaseModel):
     """Enriched worktree record with ahead and dirty metrics. `dirty` is None when `git status`
-    failed in the worktree, which is not the same as clean."""
+    failed in the worktree, which is not the same as clean. `issue` is the issue that the branch
+    names, as `<type>/<issue>-<slug>`, and None for any other branch."""
 
     path: str
     head: str
     branch: str | None = None
+    issue: int | None = None
     ahead: int
     dirty: int | None
     locked: bool = False
@@ -293,6 +296,7 @@ def enrich_worktree_entry(
         path=str(info.path),
         head=info.head,
         branch=branch_display,
+        issue=issue_of_branch(branch_display),
         ahead=ahead,
         dirty=dirty,
         locked=info.locked,
