@@ -163,7 +163,10 @@ class DevcontainerErrorMessages:
         "Refusing an empty password: the keyring would store every secret in plain text."
     )
     keyring_password_mismatch: str = "Passwords do not match; the keyring was not created."
-    keyring_wrong_password: str = "Wrong password; the keyring is still locked."
+    keyring_wrong_password: str = (
+        "Wrong password; the keyring is still locked. To reset the keyring, "
+        "move {path} to a backup file and run 'devops devcontainer unlock-keyring'."
+    )
     keyring_not_created: str = "The keyring could not be created or reached over D-Bus."
 
 
