@@ -84,3 +84,10 @@ The virtual model of each hardware profile and of each Service alias that `devop
 #### Scenario: The GPU matrix
 - **WHEN** `devops k8s gpu-matrix` reads its profiles and Service aliases
 - **THEN** each virtual model is a gateway group with a deployment on a serving tier, and a 70B profile names `deepseek-r1:70b`
+
+### Requirement: The gateway routes embeddings with simple-shuffle across order 1 tiers
+The gateway configuration SHALL configure a routing group for the `qwen3-embedding:0.6b` model with `routing_strategy: simple-shuffle`, spreading sequential and parallel batches across all order 1 serving tiers.
+
+#### Scenario: Gateway router settings
+- **WHEN** the gateway configuration is loaded
+- **THEN** `router_settings.routing_groups` contains a group for `qwen3-embedding:0.6b` with `simple-shuffle` routing strategy
