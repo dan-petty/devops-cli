@@ -861,11 +861,12 @@ CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
     "read:project",
     "oauth scope",
 )
-# No login, or one GitHub refused (HTTP 401).
+# No login, one GitHub refused (HTTP 401), or an account GitHub suspended (HTTP 403, #2161).
 CONST_GITHUB_UNAUTHENTICATED_PATTERNS: tuple[str, ...] = (
     "not logged in",
     "http 401",
     "bad credentials",
+    "account was suspended",
 )
 # gh's exit status for a command that requires authentication (`gh help exit-codes`).
 CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
@@ -1445,6 +1446,11 @@ CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )
 CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
+# Counts each time GitHub refused the Service's identity and every round stopped (#2161). The
+# `identity` label names the account, as the refusal does.
+CONST_SERVICE_METRIC_IDENTITY_REFUSED: Final[str] = "devops_cli_service_identity_refused_total"
+# The Service's window for its GitHub request budget (#2161).
+CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 # The Service's lanes (#1532): each repository has one worker per lane. The status lane runs the
 # job that refreshes the metrics, the model lane those that call the model, so a status-lane round
 # never waits for a model-lane round. A service app given no jobs runs its logging job in the
@@ -3388,9 +3394,12 @@ CONST_PR_CLOSING_ISSUE_CARDS_PAGE: Final[int] = 100
 # The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
 # so a pull request that a bot or another person owns is never updated.
 CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
-# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151).
+# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151, #1979).
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
-    "AGENTS.md",
+    "docs/TESTING.md",
+    "ARCHITECTURE.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
     "src/devops_cli/ai/tasks/*.md",
     "src/devops_cli/ai/knowledge_base/",
     ".devops/review.toml",

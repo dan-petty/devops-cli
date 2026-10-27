@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER_PORTKEY,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
-from devops_cli.config.defaults import DEFAULT_OLLAMA_CLUSTER_URL
 from devops_cli.config.settings import AIConfig
 
 pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
@@ -48,19 +47,6 @@ class TestPortkeyGatewayRouter:
             CONST_AI_GATEWAY_VIRTUAL_MODELS,
             "ollama",
             True,
-        )
-
-    def test_portkey_coder_targets_ollama_served_model(self) -> None:
-        """Verify Portkey default routes and ConfigMap address Ollama coder by its served model name."""
-        router = GatewayRouter(AIConfig(gateway_provider=CONST_AI_GATEWAY_PROVIDER_PORTKEY))
-        coder = next(r for r in router.list_routes() if r.virtual_model == "devops-coder")
-        docs = yaml.safe_load_all((PORTKEY_DIR / "configmap.yaml").read_text(encoding="utf-8"))
-        cm = next(d for d in docs if d and d.get("kind") == "ConfigMap")
-        targets = {t["virtual_key"]: t for t in json.loads(cm["data"]["config.json"])["targets"]}
-
-        assert (targets["ollama-coder"]["override_params"]["model"], coder.backend_url) == (
-            coder.target_model,
-            DEFAULT_OLLAMA_CLUSTER_URL,
         )
 
     @pytest.mark.usefixtures("public_dns")
@@ -198,6 +184,29 @@ class TestPortkeyCLI:
 
 class TestK8sPortkeyManifests:
     """Validate Kubernetes manifests and security controls for Portkey."""
+
+    def test_portkey_manifests_have_no_unused_configmap(self) -> None:
+        """Verify Portkey directory has no unused configmap and deployment does not mount it."""
+        configmap_path = PORTKEY_DIR / "configmap.yaml"
+        dep_docs = list(
+            yaml.safe_load_all((PORTKEY_DIR / "deployment.yaml").read_text(encoding="utf-8"))
+        )
+        dep = next(d for d in dep_docs if d and d.get("kind") == "Deployment")
+        pod_spec = dep["spec"]["template"]["spec"]
+        container = pod_spec["containers"][0]
+
+        mounted_names = [v["name"] for v in container.get("volumeMounts", [])]
+        volume_names = [v["name"] for v in pod_spec.get("volumes", [])]
+
+        assert (
+            configmap_path.exists(),
+            "config-volume" in mounted_names,
+            "config-volume" in volume_names,
+        ) == (
+            False,
+            False,
+            False,
+        )
 
     def test_portkey_deployment_and_service(self) -> None:
         """Verify Portkey deployment security context, ports, and service definitions."""

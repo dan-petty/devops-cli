@@ -24,7 +24,7 @@ def _mock_gh_response(stdout: str, returncode: int = 0) -> subprocess.CompletedP
 
 
 def test_hardening_report_single_pr_hardened() -> None:
-    """Audit single defect PR that includes additions on AGENTS.md."""
+    """Audit single defect PR that includes additions on docs/TESTING.md."""
     pr_payload = {
         "number": 101,
         "title": "fix(cli): resolve option crash",
@@ -32,7 +32,7 @@ def test_hardening_report_single_pr_hardened() -> None:
         "state": "MERGED",
         "files": [
             {"path": "src/devops_cli/commands/pr.py", "additions": 20, "deletions": 5},
-            {"path": "AGENTS.md", "additions": 5, "deletions": 0},
+            {"path": "docs/TESTING.md", "additions": 5, "deletions": 0},
         ],
     }
 
@@ -117,7 +117,7 @@ def test_hardening_report_json_format() -> None:
         "state": "MERGED",
         "files": [
             {"path": "src/devops_cli/lock.py", "additions": 10, "deletions": 1},
-            {"path": "AGENTS.md", "additions": 4, "deletions": 0},
+            {"path": "docs/TESTING.md", "additions": 4, "deletions": 0},
         ],
     }
 
@@ -132,7 +132,7 @@ def test_hardening_report_json_format() -> None:
             parsed[0]["pr_number"],
             parsed[0]["is_defect"],
             parsed[0]["is_hardened"],
-            parsed[0]["surfaces"]["AGENTS.md"],
+            parsed[0]["surfaces"]["docs/TESTING.md"],
         ) == (
             1,
             105,
@@ -151,7 +151,7 @@ def test_hardening_report_list_merged_prs() -> None:
             "labels": [{"name": "type/bug"}],
             "files": [
                 {"path": "ci.sh", "additions": 10, "deletions": 2},
-                {"path": "AGENTS.md", "additions": 2, "deletions": 0},
+                {"path": "docs/TESTING.md", "additions": 2, "deletions": 0},
             ],
         },
         {
@@ -175,7 +175,7 @@ def test_hardening_report_list_merged_prs() -> None:
             "labels": [],
             "files": [
                 {"path": "patch.py", "additions": 5, "deletions": 1},
-                {"path": "common_hallucinations.json", "additions": 6, "deletions": 0},
+                {"path": "AGENTS.md", "additions": 6, "deletions": 0},
             ],
         },
     ]

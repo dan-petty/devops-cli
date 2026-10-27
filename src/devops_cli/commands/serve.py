@@ -139,7 +139,7 @@ def serve(
 
     if service:
         from devops_cli.config.settings import load_settings
-        from devops_cli.roadmap.run import SERVICE_JOBS, service_pause_until
+        from devops_cli.roadmap.run import SERVICE_JOBS, identity_refused, service_pause_until
         from devops_cli.server.json_logs import service_log_config
         from devops_cli.server.service import create_service_app
 
@@ -155,6 +155,7 @@ def serve(
                 settings=settings,
                 secrets=parsed_secrets,
                 pause_until=service_pause_until,
+                identity_refused=identity_refused,
             ),
             factory=True,
             host=host,

@@ -1,10 +1,10 @@
 """Fail-to-pass replay verifying that a defect fix's tests fail on its merge base (#844).
 
 `devops ci fail-to-pass` resolves the merge base of `--base` and `--head`, lists added or
-modified `tests/**/test_*.py` files, materialises the base tree in a temporary directory
-with the head's `tests/` overlaid, and runs those test files with the current pytest
-(`-o addopts=`, `-p no:cacheprovider`, `--continue-on-collection-errors`, `--junitxml`), so a
-test file that cannot be collected on base is reported as errored and the others still run.
+modified `tests/**/test_*.py` files, checks out the base tree as a detached git worktree in a
+temporary directory (#2197) with the head's `tests/` overlaid, and runs those test files with
+the current pytest (`-o addopts=`, `-p no:cacheprovider`, `--continue-on-collection-errors`,
+`--junitxml`), so a test file that cannot be collected on base is reported as errored and the others still run.
 A defect PR exits non-zero unless at least one changed test fails in the call phase on base,
 or the PR body declares `Fail-to-pass: not applicable: <reason>`. A replay whose pytest was
 interrupted, stopped with an internal or usage error, or wrote no complete JUnit report could
@@ -239,14 +239,29 @@ def _archive_to_dir(root: Path, archive_args: list[str], tar_path: Path, dest: P
 
 
 def materialise_base_with_head_tests(root: Path, merge_base: str, head: str, dest: Path) -> None:
-    """Materialise `merge_base` in `dest` with `head`'s `tests/` overlaid."""
-    dest.mkdir(parents=True, exist_ok=True)
-    _archive_to_dir(root, [merge_base], dest.parent / "base.tar", dest)
+    """Check out `merge_base` in `dest` as a detached git worktree of `root`, with `head`'s
+    `tests/` overlaid, so a test that runs `git` there works as in the checkout (#2197).
+
+    `remove_materialised_base` removes the worktree.
+    """
+    add = ["git", "worktree", "add", "--quiet", "--detach", str(dest), merge_base]
+    if (res := run_subprocess(add, cwd=root, quiet=True)).returncode != 0:
+        raise GitOperationError(
+            MESSAGES.ci.fail_to_pass_worktree_failed.format(
+                base=merge_base, detail=(res.stderr or "").strip()
+            )
+        )
     _archive_to_dir(root, [head, "--", CONST_TESTS_ROOT_DIR], dest.parent / "tests.tar", dest)
     if head == "HEAD" and (root / CONST_TESTS_ROOT_DIR).is_dir():
         shutil.copytree(
             root / CONST_TESTS_ROOT_DIR, dest / CONST_TESTS_ROOT_DIR, dirs_exist_ok=True
         )
+
+
+def remove_materialised_base(root: Path, dest: Path) -> None:
+    """Remove the worktree `materialise_base_with_head_tests` added at `dest`."""
+    run_subprocess(["git", "worktree", "remove", "--force", str(dest)], cwd=root, quiet=True)
+    run_subprocess(["git", "worktree", "prune"], cwd=root, quiet=True)
 
 
 def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]:
@@ -343,8 +358,11 @@ def run_fail_to_pass(
         tmp_path = Path(tmp)
         tree_dir = tmp_path / "tree"
         junit_path = tmp_path / "junit.xml"
-        materialise_base_with_head_tests(root, merge_base, head, tree_dir)
-        outcomes, could_not_run = _run_pytest_on_base(tree_dir, junit_path, files)
+        try:
+            materialise_base_with_head_tests(root, merge_base, head, tree_dir)
+            outcomes, could_not_run = _run_pytest_on_base(tree_dir, junit_path, files)
+        finally:
+            remove_materialised_base(root, tree_dir)
     return FailToPassReport(
         merge_base=merge_base,
         head=head,

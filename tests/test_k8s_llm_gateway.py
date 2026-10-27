@@ -547,6 +547,22 @@ class TestK8sLLMGatewayManifests:
 
         assert contexts == [CONST_RAG_MAX_CHUNK_TOKENS] * len(contexts)
 
+    def test_embedding_group_spreads_batches_over_order_1_tiers(self) -> None:
+        """Verify Gateway ConfigMap configures simple-shuffle routing for the embedding group (#2027).
+
+        Under least-busy, zero-in-flight ties select the first deployment every time.
+        A routing group with simple-shuffle spreads sequential and parallel embedding batches
+        over both order 1 deployments.
+        """
+        cfg = _gateway_config()
+        routing_groups = cfg["router_settings"].get("routing_groups", [])
+        embedding_group = next(
+            (g for g in routing_groups if g.get("group_name") == "embedding"), None
+        )
+        assert embedding_group is not None
+        assert embedding_group["models"] == ["qwen3-embedding:0.6b"]
+        assert embedding_group["routing_strategy"] == "simple-shuffle"
+
     @pytest.mark.parametrize(
         "embedding_models",
         [

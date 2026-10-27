@@ -818,6 +818,12 @@ DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05
 # ── Service Mode Defaults ─────────────────────────────────────────────────────
 DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 300
 DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS: Final[int] = 120
+# The GitHub requests the Service sends in any one hour, all repositories together (#2161). GitHub
+# suspended the machine account at 800 to 1,700 requests an hour, so the default stays under that.
+DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR: Final[int] = 500
+# How many rounds in a row a roadmap job may fail before the Service stops running it until its
+# input changes (#2161).
+DEFAULT_SERVICE_MAX_FAILED_ROUNDS: Final[int] = 3
 
 # ── AI Research Information Foraging Defaults ────────────────────────────────
 DEFAULT_AI_FORAGE_MAX_NODES: Final[int] = 20

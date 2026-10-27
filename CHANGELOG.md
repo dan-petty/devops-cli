@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2](https://github.com/dan-petty/devops-cli/compare/v0.7.1...v0.7.2) (2026-10-27)
+
+
+### Bug Fixes
+
+* **k8s:** guard valkey URL construction and pin configure-urls valkey scheme ([#2359](https://github.com/dan-petty/devops-cli/issues/2359)) ([b369d9a](https://github.com/dan-petty/devops-cli/commit/b369d9a502e8459dd817246ba2cc8f0c3a4f03fe)), closes [#1990](https://github.com/dan-petty/devops-cli/issues/1990)
+* **k8s:** spread embedding batches over both order 1 tiers ([#2360](https://github.com/dan-petty/devops-cli/issues/2360)) ([b0f58ac](https://github.com/dan-petty/devops-cli/commit/b0f58acaf517339515bf90ff45e00ce78ce00f48))
+
+## [0.7.1](https://github.com/dan-petty/devops-cli/compare/v0.7.0...v0.7.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **ci:** replay fail-to-pass tests in a git worktree of the base ([#2353](https://github.com/dan-petty/devops-cli/issues/2353)) ([5194d60](https://github.com/dan-petty/devops-cli/commit/5194d60092d0fba7a6b3459d8162cda664cc900d))
+* **github:** a rate-limit check for another host leaves the github.com quotas unchanged ([#2357](https://github.com/dan-petty/devops-cli/issues/2357)) ([5d37762](https://github.com/dan-petty/devops-cli/commit/5d37762f0981bc53707c772ff7e2b3294fad8fa7))
+* **github:** the defect classifier records a lesson in the document that owns it, not in AGENTS.md ([#2358](https://github.com/dan-petty/devops-cli/issues/2358)) ([a47167c](https://github.com/dan-petty/devops-cli/commit/a47167c632c112b56e9a7babca6240dcbe129019))
+* **k8s:** create the Grafana token before it revokes the old ones ([#2352](https://github.com/dan-petty/devops-cli/issues/2352)) ([f9c7ef5](https://github.com/dan-petty/devops-cli/commit/f9c7ef515cbd393f434fba8bb869b1b2d9e00c4c))
+* **service:** stop every roadmap job on a refused identity and keep GitHub requests under an hourly budget ([#2354](https://github.com/dan-petty/devops-cli/issues/2354)) ([0f00e96](https://github.com/dan-petty/devops-cli/commit/0f00e96ab56ad0d9893e3483eb1ab2ffca986b59))
+
 ## [0.7.0](https://github.com/dan-petty/devops-cli/compare/v0.6.5...v0.7.0) (2026-10-27)
 
 

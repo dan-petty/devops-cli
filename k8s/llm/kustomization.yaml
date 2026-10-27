@@ -8,7 +8,6 @@ resources:
   - profiles
   - gateway
   - gateway/servicemonitor.yaml
-  - portkey/configmap.yaml
   - portkey/deployment.yaml
   - portkey/service.yaml
   - portkey/networkpolicy.yaml

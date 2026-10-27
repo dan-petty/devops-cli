@@ -148,16 +148,24 @@ def _resolve_state_file(data_dir: Path | str | None = None) -> Path:
 
 
 def _load_gateway_state(state_file: Path) -> tuple[bool, list[GatewayRoute] | None]:
-    """Load circuit breaker and active route state from persistent storage."""
+    """Load circuit breaker and failover route state from persistent storage."""
     if not state_file.is_file():
         return False, None
     try:
         data = json.loads(state_file.read_text(encoding="utf-8"))
         cb_active = bool(data.get("circuit_breaker_active", False))
         raw_routes = data.get("routes", [])
-        if isinstance(raw_routes, list) and raw_routes:
-            return cb_active, [GatewayRoute.model_validate(r) for r in raw_routes]
-        return cb_active, None
+        failovers = (
+            {
+                r.virtual_model: r
+                for r in (GatewayRoute.model_validate(item) for item in raw_routes)
+                if r.backend_type.startswith(_FAILOVER_BACKEND_PREFIX)
+            }
+            if isinstance(raw_routes, list)
+            else {}
+        )
+        routes = [failovers.get(route.virtual_model, route) for route in _build_default_routes()]
+        return cb_active, routes
     except Exception as exc:
         logger.warning("Failed loading gateway state from '%s': %s", state_file, exc)
         return False, None
@@ -166,11 +174,13 @@ def _load_gateway_state(state_file: Path) -> tuple[bool, list[GatewayRoute] | No
 def _save_gateway_state(
     state_file: Path, circuit_breaker_active: bool, routes: list[GatewayRoute]
 ) -> None:
-    """Atomically persist gateway circuit breaker and routes to disk."""
+    """Atomically persist gateway circuit breaker and failover routes to disk."""
     state_file.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "circuit_breaker_active": circuit_breaker_active,
-        "routes": [r.model_dump() for r in routes],
+        "routes": [
+            r.model_dump() for r in routes if r.backend_type.startswith(_FAILOVER_BACKEND_PREFIX)
+        ],
     }
     tmp_path: Path | None = None
     try:

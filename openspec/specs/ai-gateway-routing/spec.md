@@ -39,11 +39,11 @@ When a virtual model fails over to `direct-ollama`, the route that the failover 
 
 #### Scenario: A reset after a failover
 - **WHEN** a route table holds a route that is not a default route, `devops-reasoning` fails over, and then a reset runs
-- **THEN** the reset reports `restored_routes` `["devops-reasoning"]` and no tripped circuit breaker, and the route file holds the default routes and no tripped circuit breaker
+- **THEN** the reset reports `restored_routes` `["devops-reasoning"]` and no tripped circuit breaker, and the route file holds no failover routes and no tripped circuit breaker
 
 #### Scenario: The MCP tool resets
 - **WHEN** `devops-chat` fails over, and then the MCP tool `ai_gateway_failover` runs with `reset` and its default `simulate`
-- **THEN** the route file holds the default routes and no tripped circuit breaker
+- **THEN** the route file holds no failover routes and no tripped circuit breaker
 
 #### Scenario: A reset with a virtual model
 - **WHEN** `devops ai gateway failover devops-chat --reset` runs, or `devops ai gateway failover` runs with no virtual model and no `--reset`
@@ -84,3 +84,21 @@ The virtual model of each hardware profile and of each Service alias that `devop
 #### Scenario: The GPU matrix
 - **WHEN** `devops k8s gpu-matrix` reads its profiles and Service aliases
 - **THEN** each virtual model is a gateway group with a deployment on a serving tier, and a 70B profile names `deepseek-r1:70b`
+
+### Requirement: The gateway routes embeddings with simple-shuffle across order 1 tiers
+The gateway configuration SHALL configure a routing group for the `qwen3-embedding:0.6b` model with `routing_strategy: simple-shuffle`, spreading sequential and parallel batches across all order 1 serving tiers.
+
+#### Scenario: Gateway router settings
+- **WHEN** the gateway configuration is loaded
+- **THEN** `router_settings.routing_groups` contains a group for `qwen3-embedding:0.6b` with `simple-shuffle` routing strategy
+
+### Requirement: A saved route table keeps only failover state
+The saved route table in `<data dir>/agent/gateway_state.json` SHALL keep only routes whose `backend_type` begins with `failover:`. When loading the route table, every non-failover route SHALL be taken from `DEFAULT_GATEWAY_ROUTES`. A non-failover route present in an existing saved route table SHALL NOT replace the default route.
+
+#### Scenario: Route table loads with an old saved default route
+- **WHEN** a saved route file holds an old non-failover route
+- **THEN** the router initializes with the current default route for that virtual model
+
+#### Scenario: Route table loads with a saved failover route
+- **WHEN** a saved route file holds a route with a `failover:*` backend type
+- **THEN** the router initializes with the saved failover route for that virtual model

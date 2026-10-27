@@ -1,10 +1,11 @@
-"""Defect pull request classification and declared hardening surface analysis (#697, #1151).
+"""Defect pull request classification and declared hardening surface analysis (#697, #1151, #1979).
 
 A pull request is classified as a defect fix if it carries `type/bug` or `type/security`
 labels (as defined in `.github/labels.yml`) or has a Conventional Commits `fix(...)` / `fix:`
 title. Defect pull requests must record hardening guardrails or lessons on at least one declared
-hardening surface (`AGENTS.md`, `src/devops_cli/ai/tasks/*.md`, `src/devops_cli/ai/knowledge_base/`,
-`.devops/review.toml`, or `src/devops_cli/review/rules/`).
+hardening surface (`docs/TESTING.md`, `ARCHITECTURE.md`, `SECURITY.md`, `CONTRIBUTING.md`,
+`src/devops_cli/ai/tasks/*.md`, `src/devops_cli/ai/knowledge_base/`, `.devops/review.toml`, or
+`src/devops_cli/review/rules/`).
 """
 
 from __future__ import annotations
@@ -95,15 +96,24 @@ def match_hardening_surface(file_path: str) -> str | None:
     """Match a changed file path against the declared hardening surfaces.
 
     Declared surfaces:
-    - `AGENTS.md`
+    - `docs/TESTING.md`
+    - `ARCHITECTURE.md`
+    - `SECURITY.md`
+    - `CONTRIBUTING.md`
     - `src/devops_cli/ai/tasks/*.md`
     - `src/devops_cli/ai/knowledge_base/`
     - `.devops/review.toml`
     - `src/devops_cli/review/rules/`
     """
     normalized = file_path.replace("\\", "/").strip().lstrip("/")
-    if normalized == "AGENTS.md":
-        return "AGENTS.md"
+    if normalized == "docs/TESTING.md":
+        return "docs/TESTING.md"
+    if normalized == "ARCHITECTURE.md":
+        return "ARCHITECTURE.md"
+    if normalized == "SECURITY.md":
+        return "SECURITY.md"
+    if normalized == "CONTRIBUTING.md":
+        return "CONTRIBUTING.md"
     if normalized.startswith("src/devops_cli/ai/tasks/") and normalized.endswith(".md"):
         rel = normalized[len("src/devops_cli/ai/tasks/") :]
         if "/" not in rel:
