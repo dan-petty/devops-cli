@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3](https://github.com/dan-petty/devops-cli/compare/v0.7.2...v0.7.3) (2026-10-27)
+
+
+### Bug Fixes
+
+* **ai:** a saved gateway route table keeps only failover state, so a changed default route reaches every machine ([#2364](https://github.com/dan-petty/devops-cli/issues/2364)) ([8317526](https://github.com/dan-petty/devops-cli/commit/8317526e29a0f94c9d39f56fddb98a08c422d6af))
+* **k8s:** delete unused portkey routing configmap ([#2363](https://github.com/dan-petty/devops-cli/issues/2363)) ([15bd601](https://github.com/dan-petty/devops-cli/commit/15bd6014d544fda76e8e87c40e726f7fffa9f8d6))
+* **telemetry:** export created timestamps for cluster job counters ([#2039](https://github.com/dan-petty/devops-cli/issues/2039)) ([#2366](https://github.com/dan-petty/devops-cli/issues/2366)) ([cc34caa](https://github.com/dan-petty/devops-cli/commit/cc34caa444c0b0f5bfff0b77dbbfe5c02338691f))
+
 ## [0.7.2](https://github.com/dan-petty/devops-cli/compare/v0.7.1...v0.7.2) (2026-10-27)
 
 
