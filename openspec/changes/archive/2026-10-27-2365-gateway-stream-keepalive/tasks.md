@@ -11,8 +11,8 @@
 
 ## 2. An OpenAI-compatible chat call reads its reply as a stream
 
-- [x] Add failing tests: a reply with pings, reasoning, content and usage chunks; an error frame with code 500 and with code 401; a stream past the size limit; a cut stream; the ledger row of a failure in the stream
-  - Verification: `uv run devops ci test tests/test_ai_chat_reply_stream.py`
+- [x] Add failing tests: a reply with pings, reasoning, content and usage chunks; an error frame with code 500 and with code 401; a stream past the size limit; a cut stream and a stream with no chunk; the ledger row of a failure in the stream; the ledger rows of failed attempts whose error body names usage and a model, is HTML, or is cut by the network
+  - Verification: `uv run devops ci test tests/test_ai_chat_reply_stream.py tests/test_ai_spend_dispatch.py`
 - [x] Send `stream: true` from `_openai_compat_messages`, join the chunks with `ChatCompletionStreamState`, share the frame watcher with the streamed path, map an error frame by its status, and record a failure in the stream with `record_failed_attempt`
   - Verification: `uv run devops ci test tests/test_ai_chat_reply_stream.py tests/test_ai_spend_dispatch.py`
 - [x] Delete the blocking read of a chat reply, and answer the chat calls of the existing tests and the canned chat reply of a review dry run with SSE frames
@@ -22,6 +22,6 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2365-gateway-stream-keepalive`
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
