@@ -450,8 +450,13 @@ def _as_valkey_url(url: str | None) -> str | None:
 
     if not url:
         return None
-    address = httpx2.URL(url)
-    return str(httpx2.URL(scheme="valkey", host=address.host, port=address.port))
+    try:
+        address = httpx2.URL(url)
+        if not address.host:
+            return None
+        return str(httpx2.URL(scheme="valkey", host=address.host, port=address.port))
+    except httpx2.InvalidURL, ValueError:
+        return None
 
 
 def _update_valkey_url(settings: Any, configured: dict[str, str], valkey_url: str | None) -> None:
