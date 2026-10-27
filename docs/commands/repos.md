@@ -127,6 +127,36 @@ devops repos worktrees status [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |
 
+### `devops repos worktrees add`
+
+**Create the worktree of an issue on \<type\>/\<issue\>-\<slug\> at the fetched origin/main.**
+
+Create the worktree of an issue on \<type\>/\<issue\>-\<slug\> at the fetched origin/main.
+
+The command refuses an issue that a worktree, the standard directory or a pushed branch of
+origin already holds. It reads git only and makes no GitHub request.
+
+```bash
+devops repos worktrees add [OPTIONS] <issue>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<issue>` | `integer` | Yes | The number of the issue that the worktree is for. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type` | `string` | - | The type of the branch: a type of release-please-config.json. |
+| `--slug` | `string` | - | The slug of the branch: lowercase letters and digits joined by single hyphens. |
+| `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json` | `boolean` | - | Emit output as JSON. |
+
 ### `devops repos worktrees prune`
 
 **Remove the worktrees whose tip heads a merged pull request; preview unless --confirm.**

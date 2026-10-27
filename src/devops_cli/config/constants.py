@@ -662,6 +662,28 @@ CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 CONST_CI_GATE_SLOTS_DIRNAME: Final[str] = "ci-gate-slots"
 CONST_CI_GATE_SLOT_FILENAME: Final[str] = "slot-{index}.lock"
 CONST_CI_GATE_SLOT_WAIT_METRIC: Final[str] = "ci.gate_slot_wait_seconds"
+# The branch form `<type>/<issue>-<slug>` (CONTRIBUTING.md, Naming). The types are those of
+# `release-please-config.json`, and the form is the one the `branch-name` pre-commit hook accepts;
+# `tests/test_branch_form.py` fails when either disagrees with these (#2337).
+CONST_BRANCH_TYPES: Final[tuple[str, ...]] = (
+    "feat",
+    "fix",
+    "perf",
+    "refactor",
+    "revert",
+    "docs",
+    "test",
+    "build",
+    "ci",
+    "style",
+    "chore",
+)
+CONST_BRANCH_SLUG_PATTERN: Final[str] = "[a-z0-9]+(?:-[a-z0-9]+)*"
+# `devops repos worktrees add` (#2337) puts the worktree of an issue at `w-<issue>` under this path
+# of the data directory (CONTRIBUTING.md: agent files and worktrees live under `.data/agent/`).
+CONST_AGENT_WORKTREES_SUBPATH: Final[str] = "agent/worktrees"
+CONST_AGENT_WORKTREE_PREFIX: Final[str] = "w-"
+CONST_GIT_REMOTE_ORIGIN: Final[str] = "origin"
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
 CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})

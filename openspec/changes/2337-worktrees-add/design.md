@@ -37,7 +37,7 @@ See proposal.md for the motivation and the evidence.
 
 **The base is `origin/main` after `git fetch origin main`, and the branch has no upstream.** `git worktree add --no-track -b <branch> <path> origin/main` makes the branch. Without `--no-track`, git sets `origin/main` as the upstream of the new branch, and a plain `git push` would then aim at `main`. Task 3.2 shows `@{u}` is unset. The fetch comes after the claim check, so a refused run changes nothing in the repository.
 
-**Order of a real run:** check the branch form, read the local worktrees, read `origin`, fetch, create. Each step before the create can refuse, and only the last two change the repository. A failed git command raises `GitOperationError` with the message of git, as `prune` does.
+**Order of a real run:** check the branch form (a `typer.BadParameter`, so a usage error with exit status 2, as other commands check an option), read the local worktrees, read `origin`, fetch, create. Each step before the create can refuse, and only the last two change the repository. A failed git command raises `GitOperationError` with the message of git, as `prune` does.
 
 **`--type` and `--slug` are required.** A default slug would need the title of the issue, which is a GitHub read, and a default type would hide a choice that the pull request title repeats. Alternative rejected: derive both from the issue title. The agent that starts an issue knows both.
 

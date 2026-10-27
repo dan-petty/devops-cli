@@ -23,15 +23,19 @@ How `devops repos worktrees add` creates the worktree of an issue in one place a
 - **THEN** its branch has no upstream branch
 
 ### Requirement: The branch form is checked first
-The command SHALL accept as `--type` only a type of `release-please-config.json`, and as `--slug` only lowercase letters and digits joined by single hyphens. It SHALL refuse any other value with exit status 1 before it runs a git command that changes the repository or reads `origin`.
+The command SHALL accept as `--type` only a type of `release-please-config.json`, and as `--slug` only lowercase letters and digits joined by single hyphens. It SHALL refuse any other value as a usage error, with exit status 2, before it runs a git command that changes the repository or reads `origin`.
 
 #### Scenario: Unknown type
 - **WHEN** the user runs `add 2337 --type feature --slug x`
-- **THEN** the command exits 1, names the allowed types and creates nothing
+- **THEN** the command exits 2, names the allowed types and creates nothing
 
 #### Scenario: Slug with a capital letter, an underscore or a leading hyphen
 - **WHEN** the user runs `add 2337 --type feat --slug Bad_Slug`
-- **THEN** the command exits 1, names the allowed form and creates nothing
+- **THEN** the command exits 2, names the allowed form and creates nothing
+
+#### Scenario: A bad value in a repository with no origin
+- **WHEN** the repository has no remote named `origin` and the user runs `add 2337 --type feature --slug x`
+- **THEN** the error is about the type and not about `origin`
 
 ### Requirement: A worktree holds its issue
 The command SHALL refuse issue N, with exit status 1 and no change, when a worktree of the repository has a branch of the form `<type>/N-<slug>`, whatever its type and slug, or when the directory `w-N` already exists. The error SHALL name the holder with its path and its branch.

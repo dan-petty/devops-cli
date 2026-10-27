@@ -391,6 +391,28 @@ class RepoMessages:
     worktrees_dry_run_confirm: str = (
         "--dry-run makes no change, so it cannot be used with --confirm."
     )
+    worktrees_add_heading: str = "Commands that `devops repos worktrees add` runs:"
+    worktrees_add_dry_run_notes: tuple[str, ...] = (
+        "A dry run reads local git only. Run without --dry-run to read origin and to create the "
+        "worktree.",
+    )
+    worktrees_add_created: str = "Created worktree {path} on branch {branch}."
+    worktrees_add_no_origin: str = (
+        "The repository has no remote named origin, so the branches of origin cannot be read. "
+        "Add the remote."
+    )
+    worktrees_add_held_by_worktree: str = (
+        "Issue {issue} is held by the worktree {path} on branch {branch}."
+    )
+    worktrees_add_held_by_directory: str = (
+        "Issue {issue} is held by the directory {path}, where its worktree goes."
+    )
+    worktrees_add_held_by_branch: str = "Issue {issue} is held by the branch origin/{branch}."
+    worktrees_add_git_failed: str = "`git {command}` failed: {reason}"
+    worktrees_add_bad_type: str = "'{type}' is not a branch type. Allowed types: {types}."
+    worktrees_add_bad_slug: str = (
+        "'{slug}' is not a slug. Use lowercase letters and digits joined by single hyphens."
+    )
     worktrees_prune_heading: str = "Requests that `devops repos worktrees prune --confirm` makes:"
     worktrees_prune_dry_run_notes: tuple[str, ...] = (
         "A dry run reads local git only. Run without --dry-run to read the pull requests, and "

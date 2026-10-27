@@ -8,7 +8,7 @@ Issue #2337: several agents work on this repository at the same time, each in it
 
 - `devops repos worktrees add <issue> --type <type> --slug <slug>` creates the worktree `w-<issue>` under the agent worktrees directory of the data directory (`.data/agent/worktrees/`). The branch is `<type>/<issue>-<slug>`. It starts at a freshly fetched `origin/main` and has no upstream, so a push needs `git push -u origin HEAD`.
 - The command refuses an issue that is held. A worktree holds an issue when its branch has the form `<type>/<issue>-<slug>` for that issue, or when its directory is the standard path. A branch of `origin` with that form holds it too. The error names the holder: the path of the worktree or the name of the remote branch. A local branch without a worktree holds nothing.
-- `--type` is one of the types of `release-please-config.json`, and `--slug` is lowercase letters, digits and hyphens. Both are required. A value that breaks the branch form is refused before any git command changes anything.
+- `--type` is one of the types of `release-please-config.json`, and `--slug` is lowercase letters, digits and hyphens. Both are required. A value that breaks the branch form is refused as a usage error (exit status 2) before any git command runs.
 - `--dry-run` makes no request to `origin`. It reads the local worktrees, prints the `git ls-remote`, `git fetch` and `git worktree add` commands that the run would make, and creates nothing.
 - `devops repos worktrees status` shows the issue number of each worktree, taken from its branch, as a column of the table and the field `issue` of the JSON.
 - A test fails when the branch form of the code and the form that the `branch-name` pre-commit hook and `release-please-config.json` hold disagree.

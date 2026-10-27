@@ -405,7 +405,7 @@ def plan_prune(
     )
 
 
-def _git_message(proc: subprocess.CompletedProcess[str]) -> str:
+def git_message(proc: subprocess.CompletedProcess[str]) -> str:
     """What a failed git command said, or its exit status when it said nothing."""
     said = " ".join(str(proc.stderr or "").split())
     return said[:CONST_MAX_ERROR_DETAIL_LENGTH] or f"git exited with status {proc.returncode}"
@@ -454,7 +454,7 @@ def prune_worktrees(
                 items.append(WorktreePruneItem(path=path, status="removed"))
             else:
                 items.append(
-                    WorktreePruneItem(path=path, status="failed", reason=_git_message(proc))
+                    WorktreePruneItem(path=path, status="failed", reason=git_message(proc))
                 )
     return WorktreePruneReport(
         removed_count=sum(1 for item in items if item.status == "removed"),
