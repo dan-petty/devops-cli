@@ -18,6 +18,9 @@ server:
 
   extraArgs:
     web.enable-remote-write-receiver: ""
+    # Ingest zero-value samples at created timestamps (#2039). This allows single-export
+    # cluster jobs to count in rate() and increase() queries.
+    enable-feature: created-timestamp-zero-ingestion
 
   resources:
     requests:

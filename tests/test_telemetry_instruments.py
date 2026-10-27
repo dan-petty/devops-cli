@@ -936,3 +936,48 @@ def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None
         True,
         [("2026-11", "closed", 120.0), ("2026-11", "closed", 125.0)],
     )
+
+
+def test_cluster_jobs_export_created_timestamps_and_prometheus_ingests_zeroes() -> None:
+    """The collector exports _created timestamps and Prometheus ingests zero samples at start time (#2039)."""
+    otel_values = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+    )
+    prom_remote_write = otel_values["config"]["exporters"]["prometheus_remote_write"]
+
+    prom_values = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
+    )
+    extra_args = prom_values["server"]["extraArgs"]
+
+    assert (
+        prom_remote_write.get("export_created_metric"),
+        extra_args.get("enable-feature"),
+    ) == (True, "created-timestamp-zero-ingestion")
+
+
+def test_two_job_runs_add_up_in_the_increase_query_the_dashboards_use() -> None:
+    """Two cluster Job runs that each export once add up in PromQL increase() when start times are ingested (#2039)."""
+
+    def evaluate_promql_increase(series_points: dict[str, list[tuple[float, float]]]) -> float:
+        total = 0.0
+        for points in series_points.values():
+            if len(points) < 2:
+                continue
+            total += points[-1][1] - points[0][1]
+        return total
+
+    job_1_start, job_1_end, job_1_requests = 100.0, 120.0, 2.0
+    job_2_start, job_2_end, job_2_requests = 130.0, 150.0, 3.0
+
+    series_without_created = {
+        "job-1": [(job_1_end, job_1_requests)],
+        "job-2": [(job_2_end, job_2_requests)],
+    }
+    assert evaluate_promql_increase(series_without_created) == 0.0
+
+    series_with_created = {
+        "job-1": [(job_1_start, 0.0), (job_1_end, job_1_requests)],
+        "job-2": [(job_2_start, 0.0), (job_2_end, job_2_requests)],
+    }
+    assert evaluate_promql_increase(series_with_created) == job_1_requests + job_2_requests
