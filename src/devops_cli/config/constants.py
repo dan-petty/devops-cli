@@ -213,6 +213,9 @@ CONST_MCP_JSON_NAME = "mcp.json"
 # `${workspaceFolder}` is a VS Code substitution that Claude Code does not expand, so a
 # copy of the VS Code file would hand the server a literal `${workspaceFolder}` on PATH.
 CONST_CLAUDE_MCP_JSON_NAME = ".mcp.json"
+# Kilo Code reads project-scoped MCP servers from `kilo.jsonc` at the repository root. It reads
+# neither `.mcp.json` nor `.vscode/mcp.json`, and `.kilo/kilo.jsonc` is left out of git.
+CONST_KILO_CONFIG_NAME = "kilo.jsonc"
 CONST_MCP_EAGER_DOMAINS: Final[frozenset[str]] = frozenset({"ai", "review", "config", "workspace"})
 CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
     {

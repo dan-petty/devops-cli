@@ -378,6 +378,9 @@ class TestDevcontainerCli:
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert (tmp_path / ".vscode" / "mcp.json").exists()
+        assert list(json.loads((tmp_path / "kilo.jsonc").read_text(encoding="utf-8"))["mcp"]) == [
+            tmp_path.name
+        ]
         assert (fake_home / ".gemini" / "config" / "mcp_config.json").exists()
         assert (tmp_path / ".agents" / "mcp_config.json").exists()
 
@@ -1484,6 +1487,39 @@ def test_this_repository_ships_a_claude_mcp_config() -> None:
 
     config = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
     assert "devops-cli" in config["mcpServers"]
+
+
+def test_the_kilo_config_launches_the_same_stdio_server() -> None:
+    """Kilo Code reads `kilo.jsonc`: a `local` server with the command as one array."""
+    from devops_cli.core.templating import render_json_template
+
+    kilo = json.loads(render_json_template("kilo_mcp.json.j2", project_name="devops-cli"))
+    claude = json.loads(render_json_template("claude_mcp.json.j2", project_name="devops-cli"))
+    claude_server = claude["mcpServers"]["devops-cli"]
+
+    assert kilo["mcp"]["devops-cli"] == {
+        "type": "local",
+        "command": [claude_server["command"], *claude_server["args"]],
+        "environment": claude_server["env"],
+        "enabled": True,
+    }
+
+
+def test_init_scaffolds_the_kilo_config_at_the_repository_root(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Kilo Code does not read `.mcp.json` or `.vscode/mcp.json`, and `.kilo/` is ignored."""
+    result = runner.invoke(app, ["init", str(tmp_path), "--name", "test-project"])
+
+    kilo = json.loads((tmp_path / "kilo.jsonc").read_text(encoding="utf-8"))
+    assert (result.exit_code, list(kilo["mcp"])) == (0, ["test-project"])
+
+
+def test_this_repository_ships_a_kilo_config() -> None:
+    """The devcontainer installs the Kilo Code extension, which needs this file to find the server."""
+    config = json.loads((REPO_ROOT / "kilo.jsonc").read_text(encoding="utf-8"))
+
+    assert list(config["mcp"]) == ["devops-cli"]
 
 
 def _record_subprocess_calls(
