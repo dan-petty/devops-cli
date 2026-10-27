@@ -24,7 +24,7 @@
 ## 5. Documents and the real host
 
 - [x] 5.1 In `CONTRIBUTING.md` section 5, change the Branch row and the worktree row of the naming table, and the paragraph "The parts of a branch name", to name `devops repos worktrees add <issue> --type <type> --slug <slug>`, the standard path, and the refusal of a held issue. Verify: `uv run devops ci docs` passes and the text names the command.
-- [ ] 5.2 From the main checkout of this host, run `add` for an issue that a real worktree holds, then for a free issue number with `--dry-run`, then for a free number. Verify: the first run exits 1 and names the holder, the second creates nothing, and the third creates `w-<issue>` that `worktrees status` lists with its issue.
+- [x] 5.2 From the main checkout of this host, run `add` for an issue that a real worktree holds, then for a free issue number with `--dry-run`, then for a free number. Verify: the first run exits 1 and names the holder, the second creates nothing, and the third creates `w-<issue>` that `worktrees status` lists with its issue.
 - [ ] 5.3 Run the full `uv run devops ci --check --no-cache` in the worktree. Verify: every check passes.
 
 ## Workflow follow-up

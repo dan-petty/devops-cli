@@ -137,7 +137,7 @@ The parts of a branch name:
 - `<issue>` is the number of the one issue that the pull request closes.
 - `<slug>` is lowercase words and digits, joined by single hyphens. It is the slug of the change folder.
 
-Start the work on an issue with `devops repos worktrees add <issue> --type <type> --slug <slug>`. The command fetches `origin/main` and creates the worktree `.data/agent/worktrees/w-<issue>` on the branch `<type>/<issue>-<slug>`. The branch has no upstream, so the first push is `git push -u origin HEAD`. The command refuses the issue when a worktree has a branch for it (whatever the type and the slug), when the directory `w-<issue>` exists, or when `origin` has a branch for it, and its error names the holder. A local branch with no worktree holds nothing. `devops repos worktrees status` shows the issue of each worktree.
+Start the work on an issue with `devops repos worktrees add <issue> --type <type> --slug <slug>`. The command fetches `origin/main` and creates the worktree `.data/agent/worktrees/w-<issue>` on a branch in the form above. The branch has no upstream, so the first push is `git push -u origin HEAD`. The command refuses the issue when a worktree has a branch for it (whatever the type and the slug), when the directory `w-<issue>` exists, or when `origin` has a branch for it, and its error names the holder. A local branch with no worktree holds nothing. `devops repos worktrees status` shows the issue of each worktree.
 
 The rule covers the branches that you push to this repository. GitHub makes the branches of bots (`release-please--*` and `renovate/*`), and nobody commits on them locally. `devops branches jira` and `devops scan fix` name branches of other repositories.
 
