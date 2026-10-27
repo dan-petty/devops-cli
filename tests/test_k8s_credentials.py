@@ -96,8 +96,8 @@ def _serve_grafana_mint(stub_web: StubWeb, old_tokens: list[dict[str, Any]]) -> 
 GRAFANA_MINT_REQUESTS = [
     ("POST", GRAFANA_ACCOUNTS),
     ("GET", GRAFANA_TOKENS),
-    ("DELETE", f"{GRAFANA_TOKENS}/3"),
     ("POST", GRAFANA_TOKENS),
+    ("DELETE", f"{GRAFANA_TOKENS}/3"),
 ]
 
 FailedCheck = Callable[[StubWeb, str], None]
@@ -477,9 +477,8 @@ def test_a_lost_connection_during_the_grafana_mint_reports_the_cause(
 
 
 @pytest.mark.parametrize(
-    ("revoke", "cause"),
+    ("list_failure", "cause"),
     [
-        (_revoke_refused, "Grafana refused to revoke token 3 of service account 7 with HTTP 500"),
         (
             _list_refused,
             "Grafana refused to list the tokens of service account 7 with HTTP 403",
@@ -489,25 +488,103 @@ def test_a_lost_connection_during_the_grafana_mint_reports_the_cause(
             f"Grafana sent an answer at {GRAFANA_TOKENS} that is not a JSON array",
         ),
     ],
-    ids=["delete-refused", "list-refused", "list-not-an-array"],
+    ids=["list-refused", "list-not-an-array"],
 )
-def test_a_failed_revoke_reports_the_cause_and_creates_no_token(
+def test_a_failed_token_list_reports_the_cause_and_changes_nothing(
     process_fake: ProcessFake,
     stub_web: StubWeb,
     mock_keyring: FakeKeyring,
-    revoke: Callable[[StubWeb], None],
+    list_failure: Callable[[StubWeb], None],
     cause: str,
 ) -> None:
     _cluster_password(process_fake, None)
     mock_keyring.values["grafana_password"] = "admin-pw"
     _serve_grafana_mint(stub_web, [{"id": 3}])
-    revoke(stub_web)
+    list_failure(stub_web)
 
     outcomes = _sync()
 
-    assert (outcomes["grafana_token"], ("POST", GRAFANA_TOKENS) in _requests(stub_web)) == (
+    assert (outcomes["grafana_token"], _requests(stub_web), mock_keyring.writes) == (
         ("failed", cause),
-        False,
+        [("POST", GRAFANA_ACCOUNTS), ("GET", GRAFANA_TOKENS)],
+        {},
+    )
+
+
+def test_a_failed_create_sends_no_revoke_and_keeps_the_stored_token(
+    process_fake: ProcessFake, stub_web: StubWeb, mock_keyring: FakeKeyring
+) -> None:
+    _cluster_password(process_fake, None)
+    mock_keyring.values.update({"grafana_token": "stored-token", "grafana_password": "admin-pw"})
+    stub_web.respond("GET", GRAFANA_ORG, 401, {"message": "Invalid API key"})
+    _serve_grafana_mint(stub_web, [{"id": 3}])
+    stub_web.respond("POST", GRAFANA_TOKENS, 500, {"message": "internal error"})
+
+    outcomes = _sync()
+
+    assert (
+        outcomes["grafana_token"],
+        [request for request in _requests(stub_web) if request[0] == "DELETE"],
+        mock_keyring.values["grafana_token"],
+    ) == (
+        (
+            "failed",
+            "Grafana refused to create a token for service account 7 with HTTP 500",
+        ),
+        [],
+        "stored-token",
+    )
+
+
+def test_the_mint_creates_stores_then_revokes(
+    process_fake: ProcessFake, stub_web: StubWeb, mock_keyring: FakeKeyring
+) -> None:
+    _cluster_password(process_fake, None)
+    mock_keyring.values["grafana_password"] = "admin-pw"
+    events: list[str] = []
+    mock_keyring.events = events
+    stub_web.serve(
+        lambda request: events.append(f"{request.method} {request.url.path}")  # type: ignore[func-returns-value]
+    )
+    _serve_grafana_mint(stub_web, [{"id": 3}])
+
+    outcomes = _sync()
+
+    assert (outcomes["grafana_token"], events[-3:]) == (
+        ("synced", None),
+        [
+            "POST /api/serviceaccounts/7/tokens",
+            "keyring-write grafana_token",
+            "DELETE /api/serviceaccounts/7/tokens/3",
+        ],
+    )
+
+
+def test_a_refused_revoke_keeps_the_new_token_and_logs_the_cause(
+    process_fake: ProcessFake,
+    stub_web: StubWeb,
+    mock_keyring: FakeKeyring,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _cluster_password(process_fake, None)
+    mock_keyring.values["grafana_password"] = "admin-pw"
+    _serve_grafana_mint(stub_web, [{"id": 3}])
+    _revoke_refused(stub_web)
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.k8s.credentials"):
+        outcomes = _sync()
+
+    assert (
+        outcomes["grafana_token"],
+        mock_keyring.values["grafana_token"],
+        [record.getMessage() for record in caplog.records],
+    ) == (
+        ("synced", None),
+        "new-grafana-token",
+        [
+            "Grafana refused to revoke token 3 of service account 7 with HTTP 500; "
+            "the old token stays until a later mint revokes it"
+        ],
     )
 
 
