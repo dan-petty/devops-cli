@@ -165,14 +165,14 @@ def test_obsolete_valkey_update_predicates_are_removed() -> None:
 def test_no_tcp_scheme_literals_remain_in_valkey_and_k8s_subsystems() -> None:
     """Pin acceptance criterion 5: no tcp:// or 'tcp' scheme literals remain in networking or valkey."""
     import re
-    from pathlib import Path
 
-    repo_root = Path(__file__).resolve().parent.parent
+    from tests.support.paths import REPO_ROOT
+
     targets = [
-        repo_root / "src/devops_cli/commands/k8s/networking.py",
-        repo_root / "src/devops_cli/commands/ai_runs.py",
-        repo_root / "src/devops_cli/ai/run_store.py",
-        repo_root / "src/devops_cli/valkey",
+        REPO_ROOT / "src/devops_cli/commands/k8s/networking.py",
+        REPO_ROOT / "src/devops_cli/commands/ai_runs.py",
+        REPO_ROOT / "src/devops_cli/ai/run_store.py",
+        REPO_ROOT / "src/devops_cli/valkey",
     ]
     pattern = re.compile(r'tcp://|"tcp"')
     for target in targets:
