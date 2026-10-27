@@ -18,7 +18,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops prometheus`](#devops-prometheus) — Prometheus metrics querying and analysis.
 - [`devops argo`](#devops-argo) — Argo CD, Workflows, and Rollouts management.
 - [`devops config`](#devops-config) — Show, set, get, or initialize CLI configuration.
-- [`devops ci`](#devops-ci) — Run tests, linting, formatting, and type-checks.
+- [`devops ci`](#devops-ci) — Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once.
 - [`devops uv`](#devops-uv) — uv dependency management proxies.
 - [`devops scan`](#devops-scan) — Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
 - [`devops ai`](#devops-ai) — Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
@@ -2656,7 +2656,7 @@ devops config audit-keys [OPTIONS]
 
 ## devops ci
 
-Run tests, linting, formatting, and type-checks.
+Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once.
 
 ```bash
 devops ci [OPTIONS] COMMAND [ARGS]...

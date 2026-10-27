@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ci.gate_slots import gate_slot, gate_slot_count
+from devops_cli.config.defaults import DEFAULT_CI_GATE_POLL_SECONDS
 from devops_cli.core import clock as clock_seam
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
@@ -51,13 +52,14 @@ def test_a_run_waits_while_every_slot_is_held_and_starts_when_one_is_free(
 
     with gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append):
         thread, entered = _wait_in_thread(tmp_path, 1, messages, waited)
-        assert wait_until(lambda: bool(clock.waits))
+        # The thread tells `notify` once it has found the only slot held; `wait_until` itself
+        # sleeps through the faked `time.sleep`, so `clock.waits` cannot show that.
+        assert wait_until(lambda: bool(messages))
         assert not entered.is_set()
 
     assert entered.wait(THREAD_HANDOFF_BOUND_SECONDS)
     thread.join(THREAD_HANDOFF_BOUND_SECONDS)
-    assert waited[0] == pytest.approx(sum(clock.waits))
-    assert waited[0] > 0
+    assert waited[0] >= DEFAULT_CI_GATE_POLL_SECONDS
 
 
 def test_a_second_slot_lets_a_second_run_start_at_once(tmp_path: Path, clock) -> None:

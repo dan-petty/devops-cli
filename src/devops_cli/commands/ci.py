@@ -25,6 +25,7 @@ from devops_cli.config.commands import build_npm_audit_cmd
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
+    CONST_CI_GATE_SLOT_WAIT_METRIC,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
@@ -45,6 +46,7 @@ from devops_cli.config.defaults import (
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.core import clock
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
@@ -159,6 +161,9 @@ class CheckSpec(BaseModel):
     # Whether the commands are dependency audits, whose failure is read by the kind of command
     # (`devops_cli.core.dependency_audit`) and reported as a finding or an audit that did not run.
     dependency_audit: bool = False
+    # Whether the check keeps the host's CPUs busy for minutes: a p90 above 200 s in the CI cache
+    # of the host (#2336). A run that selects one waits for a gate slot (`_gate_slot`).
+    heavy: bool = False
 
     @property
     def commands(self) -> list[list[str]]:
@@ -590,6 +595,38 @@ async def _execute_check_async(
 
 
 # =============================================================================
+# Gate Slots
+# =============================================================================
+
+
+@contextlib.contextmanager
+def _gate_slot(needed: bool) -> Iterator[None]:
+    """Hold one of the host's gate slots for the body when it runs CPU-heavy work (#2336).
+
+    The gates of several agents share one host, and a full-suite pytest starts a worker for each
+    CPU, so gates that run at once make each other several times slower. A run that needs a
+    slot waits for one and says who holds them. A run that needs none, and a dry run, hold none.
+    The wait is recorded and comes before the caller's clock starts.
+    """
+    if not needed or is_dry_run():
+        yield
+        return
+    from devops_cli.ci.gate_slots import gate_slot, gate_slot_count, gate_slots_directory
+    from devops_cli.config.settings import load_settings
+
+    root = _get_project_root()
+    slots = gate_slot_count(load_settings().ci.gate_slots)
+    with gate_slot(
+        gate_slots_directory(root),
+        slots,
+        holder=f"{os.getpid()} {root}",
+        notify=lambda message: print_info(message, safe=True),
+    ) as waited:
+        record_metric(CONST_CI_GATE_SLOT_WAIT_METRIC, waited, unit="s")
+        yield
+
+
+# =============================================================================
 # Pipeline Execution
 # =============================================================================
 
@@ -649,6 +686,7 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=_resolve_pytest_cmd(),
             span_name="ci.step.test_and_coverage",
             metric_step="test",
+            heavy=True,
         ),
         CheckSpec(
             name="lint",
@@ -689,6 +727,7 @@ def get_check_specs() -> list[CheckSpec]:
             ],
             span_name="ci.step.typecheck",
             metric_step="typecheck",
+            heavy=True,
         ),
         CheckSpec(
             name="audit",
@@ -705,6 +744,7 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=_bandit_cmd(DEFAULT_BANDIT_SEVERITY),
             span_name="ci.step.security",
             metric_step="security",
+            heavy=True,
         ),
         CheckSpec(
             name="actionlint",
@@ -1383,28 +1423,29 @@ def all_checks(
     ):
         return
 
-    start_time = time.perf_counter()
-    if not is_dry_run():
-        print_info("Executing CI quality gates concurrently...")
-        sys.stdout.flush()
-    results = asyncio.run(
-        _run_all_checks_async(
-            lint_fix=effective_fix,
-            format_fix=effective_fix,
-            docs_fix=effective_fix,
-            specs=selected_specs,
+    with _gate_slot(any(spec.heavy for spec in selected_specs)):
+        start_time = clock.monotonic()
+        if not is_dry_run():
+            print_info("Executing CI quality gates concurrently...")
+            sys.stdout.flush()
+        results = asyncio.run(
+            _run_all_checks_async(
+                lint_fix=effective_fix,
+                format_fix=effective_fix,
+                docs_fix=effective_fix,
+                specs=selected_specs,
+            )
         )
-    )
-    _print_failures(results)
-    _print_summary(results, total_elapsed=time.perf_counter() - start_time)
-    _warn_when_over_budget(results)
-    _handle_ci_results(
-        results,
-        root,
-        ci_options,
-        before_fingerprint=before_fingerprint,
-        save_cache=(not is_narrowed),
-    )
+        _print_failures(results)
+        _print_summary(results, total_elapsed=clock.monotonic() - start_time)
+        _warn_when_over_budget(results)
+        _handle_ci_results(
+            results,
+            root,
+            ci_options,
+            before_fingerprint=before_fingerprint,
+            save_cache=(not is_narrowed),
+        )
 
 
 # =============================================================================
@@ -1753,7 +1794,9 @@ def test(
 
     workers = numprocesses if numprocesses is not None else _narrowed_workers(targets)
     cmd = _build_test_cmd(workers, verbose, k, x, targets)
-    if not _run(cmd, own_session=True):
+    with _gate_slot(workers is None):
+        passed = _run(cmd, own_session=True)
+    if not passed:
         raise typer.Exit(1)
 
 
@@ -1827,10 +1870,12 @@ def coverage(
     cmd = list(spec.cmd)
     if html:
         cmd.append("--cov-report=html")
-    if build_index:
-        _handle_coverage_index_build(cmd)
-        return
-    if not _run(cmd):
+    with _gate_slot(True):
+        if build_index:
+            _handle_coverage_index_build(cmd)
+            return
+        passed = _run(cmd)
+    if not passed:
         raise typer.Exit(1)
 
 

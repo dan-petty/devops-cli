@@ -14,10 +14,18 @@ from pathlib import Path
 
 from filelock import FileLock, Timeout
 
-from devops_cli.config.constants import CONST_CI_GATE_SLOT_FILENAME
+from devops_cli.config.constants import CONST_CI_GATE_SLOT_FILENAME, CONST_CI_GATE_SLOTS_DIRNAME
 from devops_cli.config.defaults import DEFAULT_CI_GATE_CPUS_PER_SLOT, DEFAULT_CI_GATE_POLL_SECONDS
+from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.lang import MESSAGES
+
+
+def gate_slots_directory(root: Path | None = None) -> Path:
+    """Where the slot files are: a child of the data directory, which every worktree of the
+    repository shares, and outside the subdirectories that `devops workspace clean` prunes."""
+    return resolve_data_path(load_settings().data.dir / CONST_CI_GATE_SLOTS_DIRNAME, root)
 
 
 def gate_slot_count(configured: int | None, *, cpus: int | None = None) -> int:

@@ -33,7 +33,7 @@ None.
 - `src/devops_cli/ci/gate_slots.py` (new), `src/devops_cli/commands/ci.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/options.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
 - `pyproject.toml` and `uv.lock` (`filelock` as a direct dependency), `config.example.yaml`.
 - Tests: `tests/test_ci_gate_slots.py` and the `devops ci` command tests.
-- Documents: `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `docs/CLI_REFERENCE.md` and `docs/TELEMETRY.md`. ADR 0014 stays as it is: it records the evidence of its date.
+- Documents: `CONTRIBUTING.md`, `docs/CONFIGURATION.md`, `docs/ENV_VARS.md` and `docs/CLI_REFERENCE.md`. `docs/TELEMETRY.md` is generated from the Prometheus instruments and lists no ad-hoc metric such as `ci.step_pass`, so it stays. ADR 0014 stays as it is: it records the evidence of its date.
 
 ## Feasibility
 

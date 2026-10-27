@@ -37,7 +37,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_fleet_sync`](#argo-fleet-sync) | `false` | Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency. |
 | [`argo_rollouts_analyze`](#argo-rollouts-analyze) | `false` | Evaluate metric rollback gates and trigger automated rollback on threshold violation. |
 | [`branches_list`](#branches-list) | `true` | List branches across all repos. |
-| [`ci`](#ci) | `true` | Run tests, linting, formatting, and type-checks. |
+| [`ci`](#ci) | `true` | Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once. |
 | [`config_audit_keys`](#config-audit-keys) | `true` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited. |
 | [`config_output`](#config-output) | `true` | Output environment variables available for devops-cli configuration. |
 | [`config_show`](#config-show) | `true` | Print all configuration values, masking secrets. |
@@ -650,7 +650,7 @@ List branches across all repos.
 
 ### `ci`
 
-Run tests, linting, formatting, and type-checks.
+Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once.
 
 **Annotations:** `readOnlyHint: true`
 
