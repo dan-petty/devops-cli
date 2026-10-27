@@ -392,6 +392,11 @@ class RepoMessages:
 
 @dataclass(frozen=True)
 class K8sMessages:
+    grafana_password_missing: str = (
+        "The Grafana admin password is not in the keyring (grafana_password). Store it with "
+        "'devops config set grafana.password', or adopt it from the cluster with "
+        "'devops k8s push-secrets'."
+    )
     current_context: str = "Current Kubernetes context: [bold cyan]{context}[/bold cyan]"
     switched_context: str = "✓ Switched to Kubernetes context: [bold green]{context}[/bold green]"
     no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."

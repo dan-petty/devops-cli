@@ -731,6 +731,8 @@ def _report_credential_sync(results: Mapping[str, CredentialSync]) -> bool:
         match outcome.state:
             case SyncState.SYNCED:
                 print_success(f"{label} credentials securely stored in OS Keyring.")
+            case SyncState.MISSING if name == "grafana":
+                print_info(MESSAGES.k8s.grafana_password_missing, prefix=False)
             case SyncState.MISSING:
                 print_info(
                     f"{name.capitalize()} secret not found in active cluster.",

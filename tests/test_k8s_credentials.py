@@ -890,3 +890,23 @@ def test_sync_secrets_shows_each_failure_with_its_cause_and_exits_1(
         f"Grafana Token: The Grafana token check at {GRAFANA_ORG} failed with HTTP 502{KEPT}"
         in result.output,
     ) == (1, True, True, True), result.output
+
+
+def test_sync_secrets_names_the_keyring_entry_and_the_commands_for_a_missing_grafana_password(
+    cli: Callable[..., Any],
+    config: Callable[..., Any],
+    process_fake: ProcessFake,
+    stub_web: StubWeb,
+) -> None:
+    config(argocd={"url": ARGOCD}, grafana={"url": GRAFANA})
+    _cluster_password(process_fake, "argocd-pw")
+
+    result = cli("k8s", "sync-secrets")
+    output = " ".join(result.output.split())
+
+    assert (
+        "The Grafana admin password is not in the keyring (grafana_password). Store it with "
+        "'devops config set grafana.password', or adopt it from the cluster with "
+        "'devops k8s push-secrets'." in output,
+        "Grafana secret not found in active cluster" in output,
+    ) == (True, False), result.output
