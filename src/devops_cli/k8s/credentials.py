@@ -358,19 +358,25 @@ def _find_or_create_grafana_sa(client: httpx2.Client, base_url: str) -> int:
     return account_id
 
 
-def _revoke_grafana_sa_tokens(client: httpx2.Client, base_url: str, account_id: int) -> None:
-    """Revoke the tokens of the devops-cli service account, so that tokens do not accumulate."""
-    tokens_url = f"{base_url}/api/serviceaccounts/{account_id}/tokens"
-    resp = client.get(tokens_url)
+def _list_grafana_sa_token_ids(client: httpx2.Client, base_url: str, account_id: int) -> list[Any]:
+    """Return the IDs of the tokens that the devops-cli service account holds now."""
+    resp = client.get(f"{base_url}/api/serviceaccounts/{account_id}/tokens")
     if not resp.is_success:
         raise StackCredentialError(
             f"Grafana refused to list the tokens of service account {account_id} with HTTP "
             f"{resp.status_code}"
         )
-    for old_token in _read_json(resp, list, _GRAFANA_LABEL):
-        token_id = old_token.get("id") if isinstance(old_token, dict) else None
-        if token_id is None:
-            continue
+    tokens = _read_json(resp, list, _GRAFANA_LABEL)
+    ids = [token.get("id") if isinstance(token, dict) else None for token in tokens]
+    return [token_id for token_id in ids if token_id is not None]
+
+
+def _revoke_grafana_sa_tokens(
+    client: httpx2.Client, base_url: str, account_id: int, token_ids: list[Any]
+) -> None:
+    """Revoke the tokens `token_ids` of the service account, so that tokens do not accumulate."""
+    tokens_url = f"{base_url}/api/serviceaccounts/{account_id}/tokens"
+    for token_id in token_ids:
         revoked = client.delete(f"{tokens_url}/{token_id}")
         if not revoked.is_success:
             raise StackCredentialError(
@@ -410,9 +416,11 @@ def mint_grafana_token(
 ) -> str:
     """Mint a token for the devops-cli service account of Grafana with the admin password.
 
-    The account keeps one token: the mint revokes the older tokens before it creates the new one.
-    Raise StackCredentialError with the cause when a step fails, or when the keyring cannot store
-    the token.
+    The account keeps one token: the mint lists the older tokens, creates the new token, stores
+    it, and only then revokes the older tokens. A failed create or store revokes nothing. A
+    refused revoke logs its cause and keeps the new token, and the next mint revokes the old one.
+    Raise StackCredentialError with the cause when a step before the revoke fails, or when the
+    keyring cannot store the token.
     """
     import httpx2
 
@@ -420,14 +428,18 @@ def mint_grafana_token(
     try:
         with httpx2.Client(auth=("admin", password), timeout=timeout) as client:
             account_id = _find_or_create_grafana_sa(client, clean_base)
-            _revoke_grafana_sa_tokens(client, clean_base, account_id)
+            old_token_ids = _list_grafana_sa_token_ids(client, clean_base, account_id)
             token = _create_grafana_sa_token(client, clean_base, account_id)
+            if save_to_keyring:
+                _store_secret("grafana_token", token, "grafana_token")
+            try:
+                _revoke_grafana_sa_tokens(client, clean_base, account_id, old_token_ids)
+            except StackCredentialError as exc:
+                logger.warning("%s; the old token stays until a later mint revokes it", exc)
     except httpx2.RequestError as exc:
         raise StackCredentialError(
             f"The {_GRAFANA_LABEL} token mint at {clean_base} failed: {_request_failure(exc)}"
         ) from exc
-    if save_to_keyring:
-        _store_secret("grafana_token", token, "grafana_token")
     return token
 
 
