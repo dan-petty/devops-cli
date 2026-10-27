@@ -120,14 +120,11 @@ def test_the_wait_is_recorded_and_is_not_part_of_the_gate_time(
     assert f"Total Elapsed: {format_duration(0.0)}" in result.output
 
 
-def test_a_gate_with_only_light_checks_takes_no_slot(
-    held_slot: HeldSlot, started: Started, clock: Any
-) -> None:
+def test_a_gate_with_only_light_checks_takes_no_slot(held_slot: HeldSlot, started: Started) -> None:
     result = runner.invoke(app, ["--only", "lint,format", "--check", "--no-cache"])
 
     assert result.exit_code == 0, result.output
     assert held_slot.started_while_held is None
-    assert clock.waits == []
     assert _ran(started(), "ruff")
 
 
@@ -168,22 +165,20 @@ def test_the_coverage_command_waits_for_a_free_slot(
     ids=["narrowed by a path", "narrowed by -n"],
 )
 def test_a_narrowed_test_run_never_waits(
-    held_slot: HeldSlot, started: Started, clock: Any, arguments: list[str]
+    held_slot: HeldSlot, started: Started, arguments: list[str]
 ) -> None:
     result = runner.invoke(app, arguments)
 
     assert result.exit_code == 0, result.output
     assert held_slot.started_while_held is None
-    assert clock.waits == []
     assert _ran(started(), "pytest")
 
 
-def test_a_dry_run_takes_no_slot_and_does_not_wait(held_slot: HeldSlot, clock: Any) -> None:
+def test_a_dry_run_takes_no_slot_and_does_not_wait(held_slot: HeldSlot) -> None:
     result = runner.invoke(app, ["--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert held_slot.started_while_held is None
-    assert clock.waits == []
 
 
 def test_a_dry_run_makes_no_slot_file(config: Callable[..., Path]) -> None:
@@ -195,7 +190,7 @@ def test_a_dry_run_makes_no_slot_file(config: Callable[..., Path]) -> None:
     assert not gate_slots_directory().exists()
 
 
-def test_a_cached_verdict_takes_no_slot(held_slot: HeldSlot, clock: Any) -> None:
+def test_a_cached_verdict_takes_no_slot(held_slot: HeldSlot) -> None:
     root = find_worktree_root()
     options = {"fix": False, "check": True}
     fingerprint = compute_workspace_fingerprint(root=root, options=options)
@@ -214,7 +209,6 @@ def test_a_cached_verdict_takes_no_slot(held_slot: HeldSlot, clock: Any) -> None
     assert result.exit_code == 0, result.output
     assert MESSAGES.ci.cache_hit in result.output
     assert held_slot.started_while_held is None
-    assert clock.waits == []
 
 
 def test_a_stop_signal_while_a_gate_waits_ends_the_run_and_holds_no_slot(

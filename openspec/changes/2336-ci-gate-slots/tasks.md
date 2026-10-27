@@ -24,7 +24,7 @@
 
 ## 5. Check on the real host
 
-- [ ] 5.1 Set `ci.gate_slots` to 1, start `uv run devops ci --only test` in two worktrees at the same time, and read the output of the second. Verify: it prints the wait message with the process number and the worktree of the first, and it starts its checks only after the first ends.
+- [x] 5.1 Set `ci.gate_slots` to 1, start `uv run devops ci --only test` in two worktrees at the same time, and read the output of the second. Verify: it prints the wait message with the process number and the worktree of the first, and it starts its checks only after the first ends.
 - [ ] 5.2 Run the full `uv run devops ci` in the worktree. Verify: every check passes.
 
 ## Workflow follow-up

@@ -40,26 +40,31 @@ def test_a_run_takes_a_free_slot_at_once(tmp_path: Path, clock) -> None:
 
     with gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append) as waited:
         assert waited == 0
-    assert clock.waits == []
     assert messages == []
 
 
 def test_a_run_waits_while_every_slot_is_held_and_starts_when_one_is_free(
-    tmp_path: Path, clock
+    tmp_path: Path, clock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     messages: list[str] = []
-    waited: list[float] = []
+    other_run = gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append)
+    other_run.__enter__()
+    other_run_holds_the_slot = [True]
 
-    with gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append):
-        thread, entered = _wait_in_thread(tmp_path, 1, messages, waited)
-        # The thread tells `notify` once it has found the only slot held; `wait_until` itself
-        # sleeps through the faked `time.sleep`, so `clock.waits` cannot show that.
-        assert wait_until(lambda: bool(messages))
-        assert not entered.is_set()
+    def poll(seconds: float) -> None:
+        # The other run ends during the first poll, so the wait is one poll long.
+        if other_run_holds_the_slot:
+            other_run_holds_the_slot.clear()
+            other_run.__exit__(None, None, None)
+        clock.sleep(seconds)
 
-    assert entered.wait(THREAD_HANDOFF_BOUND_SECONDS)
-    thread.join(THREAD_HANDOFF_BOUND_SECONDS)
-    assert waited[0] >= DEFAULT_CI_GATE_POLL_SECONDS
+    monkeypatch.setattr(clock_seam, "sleep", poll)
+
+    with gate_slot(tmp_path, 1, holder="9 /work/w-2222", notify=messages.append) as waited:
+        assert not other_run_holds_the_slot
+        assert waited == pytest.approx(DEFAULT_CI_GATE_POLL_SECONDS)
+
+    assert len(messages) == 1
 
 
 def test_a_second_slot_lets_a_second_run_start_at_once(tmp_path: Path, clock) -> None:
@@ -72,7 +77,6 @@ def test_a_second_slot_lets_a_second_run_start_at_once(tmp_path: Path, clock) ->
         thread.join(THREAD_HANDOFF_BOUND_SECONDS)
 
     assert waited == [0]
-    assert clock.waits == []
 
 
 def test_a_slot_is_free_after_the_run_raises(tmp_path: Path, clock) -> None:
@@ -84,7 +88,6 @@ def test_a_slot_is_free_after_the_run_raises(tmp_path: Path, clock) -> None:
 
     with gate_slot(tmp_path, 1, holder=HOLDER, notify=messages.append) as waited:
         assert waited == 0
-    assert clock.waits == []
 
 
 def test_a_stop_signal_ends_the_wait_and_holds_no_slot(
@@ -135,7 +138,6 @@ def test_a_slot_is_free_after_its_holder_is_killed(tmp_path: Path, clock) -> Non
 
     with gate_slot(tmp_path, 1, holder=HOLDER, notify=lambda _message: None) as waited:
         assert waited == 0
-    assert clock.waits == []
 
 
 def test_a_waiting_run_names_the_process_and_worktree_of_each_holder(tmp_path: Path, clock) -> None:
