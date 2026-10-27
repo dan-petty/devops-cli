@@ -146,8 +146,9 @@ def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) ->
         span_handle.set_attribute(key, value)
     if getattr(res, "served_by", None):
         span_handle.set_attribute("llm.served_by", res.served_by)
-    if getattr(res, "model", None):
-        span_handle.set_attribute("gen_ai.response.model", res.model)
+    response_model = getattr(res, "served_model", None) or getattr(res, "model", None)
+    if response_model:
+        span_handle.set_attribute("gen_ai.response.model", response_model)
     if res.prompt_tokens is not None:
         span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
     if res.completion_tokens is not None:
