@@ -50,6 +50,7 @@ from devops_cli.config.constants import (
     CONST_GH_REST_SBOM_SEGMENTS,
     CONST_GH_REST_SEARCH_CODE_PREFIX,
     CONST_GH_REST_SEARCH_PREFIX,
+    CONST_GITHUB_HOST,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
     CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
 )
@@ -1528,11 +1529,16 @@ def _is_rate_limit_check(args: list[str]) -> bool:
 def _prints_rate_limit_answer(args: list[str]) -> bool:
     """Whether the command is a rate-limit check whose stdout ends with GitHub's /rate_limit
     answer, which `_post_process_run` reads into the quotas. An output flag such as `--jq` makes
-    gh print something else, which `run_gh` returns unread (#1886)."""
+    gh print something else, which `run_gh` returns unread (#1886). A `--hostname` that names
+    another host answers for that host, not for github.com, so its quotas stay unchanged (#1968)."""
     if not _is_rate_limit_check(args):
         return False
     api_args = parse_gh_api_args(args[1:])
-    return api_args is not None and api_args.prints_body
+    if api_args is None or not api_args.prints_body:
+        return False
+    if api_args.hostname is not None and api_args.hostname != CONST_GITHUB_HOST:
+        return False
+    return True
 
 
 def _is_rate_limit_exempt(args: list[str]) -> bool:

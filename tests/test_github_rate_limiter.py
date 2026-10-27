@@ -572,6 +572,51 @@ def test_run_gh_rate_limit_endpoint_extracts_all_resources(clock: ClockFake) -> 
         assert limiter.get_quota("search").remaining == 28
 
 
+def test_rate_limit_check_for_another_host_leaves_github_com_quotas_unchanged(
+    clock: ClockFake,
+) -> None:
+    """A rate-limit check that names another host with `--hostname` answers for that host, not
+    for github.com, so the github.com quotas stay unchanged (#1968)."""
+    limiter = get_github_rate_limiter()
+    other_host_output = (
+        '{"resources": {'
+        '"core": {"limit": 1000, "remaining": 500, "reset": 1773551000},'
+        '"graphql": {"limit": 500, "remaining": 400, "reset": 1773552000}'
+        "}}"
+    )
+    before_core = limiter.get_quota("core")
+    before_graphql = limiter.get_quota("graphql")
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "rate_limit", "--hostname", "ghe.example.com"],
+            returncode=0,
+            stdout=other_host_output,
+            stderr="",
+        )
+        res = run_gh(["api", "rate_limit", "--hostname", "ghe.example.com"])
+    assert res.returncode == 0
+    assert limiter.get_quota("core") == before_core
+    assert limiter.get_quota("graphql") == before_graphql
+
+
+def test_rate_limit_check_for_github_com_updates_quotas(clock: ClockFake) -> None:
+    """A rate-limit check that explicitly names github.com with `--hostname` updates quotas."""
+    limiter = get_github_rate_limiter()
+    github_output = (
+        '{"resources": {"core": {"limit": 5000, "remaining": 4800, "reset": 1773551000}}}'
+    )
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "rate_limit", "--hostname", "github.com"],
+            returncode=0,
+            stdout=github_output,
+            stderr="",
+        )
+        res = run_gh(["api", "rate_limit", "--hostname", "github.com"])
+    assert res.returncode == 0
+    assert limiter.get_quota("core").remaining == 4800
+
+
 def test_quota_state_validate_direct() -> None:
     """Verify QuotaState.validate() raises ValueError on negative fields."""
     state = QuotaState()
