@@ -19,7 +19,10 @@ from fakeredis import FakeServer
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import defaults
-from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_SERVED_BY_HEADER,
+    CONST_RAG_MAX_CHUNK_TOKENS,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
@@ -1572,3 +1575,49 @@ def test_only_a_batch_within_the_margin_below_the_latency_threshold_counts_as_fa
     sizes.append(_batch_sizes(engine, sent, 3, 6))
 
     assert sizes == [[4], [2, 2, 2], [2, 2, 2], [4, 2]]
+
+
+# =============================================================================
+# Tests: direct Ollama embedding calls pass num_ctx option (#2089)
+# =============================================================================
+
+
+def test_ollama_embed_batch_sends_num_ctx_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A direct Ollama embedding batch request passes options.num_ctx defaulting to 8192."""
+    sent = _serve(monkeypatch, _ollama_reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None)
+
+    engine.embed_texts(["hello world"])
+
+    assert len(sent) == 1
+    body = json.loads(sent[0].content)
+    assert body.get("options") == {"num_ctx": CONST_RAG_MAX_CHUNK_TOKENS}
+
+
+def test_ollama_embed_batch_sends_configured_num_ctx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A direct Ollama embedding batch request passes configured num_ctx."""
+    sent = _serve(monkeypatch, _ollama_reply)
+    ai_cfg = _ollama_config()
+    ai_cfg.tasks.embedding.num_ctx = 4096
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=None)
+
+    engine.embed_texts(["hello world"])
+
+    assert len(sent) == 1
+    body = json.loads(sent[0].content)
+    assert body.get("options") == {"num_ctx": 4096}
+
+
+def test_probe_ollama_embed_dimension_sends_num_ctx_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probing Ollama embed dimension passes options.num_ctx."""
+    sent = _serve(monkeypatch, _ollama_reply)
+    engine = EmbeddingsEngine(_ollama_config(), valkey_client=None)
+    with httpx2.Client() as client:
+        dim = engine._probe_ollama_embed_dimension(client, _SERVING_BACKEND)
+
+    assert dim == 4
+    assert len(sent) == 1
+    body = json.loads(sent[0].content)
+    assert body.get("options") == {"num_ctx": CONST_RAG_MAX_CHUNK_TOKENS}

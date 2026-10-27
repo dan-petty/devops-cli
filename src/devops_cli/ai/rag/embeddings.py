@@ -42,6 +42,7 @@ from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_KNOWN_EMBEDDING_DIMENSIONS,
     CONST_QWEN3_EMBEDDING_QUERY_PREFIX,
+    CONST_RAG_MAX_CHUNK_TOKENS,
     CONST_SPEND_REQUEST_TYPE_EMBEDDING,
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
@@ -688,12 +689,25 @@ class EmbeddingsEngine:
             client, base_url, self.model
         )
 
+    @property
+    def _ollama_num_ctx(self) -> int:
+        """The context length to send with direct Ollama embedding requests."""
+        return getattr(self.ai_config, "num_ctx", None) or CONST_RAG_MAX_CHUNK_TOKENS
+
+    def _ollama_embed_payload(self, texts: Sequence[str]) -> dict[str, Any]:
+        """The JSON body of an Ollama /api/embed request, with the context length."""
+        return {
+            "model": self.model,
+            "input": list(texts),
+            "options": {"num_ctx": self._ollama_num_ctx},
+        }
+
     def _probe_ollama_embed_dimension(self, client: httpx2.Client, base_url: str) -> int | None:
         """The dimension of one probe text's vector; the probe is recorded like any request."""
         endpoint = _ollama_embed_endpoint(base_url)
         texts = ["probe"]
         started = time.monotonic()
-        res = client.post(endpoint, json={"model": self.model, "input": texts})
+        res = client.post(endpoint, json=self._ollama_embed_payload(texts))
         seconds = time.monotonic() - started
         if res.status_code != 200:
             return None
@@ -900,7 +914,7 @@ class EmbeddingsEngine:
             start_t = clock.monotonic()
             client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 2.0))
             with httpx2.Client(timeout=client_timeout) as client:
-                res = client.post(endpoint, json={"model": self.model, "input": batch_texts})
+                res = client.post(endpoint, json=self._ollama_embed_payload(batch_texts))
             seconds = clock.monotonic() - start_t
             embs = _reply_vectors(res, endpoint, len(batch_texts), _ollama_reply_vectors)
             self._record_embedding_request(
