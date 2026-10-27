@@ -36,13 +36,17 @@ _MESSAGES = [ChatMessage(role="user", content="hi")]
 _OLLAMA = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
 _OPENAI = AIConfig(provider="openai", api_base_url="https://example.com/v1")
 
-# Each provider call that reads a whole JSON reply: (its client's config, the call).
+# Each provider call that reads its reply under the size limit: (its client's config, the call).
 _PROVIDER_CALLS: dict[str, tuple[AIConfig, Callable[[LLMClient], Any]]] = {
     "ollama-chat": (_OLLAMA, lambda client: client._ollama_messages("sys", _MESSAGES)),
     "ollama-tags": (_OLLAMA, lambda client: client._ollama_models()),
     "openai-chat": (_OPENAI, lambda client: client._openai_compat_messages("sys", _MESSAGES)),
     "openai-models": (_OPENAI, lambda client: client._openai_models()),
 }
+
+
+# A chat call reads its reply as SSE frames (#2365), so its 2 MB reply is 2,000 chunks of 1 KiB.
+_REPLY_FRAMES: dict[str, list[bytes]] = {"openai-chat": [openai_chunk("x" * 1024)] * 2000}
 
 
 @pytest.fixture
@@ -64,7 +68,7 @@ def test_post_limited_json_stops_reading_past_limit(
     """Verify a provider stops reading a 2 MB reply once it passes the 4 KiB limit."""
     config, invoke = _PROVIDER_CALLS[call]
     client = LLMClient(config, api_key="sk-test", cache_enabled=False)
-    body = RecordedBody([_KIB] * 2000)
+    body = RecordedBody(_REPLY_FRAMES.get(call, [_KIB] * 2000))
     route_client(client, monkeypatch, lambda request: httpx2.Response(200, content=iter(body)))
 
     with pytest.raises(AIClientError) as caught:

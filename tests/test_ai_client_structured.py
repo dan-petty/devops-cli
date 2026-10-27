@@ -346,7 +346,14 @@ def test_each_provider_is_sent_the_schema_and_only_its_own_constraint(
 
     schema = RefinementProposal.model_json_schema()
     messages = [{"role": "system", "content": _sent_system()}, {"role": "user", "content": _PROMPT}]
-    compat = {"model": "demo-model", "messages": messages, "temperature": 0.1, "top_p": 0.95}
+    compat = {
+        "model": "demo-model",
+        "messages": messages,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "temperature": 0.1,
+        "top_p": 0.95,
+    }
     assert bodies == {
         "gateway": compat
         | {

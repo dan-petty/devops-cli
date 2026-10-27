@@ -34,6 +34,63 @@ def openai_chunk(content: str | None = None, finish_reason: str | None = None) -
     return sse_data({"choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]})
 
 
+def _asks_for_stream(request: httpx2.Request) -> bool:
+    if request.method != "POST" or not request.url.path.endswith("/chat/completions"):
+        return False
+    try:
+        body = json.loads(request.content or b"{}")
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("stream") is True
+
+
+def completion_chunks(completion: dict[str, Any]) -> list[bytes]:
+    """The SSE frames that an OpenAI-compatible server streams for `completion`, a chat
+    completion body: one chunk for each choice, whose delta is the choice's message, then a
+    usage chunk when the body has usage, then `[DONE]`. A body with no choices is sent as one
+    frame, as a server sends an error object."""
+    choices = completion.get("choices")
+    if not isinstance(choices, list):
+        return [sse_data(completion), OPENAI_DONE]
+    top = {k: v for k, v in completion.items() if k not in ("choices", "usage", "object")}
+    top = {"id": "chatcmpl-test", "created": 0, **top, "object": "chat.completion.chunk"}
+    frames = []
+    for position, choice in enumerate(choices):
+        delta = dict(choice.get("message") or {})
+        chunk_choice = {
+            "index": choice.get("index", position),
+            "delta": delta,
+            "finish_reason": choice.get("finish_reason"),
+        }
+        frames.append(sse_data({**top, "choices": [chunk_choice]}))
+    if completion.get("usage") is not None:
+        frames.append(sse_data({**top, "choices": [], "usage": completion["usage"]}))
+    frames.append(OPENAI_DONE)
+    return frames
+
+
+def as_requested(request: httpx2.Request, response: httpx2.Response) -> httpx2.Response:
+    """`response` in the form that `request` asks for: a successful JSON chat completion to a
+    request with `stream: true` is streamed as SSE frames with the same status and headers, as
+    an OpenAI-compatible server streams it. Any other response is returned as it is."""
+    content_type = response.headers.get("content-type", "")
+    if not (response.is_success and content_type.startswith("application/json")):
+        return response
+    if not _asks_for_stream(request):
+        return response
+    completion = json.loads(response.read())
+    headers = {k: v for k, v in response.headers.items() if k.lower() not in _BODY_HEADERS}
+    return httpx2.Response(
+        response.status_code,
+        headers={**headers, "content-type": SSE},
+        content=iter(completion_chunks(completion)),
+        request=request,
+    )
+
+
+_BODY_HEADERS = frozenset({"content-type", "content-length", "content-encoding"})
+
+
 def anthropic_event(event_type: str, **fields: Any) -> bytes:
     """One Anthropic Messages stream event, named in both its `event:` line and its data."""
     if event_type == "message_start":
@@ -158,7 +215,7 @@ def route_client(
 
     def record(request: httpx2.Request) -> httpx2.Response:
         sent.append(request)
-        return handler(request)
+        return as_requested(request, handler(request))
 
     transport = httpx2.MockTransport(record)
     monkeypatch.setattr(client, "_shared_client", lambda: httpx2.Client(transport=transport))
@@ -181,7 +238,7 @@ def route_llm_clients(
 
     def record(request: httpx2.Request) -> httpx2.Response:
         sent.append(request)
-        return handler(request)
+        return as_requested(request, handler(request))
 
     transport = httpx2.MockTransport(record)
     monkeypatch.setattr(
@@ -215,7 +272,7 @@ def route_retrying_client(
 
     def record(request: httpx2.Request) -> httpx2.Response:
         sent.append(request)
-        return handler(request)
+        return as_requested(request, handler(request))
 
     inner = httpx2.MockTransport(record)
     recording = AttemptRecordingTransport(inner)
