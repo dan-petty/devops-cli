@@ -15,8 +15,6 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.client import AICredentialsError
 from devops_cli.ai.gateway import (
-    DEFAULT_GATEWAY_ROUTES,
-    GatewayRoute,
     GatewayRouter,
 )
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
@@ -36,26 +34,36 @@ runner = CliRunner()
 
 
 def _write_routes_with_a_small_coder(state_file: Path) -> None:
-    """Write the default route table with devops-coder on gpt-oss:20b, below the 30B floor of
-    devops-reasoning, which fails over to devops-coder. No default route is below the floor of a
-    virtual model that fails over to it."""
+    """Write devops-coder in failover to gpt-oss:20b, below the 30B floor of devops-reasoning,
+    which fails over to devops-coder. No default route is below the floor of a virtual model that
+    fails over to it."""
     routes = [
-        route.model_copy(update={"target_model": "gpt-oss:20b"})
+        route.model_copy(update={"target_model": "gpt-oss:20b", "backend_type": "failover:ollama"})
         if route.virtual_model == "devops-coder"
         else route
         for route in GatewayRouter(state_file=state_file).list_routes()
     ]
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(
-        json.dumps({"routes": [route.model_dump() for route in routes]}), encoding="utf-8"
+        json.dumps(
+            {
+                "circuit_breaker_active": True,
+                "routes": [
+                    route.model_dump()
+                    for route in routes
+                    if route.backend_type.startswith("failover:")
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
 
 
 def _default_route_file() -> dict[str, Any]:
-    """The route file that holds the default route of every virtual model and no tripped breaker."""
+    """The route file that holds no failover routes and no tripped breaker."""
     return {
         "circuit_breaker_active": False,
-        "routes": [GatewayRoute(**route).model_dump() for route in DEFAULT_GATEWAY_ROUTES],
+        "routes": [],
     }
 
 
@@ -85,6 +93,64 @@ class TestGatewayRouter:
             4,
             CONST_AI_GATEWAY_VIRTUAL_MODELS,
             True,
+        )
+
+    def test_saved_file_with_old_default_route_uses_current_defaults(self, tmp_path: Path) -> None:
+        """Verify a saved route file that holds an old default route is ignored and the router
+        uses the current default route (#2045)."""
+        state_file = tmp_path / "gateway_state.json"
+        state_file.write_text(
+            json.dumps(
+                {
+                    "circuit_breaker_active": False,
+                    "routes": [
+                        {
+                            "virtual_model": "devops-chat",
+                            "target_model": "qwen2.5-coder:7b",
+                            "backend_type": "ollama",
+                            "backend_url": "http://ollama-fast.llm.svc.cluster.local:11434",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        router = GatewayRouter(state_file=state_file)
+        chat_route = next(r for r in router.list_routes() if r.virtual_model == "devops-chat")
+        assert (chat_route.target_model, chat_route.backend_type) == ("qwen3.8:27b", "ollama")
+
+    def test_saved_failover_route_persists_after_restart(self, tmp_path: Path) -> None:
+        """Verify a saved failover:* route still applies after a router restart (#2045)."""
+        state_file = tmp_path / "gateway_state.json"
+        state_file.write_text(
+            json.dumps(
+                {
+                    "circuit_breaker_active": True,
+                    "routes": [
+                        {
+                            "virtual_model": "devops-chat",
+                            "target_model": "qwen3.8:27b",
+                            "backend_type": "failover:ollama",
+                            "backend_url": "http://ollama-fast.llm.svc.cluster.local:11434",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        router = GatewayRouter(state_file=state_file)
+        chat_route = next(r for r in router.list_routes() if r.virtual_model == "devops-chat")
+        coder_route = next(r for r in router.list_routes() if r.virtual_model == "devops-coder")
+        assert (
+            chat_route.target_model,
+            chat_route.backend_type,
+            coder_route.target_model,
+            coder_route.backend_type,
+        ) == (
+            "qwen3.8:27b",
+            "failover:ollama",
+            "qwen3-coder:30b",
+            "ollama",
         )
 
     @pytest.mark.usefixtures("public_dns")
@@ -254,8 +320,8 @@ class TestGatewayRouter:
         )
 
     def test_failover_reset_restores_the_default_routes(self, tmp_path: Path) -> None:
-        """Verify a reset writes the default route of every virtual model to the route file and
-        clears the breaker (#1986). The file starts with a route that is not a default route."""
+        """Verify a reset writes no failover routes to the route file and clears the breaker
+        (#1986, #2045). The file starts with a route in failover."""
         state_file = tmp_path / "gateway_state.json"
         _write_routes_with_a_small_coder(state_file)
         GatewayRouter(state_file=state_file).trigger_failover(
@@ -267,7 +333,7 @@ class TestGatewayRouter:
         assert (outcome, json.loads(state_file.read_text(encoding="utf-8"))) == (
             {
                 "status": "reset",
-                "restored_routes": ["devops-reasoning"],
+                "restored_routes": ["devops-coder", "devops-reasoning"],
                 "circuit_breaker_tripped": False,
             },
             _default_route_file(),
