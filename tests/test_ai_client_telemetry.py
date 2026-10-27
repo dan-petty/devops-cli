@@ -444,6 +444,71 @@ def test_a_gateway_call_is_timed_from_when_its_slot_is_held(
     )
 
 
+def _gateway_client(monkeypatch: pytest.MonkeyPatch) -> LLMClient:
+    """A gateway client whose route is `devops-chat`, with spend tracking stubbed out."""
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+    return LLMClient(
+        AIConfig(
+            provider="gateway",
+            model="devops-chat",
+            gateway_url="http://example.com/v1",
+            allow_private_network=True,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+
+
+def test_a_gateway_dispatch_span_names_the_deployment_model_that_served_the_call(
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+) -> None:
+    """A gateway reply naming its deployment model sets gen_ai.response.model to that model, not
+    the route name the reply body gives, while gen_ai.request.model keeps the route name."""
+    client = _gateway_client(monkeypatch)
+    route_client(
+        client,
+        monkeypatch,
+        lambda request: httpx2.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}}], "model": "devops-chat"},
+            headers={"x-litellm-model-name": "openai/gpt-4o"},
+        ),
+    )
+
+    client._dispatch_messages("sys", _HI)
+
+    (dispatch,) = _spans(sent_spans, "ai.llm.dispatch")
+    attrs = _attributes(dispatch)
+    assert (
+        attrs.get("gen_ai.response.model"),
+        attrs.get("gen_ai.request.model"),
+    ) == ("openai/gpt-4o", "devops-chat")
+
+
+def test_a_gateway_dispatch_span_keeps_the_body_model_when_the_gateway_names_none(
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+) -> None:
+    """A gateway reply naming no deployment model keeps the reply-body model in
+    gen_ai.response.model, with gen_ai.request.model still the route name."""
+    client = _gateway_client(monkeypatch)
+    route_client(
+        client,
+        monkeypatch,
+        lambda request: httpx2.Response(
+            200, json={"choices": [{"message": {"content": "ok"}}], "model": "qwen3.8:27b"}
+        ),
+    )
+
+    client._dispatch_messages("sys", _HI)
+
+    (dispatch,) = _spans(sent_spans, "ai.llm.dispatch")
+    attrs = _attributes(dispatch)
+    assert (
+        attrs.get("gen_ai.response.model"),
+        attrs.get("gen_ai.request.model"),
+    ) == ("qwen3.8:27b", "devops-chat")
+
+
 def test_chat_dispatch_span_records_reasoning_tokens_attribute(
     monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
 ) -> None:
