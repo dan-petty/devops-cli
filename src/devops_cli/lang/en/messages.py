@@ -397,6 +397,7 @@ class RepoMessages:
         "worktree.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
+    worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
     worktrees_add_no_origin: str = (
         "The repository has no remote named origin, so the branches of origin cannot be read. "
         "Add the remote."

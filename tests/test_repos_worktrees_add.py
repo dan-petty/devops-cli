@@ -71,6 +71,8 @@ def _add(
         slug,
         "--repo-dir",
         str(repo),
+        # These tests are about claims. The reclaim has tests of its own, with the GitHub fake.
+        "--no-reclaim",
         *extra,
     )
 

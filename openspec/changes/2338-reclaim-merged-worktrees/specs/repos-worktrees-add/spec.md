@@ -27,7 +27,7 @@
 When the pull requests of the worktrees cannot be read, `add` SHALL say why once, remove nothing, and go on to create the worktree. The JSON report SHALL hold the reason in `reclaim_error`.
 
 #### Scenario: GitHub answers an error
-- **WHEN** GitHub answers HTTP 500 for the tip of a worktree, and the user runs `add 2345 --type feat --slug next`
+- **WHEN** GitHub answers an error for the tip of a worktree, and the user runs `add 2345 --type feat --slug next`
 - **THEN** the command exits 0, says that the merged worktrees were not reclaimed and why, and creates `w-2345`
 - **AND** no worktree is removed
 

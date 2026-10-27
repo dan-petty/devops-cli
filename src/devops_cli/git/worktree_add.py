@@ -24,14 +24,19 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import resolve_data_path
+from devops_cli.core.repo import get_repo_origin_name, resolve_data_path
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.git.branch_form import branch_name, issue_of_branch
 from devops_cli.git.worktree_inventory import (
     CONST_REFS_HEADS_PREFIX,
+    WorktreePruneItem,
     git_message,
+    inventory_worktrees,
     list_worktree_infos,
+    plan_prune,
+    prune_worktrees,
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.security.sanitizer import mask_secrets
@@ -39,15 +44,27 @@ from devops_cli.security.sanitizer import mask_secrets
 _OPERATION = "worktrees add"
 
 
+class ReclaimResult(BaseModel):
+    """What the reclaim of merged worktrees did: the worktrees it removed, the GitHub reads that
+    a dry run lists, and the reason it removed nothing when it could not run."""
+
+    removed: list[WorktreePruneItem] = Field(default_factory=list)
+    requests: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
 class WorktreeAddReport(BaseModel):
-    """What `add` did, or with `dry_run` what it would do. `requests` holds the commands that a
-    dry run lists, and is empty after a real run."""
+    """What `add` did, or with `dry_run` what it would do. `requests` holds the requests and
+    commands that a dry run lists, and is empty after a real run. `reclaimed` and `reclaim_error`
+    are the result of the reclaim of merged worktrees that comes first."""
 
     issue: int
     branch: str
     path: str
     status: Literal["created", "would create"]
     requests: list[str] = Field(default_factory=list)
+    reclaimed: list[WorktreePruneItem] = Field(default_factory=list)
+    reclaim_error: str | None = None
 
 
 def worktree_directory(issue: int, repo_root: Path) -> Path:
@@ -127,15 +144,48 @@ def _run(argv: list[str]) -> str:
     return proc.stdout
 
 
+def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> ReclaimResult:
+    """Remove the worktrees that `prune --confirm` removes: clean, not locked, not the current
+    directory, and at the head of a merged pull request (#2338).
+
+    A merged worktree still holds its issue, so `add` runs this before it looks for a holder. The
+    reclaim is housekeeping and never stops the work after it: when the pull requests cannot be
+    read, nothing is removed (`prune_worktrees` decides every worktree before it removes one) and
+    the reason comes back in `error`. A dry run lists the GitHub reads and removes nothing.
+    """
+    _require_origin(repo_root)
+    repo = get_repo_origin_name(repo_root)
+    entries = inventory_worktrees(repo_root)
+    if dry_run:
+        return ReclaimResult(requests=plan_prune(entries, repo=repo).requests)
+    try:
+        report = prune_worktrees(repo_root, entries, repo=repo, confirm=True)
+    except DevOpsCLIError as exc:
+        return ReclaimResult(error=str(exc))
+    failed = [f"{item.path}: {item.reason}" for item in report.items if item.status == "failed"]
+    return ReclaimResult(
+        removed=[item for item in report.items if item.status == "removed"],
+        error="; ".join(failed) or None,
+    )
+
+
 def add_worktree(
-    repo_root: Path, *, issue: int, type_: str, slug: str, dry_run: bool = False
+    repo_root: Path,
+    *,
+    issue: int,
+    type_: str,
+    slug: str,
+    dry_run: bool = False,
+    reclaim: ReclaimResult | None = None,
 ) -> WorktreeAddReport:
     """Create the worktree of `issue` on `<type>/<issue>-<slug>` at the fetched `origin/main`.
 
     The run refuses an issue that a local worktree holds before it reads `origin`, and one that a
     branch of `origin` holds before it fetches, so a refused run changes nothing. A dry run reads
-    the local worktrees only and lists the three commands.
+    the local worktrees only and lists the three commands. `reclaim` is the result of
+    `reclaim_merged_worktrees`, which the caller ran first; it goes into the report.
     """
+    reclaim = reclaim or ReclaimResult()
     branch = branch_name(issue, type_, slug)
     directory = worktree_directory(issue, repo_root)
     _require_origin(repo_root)
@@ -149,7 +199,9 @@ def add_worktree(
             branch=branch,
             path=str(directory),
             status="would create",
-            requests=[request.line() for request in planned],
+            requests=[*reclaim.requests, *(request.line() for request in planned)],
+            reclaimed=reclaim.removed,
+            reclaim_error=reclaim.error,
         )
     if (pushed := _remote_holder(_run(ls_remote), issue)) is not None:
         raise _failure(
@@ -157,4 +209,11 @@ def add_worktree(
         )
     _run(fetch)
     _run(create)
-    return WorktreeAddReport(issue=issue, branch=branch, path=str(directory), status="created")
+    return WorktreeAddReport(
+        issue=issue,
+        branch=branch,
+        path=str(directory),
+        status="created",
+        reclaimed=reclaim.removed,
+        reclaim_error=reclaim.error,
+    )
