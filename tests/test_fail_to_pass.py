@@ -76,7 +76,8 @@ def _mock_replay_repo(monkeypatch: pytest.MonkeyPatch, junit_xml: str) -> list[l
     )
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(list(cmd))
+        if list(cmd[1:3]) == ["-m", "pytest"]:
+            calls.append(list(cmd))
         for arg in cmd:
             if arg.startswith("--junitxml="):
                 Path(arg.removeprefix("--junitxml=")).write_text(junit_xml, encoding="utf-8")
@@ -362,6 +363,54 @@ def test_a_new_module_s_test_that_cannot_import_on_base_leaves_the_other_tests_c
     report = run_fail_to_pass(tmp_path, base="main", title="fix(mod): value is 2")
 
     assert (report.failed_count, report.errored_count, report.satisfied) == (1, 1, True)
+
+
+@pytest.mark.live("python")
+def test_a_test_that_runs_git_ls_files_passes_on_base_in_the_replay(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """The replay tree is a git work tree (#2197): a test that lists tracked files passes on
+    base there, as it does in the checkout, and the replay does not fail for its own setup."""
+    test_text = (
+        "import subprocess\n\n\n"
+        "def test_tracked_files_are_listed():\n"
+        "    listed = subprocess.run(\n"
+        '        ["git", "ls-files", "mod.py"], capture_output=True, text=True, check=True\n'
+        "    ).stdout\n"
+        '    assert listed.split() == ["mod.py"]\n'
+    )
+    files = {"conftest.py": "", "mod.py": "VALUE = 1\n", "tests/test_git.py": test_text}
+    for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "--quiet", "-m", "base")
+    git(tmp_path, "switch", "--quiet", "-c", "fix/bug")
+    (tmp_path / "tests" / "test_git.py").write_text(test_text + "\n# changed\n", encoding="utf-8")
+    git(tmp_path, "commit", "--quiet", "-am", "change the test")
+
+    report = run_fail_to_pass(tmp_path, base="main", title="fix(mod): list files")
+
+    assert (report.passed_count, report.failed_count, report.could_not_run) == (1, 0, None)
+
+
+def test_the_replay_leaves_no_worktree_behind(
+    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The replay removes the worktree it adds, so the checkout lists no extra worktree."""
+    repo = _branch_changing_a_test(tmp_path, git)
+    _replayed_pytest(monkeypatch, exit_status=0, junit_xml=JUNIT_ALL_PASS)
+
+    run_fail_to_pass(repo, base="main", title="fix(mod): value")
+
+    listed = subprocess.run(
+        ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert listed.count("worktree ") == 1
 
 
 def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:

@@ -1342,6 +1342,9 @@ class CIMessages:
         "'Fail-to-pass: not applicable: <reason>' in its body."
     )
     fail_to_pass_replay_output: str = "pytest's last output: {output}"
+    fail_to_pass_worktree_failed: str = (
+        "The replay could not check out {base} as a git worktree: {detail}"
+    )
 
 
 @dataclass(frozen=True)
