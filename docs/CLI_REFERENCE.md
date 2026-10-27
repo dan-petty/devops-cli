@@ -7195,6 +7195,26 @@ devops gh issues list [OPTIONS]
 | `--label`, `-l` | `string` | - | Filter by label |
 | `--limit` | `integer` | `30` | Max issues to return |
 
+#### `devops gh issues view`
+
+**Print one issue with its state, milestone, labels, assignees, dates and full body.**
+
+```bash
+devops gh issues view [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Issue number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
 #### `devops gh issues create`
 
 **Create a new issue linking milestone and taxonomy labels.**

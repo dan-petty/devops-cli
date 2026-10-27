@@ -18,6 +18,7 @@ from devops_cli.github.issues import (
     GitHubIssue,
     IssueTriageAudit,
     _fetch_issues_rest,
+    _parse_single_issue,
     audit_issues_triage,
     create_repository_issue,
     get_issues_summary,
@@ -427,6 +428,7 @@ def _full_issue() -> dict[str, Any]:
         "number": 9999,
         "title": "feat(github): a title that is longer than the fifty characters of a list row",
         "state": "open",
+        "url": "https://api.github.com/repos/octo/repo/issues/9999",
         "html_url": "https://github.com/octo/repo/issues/9999",
         "milestone": {"title": "2026-12"},
         "labels": [{"name": "type/feature"}, {"name": "source/agent"}],
@@ -447,6 +449,17 @@ def test_get_repository_issue_reads_one_issue_with_one_request(github_api: GitHu
         "First line.\n\nSecond line.",
         ["type/feature", "source/agent"],
         1,
+    )
+
+
+def test_a_rest_issue_has_its_web_address_not_its_api_address() -> None:
+    """GitHub's REST answer holds the API address in `url` and the web address in `html_url`;
+    `gh issue list --json` holds the web address in `url`. The issue gets the web address."""
+    rest = _parse_single_issue(_full_issue())
+    gh_json = _parse_single_issue({"number": 1, "url": "https://github.com/octo/repo/issues/1"})
+    assert (rest.url, gh_json.url) == (
+        "https://github.com/octo/repo/issues/9999",
+        "https://github.com/octo/repo/issues/1",
     )
 
 

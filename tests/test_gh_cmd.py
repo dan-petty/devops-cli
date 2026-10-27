@@ -204,6 +204,7 @@ def _rest_issue(**fields: Any) -> dict[str, Any]:
         "number": 9999,
         "title": "feat(github): a title that is longer than the fifty characters of a list row",
         "state": "open",
+        "url": "https://api.github.com/repos/octo/repo/issues/9999",
         "html_url": "https://github.com/octo/repo/issues/9999",
         "milestone": {"title": "2026-12"},
         "labels": [{"name": "type/feature"}, {"name": "source/agent"}],

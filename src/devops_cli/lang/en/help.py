@@ -1046,6 +1046,9 @@ class GHCommandHelp:
     pages_verify: str = "Verify local repository readiness for GitHub Pages publishing."
     issues_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
     issues_list: str = "List repository issues with milestone, taxonomy labels, and status."
+    issues_view: str = (
+        "Print one issue with its state, milestone, labels, assignees, dates and full body."
+    )
     issues_create: str = "Create a new issue linking milestone and taxonomy labels."
     issues_triage: str = (
         "Audit open issues for mandatory taxonomy labels, and report those not on the roadmap "

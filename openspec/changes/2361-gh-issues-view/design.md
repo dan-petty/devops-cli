@@ -7,7 +7,7 @@ See proposal.md for the motivation and the evidence.
 - `issues list` reads through `gh issue list` and falls back to the REST listing in `_fetch_issues_rest`. Both parse each item with `_parse_single_issue` into `GitHubIssue`.
 - `GitHubSession.rest` makes one paced request. It raises `GitHubNotFoundError` for a 404 and `GitHubUnreadError` for a 5xx or a body it cannot decode.
 - `write_stream` prints raw text with Rich markup off. A panel or a table would read `[x]` in an issue title as markup.
-- The MCP server registers each `devops` command as a tool, so the new command appears as `gh_issues_view`.
+- The MCP server registers the commands of `CONST_MCP_EXPOSURE_TABLE` as tools, and a test in `tests/test_mcp.py` fails for a command that is neither in the table nor in the exclusion list. The command reads only, so it joins the table as a read-only tool, `gh_issues_view`.
 
 ## Goals / Non-Goals
 
