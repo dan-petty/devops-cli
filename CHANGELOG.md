@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0](https://github.com/dan-petty/devops-cli/compare/v0.6.5...v0.7.0) (2026-10-27)
+
+
+### Features
+
+* **ci:** limit how many CPU-heavy gates run at once on one host ([#2339](https://github.com/dan-petty/devops-cli/issues/2339)) ([115d1c1](https://github.com/dan-petty/devops-cli/commit/115d1c1caa1f3719b1659043cff06443b19a8ef3)), closes [#2336](https://github.com/dan-petty/devops-cli/issues/2336)
+* **ci:** make devops ci wait for a gate slot before a CPU-heavy check ([#2343](https://github.com/dan-petty/devops-cli/issues/2343)) ([518db63](https://github.com/dan-petty/devops-cli/commit/518db636ad892de9bff654e9869705667127ea0f)), closes [#2336](https://github.com/dan-petty/devops-cli/issues/2336)
+* **devcontainer:** onboard Kilo Code with a kilo.jsonc that exposes the devops-cli MCP server ([#2332](https://github.com/dan-petty/devops-cli/issues/2332)) ([3a6189e](https://github.com/dan-petty/devops-cli/commit/3a6189eab951f47d6572dd31ec56039afa45400c))
+* **openspec:** commit the OpenSpec skills for Kilo Code ([#2334](https://github.com/dan-petty/devops-cli/issues/2334)) ([9b4a824](https://github.com/dan-petty/devops-cli/commit/9b4a824d50b890b2201ae6797a3a90ec25018f0f)), closes [#2333](https://github.com/dan-petty/devops-cli/issues/2333)
+* **repos:** add devops repos worktrees add that refuses a held issue ([#2348](https://github.com/dan-petty/devops-cli/issues/2348)) ([a3b164d](https://github.com/dan-petty/devops-cli/commit/a3b164de872213b4b9aad194b68d0cdad3b730cc)), closes [#2337](https://github.com/dan-petty/devops-cli/issues/2337)
+
+
+### Bug Fixes
+
+* **deps:** upgrade dnspython to fix GHSA-45c3-73f7-pv4m ([#2350](https://github.com/dan-petty/devops-cli/issues/2350)) ([f50459d](https://github.com/dan-petty/devops-cli/commit/f50459deeecab81429c9ab06d84619d65fbba280))
+* **k8s:** k8s apply renders the preview under --dry-run and starts no child process ([#2328](https://github.com/dan-petty/devops-cli/issues/2328)) ([16e26b0](https://github.com/dan-petty/devops-cli/commit/16e26b051250bb31237bae46d67ecd0dcb6607a9)), closes [#2312](https://github.com/dan-petty/devops-cli/issues/2312)
+* **k8s:** name the keyring entry when the Grafana admin password is missing ([#2335](https://github.com/dan-petty/devops-cli/issues/2335)) ([f9dcc79](https://github.com/dan-petty/devops-cli/commit/f9dcc790698ed7f1dd209d96207263d8f34a424d))
+* **repos:** worktrees prune removes only worktrees of merged pull requests ([#2342](https://github.com/dan-petty/devops-cli/issues/2342)) ([23d864d](https://github.com/dan-petty/devops-cli/commit/23d864d38fa1a040fbd021f6b9e9cbe1e19ac453)), closes [#2341](https://github.com/dan-petty/devops-cli/issues/2341)
+* **scan:** keep scan progress off stdout when the output format is json ([#2331](https://github.com/dan-petty/devops-cli/issues/2331)) ([1b17048](https://github.com/dan-petty/devops-cli/commit/1b17048ba119f68b6d8f4d709865cb9ef7e8c010)), closes [#2216](https://github.com/dan-petty/devops-cli/issues/2216)
+
 ## [0.6.5](https://github.com/dan-petty/devops-cli/compare/v0.6.4...v0.6.5) (2026-10-26)
 
 
