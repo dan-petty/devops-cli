@@ -15,6 +15,7 @@ from devops_cli.git.worktree_inventory import (
     count_dirty_paths,
     parse_worktree_porcelain_z,
 )
+from devops_cli.output import format_bytes
 from tests.support.fakes.github import github_json
 
 if TYPE_CHECKING:
@@ -521,3 +522,100 @@ def test_count_dirty_paths_handles_modifications_and_renames(git_repo: Path) -> 
 def test_count_dirty_paths_is_unknown_when_git_status_fails(tmp_path: Path) -> None:
     """A directory that git cannot read has no count, which is not zero."""
     assert count_dirty_paths(tmp_path) is None
+
+
+def _directory_bytes(path: Path) -> int:
+    """The bytes of every file under `path`, as a person sums them."""
+    return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+
+
+def test_prune_keeps_the_worktree_of_the_current_directory_and_reads_nothing_for_it(
+    git_repo: Path,
+    tmp_path: Path,
+    git: Git,
+    cli: Cli,
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shell inside a merged worktree must not lose its directory (#2338)."""
+    merged = tmp_path / "wt_merged"
+    tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
+    _route_pulls(github_api, tip, _pull(tip, number=2134))
+    monkeypatch.chdir(merged)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    report = json.loads(result.stdout)
+    assert (result.exit_code, merged.exists(), github_api.requested) == (0, True, [])
+    assert _outcomes(report)["wt_merged"] == ("refused", "current directory")
+
+
+def test_forced_prune_keeps_the_worktree_of_the_current_directory(
+    git_repo: Path,
+    tmp_path: Path,
+    git: Git,
+    cli: Cli,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    here = tmp_path / "wt_here"
+    other = tmp_path / "wt_other"
+    _add_worktree(git, git_repo, "branch-here", here)
+    _add_worktree(git, git_repo, "branch-other", other)
+    monkeypatch.chdir(here)
+
+    result = cli(
+        "repos", "worktrees", "prune", "-r", str(git_repo), "--force", "--confirm", "--json"
+    )
+
+    report = json.loads(result.stdout)
+    assert (result.exit_code, here.exists(), other.exists()) == (0, True, False)
+    assert _outcomes(report)["wt_here"] == ("refused", "current directory")
+    assert _outcomes(report)["wt_other"] == ("removed", None)
+
+
+def test_prune_reports_the_size_of_each_removed_worktree(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    merged = tmp_path / "wt_merged"
+    tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
+    _route_pulls(github_api, tip, _pull(tip, number=2134))
+    size = _directory_bytes(merged)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    report = json.loads(result.stdout)
+    sizes = {Path(i["path"]).name: i["size_bytes"] for i in report["items"]}
+    assert size > 0
+    assert (sizes["wt_merged"], sizes["repo"], report["total_bytes"]) == (size, None, size)
+
+
+def test_prune_preview_and_final_lines_give_the_size(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+) -> None:
+    merged = tmp_path / "wt_merged"
+    tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
+    _route_pulls(github_api, tip, _pull(tip, number=2134))
+    shown = format_bytes(_directory_bytes(merged))
+
+    preview = cli("repos", "worktrees", "prune", "-r", str(git_repo))
+    confirmed = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm")
+
+    assert f"Preview: 1 removable ({shown})" in preview.stdout
+    assert f"wt_merged (head of merged pull request #2134, {shown})" in " ".join(
+        preview.stdout.split()
+    )
+    assert f"Prune complete: 1 removed, 1 refused, 0 failed, {shown} freed" in confirmed.stdout
+
+
+def test_a_worktree_whose_directory_is_gone_has_no_size(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+) -> None:
+    gone = tmp_path / "wt_gone"
+    _add_worktree(git, git_repo, "branch-gone", gone)
+    shutil.rmtree(gone)
+
+    result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm", "--json")
+
+    report = json.loads(result.stdout)
+    sizes = {Path(i["path"]).name: i["size_bytes"] for i in report["items"]}
+    assert (result.exit_code, sizes["wt_gone"], report["total_bytes"]) == (0, None, 0)

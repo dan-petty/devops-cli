@@ -37,6 +37,7 @@ from devops_cli.git.worktree_add import add_worktree
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    format_bytes,
     print_error,
     print_info,
     print_success,
@@ -457,10 +458,12 @@ def worktrees_status(
 
 def _render_prune_item(item: Any) -> None:
     """Render a single prune outcome message."""
+    size = "" if item.size_bytes is None else format_bytes(item.size_bytes)
     if item.status == "removed":
-        print_success(f"removed {item.path}", prefix=False)
+        print_success(f"removed {item.path}" + (f" ({size})" if size else ""), prefix=False)
     elif item.status in {"would remove", "would check"}:
-        print_info(f"{item.status} {item.path} ({item.reason})", prefix=False)
+        detail = ", ".join(part for part in (item.reason, size) if part)
+        print_info(f"{item.status} {item.path} ({detail})", prefix=False)
     elif item.status == "refused":
         print_warning(f"refused {item.path}: {item.reason}", prefix=False)
     else:
@@ -489,6 +492,7 @@ def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
                 removed=report.removed_count,
                 refused=report.refused_count,
                 failed=report.failed_count,
+                size=format_bytes(report.total_bytes),
             ),
             prefix=False,
         )
@@ -496,7 +500,9 @@ def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
         would_remove = len([i for i in report.items if i.status == "would remove"])
         print_info(
             MESSAGES.repos.worktrees_prune_preview.format(
-                would_remove=would_remove, refused=report.refused_count
+                would_remove=would_remove,
+                refused=report.refused_count,
+                size=format_bytes(report.total_bytes),
             ),
             prefix=False,
         )

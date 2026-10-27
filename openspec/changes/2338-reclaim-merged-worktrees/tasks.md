@@ -2,8 +2,8 @@
 
 ## 1. The current directory and the size in `prune`
 
-- [ ] 1.1 Add failing tests to `tests/test_repos_worktrees.py`: `prune --confirm` run from inside a clean merged worktree keeps it, reads no pull request for it and names the current directory, also under `--force`; the same worktree is removed from another directory; a removed and a would-remove item carry `size_bytes`; a missing directory has a null size; the preview and the final line give the total. Verify: `uv run devops ci test tests/test_repos_worktrees.py` fails on the new tests.
-- [ ] 1.2 In `src/devops_cli/git/worktree_inventory.py`, add `directory_size`, the guard for the current directory to `_decided_by_local_state`, `size_bytes` to `WorktreePruneItem` and `total_bytes` to `WorktreePruneReport`. Update the preview and final messages and the item lines in `src/devops_cli/commands/repos.py`. Verify: `uv run devops ci test tests/test_repos_worktrees.py` passes.
+- [x] 1.1 Add failing tests to `tests/test_repos_worktrees.py`: `prune --confirm` run from inside a clean merged worktree keeps it, reads no pull request for it and names the current directory, also under `--force`; the same worktree is removed from another directory; a removed and a would-remove item carry `size_bytes`; a missing directory has a null size; the preview and the final line give the total. Verify: `uv run devops ci test tests/test_repos_worktrees.py` fails on the new tests.
+- [x] 1.2 In `src/devops_cli/git/worktree_inventory.py`, add `directory_size`, the guard for the current directory to `_decided_by_local_state`, `size_bytes` to `WorktreePruneItem` and `total_bytes` to `WorktreePruneReport`. Update the preview and final messages and the item lines in `src/devops_cli/commands/repos.py`. Verify: `uv run devops ci test tests/test_repos_worktrees.py` passes.
 
 ## 2. The reclaim in `add`
 

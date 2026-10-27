@@ -419,10 +419,11 @@ class RepoMessages:
         "with --confirm to remove.",
     )
     worktrees_prune_preview: str = (
-        "Preview: {would_remove} removable, {refused} refused. Run with --confirm to remove."
+        "Preview: {would_remove} removable ({size}), {refused} refused. Run with --confirm to "
+        "remove."
     )
     worktrees_prune_done: str = (
-        "Prune complete: {removed} removed, {refused} refused, {failed} failed"
+        "Prune complete: {removed} removed, {refused} refused, {failed} failed, {size} freed"
     )
 
 
