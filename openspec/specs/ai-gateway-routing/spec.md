@@ -102,3 +102,10 @@ The saved route table in `<data dir>/agent/gateway_state.json` SHALL keep only r
 #### Scenario: Route table loads with a saved failover route
 - **WHEN** a saved route file holds a route with a `failover:*` backend type
 - **THEN** the router initializes with the saved failover route for that virtual model
+
+### Requirement: The gateway routes qwen3.8:27b and devops-chat only to 48gib and 64gib tiers
+The gateway configuration SHALL NOT deploy `qwen3.8:27b` or `devops-chat` to the 16gib serving tier. Deployments for `qwen3.8:27b` and `devops-chat` SHALL only target serving tiers with at least 48 GiB total VRAM.
+
+#### Scenario: Gateway deployments for qwen3.8:27b and devops-chat
+- **WHEN** the gateway configuration is loaded
+- **THEN** every deployment for `qwen3.8:27b` and `devops-chat` targets `ollama-48gib-fast` or `ollama-64gib-standard`, and no deployment targets `ollama-16gib-fast`
