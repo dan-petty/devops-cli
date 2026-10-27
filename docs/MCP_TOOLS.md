@@ -1172,7 +1172,7 @@ Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress.
 |---|---|---|---|---|
 | `k8s_dir` | `string` | No | `k8s` | Directory containing Kubernetes manifests. |
 | `auto_start` | `boolean` | No | `True` | Auto-start minikube if stopped. |
-| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | all. |
+| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_chaos`
@@ -1225,7 +1225,7 @@ reads them. A locked or missing keyring stops it before it applies anything.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
-| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | all. |
+| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `domain` | `string` | No | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 | `wait` | `boolean` | No | `True` | Wait for Helm releases and workloads to become ready before returning. |
@@ -1281,7 +1281,7 @@ Generate Homelab certificates and apply TLS secrets across Kubernetes cluster na
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `tls_dir` | `string` | No | `` | Directory with generated TLS certificates. |
 | `secret_name` | `string` | No | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
-| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | all. |
+| `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `overwrite` | `boolean` | No | `False` | Overwrite existing files or resources if they exist. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
@@ -1381,7 +1381,7 @@ Uninstall the k8s infrastructure / LLM stack and delete namespaces.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
-| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | all. |
+| `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 

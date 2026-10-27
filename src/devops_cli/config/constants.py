@@ -1034,6 +1034,15 @@ CONST_K8S_KUSTOMIZATION_NAMES: Final[tuple[str, ...]] = (
     "Kustomization",
 )
 """The standard file names Kustomize recognizes for a directory overlay."""
+CONST_K8S_VALID_STACKS: Final[tuple[str, ...]] = (
+    "infra",
+    "llm",
+    "logging",
+    "devops",
+    "gitea",
+    "all",
+)
+"""The valid stack identifiers accepted by Kubernetes stack commands (#2157)."""
 CONST_K8S_ARGOCD_APPLICATION_DIRS: Final[tuple[Path, ...]] = (
     Path("k8s/argocd/apps"),
     Path("k8s/argocd/bootstrap"),

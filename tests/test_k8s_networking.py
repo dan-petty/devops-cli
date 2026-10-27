@@ -667,3 +667,26 @@ ai:
     )
     assert "ai.tasks.analysis.api_base_url" in result.output
     assert "ai.tasks.chat.api_base_url" in result.output
+
+
+def test_k8s_stack_help_names_every_valid_stack(cli: Any) -> None:
+    """The --stack option help names every value of VALID_STACKS (#2157)."""
+    from devops_cli.commands.k8s.networking import VALID_STACKS
+    from devops_cli.lang import HELP
+
+    for stack in VALID_STACKS:
+        assert stack in HELP.k8s.stack
+
+    commands_with_stack = (
+        ("k8s", "deploy-stack"),
+        ("k8s", "teardown-stack"),
+        ("k8s", "port-forward"),
+        ("k8s", "configure-urls"),
+        ("k8s", "bootstrap"),
+        ("k8s", "enable-tls"),
+    )
+    for cmd in commands_with_stack:
+        result = cli(*cmd, "--help")
+        assert result.exit_code == 0
+        for stack in VALID_STACKS:
+            assert stack in result.output

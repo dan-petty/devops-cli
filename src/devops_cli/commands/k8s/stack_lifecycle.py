@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
     CONST_K8S_OLLAMA_PROFILES_PATH,
+    CONST_K8S_VALID_STACKS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
@@ -283,7 +284,7 @@ _POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "llm": (Path("llm", "gateway", "servicemonitor.yaml"),),
 }
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "gitea", "all")
+VALID_STACKS: tuple[str, ...] = CONST_K8S_VALID_STACKS
 
 
 def _recover_stuck_helm_release(
