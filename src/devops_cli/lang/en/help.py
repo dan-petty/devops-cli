@@ -555,6 +555,10 @@ class ReposCommandHelp:
     worktrees_repo_dir: str = "Repository root directory."
     worktrees_add_issue: str = "The number of the issue that the worktree is for."
     worktrees_add_type: str = "The type of the branch: a type of release-please-config.json."
+    worktrees_add_reclaim: str = (
+        "First remove the worktrees of merged pull requests, as prune --confirm does. "
+        "--no-reclaim skips this."
+    )
     worktrees_add_slug: str = (
         "The slug of the branch: lowercase letters and digits joined by single hyphens."
     )

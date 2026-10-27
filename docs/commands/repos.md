@@ -133,8 +133,9 @@ devops repos worktrees status [OPTIONS]
 
 Create the worktree of an issue on \<type\>/\<issue\>-\<slug\> at the fetched origin/main.
 
-The command refuses an issue that a worktree, the standard directory or a pushed branch of
-origin already holds. It reads git only and makes no GitHub request.
+The command first removes the worktrees of merged pull requests, as prune --confirm does,
+because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
+the standard directory or a pushed branch of origin already holds.
 
 ```bash
 devops repos worktrees add [OPTIONS] <issue>
@@ -153,6 +154,7 @@ devops repos worktrees add [OPTIONS] <issue>
 | `--type` | `string` | - | The type of the branch: a type of release-please-config.json. |
 | `--slug` | `string` | - | The slug of the branch: lowercase letters and digits joined by single hyphens. |
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
+| `--reclaim` / `--no-reclaim` | `boolean` | `True` | First remove the worktrees of merged pull requests, as prune --confirm does. --no-reclaim skips this. |
 | `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |

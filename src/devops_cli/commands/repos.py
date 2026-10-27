@@ -33,10 +33,11 @@ from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError, GitOperationError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
-from devops_cli.git.worktree_add import add_worktree
+from devops_cli.git.worktree_add import ReclaimResult, add_worktree, reclaim_merged_worktrees
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    format_bytes,
     print_error,
     print_info,
     print_success,
@@ -457,10 +458,12 @@ def worktrees_status(
 
 def _render_prune_item(item: Any) -> None:
     """Render a single prune outcome message."""
+    size = "" if item.size_bytes is None else format_bytes(item.size_bytes)
     if item.status == "removed":
-        print_success(f"removed {item.path}", prefix=False)
+        print_success(f"removed {item.path}" + (f" ({size})" if size else ""), prefix=False)
     elif item.status in {"would remove", "would check"}:
-        print_info(f"{item.status} {item.path} ({item.reason})", prefix=False)
+        detail = ", ".join(part for part in (item.reason, size) if part)
+        print_info(f"{item.status} {item.path} ({detail})", prefix=False)
     elif item.status == "refused":
         print_warning(f"refused {item.path}: {item.reason}", prefix=False)
     else:
@@ -489,6 +492,7 @@ def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
                 removed=report.removed_count,
                 refused=report.refused_count,
                 failed=report.failed_count,
+                size=format_bytes(report.total_bytes),
             ),
             prefix=False,
         )
@@ -496,7 +500,9 @@ def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
         would_remove = len([i for i in report.items if i.status == "would remove"])
         print_info(
             MESSAGES.repos.worktrees_prune_preview.format(
-                would_remove=would_remove, refused=report.refused_count
+                would_remove=would_remove,
+                refused=report.refused_count,
+                size=format_bytes(report.total_bytes),
             ),
             prefix=False,
         )
@@ -506,6 +512,11 @@ def _render_add_report(report: Any) -> None:
     """Print what `add` did, or the commands that its dry run lists."""
     from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 
+    if report.reclaim_error:
+        print_warning(
+            MESSAGES.repos.worktrees_add_not_reclaimed.format(reason=report.reclaim_error),
+            prefix=False,
+        )
     if report.status == "created":
         print_success(
             MESSAGES.repos.worktrees_add_created.format(path=report.path, branch=report.branch),
@@ -536,6 +547,10 @@ def worktrees_add(
         Path | None,
         typer.Option("--repo-dir", "-r", help=HELP.repos.worktrees_repo_dir),
     ] = None,
+    reclaim: Annotated[
+        bool,
+        typer.Option("--reclaim/--no-reclaim", help=HELP.repos.worktrees_add_reclaim),
+    ] = True,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", "-n", help=HELP.options.dry_run),
@@ -551,8 +566,9 @@ def worktrees_add(
 ) -> None:
     """Create the worktree of an issue on <type>/<issue>-<slug> at the fetched origin/main.
 
-    The command refuses an issue that a worktree, the standard directory or a pushed branch of
-    origin already holds. It reads git only and makes no GitHub request.
+    The command first removes the worktrees of merged pull requests, as prune --confirm does,
+    because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
+    the standard directory or a pushed branch of origin already holds.
     """
     if branch_type not in CONST_BRANCH_TYPES:
         raise typer.BadParameter(
@@ -566,12 +582,18 @@ def worktrees_add(
             MESSAGES.repos.worktrees_add_bad_slug.format(slug=slug), param_hint="--slug"
         )
     root = (repo_dir or find_repo_root()).resolve()
+    resolved = resolve_format(output_format, json_output=json_output)
+    is_plan = dry_run or is_dry_run()
     with exit_on_error(DevOpsCLIError):
+        reclaimed = reclaim_merged_worktrees(root, dry_run=is_plan) if reclaim else ReclaimResult()
+        if resolved == CONST_OUTPUT_FORMAT_TABLE:
+            # Each removal is shown before a later refusal can hide it.
+            for item in reclaimed.removed:
+                _render_prune_item(item)
         report = add_worktree(
-            root, issue=issue, type_=branch_type, slug=slug, dry_run=dry_run or is_dry_run()
+            root, issue=issue, type_=branch_type, slug=slug, dry_run=is_plan, reclaim=reclaimed
         )
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(report.model_dump(), resolved)
     else:

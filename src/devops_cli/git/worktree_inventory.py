@@ -8,6 +8,7 @@ contains a tip shows that its work is merged.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,15 +79,18 @@ class WorktreePruneItem(BaseModel):
     path: str
     status: str
     reason: str | None = None
+    size_bytes: int | None = None
 
 
 class WorktreePruneReport(BaseModel):
     """Summary report of worktree prune execution. `requests` lists the GitHub requests that a
-    dry run would make, and is empty for a run that made them."""
+    dry run would make, and is empty for a run that made them. `total_bytes` is the size of the
+    directories of the worktrees removed, or that a run without `confirm` would remove."""
 
     removed_count: int = 0
     refused_count: int = 0
     failed_count: int = 0
+    total_bytes: int = 0
     items: list[WorktreePruneItem] = Field(default_factory=list)
     requests: list[str] = Field(default_factory=list)
 
@@ -317,6 +321,26 @@ def inventory_worktrees(
     return [enrich_worktree_entry(effective_root, info, base_ref=base_ref) for info in infos]
 
 
+def directory_size(path: Path) -> int:
+    """The bytes of every file under `path`, links counted as links and not followed."""
+    return sum(
+        os.lstat(os.path.join(top, name)).st_size
+        for top, _dirs, names in os.walk(path)
+        for name in names
+    )
+
+
+def _size_of(path: str) -> int | None:
+    """The size of a worktree's directory, or None when the directory is gone."""
+    directory = Path(path)
+    return directory_size(directory) if directory.is_dir() else None
+
+
+def _total(items: list[WorktreePruneItem], *statuses: str) -> int:
+    """The bytes of the items whose status is one of `statuses`."""
+    return sum(item.size_bytes or 0 for item in items if item.status in statuses)
+
+
 @dataclass(frozen=True)
 class _Decision:
     """Whether one worktree is removable, and why or why not."""
@@ -326,14 +350,20 @@ class _Decision:
     reason: str
 
 
-def _decided_by_local_state(entry: WorktreeEntry, *, force: bool) -> _Decision | None:
+def _decided_by_local_state(
+    entry: WorktreeEntry, *, force: bool, current_dir: Path
+) -> _Decision | None:
     """What git shows of the worktree decides, or None when the pull request of its tip must.
 
-    The main worktree stays under `--force` too. A worktree whose directory is gone is removable:
-    it holds nothing, and removing it drops only git's record.
+    The main worktree and the worktree that holds the current directory stay under `--force` too:
+    removing the second would take the directory away from the shell that runs the command
+    (#2338). A worktree whose directory is gone is removable: it holds nothing, and removing it
+    drops only git's record.
     """
     if entry.is_main:
         return _Decision(entry, removable=False, reason="main worktree")
+    if current_dir.is_relative_to(Path(entry.path).resolve()):
+        return _Decision(entry, removable=False, reason="current directory")
     if force:
         return _Decision(entry, removable=True, reason="forced")
     if entry.locked:
@@ -352,10 +382,14 @@ def _decided_by_local_state(entry: WorktreeEntry, *, force: bool) -> _Decision |
 
 
 def _decide(
-    entry: WorktreeEntry, *, force: bool, merged_pull: Callable[[str], int | None]
+    entry: WorktreeEntry,
+    *,
+    force: bool,
+    current_dir: Path,
+    merged_pull: Callable[[str], int | None],
 ) -> _Decision:
     """Decide one worktree: local state first, then the merged pull request of its tip."""
-    local = _decided_by_local_state(entry, force=force)
+    local = _decided_by_local_state(entry, force=force, current_dir=current_dir)
     if local is not None:
         return local
     number = merged_pull(entry.head)
@@ -387,8 +421,9 @@ def plan_prune(
     the other worktrees would need. It makes no request."""
     items: list[WorktreePruneItem] = []
     requests: list[str] = []
+    current_dir = Path.cwd().resolve()
     for entry in entries:
-        local = _decided_by_local_state(entry, force=force)
+        local = _decided_by_local_state(entry, force=force, current_dir=current_dir)
         if local is None:
             requests.append(
                 PlannedRequest("GET", f"/repos/{repo}/commits/{entry.head}/pulls").line()
@@ -400,10 +435,14 @@ def plan_prune(
             )
         else:
             status = "would remove" if local.removable else "refused"
-            item = WorktreePruneItem(path=entry.path, status=status, reason=local.reason)
+            size = _size_of(entry.path) if local.removable else None
+            item = WorktreePruneItem(
+                path=entry.path, status=status, reason=local.reason, size_bytes=size
+            )
         items.append(item)
     return WorktreePruneReport(
         refused_count=sum(1 for item in items if item.status == "refused"),
+        total_bytes=_total(items, "would remove"),
         items=items,
         requests=requests,
     )
@@ -439,15 +478,23 @@ def prune_worktrees(
                 return pull.number
         return None
 
-    decisions = [_decide(entry, force=force, merged_pull=merged_pull) for entry in entries]
+    current_dir = Path.cwd().resolve()
+    decisions = [
+        _decide(entry, force=force, current_dir=current_dir, merged_pull=merged_pull)
+        for entry in entries
+    ]
     items: list[WorktreePruneItem] = []
     for decision in decisions:
         path = decision.entry.path
         if not decision.removable:
             items.append(WorktreePruneItem(path=path, status="refused", reason=decision.reason))
-        elif not confirm:
+            continue
+        size = _size_of(path)
+        if not confirm:
             items.append(
-                WorktreePruneItem(path=path, status="would remove", reason=decision.reason)
+                WorktreePruneItem(
+                    path=path, status="would remove", reason=decision.reason, size_bytes=size
+                )
             )
         else:
             cmd = ["git", "-C", str(repo_root), "worktree", "remove"]
@@ -455,7 +502,7 @@ def prune_worktrees(
                 cmd.append("--force")
             proc = run_subprocess([*cmd, path], check=False, quiet=True)
             if proc.returncode == 0:
-                items.append(WorktreePruneItem(path=path, status="removed"))
+                items.append(WorktreePruneItem(path=path, status="removed", size_bytes=size))
             else:
                 items.append(
                     WorktreePruneItem(path=path, status="failed", reason=git_message(proc))
@@ -464,5 +511,6 @@ def prune_worktrees(
         removed_count=sum(1 for item in items if item.status == "removed"),
         refused_count=sum(1 for item in items if item.status == "refused"),
         failed_count=sum(1 for item in items if item.status == "failed"),
+        total_bytes=_total(items, "removed", "would remove"),
         items=items,
     )

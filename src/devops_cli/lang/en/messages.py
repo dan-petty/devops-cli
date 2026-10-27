@@ -397,6 +397,7 @@ class RepoMessages:
         "worktree.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
+    worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
     worktrees_add_no_origin: str = (
         "The repository has no remote named origin, so the branches of origin cannot be read. "
         "Add the remote."
@@ -419,10 +420,11 @@ class RepoMessages:
         "with --confirm to remove.",
     )
     worktrees_prune_preview: str = (
-        "Preview: {would_remove} removable, {refused} refused. Run with --confirm to remove."
+        "Preview: {would_remove} removable ({size}), {refused} refused. Run with --confirm to "
+        "remove."
     )
     worktrees_prune_done: str = (
-        "Prune complete: {removed} removed, {refused} refused, {failed} failed"
+        "Prune complete: {removed} removed, {refused} refused, {failed} failed, {size} freed"
     )
 
 
