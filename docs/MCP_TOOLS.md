@@ -13,7 +13,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_constellation`](#ai-constellation) | `true` | Show the constellation flag: state, reason and recorded fallback route. |
 | [`ai_cost_report`](#ai-cost-report) | `true` | Generate detailed spend and token report across backend services and servers. |
 | [`ai_diagram`](#ai-diagram) | `true` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
-| [`ai_failover`](#ai-failover) | `false` | Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests. |
+| [`ai_failover`](#ai-failover) | `false` | Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic. |
 | [`ai_gateway_failover`](#ai-gateway-failover) | `false` | Trigger or test circuit-breaker failover of a virtual model to secondary backends, or restore the default routes with --reset. |
 | [`ai_gateway_probe_backend`](#ai-gateway-probe-backend) | `true` | Directly probe health and latency of an inference backend. |
 | [`ai_gateway_routes`](#ai-gateway-routes) | `true` | List registered virtual models and target backend inference instances. |
@@ -274,7 +274,7 @@ Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams
 
 ### `ai_failover`
 
-Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests.
+Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic.
 
 **Annotations:** `readOnlyHint: false`
 

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import yaml
+
 from devops_cli.github.pages import (
     GitHubPagesBuildInfo,
     GitHubPagesInfo,
@@ -172,3 +174,42 @@ def test_the_repository_site_settings_are_in_the_one_file_jekyll_reads() -> None
 
     valid, diagnostics = verify_pages_configuration(REPO_ROOT)
     assert valid is True, diagnostics
+
+
+def test_the_repository_documentation_has_an_index_home_page() -> None:
+    """Verify that docs/index.md exists and is a non-empty home page routing to main docs (#2070).
+
+    GitHub Pages returns 404 on the root URL when docs/ has no index.md.
+    """
+    index_file = REPO_ROOT / "docs" / "index.md"
+    assert index_file.is_file(), "docs/index.md must exist as the documentation site home page"
+    content = index_file.read_text(encoding="utf-8").strip()
+    assert len(content) > 0, "docs/index.md must not be empty"
+
+
+def test_the_repository_site_settings_remove_source_markdown() -> None:
+    """Verify that docs/_config.yml configures optional_front_matter to remove source markdown (#2070).
+
+    Pages publishes each source .md file next to its .html page unless remove_originals is true.
+    """
+    config_file = REPO_ROOT / "docs" / "_config.yml"
+    assert config_file.is_file()
+    data = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+    optional_front_matter = data.get("optional_front_matter", {})
+    assert optional_front_matter.get("remove_originals") is True, (
+        "docs/_config.yml must set optional_front_matter.remove_originals: true"
+    )
+
+
+def test_the_default_layout_links_only_to_built_pages() -> None:
+    """Verify that docs/_layouts/default.html contains no broken /ARCHITECTURE.html link (#2070).
+
+    ARCHITECTURE.md is at the repository root, not in docs/, so linking to /ARCHITECTURE.html
+    returns 404 on the published site.
+    """
+    layout_file = REPO_ROOT / "docs" / "_layouts" / "default.html"
+    assert layout_file.is_file()
+    layout_html = layout_file.read_text(encoding="utf-8")
+    assert "/ARCHITECTURE.html" not in layout_html, (
+        "docs/_layouts/default.html must not link to /ARCHITECTURE.html"
+    )

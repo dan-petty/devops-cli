@@ -2558,6 +2558,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "docs-site",
             "Build the Site with the GitHub Pages Builder",
         ): "Path-filtered build of docs/ with the GitHub Pages builder image when the site changes",
+        (
+            "docs-site",
+            "Verify Built Site Pages and Links",
+        ): "Path-filtered verification of index.html, no raw markdown, and links with lychee (#2070)",
     }
 
     all_specs = get_check_specs()

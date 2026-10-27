@@ -32,6 +32,10 @@ defaults:
     values:
       layout: "default"
 
+# Remove source .md files from published output so only built .html files remain (#2070).
+optional_front_matter:
+  remove_originals: true
+
 # Jekyll parses `{% ... %}` and `{{ ... }}` as Liquid before it renders Markdown. The agent
 # records in `agent/` document this project's Jinja2 templating and CI expressions, so they
 # contain those delimiters as prose. Liquid tries to execute them: an unclosed `{% if minikube %}`

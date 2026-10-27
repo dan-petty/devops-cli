@@ -962,6 +962,9 @@ PAGES_BUILDER = (
     "ghcr.io/actions/jekyll-build-pages"
     "@sha256:6791ebfd912185ed59bfb5fb102664fa872496b79f87ff8b9cfba292a7345041"
 )
+LYCHEE = (
+    "lycheeverse/lychee@sha256:eaff3e0a13603c9a701accfcc84f44158bb77bf36ecfa4622b626056c3463892"
+)
 
 
 def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder() -> None:
@@ -1007,8 +1010,10 @@ def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder()
                 "name": "Build the Site with the GitHub Pages Builder",
                 "if": built,
                 "env": {"PAGES_BUILDER": PAGES_BUILDER},
-                "run": "docker run --rm --network none --dns 127.0.0.1 \\\n"
+                "run": 'mkdir -p "$GITHUB_WORKSPACE/_site"\n'
+                "docker run --rm --network none --dns 127.0.0.1 \\\n"
                 '  --volume "$GITHUB_WORKSPACE/docs:/github/workspace/docs:ro" \\\n'
+                '  --volume "$GITHUB_WORKSPACE/_site:/github/site" \\\n'
                 "  --env GITHUB_WORKSPACE=/github/workspace \\\n"
                 "  --env GITHUB_REPOSITORY \\\n"
                 "  --env GITHUB_API_URL \\\n"
@@ -1019,6 +1024,34 @@ def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder()
                 "  --env INPUT_FUTURE=false \\\n"
                 "  --env DO_NOT_TRACK=1 \\\n"
                 '  "$PAGES_BUILDER"\n',
+            },
+            {
+                "name": "Verify Built Site Pages and Links",
+                "if": built,
+                "env": {"LYCHEE": LYCHEE},
+                "run": 'test -f "$GITHUB_WORKSPACE/_site/index.html" || {\n'
+                '  echo "::error::Built site is missing index.html at root"\n'
+                "  exit 1\n"
+                "}\n"
+                'if [ -n "$(find "$GITHUB_WORKSPACE/_site" -name \'*.md\')" ]; then\n'
+                '  echo "::error::Built site contains source markdown (.md) files"\n'
+                "  find \"$GITHUB_WORKSPACE/_site\" -name '*.md'\n"
+                "  exit 1\n"
+                "fi\n"
+                "docker run --rm --network none \\\n"
+                '  --volume "$GITHUB_WORKSPACE/_site:/site/devops-cli:ro" \\\n'
+                '  "$LYCHEE" \\\n'
+                "  --offline \\\n"
+                "  --root-dir /site \\\n"
+                "  --exclude '^file:///[^s]' \\\n"
+                "  --exclude '^file:///s[^i]' \\\n"
+                "  --exclude '^file:///si[^t]' \\\n"
+                "  --exclude '^file:///sit[^e]' \\\n"
+                "  --exclude '^file:///site[^/]' \\\n"
+                "  --exclude '\\.(md|yaml|py)(#.*)?$' \\\n"
+                "  --exclude '/src/' \\\n"
+                "  --exclude '/lang/en' \\\n"
+                '  "/site/devops-cli/**/*.html"\n',
             },
         ],
     )

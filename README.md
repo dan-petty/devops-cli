@@ -37,6 +37,7 @@
 - [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — How release-please releases from `main`, and what a person does to release.
 - [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
 - [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
+- [**Documentation Home Page (`docs/index.md`)**](docs/index.md) — Overview and table of contents for the documentation site.
 - [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
 - [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
 - [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
@@ -325,7 +326,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Generate failing pytest unit test scaffolds for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
 |  | `devops ai quiesce [OPTIONS]` | Set the constellation quiesce flag with a reason; it stops nothing. |
-|  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests. |
+|  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic. |
 |  | `devops ai resume [OPTIONS]` | Clear the constellation quiesce or failover flag. |
 |  | `devops ai constellation [OPTIONS]` | Show the constellation flag: state, reason and recorded fallback route. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered code review and group analysis system. |

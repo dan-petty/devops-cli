@@ -499,8 +499,10 @@ jobs:
         env:
           PAGES_BUILDER: ghcr.io/actions/jekyll-build-pages@sha256:6791ebfd912185ed59bfb5fb102664fa872496b79f87ff8b9cfba292a7345041
         run: |
+          mkdir -p "$GITHUB_WORKSPACE/_site"
           docker run --rm --network none --dns 127.0.0.1 \
             --volume "$GITHUB_WORKSPACE/docs:/github/workspace/docs:ro" \
+            --volume "$GITHUB_WORKSPACE/_site:/github/site" \
             --env GITHUB_WORKSPACE=/github/workspace \
             --env GITHUB_REPOSITORY \
             --env GITHUB_API_URL \
@@ -511,3 +513,35 @@ jobs:
             --env INPUT_FUTURE=false \
             --env DO_NOT_TRACK=1 \
             "$PAGES_BUILDER"
+
+      # Verifies that the built documentation site has an index page, contains no raw source
+      # Markdown files, and has no broken internal links (#2070). LYCHEE is the digest of
+      # lycheeverse/lychee:v0.24.2.
+      - name: Verify Built Site Pages and Links
+        if: steps.changes.outputs.docs == 'true'
+        env:
+          LYCHEE: lycheeverse/lychee@sha256:eaff3e0a13603c9a701accfcc84f44158bb77bf36ecfa4622b626056c3463892
+        run: |
+          test -f "$GITHUB_WORKSPACE/_site/index.html" || {
+            echo "::error::Built site is missing index.html at root"
+            exit 1
+          }
+          if [ -n "$(find "$GITHUB_WORKSPACE/_site" -name '*.md')" ]; then
+            echo "::error::Built site contains source markdown (.md) files"
+            find "$GITHUB_WORKSPACE/_site" -name '*.md'
+            exit 1
+          fi
+          docker run --rm --network none \
+            --volume "$GITHUB_WORKSPACE/_site:/site/devops-cli:ro" \
+            "$LYCHEE" \
+            --offline \
+            --root-dir /site \
+            --exclude '^file:///[^s]' \
+            --exclude '^file:///s[^i]' \
+            --exclude '^file:///si[^t]' \
+            --exclude '^file:///sit[^e]' \
+            --exclude '^file:///site[^/]' \
+            --exclude '\.(md|yaml|py)(#.*)?$' \
+            --exclude '/src/' \
+            --exclude '/lang/en' \
+            "/site/devops-cli/**/*.html"

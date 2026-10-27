@@ -177,7 +177,8 @@ class AICommandHelp:
     quiesce: str = "Set the constellation quiesce flag with a reason; it stops nothing."
     failover: str = (
         "Record a fallback route in the constellation flag; `devops ai gateway failover` "
-        "reroutes requests."
+        "records a failover route for a virtual model, and the gateway's own fallbacks "
+        "move the traffic."
     )
     resume: str = "Clear the constellation quiesce or failover flag."
     constellation: str = "Show the constellation flag: state, reason and recorded fallback route."
