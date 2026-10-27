@@ -1469,7 +1469,7 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
         print_error(ERRORS.devcontainer.keyring_not_created)
         return False
     if locked:
-        print_error(ERRORS.devcontainer.keyring_wrong_password)
+        print_error(ERRORS.devcontainer.keyring_wrong_password.format(path=_login_keyring_file()))
         return False
 
     pending.unlink(missing_ok=True)

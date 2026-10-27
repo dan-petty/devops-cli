@@ -1902,7 +1902,11 @@ def test_unlock_keyring_reports_a_wrong_password(
     result = runner.invoke(app, ["unlock-keyring"])
 
     assert result.exit_code == 1
-    assert "Wrong password" in result.output
+    assert "Wrong password; the keyring is still locked." in result.output
+    assert (
+        f"To reset the keyring, move {keyring_file} to a backup file and run 'devops devcontainer unlock-keyring'."
+        in result.output
+    )
 
 
 def test_unlock_keyring_needs_gnome_keyring(
