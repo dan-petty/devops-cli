@@ -13,7 +13,11 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
-from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubUnreadError,
+)
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.store import RoadmapStore
@@ -99,7 +103,9 @@ def _parse_single_issue(item: dict[str, Any]) -> GitHubIssue:
         assignees=_parse_issue_assignees(item.get("assignees")),
         created_at=str(item.get("createdAt") or item.get("created_at") or ""),
         updated_at=str(item.get("updatedAt") or item.get("updated_at") or ""),
-        url=str(item.get("url") or item.get("html_url") or ""),
+        # REST sends the API address in `url` and the web address in `html_url`; gh sends the
+        # web address in `url`.
+        url=str(item.get("html_url") or item.get("url") or ""),
     )
 
 
@@ -192,6 +198,51 @@ def get_repository_issues(
         labels=all_labels,
         limit=limit,
     )
+
+
+def get_repository_issue(repo: str, number: int) -> GitHubIssue:
+    """Read issue `number` of `repo` with one request through the GitHub session.
+
+    A 404 raises `GitHubNotFoundError`, and an answer that is no issue raises
+    `GitHubUnreadError`, so a failed read never looks like an empty issue. The REST issues
+    endpoint also answers for a pull request: that raises `GitHubOperationError` naming
+    `devops pr view`.
+    """
+    item = get_github_session().rest("GET", f"/repos/{repo}/issues/{number}")
+    if not isinstance(item, dict) or "number" not in item:
+        raise GitHubUnreadError(
+            f"GitHub gave no issue for #{number} of {repo}",
+            operation="issue_view",
+            details={"repo": repo, "number": number},
+        )
+    if "pull_request" in item:
+        raise GitHubOperationError(
+            f"#{number} of {repo} is a pull request; read it with `devops pr view {number}`",
+            operation="issue_view",
+            details={"repo": repo, "number": number},
+        )
+    return _parse_single_issue(item)
+
+
+_EMPTY_FIELD = "—"
+
+
+def render_issue(issue: GitHubIssue) -> str:
+    """The text of one whole issue: a header of fields, an empty line and the full body.
+
+    A field that is empty shows a dash. Nothing is cut, and the text holds no markup of its own.
+    """
+    header = [
+        f"#{issue.number} {issue.title}",
+        f"State: {issue.state}",
+        f"URL: {issue.url or _EMPTY_FIELD}",
+        f"Milestone: {issue.milestone or _EMPTY_FIELD}",
+        f"Labels: {', '.join(issue.labels) or _EMPTY_FIELD}",
+        f"Assignees: {', '.join(issue.assignees) or _EMPTY_FIELD}",
+        f"Created: {issue.created_at or _EMPTY_FIELD}",
+        f"Updated: {issue.updated_at or _EMPTY_FIELD}",
+    ]
+    return "\n".join([*header, "", issue.body.strip() or _EMPTY_FIELD])
 
 
 def _build_create_issue_cmd(

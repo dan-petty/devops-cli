@@ -119,6 +119,7 @@ def test_fastmcp_tools_registration() -> None:
         "gh_pages_build",
         "gh_pages_verify",
         "gh_issues_list",
+        "gh_issues_view",
         "gh_issues_create",
         "gh_issues_triage",
         "gh_issues_status",
@@ -1310,7 +1311,7 @@ async def test_pr_and_issue_numbers_publish_a_positive_bound() -> None:
             for branch in _branches(prop)
         )
     )
-    assert (len(numbers), unbounded) == (12, [])
+    assert (len(numbers), unbounded) == (13, [])
 
 
 async def test_every_published_keyword_is_one_a_refusal_can_describe() -> None:

@@ -42,7 +42,9 @@ from devops_cli.github.issues import (
     audit_issues_triage,
     create_repository_issue,
     get_issues_summary,
+    get_repository_issue,
     get_repository_issues,
+    render_issue,
 )
 from devops_cli.github.labels import (
     audit_repository_labels,
@@ -94,6 +96,7 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
+    write_stream,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.roadmap import store as roadmap_store
@@ -972,6 +975,16 @@ def issues_list_cmd(
         for iss in issues
     ]
     print_table(f"Repository Issues ({target_repo})", columns, rows)
+
+
+@issues_app.command("view", help=HELP.gh.issues_view)
+def issues_view_cmd(
+    number: Annotated[int, typer.Argument(min=1, help="Issue number.")],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Print one issue with its state, milestone, labels, assignees, dates and full body."""
+    target_repo = repo or _resolve_repo()
+    write_stream(render_issue(get_repository_issue(target_repo, number)) + "\n")
 
 
 @issues_app.command("create", help=HELP.gh.issues_create)

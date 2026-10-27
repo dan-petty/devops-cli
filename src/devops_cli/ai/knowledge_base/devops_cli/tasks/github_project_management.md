@@ -178,7 +178,7 @@ AI coding agents have native access to GitHub project management through the Fas
 
 ### Registered FastMCP Tools
 - **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`
-- **Issues**: `gh_issues_list`, `gh_issues_create`, `gh_issues_edit`, `gh_issues_triage`, `gh_issues_status`
+- **Issues**: `gh_issues_list`, `gh_issues_view`, `gh_issues_create`, `gh_issues_edit`, `gh_issues_triage`, `gh_issues_status`
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`, `gh_project_reconcile` (`mode="plan"` by default; `"write"` makes the changes and `"dry-run"` makes no request)
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_views_spec`
 - **Milestones**: `gh_milestones_list`, `gh_milestones_close`, `gh_milestones_edit`. A person closes and edits milestones.

@@ -18,10 +18,13 @@ from devops_cli.github.issues import (
     GitHubIssue,
     IssueTriageAudit,
     _fetch_issues_rest,
+    _parse_single_issue,
     audit_issues_triage,
     create_repository_issue,
     get_issues_summary,
+    get_repository_issue,
     get_repository_issues,
+    render_issue,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
@@ -414,3 +417,128 @@ def test_fetch_issues_rest_fails_closed(
     with pytest.raises(GitHubOperationError) as raised:
         _fetch_issues_rest("octo/repo")
     assert type(raised.value) is error
+
+
+_REST_ISSUE = "/repos/octo/repo/issues/9999"
+
+
+def _full_issue() -> dict[str, Any]:
+    """An issue as the REST API sends one, with every field the command prints."""
+    return {
+        "number": 9999,
+        "title": "feat(github): a title that is longer than the fifty characters of a list row",
+        "state": "open",
+        "url": "https://api.github.com/repos/octo/repo/issues/9999",
+        "html_url": "https://github.com/octo/repo/issues/9999",
+        "milestone": {"title": "2026-12"},
+        "labels": [{"name": "type/feature"}, {"name": "source/agent"}],
+        "assignees": [{"login": "octocat"}],
+        "created_at": "2026-10-27T10:00:00Z",
+        "updated_at": "2026-10-28T11:30:00Z",
+        "body": "First line.\n\nSecond line.",
+    }
+
+
+def test_get_repository_issue_reads_one_issue_with_one_request(github_api: GitHubApiFake) -> None:
+    """The reader sends one request for the number and returns the whole issue."""
+    github_api.route("GET", _REST_ISSUE, github_json(_full_issue()))
+    issue = get_repository_issue("octo/repo", 9999)
+    assert (issue.number, issue.title, issue.body, issue.labels, len(github_api.sent)) == (
+        9999,
+        _full_issue()["title"],
+        "First line.\n\nSecond line.",
+        ["type/feature", "source/agent"],
+        1,
+    )
+
+
+def test_a_rest_issue_has_its_web_address_not_its_api_address() -> None:
+    """GitHub's REST answer holds the API address in `url` and the web address in `html_url`;
+    `gh issue list --json` holds the web address in `url`. The issue gets the web address."""
+    rest = _parse_single_issue(_full_issue())
+    gh_json = _parse_single_issue({"number": 1, "url": "https://github.com/octo/repo/issues/1"})
+    assert (rest.url, gh_json.url) == (
+        "https://github.com/octo/repo/issues/9999",
+        "https://github.com/octo/repo/issues/1",
+    )
+
+
+def test_get_repository_issue_names_the_repository_and_number_of_a_missing_issue(
+    github_api: GitHubApiFake,
+) -> None:
+    """A 404 raises the not-found error, which names the repository and the number."""
+    github_api.route("GET", _REST_ISSUE, github_json({"message": "Not Found"}, status=404))
+    with pytest.raises(GitHubNotFoundError) as raised:
+        get_repository_issue("octo/repo", 9999)
+    message = str(raised.value)
+    assert ("octo/repo" in message, "9999" in message) == (True, True)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        pytest.param(github_json({"message": "Bad Gateway"}, status=502), id="5xx"),
+        pytest.param(github_json([_full_issue()]), id="a-list"),
+        pytest.param(github_json({"message": "no number"}), id="no-number"),
+    ],
+)
+def test_get_repository_issue_fails_closed(
+    github_api: GitHubApiFake, answer: httpx2.Response
+) -> None:
+    """A failed read, and an answer that is no issue, raise the unread error: they never read as
+    an empty issue."""
+    github_api.route("GET", _REST_ISSUE, answer)
+    with pytest.raises(GitHubUnreadError):
+        get_repository_issue("octo/repo", 9999)
+
+
+def test_get_repository_issue_refuses_a_pull_request(github_api: GitHubApiFake) -> None:
+    """The issues endpoint answers for a pull request; the reader names the command that shows
+    one."""
+    pull = {**_full_issue(), "number": 12, "pull_request": {"url": "https://example.com/pull/12"}}
+    github_api.route("GET", "/repos/octo/repo/issues/12", github_json(pull))
+    with pytest.raises(GitHubOperationError, match=r"devops pr view 12"):
+        get_repository_issue("octo/repo", 12)
+
+
+def test_render_issue_prints_every_field_and_the_whole_body() -> None:
+    """The text holds the full title, each field and the body after an empty line, with a dash
+    for each empty field."""
+    full = GitHubIssue(
+        number=9999,
+        title="x" * 80,
+        body="First line.\n\nSecond line.",
+        state="open",
+        milestone="2026-12",
+        labels=["type/feature", "source/agent"],
+        assignees=["octocat"],
+        created_at="2026-10-27T10:00:00Z",
+        updated_at="2026-10-28T11:30:00Z",
+        url="https://github.com/octo/repo/issues/9999",
+    )
+    empty = GitHubIssue(number=5, title="Bare")
+    text = render_issue(full).splitlines()
+    bare = render_issue(empty).splitlines()
+    assert (
+        text[0],
+        "State: open" in text,
+        "Milestone: 2026-12" in text,
+        "Labels: type/feature, source/agent" in text,
+        "Assignees: octocat" in text,
+        text[-3:],
+        "Milestone: —" in bare,
+        "Labels: —" in bare,
+        "Assignees: —" in bare,
+        bare[-1],
+    ) == (
+        f"#9999 {'x' * 80}",
+        True,
+        True,
+        True,
+        True,
+        ["First line.", "", "Second line."],
+        True,
+        True,
+        True,
+        "—",
+    )

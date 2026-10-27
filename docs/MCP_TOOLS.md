@@ -50,6 +50,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_issues_list`](#gh-issues-list) | `true` | List repository issues with milestone, taxonomy labels, and status. |
 | [`gh_issues_status`](#gh-issues-status) | `true` | Display aggregated issue counts by priority, type, and milestone. |
 | [`gh_issues_triage`](#gh-issues-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake. |
+| [`gh_issues_view`](#gh-issues-view) | `true` | Print one issue with its state, milestone, labels, assignees, dates and full body. |
 | [`gh_labels_list`](#gh-labels-list) | `true` | List all labels defined in the remote repository. |
 | [`gh_labels_sync`](#gh-labels-sync) | `false` | Synchronize repository labels against the declarative YAML schema. |
 | [`gh_milestones_close`](#gh-milestones-close) | `false` | Close the milestone with this title or number. |
@@ -848,6 +849,19 @@ Audit open issues for mandatory taxonomy labels, and report those not on the roa
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
+| `repo` | `string` | No | - | Target repository |
+
+### `gh_issues_view`
+
+Print one issue with its state, milestone, labels, assignees, dates and full body.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `number` | `integer` | Yes | - | Issue number. |
 | `repo` | `string` | No | - | Target repository |
 
 ### `gh_labels_list`
