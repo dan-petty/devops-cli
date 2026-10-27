@@ -562,6 +562,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("repos", "clone"),
             ("repos", "clone-org"),
             ("repos", "update"),
+            ("repos", "worktrees", "add"),
             ("repos", "worktrees", "prune"),
             ("repos", "worktrees", "status"),
             ("review", "benchmark"),

@@ -120,6 +120,41 @@ def test_worktrees_status_json_schema(git_repo: Path, tmp_path: Path, git: Git, 
     } == {(int, int, bool, bool, False)}
 
 
+def test_worktrees_status_json_gives_the_issue_of_each_worktree(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+) -> None:
+    """A branch of the form `<type>/<issue>-<slug>` names an issue; any other branch, a detached
+    head and the main worktree name none (#2337)."""
+    _add_worktree(git, git_repo, "fix/2337-other", tmp_path / "wt_issue")
+    _add_worktree(git, git_repo, "branch-plain", tmp_path / "wt_plain")
+    _add_worktree(git, git_repo, "feat/23370-longer", tmp_path / "wt_longer")
+    git(git_repo, "worktree", "add", "--detach", str(tmp_path / "wt_detached"))
+
+    result = cli("repos", "worktrees", "status", "--repo-dir", str(git_repo), "--json")
+
+    issues = {Path(e["path"]).name: e["issue"] for e in json.loads(result.stdout)}
+    assert (result.exit_code, issues) == (
+        0,
+        {
+            git_repo.name: None,
+            "wt_issue": 2337,
+            "wt_plain": None,
+            "wt_longer": 23370,
+            "wt_detached": None,
+        },
+    )
+
+
+def test_worktrees_status_table_has_an_issue_column(
+    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+) -> None:
+    _add_worktree(git, git_repo, "fix/2337-other", tmp_path / "wt_issue")
+
+    result = cli("repos", "worktrees", "status", "--repo-dir", str(git_repo))
+
+    assert (result.exit_code, "Issue" in result.stdout, "2337" in result.stdout) == (0, True, True)
+
+
 def test_worktree_with_unreadable_status_has_unknown_dirty_count(
     git_repo: Path, tmp_path: Path, git: Git, cli: Cli
 ) -> None:

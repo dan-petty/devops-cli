@@ -117,7 +117,7 @@ This table holds the naming rules of the project. Each rule names the check that
 
 | Artifact | Form | Check |
 | :--- | :--- | :--- |
-| Branch | `<type>/<issue>-<slug>` | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks the form. |
+| Branch | `<type>/<issue>-<slug>` | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks the form. `devops repos worktrees add` makes a branch in this form. |
 | Pull request title and commit subject | `<type>(<scope>): <summary>` | The `Semantic PR title` check for the title. None for a commit on a branch. |
 | Change folder | `<issue>-<slug>`, archived as `<YYYY-MM-DD>-<issue>-<slug>` | `devops openspec check` and `tests/test_change_folders.py`. |
 | Python module, class, function and variable | PEP 8 | Ruff `N`. |
@@ -129,13 +129,15 @@ This table holds the naming rules of the project. Each rule names the check that
 | Issue label | `<category>/<value>`, from `.github/labels.yml` | `devops gh labels sync`. |
 | Decision record | `docs/adr/<NNNN>-<slug>.md` | None. |
 | Release tag | `v<major>.<minor>.<patch>` | release-please writes it. Nobody tags by hand. |
-| Agent file, worktree and scratch script | Under `.data/agent/` | `.gitignore`. |
+| Agent file, worktree and scratch script | Under `.data/agent/`. The worktree of an issue is `.data/agent/worktrees/w-<issue>`. | `.gitignore`. `devops repos worktrees add` makes the worktree. |
 
 The parts of a branch name:
 
 - `<type>` is the type of the pull request title: `feat`, `fix`, `perf`, `refactor`, `revert`, `docs`, `test`, `build`, `ci`, `style` or `chore`. `release-please-config.json` lists the same types. Only the first five add a line to the changelog.
 - `<issue>` is the number of the one issue that the pull request closes.
 - `<slug>` is lowercase words and digits, joined by single hyphens. It is the slug of the change folder.
+
+Start the work on an issue with `devops repos worktrees add <issue> --type <type> --slug <slug>`. The command fetches `origin/main` and creates the worktree `.data/agent/worktrees/w-<issue>` on a branch in the form above. The branch has no upstream, so the first push is `git push -u origin HEAD`. The command refuses the issue when a worktree has a branch for it (whatever the type and the slug), when the directory `w-<issue>` exists, or when `origin` has a branch for it, and its error names the holder. A local branch with no worktree holds nothing. `devops repos worktrees status` shows the issue of each worktree.
 
 The rule covers the branches that you push to this repository. GitHub makes the branches of bots (`release-please--*` and `renovate/*`), and nobody commits on them locally. `devops branches jira` and `devops scan fix` name branches of other repositories.
 

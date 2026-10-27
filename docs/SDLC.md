@@ -77,8 +77,7 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 4. **Status Lives on GitHub**:
    - The project board holds the Status of each item (ADR 0001), and GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and the Issues views (`https://github.com/dan-petty/devops-cli/issues/views`) show it. A change folder holds no status, milestone, priority or pull request number (`tests/test_change_folders.py`).
 5. **Topic Branch Creation**:
-   - Fetch the remote (`git fetch origin`).
-   - Create an isolated topic branch from fresh upstream: `git checkout -b <branch> origin/main`. [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) gives the form of the branch name.
+   - Create an isolated worktree on a topic branch from the fetched upstream: `devops repos worktrees add <issue> --type <type> --slug <slug>`. The command fetches `origin/main` and refuses an issue that a worktree or a pushed branch already holds. [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) gives the form of the branch name.
    - Before the first push of the branch, fetch again and rebase it onto `origin/main` if `main` moved, so the branch holds the latest `main` when the pull request opens. A pull request that is open needs no rebase to catch up with `main`. Update it when it has a conflict or a check fails (Phase 6).
 
 ---

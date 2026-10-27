@@ -14,6 +14,7 @@ import typer
 
 from devops_cli.commands.workspace import sync_from_repos
 from devops_cli.config.constants import (
+    CONST_BRANCH_TYPES,
     CONST_GITHUB_HOST,
     CONST_GITHUB_REPO_SUFFIX,
     CONST_OUTPUT_FORMAT_TABLE,
@@ -30,7 +31,9 @@ from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError, GitOperationError
+from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
+from devops_cli.git.worktree_add import add_worktree
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -407,7 +410,8 @@ def _format_worktree_table_row(entry: Any) -> list[str]:
         if (entry.prunable and entry.prunable_reason)
         else ("prunable=true" if entry.prunable else "prunable=false")
     )
-    return [entry.path, branch, str(entry.ahead), dirty, locked, prunable]
+    issue = "" if entry.issue is None else str(entry.issue)
+    return [entry.path, branch, issue, str(entry.ahead), dirty, locked, prunable]
 
 
 @worktrees_app.command("status")
@@ -441,6 +445,7 @@ def worktrees_status(
         columns=[
             ("Worktree", "cyan"),
             ("Branch", "green"),
+            ("Issue", "cyan"),
             ("Ahead", "magenta"),
             ("Dirty", "yellow"),
             ("Locked", "red"),
@@ -495,6 +500,82 @@ def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
             ),
             prefix=False,
         )
+
+
+def _render_add_report(report: Any) -> None:
+    """Print what `add` did, or the commands that its dry run lists."""
+    from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
+
+    if report.status == "created":
+        print_success(
+            MESSAGES.repos.worktrees_add_created.format(path=report.path, branch=report.branch),
+            prefix=False,
+        )
+        return
+    plan = [PlannedRequest(*line.partition(" ")[::2]) for line in report.requests]
+    render_request_plan(
+        MESSAGES.repos.worktrees_add_heading, plan, MESSAGES.repos.worktrees_add_dry_run_notes
+    )
+
+
+@worktrees_app.command("add")
+def worktrees_add(
+    issue: Annotated[
+        int,
+        typer.Argument(min=1, help=HELP.repos.worktrees_add_issue),
+    ],
+    branch_type: Annotated[
+        str,
+        typer.Option("--type", help=HELP.repos.worktrees_add_type),
+    ],
+    slug: Annotated[
+        str,
+        typer.Option("--slug", help=HELP.repos.worktrees_add_slug),
+    ],
+    repo_dir: Annotated[
+        Path | None,
+        typer.Option("--repo-dir", "-r", help=HELP.repos.worktrees_repo_dir),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help=HELP.options.dry_run),
+    ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.repos.worktrees_json),
+    ] = False,
+) -> None:
+    """Create the worktree of an issue on <type>/<issue>-<slug> at the fetched origin/main.
+
+    The command refuses an issue that a worktree, the standard directory or a pushed branch of
+    origin already holds. It reads git only and makes no GitHub request.
+    """
+    if branch_type not in CONST_BRANCH_TYPES:
+        raise typer.BadParameter(
+            MESSAGES.repos.worktrees_add_bad_type.format(
+                type=branch_type, types=", ".join(CONST_BRANCH_TYPES)
+            ),
+            param_hint="--type",
+        )
+    if not is_valid_slug(slug):
+        raise typer.BadParameter(
+            MESSAGES.repos.worktrees_add_bad_slug.format(slug=slug), param_hint="--slug"
+        )
+    root = (repo_dir or find_repo_root()).resolve()
+    with exit_on_error(DevOpsCLIError):
+        report = add_worktree(
+            root, issue=issue, type_=branch_type, slug=slug, dry_run=dry_run or is_dry_run()
+        )
+
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
+    else:
+        _render_add_report(report)
 
 
 @worktrees_app.command("prune")
