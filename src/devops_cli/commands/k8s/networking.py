@@ -782,7 +782,7 @@ def _apply_fqdn_targets(
             )
 
 
-def _update_task_gateway_urls(settings: Any, full_gw: str) -> None:
+def _update_task_gateway_urls(settings: Any, configured: dict[str, str], full_gw: str) -> None:
     """Update gateway URL for tasks explicitly configured with the gateway provider."""
     from devops_cli.config.settings import dotted_set
 
@@ -792,8 +792,10 @@ def _update_task_gateway_urls(settings: Any, full_gw: str) -> None:
     for task_name in ("analysis", "chat"):
         task_cfg = getattr(tasks_cfg, task_name, None)
         if task_cfg and getattr(task_cfg, "provider", None) == CONST_AI_GATEWAY_PROVIDER:
+            key = f"ai.tasks.{task_name}.api_base_url"
             if _should_update_url(getattr(task_cfg, "api_base_url", None), full_gw):
-                dotted_set(settings, f"ai.tasks.{task_name}.api_base_url", full_gw)
+                dotted_set(settings, key, full_gw)
+                configured[key] = full_gw
 
 
 def _find_gateway_ingress_url(
@@ -831,7 +833,7 @@ def _configure_fqdn_gateway(
         if _should_update_url(existing_gw, full_gw):
             dotted_set(settings, "ai.gateway_url", full_gw)
             configured["ai.gateway_url"] = full_gw
-        _update_task_gateway_urls(settings, full_gw)
+        _update_task_gateway_urls(settings, configured, full_gw)
 
 
 def _configure_fqdn_urls(

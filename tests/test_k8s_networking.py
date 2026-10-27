@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.commands.k8s.networking import (
@@ -29,6 +32,7 @@ from devops_cli.config.defaults import DEFAULT_OLLAMA_PORT, DEFAULT_QDRANT_URL
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from tests.k8s_manifests import applied_documents
+from tests.support.config_writes import written_keys
 
 
 def test_should_update_url_edge_cases() -> None:
@@ -539,12 +543,14 @@ def test_configure_fqdn_urls() -> None:
         configured.get("argocd.url"),
         configured.get("open_webui.url"),
         configured.get("ai.gateway_url"),
+        configured.get("ai.tasks.chat.api_base_url"),
         settings.ai.gateway_enabled,
         settings.ai.tasks.analysis.api_base_url,
         getattr(settings.ai.tasks.chat, "api_base_url"),
     ) == (
         "https://argocd.example.com",
         "https://chat.example.com",
+        "https://ai.example.com/v1",
         "https://ai.example.com/v1",
         False,
         "https://example.com/custom",
@@ -617,3 +623,47 @@ def test_configure_fqdn_gateway_preserves_remote_custom_gateway_url() -> None:
         "https://example.com/v1",
         False,
     )
+
+
+def test_configure_urls_saves_when_only_task_gateway_urls_change(
+    cli: Any,
+    isolate_devops_cli_config: Path,
+    isolate_data_dir: Path,
+) -> None:
+    """A test runs configure-urls where only the task gateway URLs change, and the saved file holds the two new URLs (#2108)."""
+    initial_config = """
+ai:
+  gateway_url: https://ai.custom.example.com/v1
+  tasks:
+    analysis:
+      provider: gateway
+    chat:
+      provider: gateway
+"""
+    isolate_devops_cli_config.write_text(initial_config.strip() + "\n", encoding="utf-8")
+    mock_ingress = {
+        "llm:llm-gateway": ["ai.discovered.example.com"],
+    }
+    with (
+        patch("devops_cli.commands.k8s.networking.runtime._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.networking._discover_ingress_hosts", return_value=mock_ingress
+        ),
+    ):
+        result = cli("k8s", "configure-urls", "--addressing", "fqdn", "--stack", "llm")
+
+    assert result.exit_code == 0
+    saved = yaml.safe_load(isolate_devops_cli_config.read_text(encoding="utf-8"))
+    assert (
+        saved.get("ai", {}).get("tasks", {}).get("analysis", {}).get("api_base_url"),
+        saved.get("ai", {}).get("tasks", {}).get("chat", {}).get("api_base_url"),
+        saved.get("ai", {}).get("gateway_url"),
+        written_keys(isolate_data_dir),
+    ) == (
+        "https://ai.discovered.example.com/v1",
+        "https://ai.discovered.example.com/v1",
+        "https://ai.custom.example.com/v1",
+        [["ai.tasks.analysis.api_base_url", "ai.tasks.chat.api_base_url"]],
+    )
+    assert "ai.tasks.analysis.api_base_url" in result.output
+    assert "ai.tasks.chat.api_base_url" in result.output
