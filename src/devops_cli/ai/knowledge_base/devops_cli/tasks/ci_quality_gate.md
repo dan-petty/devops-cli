@@ -12,7 +12,7 @@ The Local CI Quality Gate (`devops ci`) provides a local quality gate that runs 
 graph TD
     A[devops ci / uv run devops ci] --> B[Version Check]
     A --> C[Unit Tests pytest -n auto]
-    A --> D[Branch Coverage >=90%]
+    A --> D[Coverage floor]
     A --> E[Fast Linting ruff check]
     A --> F[Formatting ruff format --check]
     A --> G[Static Type Check mypy --strict]
@@ -81,7 +81,7 @@ devops ci
 ## 6. General Standards & Reference Guidelines
 
 - **Gate**: The fast static checks pass before a push, and the required checks of CI pass before a merge. A check that averages more than 5 minutes is a P0 bug.
-- **Coverage Floor**: Minimum 90% branch and line coverage enforced across `src/devops_cli/`.
+- **Coverage Floor**: The line coverage of `src/devops_cli/` must stay at or above `fail_under` in `pyproject.toml`. A pull request must also cover most of its changed lines (the `Changed-Line Coverage` step of CI).
 
 ---
 

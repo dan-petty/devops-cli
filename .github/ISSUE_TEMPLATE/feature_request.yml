@@ -60,7 +60,7 @@ body:
     attributes:
       label: Standards Compliance
       options:
-        - label: I confirm this proposal aligns with AGENTS.md engineering principles (cyclomatic complexity <= 10, nesting <= 5, zero bare exceptions, >= 90% coverage).
+        - label: I confirm this proposal aligns with AGENTS.md engineering principles (cyclomatic complexity <= 10, nesting <= 5, zero bare exceptions, tests that cover the changed lines).
           required: true
         - label: I am willing to submit a pull request implementing this feature with accompanying tests.
           required: false

@@ -23,7 +23,7 @@ These rules apply to every contributor. [`AGENTS.md`](AGENTS.md) sends agents he
 - **Strongly Typed Domain Exceptions**:
   - All domain error states must raise strongly typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`.
   - Raising bare Python built-in exceptions (`ValueError`, `RuntimeError`, `TypeError`) is strictly prohibited.
-- **Minimum 90% Code Coverage**: Continuous quality gate enforced by `devops ci` across all `src/` modules.
+- **Minimum 85% Code Coverage, and 90% of the Changed Lines**: Continuous quality gate. `devops ci` enforces 85% of the lines of `src/` (`fail_under` in `pyproject.toml`). A pull request must also cover 90% of its changed lines: the `Changed-Line Coverage` step of CI fails below that.
 - **Pre-1.0 Alpha Status & Zero Backwards Compatibility**: DevOps CLI is pre-1.0 alpha software. Until at least release `1.0.0`, there is no intention of maintaining backwards compatibility. The codebase must remain clean of legacy references and obsolete shims at all times so that it can reach maturity at a reasonable rate. Any version after `1.0.0` will follow strict semantic versioning conventions, and employ all change management best practices including feature flags, deprecations, and migration functionality.
 - **Zero Zombie Code & Legacy Remnants**: Ruthlessly remove obsolete shims, legacy workarounds, and deprecated aliases. Never introduce compatibility shims during the pre-1.0 development cycle.
 
@@ -67,7 +67,7 @@ uv run pre-commit install
    ```bash
    uv run devops ci
    ```
-   Validates every check `devops ci` runs concurrently: Python runtime, tests, 90% coverage, linting, formatting, strict typing, dependency audit, security scanning, the wheel and sdist build, workflow actionlint and zizmor, and documentation freshness.
+   Validates every check `devops ci` runs concurrently: Python runtime, tests, the coverage floor, linting, formatting, strict typing, dependency audit, security scanning, the wheel and sdist build, workflow actionlint and zizmor, and documentation freshness.
 
    Several agents share one host, and the full test suite starts one pytest worker for each CPU, so gates that run at once make each other several times slower (11189 tests took 247 s alone and 440 s each beside a second gate). A run that selects `test`, `security` or `typecheck`, and the full-suite `devops ci test` and `devops ci coverage`, therefore wait for a free gate slot first and say which process and worktree hold the slots. One slot exists for each 16 CPUs, and at least one; `ci.gate_slots` (or `DEVOPS_CLI_CI_GATE_SLOTS`) sets the number. The pre-push hook, a test run narrowed by paths or by `-n`, a dry run and a cached verdict never wait. The operating system frees a slot when its holder ends, also when it is killed. The wait is not part of the gate time and is recorded as the metric `ci.gate_slot_wait_seconds`.
 
