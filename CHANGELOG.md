@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2](https://github.com/dan-petty/devops-cli/compare/v0.7.1...v0.7.2) (2026-10-27)
+
+
+### Bug Fixes
+
+* **k8s:** guard valkey URL construction and pin configure-urls valkey scheme ([#2359](https://github.com/dan-petty/devops-cli/issues/2359)) ([b369d9a](https://github.com/dan-petty/devops-cli/commit/b369d9a502e8459dd817246ba2cc8f0c3a4f03fe)), closes [#1990](https://github.com/dan-petty/devops-cli/issues/1990)
+* **k8s:** spread embedding batches over both order 1 tiers ([#2360](https://github.com/dan-petty/devops-cli/issues/2360)) ([b0f58ac](https://github.com/dan-petty/devops-cli/commit/b0f58acaf517339515bf90ff45e00ce78ce00f48))
+
 ## [0.7.1](https://github.com/dan-petty/devops-cli/compare/v0.7.0...v0.7.1) (2026-10-27)
 
 
