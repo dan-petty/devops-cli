@@ -543,9 +543,11 @@ def test_the_mint_creates_stores_then_revokes(
     mock_keyring.values["grafana_password"] = "admin-pw"
     events: list[str] = []
     mock_keyring.events = events
-    stub_web.serve(
-        lambda request: events.append(f"{request.method} {request.url.path}")  # type: ignore[func-returns-value]
-    )
+
+    def record(request: httpx2.Request) -> None:
+        events.append(f"{request.method} {request.url.path}")
+
+    stub_web.serve(record)
     _serve_grafana_mint(stub_web, [{"id": 3}])
 
     outcomes = _sync()
