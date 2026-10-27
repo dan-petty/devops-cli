@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0](https://github.com/dan-petty/devops-cli/compare/v0.7.4...v0.8.0) (2026-10-27)
+
+
+### Features
+
+* **github:** devops gh issues view shows one issue ([#2374](https://github.com/dan-petty/devops-cli/issues/2374)) ([63be7ed](https://github.com/dan-petty/devops-cli/commit/63be7edbd54fea1e0ad55813f8b2b471695df892)), closes [#2361](https://github.com/dan-petty/devops-cli/issues/2361)
+* **repos:** make devops repos worktrees add remove merged worktrees first ([#2351](https://github.com/dan-petty/devops-cli/issues/2351)) ([6d3a18a](https://github.com/dan-petty/devops-cli/commit/6d3a18a52a99445a605b6304d3ea69de6aab7407)), closes [#2338](https://github.com/dan-petty/devops-cli/issues/2338)
+
+
+### Bug Fixes
+
+* **k8s:** devops k8s configure-urls saves a run that changes only the task gateway urls ([#2384](https://github.com/dan-petty/devops-cli/issues/2384)) ([1a7e7c7](https://github.com/dan-petty/devops-cli/commit/1a7e7c786c60e3abd213802f24f23a841fc7cacd))
+* **k8s:** exit non-zero when kube-linter is unavailable or reports findings ([#2386](https://github.com/dan-petty/devops-cli/issues/2386)) ([31c5a0b](https://github.com/dan-petty/devops-cli/commit/31c5a0b4d8dad571fade56144fe3d11287fba6c2)), closes [#2095](https://github.com/dan-petty/devops-cli/issues/2095)
+* **scan:** serialize status and reason in JSON and YAML scan output ([#2385](https://github.com/dan-petty/devops-cli/issues/2385)) ([d594b55](https://github.com/dan-petty/devops-cli/commit/d594b55213c3a8d118f43cc09d98045f39fc0d3f))
+
 ## [0.7.4](https://github.com/dan-petty/devops-cli/compare/v0.7.3...v0.7.4) (2026-10-27)
 
 
