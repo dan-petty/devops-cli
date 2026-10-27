@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1](https://github.com/dan-petty/devops-cli/compare/v0.8.0...v0.8.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **devcontainer:** provide reset remedy on wrong keyring password ([#2390](https://github.com/dan-petty/devops-cli/issues/2390)) ([5031b1d](https://github.com/dan-petty/devops-cli/commit/5031b1d8751028962a904ade03cd452c6e8cefab))
+* **k8s:** the --stack help of deploy-stack names every stack that the command accepts ([#2388](https://github.com/dan-petty/devops-cli/issues/2388)) ([69fe9b3](https://github.com/dan-petty/devops-cli/commit/69fe9b38345713adab90d6ba4fa3782e1a0c4db3))
+* **monitoring:** evaluate log or metric volume disk low alert while a pod moves ([#2387](https://github.com/dan-petty/devops-cli/issues/2387)) ([7b381ea](https://github.com/dan-petty/devops-cli/commit/7b381ea168177a8e938b28c0f3b17712542fb096))
+
 ## [0.8.0](https://github.com/dan-petty/devops-cli/compare/v0.7.4...v0.8.0) (2026-10-27)
 
 
