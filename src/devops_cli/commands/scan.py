@@ -181,12 +181,12 @@ def scan_trivy(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run():
+    resolved = resolve_format(output_format, json_output=json_output)
+    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.trivy_executing.format(target=target_abs, scan_type=scan_type))
 
     findings = run_trivy_scan(target=target_abs, scan_type=scan_type, severity=severity)
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
         emit_serialized(data, resolved)
@@ -253,12 +253,12 @@ def scan_secrets(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run():
+    resolved = resolve_format(output_format, json_output=json_output)
+    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.gitleaks_executing.format(target=target_abs))
 
     findings = run_gitleaks_scan(target=target_abs)
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
         emit_serialized(data, resolved)
@@ -349,13 +349,14 @@ def scan_workflows(
             action="zizmor_workflow_audit",
             details={"command": build_zizmor_cmd(target)},
         )
-    print_muted(MESSAGES.scan.zizmor_executing.format(target=target))
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
+        print_muted(MESSAGES.scan.zizmor_executing.format(target=target))
     try:
         found = run_zizmor(target)
     except ToolExecutionError as exc:
         print_error(str(exc), safe=True)
         raise typer.Exit(1) from exc
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved == CONST_OUTPUT_FORMAT_TABLE:
         passed = _report_zizmor(target, found)
     else:
@@ -417,12 +418,12 @@ def scan_sast(
     target_abs = target.resolve() if target.exists() else target
     ruleset = _registry_ruleset_for(config)
 
-    if not is_dry_run():
+    resolved = resolve_format(output_format, json_output=json_output)
+    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.semgrep_executing.format(target=target_abs, config=config))
 
     findings = run_semgrep_scan(target=target_abs, config=config, ruleset=ruleset)
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
         emit_serialized(data, resolved)
@@ -487,12 +488,12 @@ def scan_iac(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run():
+    resolved = resolve_format(output_format, json_output=json_output)
+    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(MESSAGES.scan.checkov_executing.format(target=target_abs))
 
     findings = run_checkov_scan(target_path=target_abs, framework=framework)
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
         emit_serialized(data, resolved)
@@ -566,7 +567,8 @@ def scan_complexity(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run() and not json_output:
+    resolved = resolve_format(output_format, json_output=json_output)
+    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
         print_muted(f"Analyzing code complexity and indentation depth in {target_abs}...")
 
     findings = run_complexity_scan(
@@ -575,7 +577,6 @@ def scan_complexity(
         max_nesting_depth=max_indent,
     )
 
-    resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         data = [f.model_dump() for f in findings]
         emit_serialized(data, resolved)
@@ -710,7 +711,7 @@ def scan_aibom(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run():
+    if not is_dry_run() and output_file is not None:
         print_muted(f"Generating AI Bill of Materials (AIBOM) for {target_abs}...")
 
     norm_format = format_type.lower().strip()
