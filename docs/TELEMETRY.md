@@ -23,6 +23,12 @@ another one: roadmap-service sets `service.instance.id=roadmap-service`, so a ne
 writes the series of the pod before it. A running total that starts again from zero,
 for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
 `k8s/otel/values.yaml`), is a counter reset to `rate()` and `increase()`.
+Cluster job pods have unique instance names and export metrics only once when they exit.
+PromQL functions like `increase()` and `rate()` drop series that contain only one sample.
+To calculate these counters, the collector sets `export_created_metric: true` in
+`k8s/otel/values.yaml`. Prometheus sets `enable-feature: created-timestamp-zero-ingestion`
+in `k8s/monitoring/prometheus-values.yaml`. Prometheus then writes a zero-value sample at the
+start timestamp of each series, so `increase()` calculates the full counter value.
 A gauge holds a snapshot, such as a project metric that the roadmap Service sends
 every 15 minutes. Prometheus finds a plain selector only within five minutes of a
 sample, so a dashboard reads a gauge with `last_over_time(<metric>[$__range])`, and
