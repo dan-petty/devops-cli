@@ -937,6 +937,24 @@ class TestK8sLLMGatewayManifests:
 
         assert observed == {name: expected for name in observed}
 
+    def test_ollama_64gib_tier_constrains_prompt_cache_and_memory_limit(self) -> None:
+        """Verify the ollama-64gib tier sets a container memory limit and bounds prompt cache RAM (#2382).
+
+        Node gemini has 15.3 GiB of memory. Under a 160000 context length, the default prompt cache
+        can exhaust host memory and cause OOM kills. Setting LLAMA_ARG_CACHE_RAM to 4096 MiB bounds
+        prompt cache size. Setting limits.memory to 12Gi protects the node from memory exhaustion.
+        """
+        dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-64gib")
+        container = dep["spec"]["template"]["spec"]["containers"][0]
+        env_vars = {v["name"]: v.get("value") for v in container.get("env", [])}
+        resources = container.get("resources", {})
+
+        assert (
+            env_vars.get("LLAMA_ARG_CACHE_RAM"),
+            resources.get("requests", {}).get("memory"),
+            resources.get("limits", {}).get("memory"),
+        ) == ("4096", "8Gi", "12Gi")
+
     @pytest.mark.parametrize("service_name", ["ollama-16gib", "ollama-48gib"])
     def test_ollama_services_stay_behind_the_gateway(self, service_name: str) -> None:
         """Verify Ollama Services are cluster-internal; LAN clients use the authenticated gateway."""

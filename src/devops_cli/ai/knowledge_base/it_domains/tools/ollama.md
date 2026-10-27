@@ -111,6 +111,10 @@ curl http://localhost:11434/api/embeddings -d '{
      - A request that sends `keep_alive` replaces the lease. Thus a prewarm with `keep_alive: 1h` replaces the forever lease of `ollama-48gib-slow` with one hour. This comes from `useLoadedRunner` in the source, and nobody tested it on a live tier.
      - Source: in Ollama 0.34.4 `server/sched.go`, `useLoadedRunner` changes the lease only when a request sends `keep_alive`. `load` uses `OLLAMA_KEEP_ALIVE` only when a request that loads a model sends none.
      - Test: on 2026-10-24, on an idle tier, a prewarm with `keep_alive: 1h` set the expiry one hour later. Then `/api/chat` (blocking and streamed) and `/api/embed` without `keep_alive` kept the one-hour expiry.
+   - **Prompt Cache RAM Limits in llama-server**:
+     - Ollama runs `llama-server` as a child process. By default, `llama-server` reserves up to 8,192 MiB in host RAM for prompt caching across idle slots.
+     - To bound host RAM consumption on nodes with high context windows, set environment variable `LLAMA_ARG_CACHE_RAM`.
+     - The `ollama-64gib` tier sets `LLAMA_ARG_CACHE_RAM: "4096"` and `limits.memory: 12Gi` to prevent host memory exhaustion on 16 GiB nodes (#2382).
 2. **Model Quantization & Sizing**: Use `q4_K_M` or `q8_0` quantized models to maximize inference throughput while staying within workstation VRAM / RAM limits.
 3. **Constrain Review Token Generation**: Set `max_tokens: 2048` and `reasoning_effort: low` for code reviews to prevent long generation delays during multi-file reviews.
 4. **Context Window Sizing**: Set `num_ctx` appropriately (e.g. `8192` or `16384`) in Ollama modelfiles when reviewing large multi-file diffs.
