@@ -123,6 +123,17 @@ def _handle_single_scanner_result(
     return False
 
 
+def _serialize_scanner_outcome(findings: Any) -> dict[str, Any]:
+    """Serialize scanner findings with status and reason for JSON and YAML (#2107)."""
+    status = getattr(findings, "status", "ran") or "ran"
+    reason = getattr(findings, "reason", "") or ""
+    return {
+        "status": status,
+        "reason": reason,
+        "findings": [f.model_dump() for f in findings],
+    }
+
+
 # =============================================================================
 # Root Callback & Subcommands
 # =============================================================================
@@ -188,7 +199,7 @@ def scan_trivy(
     findings = run_trivy_scan(target=target_abs, scan_type=scan_type, severity=severity)
 
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        data = [f.model_dump() for f in findings]
+        data = _serialize_scanner_outcome(findings)
         emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
@@ -260,7 +271,7 @@ def scan_secrets(
     findings = run_gitleaks_scan(target=target_abs)
 
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        data = [f.model_dump() for f in findings]
+        data = _serialize_scanner_outcome(findings)
         emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
@@ -425,7 +436,7 @@ def scan_sast(
     findings = run_semgrep_scan(target=target_abs, config=config, ruleset=ruleset)
 
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        data = [f.model_dump() for f in findings]
+        data = _serialize_scanner_outcome(findings)
         emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(
@@ -495,7 +506,7 @@ def scan_iac(
     findings = run_checkov_scan(target_path=target_abs, framework=framework)
 
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        data = [f.model_dump() for f in findings]
+        data = _serialize_scanner_outcome(findings)
         emit_serialized(data, resolved)
         if is_dry_run():
             return CommandDryRunResult(

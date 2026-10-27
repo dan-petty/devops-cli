@@ -133,7 +133,8 @@ def test_scan_semgrep_cli(tmp_path: Path) -> None:
         assert (res.exit_code, "No static AST pattern flaws detected" in res.stdout) == (0, True)
 
         res_json = runner.invoke(scan_app, ["sast", str(test_file), "--json"])
-        assert (res_json.exit_code, "[]" in res_json.stdout) == (0, True)
+        assert res_json.exit_code == 0
+        assert json.loads(res_json.stdout) == {"status": "ran", "reason": "", "findings": []}
 
 
 def test_semgrep_build_scan_command_target_filtering(tmp_path: Path) -> None:
@@ -765,7 +766,7 @@ def test_scan_sast_warns_when_the_cached_ruleset_is_older_than_a_day_and_uses_it
 
     assert (result.exit_code, len(scanner_fake.runs)) == (0, 1)
     assert result.stderr == OLD_CACHE_WARNING
-    assert json.loads(result.stdout.splitlines()[-1]) == []
+    assert json.loads(result.stdout) == {"status": "ran", "reason": "", "findings": []}
 
 
 def test_scan_sast_warns_of_nothing_when_the_cached_ruleset_is_current(

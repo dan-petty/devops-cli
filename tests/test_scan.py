@@ -8,10 +8,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.security.base import ScanOutcome
 from devops_cli.security.zizmor import ZizmorFinding
 
 runner = CliRunner()
@@ -177,3 +179,54 @@ def test_aibom_json_stdout_is_valid_json(tmp_path: Path, flags: list[str]) -> No
         res = runner.invoke(scan_app, ["aibom", str(tmp_path), *flags])
     assert res.exit_code == 0, res.output
     json.loads(res.stdout)
+
+
+@pytest.mark.usefixtures("cached_default_ruleset")
+@pytest.mark.parametrize(
+    ("sub", "patch_target"),
+    [
+        ("trivy", "devops_cli.commands.scan.run_trivy_scan"),
+        ("secrets", "devops_cli.commands.scan.run_gitleaks_scan"),
+        ("sast", "devops_cli.commands.scan.run_semgrep_scan"),
+        ("iac", "devops_cli.commands.scan.run_checkov_scan"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [
+        ("not installed", "Binary 'test' not found on PATH"),
+        ("failed", "Scanner exited with code 2"),
+        ("not_applicable", "No target files matched"),
+        ("ran", ""),
+    ],
+)
+def test_scan_serialized_output_holds_status_reason_and_findings(
+    tmp_path: Path, sub: str, patch_target: str, status: str, reason: str
+) -> None:
+    """JSON and YAML output of devops scan holds status, reason, and findings (#2107)."""
+    outcome = ScanOutcome(status=status, findings=[], reason=reason)
+    with patch(patch_target, return_value=outcome):
+        res_json = runner.invoke(scan_app, [sub, str(tmp_path), "--json"])
+        assert res_json.exit_code == 0, res_json.output
+        data_json = json.loads(res_json.stdout)
+        assert data_json == {"status": status, "reason": reason, "findings": []}
+
+        res_yaml = runner.invoke(scan_app, [sub, str(tmp_path), "--format", "yaml"])
+        assert res_yaml.exit_code == 0, res_yaml.output
+        data_yaml = yaml.safe_load(res_yaml.stdout)
+        assert data_yaml == {"status": status, "reason": reason, "findings": []}
+
+
+@pytest.mark.usefixtures("cached_default_ruleset")
+def test_scan_serialized_output_with_findings(tmp_path: Path) -> None:
+    """JSON output includes findings list along with status and reason (#2107)."""
+    finding = _finding()
+    outcome = ScanOutcome(status="ran", findings=[finding], reason="")
+    with patch("devops_cli.commands.scan.run_trivy_scan", return_value=outcome):
+        res = runner.invoke(scan_app, ["trivy", str(tmp_path), "--json"])
+        assert res.exit_code == 0, res.output
+        data = json.loads(res.stdout)
+        assert data["status"] == "ran"
+        assert data["reason"] == ""
+        assert len(data["findings"]) == 1
+        assert data["findings"][0]["title"] == "Test Flaw"
