@@ -26,9 +26,9 @@ None.
 
 ## Impact
 
-- `src/devops_cli/git/worktree_add.py` (new), `src/devops_cli/git/worktree_inventory.py`, `src/devops_cli/commands/repos.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
-- Tests: `tests/test_repos_worktrees_add.py` and a branch-form invariant test.
-- Documents: `CONTRIBUTING.md` (the worktree row and the branch rule), and the generated `docs/CLI_REFERENCE.md`, `docs/commands/` and `README.md`.
+- `src/devops_cli/git/branch_form.py` and `src/devops_cli/git/worktree_add.py` (new), `src/devops_cli/git/worktree_inventory.py`, `src/devops_cli/commands/repos.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
+- Tests: `tests/test_repos_worktrees_add.py`, `tests/test_branch_form.py` (the invariant test), `tests/test_repos_worktrees.py` and the MCP exclusion list of `tests/test_mcp.py`, which keeps `add` with `prune` and `status` as a command that manages local checkouts.
+- Documents: `CONTRIBUTING.md` (the branch and worktree rows and the paragraph on starting work), `docs/SDLC.md` and `docs/ROUTINE_TASKS.md` (they told readers to run `git checkout -b`), and the generated `docs/CLI_REFERENCE.md` and `docs/commands/repos.md`.
 
 ## Feasibility
 
