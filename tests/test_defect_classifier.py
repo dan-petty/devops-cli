@@ -88,7 +88,11 @@ def test_match_hardening_surface_declared_surfaces() -> None:
     from tests.support.paths import REPO_ROOT
 
     test_paths = [
-        ("AGENTS.md", "AGENTS.md"),
+        ("docs/TESTING.md", "docs/TESTING.md"),
+        ("ARCHITECTURE.md", "ARCHITECTURE.md"),
+        ("SECURITY.md", "SECURITY.md"),
+        ("CONTRIBUTING.md", "CONTRIBUTING.md"),
+        ("AGENTS.md", None),
         ("src/devops_cli/ai/tasks/review.md", "src/devops_cli/ai/tasks/*.md"),
         ("src/devops_cli/ai/tasks/nested/deep.md", None),
         ("src/devops_cli/ai/knowledge_base/README.md", "src/devops_cli/ai/knowledge_base/"),
@@ -119,7 +123,10 @@ def test_match_hardening_surface_declared_surfaces() -> None:
     ) == (
         test_paths,
         (
-            "AGENTS.md",
+            "docs/TESTING.md",
+            "ARCHITECTURE.md",
+            "SECURITY.md",
+            "CONTRIBUTING.md",
             "src/devops_cli/ai/tasks/*.md",
             "src/devops_cli/ai/knowledge_base/",
             ".devops/review.toml",
@@ -133,7 +140,7 @@ def test_audit_pr_hardening_with_additions() -> None:
     """Audit PR hardening when additions are present on declared surfaces."""
     files = [
         {"path": "src/devops_cli/commands/pr.py", "additions": 45, "deletions": 2},
-        {"path": "AGENTS.md", "additions": 12, "deletions": 0},
+        {"path": "docs/TESTING.md", "additions": 12, "deletions": 0},
         {"path": "src/devops_cli/ai/tasks/verify.md", "additions": 8, "deletions": 1},
         {"path": "docs/SDLC.md", "additions": 50, "deletions": 0},  # not a surface
     ]
@@ -150,13 +157,13 @@ def test_audit_pr_hardening_with_additions() -> None:
         audit.empty_file_list,
         audit.total_files,
         audit.hardened_surfaces,
-        audit.surface_additions["AGENTS.md"],
+        audit.surface_additions["docs/TESTING.md"],
         audit.surface_additions["src/devops_cli/ai/tasks/*.md"],
     ) == (
         True,
         False,
         4,
-        ("AGENTS.md", "src/devops_cli/ai/tasks/*.md"),
+        ("docs/TESTING.md", "src/devops_cli/ai/tasks/*.md"),
         12,
         8,
     )
@@ -167,7 +174,8 @@ def test_audit_pr_hardening_missing_additions() -> None:
     files = [
         {"path": "src/devops_cli/commands/pr.py", "additions": 30, "deletions": 10},
         {"path": "tests/test_pr.py", "additions": 50, "deletions": 0},
-        {"path": "AGENTS.md", "additions": 0, "deletions": 5},  # deletions only
+        {"path": "docs/TESTING.md", "additions": 0, "deletions": 5},  # deletions only
+        {"path": "AGENTS.md", "additions": 10, "deletions": 0},  # not a hardening surface
         {"path": "docs/SDLC.md", "additions": 25, "deletions": 0},  # not a surface
     ]
 
@@ -182,7 +190,7 @@ def test_audit_pr_hardening_missing_additions() -> None:
         audit.is_hardened,
         audit.hardened_surfaces,
         audit.empty_file_list,
-        audit.surface_additions["AGENTS.md"],
+        audit.surface_additions["docs/TESTING.md"],
     ) == (
         False,
         (),
