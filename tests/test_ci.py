@@ -1025,12 +1025,14 @@ def test_toolchain_cache_runs_on_node24_and_one_job_per_event_saves_uv_cache() -
     )
 
 
-def test_changed_line_coverage_step_is_advisory_on_pull_requests() -> None:
-    """Pull requests get an advisory diff-cover report against their own base branch (#850).
+def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() -> None:
+    """Pull requests fail when under 90% of their changed lines are covered (#850, #2356).
 
     The step reads the coverage.xml the gate already wrote, runs only on pull requests,
-    takes the base ref through env rather than an inline expression, and stays advisory
-    (no --fail-under). It is never part of `devops ci`, so no check row runs it.
+    takes the base ref through env rather than an inline expression, and fails the job
+    below 90% of the changed lines. The summary still gets the added `pragma: no cover` lines
+    when the figure fails: the step keeps diff-cover's status and exits with it last. It is
+    never part of `devops ci`, so no check row runs it.
     """
     import yaml
 
@@ -1047,7 +1049,8 @@ def test_changed_line_coverage_step_is_advisory_on_pull_requests() -> None:
         step.get("env"),
         "diff-cover .data/coverage.xml" in run and '--compare-branch="origin/${BASE_REF}"' in run,
         "GITHUB_STEP_SUMMARY" in run and "pragma: no cover" in run,
-        "--fail-under" in run,
+        "--fail-under 90" in run,
+        0 <= run.find("pragma: no cover") < run.find('exit "$status"'),
         "${{" in run,
         checkout.get("with", {}).get("fetch-depth"),
         any("diff-cover" in " ".join(s.cmd) for s in get_check_specs()),
@@ -1057,7 +1060,8 @@ def test_changed_line_coverage_step_is_advisory_on_pull_requests() -> None:
         {"BASE_REF": "${{ github.base_ref }}"},
         True,
         True,
-        False,
+        True,
+        True,
         False,
         0,
         False,
@@ -2529,7 +2533,7 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         (
             "test",
             "Changed-Line Coverage",
-        ): "Advisory diff-cover report in the job summary, never a check table row",
+        ): "Changed-line coverage gate (diff-cover) in the job summary, never a check table row",
         (
             "changed-tests",
             "Detect Changed Test Files",

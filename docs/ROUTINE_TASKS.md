@@ -183,7 +183,7 @@ sequenceDiagram
   - When a PR is squash-merged into `main`, agents MUST immediately prioritize updating, rebasing, and verifying the next oldest open pull request to prevent cascading merge conflicts and branch divergence.
 - **Every PR Opens as a Draft & Two-Stage Review Lifecycle**:
   - Agents open every pull request with `devops pr create`, which always opens a draft.
-  - **Transition to Ready for Review**: Once all implementation logic, tests (>= 90% coverage), docs synchronization (`devops docs generate --sync-readme`), and CI quality gates pass cleanly, and initial review comments are addressed, agents MUST convert the draft pull request to ready for review (`devops pr ready <pr_number>`). It is the only path to ready.
+  - **Transition to Ready for Review**: Once all implementation logic, tests (the coverage floor and the changed-line gate pass), docs synchronization (`devops docs generate --sync-readme`), and CI quality gates pass cleanly, and initial review comments are addressed, agents MUST convert the draft pull request to ready for review (`devops pr ready <pr_number>`). It is the only path to ready.
 - **Agent Non-Merge Rule**: AI agents must push commits and create/update PRs, but never merge a PR (`gh pr merge` or the web UI).
 - **Post-Ready Secondary Review & Copilot Monitoring Gate**:
   - Marking a pull request as ready for review transitions it to public review and triggers reviewer notifications (CodeQL runs on every push). Copilot reviews a pull request only when a person requests it.

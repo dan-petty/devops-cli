@@ -93,7 +93,7 @@ uv run pytest --cov=src/devops_cli --cov-report=html:coverage_html
 ## 5. Security Recommendations & Zero-Trust Policies
 
 - **No Secrets in Test Code**: Never use real user tokens or live cloud endpoints in test fixtures.
-- **Coverage Enforcement**: Maintain at least 90% line and branch test coverage across all core CLI command modules and security subsystems.
+- **Coverage Enforcement**: Keep line coverage at or above the floor (`fail_under` in `pyproject.toml`) across all core CLI command modules and security subsystems, and cover the changed lines of every pull request.
 
 ---
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from collections import deque
 from itertools import pairwise
 from pathlib import Path
@@ -554,3 +555,39 @@ def test_a_changelog_table_without_a_visible_type_does_not_match(tmp_path: Path)
 def test_every_relative_link_of_the_release_page_resolves() -> None:
     """The release page a person follows links only files and headings that exist."""
     assert _broken_links(_RELEASE_CYCLE_MD) == []
+
+
+_PYPROJECT = REPO_ROOT / "pyproject.toml"
+_COVERAGE_FLOOR_STATEMENT = re.compile(
+    r"(?:Minimum|floor is) (\d+)% (?:Code Coverage|of the lines)"
+)
+
+
+def _coverage_floors_stated(document: Path) -> list[int]:
+    """The coverage floors that a document states, in the order it states them."""
+    text = document.read_text(encoding="utf-8")
+    return [int(figure) for figure in _COVERAGE_FLOOR_STATEMENT.findall(text)]
+
+
+def test_the_contributor_guide_and_the_test_rules_state_the_coverage_floor_of_pyproject() -> None:
+    """Two documents give the figure of the coverage floor, once each, and it is the
+    `fail_under` of `pyproject.toml`. Every other document names the gate without a figure, so a
+    change of the floor changes two sentences (#2356)."""
+    floor = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["coverage"]["report"][
+        "fail_under"
+    ]
+
+    assert (_coverage_floors_stated(_CONTRIBUTING_MD), _coverage_floors_stated(_TESTING_MD)) == (
+        [floor],
+        [floor],
+    )
+
+
+def test_a_document_that_states_another_coverage_floor_is_reported(tmp_path: Path) -> None:
+    """Negative control: a guide with the old figure, or with no statement, is not the floor."""
+    old = tmp_path / "old.md"
+    old.write_text("- **Minimum 90% Code Coverage**: gate.\n", encoding="utf-8")
+    none = tmp_path / "none.md"
+    none.write_text("- The gate has a floor.\n", encoding="utf-8")
+
+    assert (_coverage_floors_stated(old), _coverage_floors_stated(none)) == ([90], [])

@@ -201,7 +201,9 @@ data_file = ".data/.coverage"
 parallel = true
 
 [tool.coverage.report]
-fail_under = 90
+# The floor of the whole tree (#2356). The changed lines of a pull request must be 90% covered:
+# the `Changed-Line Coverage` step of ci.yml runs diff-cover with `--fail-under 90`.
+fail_under = 85
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

@@ -55,7 +55,7 @@ tags:
    - Disallows untyped `def` functions.
    - Enforces Pydantic model type checking via `pydantic.mypy` plugin.
 3. **Pytest Coverage Threshold**:
-   - `pytest --cov=src --cov-fail-under=90` enforces strict minimum 90% code coverage.
+   - `pytest --cov=src` measures coverage. The floor is `fail_under` in `pyproject.toml`, and a pull request must also cover its changed lines.
 
 ---
 

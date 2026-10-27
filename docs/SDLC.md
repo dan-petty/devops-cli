@@ -167,7 +167,7 @@ flowchart TD
     subgraph CIQualityGate["Primary Quality Gate (required checks of CI, or uv run devops ci by hand)"]
         G1[python_version]
         G2[pytest test suite]
-        G3[code coverage >= 90%]
+        G3[coverage floor and changed-line coverage]
         G4[ruff check]
         G5[ruff format]
         G6[mypy --strict]
