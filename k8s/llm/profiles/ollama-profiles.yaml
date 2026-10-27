@@ -8,6 +8,9 @@
 # stays beside the chat model where it fits (#1987). Each of these tiers must hold
 # qwen3-embedding:0.6b in its model directory. ollama-48gib-slow, the background tier, also keeps
 # its two models loaded for good, since each evicted the other on every switch (#1064).
+# ollama-64gib sets LLAMA_ARG_CACHE_RAM to 4096 MiB and a container memory limit of 12Gi. Node
+# gemini has 15.3 GiB of memory, and its 160000 context length can exhaust host memory without
+# a prompt cache bound (#2382).
 #
 # Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault
 # seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; /tmp is
@@ -837,6 +840,8 @@ spec:
               value: "1"
             - name: OLLAMA_NO_CLOUD
               value: "1"
+            - name: LLAMA_ARG_CACHE_RAM
+              value: "4096"
           ports:
             - containerPort: 11434
               name: http
@@ -844,6 +849,8 @@ spec:
             requests:
               cpu: 4000m
               memory: 8Gi
+            limits:
+              memory: 12Gi
           startupProbe:
             httpGet:
               path: /
