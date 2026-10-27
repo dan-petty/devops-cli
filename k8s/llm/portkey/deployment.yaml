@@ -44,10 +44,6 @@ spec:
             - name: http
               containerPort: 8787
           volumeMounts:
-            - name: config-volume
-              mountPath: /app/config.json
-              subPath: config.json
-              readOnly: true
             - name: tmp-volume
               mountPath: /tmp
           resources:
@@ -71,8 +67,5 @@ spec:
             periodSeconds: 10
 
       volumes:
-        - name: config-volume
-          configMap:
-            name: portkey-config
         - name: tmp-volume
           emptyDir: {}
