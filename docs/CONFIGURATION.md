@@ -251,6 +251,7 @@ In-cluster webhook receiver and background job runner settings.
 | `machine_account` | `Union` | - | `DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT` | - |
 | `poll_interval_seconds` | `int` | `300` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | - |
 | `drain_timeout_seconds` | `int` | `120` | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | - |
+| `github_requests_per_hour` | `int` | `500` | - | - |
 
 ## Tavily Search Configuration (`tavily`)
 

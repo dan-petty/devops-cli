@@ -1464,6 +1464,23 @@ class ServeMessages:
         "Could not read the time the failed Service round for {repo} names, so no round waits "
         "for it: {kind}: {error}"
     )
+    # Logged once, at the error level, when GitHub refuses the Service's identity: no round
+    # starts and no GitHub request goes out until a person restarts the Service (#2161).
+    identity_refused: str = (
+        "GitHub refused the identity {identity} ({kind}: {error}) in the round for {repo}. The "
+        "Service stops every job for every repository and sends no GitHub request until a "
+        "person restarts it."
+    )
+    # Logged once each time the hourly GitHub request budget holds the rounds (#2161).
+    budget_spent: str = (
+        "The Service sent {spent} GitHub requests in the last hour, and its budget is {limit}: "
+        "no round starts until the window has room."
+    )
+    # Logged once, when a roadmap job reaches its limit of failed rounds (#2161).
+    job_suspended: str = (
+        "The roadmap job {job} of {repo} failed {rounds} rounds in a row, so it does not run "
+        "again until its input changes."
+    )
 
 
 @dataclass(frozen=True)

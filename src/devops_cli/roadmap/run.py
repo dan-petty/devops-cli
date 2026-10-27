@@ -21,7 +21,7 @@ import os
 import shlex
 import subprocess
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -42,6 +42,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_STATE_FILENAME,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
@@ -49,6 +50,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
+    DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
 from devops_cli.config.env import ENV_DATA_DIR
 from devops_cli.core.paths import (
@@ -58,6 +60,7 @@ from devops_cli.core.paths import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
+from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import refusal_reset
 from devops_cli.roadmap.intake import (
@@ -580,6 +583,81 @@ def _simulate_dry_run(rows: Sequence[JobRow], initially_due: Mapping[str, bool])
     return tuple(due_list)
 
 
+class FailureLedger:
+    """How many rounds in a row each roadmap job failed, and the input it failed on (#2161).
+
+    A job that fails `limit` rounds in a row does not run again until its input is not the one it
+    failed on: a webhook trigger, or a change to an item the job reads. A poll alone brings no
+    new input, so a failing job stops costing GitHub requests at every round. A success clears
+    the job's record.
+    """
+
+    def __init__(self, limit: int = DEFAULT_SERVICE_MAX_FAILED_ROUNDS) -> None:
+        self._limit = limit
+        self._lock = threading.Lock()
+        self._failed: dict[tuple[str, str], tuple[int, Hashable]] = {}
+
+    @property
+    def limit(self) -> int:
+        """How many failed rounds in a row suspend a job."""
+        return self._limit
+
+    def suspended(self, repo: str, job: str, current: Hashable) -> bool:
+        """Whether `job` failed `limit` rounds in a row on this same input."""
+        with self._lock:
+            rounds, failed_on = self._failed.get((repo, job), (0, None))
+            return rounds >= self._limit and failed_on == current
+
+    def failed(self, repo: str, job: str, current: Hashable) -> int:
+        """Count a failed round on `current`; the rounds in a row, which restart at 1 when the
+        input is not the one of the last failure."""
+        with self._lock:
+            rounds, failed_on = self._failed.get((repo, job), (0, None))
+            rounds = rounds + 1 if failed_on == current or rounds < self._limit else 1
+            self._failed[(repo, job)] = (rounds, current)
+            return rounds
+
+    def succeeded(self, repo: str, job: str) -> None:
+        """Clear the record of `job`."""
+        with self._lock:
+            self._failed.pop((repo, job), None)
+
+
+SERVICE_FAILURES = FailureLedger()
+"""The ledger of the Service's rounds, which all repositories and lanes share."""
+
+
+def _round_input(
+    changes: Sequence[Change], batch: Mapping[tuple[str, str, str], int], at: datetime
+) -> Hashable:
+    """What the round's jobs read, as one value: the changes since the oldest last success and,
+    when the batch holds a trigger other than a poll, the time of the round, so such a trigger is
+    new input to every job."""
+    seen = tuple((change.kind, change.number, change.at) for change in changes)
+    pushed = any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
+    return (seen, at if pushed else None)
+
+
+def _count_failure(failures: FailureLedger, repo: str, job: str, current: Hashable) -> None:
+    """Count a failed round of `job`, and log once when it reaches the limit."""
+    rounds = failures.failed(repo, job, current)
+    if rounds == failures.limit:
+        message = MESSAGES.serve.job_suspended.format(job=job, repo=repo, rounds=rounds)
+        logger.warning(message, extra={"repo": repo})
+
+
+def identity_refused(exc: BaseException) -> bool:
+    """Whether `exc`, or a member of the failures it groups, says GitHub refused the Service's
+    identity: HTTP 401, or 403 with an account suspension (#2161)."""
+    if isinstance(exc, RoadmapRunError) and isinstance(exc.__cause__, BaseExceptionGroup):
+        return any(identity_refused(sub) for sub in exc.__cause__.exceptions)
+    if isinstance(exc, BaseExceptionGroup):
+        return any(identity_refused(sub) for sub in exc.exceptions)
+    return isinstance(exc, GitHubUnauthenticatedError) or (
+        exc.__cause__ is not None and identity_refused(exc.__cause__)
+    )
+
+
 def _format_error_line(exc: BaseException) -> str:
     """The first line of an exception's message, masked and capped at 256 chars."""
     lines = str(exc).strip().splitlines()
@@ -599,9 +677,13 @@ def _execute_due_rows(
     schedule_path: Path,
     current_time: datetime,
     clone_dirname: str,
+    failures: FailureLedger,
 ) -> tuple[str, ...]:
     """Execute all due jobs in order with failure tracking, the clone rows in `clone_dirname`.
-    Each runner also gets the repository's data directory and the round's time."""
+    Each runner also gets the repository's data directory and the round's time. With the
+    `failures` ledger, a job that failed its limit of rounds in a row on the same input does not
+    run (#2161). A refusal of the identity ends the round at once: no later job sends a
+    request."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
     outcomes: dict[str, JobOutcome] = {}
@@ -609,12 +691,13 @@ def _execute_due_rows(
     clone_error: Exception | None = None
     clone_jobs: list[str] = []
     error_entries: list[tuple[list[str], Exception]] = []
+    current = _round_input(changes, active_batch, current_time)
 
     for row in rows:
-        is_due = initially_due[row.name]
-        if not is_due and row.cross_job_predicate is not None:
-            is_due = row.cross_job_predicate(outcomes)
-        if not is_due:
+        is_due = initially_due[row.name] or (
+            row.cross_job_predicate is not None and row.cross_job_predicate(outcomes)
+        )
+        if not is_due or failures.suspended(repo, row.name, current):
             continue
 
         if row.needs_clone and clone_error is not None:
@@ -638,14 +721,18 @@ def _execute_due_rows(
             outcomes[row.name] = outcome or JobOutcome()
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)
+            failures.succeeded(repo, row.name)
         except Exception as exc:
             failed_jobs.append(row.name)
+            _count_failure(failures, repo, row.name, current)
             if row.needs_clone and clone_path is None:
                 clone_error = exc
                 clone_jobs.append(row.name)
                 error_entries.append((clone_jobs, exc))
             else:
                 error_entries.append(([row.name], exc))
+            if identity_refused(exc):
+                break
 
     if failed_jobs:
         error_parts: list[str] = []
@@ -672,6 +759,7 @@ def run_due_jobs(
     dry_run: bool = False,
     now: datetime | None = None,
     clone_dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
+    failures: FailureLedger | None = None,
 ) -> tuple[str, ...]:
     """Evaluate and execute due roadmap jobs, the clone rows in `clone_dirname`.
 
@@ -715,6 +803,7 @@ def run_due_jobs(
         schedule_path,
         current_time,
         clone_dirname,
+        failures or FailureLedger(),
     )
 
 
@@ -780,7 +869,14 @@ def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: 
 
     refused = False
     try:
-        run_due_jobs(repo, store, batch=batch, table=table, clone_dirname=clone_dirname)
+        run_due_jobs(
+            repo,
+            store,
+            batch=batch,
+            table=table,
+            clone_dirname=clone_dirname,
+            failures=SERVICE_FAILURES,
+        )
     except Exception as exc:
         refused = _refused_reset(exc) is not None
         raise
@@ -803,12 +899,15 @@ repository (#1532)."""
 __all__ = [
     "DEFAULT_DUE_TABLE",
     "MODEL_LANE_ROWS",
+    "SERVICE_FAILURES",
     "SERVICE_JOBS",
     "STATUS_LANE_ROWS",
+    "FailureLedger",
     "JobOutcome",
     "JobRow",
     "build_stub_table",
     "ensure_checkout",
+    "identity_refused",
     "log_round_spend",
     "parse_due_tuple",
     "run_due_jobs",

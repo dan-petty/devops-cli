@@ -93,6 +93,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
+    DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
@@ -740,6 +741,7 @@ class ServiceConfig(BaseModel):
     machine_account: str | None = None
     poll_interval_seconds: int = Field(default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS, ge=60)
     drain_timeout_seconds: int = Field(default=DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS, gt=0)
+    github_requests_per_hour: int = Field(default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR, gt=0)
 
     @field_validator("repos", mode="before")
     @classmethod

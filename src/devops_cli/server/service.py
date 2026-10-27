@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import threading
 import time
+from collections import deque
 from collections.abc import AsyncIterator, Callable, Coroutine, Mapping, Sequence
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
@@ -19,7 +21,9 @@ from pydantic import BaseModel, ConfigDict
 
 from devops_cli import __version__
 from devops_cli.config.constants import (
+    CONST_SERVICE_BUDGET_WINDOW_SECONDS,
     CONST_SERVICE_LANE_DEFAULT,
+    CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
@@ -61,6 +65,12 @@ class TriggerBatch(BaseModel):
 PauseReader = Callable[[Exception], datetime | None]
 """Reads the time a failed round's error names, before which no round starts, or None."""
 
+IdentityReader = Callable[[Exception], bool]
+"""Reads whether a failed round's error says GitHub refused the Service's identity."""
+
+RequestCounter = Callable[[], int]
+"""Reads how many GitHub requests the process has sent since it started."""
+
 LaneJob = Callable[[TriggerBatch], None]
 """What one lane of a repository runs for each batch of its triggers."""
 
@@ -81,9 +91,103 @@ def no_round_pause(_exc: Exception) -> datetime | None:
     return None
 
 
+def no_identity_refusal(_exc: Exception) -> bool:
+    """A failed round never says GitHub refused the identity: how the engine reads an error when
+    the service gives no other reader."""
+    return False
+
+
+def process_request_count() -> int:
+    """The requests the process's GitHub rate limiter has counted."""
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    return get_github_rate_limiter().get_global_request_count()
+
+
+class RequestBudget:
+    """The GitHub requests the Service may send in any one hour, all repositories and lanes
+    together (#2161).
+
+    The budget reads the count of requests at the end of each round and keeps one sample for each
+    of them for an hour. The requests of the last hour are the newest count minus the count at the
+    newest sample that is at least an hour old. A round that sent requests past the budget ends
+    first, so the budget can be passed by the cost of one round per worker. The cost of a round
+    sets the poll cadence: the Service polls no faster than the budget pays for.
+    """
+
+    def __init__(
+        self,
+        clock: Callable[[], datetime],
+        limit: int,
+        counter: RequestCounter = process_request_count,
+        window_seconds: int = CONST_SERVICE_BUDGET_WINDOW_SECONDS,
+    ) -> None:
+        self._clock = clock
+        self._limit = limit
+        self._counter = counter
+        self._window = timedelta(seconds=window_seconds)
+        self._lock = threading.Lock()
+        start = counter()
+        self._first = start
+        self._latest = start
+        self._rounds = 0
+        self._samples: deque[tuple[datetime, int]] = deque([(clock(), start)])
+        self._holding = False
+
+    @property
+    def limit(self) -> int:
+        """The most requests the Service sends in an hour."""
+        return self._limit
+
+    def record_round(self) -> None:
+        """Take the count of requests at the end of a round."""
+        count = self._counter()
+        with self._lock:
+            self._rounds += 1
+            self._latest = count
+            self._samples.append((self._clock(), count))
+
+    def _spent_locked(self) -> int:
+        cutoff = self._clock() - self._window
+        while len(self._samples) > 1 and self._samples[1][0] <= cutoff:
+            self._samples.popleft()
+        return self._latest - self._samples[0][1]
+
+    def spent(self) -> int:
+        """The requests the Service sent in the last hour, as of its last round."""
+        with self._lock:
+            return self._spent_locked()
+
+    def holds(self) -> bool:
+        """Whether the last hour's requests have used the budget, so no round may start. The
+        hold is logged once each time it begins."""
+        with self._lock:
+            spent = self._spent_locked()
+            holding = spent >= self._limit
+            began = holding and not self._holding
+            self._holding = holding
+        if began:
+            logger.warning(MESSAGES.serve.budget_spent.format(spent=spent, limit=self._limit))
+        return holding
+
+    def poll_interval(self, configured: float, rounds_per_poll: int) -> float:
+        """Seconds between polls: the configured interval, or longer when the rounds of a poll
+        cost more than the budget pays for at that cadence."""
+        with self._lock:
+            if self._rounds == 0:
+                return configured
+            cost = (self._latest - self._first) / self._rounds
+        needed = self._window.total_seconds() * rounds_per_poll * cost / self._limit
+        return max(configured, float(math.ceil(needed)))
+
+
 class RoundPause:
     """The time before which no worker starts a round, shared by every repository's worker in
     every lane (#1400, #1532).
+
+    A round that fails with a refusal of the identity (#2161) halts every worker for good: no
+    round starts again until a person restarts the Service, and the halt is one error log line
+    and one count of the refusal metric. An hourly request budget holds the rounds too.
 
     A failed round can name a time to wait for, which `reader` reads from its error: the roadmap
     Service names a GraphQL budget refusal's reset, because the budget is the machine account's
@@ -91,11 +195,48 @@ class RoundPause:
     each repository runs one round with all of them once the time passes.
     """
 
-    def __init__(self, clock: Callable[[], datetime], reader: PauseReader = no_round_pause) -> None:
+    def __init__(
+        self,
+        clock: Callable[[], datetime],
+        reader: PauseReader = no_round_pause,
+        refusal: IdentityReader = no_identity_refusal,
+        budget: RequestBudget | None = None,
+        identity: str = "unknown",
+    ) -> None:
         self._clock = clock
         self._reader = reader
+        self._refusal = refusal
+        self._budget = budget
+        self._identity = identity
         self._lock = threading.Lock()
         self._until: datetime | None = None
+        self._halted = False
+
+    def round_ended(self) -> None:
+        """Count the requests a round sent against the budget."""
+        if self._budget is not None:
+            self._budget.record_round()
+
+    def halted(self) -> bool:
+        """Whether GitHub refused the identity, so no round starts again."""
+        with self._lock:
+            return self._halted
+
+    def _halt(self, exc: Exception, repo: str) -> None:
+        """Stop every round for good and report the refusal once."""
+        with self._lock:
+            first = not self._halted
+            self._halted = True
+        if first:
+            logger.error(
+                MESSAGES.serve.identity_refused.format(
+                    identity=self._identity, repo=repo, kind=type(exc).__name__, error=exc
+                ),
+                extra={"repo": repo, "identity": self._identity},
+            )
+            GLOBAL_METRICS.increment_counter(
+                CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": self._identity}
+            )
 
     def after(self, exc: Exception, repo: str) -> None:
         """Hold every round until the time `exc`, the error of `repo`'s round, names, and log
@@ -103,6 +244,9 @@ class RoundPause:
         changes nothing. A time that can't be read is a warning naming its class: nothing is
         held, and the worker carries on."""
         try:
+            if self._refusal(exc):
+                self._halt(exc, repo)
+                return
             until = self._reader(exc)
             fresh = until if until is not None and self._hold(until) else None
         except Exception as failure:
@@ -129,7 +273,9 @@ class RoundPause:
     def holds(self) -> bool:
         """Whether no round may start now."""
         with self._lock:
-            return self._until is not None and self._clock() < self._until
+            if self._halted or (self._until is not None and self._clock() < self._until):
+                return True
+        return self._budget is not None and self._budget.holds()
 
 
 class RepoWorker:
@@ -283,6 +429,7 @@ class RepoWorker:
                 GLOBAL_METRICS.increment_counter(
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
+                self.pause.round_ended()
                 try:
                     # The Service is one long process, and the exit hook sends the OTLP counters
                     # only when the pod stops. So each batch sends what it recorded, such as its
@@ -334,6 +481,8 @@ class ServiceManager:
         clock: Callable[[], datetime],
         sleep_func: Callable[[float], Coroutine[Any, Any, None]],
         pause_until: PauseReader = no_round_pause,
+        identity_refused: IdentityReader = no_identity_refusal,
+        request_counter: RequestCounter = process_request_count,
     ) -> None:
         self.config = config
         self.secrets = secrets
@@ -343,7 +492,14 @@ class ServiceManager:
         self.managed_repos: set[str] = set(config.repos)
         self.machine_account: str | None = config.machine_account
         self.delivery_cache = DeliveryLRUCache()
-        self.pause = RoundPause(clock, pause_until)
+        self.budget = RequestBudget(clock, config.github_requests_per_hour, request_counter)
+        self.pause = RoundPause(
+            clock,
+            pause_until,
+            identity_refused,
+            self.budget,
+            identity=config.machine_account or "unknown",
+        )
         self.workers: dict[tuple[str, str], RepoWorker] = {
             (repo, lane): RepoWorker(repo, lane, job, clock, self.pause)
             for repo in config.repos
@@ -364,12 +520,18 @@ class ServiceManager:
     async def _tick_loop(self) -> None:
         """Polling tick loop advancing time and scheduling periodic repository syncs."""
         self._poll()
-        interval = float(self.config.poll_interval_seconds)
         while not self._stop_event.is_set():
-            await self.sleep_func(interval)
+            await self.sleep_func(self.poll_interval())
             if self._stop_event.is_set():
                 break
             self._poll()
+
+    def poll_interval(self) -> float:
+        """Seconds to the next poll: the configured interval, or the one the hourly request
+        budget pays for, whichever is longer (#2161)."""
+        return self.budget.poll_interval(
+            float(self.config.poll_interval_seconds), rounds_per_poll=len(self.workers)
+        )
 
     def _poll(self) -> None:
         """Enqueue a poll trigger on every lane of every repository, counted once per
@@ -517,12 +679,15 @@ def create_service_app(
     clock: Callable[[], datetime] | None = None,
     sleep_func: Callable[[float], Coroutine[Any, Any, None]] | None = None,
     pause_until: PauseReader | None = None,
+    identity_refused: IdentityReader | None = None,
     consumers: Sequence[WebhookConsumer] | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
     `pause_until` reads the time a failed round's error names, before which no lane of any
-    repository starts a round; `consumers` take the webhook events, the roadmap consumer when
+    repository starts a round; `identity_refused` reads whether that error says GitHub refused
+    the Service's identity, which stops every round until a person restarts the Service;
+    `consumers` take the webhook events, the roadmap consumer when
     none are given."""
     active_settings = settings or load_settings()
     service_secrets = _resolve_service_secrets(active_settings, secrets)
@@ -542,6 +707,7 @@ def create_service_app(
         clock=service_clock,
         sleep_func=service_sleep,
         pause_until=pause_reader,
+        identity_refused=identity_refused or no_identity_refusal,
     )
 
     @asynccontextmanager

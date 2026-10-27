@@ -290,6 +290,8 @@ _GH_FAILURES: dict[tuple[str, int], type[GitHubOperationError] | None] = {
     ): GitHubUnauthenticatedError,
     # `gh api` relays GitHub's 401 for a request without a token as `<message> (HTTP 401)`.
     ("gh: Requires authentication (HTTP 401)", 1): GitHubUnauthenticatedError,
+    # GitHub's 403 for a suspended account, as the Service's log shows it (#2161).
+    ("gh: Sorry. Your account was suspended. (HTTP 403)", 1): GitHubUnauthenticatedError,
     # A proxy that wants credentials answers 407, which Go's net/http names by its reason phrase:
     # no GitHub login failure.
     ('Post "https://api.github.com/graphql": Proxy Authentication Required', 1): None,
