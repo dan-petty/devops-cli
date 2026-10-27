@@ -70,3 +70,10 @@ When no Grafana token is stored and the mint of a token fails, `get_or_mint_graf
 #### Scenario: The mint fails for a Grafana command
 - **WHEN** no Grafana token is stored, the keyring holds the admin password, and Grafana refuses the create of the service account with HTTP 500
 - **THEN** the requests use basic authentication with the admin password, and the warning is `The Grafana token mint failed, so the requests use the admin password: Grafana refused to create the devops-cli service account with HTTP 500`
+
+### Requirement: A missing Grafana admin password message names the keyring entry and the commands
+When the keyring holds no `grafana_password`, `devops k8s sync-secrets` SHALL print a message that names the keyring entry `grafana_password`, the command `devops config set grafana.password`, and the command `devops k8s push-secrets`. It SHALL NOT say that a Secret is missing from the cluster.
+
+#### Scenario: The keyring has no Grafana admin password
+- **WHEN** the keyring holds no `grafana_password` and the sync runs for the `infra` stack
+- **THEN** the output says that the Grafana admin password is not in the keyring (`grafana_password`) and names `devops config set grafana.password` and `devops k8s push-secrets`
