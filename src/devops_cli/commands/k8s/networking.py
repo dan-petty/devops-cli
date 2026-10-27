@@ -20,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_ADDRESSING_PROXY,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_K8S_INGRESS_SERVICE_PATTERNS,
+    CONST_K8S_VALID_STACKS,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
@@ -65,7 +66,7 @@ from devops_cli.output.serialization import emit_serialized, resolve_format
 
 logger = logging.getLogger(__name__)
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "gitea", "all")
+VALID_STACKS: tuple[str, ...] = CONST_K8S_VALID_STACKS
 
 
 def _resolve_stacks(stack: str) -> list[str]:

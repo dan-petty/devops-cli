@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from devops_cli.config.constants import CONST_K8S_VALID_STACKS
+
 
 @dataclass(frozen=True)
 class MainHelp:
@@ -411,7 +413,7 @@ class K8sCommandHelp:
     pod_name: str = "Pod name."
     manifests_dir: str = "Directory containing Kubernetes manifests."
     auto_start: str = "Auto-start minikube if stopped."
-    stack: str = "Stack to operate on: infra | llm | all."
+    stack: str = f"Stack to operate on: {' | '.join(CONST_K8S_VALID_STACKS)}."
     k8s_dir: str = "Path to k8s/ config directory."
     email: str = "Admin email address."
     admin_name: str = "Admin display name."

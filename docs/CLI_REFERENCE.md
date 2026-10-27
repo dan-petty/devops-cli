@@ -881,7 +881,7 @@ devops k8s bootstrap [OPTIONS]
 |---|---|---|---|
 | `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
 | `--auto-start` / `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
-| `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
+| `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s bootstrap-openwebui`
@@ -922,7 +922,7 @@ devops k8s deploy-stack [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
-| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 | `--wait` / `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
@@ -952,7 +952,7 @@ devops k8s sync-secrets [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1012,7 +1012,7 @@ devops k8s configure-urls [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, only for the Services that the API server reaches, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -1056,7 +1056,7 @@ devops k8s port-forward [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--argocd-port` | `integer` | `8080` | Local port for ArgoCD. |
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana. |
@@ -1107,7 +1107,7 @@ devops k8s teardown-stack [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
-| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1219,7 +1219,7 @@ devops k8s enable-tls [OPTIONS]
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
 | `--secret-name` | `string` | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
-| `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
+| `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | logging | devops | gitea | all. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files or resources if they exist. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
