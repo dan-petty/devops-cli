@@ -1017,13 +1017,12 @@ class _Planner:
             shortlist=tuple(entry.neighbour() for entry in shortlist),
             types=self.run.types,
         )
-        return self._propose(subject, request, vector, shortlist)
+        return self._propose(subject, request, shortlist)
 
     def _propose(
         self,
         subject: Subject,
         request: ProposalRequest,
-        vector: list[float] | None,
         shortlist: list[_Entry],
     ) -> IntakeDecision:
         shortlist_entries = {entry.number: entry for entry in shortlist if entry.number is not None}
@@ -1033,36 +1032,8 @@ class _Planner:
             judgement, proposal, subject = _resolve_raw(
                 raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
             )
-        except UnusableProposalError as exc:
+        except (UnusableProposalError, _InvalidProposal) as exc:
             return self._skipped(subject, str(exc), ())
-        except _InvalidProposal as first_exc:
-            return self._retry_proposal(
-                subject, request, vector, shortlist_entries, first_exc, needs_type=needs_type
-            )
-        return self._place(subject, proposal, judgement)
-
-    def _retry_proposal(
-        self,
-        subject: Subject,
-        request: ProposalRequest,
-        vector: list[float] | None,
-        shortlist_entries: dict[int, _Entry],
-        first_exc: _InvalidProposal,
-        *,
-        needs_type: bool,
-    ) -> IntakeDecision:
-        retry_request = replace(request, problem="; ".join(first_exc.problems))
-        try:
-            raw = self.run.model.propose(retry_request)
-            judgement, proposal, subject = _resolve_raw(
-                raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
-            )
-        except UnusableProposalError as exc:
-            return self._skipped(subject, str(exc), ())
-        except _InvalidProposal as second_exc:
-            both = (*first_exc.problems, *second_exc.problems)
-            reason = MESSAGES.roadmap.intake_invalid.format(problems="; ".join(both))
-            return self._skipped(subject, reason, ())
         return self._place(subject, proposal, judgement)
 
     def _skipped(self, subject: Subject, reason: str, notes: tuple[str, ...]) -> IntakeDecision:
