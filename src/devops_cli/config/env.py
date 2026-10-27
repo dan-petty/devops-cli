@@ -109,6 +109,7 @@ ENV_SERVICE_POLL_INTERVAL_SECONDS = "DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS"
 ENV_SERVICE_DRAIN_TIMEOUT_SECONDS = "DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS"
 ENV_SERVICE_WEBHOOK_SECRETS = "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS"
 ENV_TAVILY_API_KEY = "DEVOPS_CLI_TAVILY_API_KEY"
+ENV_CI_GATE_SLOTS = "DEVOPS_CLI_CI_GATE_SLOTS"
 
 OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
@@ -192,6 +193,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.SERVICE_DRAIN_TIMEOUT_SECONDS: ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
     opt.SERVICE_WEBHOOK_SECRETS: ENV_SERVICE_WEBHOOK_SECRETS,
     opt.TAVILY_API_KEY: ENV_TAVILY_API_KEY,
+    opt.CI_GATE_SLOTS: ENV_CI_GATE_SLOTS,
 }
 
 ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
@@ -698,5 +700,11 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.TAVILY_API_KEY,
             True,
             "API key for Tavily search provider",
+        ),
+        EnvVarSpec(
+            ENV_CI_GATE_SLOTS,
+            opt.CI_GATE_SLOTS,
+            False,
+            "Number of CPU-heavy devops ci gates that run at once on this host (default: one for each 16 CPUs)",
         ),
     ]

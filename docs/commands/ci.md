@@ -1,6 +1,6 @@
 # `devops ci`
 
-Run tests, linting, formatting, and type-checks.
+Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once.
 
 ```bash
 devops ci [OPTIONS] COMMAND [ARGS]...

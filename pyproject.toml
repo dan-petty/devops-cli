@@ -74,6 +74,7 @@ dependencies = [
     "valkey==6.2.0",
     "pybreaker==1.4.1",
     "ruamel-yaml==0.19.1",
+    "filelock==4.2.4",
 ]
 
 [project.scripts]

@@ -10,9 +10,9 @@ The CI cache of the host holds 399 passing runs. The `test` check has a median o
 
 - `devops ci` takes a host-wide gate slot before it starts a CPU-heavy check, and gives the slot back when it ends. When every slot is held, it waits and names the worktree and process that hold them.
 - A check is heavy when its p90 in the CI cache is above 200 s: `test`, `security` and `typecheck`. `CheckSpec` gets a `heavy` flag. A run needs a slot only when it selects a heavy check, so the pre-push hook (`--only lint,format,actionlint,zizmor`) never waits.
-- `devops ci test` and `devops ci coverage` take a slot too, because they start the same workers.
+- `devops ci coverage`, and `devops ci test` run with no path and no `-n` option, take a slot too, because they start the same workers. A `devops ci test` run narrowed by paths runs serially or with 4 workers (`DEFAULT_CI_TEST_SERIAL_MAX_FILES`), and agents run it in their test-first loop, so it never waits.
 - A dry run and a cached verdict take no slot. The time a run waits for a slot is not part of the elapsed time of the gate, so the over-budget warning does not count it.
-- The setting `ci.gate_slots` sets the number of slots. Without it, the number is `max(1, cpu_count // 8)`: 2 on a 16-CPU host and 1 on a 4-CPU GitHub runner, where a single job never waits.
+- The setting `ci.gate_slots` sets the number of slots. Without it, the number is `max(1, cpu_count // 16)`: 1 on a 16-CPU host, 2 on a 32-CPU host and 1 on a 4-CPU GitHub runner, where a single job never waits.
 - Each run records the time it waited as the metric `ci.gate_slot_wait_seconds`, so a person can see the effect of the limit.
 - `filelock` becomes a direct dependency. It is already in `uv.lock` as a dependency of `tldextract`.
 - The change adds the capability `ci-gate-admission`. It does not change `ci-test-stop`, which covers the pytest run only. A run that waits for a slot has no child yet, so the new capability states that a stop signal ends the wait and leaves no slot held.
@@ -33,7 +33,7 @@ None.
 - `src/devops_cli/ci/gate_slots.py` (new), `src/devops_cli/commands/ci.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/options.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`.
 - `pyproject.toml` and `uv.lock` (`filelock` as a direct dependency), `config.example.yaml`.
 - Tests: `tests/test_ci_gate_slots.py` and the `devops ci` command tests.
-- Documents: `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `docs/CLI_REFERENCE.md` and `docs/TELEMETRY.md`. ADR 0014 stays as it is: it records the evidence of its date.
+- Documents: `CONTRIBUTING.md`, `docs/CONFIGURATION.md`, `docs/ENV_VARS.md` and `docs/CLI_REFERENCE.md`. `docs/TELEMETRY.md` is generated from the Prometheus instruments and lists no ad-hoc metric such as `ci.step_pass`, so it stays. ADR 0014 stays as it is: it records the evidence of its date.
 
 ## Feasibility
 
@@ -41,7 +41,7 @@ None.
 - Command output: a scratch probe held a slot in a child process, saw a second acquire refused, killed the child with SIGKILL, and took the slot 1 ms later. A killed agent cannot leak a slot.
 - Command output: `uv tree --invert --package filelock` shows `filelock` 4.2.4 under `tldextract`, a direct dependency of devops-cli. The change adds no package.
 - Data: the per-check durations come from the 399 passing entries of the CI cache of the host (`.data/cache/ci_cache-*.json`). Only `test`, `security` and `typecheck` have a p90 above 200 s.
-- The divisor 8 of the default is a starting value, not a measurement. The first group of tasks measures one gate alone and two gates side by side, and `design.md` records the result.
+- Command output: on this 16-CPU host, 11189 tests took 247 s alone and 440 s each for two gates side by side, and two gates finished both jobs only 11% sooner than two in turn. `design.md` records the measurement and the divisor 16 that follows from it.
 
 ## Existing Tool Considered
 

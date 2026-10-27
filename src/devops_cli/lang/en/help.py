@@ -651,7 +651,11 @@ class ArgoCommandHelp:
 
 @dataclass(frozen=True)
 class CICommandHelp:
-    app: str = "Run tests, linting, formatting, and type-checks."
+    app: str = (
+        "Run tests, linting, formatting, and type-checks. A run that selects test, security or "
+        "typecheck first waits for a free gate slot, so the gates of parallel agents take turns. "
+        "ci.gate_slots sets how many run at once."
+    )
     remote: str = "Inspect and watch remote GitHub Actions CI workflow runs."
     test_cmd: str = "Run unit and integration test suite via pytest."
     coverage: str = "Run test suite and calculate code coverage percentage."

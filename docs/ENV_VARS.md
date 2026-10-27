@@ -29,6 +29,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider override for metadata task, for `analyze --enhanced` and `ai agents` |
 | `DEVOPS_CLI_ARGOCD_TOKEN` | `argocd.token` | 🔒 Yes | ArgoCD API token (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_URL` | `argocd.url` | No | ArgoCD service URL |
+| `DEVOPS_CLI_CI_GATE_SLOTS` | `ci.gate_slots` | No | Number of CPU-heavy devops ci gates that run at once on this host (default: one for each 16 CPUs) |
 | `DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID` | `cloudflare.account_id` | No | Cloudflare Account ID |
 | `DEVOPS_CLI_CLOUDFLARE_API_TOKEN` | `cloudflare.api_token` | 🔒 Yes | Cloudflare API Token (stored in OS keyring) |
 | `DEVOPS_CLI_CLOUDFLARE_DOMAIN` | `cloudflare.domain` | No | Root or zone domain name managed in Cloudflare |

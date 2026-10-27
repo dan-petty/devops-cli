@@ -49,6 +49,7 @@ _NUMERIC_CASES = [
     ("valkey.timeout", "5.0", float, 5.0, ["0", "-1", "inf", "nan", "x"]),
     ("service.poll_interval_seconds", "120", int, 120, ["0", "-1", "inf", "x", "59"]),
     ("service.drain_timeout_seconds", "30", int, 30, ["0", "-1", "inf", "x"]),
+    ("ci.gate_slots", "2", int, 2, ["0", "-1", "inf", "x"]),
 ]
 
 
@@ -344,3 +345,31 @@ def test_telemetry_stays_fail_closed_on_invalid_variables(monkeypatch: pytest.Mo
         load_settings()
     assert _resolve_telemetry_settings().enabled is False
     assert telemetry_from_environment().enabled is False
+
+
+def test_ci_gate_slots_is_unset_by_default() -> None:
+    """Without a value, the number of gate slots comes from the CPU count (#2336)."""
+    assert load_settings().ci.gate_slots is None
+
+
+def test_ci_gate_slots_loads_from_the_config_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ci.gate_slots` in config.yaml loads as an integer (#2336)."""
+    _set_project_config(tmp_path, monkeypatch, "ci:\n  gate_slots: 3\n")
+    assert load_settings().ci.gate_slots == 3
+
+
+@pytest.mark.parametrize("val", ["0", "-1", "inf", "x"])
+def test_ci_gate_slots_below_one_is_refused_and_named(val: str) -> None:
+    """`ci.gate_slots` refuses a value below 1 or a non-integer, and the error names the key."""
+    settings = Settings()
+    with pytest.raises(ValueError, match=r"ci\.gate_slots"):
+        dotted_set(settings, "ci.gate_slots", val)
+
+
+def test_config_set_stores_ci_gate_slots() -> None:
+    """`config set ci.gate_slots 2` stores the integer 2 (#2336)."""
+    settings = Settings()
+    dotted_set(settings, "ci.gate_slots", "2")
+    assert settings.ci.gate_slots == 2

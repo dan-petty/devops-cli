@@ -1,10 +1,9 @@
-# Spec Delta
+# ci-gate-admission Specification
 
 ## Purpose
-
 How `devops ci` limits the CPU-heavy gates that run at the same time on one host, so that agents in sibling worktrees take turns and each gate runs with the CPU it needs.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: A gate with a heavy check waits for a free slot
 A run of `devops ci` that selects the `test`, `security` or `typecheck` check SHALL take one gate slot before it starts any check, and SHALL give the slot back when it ends. While every slot is held, the run SHALL wait and start a check only after a slot is free. All worktrees of one repository SHALL share the same slots.
@@ -25,12 +24,20 @@ A run of `devops ci` that selects none of the heavy checks SHALL start at once, 
 - **WHEN** every slot is held and `devops ci --check --only lint,format,actionlint,zizmor` starts
 - **THEN** the run starts its checks at once and takes no slot
 
-### Requirement: The test and coverage commands take a slot
-`devops ci test` and `devops ci coverage` SHALL take a gate slot before they start pytest, with the rules of a run that selects a heavy check.
+### Requirement: The full-suite commands take a slot
+`devops ci coverage`, and `devops ci test` run with no path and no `-n` option, SHALL take a gate slot before they start pytest, because pytest then starts one worker for each CPU. A `devops ci test` run narrowed by paths or by `-n` SHALL start at once and take no slot.
 
-#### Scenario: A test run waits for a slot
-- **WHEN** every slot is held and `devops ci test tests/test_x.py` starts
+#### Scenario: The full suite waits for a slot
+- **WHEN** every slot is held and `devops ci test` starts with no path
 - **THEN** the command does not start pytest until a slot is free
+
+#### Scenario: Coverage waits for a slot
+- **WHEN** every slot is held and `devops ci coverage` starts
+- **THEN** the command does not start pytest until a slot is free
+
+#### Scenario: A narrowed run never waits
+- **WHEN** every slot is held and `devops ci test tests/test_x.py` starts
+- **THEN** the command starts pytest at once and takes no slot
 
 ### Requirement: A dry run and a cached verdict take no slot
 A dry run SHALL make no slot request and SHALL not wait. A run that answers from a cached passing verdict SHALL take no slot.
@@ -66,7 +73,7 @@ While a run waits, it SHALL say once that it waits, how many slots there are, an
 - **THEN** the output names the number of slots, process 4321 and the worktree `w-1111`
 
 ### Requirement: The number of slots is set by the setting or the CPU count
-The number of slots SHALL be the value of `ci.gate_slots` when it is set. Otherwise it SHALL be the CPU count of the process divided by 8 and rounded down, with a minimum of 1. A value below 1 SHALL be refused with an error that names the setting.
+The number of slots SHALL be the value of `ci.gate_slots` when it is set. Otherwise it SHALL be the CPU count of the process divided by 16 and rounded down, with a minimum of 1. A value below 1 SHALL be refused with an error that names the setting.
 
 #### Scenario: The default on a host with 4 CPUs
 - **WHEN** `ci.gate_slots` is not set and the process has 4 CPUs
@@ -74,6 +81,10 @@ The number of slots SHALL be the value of `ci.gate_slots` when it is set. Otherw
 
 #### Scenario: The default on a host with 16 CPUs
 - **WHEN** `ci.gate_slots` is not set and the process has 16 CPUs
+- **THEN** the number of slots is 1
+
+#### Scenario: The default on a host with 32 CPUs
+- **WHEN** `ci.gate_slots` is not set and the process has 32 CPUs
 - **THEN** the number of slots is 2
 
 #### Scenario: A value below 1

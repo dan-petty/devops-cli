@@ -439,6 +439,15 @@ DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 # select at most 12.
 DEFAULT_CI_TEST_SERIAL_MAX_FILES: Final[int] = 12
 DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
+# `devops ci` gate slots (#2336): one slot for each this many CPUs, at least one. The full suite
+# starts one pytest worker for each CPU, so a gate saturates a host alone. On 16 CPUs on
+# 2026-10-27, 11189 tests took 247 s alone, inside the 300 s test budget, and two gates side by
+# side took 440 s each and used 926 of the 2048 process ids of the container; two gates finished
+# both jobs only 11% sooner than two in turn. So 16 CPUs give 1 slot, 32 give 2, and the 4-CPU
+# GitHub runner gives 1, where a single job never waits.
+DEFAULT_CI_GATE_CPUS_PER_SLOT: Final[int] = 16
+# How long a gate that waits for a slot sleeps before it tries the slots again.
+DEFAULT_CI_GATE_POLL_SECONDS: Final[float] = 2.0
 # How long one `openspec` command may run before the gate stops it. Each ran in 0.3 to 1.5 s
 # against the pinned 1.14.3 on 2026-10-22 (ADR 0010); the bound is a hang bound, since an earlier
 # release of the tool hung `validate --all` under pre-commit.
