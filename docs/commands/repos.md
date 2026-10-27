@@ -113,7 +113,7 @@ devops repos worktrees COMMAND [ARGS]...
 
 ### `devops repos worktrees status`
 
-**List every worktree with commits ahead of main, dirty-path count, contained status, and flags.**
+**List every worktree with commits ahead of main, dirty-path count, and flags.**
 
 ```bash
 devops repos worktrees status [OPTIONS]
@@ -129,7 +129,7 @@ devops repos worktrees status [OPTIONS]
 
 ### `devops repos worktrees prune`
 
-**Safely prune orphan git worktrees, dry-run by default.**
+**Remove the worktrees whose tip heads a merged pull request; preview unless --confirm.**
 
 ```bash
 devops repos worktrees prune [OPTIONS]
@@ -140,7 +140,8 @@ devops repos worktrees prune [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
-| `--force`, `-f` | `boolean` | - | Remove entries regardless of clean or contained status. |
+| `--force`, `-f` | `boolean` | - | Remove every worktree but the main one, whatever its state. Needs --confirm. |
+| `--confirm` | `boolean` | - | Remove the worktrees. Without it, prune only lists what it would remove. |
 | `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |

@@ -388,6 +388,20 @@ class RepoMessages:
     sync_done: str = "done {name}"
     sync_fail: str = "fail {name}: {exc}"
     table_title_cloned: str = "Cloned repositories — {root}"
+    worktrees_dry_run_confirm: str = (
+        "--dry-run makes no change, so it cannot be used with --confirm."
+    )
+    worktrees_prune_heading: str = "Requests that `devops repos worktrees prune --confirm` makes:"
+    worktrees_prune_dry_run_notes: tuple[str, ...] = (
+        "A dry run reads local git only. Run without --dry-run to read the pull requests, and "
+        "with --confirm to remove.",
+    )
+    worktrees_prune_preview: str = (
+        "Preview: {would_remove} removable, {refused} refused. Run with --confirm to remove."
+    )
+    worktrees_prune_done: str = (
+        "Prune complete: {removed} removed, {refused} refused, {failed} failed"
+    )
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode
 
@@ -68,6 +69,17 @@ class PullRequestFile(BaseModel):
     previous_filename: str | None = None
     additions: int = 0
     changes: int = 0
+
+
+class CommitPull(BaseModel):
+    """A pull request that GitHub associates with a commit: whether it merged, and the commit it
+    ended on. `merged_at` is None for a pull request that is open or was closed unmerged."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+
+    number: int
+    merged_at: str | None = None
+    head_sha: str = Field(validation_alias=AliasPath("head", "sha"))
 
 
 class _FileContents(BaseModel):
@@ -193,6 +205,25 @@ class GitHubClient:
         except GitHubNotFoundError:
             return None
         return _read_as(_Comparison, comparison, path=endpoint).merge_base
+
+    def get_commit_pulls(self, repo: str, sha: str) -> list[CommitPull]:
+        """Every pull request that GitHub associates with the commit `sha`, merged or not.
+
+        A squash merge leaves the head of the pull request out of the base branch, and GitHub
+        still lists the pull request for that commit. HTTP 422 is GitHub's answer for a commit it
+        does not hold, such as one that was never pushed, and reads as no pull request: any other
+        failure raises the session's error.
+        """
+        path = _repo_path(
+            repo, f"commits/{quote(sha, safe='')}/pulls?per_page={DEFAULT_GH_REST_PER_PAGE}"
+        )
+        try:
+            listing = list(self._session.paginate(path))
+        except GitHubOperationError as exc:
+            if exc.details.get("status") == HTTPStatus.UNPROCESSABLE_ENTITY:
+                return []
+            raise
+        return [_read_as(CommitPull, item, path=path) for item in listing]
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""

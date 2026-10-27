@@ -26,12 +26,12 @@ from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import exit_on_error, new_typer, repo_label
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import find_repo_root
+from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError, GitOperationError
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
-from devops_cli.git.worktree_inventory import inventory_worktrees, prune_worktrees
+from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -396,7 +396,7 @@ app.add_typer(worktrees_app, name="worktrees")
 def _format_worktree_table_row(entry: Any) -> list[str]:
     """Format single worktree entry for tabular display."""
     branch = entry.branch or "(detached)"
-    contained = "contained=true" if entry.contained else "contained=false"
+    dirty = "?" if entry.dirty is None else str(entry.dirty)
     locked = (
         f"locked=true ({entry.lock_reason})"
         if (entry.locked and entry.lock_reason)
@@ -407,15 +407,7 @@ def _format_worktree_table_row(entry: Any) -> list[str]:
         if (entry.prunable and entry.prunable_reason)
         else ("prunable=true" if entry.prunable else "prunable=false")
     )
-    return [
-        entry.path,
-        branch,
-        str(entry.ahead),
-        str(entry.dirty),
-        contained,
-        locked,
-        prunable,
-    ]
+    return [entry.path, branch, str(entry.ahead), dirty, locked, prunable]
 
 
 @worktrees_app.command("status")
@@ -433,7 +425,7 @@ def worktrees_status(
         typer.Option("--json", help=HELP.repos.worktrees_json),
     ] = False,
 ) -> None:
-    """List every worktree with commits ahead of main, dirty-path count, contained status, and flags."""
+    """List every worktree with commits ahead of main, dirty-path count, and flags."""
     root = (repo_dir or find_repo_root()).resolve()
     entries = inventory_worktrees(root)
 
@@ -451,7 +443,6 @@ def worktrees_status(
             ("Branch", "green"),
             ("Ahead", "magenta"),
             ("Dirty", "yellow"),
-            ("Contained", "blue"),
             ("Locked", "red"),
             ("Prunable", "dim"),
         ],
@@ -463,12 +454,47 @@ def _render_prune_item(item: Any) -> None:
     """Render a single prune outcome message."""
     if item.status == "removed":
         print_success(f"removed {item.path}", prefix=False)
-    elif item.status == "would remove":
-        print_info(f"would remove {item.path} ({item.reason})", prefix=False)
+    elif item.status in {"would remove", "would check"}:
+        print_info(f"{item.status} {item.path} ({item.reason})", prefix=False)
     elif item.status == "refused":
         print_warning(f"refused {item.path}: {item.reason}", prefix=False)
     else:
         print_error(f"failed to remove {item.path}: {item.reason}", prefix=False)
+
+
+def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
+    """Print a prune report as the table output of the command."""
+    from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
+
+    for item in report.items:
+        _render_prune_item(item)
+    if dry_run:
+        plan: list[PlannedRequest] = []
+        for line in report.requests:
+            method, _, target = line.partition(" ")
+            plan.append(PlannedRequest(method, target))
+        render_request_plan(
+            MESSAGES.repos.worktrees_prune_heading,
+            plan,
+            MESSAGES.repos.worktrees_prune_dry_run_notes,
+        )
+    elif confirm:
+        print_info(
+            MESSAGES.repos.worktrees_prune_done.format(
+                removed=report.removed_count,
+                refused=report.refused_count,
+                failed=report.failed_count,
+            ),
+            prefix=False,
+        )
+    else:
+        would_remove = len([i for i in report.items if i.status == "would remove"])
+        print_info(
+            MESSAGES.repos.worktrees_prune_preview.format(
+                would_remove=would_remove, refused=report.refused_count
+            ),
+            prefix=False,
+        )
 
 
 @worktrees_app.command("prune")
@@ -480,6 +506,10 @@ def worktrees_prune(
     force: Annotated[
         bool,
         typer.Option("--force", "-f", help=HELP.repos.worktrees_force),
+    ] = False,
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help=HELP.repos.worktrees_confirm),
     ] = False,
     dry_run: Annotated[
         bool,
@@ -494,28 +524,24 @@ def worktrees_prune(
         typer.Option("--json", help=HELP.repos.worktrees_json),
     ] = False,
 ) -> None:
-    """Safely prune orphan git worktrees, dry-run by default."""
+    """Remove the worktrees whose tip heads a merged pull request; preview unless --confirm."""
+    is_plan = dry_run or is_dry_run()
+    if is_plan and confirm:
+        print_error(MESSAGES.repos.worktrees_dry_run_confirm)
+        raise typer.Exit(1)
     root = (repo_dir or find_repo_root()).resolve()
     entries = inventory_worktrees(root)
-    is_preview = dry_run or is_dry_run()
-    report = prune_worktrees(root, entries, force=force, dry_run=is_preview)
+    origin = get_repo_origin_name(root)
+    with exit_on_error(DevOpsCLIError):
+        if is_plan:
+            report = plan_prune(entries, repo=origin, force=force)
+        else:
+            report = prune_worktrees(root, entries, repo=origin, force=force, confirm=confirm)
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(report.model_dump(), resolved)
-        return
-
-    for item in report.items:
-        _render_prune_item(item)
-
-    if is_preview:
-        would_remove = len([i for i in report.items if i.status == "would remove"])
-        print_info(
-            f"Preview: {would_remove} removable, {report.refused_count} refused",
-            prefix=False,
-        )
     else:
-        print_info(
-            f"Prune complete: {report.removed_count} removed, {report.refused_count} refused",
-            prefix=False,
-        )
+        _render_prune_report(report, dry_run=is_plan, confirm=confirm)
+    if report.failed_count:
+        raise typer.Exit(1)
