@@ -14,7 +14,7 @@
 ## 3. The real host
 
 - [x] 3.1 Run `uv run devops gh issues view 2361`, then `uv run devops gh issues view 99999`, then `uv run devops gh issues view <the number of a pull request>` in this repository. Verify: the first prints the whole issue, and the other two exit 1 with the messages of the spec.
-- [ ] 3.2 Run the full `uv run devops ci --check --no-cache` in the worktree. Verify: every check passes.
+- [x] 3.2 Run the full `uv run devops ci --check --no-cache` in the worktree. Verify: every check passes.
 
 ## Workflow follow-up
 
