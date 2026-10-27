@@ -36,7 +36,7 @@ from devops_cli.config.settings import AIConfig, Settings, reset_settings_cache
 from devops_cli.http.pool import close_expired_connections
 from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError
 from devops_cli.telemetry.tracer import reset_tracer
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import as_requested, route_client
 
 pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
 
@@ -341,11 +341,14 @@ class TestSingleRetryLayerAndStatusRules:
                         transient_hit = True
                 if first_failure:
                     return httpx2.Response(503, text="Service Unavailable", request=request)
-                return httpx2.Response(
-                    200,
-                    text=review_reply,
-                    headers={"content-type": "application/json"},
-                    request=request,
+                return as_requested(
+                    request,
+                    httpx2.Response(
+                        200,
+                        text=review_reply,
+                        headers={"content-type": "application/json"},
+                        request=request,
+                    ),
                 )
 
         config = AIConfig(

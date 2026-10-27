@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Generator
@@ -12,6 +13,7 @@ import httpx2
 
 if TYPE_CHECKING:
     import openai
+    from openai.lib.streaming.chat import ParsedChatCompletionSnapshot
 
 from devops_cli.ai.client import network
 from devops_cli.ai.client.base import BaseLLMProviderMixin, _clean_http_error_body
@@ -24,6 +26,7 @@ from devops_cli.ai.client.models import (
 from devops_cli.ai.client.network import (
     StreamUsage,
     _read_limited_body,
+    _response_size_error,
     acquire_gateway_slot,
     extract_served_by,
     extract_served_model,
@@ -92,22 +95,34 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         import openai
 
         if isinstance(exc, openai.APIStatusError):
-            status = exc.status_code
-            if status in (401, 403):
-                provider_name = getattr(self._config, "provider", "AI")
-                has_key = bool(getattr(self, "_api_key", None))
-                return credentials_error(
-                    f"The {provider_name} provider", has_key=has_key, status=status
-                )
             raw_body = getattr(getattr(exc, "response", None), "text", "") or ""
-            cleaned = _clean_http_error_body(raw_body)
-            detail = f": {mask_secrets(cleaned)}" if cleaned else ""
-            return AIClientError(f"Provider request failed with HTTP {status}{detail}")
+            return self._status_error(exc.status_code, raw_body)
         if isinstance(exc, openai.APIConnectionError):
             return self._connection_error(exc)
+        if isinstance(exc, openai.APIError):
+            status = _frame_status(exc)
+            if status is not None:
+                # Once a keepalive comment has sent the status line, LiteLLM writes the body of
+                # its HTTP error reply into an error frame, so the frame reads as that reply.
+                body = {"error": exc.body}
+                return self._status_error(
+                    status, json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+                )
         if isinstance(exc, AIClientError):
             return exc
         return AIClientError(f"Provider request failed: {exc}")
+
+    def _status_error(self, status: int, raw_body: str) -> AIClientError:
+        """The error of a provider reply with HTTP `status` and the error body `raw_body`."""
+        if status in (401, 403):
+            provider_name = getattr(self._config, "provider", "AI")
+            has_key = bool(getattr(self, "_api_key", None))
+            return credentials_error(
+                f"The {provider_name} provider", has_key=has_key, status=status
+            )
+        cleaned = _clean_http_error_body(raw_body)
+        detail = f": {mask_secrets(cleaned)}" if cleaned else ""
+        return AIClientError(f"Provider request failed with HTTP {status}{detail}")
 
     def _supports_reasoning(self) -> bool:
         """Return True if model declared reasoning capability via gateway or direct config."""
@@ -214,23 +229,34 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         *,
         enable_thinking: bool = True,
     ) -> LLMResponse:
+        """One reply, read as a stream. The gateway writes keepalive comments while the model has
+        no data, so the Cloudflare edge does not cut a reply that takes longer than its 125 s read
+        timeout (#2365)."""
         import openai
 
-        params = self._prepare_params(system, messages, enable_thinking=enable_thinking)
+        from devops_cli.ai.spend.transport import record_failed_attempt
+
+        params = self._prepare_params(
+            system, messages, stream=True, enable_thinking=enable_thinking
+        )
         with self._gateway_slot():
             start_time = time.monotonic()
             try:
-                with self._openai_client().chat.completions.with_streaming_response.create(
-                    **params
-                ) as response:
-                    body = _read_limited_body(
-                        response.http_response, network.DEFAULT_AI_MAX_RESPONSE_BYTES
-                    )
-                    response.http_response._content = bytes(body)
-                    reply_headers = response.headers
-                    parsed = response.parse()
+                with self._openai_client().chat.completions.create(**params) as stream:
+                    reply_headers = stream.response.headers
+                    try:
+                        parsed = _read_completion(stream, network.DEFAULT_AI_MAX_RESPONSE_BYTES)
+                    except openai.APIError, AIClientError, httpx2.HTTPError:
+                        # The transport returned a 200 and recorded nothing: the attempt failed
+                        # in its stream.
+                        record_failed_attempt(
+                            request=stream.response.request,
+                            duration=time.monotonic() - start_time,
+                            headers=reply_headers,
+                        )
+                        raise
                 wall_elapsed = time.monotonic() - start_time
-            except (openai.APIStatusError, openai.APIConnectionError) as exc:
+            except openai.APIError as exc:
                 raise self._map_openai_error(exc) from exc
             except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
                 raise self._connection_error(exc) from exc
@@ -390,19 +416,66 @@ def _process_stream_choice(choice: Any) -> Generator[str]:
         yield str(content)
 
 
-def _consume_stream(stream: Any) -> Generator[str]:
-    _record_stream_response_headers(stream)
+_STREAM_CUT = "Provider stream ended before its final frame."
+
+
+def _watch_frames(stream: Any, limit_bytes: int | None = None) -> list[bool]:
+    """Watch the SSE frames of an SDK stream: the returned flag turns True at the `[DONE]` frame,
+    and the frames are refused once their decoded data passes `limit_bytes`."""
     seen_done = [False]
     orig_iter_events = getattr(stream, "_iter_events", None)
     if callable(orig_iter_events):
 
         def _wrapped_iter_events() -> Any:
+            received = 0
             for sse in orig_iter_events():
-                if getattr(sse, "data", "").startswith("[DONE]"):
+                data = getattr(sse, "data", "")
+                if data.startswith("[DONE]"):
                     seen_done[0] = True
+                received += len(data.encode())
+                if limit_bytes is not None and received > limit_bytes:
+                    raise _response_size_error(limit_bytes)
                 yield sse
 
         stream._iter_events = _wrapped_iter_events
+    return seen_done
+
+
+def _frame_status(exc: openai.APIError) -> int | None:
+    """The HTTP status that an error frame names in its `code`, as LiteLLM writes it; None when
+    the code is no status."""
+    code = str(exc.code)
+    return int(code) if code.isdigit() else None
+
+
+def _read_completion(stream: Any, limit_bytes: int) -> ParsedChatCompletionSnapshot:
+    """The completion that the chunks of a chat stream make, joined by the SDK's own accumulator.
+
+    It has the content, the `reasoning_content` that a model sends, the model, the finish reason
+    and the usage. It is the accumulated snapshot: the SDK's final parse refuses a reply that
+    stopped at its length limit, which a caller reads as truncated. Raises AIClientError when the
+    decoded data passes `limit_bytes`, or when the stream ends with no `[DONE]` frame and no
+    finish reason.
+    """
+    from openai.lib.streaming.chat import ChatCompletionStreamState
+
+    state: ChatCompletionStreamState[Any] = ChatCompletionStreamState()
+    seen_done = _watch_frames(stream, limit_bytes)
+    chunks = 0
+    for chunk in stream:
+        state.handle_chunk(chunk)
+        chunks += 1
+    if not chunks:
+        raise AIClientError(_STREAM_CUT)
+    snapshot = state.current_completion_snapshot
+    if not (seen_done[0] or any(choice.finish_reason for choice in snapshot.choices)):
+        raise AIClientError(_STREAM_CUT)
+    return snapshot
+
+
+def _consume_stream(stream: Any) -> Generator[str]:
+    _record_stream_response_headers(stream)
+    seen_done = _watch_frames(stream)
 
     for chunk in stream:
         _record_stream_chunk_usage(chunk)
@@ -411,4 +484,4 @@ def _consume_stream(stream: Any) -> Generator[str]:
             yield from _process_stream_choice(choices[0])
 
     if not seen_done[0] and stream_finish_reason.get() is None:
-        raise AIClientError("Provider stream ended before its final frame.")
+        raise AIClientError(_STREAM_CUT)

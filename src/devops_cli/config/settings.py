@@ -519,7 +519,10 @@ class AITaskOverride(BaseModel):
         default=None,
         gt=0,
         allow_inf_nan=False,
-        description="Seconds this task's requests wait for their reply, in place of `ai.timeout`",
+        description=(
+            "Seconds this task's requests wait for the next data of their reply, in place of "
+            "`ai.timeout`"
+        ),
     )
 
 
@@ -577,9 +580,11 @@ class AIConfig(BaseModel):
         gt=0,
         allow_inf_nan=False,
         description=(
-            "Seconds each LLM request waits for its reply; `ai.tasks.<task>.timeout` sets one "
-            f"task's. Unset, a request waits {DEFAULT_HTTP_TIMEOUT_SECONDS:g} s, and a review's "
-            f"analysis requests {DEFAULT_REVIEW_TIMEOUT_SECONDS:g} s"
+            "Seconds each LLM request waits for the next data of its reply: a streamed reply, "
+            "such as every OpenAI-compatible chat reply, can take longer in total. "
+            "`ai.tasks.<task>.timeout` sets one task's. Unset, a request waits "
+            f"{DEFAULT_HTTP_TIMEOUT_SECONDS:g} s, and a review's analysis requests "
+            f"{DEFAULT_REVIEW_TIMEOUT_SECONDS:g} s"
         ),
     )
     tasks: AITasksConfig = AITasksConfig()

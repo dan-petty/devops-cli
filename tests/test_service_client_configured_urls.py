@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 from devops_cli.config.settings import AIConfig, reset_settings_cache
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.main import app
+from tests.llm_stream_fakes import as_requested
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -152,7 +153,7 @@ def test_gateway_only_config_routes_all_calls_to_gateway(
                 "choices": [{"message": {"role": "assistant", "content": "mocked response"}}],
                 "usage": {"total_tokens": 10},
             }
-        return httpx2.Response(200, json=body, request=request)
+        return as_requested(request, httpx2.Response(200, json=body, request=request))
 
     monkeypatch.setattr(httpx2.Client, "send", mock_send)
 

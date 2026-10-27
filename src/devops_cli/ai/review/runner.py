@@ -194,21 +194,24 @@ def _canned_preview_response(request: httpx2.Request) -> httpx2.Response:
             200,
             json={"message": {"role": "assistant", "content": "preview ok"}, "done": True},
         )
+    # An OpenAI-compatible chat call reads its reply as a stream (#2365).
+    chunk = {
+        "id": "chatcmpl_preview",
+        "object": "chat.completion.chunk",
+        "created": 12345,
+        "model": "preview-model",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": "preview ok"},
+                "finish_reason": "stop",
+            }
+        ],
+    }
     return httpx2.Response(
         200,
-        json={
-            "id": "chatcmpl_preview",
-            "object": "chat.completion",
-            "created": 12345,
-            "model": "preview-model",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "preview ok"},
-                    "finish_reason": "stop",
-                }
-            ],
-        },
+        headers={"content-type": "text/event-stream"},
+        content=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode(),
     )
 
 

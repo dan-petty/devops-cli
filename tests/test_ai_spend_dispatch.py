@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import httpx2
@@ -463,3 +463,62 @@ def test_failed_attempt_records_served_by_and_served_model_when_error_names_them
         ("error", "http://ollama-16gib:11434", "gpt-oss:20b"),
         ("stop", None, None),
     ]
+
+
+def _ledger_tokens(ledger: SpendLedger) -> list[tuple[Any, ...]]:
+    with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
+        return conn.execute(
+            "SELECT finish_reason, prompt_tokens, completion_tokens, served_model"
+            " FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+
+
+def test_a_failed_attempt_records_the_usage_and_model_that_its_error_body_names(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """With no serving-model header, the error body's model and usage go on the error row."""
+    client = _chat_client(monkeypatch, model="devops-review")
+    body = {
+        "model": "gpt-oss:20b",
+        "usage": {"prompt_tokens": 12, "completion_tokens": 3},
+        "error": {"message": "failed"},
+    }
+    calls = [lambda req: httpx2.Response(500, json=body), lambda req: _ok_reply()]
+    route_retrying_client(client, monkeypatch, lambda req: calls.pop(0)(req))
+
+    client.chat("system", "user", use_cache=False)
+
+    assert _ledger_tokens(spend_ledger) == [
+        ("error", 12, 3, "gpt-oss:20b"),
+        ("stop", 10, 5, "gpt-test"),
+    ]
+
+
+def _body_cut_by_the_network() -> Iterator[bytes]:
+    yield b'{"error": '
+    raise httpx2.ReadError("connection reset")
+
+
+@pytest.mark.parametrize(
+    "failed",
+    [
+        lambda: httpx2.Response(502, text="<html><title>Bad gateway</title></html>"),
+        lambda: httpx2.Response(
+            500, headers={"content-type": "application/json"}, content=_body_cut_by_the_network()
+        ),
+    ],
+    ids=["html-body", "body-cut-by-the-network"],
+)
+def test_a_failed_attempt_whose_body_cannot_be_read_as_json_records_no_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    spend_ledger: SpendLedger,
+    failed: Callable[[], httpx2.Response],
+) -> None:
+    """A Cloudflare HTML page or a body that the network cut still writes its error row."""
+    client = _chat_client(monkeypatch)
+    calls = [lambda req: failed(), lambda req: _ok_reply()]
+    route_retrying_client(client, monkeypatch, lambda req: calls.pop(0)(req))
+
+    client.chat("system", "user", use_cache=False)
+
+    assert _ledger_tokens(spend_ledger) == [("error", 0, 0, None), ("stop", 10, 5, "gpt-test")]

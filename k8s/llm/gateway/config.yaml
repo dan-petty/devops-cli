@@ -85,8 +85,8 @@ model_list:
     litellm_params:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-      # Under the review client's 1,200 s read timeout, so a call the client abandoned frees
-      # the tier's one slot, and no gateway retry re-queues the same work on that slot.
+      # The longest wait for the tier's reply, or for its next token in a streamed call. The
+      # call then fails, and no gateway retry re-queues the same work on the tier's one slot.
       timeout: 1100
       num_retries: 0
 
@@ -181,6 +181,11 @@ litellm_settings:
   require_auth_for_metrics_endpoint: false
   drop_params: true
   telemetry: false
+  # A streamed chat reply with no data for this many seconds gets an SSE comment (": ping"),
+  # also before its first token. The Cloudflare edge cuts a request after 125 s with no data
+  # (#2365), and the CLI streams every chat call, so a long prefill, queue or reasoning
+  # reaches the client. A call whose first token comes sooner keeps its x-litellm-* headers.
+  sse_keepalive_ping_interval_seconds: 30
 
 router_settings:
   # least-busy routes requests to the backend with the fewest in-flight requests,
@@ -196,7 +201,8 @@ router_settings:
   num_retries: 5
   allowed_fails: 3
   cooldown_time: 30
-  # Long code reviews on the 32B model can generate for several minutes.
+  # The longest wait for a deployment's reply, or for its next token in a streamed call. Long
+  # code reviews on the 32B model can generate for several minutes.
   timeout: 1500
   # Check prompt size against max_input_tokens before calling a backend, so an oversized
   # prompt moves straight to its context-window fallback instead of failing first.
@@ -205,9 +211,8 @@ router_settings:
   fallbacks:
     - devops-reasoning: [devops-coder]
     - devops-coder: [devops-reasoning, devops-chat]
-    # Once devops-review's retries fail, timeouts included. The router's 1,500 s timeout
-    # outlasts the review client's 1,200 s, so a call that timed out here was already given
-    # up, and the background tier spends up to 1,100 s on a reply nobody reads. With
+    # Once devops-review's retries fail, timeouts included. The keepalive keeps the client's
+    # streamed call open, so the client reads the background tier's reply. With
     # context_window_fallbacks set, an oversized devops-review prompt re-raises instead.
     # No devops-chat rule: fallbacks chain, so devops-coder and devops-reasoning failures
     # would reach the background tier through devops-chat.
