@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4](https://github.com/dan-petty/devops-cli/compare/v0.7.3...v0.7.4) (2026-10-27)
+
+
+### Bug Fixes
+
+* **ai:** chat calls stream their reply, and the gateway keeps the stream open past the 125 s edge timeout ([#2379](https://github.com/dan-petty/devops-cli/issues/2379)) ([0abf552](https://github.com/dan-petty/devops-cli/commit/0abf552a0ab7b587abffcc5ade6c49407aca5e2d)), closes [#2365](https://github.com/dan-petty/devops-cli/issues/2365)
+* **ai:** the devops ai failover help says that the gateway failover records a route, not that it reroutes requests ([#2376](https://github.com/dan-petty/devops-cli/issues/2376)) ([6560b93](https://github.com/dan-petty/devops-cli/commit/6560b93169922ade3a6694fe914bdcbe5c9adad1)), closes [#2079](https://github.com/dan-petty/devops-cli/issues/2079)
+* **docs:** add home page, remove raw markdown publishing, and check links ([#2070](https://github.com/dan-petty/devops-cli/issues/2070)) ([#2372](https://github.com/dan-petty/devops-cli/issues/2372)) ([7f9321c](https://github.com/dan-petty/devops-cli/commit/7f9321c55734e3939005706b274c7db9757c2b0a))
+* **llm:** pass num_ctx with direct ollama embedding requests ([#2378](https://github.com/dan-petty/devops-cli/issues/2378)) ([ff47504](https://github.com/dan-petty/devops-cli/commit/ff475047a19fc30d0b22a97327311505d52d61bd)), closes [#2089](https://github.com/dan-petty/devops-cli/issues/2089)
+* **roadmap:** intake's reply schema limits each fixed field to its values, so the model cannot leave type empty ([#2380](https://github.com/dan-petty/devops-cli/issues/2380)) ([b9220b1](https://github.com/dan-petty/devops-cli/commit/b9220b1ad4893fa19f47f85f15b7586c3be42c93)), closes [#2370](https://github.com/dan-petty/devops-cli/issues/2370)
+* **telemetry:** a gateway inference span names the deployment model that served the call as gen_ai.response.model ([#2381](https://github.com/dan-petty/devops-cli/issues/2381)) ([78dbd1d](https://github.com/dan-petty/devops-cli/commit/78dbd1d0776799385b364db278476b72e92eb5ff))
+
+
+### Performance Improvements
+
+* **ci:** lower the coverage floor to 85% and fail a pull request below 90% on its changed lines ([#2375](https://github.com/dan-petty/devops-cli/issues/2375)) ([9f97c14](https://github.com/dan-petty/devops-cli/commit/9f97c14fe6ae1a37965a00835b1388f83d4c8420))
+
 ## [0.7.3](https://github.com/dan-petty/devops-cli/compare/v0.7.2...v0.7.3) (2026-10-27)
 
 
