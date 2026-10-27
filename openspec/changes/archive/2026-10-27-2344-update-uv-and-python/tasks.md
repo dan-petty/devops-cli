@@ -9,6 +9,9 @@
 - [x] Update `.github/ISSUE_TEMPLATE/bug_report.yml` and `tests/test_uv.py`
   - Verification: `git diff`
 
+- [x] Upgrade `authlib` in `uv.lock`
+  - Verification: `uv audit` finds no vulnerability
+
 ## 2. Verification
 
 - [x] Run full CI quality checks
