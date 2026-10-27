@@ -119,6 +119,7 @@ def test_fastmcp_tools_registration() -> None:
         "gh_pages_build",
         "gh_pages_verify",
         "gh_issues_list",
+        "gh_issues_view",
         "gh_issues_create",
         "gh_issues_triage",
         "gh_issues_status",

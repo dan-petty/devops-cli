@@ -20,6 +20,7 @@ from devops_cli.github.projects import MutationBudget
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
 from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
+from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -195,6 +196,91 @@ def test_gh_issues_list() -> None:
         assert result.exit_code == 0
         assert "#77" in result.output
         assert "feat(rag)" in result.output
+
+
+def _rest_issue(**fields: Any) -> dict[str, Any]:
+    """An issue as GitHub's REST API sends it, with `fields` set over a full one."""
+    return {
+        "number": 9999,
+        "title": "feat(github): a title that is longer than the fifty characters of a list row",
+        "state": "open",
+        "html_url": "https://github.com/octo/repo/issues/9999",
+        "milestone": {"title": "2026-12"},
+        "labels": [{"name": "type/feature"}, {"name": "source/agent"}],
+        "assignees": [{"login": "octocat"}],
+        "created_at": "2026-10-27T10:00:00Z",
+        "updated_at": "2026-10-28T11:30:00Z",
+        "body": "First line.\n\nSecond line.",
+        **fields,
+    }
+
+
+def test_gh_issues_view_prints_the_whole_issue(github_api: GitHubApiFake) -> None:
+    """`devops gh issues view` prints the full title, each field and every line of the body."""
+    github_api.route("GET", "/repos/octo/repo/issues/9999", github_json(_rest_issue()))
+    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    lines = result.output.splitlines()
+    assert (result.exit_code, len(github_api.sent), lines[0]) == (
+        0,
+        1,
+        f"#9999 {_rest_issue()['title']}",
+    )
+    assert {
+        "State: open",
+        "URL: https://github.com/octo/repo/issues/9999",
+        "Milestone: 2026-12",
+        "Labels: type/feature, source/agent",
+        "Assignees: octocat",
+        "Created: 2026-10-27T10:00:00Z",
+        "Updated: 2026-10-28T11:30:00Z",
+        "First line.",
+        "Second line.",
+    } <= set(lines)
+
+
+def test_gh_issues_view_shows_a_dash_for_each_empty_field(github_api: GitHubApiFake) -> None:
+    """An issue with no milestone, label, assignee or body prints a dash for each."""
+    bare = _rest_issue(milestone=None, labels=[], assignees=[], body=None)
+    github_api.route("GET", "/repos/octo/repo/issues/9999", github_json(bare))
+    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    lines = result.output.splitlines()
+    assert (
+        result.exit_code,
+        {"Milestone: —", "Labels: —", "Assignees: —"} <= set(lines),
+        lines[-1],
+    ) == (0, True, "—")
+
+
+def test_gh_issues_view_prints_markup_as_written(github_api: GitHubApiFake) -> None:
+    """Rich markup in a title is text, not style."""
+    github_api.route(
+        "GET",
+        "/repos/octo/repo/issues/9999",
+        github_json(_rest_issue(title="fix [bold]x[/bold]")),
+    )
+    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    assert (result.exit_code, "#9999 fix [bold]x[/bold]" in result.output) == (0, True)
+
+
+def test_gh_issues_view_exits_1_naming_a_missing_issue(github_api: GitHubApiFake) -> None:
+    """A 404 exits 1, names the repository and the number, and prints no issue."""
+    github_api.route(
+        "GET", "/repos/octo/repo/issues/9999", github_json({"message": "Not Found"}, status=404)
+    )
+    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    text = _flat(result.output)
+    assert (result.exit_code, "octo/repo/issues/9999" in text, "State:" in text) == (1, True, False)
+
+
+def test_gh_issues_view_exits_1_naming_the_command_for_a_pull_request(
+    github_api: GitHubApiFake,
+) -> None:
+    """A pull request number exits 1 and names `devops pr view`."""
+    pull = _rest_issue(number=12, pull_request={"url": "https://example.com/pull/12"})
+    github_api.route("GET", "/repos/octo/repo/issues/12", github_json(pull))
+    result = runner.invoke(app, ["issues", "view", "12", "-R", "octo/repo"])
+    text = _flat(result.output)
+    assert (result.exit_code, "devops pr view 12" in text, "State:" in text) == (1, True, False)
 
 
 def test_gh_issues_create() -> None:
