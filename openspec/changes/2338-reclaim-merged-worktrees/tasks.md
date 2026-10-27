@@ -13,8 +13,8 @@
 
 ## 3. Documents and the real host
 
-- [ ] 3.1 In `CONTRIBUTING.md`, in the paragraph on starting work, say that `add` first removes the worktrees of merged work, what it keeps, and `--no-reclaim`. Verify: `uv run devops ci docs` passes and `uv run devops ci test tests/test_agents_md_claims.py` passes.
-- [ ] 3.2 On the real host, run `add --dry-run` in the main repository and read the plan, which lists the merged worktree that is waiting. In a scratch clone of the real repository, with the real `origin`, make a worktree at the head of merged pull request #2348, then run `add` for a free issue number. Verify: the worktree of the merged pull request is removed with its size, the new worktree is created, and a second run removes nothing.
+- [x] 3.1 In `CONTRIBUTING.md`, in the paragraph on starting work, say that `add` first removes the worktrees of merged work, what it keeps, and `--no-reclaim`. Verify: `uv run devops ci docs` passes and `uv run devops ci test tests/test_agents_md_claims.py` passes.
+- [x] 3.2 On the real host, run `add --dry-run` in the main repository and read the plan, which lists the merged worktree that is waiting. In a scratch clone of the real repository, with the real `origin`, make a worktree at the head of merged pull request #2348, then run `add` for a free issue number. Verify: the worktree of the merged pull request is removed with its size, the new worktree is created, and a second run removes nothing.
 - [ ] 3.3 Run the full `uv run devops ci --check --no-cache` in the worktree. Verify: every check passes.
 
 ## Workflow follow-up
