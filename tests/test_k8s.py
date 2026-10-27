@@ -265,7 +265,7 @@ def test_k8s_deploy_stack_all_dry_run(isolate_devops_cli_config: Path) -> None:
             "k8s-monitoring" in result.output,
             "ollama" in result.output,
             "valkey.yaml" in result.output,
-            "configmap.yaml" in result.output,
+            "portkey" in result.output,
             "roadmap-service" in result.output,
         ) == (0, True, True, True, True, True, True)
     finally:

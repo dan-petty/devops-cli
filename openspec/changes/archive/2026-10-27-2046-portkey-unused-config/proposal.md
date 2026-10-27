@@ -10,6 +10,7 @@ Issue #2046: `k8s/llm/portkey/configmap.yaml` mounts a routing config at `/app/c
 - Remove the unused `config-volume` mount and volume from `k8s/llm/portkey/deployment.yaml`.
 - Remove `portkey/configmap.yaml` from `k8s/llm/kustomization.yaml` and `src/devops_cli/commands/k8s/stack_lifecycle.py`.
 - Update `tests/test_ai_gateway_portkey.py` to assert that the unused ConfigMap is gone and not mounted.
+- Update `tests/test_k8s.py` dry-run assertions to match the updated manifests.
 - The change sets `skip_specs: true` in `.openspec.yaml`.
 - This change fits in one pull request.
 
@@ -27,7 +28,7 @@ None.
 
 - Manifests: `k8s/llm/portkey/configmap.yaml`, `k8s/llm/portkey/deployment.yaml`, `k8s/llm/kustomization.yaml`.
 - Code: `src/devops_cli/commands/k8s/stack_lifecycle.py`.
-- Tests: `tests/test_ai_gateway_portkey.py`.
+- Tests: `tests/test_ai_gateway_portkey.py`, `tests/test_k8s.py`.
 
 ## Feasibility
 
