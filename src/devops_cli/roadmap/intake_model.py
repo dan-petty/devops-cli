@@ -3,8 +3,9 @@ structured proposal per candidate. The proposal names an original only with the 
 items ask for, and it can name a related item that asks for a different change (#1755).
 
 The model holds no tool. It sees the candidate and its nearest items as JSON data in the user
-message and answers with a `ModelProposal`, whose fields are plain text so that whatever it
-says reaches intake's own checks: code, not the schema, decides which values stand. Both calls
+message and answers with a `ModelProposal`. The reply schema lists the values of each field that
+has a fixed list (#2370), so the structured output of the model keeps to them; intake's own
+checks still decide which values stand. Both calls
 go through the existing clients, the embedder (`ai.tasks.embedding`) and the LLM client
 (`ai.tasks.analysis`), and so through the gateway when one is configured. A call that can't
 reach its model raises `ModelGatewayUnreachableError`, which names the gateway (the error masks
@@ -18,14 +19,16 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from functools import cached_property
-from typing import Protocol
+from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, create_model
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS,
+    CONST_ROADMAP_MODEL_PRIORITIES,
+    CONST_ROADMAP_SIZE_OPTIONS,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
@@ -81,6 +84,32 @@ class ModelProposal(BaseModel):
     evidence_reason: str = ""
 
 
+def _one_of(values: Sequence[str]) -> tuple[Any, Any]:
+    """A required field whose value is one of `values`: its JSON schema is an `enum`."""
+    return (Literal.__getitem__(tuple(values)), ...)
+
+
+def proposal_schema(types: Sequence[str]) -> type[ModelProposal]:
+    """The reply schema of a proposal request: `ModelProposal` with `type` one of `types`,
+    `priority` one of the model's priorities, and `value` and `effort` one of the size options,
+    each required. With no `types`, `type` stays free text.
+
+    The gateway gives the schema to the model's structured output, which keeps each field to
+    its `enum`, so a reply can't leave `type` empty (#2370).
+    """
+    fields: dict[str, Any] = {
+        "priority": _one_of(CONST_ROADMAP_MODEL_PRIORITIES),
+        "value": _one_of(CONST_ROADMAP_SIZE_OPTIONS),
+        "effort": _one_of(CONST_ROADMAP_SIZE_OPTIONS),
+    }
+    if types:
+        fields["type"] = _one_of(types)
+    schema: type[ModelProposal] = create_model(
+        "ModelProposal", __base__=ModelProposal, __module__=__name__, **fields
+    )
+    return schema
+
+
 @dataclass(frozen=True)
 class Neighbour:
     """One of the candidate's nearest items, as the model sees it."""
@@ -100,14 +129,10 @@ class ProposalRequest:
     body: str
     shortlist: tuple[Neighbour, ...]
     types: tuple[str, ...]
-    problem: str | None = None
 
     def as_json(self) -> str:
         """The request as the JSON the user message carries."""
-        data = asdict(self)
-        if self.problem is None:
-            del data["problem"]
-        return json.dumps(data, ensure_ascii=False, indent=1)
+        return json.dumps(asdict(self), ensure_ascii=False, indent=1)
 
 
 class UnusableProposalError(ValueError):
@@ -208,7 +233,7 @@ class GatewayIntakeModel:
 
         try:
             return self._client.chat_structured(
-                intake_system_prompt(), request.as_json(), ModelProposal
+                intake_system_prompt(), request.as_json(), proposal_schema(request.types)
             )
         except StructuredOutputValidationError as exc:
             raise UnusableProposalError(str(exc)[:300]) from exc
@@ -238,4 +263,5 @@ __all__ = [
     "UnusableProposalError",
     "build_intake_model",
     "gateway_address",
+    "proposal_schema",
 ]
