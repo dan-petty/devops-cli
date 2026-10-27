@@ -27,6 +27,6 @@
 
 - [x] Regenerate documentation
   - Verification: `uv run devops docs generate --sync-readme`
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2341-worktrees-prune-merged-pr`
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
