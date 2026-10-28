@@ -169,8 +169,9 @@ class StreamUsage:
 # Token usage metrics extracted from the final frames of a streamed reply.
 stream_usage: ContextVar[StreamUsage | None] = ContextVar("stream_usage", default=None)
 
-# The specific server node leased for a streamed request, e.g. for multi-node Ollama.
-stream_server: ContextVar[str | None] = ContextVar("stream_server", default=None)
+# The origin of the server leased for a streamed request, e.g. for multi-node Ollama. The stream
+# span opens before the lease, so the spend that is recorded after the last chunk reads it here.
+stream_server: ContextVar[httpx2.Origin | None] = ContextVar("stream_server", default=None)
 
 # A reply-token cap for the calls made inside `limit_completion_tokens`. It travels with the
 # context, like the request priority, so one call site can bound a reply without every layer

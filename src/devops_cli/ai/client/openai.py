@@ -21,6 +21,7 @@ from devops_cli.ai.client.models import (
     AIClientError,
     LLMResponse,
     credentials_error,
+    origin_label,
     provider_finish_reason,
 )
 from devops_cli.ai.client.network import (
@@ -286,7 +287,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             usage = parsed.usage
             details = getattr(usage, "completion_tokens_details", None) if usage else None
             reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
-            b_info = f"{self.backend_type} ({self.backend_host})"
+            origin = httpx2.URL(self._api_base()).origin
 
             raw_finish = getattr(first_choice, "finish_reason", None) if first_choice else None
             finish_reason = provider_finish_reason(CONST_OPENAI_FINISH_REASONS, raw_finish)
@@ -295,7 +296,8 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 content,
                 processing_seconds=None,
                 wall_seconds=wall_elapsed,
-                backend_info=b_info,
+                backend_info=f"{self.backend_type} ({origin_label(origin)})",
+                origin=origin,
                 thinking=thinking_str,
                 prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
                 completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,

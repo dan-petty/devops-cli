@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
-from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from devops_cli.ai.analyze.symbols import BaseRevision
@@ -23,6 +22,7 @@ import typer
 
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
 from devops_cli.config.constants import (
+    CONST_AI_BACKEND_HOST_UNKNOWN,
     CONST_GIT_MAIN_BRANCH,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_REVIEW_CANDIDATES_FILENAME,
@@ -1519,14 +1519,19 @@ def review_stats(
 
 
 def _backend_host(served_by: str) -> str:
-    """Shorten a serving backend's API base to its host, and an in-cluster host to its pod or service."""
+    """Shorten a serving backend's API base to its host, and an in-cluster host to its pod or service.
+
+    The host never holds userinfo, and a value that names no server shows as `unknown`.
+    """
     import dns.exception
     import dns.name
 
-    parsed = urlsplit(served_by)
-    if not parsed.scheme and not parsed.netloc:
-        parsed = urlsplit(f"//{served_by}")
-    host = parsed.hostname or served_by
+    from devops_cli.ai.client.models import served_by_authority
+
+    authority = served_by_authority(served_by)
+    if authority is None:
+        return CONST_AI_BACKEND_HOST_UNKNOWN
+    host = authority.host
     try:
         h_name = dns.name.from_text(host)
         if h_name.is_subdomain(dns.name.from_text("svc.cluster.local")):

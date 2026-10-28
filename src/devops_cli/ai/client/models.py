@@ -6,13 +6,16 @@ import json
 import os
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+import httpx2
 
 from devops_cli.config.constants import (
     CONST_GENAI_PROVIDER_NAMES,
 )
 from devops_cli.config.env import ENV_AGENT_GRANT, env_var_for_option
 from devops_cli.exceptions.ai import LLMInferenceError
+from devops_cli.http.urls import get_url_origin, read_url_or_authority
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -112,12 +115,68 @@ def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredenti
     )
 
 
+def authority_label(host: str, port: int | None, scheme: str = "") -> str:
+    """The `host[:port]` text of one server, as httpx2 writes the authority of a URL.
+
+    The text never holds userinfo. httpx2 writes the host in lower case and an IDN host as its
+    A-label. With a scheme, it leaves out the default port of that scheme. With no scheme, as for
+    a bare served_by authority, every port stays.
+    """
+    return httpx2.URL(scheme=scheme, host=host, port=port).netloc.decode("ascii")
+
+
+def origin_label(origin: httpx2.Origin) -> str:
+    """The `host[:port]` text of an origin, from `authority_label`."""
+    return authority_label(origin.host, origin.port, origin.scheme)
+
+
+def origin_span_attributes(origin: httpx2.Origin | None) -> dict[str, Any]:
+    """`server.address` and `server.port` of the one server that a request went to.
+
+    The origin holds the default port of its scheme when the URL has no port. With no origin,
+    the request names no single server, so the span gets neither attribute.
+    """
+    if origin is None:
+        return {}
+    attributes: dict[str, Any] = {"server.address": origin.host}
+    if origin.port is not None:
+        attributes["server.port"] = origin.port
+    return attributes
+
+
+class ServedByAuthority(NamedTuple):
+    """The server that a gateway's served_by value names: its host and its `host[:port]` text."""
+
+    host: str
+    label: str
+
+
+def served_by_authority(served_by: str) -> ServedByAuthority | None:
+    """The server that a stored served_by value names, or None when the value names no server.
+
+    httpx2, the client that sends, reads an absolute URL. The shared URL-or-authority reader
+    reads a bare `host[:port]`, which a reply header can hold; with no scheme, its port stays in
+    the text. Neither keeps userinfo.
+    """
+    origin = get_url_origin(served_by)
+    if origin is not None:
+        return ServedByAuthority(origin.host, origin_label(origin))
+    parts = read_url_or_authority(served_by)
+    if parts is None or not parts.hostname:
+        return None
+    try:
+        return ServedByAuthority(parts.hostname, authority_label(parts.hostname, parts.port))
+    except ValueError, httpx2.InvalidURL:
+        return None
+
+
 class LLMResponse(str):
     """String response from LLM with optional execution timing and backend metadata."""
 
     processing_seconds: float | None
     wall_seconds: float
     backend_info: str | None
+    origin: httpx2.Origin | None
     thinking: str | None
     prompt_tokens: int | None
     completion_tokens: int | None
@@ -149,11 +208,15 @@ class LLMResponse(str):
         finish_reason: FinishReason | None = None,
         reasoning_tokens: int | None = None,
         served_model: str | None = None,
+        origin: httpx2.Origin | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
         obj.wall_seconds = wall_seconds
         obj.backend_info = backend_info
+        # The scheme, host and port of the URL that the provider called, never its userinfo;
+        # None for a reply that no endpoint sent, such as a cache hit.
+        obj.origin = origin
         obj.thinking = thinking
         obj.prompt_tokens = prompt_tokens
         obj.completion_tokens = completion_tokens

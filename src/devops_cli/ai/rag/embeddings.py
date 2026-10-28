@@ -16,7 +16,6 @@ from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlsplit
 
 import httpx2
 from pydantic_ai.embeddings import (
@@ -749,11 +748,12 @@ class EmbeddingsEngine:
         The provider and server are those a chat call names, so both are local or hosted alike;
         a gateway's headers name the backend and the deployment model that served the request.
         """
+        from devops_cli.ai.client.models import origin_label
         from devops_cli.ai.client.network import extract_served_by, extract_served_model
         from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
 
         provider = self.ai_config.provider
-        server = urlsplit(endpoint).netloc
+        server = origin_label(httpx2.URL(endpoint).origin)
         track_request_spend(
             provider=provider,
             model=model,
@@ -904,11 +904,14 @@ class EmbeddingsEngine:
 
     def _query_ollama_node_batch(self, base_url: str, batch_texts: list[str]) -> list[list[float]]:
         """Embed a batch on one Ollama node; raise when the node refuses, fails or misanswers."""
+        from devops_cli.ai.client.models import origin_span_attributes
+        from devops_cli.http.urls import get_url_origin
+
         endpoint = _ollama_embed_endpoint(base_url)
         with trace_span(
             "ai.rag.ollama_embed_batch",
             attributes={
-                "server.address": base_url,
+                **origin_span_attributes(get_url_origin(endpoint)),
                 "rag.batch_size": len(batch_texts),
                 "rag.model": str(self.model),
             },
