@@ -52,7 +52,7 @@
 
 ## 7. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2398-refine-investigates-questions`
 - Pending a person: set `firecrawl.api_key` with `devops config set` and add it to Secret `devops/devops-cli` with `devops k8s push-secrets`, so refine can search the web.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
