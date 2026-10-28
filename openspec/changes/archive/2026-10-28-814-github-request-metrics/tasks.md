@@ -18,7 +18,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 814-github-request-metrics`
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
 
