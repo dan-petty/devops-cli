@@ -598,10 +598,9 @@ CONST_COVERAGE_INDEX_FILENAME = "coverage_index.json"
 # Library contracts, under the data directory: the only place they are written and read (#972).
 CONST_LIBRARIES_DIR_NAME = "libraries"
 # The config and ignore files a review's static scanners are handed in place of any in their
-# working directory or the scanned tree (#972). Each keeps the scanner's defaults: kube-linter's
-# default checks, Trivy's defaults, Gitleaks' default rules, and Bandit's defaults with no
-# `[bandit]` option. The ignore files they are handed are empty.
-CONST_REVIEW_SCAN_KUBELINTER_CONFIG = "checks: {}\n"
+# working directory or the scanned tree (#972). Each keeps the scanner's defaults: Trivy's
+# defaults, Gitleaks' default rules, and Bandit's defaults with no `[bandit]` option. The ignore
+# files they are handed are empty. kube-linter's config is in `devops_cli.security.kubelinter`.
 CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
 CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"

@@ -98,7 +98,10 @@ A false positive that recurs is prevented by a commit: a `[[suppressions]]` entr
 a rule-pack rule. A suppression's `path` is the code its reason holds for, so a branch or pull
 request review, and `devops pr check-readiness`, list the unexpired suppressions whose path the
 change touches (`review/suppression.py:95-125`, `ai/review/runner.py:2123`,
-`perimeter_advisory` in `github/merge_readiness.py`).
+`perimeter_advisory` in `github/merge_readiness.py`). A rule that no review runs, because none of
+its findings on this repository was valid, is left out by the tool's own configuration, by rule id
+and with its reason: `_REVIEW_EXCLUDED_CHECKS` in `security/kubelinter.py` and
+`_REVIEW_EXCLUDED_RULES` in `security/semgrep.py` (#1024). A scan outside a review runs every rule.
 
 ### The Feedback Dataset
 

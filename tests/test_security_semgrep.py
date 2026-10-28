@@ -40,6 +40,14 @@ from tests.support.registry_cache import (
 runner = CliRunner()
 
 
+# The flags of a review's Semgrep scan that leave out the rules that never gave a valid finding on
+# this repository (#1024).
+REVIEW_RULE_EXCLUSIONS = (
+    *("--exclude-rule", "python.lang.security.audit.non-literal-import.non-literal-import"),
+    *("--exclude-rule", "python.lang.security.audit.exec-detected.exec-detected"),
+)
+
+
 def test_parse_semgrep_json() -> None:
     raw_data = {
         "results": [
@@ -412,6 +420,7 @@ def test_a_review_runs_the_rule_pack_whatever_config_it_names(
             "--config",
             str(RULE_PACK_DIR),
             "--disable-nosem",
+            *REVIEW_RULE_EXCLUSIONS,
             "--quiet",
             "./app.py",
         ]
@@ -502,6 +511,7 @@ def test_a_review_scans_with_the_cached_registry_ruleset_written_into_its_workin
             "--config",
             str(RULE_PACK_DIR),
             "--disable-nosem",
+            *REVIEW_RULE_EXCLUSIONS,
             "--quiet",
             "./app.py",
         ]
@@ -574,6 +584,7 @@ def test_a_review_without_the_cached_ruleset_runs_the_rule_pack_alone_and_report
             "--config",
             str(RULE_PACK_DIR),
             "--disable-nosem",
+            *REVIEW_RULE_EXCLUSIONS,
             "--quiet",
             "./app.py",
         ]

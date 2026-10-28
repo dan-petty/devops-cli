@@ -318,11 +318,13 @@ def build_semgrep_cmd(
     targets: Sequence[Path | str],
     configs: Sequence[str],
     exclude_paths: Sequence[str] = (),
+    exclude_rules: Sequence[str] = (),
 ) -> list[str]:
     """Build a Semgrep scan: JSON on stdout, no metrics sent, no version check, a fixed number
     of jobs, and every finding reported whatever inline `nosemgrep` marker it carries. Every
     `semgrep scan` devops-cli starts is built here (#1144). The fixed jobs keep the address space
-    of a scan the same on each host (`CONST_SEMGREP_JOBS`, #2096)."""
+    of a scan the same on each host (`CONST_SEMGREP_JOBS`, #2096). Semgrep skips each rule whose
+    id `exclude_rules` names (#1024)."""
     cmd = [
         BIN_SEMGREP,
         "scan",
@@ -338,6 +340,8 @@ def build_semgrep_cmd(
     cmd.append("--disable-nosem")
     for exclude_path in exclude_paths:
         cmd.extend(["--exclude", exclude_path])
+    for exclude_rule in exclude_rules:
+        cmd.extend(["--exclude-rule", exclude_rule])
     cmd.append("--quiet")
     cmd.extend(map(str, targets))
     return cmd

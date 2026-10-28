@@ -477,13 +477,13 @@ def test_review_scanners_are_handed_devops_owned_config_and_ignore_files(
     scanned_tree: Path, tmp_path: Path
 ) -> None:
     """A scanner that reads a config or ignore file from its working directory or the scanned
-    tree is handed devops-cli's own, outside the tree: the default configuration, and an ignore
-    file that ignores nothing. Pluto reads neither, and Semgrep takes its rules from `--config`
-    alone and applies no `.semgrepignore` to the files a review names."""
+    tree is handed devops-cli's own, outside the tree: the default configuration, less the checks
+    that a review leaves out (#1024), and an ignore file that ignores nothing. Pluto reads
+    neither, and Semgrep takes its rules from `--config` alone and applies no `.semgrepignore` to
+    the files a review names."""
     from devops_cli.config.constants import (
         CONST_REVIEW_SCAN_BANDIT_INI,
         CONST_REVIEW_SCAN_GITLEAKS_CONFIG,
-        CONST_REVIEW_SCAN_KUBELINTER_CONFIG,
         CONST_REVIEW_SCAN_TRIVY_CONFIG,
     )
 
@@ -499,7 +499,7 @@ def test_review_scanners_are_handed_devops_owned_config_and_ignore_files(
             {"--config": CONST_REVIEW_SCAN_GITLEAKS_CONFIG, "--gitleaks-ignore-path": ""},
             False,
         ),
-        "kube-linter": ({"--config": CONST_REVIEW_SCAN_KUBELINTER_CONFIG}, False),
+        "kube-linter": ({"--config": "checks:\n  exclude:\n  - dangling-service\n"}, False),
         "osv-scanner": ({}, False),
         "pluto": ({}, False),
         "semgrep": ({}, False),
