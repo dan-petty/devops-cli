@@ -797,6 +797,26 @@ def test_a_priced_request_loads_the_settings_at_most_once(
     }
 
 
+def test_no_configured_host_is_local_when_the_settings_cannot_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify a public host and a gateway call with no server are hosted when the settings
+    cannot load, while a local address stays local (#1420)."""
+    from devops_cli.ai.spend.pricing import is_local
+    from devops_cli.config.settings import reset_settings_cache
+
+    unreadable = tmp_path / "list.yaml"
+    unreadable.write_text("- not a mapping\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(unreadable))
+    reset_settings_cache()
+
+    assert (
+        is_local("https://example.com/v1", "openai"),
+        is_local(None, "gateway"),
+        is_local("http://127.0.0.1:4000", "gateway"),
+    ) == (False, False, True)
+
+
 def test_pricing_local_vs_remote_and_configured_domain_table(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
