@@ -82,25 +82,28 @@ def test_config_audit_keys_json_output() -> None:
 
 
 def test_config_audit_keys_table_rendering() -> None:
-    """Verify table rendering of key audit states."""
+    """Verify table rendering of key audit states, and the success line of a compliant audit."""
     result = runner.invoke(app, ["audit-keys"])
     assert result.exit_code == 0
     assert "Keyring & Secret Health Audit" in result.output
     assert "grafana.token" in result.output
     assert "Zero-Plaintext Check" in result.output
+    assert "verified free of plaintext secrets" in result.output
 
 
 def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_table(
     cli: Callable[..., Any], config: Callable[..., Path]
 ) -> None:
-    """A plaintext secret in the config file fails the audit: the table flags it and the command exits 1."""
-    config(grafana={"token": "FAKE-leaked-plaintext-token"})
+    """A plaintext secret in the config file fails the audit: the table flags it, the alert names
+    the leak, and the command exits 1."""
+    config_file = config(grafana={"token": "FAKE-leaked-plaintext-token"})
 
     result = cli("config", "audit-keys")
 
     assert result.exit_code == 1
     assert "LEAK DETECTED" in result.output
-    assert "Security Alert" in result.output
+    alert = result.output[result.output.index("Security Alert") :]
+    assert f"{config_file.name}:grafana.token" in alert
     assert "verified free of plaintext secrets" not in result.output
 
 

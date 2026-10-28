@@ -20,7 +20,7 @@
 
 ## 3. The audit-keys tests assert each clause of the spec
 
-- [ ] 3.1 Assert the success line in `test_config_audit_keys_table_rendering`, and the name of the leak in the security alert of `test_config_audit_keys_fails_on_a_plaintext_secret_in_the_table`
+- [x] 3.1 Assert the success line in `test_config_audit_keys_table_rendering`, and the name of the leak in the security alert of `test_config_audit_keys_fails_on_a_plaintext_secret_in_the_table`
   - Verification: `uv run devops ci test tests/test_config_audit_keys.py`
 
 ## 4. The Service image invariants are in one subject file
