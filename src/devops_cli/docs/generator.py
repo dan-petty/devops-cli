@@ -1183,6 +1183,11 @@ class DocGenerator:
             "(`error.type`) and the exit code (`cli.exit_code`), and not the message. The person "
             "sees the error box of Typer, and `devops_cli_command_total` counts the command with "
             "the status `error`.",
+            "- **Reported Failures**: A command that prints its own error and exits with a "
+            "non-zero code is counted one time in `devops_cli_command_total`, with the status "
+            "`error`. Its command span records the exit code in `cli.exit_code`. devops-cli logs "
+            "no record for that exit. The log export gets the records that the command logs and "
+            "the record of an unhandled exception.",
             "- **W3C `traceparent` Injection**: Subprocesses, sandbox containers (`devops sandbox "
             "deploy`, `devops docker sandbox`, `devops test sandbox`) and commands run with "
             "`devops sandbox exec` receive the active span as `TRACEPARENT` in their environment "

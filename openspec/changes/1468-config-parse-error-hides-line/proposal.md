@@ -11,7 +11,7 @@ Issue #1468: `_read_config_layers` in `src/devops_cli/config/settings.py` loads 
 - The helper raises the error after its `except` block. Thus the error has no `__cause__` and no `__context__`, and no traceback or log record holds the PyYAML error. The `Mark` of a PyYAML error holds the full text of the file in its `buffer`, so `raise ... from None` is not sufficient: it only hides `__context__` from the traceback.
 - `devops config get` reports a `ConfigurationError` from the load of the settings on one line and exits 1, with no traceback. It uses `exit_on_error`, as `devops config unset` does.
 - `main._delegate` raises the exit of a command that returned a non-zero exit code in the `else` clause of its `try`. Before, it raised that exit inside the `try`, and its own `except Exception` caught it. That clause counted the command a second time in `devops_cli_command_total`, set `cli.exit_code` to 1, and logged `Command '<name>' failed: <code>` with a traceback. When the settings do not load, telemetry is off and no handler is on the root logger, so Python printed that record and its traceback on stderr after the one-line error.
-- The message and the exit code are observable, so the change carries a spec delta for the `config-commands` capability.
+- The message and the exit code are observable, so the change carries a spec delta for the `config-commands` capability. The count, the `cli.exit_code` and the log record of a command that reports its own failure are observable in telemetry, so the change also carries a delta for the `command-telemetry` capability.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,6 +23,7 @@ None.
 ### Modified Capabilities
 
 - `config-commands`: a config file that is not valid YAML stops the load of the settings with an error that names the file, the line and the column, and that quotes no text of the file.
+- `command-telemetry`: a command that reports its own failure and exits with a non-zero code is counted one time, its span records that code, and `_delegate` logs no record for the exit.
 
 ## Impact
 
@@ -30,7 +31,8 @@ None.
 - `src/devops_cli/lang/en/errors.py`: the message `ConfigErrorMessages.not_yaml`.
 - `src/devops_cli/commands/config.py`: `devops config get` reports the error with `exit_on_error(ConfigurationError)`.
 - `src/devops_cli/main.py`: `_delegate` raises the non-zero exit of a command outside its `except` clauses.
-- `tests/config/test_config_file_that_is_not_yaml.py`, `tests/commands/test_config.py` and `tests/test_config_env_overrides.py`.
+- `src/devops_cli/docs/generator.py` and the generated `docs/TELEMETRY.md`: the count, the exit code and the log of a command that reports its own failure.
+- `tests/config/test_config_file_that_is_not_yaml.py`, `tests/commands/test_config.py`, `tests/test_config_env_overrides.py` and `tests/test_otel_command_coverage.py`.
 - The knowledge base pages `src/devops_cli/ai/knowledge_base/devops_cli/configuration_and_settings.md` and `src/devops_cli/ai/knowledge_base/devops_cli/libraries/pyyaml_jinja2.md`. The YAML example of the second page quoted the text of the PyYAML error in the error that it raised.
 
 ## Feasibility

@@ -52,10 +52,13 @@
 ### 6. `_delegate` raises a non-zero exit outside its `except` clauses
 - Decision: The `if exit_code != 0: raise typer.Exit(exit_code)` lines move from the body of the `try` in `main._delegate` to its `else` clause.
 - Rationale: `typer.Exit` is a `RuntimeError`. Raised in the `try`, it went to `except Exception`, which logged `Command '<name>' failed: <code>` with `exc_info=True`. When the settings do not load, telemetry is off, the root logger has no handler, and Python's last-resort handler printed that record and its traceback on stderr. Thus `devops config get` showed a traceback after its one-line error. The same clause counted the command a second time in `devops_cli_command_total` and set `cli.exit_code` to 1 for each exit code. The `else` clause runs only when the `try` raised nothing, and the `finally` clause still flushes the tracer.
+- Consequence: The command already printed its error, and the span and `devops_cli_command_total` record the failure with its real exit code. Thus `_delegate` logs no record for the exit. The error stream of the `devops-cli` dashboard keeps the records of unhandled exceptions, as the `command-telemetry` spec says. `tests/test_otel_command_coverage.py` holds the count, the exit code and the absence of a record, so the exit cannot go back into the `try` with no failed test.
 - Alternative considered: Add `except typer.Exit: raise` before `except Exception`.
   - Rejected: The clause would also catch an exit that the command raises, which Click already turns into the return value. The `else` clause is the Python form for code that runs only after a `try` that raised nothing.
 
 ## Risks / Trade-offs
 
 - [A caller caught `yaml.YAMLError`, `ValueError` or `UnicodeDecodeError` from `load_settings`] -> No caller in `src` does. `telemetry/tracer.py::_resolve_telemetry_settings` catches `Exception`, so it still falls back to the telemetry variables.
+- [The error stream of the `devops-cli` dashboard no longer shows a command that reports its own failure] -> Before, it showed that command only through the record of the misplaced exit, `Command '<name>' failed: <code>`, with the traceback of `typer.Exit`. No panel or alert reads that text. The span status `error`, `cli.exit_code` and `devops_cli_command_total` with the status `error` record the failure.
+- [An error with no mark, such as the `ValueError` of `!!int <text>`, gives no line and no column] -> The message names the file and the type of the error. A tagged value in a config file is rare.
 - [The message has less detail than the PyYAML error] -> The file, the line, the column and the error type locate the problem. The person opens the file at that line.
