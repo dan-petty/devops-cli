@@ -77,6 +77,7 @@ class ConfigErrorMessages:
     key_not_in_file: str = "The config file {path} does not hold the key '{key}'. Nothing changed."
     not_yaml: str = "Cannot load the settings: {path} is not valid YAML ({error_type}){location}."
     not_yaml_location: str = " at line {line}, column {column}"
+    not_mapping: str = "Cannot load the settings: {path} does not hold a mapping of keys to values."
 
 
 @dataclass(frozen=True)
