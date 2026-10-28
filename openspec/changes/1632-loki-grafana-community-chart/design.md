@@ -4,7 +4,7 @@
 
 Two places pin the Loki chart. `k8s/argocd/apps/loki.yaml` names the repository, the chart and the version that Argo CD installs. The `logging` entries of `_HELM_REPOS_BY_STACK` and `_HELM_RELEASES_BY_STACK` in `src/devops_cli/commands/k8s/stack_lifecycle.py` name the repository that `devops k8s deploy-stack --stack logging` adds and the chart and version that it installs. Both move to `grafana-community/loki` 20.0.2 in this change. The `logging` stack adds only `grafana-community`, because Loki is the only release of that stack. The `infra` stack keeps `grafana` for `k8s-monitoring` and `pyroscope`.
 
-The chart sets the Loki image tag from its `appVersion`, and the values do not set `loki.image.tag`. So the chart version is the Loki pin: 20.0.2 runs `docker.io/grafana/loki:3.7.9`.
+The chart sets the Loki image tag from its `appVersion` when the values set no image. Two value blocks can set the tag or a digest of the single binary: `loki.image` and `singleBinary.image`. The values set neither, and the Application gives the chart no value but the values file. So the chart version is the Loki pin: 20.0.2 runs `docker.io/grafana/loki:3.7.9`. A test holds this, because one line in either block can bring back a Loki release before 3.7.0 with the chart pin unchanged.
 
 ## Why 20.0.2
 
@@ -36,7 +36,12 @@ The note on `deletion_mode: disabled` records why Loki logs "deletion is not ava
 
 ## Where the test lives
 
-The issue asks for one test that holds the repository, the chart and the version of both paths. The deploy-stack half reads `_HELM_RELEASES_BY_STACK` and `_HELM_REPOS_BY_STACK`, which no public interface shows: the dry run of `deploy-stack` names only the releases. `tests/test_k8s_logging_stack.py` already tests the `logging` stack through these tables, so the test joins that file and adds no new import of a private name. The retention settings that the issue names (`compactor.retention_enabled`, `retention_period: 720h`, `deletion_mode: disabled`) already have a test, `test_loki_deletes_logs_once_they_are_thirty_days_old` in `tests/test_k8s.py`.
+The issue asks for one test that holds the repository, the chart and the version of both paths. The two paths have two subjects, so two tests hold them, as `docs/TESTING.md` says:
+
+- The Argo CD Application, its AppProject and the values are committed manifests. Their test is an invariant test, `test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729` in `tests/invariants/test_k8s_manifests.py`. It holds the repository, the chart and the version of the chart source, the AppProject that admits the repository, a `helm` block with the values file and no other value, no `loki.image` and no `singleBinary.image` in the values, and no `monitoring.selfMonitoring`.
+- The `logging` stack of deploy-stack is behavior of devops-cli. Its test, `test_deploy_stack_installs_loki_from_the_grafana_community_chart`, joins `tests/test_k8s_logging_stack.py`, which already tests the `logging` stack. It holds the whole release and the repositories of the stack.
+
+The two tests pin the same version, and `test_helm_sources_pinned_versions` in `tests/test_k8s_argocd_apps.py` holds that each Argo CD Helm Application and its deploy-stack release have the same version, chart and values file. The deploy-stack test reads `_HELM_RELEASES_BY_STACK` and `_HELM_REPOS_BY_STACK`, which no public interface shows: the dry run of `deploy-stack` names only the releases, and a run that is not a dry run needs patches of devops-cli names. The module already imported these names, so the test adds no new import of a private name. The retention settings that the issue names (`compactor.retention_enabled`, `retention_period: 720h`, `deletion_mode: disabled`) already have a test, `test_loki_deletes_logs_once_they_are_thirty_days_old` in `tests/test_k8s.py`.
 
 `_loki_mode` in `tests/test_k8s_local_path_placement.py` said that the chart default is `SimpleScalable`. In the community chart the default is `Monolithic`, and `SingleBinary` is the old name of that mode. The check now takes both names, as the chart does.
 

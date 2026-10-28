@@ -13,7 +13,8 @@ The open-source chart continues as `grafana-community/loki` in `https://grafana-
 - The Argo CD Application `loki` (`k8s/argocd/apps/loki.yaml`) installs chart `loki` 20.0.2 from `https://grafana-community.github.io/helm-charts`. Chart 20.0.2 runs Loki 3.7.9.
 - The `logging` stack of `devops k8s deploy-stack` adds the `grafana-community` repository in place of `grafana`, and installs `grafana-community/loki` 20.0.2.
 - `k8s/logging/loki-values.yaml` names the new chart in its header and deletes `monitoring.selfMonitoring`, which the chart removed in 9.0.0. The note of #1133 on `deletion_mode` names Loki 3.7.9 and its source lines, because the behavior that it records did not change.
-- A new test in `tests/test_k8s_logging_stack.py` holds the repository, the chart and the version of both paths, and the removed key.
+- An invariant test in `tests/invariants/test_k8s_manifests.py` holds the repository, the chart and the version of the Application, the AppProject that admits the repository, and values that set no Loki image and no removed key. A test in `tests/test_k8s_logging_stack.py` holds the release and the repository of the `logging` stack of deploy-stack.
+- The change differs from the text of the issue in three points. It pins chart 20.0.2 (Loki 3.7.9), not 18.17.1 (Loki 3.7.8), because 20.0.2 is the newest chart and its upgrade notes need no other change to the values (design.md). The loki-canary part of the first criterion does not apply, because #1133 turned the canary off (`lokiCanary.enabled: false`). The dry run of `devops k8s deploy-stack --stack logging` names only the release `loki`, not its chart and version, so the test of the `logging` stack holds the third criterion.
 - The change carries a spec delta, because a manifest, the chart that `devops k8s deploy-stack` installs and the Loki release that runs are observable. It creates the capability `loki-release-pin`.
 - This change fits in one pull request.
 
@@ -21,7 +22,7 @@ The open-source chart continues as `grafana-community/loki` in `https://grafana-
 
 ### New Capabilities
 
-- `loki-release-pin`: Argo CD and deploy-stack install `grafana-community/loki` 20.0.2, which runs Loki 3.7.9, and the values set no key that the chart removed.
+- `loki-release-pin`: Argo CD and deploy-stack install `grafana-community/loki` 20.0.2, which runs Loki 3.7.9. The values and the Application set no Loki image, so the chart version is the Loki pin, and the values set no key that the chart removed.
 
 ### Modified Capabilities
 
@@ -31,7 +32,7 @@ None.
 
 - Manifests: `k8s/argocd/apps/loki.yaml`, `k8s/logging/loki-values.yaml`. Argo CD tracks `main` with prune and self-heal, so the merge changes the live cluster: Argo CD syncs Application `loki` to the new chart.
 - Code: `src/devops_cli/commands/k8s/stack_lifecycle.py` (the Helm repositories and the release of the `logging` stack).
-- Tests: `tests/test_k8s_logging_stack.py`, `tests/test_k8s_local_path_placement.py`.
+- Tests: `tests/invariants/test_k8s_manifests.py`, `tests/test_k8s_logging_stack.py`, `tests/test_k8s_local_path_placement.py`.
 - Rollout: StatefulSet `loki` has one replica. Argo CD changes its pod template, so pod `loki-0` stops and starts again with the new image. Loki does not accept logs for the time of the restart, and the Alloy collectors send the logs again when Loki is ready. The selector, the service name and the claim template do not change, so the new pod mounts the same claim `storage-loki-0` (design.md).
 
 ## Feasibility

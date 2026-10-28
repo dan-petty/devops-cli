@@ -19,6 +19,17 @@ The chart source of Application `loki` in `k8s/argocd/apps/loki.yaml` SHALL be t
 - **THEN** the release installs `grafana-community/loki` at version 20.0.2
 - **AND** the repository `grafana-community` of the stack is `https://grafana-community.github.io/helm-charts`
 
+### Requirement: The chart version sets the Loki image
+The chart source of Application `loki` SHALL give the chart the values file `k8s/logging/loki-values.yaml` and no other value: no `parameters`, `values` or `valuesObject`. `k8s/logging/loki-values.yaml` SHALL NOT set `loki.image` or `singleBinary.image`, which can set the tag or the digest of the Loki image. The chart then runs the Loki image of its `appVersion`.
+
+#### Scenario: The values set an older Loki image tag
+- **WHEN** `k8s/logging/loki-values.yaml` sets `loki.image.tag` or `singleBinary.image.tag`, for example to 3.6.11
+- **THEN** a test that reads the values fails, although the chart pin did not change
+
+#### Scenario: The Application gives the chart another value
+- **WHEN** the `helm` block of the chart source of Application `loki` holds a key other than `valueFiles`, or another values file
+- **THEN** a test that reads the Application fails
+
 ### Requirement: The Loki values set no key that the chart removed
 `k8s/logging/loki-values.yaml` SHALL NOT set `monitoring.selfMonitoring`, which the grafana-community chart removed in 9.0.0.
 

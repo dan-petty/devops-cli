@@ -45,3 +45,43 @@ def test_every_ollama_tier_runs_one_release_that_serves_multimodal_embedding_mod
     repository, tag = next(iter(images)).split(":")
     assert repository == "ollama/ollama"
     assert Version(tag) >= OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE
+
+
+def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729() -> None:
+    """`grafana/loki` in grafana.github.io/helm-charts became the Grafana Enterprise Logs chart,
+    and its newest version still runs Loki 3.6. CVE-2026-21729 affects Loki before 3.7.0: one
+    `detected_fields` request with a very large limit makes Loki allocate memory until it stops.
+    The open-source chart moved to grafana-community/helm-charts, and its 20.0.2 runs Loki 3.7.9
+    (#1632). The Argo CD Application installs that chart from a repository that its project
+    admits. The chart takes the Loki image from its appVersion, so the Application gives the
+    chart the values file and no other value, and the values set no Loki image: `loki.image` and
+    `singleBinary.image` can set an older tag or digest. The values keep no
+    `monitoring.selfMonitoring`, which that chart removed in 9.0.0."""
+    apps = REPO_ROOT / "k8s/argocd/apps"
+    application = yaml.safe_load((apps / "loki.yaml").read_text(encoding="utf-8"))
+    projects = {
+        doc["metadata"]["name"]: doc["spec"]
+        for doc in yaml.safe_load_all((apps / "projects.yaml").read_text(encoding="utf-8"))
+        if doc
+    }
+    values = yaml.safe_load(
+        (REPO_ROOT / "k8s/logging/loki-values.yaml").read_text(encoding="utf-8")
+    )
+    chart_source = next(source for source in application["spec"]["sources"] if "chart" in source)
+
+    assert {
+        "chart": (chart_source["repoURL"], chart_source["chart"], chart_source["targetRevision"]),
+        "project admits the repository": chart_source["repoURL"]
+        in projects[application["spec"]["project"]]["sourceRepos"],
+        "helm": chart_source.get("helm"),
+        "loki.image": values.get("loki", {}).get("image"),
+        "singleBinary.image": values.get("singleBinary", {}).get("image"),
+        "monitoring.selfMonitoring": values.get("monitoring", {}).get("selfMonitoring"),
+    } == {
+        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "20.0.2"),
+        "project admits the repository": True,
+        "helm": {"valueFiles": ["$values/k8s/logging/loki-values.yaml"]},
+        "loki.image": None,
+        "singleBinary.image": None,
+        "monitoring.selfMonitoring": None,
+    }
