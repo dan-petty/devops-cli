@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import BIN_GOLANGCI_LINT
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.golangci_lint import (
     DEFAULT_LINTERS,
@@ -15,6 +16,8 @@ from devops_cli.security.golangci_lint import (
     GolangciLintScanner,
 )
 from devops_cli.security.registry import ScannerRegistry
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_golangci_lint_scanner_registered_in_registry() -> None:
@@ -138,18 +141,17 @@ def test_golangci_lint_missing_binary_records_unavailable(
     assert "golangci-lint" in outcome.reason
 
 
-def test_golangci_lint_missing_go_records_failed(tmp_path: Path) -> None:
+def test_golangci_lint_missing_go_records_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
+) -> None:
     """Missing go toolchain records failed state, never zero findings."""
     (tmp_path / "go.mod").write_text("module example.com/test\ngo 1.23\n", encoding="utf-8")
     (tmp_path / "main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    scanner_fake.script(BIN_GOLANGCI_LINT, ToolAnswer())
+    # golangci-lint is installed, and go is not: PATH holds only the fake's programs.
+    monkeypatch.setenv("PATH", str(scanner_fake.bin_dir))
 
-    scanner = GolangciLintScanner()
-
-    def fake_check_binary(name: str) -> bool:
-        return name != "go"
-
-    with patch("devops_cli.security.golangci_lint.check_binary", side_effect=fake_check_binary):
-        outcome = scanner.scan(tmp_path)
+    outcome = GolangciLintScanner().scan(tmp_path)
 
     assert isinstance(outcome, ScanOutcome)
     assert outcome.status == "failed"
