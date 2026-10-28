@@ -11,9 +11,9 @@
 
 ## 2. The devops-cli dashboard shows the GitHub requests
 
-- [ ] Add a failing test: the row "GitHub API" and the queries of its four panels
+- [x] Add a failing test: the row "GitHub API" and the queries of its four panels
   - Verification: `uv run devops ci test tests/test_telemetry_instruments.py`
-- [ ] Add the row and its panels to `devops-cli.json`
+- [x] Add the row and its panels to `devops-cli.json`
   - Verification: `uv run devops ci test tests/test_telemetry_instruments.py tests/test_grafana_dashboards.py tests/test_k8s_monitoring_dashboards.py`
 
 ## 3. Archive

@@ -332,6 +332,38 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     )
 
 
+def _row_panels(dashboard: Path, row_title: str) -> list[dict[str, Any]]:
+    """The panels between the row `row_title` and the next row, in the order the file holds."""
+    panels = json.loads(dashboard.read_text(encoding="utf-8"))["panels"]
+    titles = [panel.get("title") if panel.get("type") == "row" else None for panel in panels]
+    start = titles.index(row_title) + 1
+    end = next((i for i in range(start, len(panels)) if titles[i] is not None), len(panels))
+    return panels[start:end]
+
+
+def test_the_github_api_row_charts_requests_throttles_and_graphql_points() -> None:
+    """The GitHub API row shows the requests and the throttles by resource, the seconds spent
+    waiting before a retry, and the GraphQL points (#814)."""
+    panels = _row_panels(DASHBOARDS / "devops-cli.json", "GitHub API")
+
+    assert {panel["title"]: _panel_queries(panel) for panel in panels} == {
+        "GitHub Requests by Resource": (
+            "sum by (resource) (increase(devops_cli_github_requests_total[1h]))"
+        ),
+        "GitHub Throttles by Resource": (
+            "histogram_count(sum by (resource) "
+            "(increase(devops_cli_github_throttle_wait_seconds[1h])))"
+        ),
+        "GitHub Throttle Wait by Resource": (
+            "histogram_sum(sum by (resource) "
+            "(increase(devops_cli_github_throttle_wait_seconds[1h])))"
+        ),
+        "GitHub GraphQL Points": (
+            "sum(increase(devops_cli_github_graphql_points_total[1h])) or vector(0)"
+        ),
+    }
+
+
 def test_a_command_group_without_errors_charts_a_zero_error_share() -> None:
     """Verify a command group with runs and no error series shows 0, not a missing line.
 
