@@ -11,7 +11,7 @@
 
 ## 2. The guard refuses GCONV_PATH and the bash keys that run code
 
-- [x] 2.1 Add failing tests: a caller override of `GCONV_PATH`, `SHELLOPTS`, `BASHOPTS` or `PS4`, in upper and lower case, raises `SecurityError`; `DYLD_VERSIONED_LIBRARY_PATH`, `DYLD_IMAGE_SUFFIX`, `DYLD_EXAMPLE_KEY` and `BASH_FUNC_x()` pin the prefix rule
+- [x] 2.1 Add failing tests: a caller override of `GCONV_PATH`, `SHELLOPTS`, `BASHOPTS` or `PS4`, in upper and lower case, raises `SecurityError`; `DYLD_VERSIONED_LIBRARY_PATH`, `DYLD_IMAGE_SUFFIX`, `DYLD_EXAMPLE_KEY`, `BASH_FUNC_x()` and `BASH_FUNC_git%%` pin the prefix rule
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 - [x] 2.2 Add `GCONV_PATH`, `SHELLOPTS`, `BASHOPTS` and `PS4` to `CONST_CODE_LOADING_ENV_PATTERNS`, and write its comment as one short sentence for each source
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_review_rules_pack.py`

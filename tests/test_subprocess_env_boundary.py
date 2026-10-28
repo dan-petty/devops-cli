@@ -158,7 +158,8 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 # LD_PRELOAD (ld.so(8)). glibc iconv loads the gconv modules of GCONV_PATH (iconv(1)). The macOS
 # loader reads each DYLD_ key (dyld(1)). bash reads BASH_ENV, ENV, SHELLOPTS, BASHOPTS and PS4, and
 # defines a function from each BASH_FUNC_ key (bash(1)). DYLD_EXAMPLE_KEY, which dyld(1) does not
-# list, and BASH_FUNC_x(), the export form of the patched bash of Red Hat, pin the prefix rule.
+# list, BASH_FUNC_x(), the export form of the patched bash of Red Hat, and two function names pin
+# the prefix rule. BASH_FUNC_git%% replaces the git command in a bash child.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
@@ -180,6 +181,7 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "PS4",
     "BASH_FUNC_x%%",
     "BASH_FUNC_x()",
+    "BASH_FUNC_git%%",
 )
 
 

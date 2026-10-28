@@ -16,7 +16,7 @@
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
 
 #### Scenario: An exported bash function
-- **WHEN** a caller builds a child environment with the override `BASH_FUNC_x%%`, `bash_func_x%%` or `BASH_FUNC_x()`
+- **WHEN** a caller builds a child environment with the override `BASH_FUNC_x%%`, `bash_func_x%%`, `BASH_FUNC_x()` or `BASH_FUNC_git%%`
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
 
 #### Scenario: A bash option or trace prompt
