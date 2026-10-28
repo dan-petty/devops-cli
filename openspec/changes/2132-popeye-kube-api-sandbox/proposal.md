@@ -13,7 +13,7 @@ Two more defects stand in the path of the fix:
 
 ## What Changes
 
-- The tool sandbox gets one network profile, `kube-api`. A `ToolRequest` selects it with `network=KubeApiNetwork(context=...)`. The request refuses the profile for any tool other than `popeye`, and for a request that names a `program`. `BaseSecurityScanner.tool_network` selects no network, and only `PopeyeScanner` selects `kube-api`, for the context of its scan. `DirectToolExecutor` refuses a request that selects a network profile.
+- The tool sandbox gets one network profile, `kube-api`. A `ToolRequest` selects it with `network=KubeApiNetwork(context=...)`. The request refuses the profile for any tool other than `popeye`, and for a request that names a `program`. `BaseSecurityScanner.tool_network` selects no network, and only `PopeyeScanner` selects `kube-api`, for the context of its scan. `DirectToolExecutor` refuses a request that selects a network profile, and so does `ToolExecutorFake` with `network=host`, the fake that stands in for it. `SandboxToolExecutor.command` refuses a relay for a request that selects no profile.
 - `SandboxToolExecutor` runs a `kube-api` request as one command through `run_subprocess`:
   - A shell outside the sandbox starts `kubectl proxy --unix-socket=<scratch>/kube-api.sock --context=<context>` under `setpriv --pdeathsig KILL`. `kubectl proxy` reads the kubeconfig and the credentials of the user outside the sandbox. It refuses the methods POST, PUT, PATCH and DELETE, and the exec, attach, port-forward and proxy paths. The shell waits for the socket, starts bubblewrap, and stops the proxy when bubblewrap ends.
   - bubblewrap keeps `--unshare-all`, so the sandbox has no network of its own. It binds the scratch directory read-only. In the sandbox, a shell starts `socat`, which listens on `127.0.0.1:8001` and relays each connection to the socket. Popeye then starts under `prlimit`, with `KUBECONFIG` set to the kubeconfig in the scratch directory. That kubeconfig has no credentials. It names `http://127.0.0.1:8001` and the name of the context, and no namespace.
@@ -23,7 +23,7 @@ Two more defects stand in the path of the fix:
 - `run_popeye_scan` takes no `workdir`, and loses its unused `save_output`. Popeye starts in a new empty directory, the only tree that the sandbox shows it. The agent tool `scan_popeye` no longer checks the working directory against the workspace, because Popeye does not start there.
 - `devops k8s audit` says that the audit did not run, with the status and the reason, and exits 1, when Popeye did not run. It reports a pass only when Popeye ran and found nothing, as `devops k8s lint` does.
 - The devcontainer image installs `socat`.
-- `SECURITY.md`, `docs/SELF_IMPROVEMENT.md`, `docs/DEVCONTAINER_USAGE.md` and the docstrings of `src/devops_cli/security/tool_executor.py` describe the profile, the `network` field and the new default of Popeye.
+- `SECURITY.md`, `docs/SELF_IMPROVEMENT.md`, `docs/DEVCONTAINER_USAGE.md`, `docs/TESTING.md` and the docstrings of `src/devops_cli/security/tool_executor.py` describe the profile, the `network` field and the new default of Popeye.
 - The change alters what `devops k8s audit`, the agent tool `scan_popeye` and the record of a tool run do and show, so it carries spec deltas.
 
 ## Capabilities
@@ -41,9 +41,9 @@ Two more defects stand in the path of the fix:
 ## Impact
 
 - Code: `src/devops_cli/security/tool_executor.py`, `src/devops_cli/sandbox/kube_api.py` (new), `src/devops_cli/security/base.py`, `src/devops_cli/security/dive.py`, `src/devops_cli/security/popeye.py`, `src/devops_cli/commands/k8s/security_audit.py`, `src/devops_cli/ai/tools/builtin_tools.py`, `src/devops_cli/config/constants.py` and `src/devops_cli/lang/en/messages.py`.
-- Tests: `tests/security/test_kube_api_network_profile.py` (new), `tests/commands/test_k8s_audit.py` (new), `tests/test_secops.py`, `tests/test_builtin_tools.py`, `tests/test_k8s.py` `tests/test_security_sarif.py` and `tests/support/fakes/scanners.py`.
+- Tests: `tests/security/test_kube_api_network_profile.py` (new), `tests/commands/test_k8s_audit.py` (new), `tests/test_secops.py`, `tests/test_builtin_tools.py`, `tests/test_k8s.py`, `tests/test_security_sarif.py`, `tests/test_tool_executor_contract.py`, `tests/support/fakes/tool_executor.py` and `tests/support/fakes/scanners.py`.
 - Build: `.devcontainer/Dockerfile`.
-- Documentation: `SECURITY.md`, `docs/SELF_IMPROVEMENT.md` and `docs/DEVCONTAINER_USAGE.md`.
+- Documentation: `SECURITY.md`, `docs/SELF_IMPROVEMENT.md`, `docs/DEVCONTAINER_USAGE.md` and `docs/TESTING.md`.
 - The change fits one pull request.
 
 ## Feasibility

@@ -97,4 +97,4 @@ The command checks the status of the outcome, as `devops k8s lint` does. For a s
 
 - The host needs `socat`, `kubectl` and `setpriv`. A host without one of them runs no Popeye scan, and the scan names the program. The devcontainer image installs `socat`. `setpriv` is in util-linux, as `prlimit` is.
 - The two shell scripts are product code that only a run on a host with a cluster tests in full. The tests hold their arguments, and a person can run `devops k8s audit` on a cluster to see the scripts work.
-- The `network` field adds one key to each record in `profile.json` and in `findings.sarif`.
+- The `network` field adds one key to each record in `profile.json` and in `findings.sarif`. The field is required. A `profile.json` that a review wrote before this change has records with no `network`, so `ReviewProfile.load` reads it as no profile, and `devops review stats`, the review score and the history leave that session out. devops-cli keeps no backward compatibility before 1.0.0, so the change adds no default for old records.

@@ -67,8 +67,8 @@ so the export does not write these names:
   `-dirty` identifies no revision of the files that the tool scanned.
 
 The config, ruleset and targets digests have no SARIF name. A SARIF hash is the hash of one artifact
-(section 3.24.11), and each of these digests covers a group of files. `executor` has no SARIF name:
-it says whether the run was confined.
+(section 3.24.11), and each of these digests covers a group of files. `executor` and `network` have
+no SARIF name: they say whether the run was confined, and which network the tool had.
 
 `RecordingToolExecutor` wraps another executor and keeps the `ToolRun` of every run. A review gives
 its scanners one, and shows the records in its profile, in `review.md` and in `findings.sarif`.
