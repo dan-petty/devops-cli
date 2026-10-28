@@ -947,11 +947,12 @@ def test_try_reuse_cached_analysis_meta_invalidation(tmp_path: Path) -> None:
     assert _try_reuse_cached_analysis_meta(size_mismatched, test_file) is None
 
 
-def test_render_single_finding_panel_escapes_malformed_markup(tmp_path: Path) -> None:
+def test_render_finding_panel_escapes_malformed_markup() -> None:
     """Verify that code snippets with unescaped closing tags like [/{status_color}] do not crash Rich."""
     from rich.console import Console
 
-    orchestrator = ReviewPipelineOrchestrator(llm_client=MagicMock(), target_dir=tmp_path)
+    from devops_cli.review.report import render_finding_panel
+
     console = Console(record=True, color_system=None)
 
     finding = SavedFinding(
@@ -965,7 +966,7 @@ def test_render_single_finding_panel_escapes_malformed_markup(tmp_path: Path) ->
     )
 
     # Must execute cleanly without raising rich.errors.MarkupError
-    orchestrator._render_single_finding_panel(console, finding, 1)
+    render_finding_panel(console, finding, 1)
     output = console.export_text()
     assert "Finding #1" in output
     assert "tables.py:402" in output

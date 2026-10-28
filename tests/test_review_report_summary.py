@@ -6,24 +6,26 @@ from pathlib import Path
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import SavedFinding
+from devops_cli.review.report import format_markdown_fix, render_markdown
+from tests.support.builders import make_report_input
 
 
-def _make_dummy_pipeline(tmp_path: Path) -> ReviewPipelineOrchestrator:
-    pipeline = ReviewPipelineOrchestrator(
-        target_dir=tmp_path,
-        session_id="20260906-test-exec-summary",
-    )
-    return pipeline
+def _report_of_a_run(tmp_path: Path, static_analyzers: dict[str, str]) -> str:
+    """review.md of a session with no file, whose scan left `static_analyzers`."""
+    pipeline = ReviewPipelineOrchestrator(target_dir=tmp_path, session_id="20260906-analyzers")
+    pipeline.static_analyzers = static_analyzers
+    return pipeline.generate_consolidated_report([])[1]
 
 
-def test_consolidated_markdown_report_clean_executive_summary(tmp_path: Path) -> None:
-    pipeline = _make_dummy_pipeline(tmp_path)
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-clean-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=[],
-        all_deps=[],
-        all_nets=[],
+def test_consolidated_markdown_report_clean_executive_summary() -> None:
+    report_md = render_markdown(
+        make_report_input(
+            session_id="test-clean-session",
+            generated_at="2026-09-06T12:00:00Z",
+            reportable_findings=[],
+            dependencies=[],
+            network_references=[],
+        )
     )
 
     assert (
@@ -37,8 +39,7 @@ def test_consolidated_markdown_report_clean_executive_summary(tmp_path: Path) ->
     ) == (True, True, True, True, True, True, True)
 
 
-def test_consolidated_markdown_report_with_findings_patterns(tmp_path: Path) -> None:
-    pipeline = _make_dummy_pipeline(tmp_path)
+def test_consolidated_markdown_report_with_findings_patterns() -> None:
 
     findings = [
         SavedFinding(
@@ -76,12 +77,14 @@ def test_consolidated_markdown_report_with_findings_patterns(tmp_path: Path) -> 
         ),
     ]
 
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-findings-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=findings,
-        all_deps=[],
-        all_nets=[],
+    report_md = render_markdown(
+        make_report_input(
+            session_id="test-findings-session",
+            generated_at="2026-09-06T12:00:00Z",
+            reportable_findings=findings,
+            dependencies=[],
+            network_references=[],
+        )
     )
 
     lower_report = report_md.lower()
@@ -98,11 +101,8 @@ def test_consolidated_markdown_report_with_findings_patterns(tmp_path: Path) -> 
     ) == (True, True, True, True, True, True)
 
 
-def test_executive_summary_single_low_finding_described_by_own_theme_only(
-    tmp_path: Path,
-) -> None:
+def test_executive_summary_single_low_finding_described_by_own_theme_only() -> None:
     """A review with a single low finding describes only that finding's theme without generic security text."""
-    pipeline = _make_dummy_pipeline(tmp_path)
     finding = SavedFinding(
         id=1,
         severity="LOW",
@@ -114,12 +114,14 @@ def test_executive_summary_single_low_finding_described_by_own_theme_only(
         reportable=True,
         persona_title="Senior QA Engineer",
     )
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-low-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=[finding],
-        all_deps=[],
-        all_nets=[],
+    report_md = render_markdown(
+        make_report_input(
+            session_id="test-low-session",
+            generated_at="2026-09-06T12:00:00Z",
+            reportable_findings=[finding],
+            dependencies=[],
+            network_references=[],
+        )
     )
     assert (
         "Missing docstring in helper function" in report_md,
@@ -129,11 +131,10 @@ def test_executive_summary_single_low_finding_described_by_own_theme_only(
     ) == (True, True, True, True)
 
 
-def test_unqueried_dependencies_not_marked_clean(tmp_path: Path) -> None:
+def test_unqueried_dependencies_not_marked_clean() -> None:
     """Unqueried dependencies default to UNCHECKED / Unchecked and emit no false good patterns."""
     from devops_cli.models.vulnerability import DependencySpec
 
-    pipeline = _make_dummy_pipeline(tmp_path)
     dep_unqueried = DependencySpec(
         name="some-pkg",
         version_range=">=1.0.0",
@@ -144,12 +145,14 @@ def test_unqueried_dependencies_not_marked_clean(tmp_path: Path) -> None:
         "Unchecked",
         False,
     )
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-dep-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=[],
-        all_deps=[dep_unqueried],
-        all_nets=[],
+    report_md = render_markdown(
+        make_report_input(
+            session_id="test-dep-session",
+            generated_at="2026-09-06T12:00:00Z",
+            reportable_findings=[],
+            dependencies=[dep_unqueried],
+            network_references=[],
+        )
     )
     assert (
         "### Key Good Patterns Observed" not in report_md,
@@ -157,11 +160,10 @@ def test_unqueried_dependencies_not_marked_clean(tmp_path: Path) -> None:
     ) == (True, True)
 
 
-def test_queried_dependencies_clean_yields_good_pattern(tmp_path: Path) -> None:
+def test_queried_dependencies_clean_yields_good_pattern() -> None:
     """Queried clean dependencies emit Supply Chain & Lockfile Integrity pattern with counts."""
     from devops_cli.models.vulnerability import DependencySpec
 
-    pipeline = _make_dummy_pipeline(tmp_path)
     dep_clean = DependencySpec(
         name="pydantic",
         version_range="2.11.0",
@@ -170,12 +172,14 @@ def test_queried_dependencies_clean_yields_good_pattern(tmp_path: Path) -> None:
         security_status="✓ Clean",
         queried=True,
     )
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-dep-clean-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=[],
-        all_deps=[dep_clean],
-        all_nets=[],
+    report_md = render_markdown(
+        make_report_input(
+            session_id="test-dep-clean-session",
+            generated_at="2026-09-06T12:00:00Z",
+            reportable_findings=[],
+            dependencies=[dep_clean],
+            network_references=[],
+        )
     )
     assert (
         "### Key Good Patterns Observed" in report_md,
@@ -189,21 +193,16 @@ def test_static_analyzers_line_counts_only_the_analyzers_that_ran(tmp_path: Path
     """The executive summary's analyzer line counts an analyzer as run only when its state is
     `ran`, names those on built-in patterns, failed or not installed apart, and is no good
     pattern: a failed scan is not one (#948)."""
-    pipeline = _make_dummy_pipeline(tmp_path)
-    pipeline.static_analyzers = {
-        "Bandit": "ran",
-        "Kube-linter": "no files",
-        "Pluto": "not installed",
-        "Trivy": "failed",
-        "Semgrep": "ran",
-        "Gitleaks": "built-in patterns",
-    }
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-analyzers-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=[],
-        all_deps=[],
-        all_nets=[],
+    report_md = _report_of_a_run(
+        tmp_path,
+        {
+            "Bandit": "ran",
+            "Kube-linter": "no files",
+            "Pluto": "not installed",
+            "Trivy": "failed",
+            "Semgrep": "ran",
+            "Gitleaks": "built-in patterns",
+        },
     )
     assert (
         "### Key Good Patterns Observed" in report_md,
@@ -216,15 +215,7 @@ def test_static_analyzers_line_counts_only_the_analyzers_that_ran(tmp_path: Path
 def test_static_analyzers_line_names_an_analyzer_with_a_coverage_gap(tmp_path: Path) -> None:
     """A Semgrep scan that ran and left files out has the state `coverage_gap`. The analyzer line
     names it apart from the analyzers that ran, so the line does not hide the scan (#1144)."""
-    pipeline = _make_dummy_pipeline(tmp_path)
-    pipeline.static_analyzers = {"Gitleaks": "ran", "Semgrep": "coverage_gap"}
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-gap-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=[],
-        all_deps=[],
-        all_nets=[],
-    )
+    report_md = _report_of_a_run(tmp_path, {"Gitleaks": "ran", "Semgrep": "coverage_gap"})
 
     assert (
         "**Static Security Analysis**: 1 analyzer(s) ran (Gitleaks). Static analyzers reported "
@@ -232,21 +223,22 @@ def test_static_analyzers_line_names_an_analyzer_with_a_coverage_gap(tmp_path: P
     )
 
 
-def test_network_references_states_counts(tmp_path: Path) -> None:
+def test_network_references_states_counts() -> None:
     """Network references in review scope state local and external counts."""
     from devops_cli.models.vulnerability import NetworkReference
 
-    pipeline = _make_dummy_pipeline(tmp_path)
     nets = [
         NetworkReference(target="127.0.0.1", reference_type="ip", is_local=True),
         NetworkReference(target="https://example.com", reference_type="url", is_local=False),
     ]
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-nets-session",
-        generated_at="2026-09-06T12:00:00Z",
-        reportable_findings=[],
-        all_deps=[],
-        all_nets=nets,
+    report_md = render_markdown(
+        make_report_input(
+            session_id="test-nets-session",
+            generated_at="2026-09-06T12:00:00Z",
+            reportable_findings=[],
+            dependencies=[],
+            network_references=nets,
+        )
     )
     assert (
         "### Key Good Patterns Observed" in report_md,
@@ -255,17 +247,13 @@ def test_network_references_states_counts(tmp_path: Path) -> None:
     ) == (True, True, True)
 
 
-def test_consolidated_markdown_report_with_errored_files(tmp_path: Path) -> None:
+def test_consolidated_markdown_report_with_errored_files() -> None:
     """Ensure that reviews encountering provider or analysis errors do not report a false-clean executive summary."""
-    pipeline = _make_dummy_pipeline(tmp_path)
-    pipeline.errored_files["src/devops_cli/commands/ai.py"] = "Review: Cannot connect to Ollama"
-
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-errored-session",
-        generated_at="2026-09-11T02:00:00Z",
-        reportable_findings=[],
-        all_deps=[],
-        all_nets=[],
+    report_md = render_markdown(
+        make_report_input(
+            session_id="test-errored-session",
+            errored_files={"src/devops_cli/commands/ai.py": "Review: Cannot connect to Ollama"},
+        )
     )
 
     assert "## Executive Summary" in report_md
@@ -298,8 +286,6 @@ def test_format_error_detail_sanitizes_and_bounds() -> None:
 
 def test_format_markdown_fix_balances_and_escapes() -> None:
     """Ensure fix recommendations are cleanly formatted into Markdown with balanced code fences."""
-    from devops_cli.ai.review.pipeline import format_markdown_fix
-
     # 1. Plain code with backticks inside: requires outer 4 backticks
     fix_with_ticks = 'return f"`{var}`"'
     res1 = format_markdown_fix(fix_with_ticks)
@@ -388,9 +374,8 @@ def _find_table_column_mismatches(markdown_lines: list[str]) -> list[str]:
     return mismatches
 
 
-def test_consolidated_markdown_report_markdown_invariants(tmp_path: Path) -> None:
+def test_consolidated_markdown_report_markdown_invariants() -> None:
     """Ensure generated review report strictly adheres to Markdown syntax invariants."""
-    pipeline = _make_dummy_pipeline(tmp_path)
 
     findings = [
         SavedFinding(
@@ -419,12 +404,14 @@ def test_consolidated_markdown_report_markdown_invariants(tmp_path: Path) -> Non
         ),
     ]
 
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="invariant-test-session",
-        generated_at="2026-09-18T12:00:00Z",
-        reportable_findings=findings,
-        all_deps=[],
-        all_nets=[],
+    report_md = render_markdown(
+        make_report_input(
+            session_id="invariant-test-session",
+            generated_at="2026-09-18T12:00:00Z",
+            reportable_findings=findings,
+            dependencies=[],
+            network_references=[],
+        )
     )
 
     # 1. Even number of total code fences (zero unclosed blocks)
@@ -446,9 +433,8 @@ def test_consolidated_markdown_report_markdown_invariants(tmp_path: Path) -> Non
     ) == (0, 0, 0)
 
 
-def test_consolidated_markdown_report_none_severity(tmp_path: Path) -> None:
+def test_consolidated_markdown_report_none_severity() -> None:
     """Verify that findings with severity=None default safely to INFORMATIONAL without error."""
-    pipeline = _make_dummy_pipeline(tmp_path)
     finding = SavedFinding(
         id=1,
         location="src/test.py:10",
@@ -460,12 +446,14 @@ def test_consolidated_markdown_report_none_severity(tmp_path: Path) -> None:
         persona_title="Senior QA Engineer",
     )
     object.__setattr__(finding, "severity", None)
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="none-severity-session",
-        generated_at="2026-09-18T12:00:00Z",
-        reportable_findings=[finding],
-        all_deps=[],
-        all_nets=[],
+    report_md = render_markdown(
+        make_report_input(
+            session_id="none-severity-session",
+            generated_at="2026-09-18T12:00:00Z",
+            reportable_findings=[finding],
+            dependencies=[],
+            network_references=[],
+        )
     )
     assert "| **INFORMATIONAL** |" in report_md
     assert "### 1. [INFORMATIONAL] Finding with None severity" in report_md

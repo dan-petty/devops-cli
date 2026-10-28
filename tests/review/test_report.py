@@ -1,4 +1,4 @@
-"""The review report: review.md and the terminal view, rendered from one session (#1008)."""
+"""The review report: review.md and the terminal view of one session (#1008)."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from syrupy.assertion import SnapshotAssertion
 from devops_cli.ai.kb import DriftManual
 from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.history import load_review_history
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
@@ -23,8 +24,11 @@ from devops_cli.models.vulnerability import (
     NetworkReference,
     NetworkReputationRecord,
 )
-from devops_cli.review.admission import ToolAnchor, admit
+from devops_cli.review.admission import admit
 from devops_cli.review.analysis import AnalysisReport, RatioRecord, SamplingRecord
+from devops_cli.review.anchors import ToolAnchor
+from devops_cli.review.report import render_markdown
+from tests.support.builders import make_report_input
 
 _SESSION = "20261028-120000"
 # A fixed width, wide enough that no line wraps, so the recorded view is the same on any host.
@@ -158,27 +162,19 @@ def _payload() -> FileReviewPayload:
     )
 
 
-def _admitted() -> list[Any]:
-    """An admitted scanner finding of the change, and one its inline marker suppresses."""
-    anchor = ToolAnchor(run_id="run-1", result_index=0, rule_id="B101")
-    shared = {
-        "anchor": anchor,
-        "tool": "bandit",
-        "rule_id": "B101",
-        "path": "src/app.py",
-        "line": 1,
-        "commit_files": {"src/app.py"},
-    }
-    open_finding = admit(
-        message="assert used", file_content_getter=lambda _: "assert x\n", **shared
-    )
-    suppressed = admit(
+def _admitted(content: str, **change: Any) -> Any:
+    """Bandit's B101 at src/app.py:1 of the change, admitted over `content`."""
+    return admit(
+        anchor=ToolAnchor(run_id="run-1", result_index=0, rule_id="B101"),
+        tool="bandit",
+        rule_id="B101",
+        path="src/app.py",
         message="assert used",
-        file_content_getter=lambda _: "assert x  # nosec B101\n",
-        added_diff_lines={("src/app.py", 1)},
-        **shared,
+        line=1,
+        commit_files={"src/app.py"},
+        file_content_getter=lambda _: content,
+        **change,
     )
-    return [open_finding, suppressed]
 
 
 def _orchestrator(tmp_path: Path, *, full_output: bool) -> ReviewPipelineOrchestrator:
@@ -200,7 +196,11 @@ def _orchestrator(tmp_path: Path, *, full_output: bool) -> ReviewPipelineOrchest
         {"file": "src/app.py", "function": "run", "before": 4, "after": 9},
         {"file": "src/app.py", "function": "parse", "before": None, "after": 3},
     ]
-    orchestrator.admitted_scanner_findings = _admitted()
+    # An admitted finding of the change, and one its added inline marker suppresses.
+    orchestrator.admitted_scanner_findings = [
+        _admitted("assert x\n"),
+        _admitted("assert x  # nosec B101\n", added_diff_lines={("src/app.py", 1)}),
+    ]
     orchestrator.analysis_report = _ANALYSIS
     return orchestrator
 
@@ -233,3 +233,62 @@ def test_the_full_terminal_view_of_a_session(
 ) -> None:
     """Verify the --full-output terminal view of one session keeps its exact text."""
     assert _rendered(tmp_path, terminal, full_output=True)[1] == snapshot
+
+
+def _section(markdown: str, heading: str) -> list[str]:
+    """The lines of one `## ` section of review.md, without its heading; none when it is absent."""
+    if f"\n{heading}\n" not in markdown:
+        return []
+    return markdown.split(f"\n{heading}\n", 1)[1].split("\n## ", 1)[0].strip().splitlines()
+
+
+def test_the_report_lists_the_knowledge_base_drift_when_no_group_analysis_ran() -> None:
+    """Verify the drift the orchestrator read is listed by path, and a group analysis takes its
+    place when one ran."""
+    drift = [
+        DriftManual(path="it_domains/tools/b.md", reason="tool:b not found"),
+        DriftManual(path="it_domains/tools/a.md", reason="tool:a not found"),
+    ]
+
+    alone = render_markdown(make_report_input(reference_drift=drift))
+    with_analysis = render_markdown(
+        make_report_input(reference_drift=drift, analysis_report=_ANALYSIS)
+    )
+
+    assert (
+        _section(alone, "## Reference coverage: drift"),
+        _section(with_analysis, "## Reference coverage: drift"),
+        "## Model Analysis (Model-Written)" in with_analysis,
+    ) == (
+        [
+            "- `it_domains/tools/a.md`: tool:a not found",
+            "- `it_domains/tools/b.md`: tool:b not found",
+        ],
+        [],
+        True,
+    )
+
+
+def test_the_category_baseline_compares_with_the_history_it_is_given(tmp_path: Path) -> None:
+    """Verify the baseline renders over the given history, and that an input with no history
+    renders none: the report reads no history itself."""
+    findings = [SavedFinding(title="Weak hash", location="src/util.py:4", category="cryptography")]
+
+    without = render_markdown(make_report_input(reportable_findings=findings))
+    over_history = render_markdown(
+        make_report_input(reportable_findings=findings, history=load_review_history(tmp_path))
+    )
+
+    assert (
+        _section(without, "## Category Verification & False-Positive Baseline"),
+        _section(over_history, "## Category Verification & False-Positive Baseline"),
+    ) == (
+        [],
+        [
+            "| Category | Session Total | Session Invalidated | Session FP Rate | Historical Baseline FP Rate |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+            "| `cryptography` | 1 | 0 | 0.0% | — (baseline established) |",
+            "",
+            "_Baseline: 0 earlier session(s), 0 repeat session(s) collapsed, this session excluded._",
+        ],
+    )

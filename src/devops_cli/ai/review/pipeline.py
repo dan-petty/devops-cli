@@ -20,7 +20,7 @@ import inspect
 import logging
 import re
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
@@ -36,7 +36,6 @@ from devops_cli.ai.analyze.symbols import (
     with_symbol_delta,
 )
 from devops_cli.ai.client.network import uses_gateway_slots
-from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
 from devops_cli.ai.review.cited_code import record_cited_code
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.path_classes import (
@@ -47,10 +46,6 @@ from devops_cli.ai.review.path_classes import (
 from devops_cli.ai.review.profile import active_profiler
 from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.review_environment import reviewed_tree
-from devops_cli.ai.review.sanitization import (
-    balance_markdown_fences,
-    escape_markdown_title,
-)
 from devops_cli.ai.review.verdicts import (
     apply_verdict,
     assert_verdict_invariants,
@@ -61,11 +56,7 @@ from devops_cli.ai.review_schema import (
     ReviewCheckout,
     ReviewSessionPayload,
     SavedFinding,
-    compute_verdict_distributions,
-    format_clean_text_field,
-    is_field_discriminating,
     sort_findings,
-    strip_outer_markdown_bold,
 )
 from devops_cli.config.commands import (
     BIN_BANDIT,
@@ -80,19 +71,12 @@ from devops_cli.config.commands import (
 from devops_cli.config.constants import (
     CONST_CANARY_TOOL_TO_ANALYZER,
     CONST_DEFAULT_REVIEW_ADVISORY_RULES,
-    CONST_DEPENDENCY_SEVERITY_CLEAN,
-    CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
     CONST_LOCKFILE_NAMES,
     CONST_MAX_FILE_SIZE_BYTES,
-    CONST_REVIEW_CONSOLE_PANEL_SEVERITIES,
-    CONST_REVIEW_CONSOLE_TABLE_SEVERITIES,
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_SECRET_SCANNER_RULES,
-    CONST_REVIEW_STATUS_ORDER,
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
     CONST_SEVERITY_CRITICAL,
-    CONST_SEVERITY_INFO,
-    CONST_SEVERITY_ORDER,
 )
 from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
@@ -118,12 +102,10 @@ from devops_cli.models.vulnerability import (
 from devops_cli.output import (
     escape_text,
     format_location,
-    get_console,
     print_info,
-    print_panel,
     print_success,
-    print_table,
 )
+from devops_cli.review.report import ReportInput, render_console, render_markdown
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.review.severity import load_severity_caps
 from devops_cli.review.suppression import load_review_suppressions
@@ -1573,195 +1555,6 @@ def _call_scanner_helper(
     return list(res) if isinstance(res, list) else []
 
 
-def _get_finding_status_badge(status: str) -> str:
-    """Return color-styled badge for finding verification status."""
-    st_upper = status.upper()
-    if st_upper == "VERIFIED":
-        return "[green]✓ VERIFIED[/green]"
-    if st_upper == "MITIGATED":
-        return "[cyan]~ MITIGATED[/cyan]"
-    if st_upper == "INVALIDATED":
-        return "[red]✗ INVALIDATED[/red]"
-    return f"[yellow]? {status}[/yellow]"
-
-
-_DEP_SEV_STYLES: dict[str, tuple[str, str]] = {
-    "CRITICAL": ("[bold red]CRITICAL[/bold red]", "[bold red]{status}[/bold red]"),
-    "HIGH": ("[red]HIGH[/red]", "[red]{status}[/red]"),
-    "MEDIUM": ("[yellow]MEDIUM[/yellow]", "[yellow]{status}[/yellow]"),
-    "LOW": ("[cyan]LOW[/cyan]", "[cyan]{status}[/cyan]"),
-    "CLEAN": ("[green]CLEAN[/green]", "[green]{status}[/green]"),
-    "UNCHECKED": ("[dim]UNCHECKED[/dim]", "[dim]{status}[/dim]"),
-    "NOT_QUERIED": ("[dim]NOT QUERIED[/dim]", "[dim]{status}[/dim]"),
-}
-_DEFAULT_DEP_SEV_STYLE: tuple[str, str] = ("[dim]UNCHECKED[/dim]", "[dim]{status}[/dim]")
-
-
-def _format_dependency_table_row(d: DependencySpec) -> list[str]:
-    """Format a single dependency specification into table cell strings, its text escaped."""
-    sev_str, status_template = _DEP_SEV_STYLES.get(d.severity.upper(), _DEFAULT_DEP_SEV_STYLE)
-    status_str = status_template.format(status=escape_text(d.security_status))
-
-    return [
-        sev_str,
-        escape_text(d.name),
-        escape_text(d.version_range),
-        escape_text(d.ecosystem),
-        status_str,
-        escape_text(d.location) or "—",
-    ]
-
-
-def _format_network_ref_table_row(n: NetworkReference) -> list[str]:
-    """Format a single network reference into table cell strings, its text escaped."""
-    scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
-    color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
-    return [
-        escape_text(n.target),
-        escape_text(n.reference_type),
-        scope_str,
-        f"[{color}]{escape_text(n.security_status)}[/{color}]",
-        escape_text(n.location) or "—",
-    ]
-
-
-# The review.md sections the terminal points at for what it only summarizes (#987).
-_REPORT_DEPENDENCIES_SECTION = "External Dependencies"
-_REPORT_NETWORK_SECTION = "Network References & Endpoints"
-
-_CONSOLE_FINDING_COLUMNS: list[Any] = [
-    ("#", "dim"),
-    ("Severity", "center"),
-    ("Location", "bold cyan"),
-    "Title",
-    ("Status", "center"),
-    ("Producer", "dim"),
-    ("Conf", "dim"),
-]
-_CONSOLE_SEVERITY_BADGES: dict[str, str] = {
-    "CRITICAL": "[bold red]CRITICAL[/bold red]",
-    "HIGH": "[red]HIGH[/red]",
-    "MEDIUM": "[yellow]MEDIUM[/yellow]",
-    "LOW": "[cyan]LOW[/cyan]",
-    "INFO": "[green]INFO[/green]",
-}
-_CONSOLE_STATUS_BADGES: dict[str, str] = {
-    "VERIFIED": "[green]VERIFIED[/green]",
-    "FLAGGED": "[yellow]FLAGGED[/yellow]",
-    "MITIGATED": "[cyan]MITIGATED[/cyan]",
-    "INVALIDATED": "[red]INVALIDATED[/red]",
-}
-_CONSOLE_DEPENDENCY_COLUMNS: list[Any] = [
-    ("Severity", "center"),
-    ("Dependency", "bold cyan"),
-    "Version Range",
-    "Ecosystem",
-    "Security Status",
-    ("Location", "dim"),
-]
-_CONSOLE_NO_DEPENDENCIES_ROW = [
-    "[green]CLEAN[/green]",
-    "No external package dependencies declared in reviewed files",
-    "—",
-    "—",
-    "[green]✓ Clean (0 dependencies)[/green]",
-    "—",
-]
-_CONSOLE_NETWORK_COLUMNS: list[Any] = [
-    ("Target", "bold cyan"),
-    "Type",
-    "Scope",
-    "Security Status",
-    ("Location", "dim"),
-]
-_CONSOLE_NO_NETWORK_ROW = [
-    "No network endpoints or remote addresses referenced in reviewed files",
-    "—",
-    "—",
-    "[green]✓ Clean (0 endpoints)[/green]",
-    "—",
-]
-
-
-def _format_console_finding_row(finding_index: int, finding: SavedFinding) -> list[str]:
-    """Format a finding into findings-table cells, its text escaped."""
-    sev_upper = (finding.severity or "INFORMATIONAL").upper()
-    confidence = finding.confidence_score
-    return [
-        str(finding_index),
-        _CONSOLE_SEVERITY_BADGES.get(sev_upper, f"[white]{sev_upper}[/white]"),
-        escape_text(finding.location),
-        escape_text(finding.title.strip()),
-        _CONSOLE_STATUS_BADGES.get(finding.status.upper(), f"[dim]{finding.status}[/dim]"),
-        escape_text(finding.producer),
-        f"{int(confidence * 100)}%" if confidence is not None else "—",
-    ]
-
-
-def _console_severity(finding: SavedFinding) -> str:
-    """The severity the terminal sorts a finding by: table, panel, or the summary line."""
-    return (finding.severity or CONST_SEVERITY_INFO).upper()
-
-
-def _in_order(labels: Iterable[str], order: Sequence[str]) -> list[str]:
-    """`labels` in `order`, followed alphabetically by any that `order` does not name."""
-    rank = {label: index for index, label in enumerate(order)}
-    return sorted(labels, key=lambda label: (rank.get(label, len(rank)), label))
-
-
-def _format_counts(counts: Counter[str], order: Sequence[str]) -> str:
-    """`1 CRITICAL, 2 HIGH`: each label's count, in `order`."""
-    return ", ".join(f"{counts[label]} {label}" for label in _in_order(counts, order))
-
-
-def _is_vulnerable_dependency(dependency: DependencySpec) -> bool:
-    return dependency.severity.upper() in CONST_DEPENDENCY_VULNERABLE_SEVERITIES
-
-
-def _is_flagged_network_reference(reference: NetworkReference) -> bool:
-    return reference.reputation is not None and reference.reputation.is_malicious
-
-
-def _format_dependency_console_line(
-    dependencies: list[DependencySpec], vulnerable: list[DependencySpec]
-) -> str:
-    """One line for the dependency scan: scanned, vulnerable by severity, and not checked."""
-    if not dependencies:
-        return "Dependencies: none declared in the reviewed files."
-    by_severity = _format_counts(
-        Counter(d.severity.upper() for d in vulnerable), CONST_SEVERITY_ORDER
-    )
-    unchecked = sum(
-        1
-        for d in dependencies
-        if not _is_vulnerable_dependency(d)
-        and d.severity.upper() != CONST_DEPENDENCY_SEVERITY_CLEAN
-    )
-    counts = [
-        f"{len(dependencies)} scanned",
-        f"{len(vulnerable)} vulnerable" + (f" ({by_severity})" if vulnerable else ""),
-        *([f"{unchecked} not checked"] if unchecked else []),
-    ]
-    return (
-        f"Dependencies: {', '.join(counts)}. "
-        f'All are listed under "{_REPORT_DEPENDENCIES_SECTION}" in review.md.'
-    )
-
-
-def _format_network_console_line(
-    references: list[NetworkReference], flagged: list[NetworkReference]
-) -> str:
-    """One line for the network references: found, local and external, and flagged."""
-    if not references:
-        return "Network references: none in the reviewed files."
-    local = sum(1 for r in references if r.is_local)
-    return (
-        f"Network references: {len(references)} found ({local} local, "
-        f"{len(references) - local} external), {len(flagged)} flagged by reputation. "
-        f'All are listed under "{_REPORT_NETWORK_SECTION}" in review.md.'
-    )
-
-
 def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
     """Format, sanitize, and bound exception detail string for logging, display, and reports."""
     msg = mask_secrets(f"{stage}: {exc}").strip()
@@ -1782,17 +1575,6 @@ def _record_coverage_gap(coverage_gaps: dict[str, str], path: str, reason: str) 
         coverage_gaps[path] = reason
     elif reason not in known:
         coverage_gaps[path] = f"{known}; {reason}"
-
-
-def _status_rows(reportable_findings: list[SavedFinding]) -> list[list[str]]:
-    """The terminal summary's row counting the findings by status, as the report does (#948)."""
-    from devops_cli.ai.review.stages.reporting import status_counts
-
-    if not reportable_findings:
-        return []
-    counted, apart = status_counts(reportable_findings)
-    listed_apart = f"; listed apart: {', '.join(apart)}" if apart else ""
-    return [["By Status", f"{', '.join(counted) or 'none'}{listed_apart}"]]
 
 
 def _scanned_routed_files(
@@ -3403,297 +3185,6 @@ class ReviewPipelineOrchestrator:
         all_nets = sort_network_references(deduplicate_network_references(raw_nets))
         return all_deps, all_nets
 
-    @staticmethod
-    def _format_markdown_fix(fix: str) -> str:
-        """Format fix recommendation safely into Markdown without unbalancing code fences."""
-        clean_fix = strip_outer_markdown_bold(fix.strip())
-        if not clean_fix:
-            return ""
-
-        balanced_fix, has_fences = balance_markdown_fences(clean_fix)
-        if has_fences:
-            return f"- **Fix Recommendation**:\n\n{balanced_fix}"
-
-        max_backticks = max((len(m) for m in re.findall(r"`+", clean_fix)), default=0)
-        fence = "`" * max(3, max_backticks + 1)
-        return f"- **Fix Recommendation**:\n{fence}\n{clean_fix}\n{fence}"
-
-    @staticmethod
-    def _format_markdown_description(description: str) -> str:
-        """Format finding description into indented Markdown list item preserving paragraphs."""
-        clean_desc = strip_outer_markdown_bold(description.strip())
-        if not clean_desc:
-            return ""
-        balanced_desc, _ = balance_markdown_fences(clean_desc)
-        lines = balanced_desc.splitlines()
-        if len(lines) <= 1:
-            return f"- **Description**: {balanced_desc}"
-        indented = (
-            lines[0] + "\n" + "\n".join(f"  {line}" if line.strip() else "" for line in lines[1:])
-        )
-        return f"- **Description**: {indented}"
-
-    @staticmethod
-    def _build_findings_table(reportable_findings: list[SavedFinding]) -> list[str]:
-        """Render summary table of reportable findings."""
-        if not reportable_findings:
-            return ["✅ **No critical issues found during review.**"]
-
-        lines = [
-            "| Severity | Location | Title | Status | Producer |",
-            "|---|---|---|---|---|",
-        ]
-        for f in reportable_findings:
-            clean_sev = (
-                (f.severity or "INFORMATIONAL").replace("|", "\\|").replace("\n", " ").strip()
-            )
-            clean_loc = f.location.strip("`").replace("|", "\\|").replace("\n", " ").strip()
-            clean_title = escape_markdown_title(f.title, is_table=True)
-            clean_status = f.status.replace("|", "\\|").replace("\n", " ").strip()
-            clean_producer = f.producer.replace("|", "\\|").replace("\n", " ").strip()
-            lines.append(
-                f"| **{clean_sev}** | `{clean_loc}` | {clean_title} | {clean_status} | {clean_producer} |"
-            )
-        return lines
-
-    @staticmethod
-    def _build_detailed_findings_section(reportable_findings: list[SavedFinding]) -> list[str]:
-        """Render detailed findings section with balanced code blocks and clean formatting."""
-        if not reportable_findings:
-            return []
-
-        lines = ["", "## Detailed Findings"]
-        for idx, f in enumerate(reportable_findings, 1):
-            clean_title = escape_markdown_title(f.title, is_table=False)
-            clean_loc = f.location.strip("`").strip()
-            lines.append(f"### {idx}. [{(f.severity or 'INFORMATIONAL').upper()}] {clean_title}")
-            lines.append(f"- **Location**: `{clean_loc}`")
-            lines.append(f"- **Producer**: {f.producer}")
-            lines.append(f"- **Status**: {f.status}")
-            if f.status == "MITIGATED" and f.invalidation_reason:
-                lines.append(f"- **Mitigation**: {f.invalidation_reason.strip()}")
-            desc_line = ReviewPipelineOrchestrator._format_markdown_description(f.description)
-            if desc_line:
-                lines.append(desc_line)
-            if f.fix:
-                fix_md = ReviewPipelineOrchestrator._format_markdown_fix(f.fix)
-                if fix_md:
-                    lines.append(fix_md)
-            lines.append("")
-        return lines
-
-    @staticmethod
-    def _build_dependencies_table(all_deps: list[DependencySpec]) -> list[str]:
-        """Render external dependencies audit table."""
-        lines = [f"## {_REPORT_DEPENDENCIES_SECTION} (OSV.dev)"]
-        if not all_deps:
-            lines.extend(["✅ **No external dependencies declared in review scope.**", ""])
-            return lines
-
-        lines.extend(
-            [
-                "| Severity | Dependency | Version Range | Ecosystem | Security Status | Location |",
-                "|---|---|---|---|---|---|",
-            ]
-        )
-        for dep in all_deps:
-            sev_upper = (dep.severity or "").upper()
-            if sev_upper in ("UNCHECKED", "NOT_QUERIED", "NOT QUERIED"):
-                sev_badge = "UNCHECKED"
-            elif sev_upper not in ("CLEAN", "NONE", "INFO"):
-                sev_badge = f"**{dep.severity}**"
-            else:
-                sev_badge = dep.severity
-            loc_str = f"`{dep.location}`" if dep.location else "—"
-            lines.append(
-                f"| {sev_badge} | `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
-                f"{dep.security_status} | {loc_str} |"
-            )
-        lines.append("")
-        return lines
-
-    @staticmethod
-    def _build_network_table(all_nets: list[NetworkReference]) -> list[str]:
-        """Render network endpoints and references audit table."""
-        from devops_cli.security.reference_extractor import (
-            deduplicate_network_references,
-            is_example_or_invalid_network_target,
-            sort_network_references,
-        )
-
-        filtered_md_nets = [
-            n
-            for n in all_nets
-            if not getattr(n, "is_example", False)
-            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
-        ]
-        sorted_md_nets = sort_network_references(deduplicate_network_references(filtered_md_nets))
-
-        lines = [f"## {_REPORT_NETWORK_SECTION} (Shodan InternetDB & Cloudflare Radar)"]
-        if not sorted_md_nets:
-            lines.extend(
-                [
-                    "✅ **No network endpoints or remote addresses referenced in review scope.**",
-                    "",
-                ]
-            )
-            return lines
-
-        lines.extend(
-            [
-                "| Target | Type | Scope | Security Status | Location |",
-                "|---|---|---|---|---|",
-            ]
-        )
-        for net in sorted_md_nets:
-            scope_str = "Local" if net.is_local else "External"
-            loc_str = f"`{net.location}`" if net.location else "—"
-            lines.append(
-                f"| `{net.target}` | {net.reference_type} | {scope_str} | "
-                f"{net.security_status} | {loc_str} |"
-            )
-        lines.append("")
-        return lines
-
-    def _build_category_baseline_section(
-        self,
-        all_findings: list[SavedFinding] | None,
-        reportable_findings: list[SavedFinding],
-    ) -> list[str]:
-        """Render category false positive baseline section if historical data or findings exist."""
-        findings_to_use = all_findings if all_findings is not None else reportable_findings
-        if not findings_to_use:
-            return []
-        # The session is not published, so it is not in the history it is compared to.
-        return format_category_baseline_markdown(findings_to_use, self.session.directory.parent)
-
-    def _build_verdict_distributions_section(
-        self, candidate_findings: list[SavedFinding] | None
-    ) -> list[str]:
-        """Build Markdown table of verdict field distributions and discrimination status."""
-        if not candidate_findings:
-            return []
-        dists = compute_verdict_distributions(candidate_findings)
-        lines = [
-            "## Verdict Field Distributions",
-            "",
-            "| Verdict Field | Distribution | Discriminates? |",
-            "|---|---|---|",
-        ]
-        field_order = [
-            ("status", "Status"),
-            ("reportable", "Reportable"),
-            ("verified", "Verified"),
-            ("mitigated", "Mitigated"),
-        ]
-        for key, label in field_order:
-            counts = dists.get(key, {})
-            dist_str = (
-                ", ".join(f"`{k}`: {v}" for k, v in sorted(counts.items()) if v > 0) or "None"
-            )
-            discriminates = (
-                "Yes" if is_field_discriminating(counts) else "**No (never discriminates)**"
-            )
-            lines.append(f"| `{label}` | {dist_str} | {discriminates} |")
-        lines.append("")
-        return lines
-
-    def _build_consolidated_markdown_report(
-        self,
-        session_id: str,
-        generated_at: str,
-        reportable_findings: list[SavedFinding],
-        all_deps: list[DependencySpec],
-        all_nets: list[NetworkReference],
-        all_findings: list[SavedFinding] | None = None,
-        candidate_findings: list[SavedFinding] | None = None,
-        symbol_delta_summary: dict[str, int] | None = None,
-    ) -> str:
-        from devops_cli.ai.review.stages.reporting import (
-            status_summary_lines,
-            synthesize_report_executive_summary,
-        )
-
-        lines = [
-            f"# Code Review Report (Session `{session_id}`)",
-            f"*Generated at: {generated_at}*",
-        ]
-        if self.partial_context:
-            lines.append("*Context: partial context*")
-        lines.append("")
-        lines.extend(
-            synthesize_report_executive_summary(
-                reportable_findings=reportable_findings,
-                all_deps=all_deps,
-                all_nets=all_nets,
-                errored_files=self.errored_files,
-                analyzer_line=_static_analysis_line(self.static_analyzers, self.static_severities),
-            )
-        )
-        summary_lines = [
-            "## Summary of Reportable Findings",
-            f"Total Findings: **{len(reportable_findings)}**",
-            *status_summary_lines(reportable_findings),
-        ]
-        if symbol_delta_summary and any(symbol_delta_summary.values()):
-            summary_lines.append(
-                f"Symbol Delta: **+{symbol_delta_summary.get('added', 0)}** / "
-                f"**-{symbol_delta_summary.get('removed', 0)}** / "
-                f"**={symbol_delta_summary.get('retained', 0)}**"
-            )
-        summary_lines.append("")
-        lines.extend(summary_lines)
-        lines.extend(self._build_findings_table(reportable_findings))
-        lines.extend(self._build_detailed_findings_section(reportable_findings))
-        lines.extend(self._build_introduced_findings_section(reportable_findings))
-        lines.extend(self._build_preexisting_findings_section(reportable_findings))
-        lines.extend(self._build_suppressed_findings_section(all_findings or reportable_findings))
-        lines.extend(self._build_complexity_section())
-        lines.extend(self._build_dependencies_table(all_deps))
-        lines.extend(self._build_network_table(all_nets))
-
-        lines.extend(self._build_static_analyzers_section())
-        lines.extend(self._build_coverage_section())
-        lines.extend(self._build_tool_runs_section())
-
-        baseline_lines = self._build_category_baseline_section(
-            candidate_findings or all_findings, reportable_findings
-        )
-        if baseline_lines:
-            lines.extend(baseline_lines)
-
-        dist_lines = self._build_verdict_distributions_section(candidate_findings or all_findings)
-        if dist_lines:
-            lines.extend(dist_lines)
-
-        from devops_cli.review.analysis import render_model_analysis_markdown
-
-        analysis_report = getattr(self, "analysis_report", None)
-        if analysis_report is not None:
-            lines.extend(render_model_analysis_markdown(analysis_report))
-        else:
-            from devops_cli.ai.kb import load_matched_kb_manuals
-
-            _, drift = load_matched_kb_manuals(kubernetes_version=self.kubernetes_version)
-            if drift:
-                lines.append("## Reference coverage: drift")
-                lines.append("")
-                for d in sorted(drift, key=lambda x: x.path):
-                    lines.append(f"- `{d.path}`: {d.reason}")
-                lines.append("")
-
-        if self.errored_files:
-            lines.append("## Skipped / Errored Files")
-            lines.append("| File Path | Stage / Error Reason |")
-            lines.append("|---|---|")
-            for fpath, reason in sorted(self.errored_files.items()):
-                clean_f = fpath.replace("|", "\\|").replace("\n", " ").strip()
-                clean_r = reason.replace("|", "\\|").replace("\n", " ").strip()
-                lines.append(f"| `{clean_f}` | {clean_r} |")
-            lines.append("")
-
-        return "\n".join(lines)
-
     def _run_group_analysis_stage(self, stage_flags: ReviewStageFlags | None) -> Any:
         """Execute bounded per-group model analysis on admitted scanner findings (#1147)."""
         from devops_cli.ai.review.profile import review_stage
@@ -3736,516 +3227,6 @@ class ReviewPipelineOrchestrator:
             self.static_analyzer_reasons, self.static_analyzer_unscanned
         )
 
-    def _build_static_analyzers_section(self) -> list[str]:
-        """Which static analyzers ran, so a scan with no findings is not read as clean."""
-        if not self.static_analyzers:
-            return []
-        rows = []
-        notes = self._static_analyzer_notes()
-        for name, state in self.static_analyzers.items():
-            reason = notes.get(name)
-            result = f"{state}: {reason}" if reason else state
-            cell = " ".join(result.split()).replace("|", "\\|")
-            rows.append(f"| {name} | {cell} |")
-        return ["## Static Analyzers", "| Analyzer | Result |", "|---|---|", *rows, ""]
-
-    def _build_tool_runs_section(self) -> list[str]:
-        """Which tools ran, at which versions, how, and over which config and rules (#772)."""
-        from devops_cli.ai.review.tool_runs import tool_runs_section
-
-        return tool_runs_section(self.tool_executor.runs)
-
-    def _build_coverage_section(self) -> list[str]:
-        """Coverage matrix per (tool, file) in review.md."""
-        if not self.coverage:
-            return []
-        rows = [
-            f"| {tool.replace('|', r'\|')} | `{fpath.replace('|', r'\|')}` | {status.replace('|', r'\|')} |"
-            for tool in sorted(self.coverage)
-            for fpath, status in sorted(self.coverage[tool].items())
-        ]
-        return ["## Coverage", "| Tool | File | Status |", "|---|---|---|", *rows, ""]
-
-    def _build_introduced_findings_section(self, findings: list[Any]) -> list[str]:
-        """Render Introduced Findings section for review.md (#871)."""
-        introduced = [
-            f
-            for f in findings
-            if getattr(f, "introduced", True) and getattr(f, "state", "OPEN") != "SUPPRESSED"
-        ]
-        if not introduced:
-            return []
-        rows = [
-            f"| **{getattr(f, 'severity', 'MEDIUM')}** | `{getattr(f, 'location', '') or getattr(f, 'location_display', '') or getattr(f, 'path', '')}` | {escape_markdown_title(getattr(f, 'title', '') or getattr(f, 'message', ''), is_table=True)} |"
-            for f in introduced
-        ]
-        return [
-            "## Introduced Findings",
-            "| Severity | Location | Title |",
-            "|---|---|---|",
-            *rows,
-            "",
-        ]
-
-    def _build_preexisting_findings_section(self, findings: list[Any]) -> list[str]:
-        """Render Pre-existing Findings in Changed Files section for review.md (#871)."""
-        preexisting = [
-            f
-            for f in findings
-            if not getattr(f, "introduced", True) and getattr(f, "state", "OPEN") != "SUPPRESSED"
-        ]
-        if not preexisting:
-            return []
-        rows = [
-            f"| **{getattr(f, 'severity', 'MEDIUM')}** | `{getattr(f, 'location', '') or getattr(f, 'location_display', '') or getattr(f, 'path', '')}` | {escape_markdown_title(getattr(f, 'title', '') or getattr(f, 'message', ''), is_table=True)} |"
-            for f in preexisting
-        ]
-        return [
-            "## Pre-existing Findings in Changed Files",
-            "| Severity | Location | Title |",
-            "|---|---|---|",
-            *rows,
-            "",
-        ]
-
-    def _build_suppressed_findings_section(self, findings: list[Any]) -> list[str]:
-        """Render Suppressed Findings section for review.md (#871)."""
-        suppressed: list[Any] = []
-        admitted = getattr(self, "admitted_scanner_findings", None)
-        if isinstance(admitted, (list, tuple)):
-            suppressed.extend(
-                f
-                for f in admitted
-                if getattr(f, "state", "") == "SUPPRESSED"
-                or getattr(f, "suppressed_by_change", False)
-            )
-        suppressed.extend(
-            f
-            for f in findings
-            if getattr(f, "state", "") == "SUPPRESSED" or getattr(f, "suppressed_by_change", False)
-        )
-        if not suppressed:
-            return []
-        rows: list[str] = []
-        seen: set[tuple[str, str, str]] = set()
-        for f in suppressed:
-            # Admitted findings carry path and line apart; location_display joins them, so two
-            # suppressions of one rule in one file stay two rows.
-            loc = (
-                getattr(f, "location_display", "")
-                or getattr(f, "location", "")
-                or getattr(f, "path", "")
-            )
-            key = (loc, getattr(f, "rule_id", ""), getattr(f, "title", ""))
-            if key in seen:
-                continue
-            seen.add(key)
-            sev = getattr(f, "severity", "MEDIUM")
-            reason = getattr(f, "suppression_reason", "Inline marker") or "Inline marker"
-            expiry = getattr(f, "suppression_expiry", None) or "None"
-            by = (
-                "suppressed by this change"
-                if getattr(f, "suppressed_by_change", False)
-                else "review.toml/base marker"
-            )
-            rows.append(f"| **{sev}** | `{loc}` | {reason} | {expiry} | {by} |")
-        return [
-            "## Suppressed Findings",
-            "| Severity | Location | Reason | Expiry | Suppressed By |",
-            "|---|---|---|---|---|",
-            *rows,
-            "",
-        ]
-
-    def _build_complexity_section(self) -> list[str]:
-        """Render before/after Complexity table for changed functions in review.md (#873)."""
-        deltas = getattr(self, "complexity_deltas", [])
-        if not deltas:
-            return []
-        rows = [
-            f"| `{d['file']}` | `{d['function']}` | {d['before'] if d['before'] is not None else '—'} | {d['after'] if d['after'] is not None else '—'} |"
-            for d in deltas
-        ]
-        return [
-            "## Complexity",
-            "| File | Function | Before | After |",
-            "|---|---|---|---|",
-            *rows,
-            "",
-        ]
-
-    def _render_console_findings_table(
-        self, console: Any, reportable_findings: list[SavedFinding]
-    ) -> None:
-        """Render the findings table and detail panels to console.
-
-        Unless `full_output`, the table lists MEDIUM and above, panels follow for HIGH and
-        above, and the rest are counted on one line naming review.md and the command that
-        lists them. Each finding keeps its number in review.md.
-        """
-        if not reportable_findings:
-            print_success("No reportable findings across reviewed files.", console=console)
-            return
-
-        tabled, panelled, minor = self._select_console_findings(reportable_findings)
-        if tabled:
-            print_table(
-                title="Code Review Findings",
-                columns=_CONSOLE_FINDING_COLUMNS,
-                rows=[_format_console_finding_row(index, finding) for index, finding in tabled],
-                console=console,
-            )
-        if minor:
-            summary, command = self._format_minor_findings_line(minor)
-            print_info(summary, prefix=False, console=console, safe=True)
-            # Soft wrap keeps the command on one line at any width, so it copies as is.
-            (console or get_console()).print(
-                f"  {command}", markup=False, highlight=False, soft_wrap=True
-            )
-        for finding_index, finding in panelled:
-            self._render_single_finding_panel(console, finding, finding_index)
-
-    def _select_console_findings(
-        self, reportable_findings: list[SavedFinding]
-    ) -> tuple[list[tuple[int, SavedFinding]], list[tuple[int, SavedFinding]], list[SavedFinding]]:
-        """The numbered findings for the table and for detail panels, and those only counted."""
-        numbered = list(enumerate(reportable_findings, 1))
-        if self.full_output:
-            return numbered, numbered, []
-        tabled = [
-            (index, finding)
-            for index, finding in numbered
-            if _console_severity(finding) in CONST_REVIEW_CONSOLE_TABLE_SEVERITIES
-        ]
-        panelled = [
-            (index, finding)
-            for index, finding in tabled
-            if _console_severity(finding) in CONST_REVIEW_CONSOLE_PANEL_SEVERITIES
-        ]
-        minor = [
-            finding
-            for finding in reportable_findings
-            if _console_severity(finding) not in CONST_REVIEW_CONSOLE_TABLE_SEVERITIES
-        ]
-        return tabled, panelled, minor
-
-    def _format_minor_findings_line(self, minor: list[SavedFinding]) -> tuple[str, str]:
-        """Count the findings left out of the table by status and name review.md; return that
-        line and the command that lists them."""
-        severities = _in_order({_console_severity(f) for f in minor}, CONST_SEVERITY_ORDER)
-        statuses = _format_counts(
-            Counter(f.status.upper() for f in minor), CONST_REVIEW_STATUS_ORDER
-        )
-        filters = " ".join(f"--severity {severity}" for severity in severities)
-        command = f"devops review findings {self.session.name} {filters} --details"
-        return (
-            f"Not shown: {len(minor)} {' and '.join(severities)} finding(s) ({statuses}). "
-            f"They are in {self.session.report_path}; list them with:",
-            command,
-        )
-
-    def _render_single_finding_panel(
-        self, console: Any, finding: SavedFinding, finding_index: int
-    ) -> None:
-        """Render a single finding detail panel with remediation and references."""
-        from devops_cli.output import SEV_COLOR_MAP
-
-        sev_upper = (finding.severity or "INFORMATIONAL").upper()
-        sev_color = SEV_COLOR_MAP.get(sev_upper, "white")
-        st_badge = _get_finding_status_badge(finding.status)
-        title_header = f"[{sev_color} bold]Finding #{finding_index}: [{sev_upper}] {escape_text(finding.title)}[/{sev_color} bold]  {st_badge}"
-        panel_lines = [
-            f"[bold]Location:[/bold] [cyan]{escape_text(finding.location)}[/cyan]  |  [bold]Producer:[/bold] [magenta]{escape_text(finding.producer)}[/magenta]",
-        ]
-        if finding.description:
-            clean_desc = escape_text(format_clean_text_field(finding.description).strip())
-            panel_lines.extend(["", "[bold]Description:[/bold]", clean_desc])
-        if finding.fix:
-            clean_fix = escape_text(format_clean_text_field(finding.fix).strip())
-            panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", clean_fix])
-        if finding.invalidation_reason:
-            clean_inv = escape_text(finding.invalidation_reason.strip())
-            label = "Mitigation" if finding.status == "MITIGATED" else "Invalidation Reason"
-            panel_lines.extend(["", f"[bold yellow]{label}:[/bold yellow] {clean_inv}"])
-        if finding.references:
-            refs_list = (
-                finding.references
-                if isinstance(finding.references, list)
-                else [str(finding.references)]
-            )
-            panel_lines.extend(["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"])
-
-        print_panel(
-            "\n".join(panel_lines),
-            title=title_header,
-            border_style=sev_color,
-            console=console,
-        )
-
-    def _render_console_dependencies_table(
-        self, console: Any, all_deps: list[DependencySpec]
-    ) -> None:
-        """Render the dependency security audit to console.
-
-        Unless `full_output`, one summary line and then only the vulnerable packages.
-        """
-        if not self.full_output:
-            vulnerable = [d for d in all_deps if _is_vulnerable_dependency(d)]
-            line = _format_dependency_console_line(all_deps, vulnerable)
-            print_info(line, prefix=False, console=console, safe=True)
-            if vulnerable:
-                print_table(
-                    title="Vulnerable Dependencies (OSV.dev)",
-                    columns=_CONSOLE_DEPENDENCY_COLUMNS,
-                    rows=[_format_dependency_table_row(d) for d in vulnerable],
-                    console=console,
-                )
-            return
-        print_table(
-            title="External Dependencies Security Audit (OSV.dev)",
-            columns=_CONSOLE_DEPENDENCY_COLUMNS,
-            rows=[_format_dependency_table_row(d) for d in all_deps]
-            or [_CONSOLE_NO_DEPENDENCIES_ROW],
-            console=console,
-        )
-
-    def _render_console_network_table(self, console: Any, all_nets: list[NetworkReference]) -> None:
-        """Render the network references audit to console.
-
-        Unless `full_output`, one summary line and then only the endpoints flagged by
-        reputation.
-        """
-        from devops_cli.security.reference_extractor import (
-            deduplicate_network_references,
-            is_example_or_invalid_network_target,
-            sort_network_references,
-        )
-
-        filtered = [
-            n
-            for n in all_nets
-            if not getattr(n, "is_example", False)
-            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
-        ]
-        sorted_nets = sort_network_references(deduplicate_network_references(filtered))
-        if not self.full_output:
-            flagged = [n for n in sorted_nets if _is_flagged_network_reference(n)]
-            line = _format_network_console_line(sorted_nets, flagged)
-            print_info(line, prefix=False, console=console, safe=True)
-            if flagged:
-                print_table(
-                    title="Flagged Network References (Shodan & Cloudflare Radar)",
-                    columns=_CONSOLE_NETWORK_COLUMNS,
-                    rows=[_format_network_ref_table_row(n) for n in flagged],
-                    console=console,
-                )
-            return
-        print_table(
-            title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)",
-            columns=_CONSOLE_NETWORK_COLUMNS,
-            rows=[_format_network_ref_table_row(n) for n in sorted_nets]
-            or [_CONSOLE_NO_NETWORK_ROW],
-            console=console,
-        )
-
-    def _render_console_errored_files_table(self, console: Any) -> None:
-        """Render table of skipped/errored files to console."""
-        if not self.errored_files:
-            return
-
-        columns = [
-            ("File Path", "bold red"),
-            ("Stage / Error Details", "yellow"),
-        ]
-        rows = [[fpath, reason] for fpath, reason in sorted(self.errored_files.items())]
-        print_table(
-            title="Skipped / Errored Files During Review",
-            columns=columns,
-            rows=rows,
-            border_style="yellow",
-            console=console,
-        )
-
-    def _format_severity_breakdown(
-        self, reportable_findings: list[SavedFinding]
-    ) -> tuple[str, str]:
-        """Format findings summary string and verification rate string."""
-        if not reportable_findings:
-            return "[bold green]0 findings (Clean)[/bold green]", "[green]✓ All clean[/green]"
-
-        counts = {
-            "CRITICAL": sum(
-                1
-                for finding in reportable_findings
-                if (finding.severity or "").upper() == "CRITICAL"
-            ),
-            "HIGH": sum(
-                1 for finding in reportable_findings if (finding.severity or "").upper() == "HIGH"
-            ),
-            "MEDIUM": sum(
-                1 for finding in reportable_findings if (finding.severity or "").upper() == "MEDIUM"
-            ),
-            "LOW": sum(
-                1 for finding in reportable_findings if (finding.severity or "").upper() == "LOW"
-            ),
-            "INFO": sum(
-                1
-                for finding in reportable_findings
-                if (finding.severity or "").upper() in ("INFO", "INFORMATIONAL")
-            ),
-        }
-        styles = {
-            "CRITICAL": "[bold red]{cnt} Critical[/bold red]",
-            "HIGH": "[red]{cnt} High[/red]",
-            "MEDIUM": "[yellow]{cnt} Medium[/yellow]",
-            "LOW": "[cyan]{cnt} Low[/cyan]",
-            "INFO": "[green]{cnt} Info[/green]",
-        }
-        sev_parts = [styles[sev].format(cnt=cnt) for sev, cnt in counts.items() if cnt > 0]
-        sev_breakdown = ", ".join(sev_parts) if sev_parts else "None"
-        findings_str = f"{len(reportable_findings)} ({sev_breakdown})"
-
-        ver_count = sum(
-            1 for finding in reportable_findings if (finding.status or "").upper() == "VERIFIED"
-        )
-        ver_pct = ver_count / len(reportable_findings)
-        ver_rate_str = f"{ver_count}/{len(reportable_findings)} verified ({ver_pct:.0%})"
-        return findings_str, ver_rate_str
-
-    def _format_dependency_summary(self, all_deps: list[DependencySpec]) -> str:
-        """Format external dependency audit summary string."""
-        if not all_deps:
-            return "0 scanned"
-        vuln_count = sum(
-            1
-            for dep in all_deps
-            if (dep.severity or "").upper()
-            not in ("CLEAN", "NONE", "INFO", "NOT_QUERIED", "NOT QUERIED", "UNCHECKED")
-        )
-        queried_count = sum(
-            1
-            for dep in all_deps
-            if getattr(dep, "queried", False)
-            or (dep.severity or "").upper() in ("CLEAN", "CRITICAL", "HIGH", "MEDIUM", "LOW")
-        )
-        if vuln_count:
-            vuln_note = f" ([red]{vuln_count} vulnerable[/red])"
-        elif queried_count and queried_count == len(all_deps):
-            vuln_note = " ([green]clean[/green])"
-        elif queried_count:
-            vuln_note = f" ([green]{queried_count} clean[/green], [dim]{len(all_deps) - queried_count} unchecked[/dim])"
-        else:
-            vuln_note = " ([dim]unchecked[/dim])"
-        return f"{len(all_deps)} audited{vuln_note}"
-
-    def _format_network_summary(self, all_nets: list[NetworkReference]) -> str:
-        """Format network endpoints audit summary string."""
-        if not all_nets:
-            return "0 detected"
-        external_count = sum(1 for net in all_nets if not net.is_local)
-        local_count = sum(1 for net in all_nets if net.is_local)
-        return f"{len(all_nets)} audited ({external_count} External, {local_count} Local)"
-
-    def _format_verdict_distributions(
-        self, findings_pool: Sequence[Finding | SavedFinding]
-    ) -> list[list[str]]:
-        """Format verdict field distributions for console summary table."""
-        if not findings_pool:
-            return []
-        dists = compute_verdict_distributions(findings_pool)
-        status_counts = dists.get("status", {})
-        status_str = (
-            ", ".join(f"{k}: {v}" for k, v in sorted(status_counts.items()) if v > 0) or "0"
-        )
-        rep_counts = dists.get("reportable", {})
-        rep_disc = is_field_discriminating(rep_counts)
-        rep_str = f"{rep_counts.get('true', 0)} true, {rep_counts.get('false', 0)} false"
-        if not rep_disc and sum(rep_counts.values()) > 0:
-            rep_str += " [bold yellow](does not discriminate)[/bold yellow]"
-
-        ver_counts = dists.get("verified", {})
-        ver_disc = is_field_discriminating(ver_counts)
-        ver_str = f"{ver_counts.get('true', 0)} true, {ver_counts.get('false', 0)} false"
-        if not ver_disc and sum(ver_counts.values()) > 0:
-            ver_str += " [dim](does not discriminate)[/dim]"
-
-        return [
-            ["Verdict Status", status_str],
-            ["Verdict Reportable", rep_str],
-            ["Verdict Verified", ver_str],
-        ]
-
-    def _render_console_summary_table(
-        self,
-        console: Any,
-        session_id: str,
-        n_files: int,
-        reportable_findings: list[SavedFinding],
-        all_deps: list[DependencySpec],
-        all_nets: list[NetworkReference],
-        all_findings: list[SavedFinding] | None = None,
-        candidate_findings: list[SavedFinding] | None = None,
-        symbol_delta_summary: dict[str, int] | None = None,
-    ) -> None:
-        """Render review summary table to console."""
-        findings_str, ver_rate_str = self._format_severity_breakdown(reportable_findings)
-        deps_str = self._format_dependency_summary(all_deps)
-        nets_str = self._format_network_summary(all_nets)
-
-        findings_pool = (
-            candidate_findings
-            if candidate_findings is not None
-            else (all_findings if all_findings is not None else reportable_findings)
-        )
-        inval_count = sum(1 for f in findings_pool if (f.status or "").upper() == "INVALIDATED")
-        total_count = len(findings_pool)
-        fp_rate = (inval_count / total_count) if total_count > 0 else 0.0
-        fp_rate_str = f"{inval_count}/{total_count} ({fp_rate:.1%})"
-
-        rows = [
-            ["Session ID", f"[cyan]{session_id}[/cyan]"],
-            ["Files Reviewed", str(n_files)],
-        ]
-        if self.errored_files:
-            rows.append(
-                [
-                    "Skipped / Errored Files",
-                    f"[bold red]{len(self.errored_files)} file(s) skipped[/bold red]",
-                ]
-            )
-        rows.extend(
-            [
-                ["Reportable Findings", findings_str],
-                *_status_rows(reportable_findings),
-                ["Verification Rate", ver_rate_str],
-                ["False Positive Rate", fp_rate_str],
-            ]
-        )
-        if symbol_delta_summary and any(symbol_delta_summary.values()):
-            rows.append(
-                [
-                    "Symbol Delta",
-                    f"+{symbol_delta_summary.get('added', 0)} / -{symbol_delta_summary.get('removed', 0)} / ={symbol_delta_summary.get('retained', 0)}",
-                ]
-            )
-        rows.extend(self._format_verdict_distributions(findings_pool))
-        rows.extend(
-            [
-                ["Dependencies", deps_str],
-                ["Network Endpoints", nets_str],
-                ["Markdown Report", str(self.session.report_path)],
-                ["Findings JSON", str(self.session.findings_path)],
-            ]
-        )
-
-        print_table(
-            title="Review Summary",
-            columns=[("Metric", "bold"), "Result"],
-            rows=rows,
-            border_style="cyan",
-            console=console,
-        )
-
     def _compute_symbol_delta_summary(
         self, file_payloads: list[FileReviewPayload]
     ) -> dict[str, int]:
@@ -4258,6 +3239,64 @@ class ReviewPipelineOrchestrator:
             len(p.metadata.symbols_retained) for p in file_payloads if p.metadata is not None
         )
         return {"added": added, "removed": removed, "retained": retained}
+
+    def _report_input(
+        self,
+        *,
+        generated_at: str,
+        reportable_findings: list[SavedFinding],
+        all_findings: list[SavedFinding],
+        candidate_findings: list[SavedFinding],
+        dependencies: list[DependencySpec],
+        network_references: list[NetworkReference],
+        symbol_delta: dict[str, int],
+        files_reviewed: int,
+    ) -> ReportInput:
+        """The report's input: the session's findings, the run's state, and what the report
+        compares them with, read here so the report opens no file (#1008)."""
+        from devops_cli.ai.kb import load_matched_kb_manuals
+        from devops_cli.ai.review.history import load_review_history
+
+        analysis_report = getattr(self, "analysis_report", None)
+        drift = (
+            ()
+            if analysis_report is not None
+            else tuple(load_matched_kb_manuals(kubernetes_version=self.kubernetes_version)[1])
+        )
+        # The session is not published while its report is built, so the history of its
+        # directory leaves it out. A session with no finding renders no baseline.
+        history = (
+            load_review_history(self.session.directory.parent)
+            if candidate_findings or all_findings
+            else None
+        )
+        return ReportInput(
+            session_id=self.session_id,
+            session_name=self.session.name,
+            generated_at=generated_at,
+            report_path=self.session.report_path,
+            findings_path=self.session.findings_path,
+            reportable_findings=reportable_findings,
+            all_findings=all_findings,
+            candidate_findings=candidate_findings,
+            dependencies=dependencies,
+            network_references=network_references,
+            symbol_delta=symbol_delta,
+            files_reviewed=files_reviewed,
+            errored_files=self.errored_files,
+            partial_context=self.partial_context,
+            full_output=self.full_output,
+            analyzer_line=_static_analysis_line(self.static_analyzers, self.static_severities),
+            static_analyzers=self.static_analyzers,
+            static_analyzer_notes=self._static_analyzer_notes(),
+            coverage=self.coverage,
+            tool_runs=tuple(self.tool_executor.runs),
+            admitted_scanner_findings=tuple(getattr(self, "admitted_scanner_findings", ())),
+            complexity_deltas=tuple(getattr(self, "complexity_deltas", [])),
+            analysis_report=analysis_report,
+            reference_drift=drift,
+            history=history,
+        )
 
     def _persist_session_artifacts(
         self,
@@ -4371,33 +3410,19 @@ class ReviewPipelineOrchestrator:
         ]
         self._run_group_analysis_stage(stage_flags)
 
-        report_md = self._build_consolidated_markdown_report(
-            session_id=self.session_id,
+        report = self._report_input(
             generated_at=payload_out.generated_at,
             reportable_findings=reportable_findings,
-            all_deps=all_deps,
-            all_nets=all_nets,
             all_findings=all_findings,
             candidate_findings=candidates.findings,
-            symbol_delta_summary=symbol_delta,
+            dependencies=all_deps,
+            network_references=all_nets,
+            symbol_delta=symbol_delta,
+            files_reviewed=len(file_payloads),
         )
+        report_md = render_markdown(report)
         self._persist_session_artifacts(payload_out, candidates, report_md)
-
-        self._render_console_errored_files_table(None)
-        self._render_console_findings_table(None, reportable_findings)
-        self._render_console_dependencies_table(None, all_deps)
-        self._render_console_network_table(None, all_nets)
-        self._render_console_summary_table(
-            console=None,
-            session_id=self.session_id,
-            n_files=len(file_payloads),
-            reportable_findings=reportable_findings,
-            all_deps=all_deps,
-            all_nets=all_nets,
-            all_findings=all_findings,
-            candidate_findings=candidates.findings,
-            symbol_delta_summary=symbol_delta,
-        )
+        render_console(report)
 
         session_path = escape_text(str(self.session.directory))
         report_path = escape_text(str(self.session.report_path))
@@ -4407,6 +3432,3 @@ class ReviewPipelineOrchestrator:
             f"full report: [dim]{report_path}[/dim])"
         )
         return payload_out.model_dump(), report_md
-
-
-format_markdown_fix = ReviewPipelineOrchestrator._format_markdown_fix

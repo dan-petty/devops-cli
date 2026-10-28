@@ -27,6 +27,7 @@ from devops_cli.git.worktree import (
     review_worktrees_context,
 )
 from devops_cli.review.diff import diff_file_names
+from devops_cli.review.report import coverage_section
 
 
 def _init_git_repo(repo_dir: Path) -> None:
@@ -240,9 +241,7 @@ def test_coverage_matrix_and_markdown_section(tmp_path: Path) -> None:
         ("timed out after 120 s"),
     )
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-cov", target_dir=tmp_path)
-    orchestrator.coverage = matrix
-    section = "\n".join(orchestrator._build_coverage_section())
+    section = "\n".join(coverage_section(matrix))
     assert "## Coverage" in section
     assert "| Tool | File | Status |" in section
     assert "| Bandit | `src/app.py` | scanned |" in section

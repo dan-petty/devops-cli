@@ -80,10 +80,15 @@ def compute_category_metrics(
     return results
 
 
+def historical_category_metrics(history: ReviewHistory) -> dict[str, CategoryMetric]:
+    """Per-category metrics over every finding raised by the sessions `history` counts."""
+    return compute_category_metrics([f for session in history.counted for f in session.raised])
+
+
 def collect_historical_category_metrics(
     reviews_dir: Path | None = None,
 ) -> tuple[dict[str, CategoryMetric], ReviewHistory]:
-    """Aggregate per-category metrics over every finding raised by the sessions history counts.
+    """Load the review history and aggregate its per-category metrics.
 
     Returns:
         (category_metrics, history)
@@ -92,15 +97,15 @@ def collect_historical_category_metrics(
     from devops_cli.review.session import ReviewSessionStore
 
     history = load_review_history(reviews_dir or ReviewSessionStore.root())
-    raised = [f for session in history.counted for f in session.raised]
-    return compute_category_metrics(raised), history
+    return historical_category_metrics(history), history
 
 
 def format_category_baseline_markdown(
     session_findings: Sequence[Finding | SavedFinding],
-    reviews_dir: Path | None = None,
+    history: ReviewHistory,
 ) -> list[str]:
-    """Render Markdown section comparing session category false-positive rates to historical baseline.
+    """Render Markdown section comparing session category false-positive rates to the baseline
+    of `history`.
 
     The current session is not published while its report is built, so it is not in the history.
     """
@@ -108,7 +113,7 @@ def format_category_baseline_markdown(
     if not session_metrics:
         return []
 
-    hist_metrics, history = collect_historical_category_metrics(reviews_dir)
+    hist_metrics = historical_category_metrics(history)
 
     lines = [
         "## Category Verification & False-Positive Baseline",

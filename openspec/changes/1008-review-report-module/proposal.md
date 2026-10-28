@@ -4,7 +4,7 @@
 
 Issue #1008: the review report is rendered inside the review orchestrator.
 
-- `ReviewPipelineOrchestrator` in `src/devops_cli/ai/review/pipeline.py` holds 30 `_build_*`, `_render_*` and `_format_*` methods and `_select_console_findings`, about 900 of its 4,412 lines, and 20 module-level render helpers and tables.
+- `ReviewPipelineOrchestrator` in `src/devops_cli/ai/review/pipeline.py` holds 27 `_build_*`, `_render_*` and `_format_*` methods and `_select_console_findings`, and the module holds 23 render helpers and tables. Together they are about 980 of its 4,412 lines.
 - The executive summary is in a second place, `src/devops_cli/ai/review/stages/reporting.py`, and severity is counted in both places.
 - The report reads 15 orchestrator attributes, and it opens files: it loads the review history for the category baseline and the knowledge base for reference drift.
 - Tests reach the rendering through 50 calls of private methods and 5 patches of `pipeline.print_table`, in 14 test files.
@@ -25,9 +25,9 @@ A change to what the report says thus touches the orchestrator, and a test of th
 
 ## Impact
 
-- `src/devops_cli/review/report.py` (new), `src/devops_cli/ai/review/pipeline.py`, `src/devops_cli/ai/review/category_metrics.py`, `src/devops_cli/ai/review/__init__.py`.
+- `src/devops_cli/review/report.py` (new), `src/devops_cli/ai/review/pipeline.py`, `src/devops_cli/ai/review/category_metrics.py`.
 - Deleted: `src/devops_cli/ai/review/stages/__init__.py`, `src/devops_cli/ai/review/stages/reporting.py`.
-- `tests/review/test_report.py` (new) and its snapshot; the tests that called the private render methods; `tests/test_category_metrics.py`.
+- `tests/review/test_report.py` (new) and its snapshot; `make_report_input` in `tests/support/builders.py`; the tests that called the private render methods; `tests/test_category_metrics.py`.
 - `ARCHITECTURE.md`, which names `ai/review/stages/`.
 
 ## Feasibility
@@ -43,4 +43,4 @@ Checked on origin/main d156ce7e (2026-10-28).
 
 - Rich renders the terminal tables and panels, and the module keeps calling it through `devops_cli.output`.
 - syrupy holds the snapshot of the rendered text, as `docs/TESTING.md` asks for an output whose whole text is the contract.
-- No library renders this report from these models, so the module stays code of this project. The change moves code and builds none. It deletes the orchestrator's 30 render methods, the 20 module-level render helpers, `ai/review/stages/` and the duplicate severity count.
+- No library renders this report from these models, so the module stays code of this project. The change moves code and builds none. It deletes the orchestrator's 28 report methods, its 23 module-level render helpers and tables, `ai/review/stages/` and the duplicate severity count.

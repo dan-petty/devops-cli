@@ -13,6 +13,11 @@ from devops_cli.review.anchors import AdvisoryAnchor, Anchor, ToolAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.fingerprint import compute_fingerprint_v2
 from devops_cli.review.manifests import manifest_object_key
+from devops_cli.review.report import (
+    introduced_findings_section,
+    preexisting_findings_section,
+    suppressed_findings_section,
+)
 from devops_cli.review.session import ReviewSession
 from devops_cli.review.severity import derive_severity
 from devops_cli.review.state import (
@@ -583,10 +588,6 @@ def test_profile_and_findings_counts_agree(tmp_path: Path) -> None:
 
 def test_review_markdown_sections() -> None:
     """review.md includes introduced findings, preexisting findings, and suppressed sections."""
-    from types import SimpleNamespace
-
-    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-
     anchor = ToolAnchor(run_id="run-1", result_index=0, rule_id="B101")
     commit_files = {"src/app.py"}
     clean_content = "x = 1\n"
@@ -628,19 +629,9 @@ def test_review_markdown_sections() -> None:
     assert f_pre is not None
     assert f_supp is not None
 
-    fake_pipeline = SimpleNamespace(admitted_scanner_findings=[f_intro, f_pre, f_supp])
-    intro_lines = ReviewPipelineOrchestrator._build_introduced_findings_section(
-        fake_pipeline,
-        [f_intro],  # type: ignore[arg-type]
-    )
-    pre_lines = ReviewPipelineOrchestrator._build_preexisting_findings_section(
-        fake_pipeline,
-        [f_pre],  # type: ignore[arg-type]
-    )
-    supp_lines = ReviewPipelineOrchestrator._build_suppressed_findings_section(
-        fake_pipeline,
-        [f_supp],  # type: ignore[arg-type]
-    )
+    intro_lines = introduced_findings_section([f_intro])
+    pre_lines = preexisting_findings_section([f_pre])
+    supp_lines = suppressed_findings_section([f_supp], admitted=[f_intro, f_pre, f_supp])
 
     assert "## Introduced Findings" in intro_lines
     assert "## Pre-existing Findings in Changed Files" in pre_lines
@@ -902,7 +893,7 @@ def test_review_toml_suppressed_scanner_finding_is_listed_not_reported(
     assert (
         [f.title for f in reported],
         [(f.rule_id, f.state) for f in orchestrator.admitted_scanner_findings],
-        orchestrator._build_suppressed_findings_section(reported),
+        suppressed_findings_section(reported, admitted=orchestrator.admitted_scanner_findings),
     ) == (
         ["[B102] exec used"],
         [
@@ -946,8 +937,8 @@ def test_scanner_finding_at_a_base_fingerprint_is_listed_as_preexisting(
     reported = orchestrator._run_static_scanners(["src/app.py"])["src/app.py"]
 
     assert (
-        orchestrator._build_introduced_findings_section(reported),
-        orchestrator._build_preexisting_findings_section(reported),
+        introduced_findings_section(reported),
+        preexisting_findings_section(reported),
     ) == (
         [],
         [
@@ -1157,8 +1148,8 @@ def test_base_revision_dependency_advisory_is_preexisting(tmp_path: Path) -> Non
         True,
     )
 
-    preexisting_section = orchestrator._build_preexisting_findings_section(findings)
-    introduced_section = orchestrator._build_introduced_findings_section(findings)
+    preexisting_section = preexisting_findings_section(findings)
+    introduced_section = introduced_findings_section(findings)
 
     preexisting_text = "\n".join(preexisting_section)
     introduced_text = "\n".join(introduced_section)
