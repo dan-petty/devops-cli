@@ -187,6 +187,72 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_global_config_file
     )
 
 
+_LOADER_CREDENTIAL = "FAKE-2426-value"
+
+
+@pytest.mark.parametrize(
+    ("content", "error_type"),
+    [
+        pytest.param(
+            f"ai:\n  api_key: !!int {_LOADER_CREDENTIAL}\n".encode(), "ValueError", id="int"
+        ),
+        pytest.param(
+            f"ai:\n  api_key: !!bool {_LOADER_CREDENTIAL}\n".encode(), "KeyError", id="bool"
+        ),
+        pytest.param(
+            f"ai:\n  api_key: !!timestamp {_LOADER_CREDENTIAL}\n".encode(),
+            "AttributeError",
+            id="timestamp",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_LOADER_CREDENTIAL}\n  timeout: !!int ''\n".encode(),
+            "IndexError",
+            id="empty-int",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_LOADER_CREDENTIAL}\n  tags: {'[' * 10_000}{']' * 10_000}\n".encode(),
+            "RecursionError",
+            id="deep-nesting",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_LOADER_CREDENTIAL}\xe9\n".encode("latin-1"),
+            "UnicodeDecodeError",
+            id="not-utf-8",
+        ),
+    ],
+)
+def test_config_audit_keys_reports_a_global_config_file_that_the_yaml_loader_cannot_load_unaudited(
+    content: bytes,
+    error_type: str,
+    cli: Callable[..., Any],
+    write_global_config: Callable[[bytes], Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The audit refuses the errors of the YAML loader that the settings load refuses (#1468).
+
+    The message of these errors quotes the value, so the audit names only the file and the type of
+    the error. It prints the full report and exits 1.
+    """
+    global_config = write_global_config(content).resolve()
+
+    with caplog.at_level(logging.WARNING):
+        result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (
+        result.exit_code,
+        data["unaudited_config_files"],
+        data["plaintext_leaks"],
+        data["is_compliant"],
+    ) == (1, [str(global_config)], [], False)
+    assert f"Could not audit config file {global_config}: {error_type}" in caplog.messages
+    assert [
+        text
+        for text in (result.stdout, result.stderr, caplog.text)
+        if _LOADER_CREDENTIAL.casefold() in text.casefold()
+    ] == []
+
+
 def test_config_audit_keys_canonical_secret_leak_detected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
