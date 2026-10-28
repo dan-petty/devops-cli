@@ -307,7 +307,7 @@ affinity:
 
 Kubernetes puts the label `node-role.kubernetes.io/control-plane` on each control-plane node, so the rule needs no label of its own. The affinity has an effect on a new volume and on a moved volume. A bound volume keeps its pod on its node.
 
-`tests/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It also fails when an Argo CD Application installs a chart that the test does not know, because each chart keeps its claims and its affinity at different values. A pod that must stay on the control-plane node is in `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS` (`src/devops_cli/config/constants.py`), with its reason. Grafana (claim `grafana`), the Prometheus server (`prometheus-server`) and Loki (`storage-loki-0`) are in it, because their volumes are on the control-plane node, and with the affinity their pods cannot start. Move each volume as below, then remove its exemption and add the affinity to its values in one pull request.
+`tests/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It also fails when an Argo CD Application installs a chart that the test does not know, because each chart keeps its claims and its affinity at different values. A pod that must stay on the control-plane node is in `_CONTROL_PLANE_CLAIM_EXEMPTIONS` of the test, with its reason. Grafana (claim `grafana`), the Prometheus server (`prometheus-server`) and Loki (`storage-loki-0`) are in it, because their volumes are on the control-plane node, and with the affinity their pods cannot start. Move each volume as below, then remove its exemption and add the affinity to its values in one pull request.
 
 `LocalPathNodeDiskHigh` (Alerting, below) warns when the root filesystem of a node that runs a pod on a `local-path` claim is over 85% used. At 85% the kubelet starts to delete unused images. Under DiskPressure it evicts pods, and a pod on a local-path volume cannot start on another node.
 
@@ -351,6 +351,28 @@ When a move stops after the point of no return, the old claim is gone, the new v
 1. Make the claim again from the saved file with `spec.volumeName: <new-pv>`. Leave out `kubectl.kubernetes.io/last-applied-configuration` and the annotations of the volume controllers (`pv.kubernetes.io/*`, `volume.kubernetes.io/*`, `volume.beta.kubernetes.io/*`). Then put the saved last-applied value back with `kubectl annotate pvc <claim> -n <namespace> --overwrite kubectl.kubernetes.io/last-applied-configuration=<value>`.
 2. Scale the workloads back to their replicas, and make sure that their pods run on the target node.
 3. Turn on automated sync again: the Application, then `bootstrap`, which restores `cluster`, which restores the others from git.
+
+## Service Account Tokens
+
+Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process in the pod can then call the Kubernetes API as that ServiceAccount. The pod field `automountServiceAccountToken: false` stops the mount. When the pod does not set the field, the field of the ServiceAccount applies. A volume can also give the pod a token, whatever the field says: a projected `serviceAccountToken` source, or a Secret of type `kubernetes.io/service-account-token`. A pod that does not call the API mounts no token (#1652):
+
+- The manifests set the field to `false` on the pod template of each workload that does not call the API. Examples are `cloudflared`, `gpu-feature-discovery`, `llm-gateway`, `portkey`, `valkey`, `valkey-runs` and the Ollama tiers.
+- The chart values turn the token off for Loki (`defaults` and `serviceAccount`), Tempo and the OpenTelemetry collector (`serviceAccount`). They also turn it off for Alertmanager (`alertmanager`), and for the Argo CD repo server and Redis (`repoServer` and `redis`). Gitea gets its own ServiceAccount (`serviceAccount.create: true`), which has no token.
+- A pod that calls the API keeps its token, and a Role or ClusterRole binds its ServiceAccount. Examples are Argo CD, Argo Workflows, Grafana, the k8s-monitoring collectors, the Prometheus server, Pyroscope and Traefik.
+
+`tests/invariants/test_k8s_manifests.py` reads the manifests under `k8s/` and the values of each chart that an Argo CD Application installs. It fails in these cases:
+
+- A pod mounts a token, and no Role or ClusterRole binds its ServiceAccount.
+- An Application installs a chart, or a chart version, that the test does not know. Each chart keeps the field at different values, and a chart release can move it. When you change the version of a chart, read its token values again with `helm template`. Then change the entry of the test.
+- An Application gives a chart values that are not in its values files. The test reads the files only.
+- A kustomization patches a workload, a ServiceAccount, a Secret, a binding or a claim.
+
+A pod that keeps a token with no binding is in `_TOKEN_EXCEPTIONS` of the test, with its reason:
+
+- Qdrant: chart 1.19.1 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
+- The CoreDNS patch (`coredns/deployment-patch.yaml`): k3s makes the CoreDNS Deployment, its ServiceAccount and its binding. CoreDNS reads Services and EndpointSlices through the API.
+
+`kubectl get pods -A -o json` shows a `kube-api-access-*` volume only on the pods that keep a token.
 
 ## Host Journals and Health Metrics
 

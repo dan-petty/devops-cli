@@ -51,6 +51,7 @@ spec:
         llm.devops.io/total-vram-gib: "16"
         llm.devops.io/speed-tier: fast
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -192,6 +193,7 @@ spec:
         llm.devops.io/total-vram-gib: "24"
         llm.devops.io/speed-tier: slow
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -334,6 +336,7 @@ spec:
         llm.devops.io/vram-gib: 32gib
         llm.devops.io/total-vram-gib: "32"
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -477,6 +480,7 @@ spec:
         llm.devops.io/total-vram-gib: "48"
         llm.devops.io/speed-tier: fast
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -623,6 +627,7 @@ spec:
         llm.devops.io/total-vram-gib: "48"
         llm.devops.io/speed-tier: slow
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -771,6 +776,7 @@ spec:
         llm.devops.io/total-vram-gib: "64"
         llm.devops.io/speed-tier: standard
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -916,6 +922,7 @@ spec:
         llm.devops.io/vram-gib: 72gib
         llm.devops.io/total-vram-gib: "72"
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -1057,6 +1064,7 @@ spec:
         llm.devops.io/vram-gib: 96gib
         llm.devops.io/total-vram-gib: "96"
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true
@@ -1208,6 +1216,7 @@ spec:
         llm.devops.io/vram-gib: 128gib
         llm.devops.io/total-vram-gib: "128"
     spec:
+      automountServiceAccountToken: false
       runtimeClassName: nvidia
       securityContext:
         runAsNonRoot: true

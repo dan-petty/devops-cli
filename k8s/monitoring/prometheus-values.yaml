@@ -48,6 +48,8 @@ server:
 # optional mount is a directory, so the running pod sees the file without a restart.
 alertmanager:
   enabled: true
+  # Alertmanager does not call the Kubernetes API, so its pod mounts no ServiceAccount token (#1652).
+  automountServiceAccountToken: false
   persistence:
     storageClass: local-path
   # local-path binds the volume on the node where the pod first runs, and the root disk of the
