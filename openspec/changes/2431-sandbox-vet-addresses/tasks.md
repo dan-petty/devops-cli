@@ -9,11 +9,11 @@
 
 ## 2. The whitelist NetworkPolicy
 
-- [ ] Add `test_the_whitelist_policy_looks_up_each_name_once`, `test_the_whitelist_policy_refuses_an_answer_outside_its_level`, `test_a_whitelist_name_that_does_not_resolve_is_refused` and `test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses`
+- [x] Add `test_the_whitelist_policy_looks_up_each_name_once`, `test_the_whitelist_policy_refuses_an_answer_outside_its_level`, `test_a_whitelist_name_that_does_not_resolve_is_refused` and `test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses`
   - Verification: `uv run devops ci test tests/test_sandbox_networking.py`
-- [ ] Resolve each whitelist name with `vet_addresses` at the port of its entry: the public level in `_resolve_public_dns`, the private level and then the private-or-loopback rule in `_resolve_local_dns`. Delete the two `socket.getaddrinfo` calls and their classification of the answers. Name the time-of-check gap in each docstring, and raise `SandboxValidationError` for each refusal of the builders
+- [x] Resolve each whitelist name with `vet_addresses` at the port of its entry: the public level in `_resolve_public_dns`, the private level and then the private-or-loopback rule in `_resolve_local_dns`. Delete the two `socket.getaddrinfo` calls and their classification of the answers. Name the time-of-check gap in each docstring, and raise `SandboxValidationError` for each refusal of the builders
   - Verification: `uv run devops ci test tests/test_sandbox_networking.py tests/test_sandbox_policy_properties.py tests/test_validation.py`
-- [ ] Make the public whitelist validator call `is_loopback_or_private_host` with `resolve_dns=False`
+- [x] Make the public whitelist validator call `is_loopback_or_private_host` with `resolve_dns=False`
   - Verification: `uv run devops ci test tests/test_sandbox_networking.py tests/test_sandbox_policy_properties.py`
 
 ## 3. Documentation
