@@ -36,7 +36,7 @@ The issue asks for a decision: pin both tools and fix the parsers, or delete the
 - `src/devops_cli/tools_lock/tools.lock`.
 - `src/devops_cli/security/kubeconform.py`, `src/devops_cli/security/trivy.py`, `src/devops_cli/security/registry.py`, `src/devops_cli/security/__init__.py`. `src/devops_cli/security/checkov.py` is deleted.
 - `src/devops_cli/commands/scan.py`, `src/devops_cli/commands/k8s/security_audit.py`, `src/devops_cli/ai/tools/builtin_tools.py`, `src/devops_cli/ai/kb.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/models/security.py`.
-- The knowledge base pages `it_domains/tools/kubeconform.md` and `it_domains/tools/checkov.md` (deleted), the knowledge base index, `docs/DEVCONTAINER_USAGE.md`, `.github/labels.yml`, and the generated command and MCP documents.
+- The knowledge base pages `it_domains/tools/kubeconform.md`, `it_domains/tools/trivy.md`, `devops_cli/cli_command_reference.md` and `it_domains/tools/checkov.md` (deleted), the knowledge base index, `docs/DEVCONTAINER_USAGE.md`, `.github/labels.yml`, and the generated command, MCP and knowledge base documents.
 - `tests/fixtures/scanner_runs/`, `tests/test_security_kubeconform.py`, `tests/test_scanner_contract.py`, and the tests of the registry, the scan commands, the k8s commands, the agent tools and the knowledge base. `tests/test_security_checkov.py` is deleted.
 
 ## Feasibility

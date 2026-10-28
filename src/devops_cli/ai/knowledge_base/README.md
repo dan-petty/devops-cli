@@ -123,7 +123,6 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Semgrep** | Polyglot Static AST Matcher | [semgrep/semgrep](https://github.com/semgrep/semgrep) | [PyPI semgrep](https://pypi.org/project/semgrep/) | [semgrep.md](it_domains/tools/semgrep.md) |
 | **tiktoken** | Fast BPE Tokenizer | [openai/tiktoken](https://github.com/openai/tiktoken) | [PyPI tiktoken](https://pypi.org/project/tiktoken/) | [tiktoken.md](it_domains/tools/tiktoken.md) |
 | **PydanticAI** | Typed Agent Framework | [pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) | [PyPI pydantic-ai](https://pypi.org/project/pydantic-ai/) | [pydantic_ai.md](it_domains/tools/pydantic_ai.md) |
-| **Checkov** | IaC Policy & Compliance | [bridgecrewio/checkov](https://github.com/bridgecrewio/checkov) | [PyPI checkov](https://pypi.org/project/checkov/) | [checkov.md](it_domains/tools/checkov.md) |
 | **TFLint** | Cloud Provider Terraform Linter | [terraform-linters/tflint](https://github.com/terraform-linters/tflint) | [TFLint Releases](https://github.com/terraform-linters/tflint/releases) | [tflint.md](it_domains/tools/tflint.md) |
 | **Dive** | Container Layer Efficiency | [wagoodman/dive](https://github.com/wagoodman/dive) | [Dive Releases](https://github.com/wagoodman/dive/releases) | [dive.md](it_domains/tools/dive.md) |
 | **Kubeconform** | OpenAPI Manifest Validator | [yannh/kubeconform](https://github.com/yannh/kubeconform) | [Kubeconform Releases](https://github.com/yannh/kubeconform/releases) | [kubeconform.md](it_domains/tools/kubeconform.md) |

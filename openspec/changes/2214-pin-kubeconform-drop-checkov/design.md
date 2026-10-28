@@ -43,4 +43,4 @@ Rejected: add `misconfig` to the scanners of `trivy fs`. `devops scan trivy` and
 
 ## Out of scope
 
-- `tflint` and `dive` are in the registry and not in `tools.lock`, and the tflint adapter keeps its hand-written fallback. The issue names kubeconform and Checkov only.
+- `tflint` and `dive` are in the registry and not in `tools.lock`, and the tflint adapter keeps its hand-written fallback. The issue names kubeconform and Checkov only, and #2427 decides tflint and dive.

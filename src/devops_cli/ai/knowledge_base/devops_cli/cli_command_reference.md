@@ -48,7 +48,6 @@ This document provides an overview of the main command groups implemented in `de
 | **`scan`** | `devops scan trivy` | Vulnerability & misconfiguration scanning with Trivy | `target`, `--type`, `--severity`, `--json` |
 | | `devops scan secrets` | Secret scanning with Gitleaks | `target`, `--json` |
 | | `devops scan sast` | Static analysis with Semgrep | `target`, `--json` |
-| | `devops scan iac` | Infrastructure-as-code scanning | `target`, `--json` |
 | | `devops scan report` | Comprehensive multi-tool security report | `target`, `--json` |
 | **`uv`** | `devops uv sync` | Sync project dependencies | `--frozen` |
 | **`repos`** | `devops repos clone-org` | Clone all repositories in GitHub org | `org`, `--base-dir`, `--private`, `--forks` |
