@@ -153,23 +153,35 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
     assert "My_Secret_Key" not in env
 
 
-# Each of these variables makes the dynamic loader or the shell of a child load code that the
-# child did not ask for, so no caller can set one: the glibc loader by LD_AUDIT, LD_LIBRARY_PATH,
-# LD_ORIGIN_PATH and LD_PRELOAD (ld.so(8)), the macOS loader by each DYLD_ key (dyld(1)), and bash
-# by BASH_ENV, ENV and each exported function, BASH_FUNC_<name>%%.
+# Each of these variables makes a child load or run code that the child did not ask for, so no
+# caller can set one. The glibc loader reads LD_AUDIT, LD_LIBRARY_PATH, LD_ORIGIN_PATH and
+# LD_PRELOAD (ld.so(8)). glibc iconv loads the gconv modules of GCONV_PATH (iconv(1)). The macOS
+# loader reads each DYLD_ key (dyld(1)). bash reads BASH_ENV, ENV, SHELLOPTS, BASHOPTS and PS4, and
+# defines a function from each BASH_FUNC_ key (bash(1)). DYLD_EXAMPLE_KEY, which dyld(1) does not
+# list, BASH_FUNC_x(), the export form of the patched bash of Red Hat, and two function names pin
+# the prefix rule. BASH_FUNC_git%% replaces the git command in a bash child.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
     "LD_ORIGIN_PATH",
     "LD_PRELOAD",
+    "GCONV_PATH",
     "DYLD_INSERT_LIBRARIES",
     "DYLD_LIBRARY_PATH",
     "DYLD_FRAMEWORK_PATH",
     "DYLD_FALLBACK_LIBRARY_PATH",
     "DYLD_FALLBACK_FRAMEWORK_PATH",
+    "DYLD_VERSIONED_LIBRARY_PATH",
+    "DYLD_IMAGE_SUFFIX",
+    "DYLD_EXAMPLE_KEY",
     "BASH_ENV",
     "ENV",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "PS4",
     "BASH_FUNC_x%%",
+    "BASH_FUNC_x()",
+    "BASH_FUNC_git%%",
 )
 
 
@@ -180,8 +192,9 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
 def test_a_caller_override_that_loads_code_into_the_child_is_refused(
     key: str, isolate_env: bool
 ) -> None:
-    """A caller override of a loader or shell start-up variable raises `SecurityError` that names
-    the key, in upper and in lower case, with isolation on and off (#2151, #2205)."""
+    """A caller override of a loader, glibc or bash variable that loads or runs code raises
+    `SecurityError` that names the key, in upper and in lower case, with isolation on and off
+    (#2151, #2205, #2433)."""
     with pytest.raises(SecurityError) as refused:
         build_subprocess_env(
             env={"EXAMPLE_FLAG": "on", key: "libexample.so"}, isolate_env=isolate_env
