@@ -7,6 +7,7 @@ lookups a client made and the address it dialled, with no socket opened and no D
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
 import socket
 import ssl
@@ -67,6 +68,17 @@ from tests.web_fakes import (
 
 PUBLIC, LOOPBACK, PRIVATE = EgressLevel.PUBLIC, EgressLevel.LOOPBACK, EgressLevel.PRIVATE
 _TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def model_modules_imported() -> None:
+    """Import the modules a pydantic-ai model request loads, once, before the first test.
+
+    Their first import takes over 1 s. Without this, that cost lands in the call phase of the
+    first row that builds a model, and not in the behavior that the row checks.
+    """
+    for module in ("pydantic_ai.models.ollama", "devops_cli.ai.agents.agent"):
+        importlib.import_module(module)
 
 
 @pytest.fixture(autouse=True)
