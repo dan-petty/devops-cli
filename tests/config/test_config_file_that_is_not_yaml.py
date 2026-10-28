@@ -3,9 +3,10 @@ file, the line and the column, and that quotes no text of the file (#1468).
 
 The error of PyYAML quotes the line where the parser stopped, and the `buffer` of its mark holds the
 full text of the file. A malformed line is where a pasted credential usually is. The safe loader of
-PyYAML also raises `ValueError`, `KeyError` or `AttributeError` for a tagged value that it cannot
-build, with the value in the message, and the decode of a file that is not UTF-8 raises
-`UnicodeDecodeError`, whose `object` holds the bytes of the file.
+PyYAML also raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value
+that it cannot build, with the value in the message, and `RecursionError` for a document that nests
+too deep. The decode of a file that is not UTF-8 raises `UnicodeDecodeError`, whose `object` holds
+the bytes of the file.
 """
 
 from __future__ import annotations
@@ -63,6 +64,16 @@ def test_a_config_file_that_is_not_yaml_names_its_file_line_and_column_and_quote
             f"ai:\n  api_key: !!timestamp {_CREDENTIAL}\n".encode(),
             "AttributeError",
             id="timestamp",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_CREDENTIAL}\n  timeout: !!int ''\n".encode(),
+            "IndexError",
+            id="empty-int",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_CREDENTIAL}\n  tags: {'[' * 10_000}{']' * 10_000}\n".encode(),
+            "RecursionError",
+            id="deep-nesting",
         ),
         pytest.param(
             f"ai:\n  api_key: {_CREDENTIAL}\xe9\n".encode("latin-1"),
