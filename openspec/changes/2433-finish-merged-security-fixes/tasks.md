@@ -15,7 +15,7 @@
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 - [x] 2.2 Add `GCONV_PATH`, `SHELLOPTS`, `BASHOPTS` and `PS4` to `CONST_CODE_LOADING_ENV_PATTERNS`, and write its comment as one short sentence for each source
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_review_rules_pack.py`
-- [ ] 2.3 Write the child environment bullet of `ARCHITECTURE.md` for `isolate_env` on and off, with the constant as the full list and the null byte in its own sentence
+- [x] 2.3 Write the child environment bullet of `ARCHITECTURE.md` for `isolate_env` on and off, with the constant as the full list and the null byte in its own sentence
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 3. The audit-keys tests assert each clause of the spec
