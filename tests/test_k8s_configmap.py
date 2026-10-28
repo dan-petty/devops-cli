@@ -13,6 +13,7 @@ from devops_cli.k8s.configmap import (
     render_active_devops_configmap,
     render_devops_configmap_content,
 )
+from tests.support.paths import REPO_ROOT
 
 SAMPLE_TEMPLATE = """apiVersion: v1
 kind: ConfigMap
@@ -141,6 +142,18 @@ def test_render_active_devops_configmap_success(tmp_path: Path) -> None:
         },
         False,
     )
+
+
+def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> None:
+    """The background tier serves one request at a time, so each model call of the Service and
+    the cluster Jobs is sent at most two times (#2494)."""
+    rendered = render_active_devops_configmap(
+        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
+    )
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+    settings = Settings.model_validate(inner)
+
+    assert (settings.ai.model, settings.ai.max_retries) == ("devops-background", 1)
 
 
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:

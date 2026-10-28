@@ -99,7 +99,7 @@ These groups route reviews, embeddings and background work:
 - Ollama models are also served under their own names: `qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, and the embedding model `qwen3-embedding:0.6b`. An embedding group configures `model_info.mode: embedding` so health checks embed rather than generate.
 - `qwen3-embedding:0.6b` has one deployment on each serving tier, and LiteLLM's `order` sets which the router tries first. The gateway routes the embedding group with `simple-shuffle` across order 1 deployments (#2027). Order 1 is `ollama-48gib-fast` and `ollama-64gib-standard`, which embed a 32-chunk RAG batch in under 5 s beside their chat model. Order 2 is `ollama-16gib-fast`, whose chat model leaves no VRAM for the embedder, and `ollama-48gib-slow`, which takes 12 to 30 s. The router sends a request to order 2 only when every order 1 deployment fails. Each deployment sets `num_ctx` to `CONST_RAG_MAX_CHUNK_TOKENS` (8,192), so the largest RAG chunk fits. With its 32,768-token default, the embedder takes 5.2 GB, not 2.9 GB, on `ollama-64gib-standard`. These tiers keep two models loaded, so the embedder stays beside the chat model where both fit, and each must hold the model: `kubectl -n llm exec ds/<tier> -c ollama -- ollama pull qwen3-embedding:0.6b`.
 - `qwen3-coder:30b` and `gpt-oss:20b` each pin one of `devops-review`'s models: the group copies that model's `devops-review` deployments and weights, with no `max_input_tokens` and no fallback, so a review measured on one model is routed as the pool routes it.
-- `devops-background` is the background tier's one generation model: `qwen3.8:27b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3.8:27b` loaded together and is sent no other model. In-cluster services (`k8s/devops/` such as `roadmap-service` and cluster jobs) and `devops-review` fallback reach it; the pinned groups have no fallback. The client streams the call and the gateway's pings keep it open, so the client reads the reply of a `devops-review` call that falls back to this tier. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway stops a call when the tier sends no token for 1,100 s, and does not retry it. The client retries a call that fails or times out before its reply starts in its HTTP transport, the single retry layer, `ai.max_retries + 1` times, and each retry waits for the same single slot. A call that fails after its reply starts is not retried. With `1` a call is sent at most two times; `0` does not stop retries, because the transport then makes five attempts:
+- `devops-background` is the background tier's one generation model: `qwen3.8:27b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3.8:27b` loaded together and is sent no other model. In-cluster services (`k8s/devops/` such as `roadmap-service` and cluster jobs) and `devops-review` fallback reach it; the pinned groups have no fallback. The client streams the call and the gateway's pings keep it open, so the client reads the reply of a `devops-review` call that falls back to this tier. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`; the ConfigMap template of `k8s/devops/` sets `ai.max_retries: 1` for the in-cluster services, and `devops k8s deploy-stack --stack devops` applies it (Roadmap service, Go-live check). The gateway stops a call when the tier sends no token for 1,100 s, and does not retry it. The client retries a call that fails or times out before its reply starts in its HTTP transport, the single retry layer, `ai.max_retries + 1` times, and each retry waits for the same single slot. A call that fails after its reply starts is not retried. With `1` a call is sent at most two times; `0` does not stop retries, because the transport then makes five attempts:
   ```bash
   DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=devops-background \
     DEVOPS_CLI_AI_TASK_COMPOSE_MODEL=devops-background devops review path src --watch --concurrency 1
@@ -513,7 +513,7 @@ kubectl -n devops logs -f job/<name>
 
 ### Roadmap service
 
-> **Held at `replicas: 0`.** The Service acts as GitHub App `devops-cli-service`, which the personal account owns ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Labels and milestones hold the roadmap state ([ADR 0016](../docs/adr/0016-labels-hold-the-roadmap-items-fields.md)). `deployment/roadmap-service` stays at `replicas: 0` until a person moves the board's values to labels one time and steps 1 to 3 are done. Do not scale the deployment until then, and keep each managed repository's webhook disabled.
+`deployment/roadmap-service` runs one replica. The Service acts as GitHub App `devops-cli-service`, which the personal account owns ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)), on each repository in `service.repos`. Labels and milestones hold the roadmap state ([ADR 0016](../docs/adr/0016-labels-hold-the-roadmap-items-fields.md)). Argo CD self-heals the deployment, so only a change in git changes its replica count. A scale by hand stays only after the stop switch turns off automated sync.
 
 1. Create the GitHub App on the personal account (Settings > Developer settings > GitHub Apps > New GitHub App): name `devops-cli-service`, webhook off, "Only on this account". The roadmap jobs need these repository permissions: Issues read and write, Pull requests read and write, Contents read and write, Checks read, Actions read, Metadata read. The owner's App has read and write on every repository permission ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md) records the risk). Each installation token that the Service and the Jobs mint is scoped to the permissions above, whatever the App grants, so the App must grant at least those: GitHub refuses a token with HTTP 422 when the installation does not grant one of them. Install it on each managed repository, and generate a private key. The App page shows the App ID, and the installation's settings page has the installation ID at the end of its URL.
 2. `uv run devops config set service.repos <owner/name>` (each repository the service works for), then `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret). Set the App with `uv run devops config set service.github_app.app_id <app-id>`, `service.github_app.installation_id <installation-id>`, `service.github_app.slug devops-cli-service` and `service.github_app.private_key --from-file <key.pem>`, then delete the downloaded key file. deploy-stack refuses the devops stack until `service.repos` and the App's settings are set.
@@ -544,6 +544,42 @@ The rule group `roadmap-service` in `monitoring/prometheus-values.yaml` watches 
 No alert leaves the cluster until the Secret `monitoring/alertmanager-webhook` exists (Alerting, Receiver). Creating it is a step for the owner, who chose Mattermost as the route for the alerts (#1391, #1392). Until then, read the alerts in Grafana (Alerting, with the `Alertmanager` datasource) or on the Alerts page of Prometheus.
 
 `tests/test_k8s_monitoring_alerting.py` pins each rule and runs the pinned promtool (`devops install-tools --tool promtool`) on it. `promtool test rules` runs the unit tests in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`: each alert fires on a sample series with the labels and annotations that the tests pin, and stays quiet on a normal series and on the same series of another job. To run them by hand, write the group to the file that the tests' `rule_files` names, then run `promtool test rules <tests-file>` in that directory.
+
+#### Go-live check
+
+Argo CD applies the deployment, but not ConfigMap `devops-cli-config`. Only `devops k8s deploy-stack --stack devops` renders that ConfigMap, from `k8s/devops/configmap.example.yaml` and the active config. On a cluster that Argo CD manages, deploy-stack applies the ConfigMap but does not restart the pod. Until a pod reads the ConfigMap of the current template, it can send each model call five times, not two (LLM Gateway). So when Argo CD has synced the deployment, do these steps from a checkout of `main`. Do them again each time a change to the template merges.
+
+```bash
+uv run devops k8s deploy-stack --stack devops
+kubectl -n devops get cm devops-cli-config -o jsonpath='{.data.devops-cli\.yaml}' | grep max_retries   # max_retries: 1
+kubectl -n devops rollout restart deployment/roadmap-service
+```
+
+Then do these checks, and do them again every 15 minutes for the first 2 hours. If a check fails, do the stop switch. If an alert of the rule group `roadmap-service` fires, do what its row in Alerts says. Select each series of the Service with `job="roadmap-service"`, as the alert rules do.
+
+1. The pod runs: `kubectl -n devops get pod -l app.kubernetes.io/name=roadmap-service` shows one pod `Running`, with no restart and no `OOMKilled`.
+2. Prometheus scrapes the pod: `up{job="roadmap-service"}` is 1.
+3. A test delivery gets to the Service. Get each hook's ID with `uv run devops gh api repos/<owner>/<repo>/hooks --jq '.[]|{id,active,events}'`, then send a ping with `uv run devops gh api -X POST repos/<owner>/<repo>/hooks/<id>/pings`. `uv run devops gh api repos/<owner>/<repo>/hooks/<id> --jq .last_response` shows code 200, and `devops_cli_service_webhook_deliveries_total{job="roadmap-service",event="ping"}` counts one `ignored` delivery. Code 401 tells you that the hook's secret is not the one in `service.webhook_secrets`.
+4. The first rounds stay inside the budget: `sum(increase(devops_cli_github_requests_total{job="roadmap-service"}[1h]))` has a value within 15 minutes and stays below `service.github_requests_per_hour` (500 by default). At the start, each lane that is due runs, so the first hour costs the most.
+
+#### Stop switch
+
+Do these steps in this order. Step 1 does not need the cluster.
+
+1. Suspend the App's installation. Only a person can do this, and only in the web interface: open https://github.com/settings/installations, select `devops-cli-service`, select Configure, then select Suspend. The next token mint fails, and the Service halts as a refused identity. Until that mint, GitHub refuses each request, but the Service does not halt.
+2. Turn off automated sync from the top down (Pausing an Application): `bootstrap`, `cluster`, then `devops`. All three self-heal, so without this step Argo CD sets the replica count back to the value in git. `ArgoCdAutoSyncDisabled` fires after 15 minutes, which is expected.
+   ```bash
+   for app in bootstrap cluster devops; do
+     kubectl -n argocd patch application "$app" --type merge -p '{"spec":{"syncPolicy":{"automated":{"enabled":false}}}}'
+   done
+   ```
+3. Stop the pod: `kubectl -n devops scale deployment roadmap-service --replicas=0`.
+4. Stop the cluster Jobs, which use the same key: `kubectl -n devops get jobs -l app.kubernetes.io/name=devops-cli-job`, then `kubectl -n devops delete job <name>` for each Job that runs.
+5. Turn off each repository's webhook: `uv run devops gh api -X PATCH repos/<owner>/<repo>/hooks/<id> -F active=false`.
+6. If the private key leaked, generate a new key and delete the old one (step 9). A token minted with the old key stays valid until it expires, up to one hour after its mint.
+7. To keep the Service stopped, open a pull request that sets `replicas: 0` in `k8s/devops/roadmap-service/deployment.yaml`. After a person merges it, turn on automated sync for `bootstrap` again: it restores `cluster`, and `cluster` restores `devops` from git.
+
+Do not restart the pod to clear a halt before you know its cause. A restart clears the halt, the hourly budget and the count of failed rounds.
 
 ### Agent sessions
 
@@ -576,7 +612,7 @@ kubectl get crd workflows.argoproj.io workflowtemplates.argoproj.io workflowtask
 kubectl auth can-i create workflowtaskresults.argoproj.io -n argo-workflows \
   --as=system:serviceaccount:argo-workflows:argo-workflows-executor   # yes
 devops prometheus query 'up{namespace="argo-workflows"}'  # the controller's metrics target is 1
-kubectl -n devops get deploy roadmap-service           # unchanged, still at 0 replicas
+kubectl -n devops get deploy roadmap-service           # unchanged: the replicas that git sets for it
 ```
 
 ### Measurement

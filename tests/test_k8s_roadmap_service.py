@@ -61,7 +61,7 @@ def test_deployment_spec_and_container() -> None:
     ) == (
         "roadmap-service",
         "devops",
-        0,
+        1,
         "Recreate",
         "service",
         "ghcr.io/dan-petty/devops-cli/service",
