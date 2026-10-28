@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1023-cloudflared-spread`
 - Pending a person: after Argo CD syncs the merge, `kubectl -n cloudflared get pods,pdb -o wide` shows the two pods on different nodes and the PodDisruptionBudget with 1 allowed disruption, and `kubectl drain <node> --dry-run=server` of one pod's node evicts that pod while the other stays running.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
