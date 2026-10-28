@@ -109,10 +109,7 @@ def test_ingest_remote_docs_success(tmp_path: Path) -> None:
     mock_resp.text = html_content
     mock_resp.headers = {"content-type": "text/html"}
 
-    with (
-        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
-        patch("httpx2.Client.get", return_value=mock_resp),
-    ):
+    with patch("httpx2.Client.get", return_value=mock_resp):
         result = ingester.ingest_remote_docs(
             "https://example.com/api",
             output_dir=tmp_path,
@@ -163,10 +160,7 @@ def test_cli_ai_ingest_docs_remote(tmp_path: Path) -> None:
     mock_resp.text = "# Remote Docs\n\nRemote body."
     mock_resp.headers = {"content-type": "text/markdown"}
 
-    with (
-        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
-        patch("httpx2.Client.get", return_value=mock_resp),
-    ):
+    with patch("httpx2.Client.get", return_value=mock_resp):
         result = runner.invoke(
             ai_app,
             ["ingest", "docs", "https://example.com/guide", "--output-dir", str(tmp_path)],
@@ -181,10 +175,7 @@ def test_cli_ai_ingest_docs_remote_uppercase_scheme(tmp_path: Path) -> None:
     mock_resp.text = "# Remote Docs\n\nRemote body."
     mock_resp.headers = {"content-type": "text/markdown"}
 
-    with (
-        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
-        patch("httpx2.Client.get", return_value=mock_resp),
-    ):
+    with patch("httpx2.Client.get", return_value=mock_resp):
         result = runner.invoke(
             ai_app,
             ["ingest", "docs", "HTTPS://example.com/guide", "--output-dir", str(tmp_path)],
@@ -219,10 +210,7 @@ def test_ingest_local_docs_duplicate_filenames(tmp_path: Path) -> None:
 def test_ingest_remote_docs_masks_credentials(tmp_path: Path) -> None:
     """Ensure credentials in remote URL are masked in DocsIngestionError and result."""
     ingester = DocsIngester()
-    with (
-        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
-        patch("httpx2.Client.get", side_effect=RuntimeError("Connection refused")),
-    ):
+    with patch("httpx2.Client.get", side_effect=RuntimeError("Connection refused")):
         with pytest.raises(DocsIngestionError) as excinfo:
             ingester.ingest_remote_docs(
                 "https://alice:supersecret999@example.com/api",
@@ -258,10 +246,7 @@ def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
             resp.text = page1_html
         return resp
 
-    with (
-        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
-        patch("httpx2.Client.get", side_effect=mock_get),
-    ):
+    with patch("httpx2.Client.get", side_effect=mock_get):
         result = ingester.ingest_remote_docs(
             "https://example.com/root",
             output_dir=tmp_path,
@@ -293,10 +278,7 @@ def test_ingest_remote_docs_origin_filtering(tmp_path: Path) -> None:
         resp.text = page1_html
         return resp
 
-    with (
-        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
-        patch("httpx2.Client.get", side_effect=mock_get),
-    ):
+    with patch("httpx2.Client.get", side_effect=mock_get):
         result = ingester.ingest_remote_docs(
             "https://example.com/root",
             output_dir=tmp_path,
@@ -321,10 +303,7 @@ def test_ingest_remote_docs_slug_sanitization() -> None:
     resp.headers = {"content-type": "text/html"}
     resp.text = "<html><body><h1>Doc</h1><p>Content</p></body></html>"
 
-    with (
-        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
-        patch("httpx2.Client.get", return_value=resp),
-    ):
+    with patch("httpx2.Client.get", return_value=resp):
         res1 = ingester.ingest_remote_docs(
             "https://myuser:secrettoken@example.com",
             max_pages=1,

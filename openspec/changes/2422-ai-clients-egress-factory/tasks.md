@@ -21,9 +21,9 @@
 
 ## 4. The pricing fetch and the documentation crawler
 
-- [ ] Fetch a `--source` URL at the configured level and the default registry at the public level with factory clients, and delete the `UpdatePrices.fetch()` branch
+- [x] Fetch a `--source` URL at the configured level and the default registry at the public level with factory clients, and delete the `UpdatePrices.fetch()` branch
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_ai_spend_pricing.py`
-- [ ] Crawl with a public-level factory client, and delete the two `validate_service_url` calls
+- [x] Crawl with a public-level factory client, and delete the two `validate_service_url` calls
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_docs_ingester.py`
 
 ## 5. The pydantic-ai Ollama model and provider

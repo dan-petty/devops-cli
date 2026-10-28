@@ -21,6 +21,7 @@ from devops_cli.ai.spend.pricing import (
 )
 from devops_cli.config.defaults import DEFAULT_AI_REFERENCE_MODEL
 from tests.support.paths import REPO_ROOT
+from tests.web_fakes import http_response, record_connects
 
 
 @pytest.fixture(autouse=True)
@@ -227,11 +228,15 @@ def test_pricing_registry_cost_calculation(tmp_path: Path) -> None:
     assert (cost, cost_small) == (5.0, 0.005)
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_pricing_registry_remote_catalog_update(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify default remote synchronization fetches via httpx2, writes snapshot, and reloads."""
-    import httpx2
+    """Verify the default registry is fetched from its public host, written as a snapshot and reloaded.
+
+    The fetch goes through a factory client: its connect dials the vetted public address, and the
+    request names the registry host.
+    """
 
     raw = [
         {
@@ -250,19 +255,17 @@ def test_pricing_registry_remote_catalog_update(
         }
     ]
 
-    class FakeResponse:
-        content = json.dumps(raw).encode("utf-8")
-
-        def raise_for_status(self) -> None:
-            pass
-
-    monkeypatch.setattr(httpx2, "get", lambda *args, **kwargs: FakeResponse())
+    recorder = record_connects(monkeypatch, [http_response(200, json.dumps(raw))])
 
     registry = PricingRegistry(data_dir=tmp_path)
     res = registry.update_from_remote()
 
     snapshot_file = tmp_path / "ai" / "pricing_snapshot.json"
-    assert (res.source_model_count, snapshot_file.is_file()) == (1, True)
+    assert (res.source_model_count, snapshot_file.is_file(), recorder.requested_hosts) == (
+        1,
+        True,
+        ["raw.githubusercontent.com"],
+    )
 
     # Recreate registry after clearing process snapshot to ensure reload from disk
     set_custom_snapshot(None)
