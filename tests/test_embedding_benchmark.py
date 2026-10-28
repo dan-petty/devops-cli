@@ -1042,3 +1042,21 @@ def test_the_embedding_benchmark_defaults_to_the_two_candidate_models() -> None:
         "bge-m3:latest",
         "qwen3-embedding:0.6b",
     ]
+
+
+def test_an_endpoint_that_ollama_urls_cannot_hold_fails_the_run_as_a_validation_error() -> None:
+    """Verify a `model@endpoint` whose URL is not http or https raises ValidationError.
+
+    The engine's clients check the address at the connect (#2422), so the endpoint is checked
+    only as `ai.ollama_urls` checks a URL. A DevOpsCLIError fails the run of that model instead of
+    the whole benchmark.
+    """
+    from devops_cli.exceptions import ValidationError
+
+    runner = EmbeddingBenchmarkRunner(models=["m"], is_dry_run=False)
+    runner.provider = "ollama"
+
+    with pytest.raises(
+        ValidationError, match=r"Embedding benchmark endpoint 'ftp://example\.com:21'"
+    ):
+        runner._engine_for_model("m@ftp://example.com:21")

@@ -35,7 +35,7 @@
 
 ## 6. The benchmark endpoints
 
-- [ ] Delete the `validate_url` calls of the chat and embedding runners, and check `--servers` with `HttpUrlStr` inside the error block of the command
+- [x] Delete the `validate_url` calls of the chat and embedding runners, and check `--servers` with `HttpUrlStr` inside the error block of the command
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_ai_benchmark.py tests/test_embedding_benchmark.py`
 
 ## 7. Documentation

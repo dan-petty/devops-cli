@@ -63,17 +63,29 @@ def _validate_corpus_choice(document: Path | None, code: Path | None) -> None:
 
 
 def _parse_server_list(servers: str | None) -> list[str] | None:
-    """Parse and validate comma-separated Ollama server endpoints."""
+    """Parse comma-separated Ollama server URLs, each checked as `ai.ollama_urls` checks a URL.
+
+    The check reads the URL only. The client of each benchmark call checks the address at the
+    connect.
+    """
     if not servers:
         return None
-    from devops_cli.core.validation import validate_service_url
+    from pydantic import TypeAdapter
+    from pydantic import ValidationError as PydanticValidationError
 
+    from devops_cli.config.settings import HttpUrlStr
+
+    url_type = TypeAdapter(HttpUrlStr)
     server_list: list[str] = []
-    for s in servers.split(","):
-        clean_s = s.strip()
-        if clean_s:
-            validate_service_url(clean_s, "Ollama Server", allow=True)
-            server_list.append(clean_s)
+    for entry in (s.strip() for s in servers.split(",")):
+        if not entry:
+            continue
+        try:
+            server_list.append(url_type.validate_python(entry))
+        except PydanticValidationError as exc:
+            raise ValidationError(
+                ERRORS.ai.benchmark_server_url.format(url=entry), field="servers"
+            ) from exc
     return server_list or None
 
 
@@ -347,6 +359,7 @@ def run_benchmark(
     with exit_on_error(ValidationError):
         _validate_benchmark_type(benchmark_type)
         _validate_corpus_choice(document, code)
+        server_list = _parse_server_list(servers)
 
     from devops_cli.ai.endpoints import resolve_ai_endpoint
     from devops_cli.config.settings import load_settings
@@ -357,9 +370,7 @@ def run_benchmark(
     if provider:
         effective_ai_cfg = settings.ai.model_copy(update={"provider": provider})
     if servers:
-        effective_ai_cfg = effective_ai_cfg.model_copy(
-            update={"ollama_urls": _parse_server_list(servers) or []}
-        )
+        effective_ai_cfg = effective_ai_cfg.model_copy(update={"ollama_urls": server_list or []})
 
     try:
         resolve_ai_endpoint(effective_ai_cfg)
@@ -369,7 +380,6 @@ def run_benchmark(
 
     model_list = parse_model_list(models, settings.ai.model)
     safe_concurrency = max(1, min(concurrency, 32))
-    server_list = _parse_server_list(servers)
 
     kind = benchmark_type.strip().lower()
     is_embedding = kind == "embedding" or (
