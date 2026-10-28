@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import example, given
+from hypothesis import strategies as st
 
 from devops_cli.security.sanitizer import (
     mask_dict_secrets,
@@ -454,21 +456,94 @@ def test_assigned_credentials_are_unaffected_by_the_guard() -> None:
 # A line break ends a credential keyword's value (#2450)
 # =============================================================================
 
-# Each pair is a line that ends with a credential keyword or its separator, and the line
-# after it. The first word of the second line is masked when the two lines are one line.
+# Each pair is a line that ends with a credential keyword or its separator, the line after
+# it, and the masked text of the two lines joined by whitespace into one line. `{sep}` in
+# that text stands for the whitespace that joins them, where the rule keeps it.
 _KEYWORD_LINE_PAIRS = [
     pytest.param(
         "$ devops config set ai.api_key",
         "ai.api_key is stored in the keyring",
+        "$ devops config set ai.api_key{sep}<masked-token> is stored in the keyring",
         id="keyword-then-space",
     ),
-    pytest.param("Enter the password:", "authenticated_user logged in", id="password-separator"),
-    pytest.param("export TOKEN=", "settings_loader_ok ran", id="token-separator"),
-    pytest.param("aws_secret_access_key =", "A" * 40, id="aws-secret-separator"),
-    pytest.param("client_secret:", "rotation_schedule_monthly_v2", id="client-secret-separator"),
-    pytest.param("api_key:", "rotation_schedule_monthly_v2", id="api-key-separator"),
-    pytest.param("env:", "secret_key_base_name: value", id="secret-prefix-after-separator"),
-    pytest.param("send the bearer", "secret_key_base_name next", id="secret-prefix-after-bearer"),
+    pytest.param(
+        "Enter the password:",
+        "authenticated_user logged in",
+        "Enter the password=<masked-password> logged in",
+        id="password-separator",
+    ),
+    pytest.param(
+        "Enter the password",
+        ": authenticated_user logged in",
+        "Enter the password=<masked-password> logged in",
+        id="password-keyword",
+    ),
+    pytest.param(
+        "export TOKEN=",
+        "settings_loader_ok ran",
+        "export token=<masked-token> ran",
+        id="token-separator",
+    ),
+    pytest.param(
+        "export TOKEN",
+        "=settings_loader_ok ran",
+        "export token=<masked-token> ran",
+        id="token-keyword",
+    ),
+    pytest.param(
+        "aws_secret_access_key =",
+        "A" * 40,
+        "aws_secret_access_key=<masked-aws-secret>",
+        id="aws-secret-separator",
+    ),
+    pytest.param(
+        "aws_secret_access_key",
+        "= " + "A" * 40,
+        "aws_secret_access_key=<masked-aws-secret>",
+        id="aws-secret-keyword",
+    ),
+    pytest.param(
+        "client_secret:",
+        "rotation_schedule_monthly_v2",
+        "client_secret=<masked-client-secret>",
+        id="client-secret-separator",
+    ),
+    pytest.param(
+        "client_secret",
+        ": rotation_schedule_monthly_v2",
+        "client_secret=<masked-client-secret>",
+        id="client-secret-keyword",
+    ),
+    pytest.param(
+        "api_key:",
+        "rotation_schedule_monthly_v2",
+        "api_key=<masked-api-key>",
+        id="api-key-separator",
+    ),
+    pytest.param(
+        "api_key",
+        ": rotation_schedule_monthly_v2",
+        "api_key=<masked-api-key>",
+        id="api-key-keyword",
+    ),
+    pytest.param(
+        "env:",
+        "secret_key_base_name: value",
+        "env:{sep}<masked-secret>: value",
+        id="secret-prefix-after-separator",
+    ),
+    pytest.param(
+        "send the bearer",
+        "secret_key_base_name next",
+        "send the bearer{sep}<masked-secret> next",
+        id="secret-prefix-after-bearer",
+    ),
+    pytest.param(
+        "send the token",
+        "secret_key_base_name next",
+        "send the token{sep}<masked-secret> next",
+        id="secret-prefix-after-token",
+    ),
 ]
 
 
@@ -476,11 +551,11 @@ _KEYWORD_LINE_PAIRS = [
 @pytest.mark.parametrize(
     "line_break", [pytest.param("\n", id="lf"), pytest.param("\r\n", id="crlf")]
 )
-@pytest.mark.parametrize(("first_line", "second_line"), _KEYWORD_LINE_PAIRS)
+@pytest.mark.parametrize(("first_line", "second_line", "masked_one_line"), _KEYWORD_LINE_PAIRS)
 def test_a_credential_keyword_at_a_line_end_leaves_the_next_line_alone(
-    first_line: str, second_line: str, line_break: str, syntax: str
+    first_line: str, second_line: str, masked_one_line: str, line_break: str, syntax: str
 ) -> None:
-    """A keyword and its value sit on one line, so a line break ends the match.
+    """A keyword, its separator and its value sit on one line, so a line break ends the match.
 
     A terminal transcript ended a command line with a config key whose name ends in
     "api_key", and the output line started with that key. The keyword rule took the first
@@ -492,16 +567,96 @@ def test_a_credential_keyword_at_a_line_end_leaves_the_next_line_alone(
 
 
 @pytest.mark.parametrize("syntax", ["data", "code"])
-@pytest.mark.parametrize(("first_line", "second_line"), _KEYWORD_LINE_PAIRS)
+@pytest.mark.parametrize(
+    "sep",
+    [
+        pytest.param(" ", id="space"),
+        pytest.param("\t", id="tab"),
+        pytest.param("\xa0", id="no-break-space"),
+    ],
+)
+@pytest.mark.parametrize(("first_line", "second_line", "masked_one_line"), _KEYWORD_LINE_PAIRS)
 def test_a_credential_keyword_and_its_value_on_one_line_are_still_masked(
-    first_line: str, second_line: str, syntax: str
+    first_line: str, second_line: str, masked_one_line: str, sep: str, syntax: str
 ) -> None:
-    """The line-break limit narrows no rule on one line: the same pair is masked there."""
-    text = f"{first_line} {second_line}"
-    value = second_line.split()[0]
-    masked = redact_text(text, syntax=syntax)
-    assert "<masked-" in masked
-    assert masked.count(value) < text.count(value)
+    """The line-break limit narrows no rule on one line: the same pair is masked there.
+
+    Whitespace that is not a line break joins a keyword, its separator and its value, so a
+    tab or a no-break space masks the pair as a space does.
+    """
+    text = f"{first_line}{sep}{second_line}"
+    assert redact_text(text, syntax=syntax) == masked_one_line.format(sep=sep)
+
+
+# Each credential line is masked on its own; the line after it must not change that result.
+_CREDENTIAL_LINES = [
+    "api_key: rotation_schedule_monthly_v2",
+    "access_token=rotation_schedule_monthly_v2",
+    "bearer_token: rotation_schedule_monthly_v2",
+    "Enter the password: authenticated_user logged in",
+    "export TOKEN=settings_loader_ok ran",
+    "aws_secret_access_key = " + "A" * 40,
+    "client_secret: rotation_schedule_monthly_v2",
+    "send the bearer secret_key_base_name next",
+    "$ devops config set ai.api_key ai.api_key is stored in the keyring",
+]
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "api_key: rotation_schedule_monthly_v2\n(rotated monthly)",
+            "api_key=<masked-api-key>\n(rotated monthly)",
+            id="parenthesis-on-the-next-line",
+        ),
+        pytest.param(
+            "access_token=rotation_schedule_monthly_v2\r\n\r\n(next paragraph)",
+            "api_key=<masked-api-key>\r\n\r\n(next paragraph)",
+            id="parenthesis-after-a-blank-line",
+        ),
+        pytest.param(
+            "bearer_token: rotation_schedule_monthly_v2\n  (rotated monthly)",
+            "api_key=<masked-api-key>\n  (rotated monthly)",
+            id="indented-parenthesis-on-the-next-line",
+        ),
+        pytest.param(
+            "api_key = settings_mod.get_ai_api_key (st)",
+            "api_key = settings_mod.get_ai_api_key (st)",
+            id="call-on-the-same-line",
+        ),
+    ],
+)
+def test_a_parenthesis_on_the_next_line_does_not_unmask_a_credential(
+    text: str, expected: str, syntax: str
+) -> None:
+    """The call check after an `api_key` value reads only the rest of its own line (#2471).
+
+    A `(` on the line of the value marks a call, such as `api_key=settings.read_key(st)`, which
+    stays as written. A `(` at the start of a later line said nothing about the value, but it
+    stopped the match, so the value stayed in clear text.
+    """
+    assert redact_text(text, syntax=syntax) == expected
+
+
+@example(first_line=_CREDENTIAL_LINES[0], line_break="\n", next_line="(rotated monthly)")
+@example(first_line=_CREDENTIAL_LINES[1], line_break="\r\n\r\n", next_line="(next paragraph)")
+@given(
+    first_line=st.sampled_from(_CREDENTIAL_LINES),
+    line_break=st.sampled_from(["\n", "\r\n", "\n\n", "\r\n\r\n"]),
+    next_line=st.text(alphabet=st.characters(exclude_characters="\r\n"), max_size=40),
+)
+def test_the_next_line_never_changes_how_a_credential_line_is_masked(
+    first_line: str, line_break: str, next_line: str
+) -> None:
+    """Masking two lines gives the same text as masking each line on its own."""
+    for syntax in ("data", "code"):
+        assert redact_text(f"{first_line}{line_break}{next_line}", syntax=syntax) == (
+            redact_text(first_line, syntax=syntax)
+            + line_break
+            + redact_text(next_line, syntax=syntax)
+        )
 
 
 # =============================================================================
