@@ -1116,8 +1116,8 @@ def test_rate_limiter_throttle_persistence_across_instances(tmp_path: Path) -> N
     """Verify throttle counts and backoff sleep duration persist to disk and sync across instances."""
     quota_file = tmp_path / "gh_quota.json"
     limiter1 = GitHubRateLimiter(persist_path=quota_file)
-    limiter1.record_throttle(45.5)
-    limiter1.record_throttle(62.0)
+    limiter1.record_throttle(45.5, resource="core")
+    limiter1.record_throttle(62.0, resource="graphql")
 
     limiter2 = GitHubRateLimiter(persist_path=quota_file)
     assert (

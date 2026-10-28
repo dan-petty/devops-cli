@@ -202,7 +202,7 @@ def retry_wait(
         )
     except GitHubRateLimitError as refusal:
         raise refused_retry(refusal, error, method=method, path=command[1]) from refusal
-    limiter.record_throttle(wait)
+    limiter.record_throttle(wait, resource=gh_request_resource(command))
     return wait
 
 

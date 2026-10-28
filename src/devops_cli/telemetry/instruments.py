@@ -111,6 +111,28 @@ RAG_POINTS = Instrument(
     "1",
     "Points stored in RAG vector collections, by collection",
 )
+GITHUB_REQUESTS_TOTAL = Instrument(
+    "devops_cli_github_requests_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "GitHub requests the rate limiter paced, each attempt and retry once, by resource: the rate "
+    "limit resource the request spends, such as core, graphql or search. A gh command and a "
+    "request of the GitHub session both count",
+)
+GITHUB_THROTTLE_WAIT = Instrument(
+    "devops_cli_github_throttle_wait_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Time devops-cli waited before it sent a refused GitHub request again, by resource: one "
+    "observation for each throttle. GitHub refused the request with a rate limit, or the GitHub "
+    "session got a 5xx for a read",
+)
+GITHUB_GRAPHQL_POINTS_TOTAL = Instrument(
+    "devops_cli_github_graphql_points_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "GraphQL points that GitHub reported each answer cost in its rateLimit field",
+)
 
 PROJECT_RELEASES = Instrument(
     "devops_cli_project_releases",
@@ -225,6 +247,9 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
+    GITHUB_REQUESTS_TOTAL,
+    GITHUB_THROTTLE_WAIT,
+    GITHUB_GRAPHQL_POINTS_TOTAL,
     PROJECT_RELEASES,
     PROJECT_COMMITS,
     PROJECT_PRS,
@@ -283,6 +308,9 @@ __all__ = [
     "COMMAND_DURATION",
     "COMMAND_TOTAL",
     "FINDINGS_TOTAL",
+    "GITHUB_GRAPHQL_POINTS_TOTAL",
+    "GITHUB_REQUESTS_TOTAL",
+    "GITHUB_THROTTLE_WAIT",
     "INSTRUMENTS",
     "PROJECT_CI_RUNS",
     "PROJECT_COMMITS",

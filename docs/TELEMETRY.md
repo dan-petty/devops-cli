@@ -53,6 +53,9 @@ native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_rag_points` | Gauge | `1` | Points stored in RAG vector collections, by collection. |
+| `devops_cli_github_requests_total` | Counter | `1` | GitHub requests the rate limiter paced, each attempt and retry once, by resource: the rate limit resource the request spends, such as core, graphql or search. A gh command and a request of the GitHub session both count. |
+| `devops_cli_github_throttle_wait_seconds` | Histogram | `s` | Time devops-cli waited before it sent a refused GitHub request again, by resource: one observation for each throttle. GitHub refused the request with a rate limit, or the GitHub session got a 5xx for a read. |
+| `devops_cli_github_graphql_points_total` | Counter | `1` | GraphQL points that GitHub reported each answer cost in its rateLimit field. |
 | `devops_cli_project_releases` | Gauge | `1` | Total project releases tracked. |
 | `devops_cli_project_commits` | Gauge | `1` | Project commits count by release. |
 | `devops_cli_project_prs` | Gauge | `1` | Project pull requests merged by release. |

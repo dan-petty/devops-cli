@@ -81,6 +81,12 @@ from devops_cli.github.request_classifier import (
     is_write_gh_command,
     parse_gh_api_args,
 )
+from devops_cli.telemetry.instruments import (
+    GITHUB_GRAPHQL_POINTS_TOTAL,
+    GITHUB_REQUESTS_TOTAL,
+    GITHUB_THROTTLE_WAIT,
+    emit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -868,12 +874,15 @@ class GitHubRateLimiter:
                 total_wait_seconds=self._total_wait_seconds,
             )
 
-    def record_throttle(self, wait_seconds: float) -> None:
-        """Record rate-limit throttle event and sleep duration."""
+    def record_throttle(self, wait_seconds: float, *, resource: str) -> None:
+        """Record a throttle of a request on `resource` and the wait before its retry, in the
+        ledger and as an observation of `devops_cli_github_throttle_wait_seconds`."""
+        wait = max(0.0, wait_seconds)
         with self._lock:
             self._total_throttles += 1
-            self._total_wait_seconds += max(0.0, wait_seconds)
+            self._total_wait_seconds += wait
             self._persist_to_disk_locked()
+        emit(GITHUB_THROTTLE_WAIT, wait, {"resource": resource})
 
     def get_total_throttles(self) -> int:
         """Return total tracked rate limit throttle events across processes."""
@@ -1034,7 +1043,8 @@ class GitHubRateLimiter:
     ) -> float:
         """Institute mandatory pause of the request delay calculated for that subcommand.
 
-        Synchronizes global tracking across processes and serializes requests.
+        Synchronizes global tracking across processes and serializes requests. Each request it
+        lets go adds 1 to `devops_cli_github_requests_total` for its resource.
         """
         target = resource or subcommand
         with self._lock:
@@ -1046,6 +1056,7 @@ class GitHubRateLimiter:
                     )
             else:
                 sleep_duration = self._acquire_locked(target, is_mutation=is_mutation, cost=cost)
+        emit(GITHUB_REQUESTS_TOTAL, 1, {"resource": target})
 
         if sleep_duration > 0.0:
             logger.info(
@@ -1193,11 +1204,13 @@ class GitHubRateLimiter:
             self._total_requests += cost
 
     def charge_points(self, subcommand: str, points: int) -> None:
-        """Charge `points`, the cost a response reported, to `subcommand` (#1125)."""
+        """Charge `points`, the cost a response reported, to `subcommand` (#1125), and add them
+        to `devops_cli_github_graphql_points_total`."""
         if points < 0:
             raise ValueError(f"charged points must be non-negative, got {points}")
         with self._lock:
             self._points_charged[subcommand] = self._points_charged.get(subcommand, 0) + points
+        emit(GITHUB_GRAPHQL_POINTS_TOTAL, points)
 
     def points_charged(self, subcommand: str) -> int:
         """The points the responses on `subcommand` reported they cost."""
@@ -1707,7 +1720,7 @@ def _handle_attempt_backoff(
         target_resource,
         backoff,
     )
-    limiter.record_throttle(backoff)
+    limiter.record_throttle(backoff, resource=target_resource)
     time.sleep(backoff)
     return True
 
