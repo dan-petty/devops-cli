@@ -21,6 +21,7 @@ from devops_cli.models.cloudflare import (
     CloudflareTunnelIngressRule,
     CloudflareZone,
 )
+from tests.web_fakes import record_connects, scripted_resolver
 
 runner = CliRunner()
 
@@ -1190,3 +1191,39 @@ def test_cloudflare_client_request_does_not_retry_403() -> None:
             client.verify_token()
         assert mock_req.call_count == 1
         assert len(sleep_calls) == 0
+
+
+@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["status"],
+        ["dns", "list", "--zone-id", "zone-1"],
+        ["tunnel", "routes", "--tunnel-id", "f47ac10b-58cc-4372-a567-0e02b2c3d479", "-a", "acct-1"],
+        ["access", "status", "--account-id", "acct-1"],
+    ],
+    ids=["status", "dns", "tunnel", "access"],
+)
+def test_cli_cloudflare_refused_address_is_reported(
+    monkeypatch: pytest.MonkeyPatch, cli: Any, argv: list[str]
+) -> None:
+    """A private answer for the API host is refused, and each command reports the refusal.
+
+    The client dials only public addresses (#2430), so the token never reaches 10.0.0.1. A
+    command of each Cloudflare command group prints the message of `SSRFBlockedError` and exits
+    with its exit code, 2, with no traceback. The socket gets neither 10.0.0.1 nor the API host
+    name: a client that gives the socket the name lets the socket resolve it to 10.0.0.1 with no
+    check. Only dials to these two count, because the telemetry exporter of the test
+    configuration can dial its collector from a background thread.
+    """
+    scripted_resolver(monkeypatch, {"api.cloudflare.com": [["10.0.0.1"]]})
+    recorder = record_connects(monkeypatch, [])
+
+    result = cli("cloudflare", *argv, env={"DEVOPS_CLI_CLOUDFLARE_API_TOKEN": "cf-test"})
+
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "SSRF blocked" in result.output,
+        [host for host, _ in recorder.dialled if host in {"10.0.0.1", "api.cloudflare.com"}],
+    ) == (2, SystemExit, True, [])
