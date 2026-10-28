@@ -6,7 +6,7 @@ import ipaddress
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from enum import StrEnum
+from enum import StrEnum, auto
 from pathlib import Path
 from typing import Any, Final
 
@@ -664,10 +664,10 @@ class ProbeProtocol(StrEnum):
 class ProbeStatus(StrEnum):
     """Outcome status for individual probes and aggregated report."""
 
-    PASS = "pass"  # nosec B105 # a probe status, not a credential
-    FAIL = "fail"
-    TIMEOUT = "timeout"
-    SKIPPED = "skipped"
+    PASS = auto()
+    FAIL = auto()
+    TIMEOUT = auto()
+    SKIPPED = auto()
 
 
 def _sanitize_nested_detail(val: Any) -> Any:

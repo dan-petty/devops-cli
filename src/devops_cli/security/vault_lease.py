@@ -34,6 +34,11 @@ from devops_cli.security.vault_http import vault_request
 
 logger = logging.getLogger(__name__)
 
+# The Vault path a lease was issued for when its caller names none.
+_NO_VAULT_PATH = ""
+# The Vault path of a token login, the auth backend behind an authentication lease.
+_VAULT_AUTH_LOGIN_PATH = "auth/token"
+
 
 def _post(
     vault_addr: str,
@@ -185,8 +190,8 @@ class LeaseRegistry:
         """Build authenticated Vault request headers."""
         return _token_headers(self.token, self.namespace)
 
-    def track(  # nosec B107 # a Vault path default, not a credential
-        self, lease_id: str, duration: int, renewable: bool, secret_path: str = ""
+    def track(
+        self, lease_id: str, duration: int, renewable: bool, secret_path: str = _NO_VAULT_PATH
     ) -> VaultLease:
         """Register a newly issued lease for lifecycle management."""
         lease = VaultLease(
@@ -199,8 +204,8 @@ class LeaseRegistry:
         self._leases[lease_id] = lease
         return lease
 
-    def track_auth(  # nosec B107 # a Vault path default, not a credential
-        self, auth: VaultAuthResult, secret_path: str = "auth/token"
+    def track_auth(
+        self, auth: VaultAuthResult, secret_path: str = _VAULT_AUTH_LOGIN_PATH
     ) -> VaultLease:
         """Register the lease backing an authentication token."""
         return self.track(

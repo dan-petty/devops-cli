@@ -178,9 +178,8 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src noqa: F401": 15,
     "src noqa: SIM115": 1,
     "src noqa: UP036": 1,
-    # #1538: each Bandit finding in src that only looks like a credential or a security use of
-    # random carries a reviewed marker, and the gate scans src at low severity.
-    "src nosec": 23,
+    # #1538: `.bandit` skips B603, so the three `# nosec B603` markers went.
+    "src nosec": 10,
     "src pragma: no cover": 1,
     "src pragma: no mutate": 0,
     "src file-level directive": 0,

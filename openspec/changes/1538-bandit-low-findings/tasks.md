@@ -23,16 +23,15 @@
 - [x] Run `git` through `run_subprocess` in `ai/rag/drift.py` and `github/metrics.py`
   - Verification: `uv run devops ci test tests/test_github_metrics.py tests/test_rag_drift.py`
 
-## 4. Literals and markers
+## 4. Literals, draws and markers
 
-- [x] Add a failing test: every `# nosec` in `src/` names a rule and a reason
-  - Verification: `uv run pytest tests/test_architectural_invariants.py -n 0`
-- [x] Fix the two literals, add the reviewed markers, give the existing markers their reasons, delete the three `# nosec B603` markers, and set `src nosec` to 23
+- [x] Add failing tests: every `# nosec` in `src/` names a rule and a reason; a seeded draw repeats for the same seed; the values of `SweepStatus`, `ProbeStatus` and `DefectClass` stay as stored
+  - Verification: `uv run pytest tests/test_architectural_invariants.py tests/core/test_draws.py tests/test_review_template_sweep.py tests/test_sandbox_probe.py tests/test_review_taxonomy_and_severity.py -n 0`
+- [x] Fix each B105, B106, B107 and B311 finding in code, add `core/draws.py`, give the existing markers their reasons, delete the three `# nosec B603` markers, and set `src nosec` to 10
   - Verification: `uv run devops ci security`
 
 ## 5. Archive
 
 - [ ] Archive the change
   - Verification: `uv run devops openspec archive 1538-bandit-low-findings`
-- Pending a person: approve the `src nosec` suppression ceiling of 23 (it was 13) by merging.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

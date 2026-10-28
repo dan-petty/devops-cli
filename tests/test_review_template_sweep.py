@@ -19,10 +19,8 @@ from typer.testing import CliRunner
 from devops_cli.ai.review.defects import Site, select_templates
 from devops_cli.ai.review.samples import SampleCategory, SampleRepository
 from devops_cli.ai.review.template_sweep import (
-    STATUS_FAIL,
-    STATUS_NOT_RUN,
-    STATUS_PASS,
     SiteVerification,
+    SweepStatus,
     TemplateSweepReport,
     _check_c,
     _check_cpp,
@@ -74,7 +72,7 @@ def test_python_syntax_checker() -> None:
         invalid.status,
         invalid.checker,
         bool(invalid.error),
-    ) == (STATUS_PASS, "python-ast", None, STATUS_FAIL, "python-ast", True)
+    ) == (SweepStatus.PASS, "python-ast", None, SweepStatus.FAIL, "python-ast", True)
 
 
 def test_yaml_syntax_checker() -> None:
@@ -88,7 +86,7 @@ def test_yaml_syntax_checker() -> None:
         invalid.status,
         invalid.checker,
         bool(invalid.error),
-    ) == (STATUS_PASS, "PyYAML", STATUS_FAIL, "PyYAML", True)
+    ) == (SweepStatus.PASS, "PyYAML", SweepStatus.FAIL, "PyYAML", True)
 
 
 def test_hcl_syntax_checker() -> None:
@@ -102,16 +100,16 @@ def test_hcl_syntax_checker() -> None:
         invalid.status,
         invalid.checker,
         bool(invalid.error),
-    ) == (STATUS_PASS, "python-hcl2", STATUS_FAIL, "python-hcl2", True)
+    ) == (SweepStatus.PASS, "python-hcl2", SweepStatus.FAIL, "python-hcl2", True)
 
 
 def test_cmd_checker_missing_binary(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify missing external checkers report STATUS_NOT_RUN rather than passing."""
+    """Verify missing external checkers report SweepStatus.NOT_RUN rather than passing."""
     monkeypatch.setattr("shutil.which", lambda _: None)
     result = _run_cmd_checker(["nonexistent-compiler", "--check"], b"code", "mock-checker")
 
     assert (result.status, result.checker, result.error) == (
-        STATUS_NOT_RUN,
+        SweepStatus.NOT_RUN,
         "mock-checker",
         "nonexistent-compiler not installed",
     )
@@ -138,8 +136,8 @@ def test_cmd_checker_execution_results(monkeypatch: pytest.MonkeyPatch) -> None:
         res_fail.status,
         res_fail.error,
     ) == (
-        STATUS_PASS,
-        STATUS_FAIL,
+        SweepStatus.PASS,
+        SweepStatus.FAIL,
         "syntax error: unexpected token",
     )
 
@@ -167,13 +165,13 @@ def test_c_cpp_shell_node_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
         node_res.status,
     ) == (
         "gcc",
-        STATUS_PASS,
+        SweepStatus.PASS,
         "g++",
-        STATUS_PASS,
+        SweepStatus.PASS,
         "bash",
-        STATUS_PASS,
+        SweepStatus.PASS,
         "node",
-        STATUS_PASS,
+        SweepStatus.PASS,
     )
 
 
@@ -191,11 +189,11 @@ def test_check_syntax_unsupported_and_special() -> None:
         unsupported_res.status,
         unsupported_res.checker,
     ) == (
-        STATUS_PASS,
+        SweepStatus.PASS,
         "dockerfile",
-        STATUS_PASS,
+        SweepStatus.PASS,
         "markdown",
-        STATUS_NOT_RUN,
+        SweepStatus.NOT_RUN,
         "unsupported",
     )
 
@@ -208,7 +206,7 @@ def test_check_tree_sitter_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     res = _check_tree_sitter("fn main() {}", "rust")
 
     assert (res.status, res.checker, res.error) == (
-        STATUS_NOT_RUN,
+        SweepStatus.NOT_RUN,
         "tree-sitter",
         "tree-sitter rust not installed",
     )
@@ -284,7 +282,7 @@ def test_record_verification_aggregations() -> None:
         file="src/mod.py",
         line=10,
         checker="python-ast",
-        status=STATUS_PASS,
+        status=SweepStatus.PASS,
         in_comment=False,
     )
     fail_v = SiteVerification(
@@ -294,7 +292,7 @@ def test_record_verification_aggregations() -> None:
         file="src/mod.py",
         line=20,
         checker="python-ast",
-        status=STATUS_FAIL,
+        status=SweepStatus.FAIL,
         error="SyntaxError: invalid syntax",
         in_comment=False,
     )
@@ -305,7 +303,7 @@ def test_record_verification_aggregations() -> None:
         file="src/mod.py",
         line=30,
         checker="python-ast",
-        status=STATUS_PASS,
+        status=SweepStatus.PASS,
         in_comment=True,
     )
     not_run_v = SiteVerification(
@@ -315,7 +313,7 @@ def test_record_verification_aggregations() -> None:
         file="main.go",
         line=5,
         checker="tree-sitter",
-        status=STATUS_NOT_RUN,
+        status=SweepStatus.NOT_RUN,
         error="tree-sitter go not installed",
         in_comment=False,
     )
@@ -621,3 +619,8 @@ def test_cli_review_templates_check_failure(
     )
 
     assert res.exit_code == 1
+
+
+def test_a_sweep_status_is_stored_as_its_name() -> None:
+    """Run records store a check's status as the member name, upper case (#1538)."""
+    assert [str(status) for status in SweepStatus] == ["PASS", "FAIL", "NOT_RUN"]

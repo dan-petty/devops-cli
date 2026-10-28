@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 import os
-import random
+import secrets
 import threading
 import time
 from collections import OrderedDict
@@ -79,6 +79,9 @@ from devops_cli.telemetry.instruments import (
 from devops_cli.valkey.cache import ValkeyCacheTier, configured_cache_tier
 
 logger = logging.getLogger(__name__)
+# Retry jitter, drawn from the operating system's source: it guards nothing, and no seed is shared
+# with other draws (#1538).
+_JITTER = secrets.SystemRandom()
 
 _DEFAULT_VALKEY: object = object()
 
@@ -90,7 +93,7 @@ def _calculate_backoff_delay(
 ) -> float:
     """Compute exponential backoff delay with bounded jitter."""
     exp_delay = min(max_delay, base * (2**attempt))
-    jitter = random.uniform(0.0, 0.1 * exp_delay)  # nosec B311 # retry jitter; it guards nothing
+    jitter = _JITTER.uniform(0.0, 0.1 * exp_delay)
     return float(round(exp_delay + jitter, 4))
 
 
@@ -333,7 +336,7 @@ def _compute_retry_delay(attempt: int, res: httpx2.Response | None = None) -> fl
         if retry_after and retry_after.isdigit():
             return min(30.0, float(retry_after))
     base = min(10.0, 0.5 * (2 ** (attempt - 1)))
-    return float(base + random.uniform(0.1, 0.5))  # nosec B311 # retry jitter; it guards nothing
+    return float(base + _JITTER.uniform(0.1, 0.5))
 
 
 def _probe_ollama_show_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:

@@ -31,8 +31,8 @@ from devops_cli.ai.run_store import (
 )
 from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
+    CONST_RUNS_INDEX_AUTH_OBJECT,
     CONST_RUNS_INDEX_NAMESPACE,
-    CONST_RUNS_INDEX_SECRET,
     CONST_RUNS_INDEX_SERVICE,
 )
 from devops_cli.config.defaults import DEFAULT_VALKEY_PORT
@@ -145,7 +145,7 @@ def connect_cmd(
     secret_name: Annotated[
         str,
         typer.Option("--secret-name", help="Name of the Secret holding the Valkey password."),
-    ] = CONST_RUNS_INDEX_SECRET,
+    ] = CONST_RUNS_INDEX_AUTH_OBJECT,
 ) -> None:
     """Find the cluster's run index, check it answers, share runs through it, and index them."""
     from devops_cli.config.settings import dotted_set, load_settings, save_settings

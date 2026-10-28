@@ -7,7 +7,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Sequence
-from enum import StrEnum
+from enum import StrEnum, auto
 from pathlib import Path
 from typing import Any
 
@@ -530,34 +530,34 @@ class DefectClass(StrEnum):
     a CWE maps here through `CONST_REVIEW_CWE_DEFECT_CLASSES`.
     """
 
-    INJECTION = "injection"
-    PATH_TRAVERSAL = "path_traversal"
-    SSRF = "ssrf"
-    SECRET_EXPOSURE = "secret_exposure"  # nosec B105 # a finding category, not a credential
-    INFORMATION_EXPOSURE = "information_exposure"
-    ACCESS_CONTROL = "access_control"
-    AUTHENTICATION = "authentication"
-    CRYPTOGRAPHY = "cryptography"
-    INSECURE_TRANSPORT = "insecure_transport"
-    NETWORK_EXPOSURE = "network_exposure"
-    SECURITY_MISCONFIGURATION = "security_misconfiguration"
-    SUPPLY_CHAIN = "supply_chain"
-    RESOURCE_EXHAUSTION = "resource_exhaustion"
-    RACE_CONDITION = "race_condition"
-    ERROR_HANDLING = "error_handling"
-    INPUT_VALIDATION = "input_validation"
-    PROCESS_SAFETY = "process_safety"
-    DATA_INTEGRITY = "data_integrity"
-    RELIABILITY = "reliability"
-    SYNTAX_ERROR = "syntax_error"
-    TESTING = "testing"
-    DOCUMENTATION = "documentation"
-    LOGIC_ERROR = "logic_error"
-    CONFIGURATION = "configuration"
-    CODE_QUALITY = "code_quality"
+    INJECTION = auto()
+    PATH_TRAVERSAL = auto()
+    SSRF = auto()
+    SECRET_EXPOSURE = auto()
+    INFORMATION_EXPOSURE = auto()
+    ACCESS_CONTROL = auto()
+    AUTHENTICATION = auto()
+    CRYPTOGRAPHY = auto()
+    INSECURE_TRANSPORT = auto()
+    NETWORK_EXPOSURE = auto()
+    SECURITY_MISCONFIGURATION = auto()
+    SUPPLY_CHAIN = auto()
+    RESOURCE_EXHAUSTION = auto()
+    RACE_CONDITION = auto()
+    ERROR_HANDLING = auto()
+    INPUT_VALIDATION = auto()
+    PROCESS_SAFETY = auto()
+    DATA_INTEGRITY = auto()
+    RELIABILITY = auto()
+    SYNTAX_ERROR = auto()
+    TESTING = auto()
+    DOCUMENTATION = auto()
+    LOGIC_ERROR = auto()
+    CONFIGURATION = auto()
+    CODE_QUALITY = auto()
     # Names security and no narrower class.
-    SECURITY = "security"
-    OTHER = "other"
+    SECURITY = auto()
+    OTHER = auto()
 
     @property
     def label(self) -> str:

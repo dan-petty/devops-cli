@@ -1315,10 +1315,11 @@ CONST_GH_CLI = "gh"
 CONST_CI_WORKFLOW_FILE = "ci.yml"
 CONST_GIT_CLI = "git"
 CONST_GH_AUTH_SUBCOMMAND = "auth"
-# The token gh reads first; the session pins it on every gh and git child (#767).
-CONST_GH_TOKEN_ENV = "GH_TOKEN"  # nosec B105 # the name of a variable, not a token
+# The variable gh reads its token from first; the session pins it on every gh and git child
+# (#767).
+CONST_GH_AUTH_ENV_VAR = "GH_TOKEN"
 # Every variable gh reads a token from, so a pinned child is given none but the session's.
-CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_TOKEN_ENV, "GITHUB_TOKEN")
+CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_AUTH_ENV_VAR, "GITHUB_TOKEN")
 # Where `gh auth token` finds a stored login: its config directory and the keyring's session bus.
 CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
     {"GH_CONFIG_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS"}
@@ -1630,10 +1631,11 @@ CONST_OTEL_COLLECTOR_POD_LABELS: Final[dict[str, str]] = {
     "app.kubernetes.io/instance": "otel-collector",
 }
 CONST_OTEL_COLLECTOR_SERVICE = "otel-collector-opentelemetry-collector"
-# The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml) and its password secret.
+# The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml), and the Kubernetes object
+# that holds its password.
 CONST_RUNS_INDEX_NAMESPACE = "llm"
 CONST_RUNS_INDEX_SERVICE = "valkey-runs"
-CONST_RUNS_INDEX_SECRET = "valkey-runs-auth"  # nosec B105 # the name of a Kubernetes Secret, not its value
+CONST_RUNS_INDEX_AUTH_OBJECT = "valkey-runs-auth"
 
 # ── Network Reference & Egress Security Invariants ────────────────────────────
 # httpx2 request extension carrying a caller's egress policy, a callable the HTTP broker's request

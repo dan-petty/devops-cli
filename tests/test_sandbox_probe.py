@@ -724,3 +724,8 @@ def test_the_probe_timeout_bounds_every_connect(monkeypatch: pytest.MonkeyPatch)
         tcp.status,
         recorder.timeouts_of(PUBLIC_ADDRESS),
     ) == ([ProbeStatus.PASS, ProbeStatus.PASS], ProbeStatus.PASS, [7.0, 7.0, 7.0, 7.0])
+
+
+def test_a_probe_status_is_stored_in_lower_case() -> None:
+    """A probe report stores each status as the lower-case member name (#1538)."""
+    assert [str(status) for status in ProbeStatus] == ["pass", "fail", "timeout", "skipped"]

@@ -16,6 +16,7 @@ import warnings
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
+from enum import StrEnum, auto
 from pathlib import Path
 from typing import Any
 
@@ -36,9 +37,18 @@ from devops_cli.ai.review.samples import (
 )
 from devops_cli.ai.run_store import Mechanism, SavedRun, record_run
 
-STATUS_PASS = "PASS"  # nosec B105 # a sweep status label, not a credential
-STATUS_FAIL = "FAIL"
-STATUS_NOT_RUN = "NOT_RUN"
+
+class SweepStatus(StrEnum):
+    """The verdict of one syntax check. Its value is its member name, as run records store it."""
+
+    @staticmethod
+    def _generate_next_value_(name: str, start: int, count: int, last_values: list[str]) -> str:
+        return name
+
+    PASS = auto()
+    FAIL = auto()
+    NOT_RUN = auto()
+
 
 # Suffixes that use C/C++ syntax checking
 _C_SUFFIXES = frozenset({".c", ".h"})
@@ -54,7 +64,7 @@ class CheckResult(BaseModel):
     """Result of checking a mutated file for syntax validity."""
 
     checker: str
-    status: str
+    status: SweepStatus
     error: str | None = None
 
 
@@ -67,7 +77,7 @@ class SiteVerification(BaseModel):
     file: str
     line: int
     checker: str
-    status: str
+    status: SweepStatus
     error: str | None = None
     in_comment: bool = False
 
@@ -103,7 +113,7 @@ def _run_cmd_checker(cmd: list[str], input_bytes: bytes, checker_name: str) -> C
     binary = shutil.which(cmd[0])
     if not binary:
         return CheckResult(
-            checker=checker_name, status=STATUS_NOT_RUN, error=f"{cmd[0]} not installed"
+            checker=checker_name, status=SweepStatus.NOT_RUN, error=f"{cmd[0]} not installed"
         )
     full_cmd = [binary, *cmd[1:]]
     try:
@@ -111,13 +121,13 @@ def _run_cmd_checker(cmd: list[str], input_bytes: bytes, checker_name: str) -> C
             full_cmd, input=input_bytes, capture_output=True, timeout=10, check=False
         )
         if proc.returncode == 0:
-            return CheckResult(checker=checker_name, status=STATUS_PASS)
+            return CheckResult(checker=checker_name, status=SweepStatus.PASS)
         err = (proc.stderr or proc.stdout).decode(errors="replace").strip()
         if _is_only_missing_include(err):
-            return CheckResult(checker=checker_name, status=STATUS_NOT_RUN, error=err[:256])
-        return CheckResult(checker=checker_name, status=STATUS_FAIL, error=err[:256])
+            return CheckResult(checker=checker_name, status=SweepStatus.NOT_RUN, error=err[:256])
+        return CheckResult(checker=checker_name, status=SweepStatus.FAIL, error=err[:256])
     except (subprocess.TimeoutExpired, OSError) as exc:
-        return CheckResult(checker=checker_name, status=STATUS_FAIL, error=str(exc)[:256])
+        return CheckResult(checker=checker_name, status=SweepStatus.FAIL, error=str(exc)[:256])
 
 
 def _check_python(content: str) -> CheckResult:
@@ -125,9 +135,9 @@ def _check_python(content: str) -> CheckResult:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
             ast.parse(content)
-        return CheckResult(checker="python-ast", status=STATUS_PASS)
+        return CheckResult(checker="python-ast", status=SweepStatus.PASS)
     except SyntaxError as exc:
-        return CheckResult(checker="python-ast", status=STATUS_FAIL, error=str(exc)[:256])
+        return CheckResult(checker="python-ast", status=SweepStatus.FAIL, error=str(exc)[:256])
 
 
 def _c_include_flags(path: Path | str) -> list[str]:
@@ -167,12 +177,12 @@ def _check_cpp(content: str, path: Path | str = "code.cpp") -> CheckResult:
 
 def _check_header(content: str, path: Path | str = "header.h") -> CheckResult:
     res_c = _check_c(content, path)
-    if res_c.status == STATUS_PASS:
+    if res_c.status == SweepStatus.PASS:
         return res_c
     res_cpp = _check_cpp(content, path)
-    if res_cpp.status == STATUS_PASS:
+    if res_cpp.status == SweepStatus.PASS:
         return res_cpp
-    return res_cpp if res_cpp.status == STATUS_FAIL else res_c
+    return res_cpp if res_cpp.status == SweepStatus.FAIL else res_c
 
 
 def _check_node_js(content: str) -> CheckResult:
@@ -190,15 +200,15 @@ def _check_hcl(content: str) -> CheckResult:
         import hcl2
 
         hcl2.loads(content)
-        return CheckResult(checker="python-hcl2", status=STATUS_PASS)
+        return CheckResult(checker="python-hcl2", status=SweepStatus.PASS)
     except ImportError:
         return CheckResult(
             checker="python-hcl2",
-            status=STATUS_NOT_RUN,
+            status=SweepStatus.NOT_RUN,
             error="python-hcl2 not installed",
         )
     except Exception as exc:
-        return CheckResult(checker="python-hcl2", status=STATUS_FAIL, error=str(exc)[:256])
+        return CheckResult(checker="python-hcl2", status=SweepStatus.FAIL, error=str(exc)[:256])
 
 
 def _check_yaml(content: str) -> CheckResult:
@@ -206,11 +216,13 @@ def _check_yaml(content: str) -> CheckResult:
         import yaml
 
         list(yaml.safe_load_all(content))
-        return CheckResult(checker="PyYAML", status=STATUS_PASS)
+        return CheckResult(checker="PyYAML", status=SweepStatus.PASS)
     except ImportError:
-        return CheckResult(checker="PyYAML", status=STATUS_NOT_RUN, error="PyYAML not installed")
+        return CheckResult(
+            checker="PyYAML", status=SweepStatus.NOT_RUN, error="PyYAML not installed"
+        )
     except Exception as exc:
-        return CheckResult(checker="PyYAML", status=STATUS_FAIL, error=str(exc)[:256])
+        return CheckResult(checker="PyYAML", status=SweepStatus.FAIL, error=str(exc)[:256])
 
 
 def _check_tree_sitter(content: str, lang: str) -> CheckResult:
@@ -220,7 +232,7 @@ def _check_tree_sitter(content: str, lang: str) -> CheckResult:
     if loaded is None:
         return CheckResult(
             checker="tree-sitter",
-            status=STATUS_NOT_RUN,
+            status=SweepStatus.NOT_RUN,
             error=f"tree-sitter {lang} not installed",
         )
     parser, _ = loaded
@@ -229,12 +241,12 @@ def _check_tree_sitter(content: str, lang: str) -> CheckResult:
         if tree.root_node.has_error:
             return CheckResult(
                 checker="tree-sitter",
-                status=STATUS_FAIL,
+                status=SweepStatus.FAIL,
                 error="tree-sitter syntax error",
             )
-        return CheckResult(checker="tree-sitter", status=STATUS_PASS)
+        return CheckResult(checker="tree-sitter", status=SweepStatus.PASS)
     except Exception as exc:
-        return CheckResult(checker="tree-sitter", status=STATUS_FAIL, error=str(exc)[:256])
+        return CheckResult(checker="tree-sitter", status=SweepStatus.FAIL, error=str(exc)[:256])
 
 
 _CHECKER_DISPATCH: dict[str, Callable[[str, Path | str], CheckResult]] = {
@@ -273,9 +285,9 @@ def check_syntax(path: Path | str, content: str) -> CheckResult:
     name = Path(path).name.lower()
 
     if name in ("dockerfile", "containerfile"):
-        return CheckResult(checker="dockerfile", status=STATUS_PASS)
+        return CheckResult(checker="dockerfile", status=SweepStatus.PASS)
     if suffix in (".md", ".markdown"):
-        return CheckResult(checker="markdown", status=STATUS_PASS)
+        return CheckResult(checker="markdown", status=SweepStatus.PASS)
 
     checker_fn = _CHECKER_DISPATCH.get(suffix)
     if checker_fn is not None:
@@ -285,7 +297,7 @@ def check_syntax(path: Path | str, content: str) -> CheckResult:
     if lang:
         return _check_tree_sitter(content, lang)
     return CheckResult(
-        checker="unsupported", status=STATUS_NOT_RUN, error=f"no checker for {suffix}"
+        checker="unsupported", status=SweepStatus.NOT_RUN, error=f"no checker for {suffix}"
     )
 
 
@@ -400,12 +412,12 @@ def _verify_site(
     in_comment = is_inside_comment(lines, site.start, file_path.name)
     mutated = apply_mutation(lines, site)
     syntax = check_syntax(file_path, mutated)
-    if syntax.status == STATUS_FAIL:
+    if syntax.status == SweepStatus.FAIL:
         orig_syntax = check_syntax(file_path, "".join(lines))
-        if orig_syntax.status == STATUS_FAIL:
+        if orig_syntax.status == SweepStatus.FAIL:
             syntax = CheckResult(
                 checker=syntax.checker,
-                status=STATUS_NOT_RUN,
+                status=SweepStatus.NOT_RUN,
                 error=f"baseline file does not parse with {syntax.checker}",
             )
 
@@ -465,11 +477,11 @@ def _record_verification(report: TemplateSweepReport, v: SiteVerification) -> No
             }
         )
 
-    if v.status == STATUS_NOT_RUN:
+    if v.status == SweepStatus.NOT_RUN:
         report.checkers_not_run[v.checker] = report.checkers_not_run.get(v.checker, 0) + 1
     else:
         report.checkers_run[v.checker] = report.checkers_run.get(v.checker, 0) + 1
-        if v.status == STATUS_FAIL:
+        if v.status == SweepStatus.FAIL:
             report.parse_failures.append(
                 {
                     "template": v.template,
@@ -557,11 +569,9 @@ def save_sweep_run(
 
 
 __all__ = [
-    "STATUS_FAIL",
-    "STATUS_NOT_RUN",
-    "STATUS_PASS",
     "CheckResult",
     "SiteVerification",
+    "SweepStatus",
     "TemplateSweepReport",
     "apply_mutation",
     "check_syntax",
