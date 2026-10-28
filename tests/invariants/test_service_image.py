@@ -58,15 +58,43 @@ def test_service_dockerfile_base_images_pinned_by_digest() -> None:
     assert unpinned == []
 
 
+def _gh_release_downloads(dockerfile: str) -> list[tuple[str, str]]:
+    """Return the release tag and the asset name of each gh release URL in the Dockerfile text."""
+    downloads: list[tuple[str, str]] = []
+    for token in dockerfile.split():
+        if token.startswith(GH_RELEASE_DOWNLOAD_URL):
+            tag, asset = PurePosixPath(urlsplit(token).path).parts[-2:]
+            downloads.append((tag, asset))
+    return downloads
+
+
+def test_the_gh_release_finder_sees_a_url_in_quotes_or_after_another_character() -> None:
+    """Verify that the finder returns each gh release URL of a Dockerfile, wherever it stands.
+
+    Regression test (#2433): the finder kept only the bare tokens that start with the URL. A
+    `RUN curl` of an older gh in quotes then passed the pin test.
+    """
+    release = "https://github.com/cli/cli/releases/download"
+    dockerfile = (
+        f"ADD --checksum=sha256:0 {release}/v2.102.1/gh_2.102.1_linux_amd64.tar.gz /tmp/gh.tgz\n"
+        f'RUN curl -fsSLo /tmp/old.tgz "{release}/v2.102.0/gh_2.102.0_linux_amd64.tar.gz"\n'
+        f"ENV GH_URL={release}/v2.101.0/gh_2.101.0_linux_arm64.tar.gz\n"
+    )
+
+    assert _gh_release_downloads(dockerfile) == [
+        ("v2.102.1", "gh_2.102.1_linux_amd64.tar.gz"),
+        ("v2.102.0", "gh_2.102.0_linux_amd64.tar.gz"),
+        ("v2.101.0", "gh_2.101.0_linux_arm64.tar.gz"),
+    ]
+
+
 def test_service_image_installs_a_gh_release_built_with_go_1_27_2_or_later() -> None:
     """Verify that the Service image fetches one gh release, at or above the first safe release.
 
     Regression test (#1492): gh v2.102.0 is built with Go 1.27.1, and Trivy fails the image on
     its HIGH denial-of-service findings in `net/http`, `crypto/tls` and HTTP/2.
     """
-    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    urls = [token for token in dockerfile.split() if token.startswith(GH_RELEASE_DOWNLOAD_URL)]
-    tags_and_assets = [PurePosixPath(urlsplit(url).path).parts[-2:] for url in urls]
+    tags_and_assets = _gh_release_downloads((REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"))
 
     tags = {tag for tag, _ in tags_and_assets}
     assert len(tags) == 1, f"the Dockerfile fetches gh from more than one release: {sorted(tags)}"
