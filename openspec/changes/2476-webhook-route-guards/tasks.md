@@ -14,9 +14,9 @@
 
 ## 3. A burst of rejected webhook deliveries warns
 
-- [ ] 3.1 Write the failing tests `test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes` and the promtool unit tests in `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`, run the selector, README and promtool tests over both groups, add the deliveries counter to `SERVED_SERIES` and the alert to the baseline, and see them fail with `uv run devops ci test tests/test_k8s_monitoring_alerting.py`
-- [ ] 3.2 Add the rule group `roadmap-service-webhooks` with `RoadmapServiceWebhooksRejected` to `k8s/monitoring/prometheus-values.yaml`; verify with `uv run devops ci test tests/test_k8s_monitoring_alerting.py` with the pinned promtool on `PATH`
-- [ ] 3.3 Name the alert in Alerts of Roadmap service and in the alert table of `k8s/README.md`, and say in step 8 how to check the hooks and that each hook sends the Issues event only; verify with `uv run devops ci test tests/test_k8s_monitoring_alerting.py` and `uv run devops docs check`
+- [x] 3.1 Write the failing tests `test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes` and the promtool unit tests in `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`, run the selector, README and promtool tests over both groups, add the deliveries counter to `SERVED_SERIES` and the alert to the baseline, and see them fail with `uv run devops ci test tests/test_k8s_monitoring_alerting.py`
+- [x] 3.2 Add the rule group `roadmap-service-webhooks` with `RoadmapServiceWebhooksRejected` to `k8s/monitoring/prometheus-values.yaml`; verify with `uv run devops ci test tests/test_k8s_monitoring_alerting.py` with the pinned promtool on `PATH`
+- [x] 3.3 Name the alert in Alerts of Roadmap service and in the alert table of `k8s/README.md`, and say in step 8 how to check the hooks and that each hook sends the Issues event only; verify with `uv run devops ci test tests/test_k8s_monitoring_alerting.py` and `uv run devops docs check`
 
 ## Workflow follow-up
 

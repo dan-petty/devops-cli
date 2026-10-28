@@ -1,5 +1,5 @@
 """Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules
-and the roadmap Service's rules (#2472).
+and the roadmap Service's rules (#2472) and the rule of its webhook route (#2476).
 
 The rules live in `k8s/monitoring/prometheus-values.yaml` (`serverFiles.alerting_rules.yml`).
 A rule over a series nothing in the stack serves never fires, so every expression may name
@@ -10,9 +10,9 @@ targets them and none of their series is listed: a rule over them would fire on 
 target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
 
 The checks read files only, except the two that run the pinned promtool (`tools.lock`):
-`promtool check rules` over every rule, and `promtool test rules` over the roadmap Service's
-group with the unit tests in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`. Each
-skips where promtool is not installed; CI's test job installs it.
+`promtool check rules` over every rule, and `promtool test rules` over each group of the roadmap
+Service with its unit tests in `tests/fixtures/prometheus_rules/`. Each skips where promtool is
+not installed; CI's test job installs it.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
 )
 from devops_cli.config.defaults import DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR
 from devops_cli.prometheus.promql import selectors
@@ -53,10 +54,21 @@ KUBE_STATE_METRICS_ALLOW_LIST = (
     FIXTURES / "k8s_monitoring" / "cluster_metrics" / "kube-state-metrics.yaml"
 )
 ROADMAP_SERVICE_RULE_TESTS = FIXTURES / "prometheus_rules" / "roadmap_service_tests.yaml"
+ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "roadmap_service_webhooks_tests.yaml"
+)
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
 ROADMAP_SERVICE_GROUP = "roadmap-service"
+# The group of the Service's webhook route, apart from the Service's group (#2476).
+ROADMAP_SERVICE_WEBHOOKS_GROUP = "roadmap-service-webhooks"
+# Each group of the roadmap Service, with the promtool unit tests of its rules.
+ROADMAP_SERVICE_GROUP_TESTS = (
+    (ROADMAP_SERVICE_GROUP, ROADMAP_SERVICE_RULE_TESTS),
+    (ROADMAP_SERVICE_WEBHOOKS_GROUP, ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS),
+)
+ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -129,6 +141,7 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_IDENTITY_REFUSED,
         CONST_SERVICE_METRIC_JOBS,
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+        CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
         GITHUB_REQUESTS_TOTAL.name,
         GITHUB_THROTTLE_WAIT.name,
@@ -199,7 +212,7 @@ def test_every_alert_rule_selects_only_series_the_stack_serves() -> None:
 def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
-    the roadmap Service's rules (#2472).
+    the roadmap Service's rules (#2472) with the rule of its webhook route (#2476).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -249,6 +262,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceModelRequestsHigh", "warning"),
         ("RoadmapServiceRestarted", "warning"),
         ("RoadmapServiceUnavailable", "warning"),
+        ("RoadmapServiceWebhooksRejected", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
     ]
@@ -745,17 +759,18 @@ def test_an_ingress_that_routes_a_placeholder_host_alerts() -> None:
     ) == (True, [], [], True, True)
 
 
-def _hour_count(series: str) -> str:
-    """The count of a counter of the roadmap Service in the last hour (#2505).
+def _window_count(series: str, window: str) -> str:
+    """The count of a counter of the roadmap Service in the last `window` (#2505).
 
-    A series with no sample in the hour before started in the hour, so its last value is all of
-    its count: `increase()` does not count the first value of a series. Every other series counts
-    its `increase()`. Neither part reads one sample near the start of the hour, so a sparse series
-    from before the hour adds none of its earlier count.
+    A series with no sample in the window before started in the window, so its last value is all
+    of its count: `increase()` does not count the first value of a series. Every other series
+    counts its `increase()`. Neither part reads one sample near the start of the window, so a
+    sparse series from before the window adds none of its earlier count.
     """
     return (
-        f"(last_over_time({series}[1h]) unless last_over_time({series}[1h] offset 1h))"
-        f" or increase({series}[1h])"
+        f"(last_over_time({series}[{window}])"
+        f" unless last_over_time({series}[{window}] offset {window}))"
+        f" or increase({series}[{window}])"
     )
 
 
@@ -779,7 +794,9 @@ ROADMAP_SERVICE_RULES = [
     (
         "RoadmapServiceJobsFailing",
         "sum by (repo, lane) ( "
-        + _hour_count('devops_cli_service_jobs_total{job="roadmap-service", result="error"}')
+        + _window_count(
+            'devops_cli_service_jobs_total{job="roadmap-service", result="error"}', "1h"
+        )
         + " ) >= 3",
         "0m",
         "warning",
@@ -811,7 +828,7 @@ ROADMAP_SERVICE_RULES = [
     (
         "RoadmapServiceGitHubRequestsHigh",
         "sum( "
-        + _hour_count('devops_cli_github_requests_total{job="roadmap-service"}')
+        + _window_count('devops_cli_github_requests_total{job="roadmap-service"}', "1h")
         + f" ) > {DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR * 9 // 10}",
         "0m",
         "warning",
@@ -819,7 +836,7 @@ ROADMAP_SERVICE_RULES = [
     (
         "RoadmapServiceModelRequestsHigh",
         "sum( "
-        + _hour_count('devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}')
+        + _window_count('devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}', "1h")
         + " ) > 352",
         "0m",
         "warning",
@@ -847,16 +864,38 @@ def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_vo
     ] == ROADMAP_SERVICE_RULES
 
 
-def test_each_roadmap_service_rule_selects_only_the_service() -> None:
+def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes() -> None:
+    """`roadmap-service-webhooks`, a group apart from `roadmap-service`, warns when the webhook
+    route of the Service rejects more than 20 deliveries in 15 minutes (#2476). A flood can start
+    a new label set, so the count reads a series that starts in the 15 minutes from zero (#2505).
+    """
+    rejected = (
+        f'{CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES}{{job="roadmap-service", outcome="rejected"}}'
+    )
+    assert [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in _group(ROADMAP_SERVICE_WEBHOOKS_GROUP)
+    ] == [
+        (
+            "RoadmapServiceWebhooksRejected",
+            "sum( " + _window_count(rejected, "15m") + " ) > 20",
+            "0m",
+            "warning",
+        )
+    ]
+
+
+@pytest.mark.parametrize("group", ROADMAP_SERVICE_GROUPS)
+def test_each_roadmap_service_rule_selects_only_the_service(group: str) -> None:
     """Each `devops_cli_` selector filters the Service's job, and each kube-state-metrics
-    selector its namespace and its deployment or pods (#2472).
+    selector its namespace and its deployment or pods (#2472, #2476).
 
     The same series with another job, such as the pod as `kubernetes-pods` before #1130 or a
     workstation as `devops-cli`, never counts.
     """
     found = [
         (metric, frozenset(part.strip() for part in matchers.split(",")))
-        for rule in _group(ROADMAP_SERVICE_GROUP)
+        for rule in _group(group)
         for metric, matchers in _SELECTOR_MATCHERS.findall(rule["expr"])
     ]
     service = f'job="{ROADMAP_SERVICE_JOB}"'
@@ -873,11 +912,7 @@ def test_each_roadmap_service_rule_selects_only_the_service() -> None:
             )
         ],
     ) == (
-        [
-            selector.metric
-            for rule in _group(ROADMAP_SERVICE_GROUP)
-            for selector in selectors(rule["expr"])
-        ],
+        [selector.metric for rule in _group(group) for selector in selectors(rule["expr"])],
         [],
     )
 
@@ -927,11 +962,13 @@ def _readme_section(heading: str) -> str:
     return text[start : end if end != -1 else len(text)]
 
 
-def test_each_roadmap_service_alert_points_to_its_step_in_the_readme() -> None:
+@pytest.mark.parametrize("group", ROADMAP_SERVICE_GROUPS)
+def test_each_roadmap_service_alert_points_to_its_step_in_the_readme(group: str) -> None:
     """Each description names `k8s/README.md, Roadmap service`, that section says what to do for
-    each alert, and it says that no alert leaves the cluster without the webhook Secret (#2472)."""
+    each alert, and it says that no alert leaves the cluster without the webhook Secret (#2472,
+    #2476)."""
     section = _readme_section("Roadmap service")
-    rules = _group(ROADMAP_SERVICE_GROUP)
+    rules = _group(group)
     pointer = "(k8s/README.md, Roadmap service)"
     assert (
         [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
@@ -961,26 +998,30 @@ def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
 
 
 @pytest.mark.live("promtool")
+@pytest.mark.parametrize(
+    ("group", "rule_tests"), ROADMAP_SERVICE_GROUP_TESTS, ids=ROADMAP_SERVICE_GROUPS
+)
 def test_each_roadmap_service_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series(
-    tmp_path: Path,
+    group: str, rule_tests: Path, tmp_path: Path
 ) -> None:
-    """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472).
+    """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472) and
+    of `roadmap-service-webhooks` (#2476).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the same series of another job.
     """
-    unit_tests = yaml.safe_load(ROADMAP_SERVICE_RULE_TESTS.read_text(encoding="utf-8"))
+    unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
     (rule_file,) = unit_tests["rule_files"]
     groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
     (tmp_path / rule_file).write_text(
-        yaml.safe_dump({"groups": [g for g in groups if g["name"] == ROADMAP_SERVICE_GROUP]}),
+        yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
         encoding="utf-8",
     )
     tested = {case["alertname"] for test in unit_tests["tests"] for case in test["alert_rule_test"]}
-    copy = tmp_path / ROADMAP_SERVICE_RULE_TESTS.name
-    copy.write_text(ROADMAP_SERVICE_RULE_TESTS.read_text(encoding="utf-8"), encoding="utf-8")
+    copy = tmp_path / rule_tests.name
+    copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
     result = _promtool("test", "rules", copy)
     assert (sorted(tested), result.returncode) == (
-        sorted(rule["alert"] for rule in _group(ROADMAP_SERVICE_GROUP)),
+        sorted(rule["alert"] for rule in _group(group)),
         0,
     ), result.stdout + result.stderr
