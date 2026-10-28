@@ -16,7 +16,7 @@
 
 ## 3. Documentation
 
-- [ ] Describe the guard in the safe subprocess execution section of `ARCHITECTURE.md`
+- [x] Describe the guard in the safe subprocess execution section of `ARCHITECTURE.md`
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 4. Archive
