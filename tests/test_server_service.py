@@ -58,6 +58,7 @@ from devops_cli.server.service import (
     TriggerBatch,
     create_service_app,
 )
+from devops_cli.telemetry.exporter import OtlpSignal
 from devops_cli.telemetry.instruments import AI_REQUESTS_TOTAL, emit
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import (
@@ -66,7 +67,7 @@ from devops_cli.telemetry.tracer import (
     get_tracer,
     reset_tracer,
 )
-from tests.support.telemetry_capture import Captured
+from tests.support.fakes.otlp import metric_points
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 LANE = CONST_SERVICE_LANE_DEFAULT
@@ -988,12 +989,17 @@ def test_each_batch_exports_its_ai_requests_before_the_workers_next_batch_starts
     it recorded when it ends, also when its job raises, and not only when the pod stops (#1629).
     Each export holds only its batch's delta, so the collector's running total is the sum of the
     requests recorded."""
-    sink = Captured()
-    monkeypatch.setattr(tracer, "_send_payload", sink)
+    metric_exports: list[dict[str, Any]] = []
+
+    def record(path: str, payload: dict[str, Any]) -> None:
+        if path == OtlpSignal.METRICS:
+            metric_exports.append(payload)
+
+    monkeypatch.setattr(tracer, "_send_payload", record)
     exported_at_start: list[int] = []
 
     def job(batch: TriggerBatch) -> None:
-        exported_at_start.append(len(sink.payloads))
+        exported_at_start.append(len(metric_exports))
         emit(AI_REQUESTS_TOTAL, 1.0, {"operation": "chat", "model": "devops-background"})
         if len(exported_at_start) == 1:
             raise RuntimeError("the round failed after one model call")
@@ -1010,8 +1016,8 @@ def test_each_batch_exports_its_ai_requests_before_the_workers_next_batch_starts
     assert (
         worker.join(THREAD_HANDOFF_BOUND_SECONDS),
         exported_at_start,
-        len(sink.payloads),
-        [value for _, value in sink.points(AI_REQUESTS_TOTAL.name)],
+        len(metric_exports),
+        [value for _, value in metric_points(metric_exports, AI_REQUESTS_TOTAL.name)],
     ) == (True, [0, 1], 2, [1.0, 1.0])
 
 

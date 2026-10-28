@@ -26,14 +26,13 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess, run_subprocess_async
 from devops_cli.main import _COMMAND_SPECS, _delegate
 from devops_cli.telemetry.tracer import (
-    OTelTelemetryClient,
     SpanHandle,
     get_tracer,
     reset_tracer,
 )
+from tests.support.fakes.otlp import metric_points
 from tests.support.paths import FIXTURES
 from tests.support.session_spawns import record_spawns
-from tests.support.telemetry_capture import Captured
 
 
 @pytest.fixture(autouse=True)
@@ -469,10 +468,7 @@ def test_a_usage_error_records_its_class_and_exit_code_and_no_argument_text(
 def test_a_usage_error_counts_as_a_failed_command(usage_error: SimpleNamespace) -> None:
     """`devops_cli_command_total` counts a command that stops on a usage error with the status
     `error` (#2024)."""
-    sink = Captured()
-    for payload in usage_error.payloads:
-        sink("/v1/metrics", payload)
-    assert sink.points("devops_cli_command_total") == [
+    assert metric_points(usage_error.payloads, "devops_cli_command_total") == [
         ({"command": usage_error.command, "status": "error"}, 1.0)
     ]
 
@@ -503,13 +499,10 @@ def test_a_command_that_reports_its_failure_counts_once_and_records_its_exit_cod
     with pytest.raises(typer.Exit) as raised:
         _delegate("devops_cli.commands.dummy", "dummy", ["fail"])
 
-    sink = Captured()
-    for path, payload in clean_tracer:
-        sink(path, payload)
     command_span = _spans_by_name([payload for _path, payload in clean_tracer])["cli.dummy"]
     assert (
         raised.value.exit_code,
-        sink.points("devops_cli_command_total"),
+        metric_points([payload for _path, payload in clean_tracer], "devops_cli_command_total"),
         command_span.get("cli.exit_code"),
         command_span.get("cli.status"),
         [record.getMessage() for record in caplog.records if record.name == "devops_cli.main"],
@@ -572,18 +565,6 @@ def test_subprocess_error_span_and_metrics(
     attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in span_data["attributes"]}
     assert attrs["subprocess.bin"] == "helm"
     assert attrs["subprocess.exit_code"] == "1"
-
-
-def test_tracer_pooled_client_and_shutdown() -> None:
-    """Verify that OTelTelemetryClient manages pooled HTTP transport and shuts down cleanly."""
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    http_c = client._get_http_client()
-    assert http_c is not None
-    assert not getattr(http_c, "is_closed", False)
-
-    # Calling shutdown should close and reset client
-    client.shutdown()
-    assert client._http_client is None
 
 
 def test_span_handle_attribute_mutation() -> None:

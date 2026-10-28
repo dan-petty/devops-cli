@@ -24,7 +24,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.tracer import get_recent_spans
 from tests.llm_stream_fakes import NDJSON, ollama_line, reply, route_client
-from tests.support.telemetry_capture import Captured
+from tests.support.fakes.otlp import FakeCollector
 
 PASSWORD = "pw"
 BASIC_USER_PW = "Basic dXNlcjpwdw=="
@@ -89,9 +89,9 @@ def _ledger_rows(ledger: SpendLedger) -> list[tuple[Any, ...]]:
         ).fetchall()
 
 
-def _counter_servers(captured: Captured) -> list[str]:
+def _counter_servers(otlp: FakeCollector) -> list[str]:
     return sorted(
-        {attrs["server"] for attrs, _value in captured.points("devops_cli_ai_requests_total")}
+        {attrs["server"] for attrs, _value in otlp.points("devops_cli_ai_requests_total")}
     )
 
 
@@ -173,7 +173,7 @@ ROWS = [
 )
 def test_a_reply_names_its_server_by_the_origin_of_the_url_called(
     monkeypatch: pytest.MonkeyPatch,
-    captured: Captured,
+    otlp: FakeCollector,
     spend_ledger: SpendLedger,
     provider: str,
     settings: dict[str, Any],
@@ -198,7 +198,7 @@ def test_a_reply_names_its_server_by_the_origin_of_the_url_called(
         client.backend_info,
         answer.backend_info,
         _ledger_rows(spend_ledger),
-        _counter_servers(captured),
+        _counter_servers(otlp),
         _server_attributes("ai.llm.dispatch"),
     ) == (
         httpx2.URL(origin_url).origin,
@@ -221,7 +221,7 @@ def test_a_reply_names_its_server_by_the_origin_of_the_url_called(
 )
 def test_a_password_in_a_configured_url_stays_out_of_every_record(
     monkeypatch: pytest.MonkeyPatch,
-    captured: Captured,
+    otlp: FakeCollector,
     spend_ledger: SpendLedger,
     isolate_data_dir: Path,
     provider: str,
@@ -239,7 +239,7 @@ def test_a_password_in_a_configured_url_stays_out_of_every_record(
         "ledger": [str(value) for row in _ledger_rows(spend_ledger) for value in row],
         "counters": [
             str(value)
-            for attrs, _value in captured.points("devops_cli_ai_requests_total")
+            for attrs, _value in otlp.points("devops_cli_ai_requests_total")
             for value in attrs.values()
         ],
         "spans": [json.dumps(span) for span in get_recent_spans()],
@@ -257,7 +257,7 @@ def test_a_password_in_a_configured_url_stays_out_of_every_record(
 
 
 def test_a_streamed_reply_names_its_leased_server_without_its_password(
-    monkeypatch: pytest.MonkeyPatch, captured: Captured, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector, spend_ledger: SpendLedger
 ) -> None:
     """A stream over two configured servers records the one that it leased, and no password.
 
@@ -277,7 +277,7 @@ def test_a_streamed_reply_names_its_leased_server_without_its_password(
         chunks,
         client.backend_info,
         _ledger_rows(spend_ledger),
-        _counter_servers(captured),
+        _counter_servers(otlp),
         _server_attributes("ai.llm.stream"),
     ) == (["Hello ", "world"], backend, [("example.com:11434", backend)], ["example.com:11434"], {})
 

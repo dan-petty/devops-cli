@@ -1,6 +1,7 @@
 """Unit tests for OpenTelemetry tracer and metrics emitter."""
 
 import os
+import time
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -10,13 +11,16 @@ import pytest
 from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.client.unified import _set_response_span_attributes
 from devops_cli.config.settings import TelemetryConfig
+from devops_cli.telemetry.exporter import OtlpSignal
 from devops_cli.telemetry.instruments import COMMAND_TOTAL, emit
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
+    install_exporter,
     reset_tracer,
     trace_span,
 )
+from tests.support.fakes.otlp import FakeCollector
 
 
 @pytest.fixture
@@ -34,55 +38,48 @@ def test_telemetry_disabled() -> None:
     client.record_gauge("test_metric", 1.0)
 
 
-def test_telemetry_span_and_metric(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+def test_telemetry_span_and_metric() -> None:
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with client.span("pipeline_stage", {"persona": "devsecops"}) as span_id:
         assert len(span_id) == 16  # 8 bytes hex = 16 hex chars
         client.record_gauge("findings_count", 3, unit="1", attributes={"severity": "HIGH"})
-    client.flush()
 
-    assert len(sent_payloads) == 2
-    by_path = dict(sent_payloads)
+    (span,) = otlp.spans
     assert (
-        by_path["/v1/metrics"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["name"]
-        == "findings_count"
+        [metric["name"] for metric in otlp.metrics],
+        span.name,
+        span.status_code,
+        sorted(export.signal for export in otlp.exports),
+    ) == (
+        ["findings_count"],
+        "pipeline_stage",
+        "STATUS_CODE_OK",
+        [OtlpSignal.METRICS, OtlpSignal.TRACES],
     )
-    span_data = by_path["/v1/traces"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["name"] == "pipeline_stage"
-    assert span_data["status"]["code"] == "STATUS_CODE_OK"
 
 
-def test_telemetry_span_error_recording(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+def test_telemetry_span_error_recording() -> None:
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with pytest.raises(ValueError, match="simulated failure"):
         with client.span("failing_span"):
             raise ValueError("simulated failure")
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
-    assert span_data["status"]["message"] == "simulated failure"
+    (span,) = otlp.spans
+    assert (span.status_code, span.status_message) == ("STATUS_CODE_ERROR", "simulated failure")
 
 
-def test_global_trace_helpers(monkeypatch: pytest.MonkeyPatch, config: Any) -> None:
-    config(telemetry={"enabled": True})
-    tracer = get_tracer()
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    monkeypatch.setattr(tracer, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
-
+def test_global_trace_helpers(otlp: FakeCollector) -> None:
     with trace_span("helper_span", {"env": "test"}):
         emit(COMMAND_TOTAL, 1.0, {"command": "helper", "status": "ok"})
-    tracer.flush()
 
-    assert len(sent_payloads) == 2
+    assert (
+        [span.name for span in otlp.spans],
+        otlp.points(COMMAND_TOTAL.name),
+    ) == (["helper_span"], [({"command": "helper", "status": "ok"}, 1.0)])
 
 
 def test_inject_and_extract_trace_context() -> None:
@@ -99,105 +96,74 @@ def test_inject_and_extract_trace_context() -> None:
     assert len(span_id) == 16
 
 
-def test_traced_decorator(monkeypatch: pytest.MonkeyPatch, config: Any) -> None:
+def test_traced_decorator(otlp: FakeCollector) -> None:
     from devops_cli.telemetry.tracer import traced
-
-    config(telemetry={"enabled": True})
-    client = get_tracer()
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
 
     @traced(name="decorated_func", attributes={"module": "test"})
     def my_function(x: int) -> int:
         return x * 2
 
-    res = my_function(5)
-    assert res == 10
-    span_name = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"]
-    assert span_name == "decorated_func"
+    assert (my_function(5), [span.name for span in otlp.spans]) == (10, ["decorated_func"])
 
 
-def test_test_connection_mock(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unittest.mock import MagicMock
-
-    client = OTelTelemetryClient(enabled=True)
-    mock_post = MagicMock(return_value=MagicMock(status_code=200, text="OK"))
-    monkeypatch.setattr("httpx2.Client.post", mock_post)
-
-    ok, msg, latency = client.test_connection(timeout=1.0)
-    assert ok is True
-    assert "HTTP 200 OK" in msg
-    assert latency >= 0
-
-
-def test_clean_exit_not_marked_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_clean_exit_not_marked_error() -> None:
     import typer
 
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with pytest.raises(typer.Exit):
         with client.span("clean_exit_span"):
             raise typer.Exit(0)
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["status"]["code"] == "STATUS_CODE_OK"
-    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
-    assert "error" not in attrs
+    (span,) = otlp.spans
+    assert (span.status_code, "error" in span.attributes) == ("STATUS_CODE_OK", False)
 
 
-def test_handled_cli_exit_non_zero_status_without_stacktrace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_handled_cli_exit_non_zero_status_without_stacktrace() -> None:
     import typer
 
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with pytest.raises(typer.Exit):
         with client.span("cli_exit_span"):
             raise typer.Exit(1)
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
-    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
-    assert attrs.get("error") is True
-    assert attrs.get("cli.exit_code") == "1"
-    # Stacktrace must NOT be attached on intentional CLI exits to prevent trace bloat
-    assert "exception.stacktrace" not in attrs
-    # No exception event recorded
-    assert not span_data.get("events")
+    (span,) = otlp.spans
+    # No stacktrace and no exception event on an intentional CLI exit, to keep traces small.
+    assert (
+        span.status_code,
+        span.attributes.get("error"),
+        span.attributes.get("cli.exit_code"),
+        "exception.stacktrace" in span.attributes,
+        span.events,
+    ) == ("STATUS_CODE_ERROR", True, "1", False, ())
 
 
-def test_unhandled_exception_records_traceback(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+def test_unhandled_exception_records_traceback() -> None:
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with pytest.raises(ValueError, match="unexpected error"):
         with client.span("crash_span"):
             raise ValueError("unexpected error")
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
-    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
-    assert attrs.get("error") is True
-    assert attrs.get("exception.type") == "ValueError"
-    assert "exception.stacktrace" in attrs
-    assert len(span_data.get("events", [])) == 1
+    (span,) = otlp.spans
+    assert (
+        span.status_code,
+        span.attributes.get("error"),
+        span.attributes.get("exception.type"),
+        "exception.stacktrace" in span.attributes,
+        len(span.events),
+    ) == ("STATUS_CODE_ERROR", True, "ValueError", True, 1)
 
 
-def test_concurrent_threads_context_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_concurrent_threads_context_isolation() -> None:
     import concurrent.futures
 
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    otlp = FakeCollector()
+    client = otlp.client()
 
     def task(i: int) -> None:
         with client.span(f"parent_span_{i}"):
@@ -207,16 +173,18 @@ def test_concurrent_threads_context_isolation(monkeypatch: pytest.MonkeyPatch) -
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(task, range(10)))
 
-    # Should have 20 spans total (10 parents, 10 children)
-    assert len(sent_payloads) == 20
+    by_name = {span.name: span for span in otlp.spans}
+    assert (len(by_name), {by_name[f"child_span_{i}"].parent_span_id for i in range(10)}) == (
+        20,
+        {by_name[f"parent_span_{i}"].span_id for i in range(10)},
+    )
 
 
-def test_context_propagating_thread_pool_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_context_propagating_thread_pool_executor() -> None:
     from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor
 
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with client.span("root_cli_span"):
 
@@ -225,36 +193,24 @@ def test_context_propagating_thread_pool_executor(monkeypatch: pytest.MonkeyPatc
                 return str(child_id)
 
         with ContextPropagatingThreadPoolExecutor(max_workers=2) as pool:
-            # Test submit
-            fut = pool.submit(worker_task, 1)
-            fut.result()
-            # Test map
+            pool.submit(worker_task, 1).result()
             list(pool.map(worker_task, [2, 3]))
 
-    # We should have 4 spans total: 1 root and 3 worker children
-    assert len(sent_payloads) == 4
-    all_spans = [
-        p[1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        for p in sent_payloads
-        if p[0] == "/v1/traces"
-    ]
-    root_span = next(s for s in all_spans if s["name"] == "root_cli_span")
-    child_spans = [s for s in all_spans if s["name"].startswith("worker_child_span_")]
-
-    assert len(child_spans) == 3
-    for cs in child_spans:
-        assert cs["traceId"] == root_span["traceId"]
-        assert cs["parentSpanId"] == root_span["spanId"]
+    spans = otlp.spans
+    root_span = next(span for span in spans if span.name == "root_cli_span")
+    children = [span for span in spans if span.name.startswith("worker_child_span_")]
+    assert (
+        len(spans),
+        {(child.trace_id, child.parent_span_id) for child in children},
+        len(children),
+    ) == (4, {(root_span.trace_id, root_span.span_id)}, 3)
 
 
 def test_traceparent_env_propagation_and_record_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
-
-    # Set external TRACEPARENT in environment
+    otlp = FakeCollector()
+    client = otlp.client()
     parent_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     parent_span_id = "00f067aa0ba902b7"
     monkeypatch.setenv("TRACEPARENT", f"00-{parent_trace_id}-{parent_span_id}-01")
@@ -264,25 +220,28 @@ def test_traceparent_env_propagation_and_record_exception(
             handle.record_exception(RuntimeError("custom error"))
             raise RuntimeError("custom error")
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["traceId"] == parent_trace_id
-    assert span_data["parentSpanId"] == parent_span_id
-    assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
+    (span,) = otlp.spans
+    assert (
+        span.trace_id,
+        span.parent_span_id,
+        span.status_code,
+        span.attributes.get("error"),
+        span.attributes.get("exception.type"),
+        span.attributes.get("exception.message"),
+    ) == (
+        parent_trace_id,
+        parent_span_id,
+        "STATUS_CODE_ERROR",
+        True,
+        "RuntimeError",
+        "custom error",
+    )
 
-    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
-    assert attrs.get("error") is True
-    assert attrs.get("exception.type") == "RuntimeError"
-    assert attrs.get("exception.message") == "custom error"
 
-
-def test_response_span_attributes_and_semantic_conventions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_response_span_attributes_and_semantic_conventions() -> None:
     """A reply's usage is written once, under the current GenAI keys, beside normalized keys."""
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    otlp = FakeCollector()
+    client = otlp.client()
     reply = LLMResponse(
         "ok",
         backend_info="ollama (example.com:11434)",
@@ -298,8 +257,8 @@ def test_response_span_attributes_and_semantic_conventions(
     ) as handle:
         _set_response_span_attributes(handle, reply, "ollama")
 
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
+    (span,) = otlp.spans
+    attrs = span.attributes
     replaced = (
         "gen_ai.usage.prompt_tokens",
         "gen_ai.usage.completion_tokens",
@@ -309,7 +268,6 @@ def test_response_span_attributes_and_semantic_conventions(
         "gen_ai.token_rate_tok_per_sec",
     )
     assert (
-        len(sent_payloads),
         attrs.get("cli.command"),
         attrs.get("process.executable.name"),
         attrs.get("gen_ai.usage.input_tokens"),
@@ -317,14 +275,12 @@ def test_response_span_attributes_and_semantic_conventions(
         attrs.get("llm.tokens_per_second"),
         (attrs.get("server.address"), attrs.get("server.port")),
         [key for key in replaced if key in attrs],
-    ) == (1, "devops ai review", "ollama", "500", "150", 60.0, ("example.com", "11434"), [])
+    ) == ("devops ai review", "ollama", "500", "150", 60.0, ("example.com", "11434"), [])
 
 
-def test_parent_context_dict_extraction(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
-
+def test_parent_context_dict_extraction() -> None:
+    otlp = FakeCollector()
+    client = otlp.client()
     parent_trace_id = "1234567890abcdef1234567890abcdef"
     parent_span_id = "fedcba0987654321"
     headers = {"traceparent": f"00-{parent_trace_id}-{parent_span_id}-01"}
@@ -332,14 +288,13 @@ def test_parent_context_dict_extraction(monkeypatch: pytest.MonkeyPatch) -> None
     with client.span("http_incoming_request", parent_context=headers):
         pass
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["traceId"] == parent_trace_id
-    assert span_data["parentSpanId"] == parent_span_id
+    (span,) = otlp.spans
+    assert (span.trace_id, span.parent_span_id) == (parent_trace_id, parent_span_id)
 
 
-def test_tracer_helpers_and_shutdown(monkeypatch: pytest.MonkeyPatch, collector: str) -> None:
-    """Test get_current_span_context, shutdown_tracer, and reset_tracer."""
+def test_tracer_helpers_and_shutdown(collector: str) -> None:
+    """Test get_current_span_context, shutdown_tracer and reset_tracer, and that a disabled
+    client exports nothing."""
     from devops_cli.telemetry.tracer import (
         get_current_span_context,
         reset_tracer,
@@ -351,17 +306,15 @@ def test_tracer_helpers_and_shutdown(monkeypatch: pytest.MonkeyPatch, collector:
         ctx = get_current_span_context()
         assert ctx["span_id"] == s_id
         assert ctx["trace_id"] is not None
-
-    # Test sync payload error handling
-    client._send_payload_sync("/v1/traces", {})
     client.shutdown()
 
-    # Disabled client send payload does nothing
-    disabled_client = OTelTelemetryClient(enabled=False)
-    disabled_client._send_payload("/v1/traces", {})
-    disabled_client._send_payload_sync("/v1/traces", {})
+    otlp = FakeCollector()
+    disabled_client = OTelTelemetryClient(enabled=False, exporter=otlp)
+    with disabled_client.span("disabled_span"):
+        pass
+    disabled_client.flush()
+    assert otlp.exports == []
 
-    # Reset and shutdown global
     reset_tracer()
     get_tracer()
     shutdown_tracer()
@@ -385,12 +338,10 @@ def test_telemetry_traceparent_helpers() -> None:
     assert extract_traceparent("invalid-header") is None
 
 
-def test_telemetry_span_kinds_links_and_normalization(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telemetry_span_kinds_links_and_normalization() -> None:
     """Test span kinds, span links, and semantic attribute normalization."""
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with client.span(
         "http_inbound",
@@ -403,155 +354,47 @@ def test_telemetry_span_kinds_links_and_normalization(monkeypatch: pytest.Monkey
     ) as span_h:
         span_h.add_link("0123456789abcdef0123456789abcdef", "fedcba9876543210")
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["kind"] == "SPAN_KIND_SERVER"
-    assert len(span_data["links"]) == 1
-    assert span_data["links"][0]["traceId"] == "0123456789abcdef0123456789abcdef"
+    (span,) = otlp.spans
+    assert (
+        span.kind,
+        span.links,
+        {"vcs.branch", "k8s.pod.name", "argo.application.name"} <= span.attributes.keys(),
+    ) == (
+        "SPAN_KIND_SERVER",
+        (("0123456789abcdef0123456789abcdef", "fedcba9876543210"),),
+        True,
+    )
 
-    attrs_dict = {a["key"]: a["value"] for a in span_data["attributes"]}
-    assert "vcs.branch" in attrs_dict
-    assert "k8s.pod.name" in attrs_dict
-    assert "argo.application.name" in attrs_dict
 
-
-def test_telemetry_keyboard_interrupt_handling(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telemetry_keyboard_interrupt_handling() -> None:
     """Test KeyboardInterrupt handling in OTelTelemetryClient."""
-    sent_payloads: list[tuple[str, dict[str, Any]]] = []
-
-    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
-    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    otlp = FakeCollector()
+    client = otlp.client()
 
     with pytest.raises(KeyboardInterrupt):
         with client.span("interrupted_span"):
             raise KeyboardInterrupt()
 
-    assert len(sent_payloads) == 1
-    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
-    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
-    assert attrs.get("error.type") == "KeyboardInterrupt"
-
-
-def test_telemetry_grpc_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test OTelTelemetryClient initialized with gRPC endpoint and protocol."""
-    c1 = OTelTelemetryClient(endpoint="http://example.com:43170")
-    assert c1.protocol == "http/json"
-
-    from unittest.mock import MagicMock
-
-    exporter_calls: list[dict[str, Any]] = []
-
-    def mock_exporter_factory(**kw: Any) -> MagicMock:
-        exporter_calls.append(kw)
-        return MagicMock()
-
-    monkeypatch.setattr(
-        "opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter",
-        mock_exporter_factory,
-    )
-
-    cases = [
-        ("grpc://example.com:4317", True),
-        ("http://example.com:4317", True),
-        ("example.com:4317", True),
-        ("https://example.com:4317", False),
-        ("HTTPS://example.com:4317", False),
-    ]
-    for ep, expected_insecure in cases:
-        client = OTelTelemetryClient(endpoint=ep, protocol="grpc", enabled=True)
-        exporter_calls.clear()
-        client._get_grpc_exporter()
-        assert (exporter_calls[0]["endpoint"], exporter_calls[0]["insecure"]) == (
-            ep,
-            expected_insecure,
-        )
-
-
-def test_telemetry_grpc_connection_mock(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test test_connection probe on gRPC endpoint dials expected host and port."""
-    from unittest.mock import MagicMock
-
-    dialled: list[tuple[str, int]] = []
-
-    def mock_create_connection(address: tuple[str, int], timeout: float = 1.0) -> MagicMock:
-        dialled.append(address)
-        return MagicMock()
-
-    monkeypatch.setattr("socket.create_connection", mock_create_connection)
-
-    c1 = OTelTelemetryClient(endpoint="grpc://[::1]:4317", enabled=True)
-    ok1, msg1, _ = c1.test_connection(timeout=1.0)
-
-    c2 = OTelTelemetryClient(endpoint="HTTP://example.com:4317", enabled=True)
-    ok2, msg2, _ = c2.test_connection(timeout=1.0)
-
-    assert (
-        c1.protocol,
-        ok1,
-        "gRPC connection OK" in msg1,
-        c2.protocol,
-        ok2,
-        "gRPC connection OK" in msg2,
-        dialled,
-    ) == (
-        "grpc",
-        True,
-        True,
-        "grpc",
-        True,
-        True,
-        [("::1", 4317), ("example.com", 4317)],
+    (span,) = otlp.spans
+    assert (span.status_code, span.attributes.get("error.type")) == (
+        "STATUS_CODE_ERROR",
+        "KeyboardInterrupt",
     )
 
 
-def test_telemetry_grpc_connection_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test test_connection failure handling on gRPC endpoint."""
-    from unittest.mock import MagicMock
-
-    client = OTelTelemetryClient(endpoint="localhost:4317", protocol="grpc", enabled=True)
-    monkeypatch.setattr(
-        "socket.create_connection",
-        MagicMock(side_effect=ConnectionRefusedError("Connection refused")),
-    )
-
-    ok, msg, latency = client.test_connection(timeout=1.0)
-    assert ok is False
-    assert "gRPC probe failed" in msg
-    assert latency >= 0
-
-
-def test_telemetry_payload_and_shutdown_error_branches(
-    monkeypatch: pytest.MonkeyPatch, collector: str
-) -> None:
-    """Cover error handling branches in payload sending and shutdown."""
-    from unittest.mock import MagicMock
-
+def test_telemetry_payload_and_shutdown_error_branches(collector: str) -> None:
+    """A full executor drops the export, and a failed executor shutdown still clears it."""
     client = OTelTelemetryClient(endpoint=collector, enabled=True)
-
-    # 1. _send_payload_sync HTTP error
-    mock_http = MagicMock()
-    mock_http.post.side_effect = RuntimeError("network drop")
-    client._http_client = mock_http
-    client._send_payload_sync("/v1/traces", {})
-
-    # 2. _send_payload executor submit error
     mock_exec = MagicMock()
     mock_exec.submit.side_effect = RuntimeError("thread pool full")
-    client._executor = mock_exec
-    client._send_payload("/v1/traces", {})
-
-    # 3. shutdown exceptions
     mock_exec.shutdown.side_effect = RuntimeError("exec shutdown fail")
-    mock_grpc = MagicMock()
-    mock_grpc.shutdown.side_effect = RuntimeError("grpc shutdown fail")
-    mock_http.close.side_effect = RuntimeError("http close fail")
-    client._grpc_exporter = mock_grpc
+    client._executor = mock_exec
 
+    with client.span("dropped_span"):
+        pass
     client.shutdown()
-    assert client._executor is None
-    assert client._grpc_exporter is None
-    assert client._http_client is None
+
+    assert (client._executor, client.export_successes, client.export_failures) == (None, 0, 0)
 
 
 def test_resolve_telemetry_settings_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -679,26 +522,26 @@ def test_response_span_attributes_enriched(collector: str) -> None:
         ) == ("gpt-4o-2024-08-06", "ollama-48gib", 30.0, "example.com", 443, False)
 
 
-def test_a_reset_lets_no_export_of_the_dropped_tracer_run_on(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+class _SlowCollector(FakeCollector):
+    """A collector that takes a moment to answer, as one across a network does."""
+
+    def export(self, signal: OtlpSignal, body: bytes, content_type: str) -> None:
+        time.sleep(0.2)
+        super().export(signal, body, content_type)
+
+
+def test_a_reset_lets_no_export_of_the_dropped_tracer_run_on() -> None:
     """Every test resets the tracer, and an export still in flight from one test ran on into the
     next, whose socket probe then saw connections it never made."""
-    import threading
-    import time
+    otlp = _SlowCollector()
+    otlp.flush_before_reads(lambda: get_tracer().flush())
+    install_exporter(otlp)
+    with trace_span("last_span_of_a_test"):
+        pass
 
-    tracer = get_tracer()
-    finished = threading.Event()
-
-    def slow_send(path: str, payload: dict[str, Any]) -> None:
-        time.sleep(0.2)
-        finished.set()
-
-    monkeypatch.setattr(tracer, "enabled", True)
-    monkeypatch.setattr(tracer, "_send_payload_sync", slow_send)
-    tracer._send_payload("/v1/traces", {})
     reset_tracer()
-    assert finished.is_set()
+
+    assert [export.signal for export in otlp.exports] == [OtlpSignal.TRACES]
 
 
 def test_sdk_meter_provider_flushes_one_batch_over_http_receiver() -> None:

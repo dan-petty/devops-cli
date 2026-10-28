@@ -25,8 +25,8 @@ from devops_cli.telemetry.instruments import (
 )
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.support.telemetry_capture import Captured
 
 _REPO_READ = ["api", "repos/octo/repo"]
 _GRAPHQL_READ = ["api", "graphql", "-f", "query={ viewer { login } }"]
@@ -40,10 +40,10 @@ def fresh_quotas(clock: ClockFake) -> None:
         limiter.update_quota(resource, remaining=5000, limit=5000, reset_epoch=time.time() + 3600)
 
 
-def _histogram_points(captured: Captured, name: str) -> list[tuple[dict[str, Any], int, float]]:
+def _histogram_points(otlp: FakeCollector, name: str) -> list[tuple[dict[str, Any], int, float]]:
     """Each data point of a histogram, as (attributes, count, sum)."""
     found = []
-    for metric in captured.metrics:
+    for metric in otlp.metrics:
         if metric["name"] != name:
             continue
         for point in metric["exponentialHistogram"]["dataPoints"]:
@@ -54,7 +54,7 @@ def _histogram_points(captured: Captured, name: str) -> list[tuple[dict[str, Any
 
 @pytest.mark.usefixtures("fresh_quotas")
 def test_a_refused_and_retried_gh_command_counts_two_requests_and_one_wait(
-    process_fake: ProcessFake, captured: Captured
+    process_fake: ProcessFake, otlp: FakeCollector
 ) -> None:
     """Each attempt is a request, and the wait before the retry is one throttle observation."""
     replies = [
@@ -69,14 +69,14 @@ def test_a_refused_and_retried_gh_command_counts_two_requests_and_one_wait(
 
     assert (
         result.returncode,
-        captured.points(GITHUB_REQUESTS_TOTAL.name),
-        _histogram_points(captured, GITHUB_THROTTLE_WAIT.name),
+        otlp.points(GITHUB_REQUESTS_TOTAL.name),
+        _histogram_points(otlp, GITHUB_THROTTLE_WAIT.name),
     ) == (0, [({"resource": "core"}, 2.0)], [({"resource": "core"}, 1, 7.0)])
 
 
 @pytest.mark.usefixtures("fresh_quotas")
 def test_a_graphql_answer_counts_its_request_and_the_points_it_reports(
-    process_fake: ProcessFake, captured: Captured
+    process_fake: ProcessFake, otlp: FakeCollector
 ) -> None:
     """A GraphQL request is counted on its own resource, and its points come from `rateLimit`."""
     reset_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
@@ -91,14 +91,14 @@ def test_a_graphql_answer_counts_its_request_and_the_points_it_reports(
     run_gh(_GRAPHQL_READ)
 
     assert (
-        captured.points(GITHUB_REQUESTS_TOTAL.name),
-        captured.points(GITHUB_GRAPHQL_POINTS_TOTAL.name),
-        _histogram_points(captured, GITHUB_THROTTLE_WAIT.name),
+        otlp.points(GITHUB_REQUESTS_TOTAL.name),
+        otlp.points(GITHUB_GRAPHQL_POINTS_TOTAL.name),
+        _histogram_points(otlp, GITHUB_THROTTLE_WAIT.name),
     ) == ([({"resource": "graphql"}, 1.0)], [({}, 3.0)], [])
 
 
 def test_a_session_request_refused_once_counts_two_requests_and_its_wait(
-    github_api: GitHubApiFake, captured: Captured
+    github_api: GitHubApiFake, otlp: FakeCollector
 ) -> None:
     """The GitHub session's attempts and retry wait are counted as a gh command's are."""
     github_api.route(
@@ -111,6 +111,6 @@ def test_a_session_request_refused_once_counts_two_requests_and_its_wait(
     get_github_session().rest("GET", "/user")
 
     assert (
-        captured.points(GITHUB_REQUESTS_TOTAL.name),
-        _histogram_points(captured, GITHUB_THROTTLE_WAIT.name),
+        otlp.points(GITHUB_REQUESTS_TOTAL.name),
+        _histogram_points(otlp, GITHUB_THROTTLE_WAIT.name),
     ) == ([({"resource": "core"}, 2.0)], [({"resource": "core"}, 1, 1.0)])

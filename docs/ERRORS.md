@@ -84,6 +84,8 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `ModelGatewayUnreachableError` | `MODEL_GATEWAY_UNREACHABLE` | `1` | Ai | Raised when a model call through the gateway fails, so the command decided and wrote nothing. |
 | `ModelNotAllowedError` | `MODEL_REQUESTS_DISABLED` | `1` | Devops_cli.ai.agents.testing | Raised when a non-test model request is attempted while ALLOW_MODEL_REQUESTS is False. |
 | `ModelRetry` | `MODEL_RETRY_REQUESTED` | `14` | Ai | Raised by tools or output validators to request the model to retry with corrective feedback. |
+| `OtlpExportError` | `TELEMETRY_ERROR` | `1` | Telemetry | Raised when the collector does not take an OTLP export, with the failure as its message. |
+| `OtlpProtocolError` | `TELEMETRY_ERROR` | `1` | Telemetry | Raised when the OTLP protocol or endpoint asks for gRPC, which devops-cli does not send. |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |

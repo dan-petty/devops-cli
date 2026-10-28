@@ -117,7 +117,7 @@
   "src/devops_cli/server/service.py": 5,
   "src/devops_cli/telemetry/logfire.py": 6,
   "src/devops_cli/telemetry/memory_profiler.py": 4,
-  "src/devops_cli/telemetry/tracer.py": 16,
+  "src/devops_cli/telemetry/tracer.py": 12,
   "src/devops_cli/tf/analysis.py": 1,
   "src/devops_cli/ui/dashboard.py": 1,
   "src/devops_cli/ui/data_providers.py": 11,

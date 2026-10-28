@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
-    from tests.support.telemetry_capture import Captured
+    from tests.support.fakes.otlp import FakeCollector
 
 import httpx2
 import pytest
@@ -339,7 +339,7 @@ class TestCLIPrewarmCommand:
         self,
         app: Any,
         model_fake: ModelFake,
-        captured: Captured,
+        otlp: FakeCollector,
         node_ok: bool,
         exit_code: int,
         outcome: str,
@@ -349,7 +349,7 @@ class TestCLIPrewarmCommand:
 
         result = runner.invoke(app, ["ai", "prewarm", "--model", "gemma4:26b", "--single-node"])
 
-        assert (result.exit_code, captured.points(AI_PREWARMS_TOTAL.name)) == (
+        assert (result.exit_code, otlp.points(AI_PREWARMS_TOTAL.name)) == (
             exit_code,
             [({"model": "gemma4:26b", "evict": "false", "outcome": outcome}, 1.0)],
         )

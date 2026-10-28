@@ -19,14 +19,14 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [opentelemetry.io/docs/languages/python/](https://opentelemetry.io/docs/languages/python/) • [grafana.com/docs/tempo/latest/](https://grafana.com/docs/tempo/latest/) |
 | **Public Git Repository** | [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python) |
-| **Official PyPI Package** | [pypi.org/project/opentelemetry-exporter-otlp-proto-grpc](https://pypi.org/project/opentelemetry-exporter-otlp-proto-grpc/) (`1.45.1`) |
-| **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../../src/devops_cli/commands/telemetry.py) |
+| **Official PyPI Package** | [pypi.org/project/opentelemetry-sdk](https://pypi.org/project/opentelemetry-sdk/) (`1.45.1`) |
+| **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/telemetry/exporter.py`](../../../../../../src/devops_cli/telemetry/exporter.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../../src/devops_cli/commands/telemetry.py) |
 
 ---
 
 ## 2. General Information & Architecture
 
-**OpenTelemetry (OTel)** is the vendor-neutral CNCF standard for distributed tracing, metrics, and application observability. The OpenTelemetry Python SDK instruments function calls, HTTP requests, and multi-agent stage pipelines, emitting span telemetry over gRPC/OTLP to Grafana Tempo and OpenTelemetry Collectors.
+**OpenTelemetry (OTel)** is the vendor-neutral CNCF standard for distributed tracing, metrics, and application observability. The OpenTelemetry Python SDK instruments function calls, HTTP requests, and multi-agent stage pipelines, emitting telemetry over OTLP to Grafana Tempo and OpenTelemetry Collectors.
 
 In `devops-cli`:
 - **Distributed Spans**: Every CLI subcommand, AI review phase, and security scan stage is wrapped in `@trace_span` to capture duration, status, and semantic attributes.
@@ -48,7 +48,7 @@ In `devops-cli`:
 
 ## 4. Key Concepts & Core Patterns
 
-1. **`TracerProvider` & `BatchSpanProcessor`**: Coordinates span lifecycle and delivers batches to OTLP gRPC endpoints asynchronously. The devops-cli tracer (`telemetry/tracer.py`) exports spans as OTLP http/json to `telemetry.endpoint` (switching to gRPC for `:4317`/`grpc://` endpoints).
+1. **`TracerProvider` & `BatchSpanProcessor`**: Coordinates span lifecycle and delivers batches to an OTLP exporter asynchronously. The devops-cli tracer (`telemetry/tracer.py`) builds OTLP/JSON export requests and hands them to the exporter in `telemetry/exporter.py`, which posts them to the `/v1/traces`, `/v1/metrics` and `/v1/logs` paths of `telemetry.endpoint` through the egress-checked HTTP client. devops-cli sends no OTLP over gRPC: `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, or an endpoint with the `grpc` scheme or port `4317`, turns export off with a warning that names the setting. Tests read exports from the OTLP fake (`tests/support/fakes/otlp.py`, fixture `otlp`).
 2. **`@trace_span` Decorator & Context Manager**:
    ```python
    with trace_span("review.persona_review", attributes={"persona": "devsecops", "diff_lines": 120}):

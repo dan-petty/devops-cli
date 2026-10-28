@@ -22,7 +22,6 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import httpx2
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
@@ -35,11 +34,19 @@ from devops_cli.config.defaults import (
     DEFAULT_OTEL_COUNTER_AMOUNT,
     DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_OTEL_ENDPOINT,
-    DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
     DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_OTEL_TEST_TIMEOUT,
     DEFAULT_OTEL_WARNING_INTERVAL_SECONDS,
     DEFAULT_SPAN_BUFFER_MAX_SPANS,
+)
+from devops_cli.exceptions.telemetry import OtlpProtocolError
+from devops_cli.telemetry.exporter import (
+    JSON_CONTENT_TYPE,
+    OtlpExporter,
+    OtlpSignal,
+    RefusedExporter,
+    json_body,
+    otlp_exporter,
 )
 from devops_cli.telemetry.propagation import (
     TraceContext,
@@ -806,7 +813,7 @@ _current_span_id_ctx: ContextVar[str | None] = ContextVar("otel_current_span_id"
 
 
 class OTelTelemetryClient:
-    """Emits OpenTelemetry traces and metrics via OTLP HTTP/JSON."""
+    """Builds OpenTelemetry traces, metrics and logs, and hands them to an OTLP exporter."""
 
     def __init__(
         self,
@@ -818,21 +825,14 @@ class OTelTelemetryClient:
         enabled: bool = True,
         capture_command_args: bool = False,
         capture_llm_content: bool = False,
+        exporter: OtlpExporter | None = None,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
-        env_protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
-        from devops_cli.http.urls import read_url_or_authority
-
-        parsed_target = read_url_or_authority(self.endpoint)
-        is_grpc = False
-        if parsed_target:
-            try:
-                ep_port = parsed_target.port
-            except ValueError:
-                ep_port = None
-            is_grpc = parsed_target.scheme.lower() == "grpc" or ep_port == 4317
-
-        self.protocol = protocol or env_protocol or ("grpc" if is_grpc else "http/json")
+        # The exporter sends what this client builds. `otlp_exporter` refuses a gRPC protocol
+        # or endpoint with an `OtlpProtocolError` that names the setting.
+        self._exporter: OtlpExporter = (
+            exporter if exporter is not None else otlp_exporter(self.endpoint, protocol)
+        )
         self.service_name = service_name
         self.service_version = service_version or self._detect_version()
         self.host_name = platform.node() or "localhost"
@@ -844,8 +844,6 @@ class OTelTelemetryClient:
         # Whether an AI inference span records prompt and response preview text:
         # `telemetry.capture_llm_content` (#606).
         self.capture_llm_content = capture_llm_content
-        self._http_client: httpx2.Client | None = None
-        self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
         self._client_lock = threading.Lock()
         # One flush at a time: the collector drops a delta that is not later than the last one
@@ -904,6 +902,11 @@ class OTelTelemetryClient:
         self._metric_reader: Any = None
         self._meter: Any = None
         self._sdk_instruments: dict[tuple[str, str, str], Any] = {}
+
+    @property
+    def exporter(self) -> OtlpExporter:
+        """The exporter that sends what this client builds to the collector."""
+        return self._exporter
 
     @staticmethod
     def _detect_version() -> str:
@@ -1277,88 +1280,14 @@ class OTelTelemetryClient:
             payload = self._build_traces_payload([span_data])
             self._send_payload("/v1/traces", payload)
 
-    def _get_grpc_exporter(self) -> Any:
-        """Get or initialize thread-safe gRPC span exporter with persistent multiplexed connection."""
-        with self._client_lock:
-            if self._grpc_exporter is None:
-                from urllib.parse import urlsplit
-
-                from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-                    OTLPSpanExporter,
-                )
-
-                insecure = urlsplit(self.endpoint).scheme.lower() != "https"
-                self._grpc_exporter = OTLPSpanExporter(
-                    endpoint=self.endpoint,
-                    insecure=insecure,
-                    timeout=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
-                )
-            return self._grpc_exporter
-
     def test_connection(
         self, timeout: float = DEFAULT_OTEL_TEST_TIMEOUT
     ) -> tuple[bool, str, float]:
-        """Test reachability of the OTLP collector endpoint and measure latency."""
+        """Probe the collector through the exporter: whether it answers, how, and in how many
+        milliseconds."""
         start = time.perf_counter()
-        if self.protocol == "grpc":
-            try:
-                import socket
-
-                from devops_cli.http.urls import read_url_or_authority
-
-                parsed = read_url_or_authority(self.endpoint)
-                host = parsed.hostname if parsed else "localhost"
-                try:
-                    port = (parsed.port if parsed else None) or 4317
-                except ValueError:
-                    port = 4317
-                sock = socket.create_connection((host, port), timeout=timeout)
-                sock.close()
-                elapsed_ms = (time.perf_counter() - start) * 1000
-                return True, "gRPC connection OK", elapsed_ms
-            except Exception as exc:
-                logger.debug("OTel gRPC probe failed to %s: %s", self.endpoint, exc)
-                elapsed_ms = (time.perf_counter() - start) * 1000
-                return False, f"gRPC probe failed: {exc}", elapsed_ms
-
-        try:
-            url = f"{self.endpoint}/v1/traces"
-            test_trace_id = _generate_trace_id()
-            test_span_id = _generate_span_id()
-            now_nano = str(int(time.time() * 1e9))
-            ping_span = {
-                "traceId": test_trace_id,
-                "spanId": test_span_id,
-                "name": "ping",
-                "kind": "SPAN_KIND_INTERNAL",
-                "startTimeUnixNano": now_nano,
-                "endTimeUnixNano": now_nano,
-                "status": {"code": "STATUS_CODE_OK"},
-            }
-            ping_res_attrs = [{"key": "service.name", "value": {"stringValue": "devops-cli-ping"}}]
-            payload = self._build_traces_payload(
-                [ping_span],
-                resource_attributes=ping_res_attrs,
-                scope_name="devops-cli.telemetry.ping",
-            )
-            import httpx2
-
-            timeout_cfg = httpx2.Timeout(
-                connect=1.0,
-                read=timeout,
-                write=timeout,
-                pool=1.0,
-            )
-            with httpx2.Client(timeout=timeout_cfg) as client:
-                res = client.post(url, json=payload)
-                elapsed_ms = (time.perf_counter() - start) * 1000
-                if res.status_code in (200, 202):
-                    return True, f"HTTP {res.status_code} OK", elapsed_ms
-                return False, f"HTTP {res.status_code} probe failed", elapsed_ms
-        except Exception as exc:
-            logger.debug("OTel connection probe failed to %s: %s", self.endpoint, exc)
-            elapsed_ms = (time.perf_counter() - start) * 1000
-            return False, "Connection probe failed", elapsed_ms
+        result = self._exporter.probe(timeout)
+        return result.reachable, result.detail, (time.perf_counter() - start) * 1000
 
     def _get_executor(self) -> ContextPropagatingThreadPoolExecutor:
         """Get or initialize thread-safe background thread executor for non-blocking payload emission."""
@@ -1370,33 +1299,12 @@ class OTelTelemetryClient:
                 )
             return self._executor
 
-    def _get_http_client(self) -> httpx2.Client:
-        """Get or initialize thread-safe pooled HTTP client with short connect timeout."""
-        with self._client_lock:
-            if self._http_client is None or getattr(self._http_client, "is_closed", False):
-                import httpx2
-
-                timeout_cfg = httpx2.Timeout(
-                    connect=1.0,
-                    read=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
-                    write=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
-                    pool=1.0,
-                )
-                self._http_client = httpx2.Client(timeout=timeout_cfg)
-            return self._http_client
-
     def _send_payload_sync(self, path: str, payload: dict[str, Any]) -> None:
-        """Execute synchronous HTTP payload delivery."""
+        """Hand one export request to the exporter, and count how it fared."""
         if not self.enabled:
             return
         try:
-            url = f"{self.endpoint}{path}"
-            client = self._get_http_client()
-            if not self.enabled:
-                return
-            response = client.post(url, json=payload)
-            if response.status_code >= 400:
-                raise RuntimeError(f"HTTP {response.status_code}")
+            self._exporter.export(OtlpSignal(path), json_body(payload), JSON_CONTENT_TYPE)
             self.export_successes += 1
         except Exception as exc:
             self.export_failures += 1
@@ -1448,7 +1356,7 @@ class OTelTelemetryClient:
                 wait_futures(pending, timeout=timeout)
 
     def shutdown(self, timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
-        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout.
+        """Cleanly close the background executor and the exporter, with a bounded drain timeout.
 
         Exports still in flight get up to DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS to finish: a short
         command queues its spans at the very end, and cancelling them lost its root span. The
@@ -1463,22 +1371,13 @@ class OTelTelemetryClient:
             self._executor = None
         with self._client_lock:
             self._shutdown_meter_provider()
-            if self._grpc_exporter is not None:
-                try:
-                    self._grpc_exporter.shutdown()
-                except Exception as exc:
-                    logger.debug("Failed shutting down gRPC exporter: %s", exc)
-                self._grpc_exporter = None
-            if self._http_client is not None:
-                try:
-                    self._http_client.close()
-                except Exception as exc:
-                    logger.debug("Failed closing OTel HTTP client: %s", exc)
-                self._http_client = None
+        self._exporter.close()
 
 
 _GLOBAL_TRACER: OTelTelemetryClient | None = None
 _GLOBAL_TRACER_LOCK = threading.Lock()
+# The exporter that `install_exporter` put in place of the configured one, if any.
+_INSTALLED_EXPORTER: OtlpExporter | None = None
 
 
 def _resolve_telemetry_settings() -> TelemetryConfig:
@@ -1495,6 +1394,25 @@ def _resolve_telemetry_settings() -> TelemetryConfig:
         return telemetry_from_environment()
 
 
+def _process_exporter(telemetry: TelemetryConfig) -> tuple[OtlpExporter, bool]:
+    """The exporter of the process's tracer, and whether export is on: the installed exporter
+    with export on, else the configured collector's."""
+    if _INSTALLED_EXPORTER is not None:
+        return _INSTALLED_EXPORTER, True
+    from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT
+
+    endpoint = (
+        telemetry.endpoint or os.getenv(ENV_OTEL_EXPORTER_OTLP_ENDPOINT) or DEFAULT_OTEL_ENDPOINT
+    )
+    try:
+        return otlp_exporter(endpoint), telemetry.enabled
+    except OtlpProtocolError as exc:
+        # The command still runs: export stays off, the warning names the setting, and the
+        # collector probe of `devops telemetry status` reports it.
+        logger.warning("Telemetry export is off: %s", exc)
+        return RefusedExporter(endpoint, str(exc)), False
+
+
 def get_tracer() -> OTelTelemetryClient:
     """Retrieve or lazily initialize the singleton OTelTelemetryClient instance."""
     global _GLOBAL_TRACER
@@ -1503,26 +1421,42 @@ def get_tracer() -> OTelTelemetryClient:
 
     with _GLOBAL_TRACER_LOCK:
         if _GLOBAL_TRACER is None:
-            from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT
-
             telemetry = _resolve_telemetry_settings()
-            service_name = os.getenv("OTEL_SERVICE_NAME", CONST_OTEL_SERVICE_NAME)
-            protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+            exporter, enabled = _process_exporter(telemetry)
             _GLOBAL_TRACER = OTelTelemetryClient(
-                endpoint=telemetry.endpoint
-                or os.getenv(ENV_OTEL_EXPORTER_OTLP_ENDPOINT)
-                or DEFAULT_OTEL_ENDPOINT,
-                service_name=service_name,
-                protocol=protocol,
-                enabled=telemetry.enabled,
+                endpoint=exporter.endpoint,
+                service_name=os.getenv("OTEL_SERVICE_NAME", CONST_OTEL_SERVICE_NAME),
+                enabled=enabled,
                 capture_command_args=telemetry.capture_command_args,
                 capture_llm_content=telemetry.capture_llm_content,
+                exporter=exporter,
             )
             if _GLOBAL_TRACER.enabled:
                 from devops_cli.telemetry.logging_bridge import attach_otel_logging_handler
 
                 attach_otel_logging_handler()
         return _GLOBAL_TRACER
+
+
+def install_exporter(exporter: OtlpExporter) -> None:
+    """Send the process's telemetry to `exporter`, with export on, until `remove_exporter`.
+
+    The tracer in use is dropped, and each tracer that `get_tracer` builds from then on, also
+    after a `reset_tracer`, exports to `exporter`. A test installs the OTLP fake this way.
+    """
+    global _INSTALLED_EXPORTER
+    _INSTALLED_EXPORTER = exporter
+    reset_tracer()
+
+
+def remove_exporter() -> None:
+    """Remove the exporter that `install_exporter` installed: the next tracer that `get_tracer`
+    builds exports as the settings say."""
+    global _INSTALLED_EXPORTER
+    if _INSTALLED_EXPORTER is None:
+        return
+    _INSTALLED_EXPORTER = None
+    reset_tracer()
 
 
 def reset_tracer() -> None:

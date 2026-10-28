@@ -51,7 +51,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Kubernetes Client** | K8s SDK | Official Python client for Kubernetes cluster management and diagnostics. | [kubernetes.md](devops_cli/libraries/kubernetes.md) |
 | **Docker SDK** | Containers | Python client for Docker Engine daemon, real-time stats, and lifecycle. | [docker.md](devops_cli/libraries/docker.md) |
 | **FastAPI & Uvicorn** | REST & ASGI | Asynchronous REST service engine and OpenAPI server backing `devops serve`. | [fastapi_uvicorn.md](devops_cli/libraries/fastapi_uvicorn.md) |
-| **OpenTelemetry** | Observability | Distributed tracing, OTLP gRPC export to Tempo, and Prometheus metrics. | [opentelemetry.md](devops_cli/libraries/opentelemetry.md) |
+| **OpenTelemetry** | Observability | Distributed tracing, OTLP/HTTP export to the collector and Tempo, and Prometheus metrics. | [opentelemetry.md](devops_cli/libraries/opentelemetry.md) |
 | **Pathspec** | Gitignore Matcher | Pure Python pattern matching based on `.gitignore` wildcards and rules. | [pathspec.md](devops_cli/libraries/pathspec.md) |
 | **TLDExtract** | Domain Parsing | Public Suffix List domain parsing for network references extracted from code. | [tldextract.md](devops_cli/libraries/tldextract.md) |
 | **Packaging** | Version Specifiers | PyPA core specifications: PEP 440 versions and specifier matching. | [packaging.md](devops_cli/libraries/packaging.md) |

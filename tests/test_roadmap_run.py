@@ -90,6 +90,7 @@ from devops_cli.telemetry.instruments import PROJECT_ITEMS, PROJECT_RELEASES
 from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
 
@@ -958,7 +959,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     caplog: pytest.LogCaptureFixture,
     stub_web: StubWeb,
     git: Callable[..., None],
-    captured: Any,
+    otlp: FakeCollector,
 ) -> None:
     """The default table's metrics row clones the repository and walks its version tags there,
     not in the working directory, which in the Service is no git repository (#1358). The gauge
@@ -994,8 +995,8 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         (row.needs_clone, row.first_run_due, row.interval),
         ran,
         (clone / ".git").is_dir(),
-        captured.points(PROJECT_RELEASES.name),
-        captured.points(PROJECT_ITEMS.name),
+        otlp.points(PROJECT_RELEASES.name),
+        otlp.points(PROJECT_ITEMS.name),
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
     ) == (
         (True, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES)),
