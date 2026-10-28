@@ -261,9 +261,11 @@ class StructuredOutputMixin:
         """Send chat request and guarantee validated structured Pydantic output with repair and retry.
 
         The system message ends with the schema's JSON Schema, introduced by
-        `structured_output_schema.md`, for every provider; the gateway and ollama providers also
-        get it as their request's constraint (`constrain_reply`). Only the first attempt reads
-        and writes the response cache, and only a reply that validates is written or served.
+        `structured_output_schema.md`, for every provider. Inside `constrain_reply` the gateway
+        and ollama providers also get it as their request's constraint, and the openai and claude
+        providers get it where the pydantic-ai profile of their model supports JSON-schema output
+        (`ReplySchema`); copilot gets none. Only the first attempt reads and writes the response
+        cache, and only a reply that validates is written or served.
         """
         if schema is None:
             raise StructuredOutputSchemaError("A schema model class must be provided.")

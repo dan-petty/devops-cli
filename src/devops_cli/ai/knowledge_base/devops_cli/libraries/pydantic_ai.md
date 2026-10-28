@@ -56,7 +56,12 @@ In `devops-cli`:
        result = await agent.run("Audit Kubernetes security policies")
    ```
 3. **`AgentTool`**: Strongly typed tool definitions with runtime parameter schema validation and path traversal safety checks.
-4. **Structured replies**: `LLMClient.chat_structured(system, prompt, schema)` is the one path that returns a validated Pydantic model. It sends the schema in the system message, repairs the JSON, validates it, and sends the validation errors back to the model for a bounded number of retries.
+4. **Structured replies**: `LLMClient.chat_structured(system, prompt, schema)` is the one path that returns a validated Pydantic model. It sends the schema in the system message, repairs the JSON, validates it, and sends the validation errors back to the model for a bounded number of retries. Each provider also gets the schema as a constraint on its reply, where it can take one:
+   - `gateway`: `response_format` with the schema, without `strict`.
+   - `ollama`: `format` with the schema.
+   - `openai`: the `response_format` of the model's pydantic-ai profile (`openai_model_profile`). `OpenAIJsonSchemaTransformer` adapts the schema, and `strict` is true only when the schema fits OpenAI's strict mode.
+   - `claude`: `output_config.format`, when the model's pydantic-ai profile (`anthropic_model_profile`) supports JSON-schema output. `AnthropicJsonSchemaTransformer` adapts the schema. A model that the profile does not name gets no format.
+   - `copilot`: no constraint. No profile or probe shows that the Copilot API honours one, so the schema stays in the system message only.
 
 ---
 
