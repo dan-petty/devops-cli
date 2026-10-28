@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.2](https://github.com/dan-petty/devops-cli/compare/v0.11.1...v0.11.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **service:** the last rate limit of a request holds every worker until its wait ends ([#2529](https://github.com/dan-petty/devops-cli/issues/2529)) ([657b03d](https://github.com/dan-petty/devops-cli/commit/657b03d00786fa2e1909d0ed0ca1d4abf8ac3caa)), closes [#2523](https://github.com/dan-petty/devops-cli/issues/2523)
+
 ## [0.11.1](https://github.com/dan-petty/devops-cli/compare/v0.11.0...v0.11.1) (2026-10-28)
 
 
