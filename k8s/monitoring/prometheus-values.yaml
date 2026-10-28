@@ -617,3 +617,100 @@ serverFiles:
             annotations:
               summary: "Valkey cache {{ $labels.namespace }}/{{ $labels.instance }} is down or rejecting connections"
               description: "Valkey exporter {{ $labels.namespace }}/{{ $labels.instance }} reports redis_up == 0 or rejected client connections over the last 5 minutes."
+      # The roadmap Service (#2472). Two paths send its series, and both give them
+      # job="roadmap-service": k8s-monitoring's annotation autodiscovery scrapes its /metrics and
+      # names the job after the pod's app.kubernetes.io/name, and the OpenTelemetry collector
+      # names the job after OTEL_SERVICE_NAME. Each selector names the job, so the same series of
+      # a workstation (job="devops-cli"), or of the server's kubernetes-pods job, which scraped the
+      # pod before #1130, never counts.
+      # kube-state-metrics gives the restarts and the replicas. On both paths a series starts at
+      # its first count, with no zero sample before it, and increase() does not count that first
+      # value. The OTLP series also get a sample only when the Service sends a new observation.
+      - name: roadmap-service
+        rules:
+          # A refusal stops every round until the pod restarts, and /healthz stays healthy. The
+          # counter stays at 1 for as long, so the alert holds while the Service is stopped.
+          - alert: RoadmapServiceIdentityRefused
+            expr: max by (identity) (devops_cli_service_identity_refused_total{job="roadmap-service"}) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "GitHub refused the identity {{ $labels.identity }} of the roadmap Service"
+              description: "The roadmap Service stopped all rounds and starts no round until its pod restarts. Its health check stays healthy. Repair the GitHub App, then restart the Service (k8s/README.md, Roadmap service)."
+          # Each sample is a throttle, so one sample in 15 minutes fires. increase() needs two
+          # samples in its window and does not see one throttle alone.
+          - alert: RoadmapServiceGitHubThrottled
+            expr: sum by (resource) (count_over_time(devops_cli_github_throttle_wait_seconds{job="roadmap-service"}[15m])) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "GitHub throttled {{ $labels.resource }} requests of the roadmap Service"
+              description: "In the last 15 minutes GitHub refused a {{ $labels.resource }} request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (k8s/README.md, Roadmap service)."
+          # Three failed rounds in a row suspend a job (roadmap-service-limits), so three errors
+          # in an hour is a job that fails at each round. An error series that starts in the hour
+          # adds its first value: `offset 1h * 0` gives 0 for a series that was there an hour ago,
+          # and `or` gives the lowest value of the hour for a new series.
+          - alert: RoadmapServiceJobsFailing
+            expr: >-
+              sum by (repo, lane) (
+              increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])
+              + (devops_cli_service_jobs_total{job="roadmap-service", result="error"} offset 1h * 0
+              or min_over_time(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h]))
+              ) >= 3
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: '{{ printf "%.0f" $value }} {{ $labels.lane }} jobs of {{ $labels.repo }} failed in the last hour'
+              description: "Three or more {{ $labels.lane }} jobs of {{ $labels.repo }} failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
+          # Each poll starts a round on every lane, every 5 minutes by default. A replica that is
+          # not available starts no job, and RoadmapServiceUnavailable covers it.
+          - alert: RoadmapServiceLaneStalled
+            expr: >-
+              time() - max by (repo, lane) (devops_cli_service_job_start_timestamp_seconds{job="roadmap-service"}) > 7200
+              and on () max(kube_deployment_status_replicas_available{namespace="devops", deployment="roadmap-service"}) > 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "No {{ $labels.lane }} job of {{ $labels.repo }} started for {{ $value | humanizeDuration }}"
+              description: "The roadmap Service has an available replica, but no {{ $labels.lane }} job of {{ $labels.repo }} started for over 2 hours (k8s/README.md, Roadmap service)."
+          - alert: RoadmapServiceRestarted
+            expr: max by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{namespace="devops", pod=~"roadmap-service-.+", container="service"}[1h])) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The roadmap Service container in {{ $labels.pod }} restarted"
+              description: 'The restart count of container {{ $labels.container }} of pod {{ $labels.namespace }}/{{ $labels.pod }} increased by {{ printf "%.0f" $value }} in the last hour (k8s/README.md, Roadmap service).'
+          # The Recreate strategy stops the old pod before it starts the new one, so a rollout
+          # has no available replica for a few minutes.
+          - alert: RoadmapServiceUnavailable
+            expr: max by (namespace, deployment) (kube_deployment_status_replicas_unavailable{namespace="devops", deployment="roadmap-service"}) > 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The roadmap Service has an unavailable replica"
+              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had an unavailable replica for 10 minutes (k8s/README.md, Roadmap service)."
+          # 90% of the default service.github_requests_per_hour (500). The Service holds its
+          # rounds at the budget, and one round per worker can go past it.
+          - alert: RoadmapServiceGitHubRequestsHigh
+            expr: sum(increase(devops_cli_github_requests_total{job="roadmap-service"}[1h])) > 450
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The roadmap Service sent {{ printf "%.0f" $value }} GitHub requests in the last hour'
+              description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
+          # A request that the cache answered does not go to a model.
+          - alert: RoadmapServiceModelRequestsHigh
+            expr: sum(increase(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h])) > 352
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The roadmap Service sent {{ printf "%.0f" $value }} model requests in the last hour'
+              description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."

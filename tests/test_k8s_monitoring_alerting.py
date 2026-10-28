@@ -1,18 +1,24 @@
-"""Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules.
+"""Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules
+and the roadmap Service's rules (#2472).
 
 The rules live in `k8s/monitoring/prometheus-values.yaml` (`serverFiles.alerting_rules.yml`).
 A rule over a series nothing in the stack serves never fires, so every expression may name
-only the series in `SERVED_SERIES`, each served by a scrape this repository defines. The k3s
+only the series in `SERVED_SERIES`, each served by a scrape or by the OpenTelemetry collector
+that this repository defines. The k3s
 server runs the controller manager, scheduler and proxy in its own process, so no scrape
 targets them and none of their series is listed: a rule over them would fire on the missing
 target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
 
-The checks read files only.
+The checks read files only, except the two that run the pinned promtool (`tools.lock`):
+`promtool check rules` over every rule, and `promtool test rules` over the roadmap Service's
+group with the unit tests in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`. Each
+skips where promtool is not installed; CI's test job installs it.
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -20,16 +26,37 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.config.constants import CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER
+from devops_cli.config.constants import (
+    CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
+    CONST_SERVICE_METRIC_IDENTITY_REFUSED,
+    CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+    CONST_SERVICE_METRIC_JOBS,
+)
+from devops_cli.config.defaults import DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR
 from devops_cli.prometheus.promql import selectors
+from devops_cli.telemetry.instruments import (
+    AI_REQUESTS_TOTAL,
+    GITHUB_REQUESTS_TOTAL,
+    GITHUB_THROTTLE_WAIT,
+)
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S = REPO_ROOT / "k8s"
+K8S_README = K8S / "README.md"
 PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
 GRAFANA_VALUES = K8S / "monitoring" / "grafana-values.yaml"
 K8S_MONITORING_VALUES = K8S / "monitoring" / "k8s-monitoring-values.yaml"
 PYROSCOPE_VALUES = K8S / "monitoring" / "pyroscope-values.yaml"
+ROADMAP_SERVICE_DEPLOYMENT = K8S / "devops" / "roadmap-service" / "deployment.yaml"
 ALLOY_ALLOW_LIST = FIXTURES / "k8s_monitoring" / "integrations" / "alloy.yaml"
+KUBE_STATE_METRICS_ALLOW_LIST = (
+    FIXTURES / "k8s_monitoring" / "cluster_metrics" / "kube-state-metrics.yaml"
+)
+ROADMAP_SERVICE_RULE_TESTS = FIXTURES / "prometheus_rules" / "roadmap_service_tests.yaml"
+
+# The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
+ROADMAP_SERVICE_JOB = "roadmap-service"
+ROADMAP_SERVICE_GROUP = "roadmap-service"
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -43,6 +70,10 @@ SERVED_SERIES = frozenset(
         "kube_pod_info",
         "kube_pod_spec_volumes_persistentvolumeclaims_info",
         "kube_secret_info",
+        # The roadmap Service's restarts and replicas (#2472).
+        "kube_deployment_status_replicas_available",
+        "kube_deployment_status_replicas_unavailable",
+        "kube_pod_container_status_restarts_total",
         # Not in the chart's default allow list: `metricsTuning.includeMetrics` keeps it (#1817).
         "kube_ingress_path",
         # The kubelet, scraped by k8s-monitoring (its default allow list), reports these only for
@@ -92,6 +123,15 @@ SERVED_SERIES = frozenset(
         "coredns_dns_responses_total",
         "redis_rejected_connections_total",
         "redis_up",
+        # The roadmap Service (#2472): the series of its /metrics, which k8s-monitoring's
+        # annotation autodiscovery scrapes, and the instruments it sends over OTLP. A histogram
+        # is a native histogram under the instrument's own name.
+        CONST_SERVICE_METRIC_IDENTITY_REFUSED,
+        CONST_SERVICE_METRIC_JOBS,
+        CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+        AI_REQUESTS_TOTAL.name,
+        GITHUB_REQUESTS_TOTAL.name,
+        GITHUB_THROTTLE_WAIT.name,
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
@@ -116,6 +156,13 @@ def _rules() -> list[dict[str, Any]]:
     """Every alerting rule the Prometheus server loads."""
     groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
     return [rule for group in groups for rule in group["rules"]]
+
+
+def _group(name: str) -> list[dict[str, Any]]:
+    """The alerting rules of one group, in file order."""
+    groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    (rules,) = [group["rules"] for group in groups if group["name"] == name]
+    return list(rules)
 
 
 def _unserved(expression: str) -> list[str]:
@@ -151,7 +198,8 @@ def test_every_alert_rule_selects_only_series_the_stack_serves() -> None:
 
 def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
-    and #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`).
+    #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
+    the roadmap Service's rules (#2472).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -193,6 +241,14 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
+        ("RoadmapServiceGitHubRequestsHigh", "warning"),
+        ("RoadmapServiceGitHubThrottled", "critical"),
+        ("RoadmapServiceIdentityRefused", "critical"),
+        ("RoadmapServiceJobsFailing", "warning"),
+        ("RoadmapServiceLaneStalled", "warning"),
+        ("RoadmapServiceModelRequestsHigh", "warning"),
+        ("RoadmapServiceRestarted", "warning"),
+        ("RoadmapServiceUnavailable", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
     ]
@@ -687,3 +743,230 @@ def test_an_ingress_that_routes_a_placeholder_host_alerts() -> None:
         "kube_ingress_path" in tuning["includeMetrics"],
         {"host", "ingress", "namespace"} <= set(capture["kube_ingress_path"]["labels"]),
     ) == (True, [], [], True, True)
+
+
+# The roadmap Service's rules (#2472), in file order: (alert, expression, wait, severity). The
+# GitHub request rule warns at 90% of the default hourly budget of the Service.
+ROADMAP_SERVICE_RULES = [
+    (
+        "RoadmapServiceIdentityRefused",
+        'max by (identity) (devops_cli_service_identity_refused_total{job="roadmap-service"}) > 0',
+        "0m",
+        "critical",
+    ),
+    (
+        "RoadmapServiceGitHubThrottled",
+        "sum by (resource) ("
+        'count_over_time(devops_cli_github_throttle_wait_seconds{job="roadmap-service"}[15m])'
+        ") > 0",
+        "0m",
+        "critical",
+    ),
+    (
+        "RoadmapServiceJobsFailing",
+        "sum by (repo, lane) ("
+        ' increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])'
+        ' + (devops_cli_service_jobs_total{job="roadmap-service", result="error"} offset 1h * 0'
+        " or min_over_time("
+        'devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h]))'
+        " ) >= 3",
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceLaneStalled",
+        "time() - max by (repo, lane) ("
+        'devops_cli_service_job_start_timestamp_seconds{job="roadmap-service"}) > 7200'
+        " and on () max("
+        'kube_deployment_status_replicas_available{namespace="devops", deployment="roadmap-service"}'
+        ") > 0",
+        "10m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceRestarted",
+        "max by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total"
+        '{namespace="devops", pod=~"roadmap-service-.+", container="service"}[1h])) > 0',
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceUnavailable",
+        "max by (namespace, deployment) (kube_deployment_status_replicas_unavailable"
+        '{namespace="devops", deployment="roadmap-service"}) > 0',
+        "10m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceGitHubRequestsHigh",
+        'sum(increase(devops_cli_github_requests_total{job="roadmap-service"}[1h])) > '
+        f"{DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR * 9 // 10}",
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceModelRequestsHigh",
+        'sum(increase(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h]))'
+        " > 352",
+        "0m",
+        "warning",
+    ),
+]
+# A series selector and the matchers in its braces.
+_SELECTOR_MATCHERS = re.compile(r"([A-Za-z_:][\w:]*)\{([^}]*)\}")
+
+
+def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_volume() -> None:
+    """`roadmap-service` alerts when GitHub refuses the Service's identity or throttles it, when
+    jobs fail or a lane stalls, when the pod restarts or is unavailable, and when its GitHub or
+    model requests in an hour are high (#2472).
+
+    A refused identity stops every round until the pod restarts, and the refusal counter stays
+    above 0 for as long, so the critical alert holds for the whole stop. A throttle sample is
+    written only when the Service sends one, so a sample in 15 minutes is a throttle; increase()
+    needs two samples. An error series that starts in its hour adds its first value, which
+    increase() does not count.
+    """
+    assert [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in _group(ROADMAP_SERVICE_GROUP)
+    ] == ROADMAP_SERVICE_RULES
+
+
+def test_each_roadmap_service_rule_selects_only_the_service() -> None:
+    """Each `devops_cli_` selector filters the Service's job, and each kube-state-metrics
+    selector its namespace and its deployment or pods (#2472).
+
+    The same series with another job, such as the pod as `kubernetes-pods` before #1130 or a
+    workstation as `devops-cli`, never counts.
+    """
+    found = [
+        (metric, frozenset(part.strip() for part in matchers.split(",")))
+        for rule in _group(ROADMAP_SERVICE_GROUP)
+        for metric, matchers in _SELECTOR_MATCHERS.findall(rule["expr"])
+    ]
+    service = f'job="{ROADMAP_SERVICE_JOB}"'
+    owned = {'deployment="roadmap-service"', 'pod=~"roadmap-service-.+"'}
+    assert (
+        [metric for metric, _ in found],
+        [
+            metric
+            for metric, matchers in found
+            if not (
+                service in matchers
+                if metric.startswith("devops_cli_")
+                else 'namespace="devops"' in matchers and bool(owned & matchers)
+            )
+        ],
+    ) == (
+        [
+            selector.metric
+            for rule in _group(ROADMAP_SERVICE_GROUP)
+            for selector in selectors(rule["expr"])
+        ],
+        [],
+    )
+
+
+def test_both_paths_name_the_roadmap_service_job() -> None:
+    """The scrape and the OTLP export both give the Service's series `job="roadmap-service"`.
+
+    k8s-monitoring's annotation autodiscovery scrapes the annotated pod's /metrics and names the
+    job after the pod's `app.kubernetes.io/name`; the OpenTelemetry collector names the job after
+    `OTEL_SERVICE_NAME`.
+    """
+    template = _yaml(ROADMAP_SERVICE_DEPLOYMENT)["spec"]["template"]
+    (container,) = template["spec"]["containers"]
+    environment = {item["name"]: item.get("value") for item in container["env"]}
+    (port,) = container["ports"]
+    assert (
+        template["metadata"]["labels"]["app.kubernetes.io/name"],
+        environment["OTEL_SERVICE_NAME"],
+        template["metadata"]["annotations"],
+    ) == (
+        ROADMAP_SERVICE_JOB,
+        ROADMAP_SERVICE_JOB,
+        {"prometheus.io/scrape": "true", "prometheus.io/port": str(port["containerPort"])},
+    )
+
+
+def test_the_roadmap_service_rules_read_kube_state_metrics_that_the_chart_keeps() -> None:
+    """The restart and replica series are in the chart's default allow list or in
+    `metricsTuning.includeMetrics`, so they reach Prometheus (#2472)."""
+    allow_list = yaml.safe_load(KUBE_STATE_METRICS_ALLOW_LIST.read_text(encoding="utf-8"))
+    tuning = _yaml(K8S_MONITORING_VALUES)["clusterMetrics"]["kube-state-metrics"]["metricsTuning"]
+    kept = re.compile("|".join([*allow_list["metrics"], *tuning["includeMetrics"]]))
+    metrics = {
+        selector.metric or ""
+        for rule in _group(ROADMAP_SERVICE_GROUP)
+        for selector in selectors(rule["expr"])
+        if (selector.metric or "").startswith("kube_")
+    }
+    assert (len(metrics), sorted(m for m in metrics if not kept.fullmatch(m))) == (3, [])
+
+
+def _readme_section(heading: str) -> str:
+    """The text of one `###` section of k8s/README.md, its subsections included."""
+    text = K8S_README.read_text(encoding="utf-8")
+    start = text.index(f"\n### {heading}\n")
+    end = text.find("\n### ", start + 1)
+    return text[start : end if end != -1 else len(text)]
+
+
+def test_each_roadmap_service_alert_points_to_its_step_in_the_readme() -> None:
+    """Each description names `k8s/README.md, Roadmap service`, that section says what to do for
+    each alert, and it says that no alert leaves the cluster without the webhook Secret (#2472)."""
+    section = _readme_section("Roadmap service")
+    rules = _group(ROADMAP_SERVICE_GROUP)
+    pointer = "(k8s/README.md, Roadmap service)"
+    assert (
+        [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
+        [r["alert"] for r in rules if f"`{r['alert']}`" not in section],
+        "`monitoring/alertmanager-webhook`" in section,
+    ) == ([], [], True)
+
+
+def _promtool(*args: str | Path) -> subprocess.CompletedProcess[str]:
+    """Run the promtool on PATH and keep its output for the failure message."""
+    return subprocess.run(
+        ["promtool", *map(str, args)], capture_output=True, text=True, check=False
+    )
+
+
+@pytest.mark.live("promtool")
+def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
+    """`promtool check rules` accepts the rule file the server loads, with each expression and
+    each annotation template (#2472)."""
+    rules = tmp_path / "alerting_rules.yml"
+    rules.write_text(
+        yaml.safe_dump(_yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]),
+        encoding="utf-8",
+    )
+    result = _promtool("check", "rules", rules)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.live("promtool")
+def test_each_roadmap_service_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series(
+    tmp_path: Path,
+) -> None:
+    """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472).
+
+    Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
+    on a normal series, before its wait ends, and on the same series of another job.
+    """
+    unit_tests = yaml.safe_load(ROADMAP_SERVICE_RULE_TESTS.read_text(encoding="utf-8"))
+    (rule_file,) = unit_tests["rule_files"]
+    groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    (tmp_path / rule_file).write_text(
+        yaml.safe_dump({"groups": [g for g in groups if g["name"] == ROADMAP_SERVICE_GROUP]}),
+        encoding="utf-8",
+    )
+    tested = {case["alertname"] for test in unit_tests["tests"] for case in test["alert_rule_test"]}
+    copy = tmp_path / ROADMAP_SERVICE_RULE_TESTS.name
+    copy.write_text(ROADMAP_SERVICE_RULE_TESTS.read_text(encoding="utf-8"), encoding="utf-8")
+    result = _promtool("test", "rules", copy)
+    assert (sorted(tested), result.returncode) == (
+        sorted(rule["alert"] for rule in _group(ROADMAP_SERVICE_GROUP)),
+        0,
+    ), result.stdout + result.stderr

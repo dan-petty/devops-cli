@@ -1,0 +1,241 @@
+# promtool rule unit tests of the alert group roadmap-service in
+# k8s/monitoring/prometheus-values.yaml (#2472). Each alert fires on a sample series and stays
+# quiet on a normal one. The series of another job (a workstation as job="devops-cli", or the
+# server's old kubernetes-pods job) are in each normal case, and the rules must not count them.
+#
+# tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
+# beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, one sample each `interval`, and `time()` is the seconds since time 0. A value
+# in an annotation is what increase() gives over the samples: for example, a counter that grows by
+# 10 each minute gives 590 over the 59 minutes of samples in a 1h range, and increase() makes it
+# 600 by extrapolation to the range.
+rule_files:
+  - roadmap-service.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: A refused identity fires and holds; a workstation's refusal does not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_identity_refused_total{job="roadmap-service", identity="devops-cli-service"}'
+        values: '_x5 1x30'
+      - series: 'devops_cli_service_identity_refused_total{job="devops-cli", identity="example-user"}'
+        values: '1x40'
+      - series: 'devops_cli_service_identity_refused_total{job="kubernetes-pods", identity="devops-cli-service"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: RoadmapServiceIdentityRefused
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: RoadmapServiceIdentityRefused
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              identity: devops-cli-service
+            exp_annotations:
+              summary: "GitHub refused the identity devops-cli-service of the roadmap Service"
+              description: "The roadmap Service stopped all rounds and starts no round until its pod restarts. Its health check stays healthy. Repair the GitHub App, then restart the Service (k8s/README.md, Roadmap service)."
+
+  - name: One throttle fires for 15 minutes; a workstation's throttle does not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_github_throttle_wait_seconds{job="roadmap-service", resource="graphql"}'
+        values: '{{schema:0 sum:30 count:1 buckets:[1] offset:5}}'
+      - series: 'devops_cli_github_throttle_wait_seconds{job="devops-cli", resource="core"}'
+        values: '{{schema:0 sum:30 count:1 buckets:[1] offset:5}}'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RoadmapServiceGitHubThrottled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              resource: graphql
+            exp_annotations:
+              summary: "GitHub throttled graphql requests of the roadmap Service"
+              description: "In the last 15 minutes GitHub refused a graphql request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (k8s/README.md, Roadmap service)."
+      - eval_time: 20m
+        alertname: RoadmapServiceGitHubThrottled
+        exp_alerts: []
+
+  - name: A lane whose new error series reaches 3 fires; one more error of an older series does not
+    interval: 1m
+    input_series:
+      # A new series: 3 failed rounds in a row, then the job is suspended.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", result="error"}'
+        values: '_x60 1x4 2x4 3x40'
+      # A series that was there an hour ago and gets one more error.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", result="error"}'
+        values: '5x70 6x40'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", result="success"}'
+        values: '0+1x110'
+      - series: 'devops_cli_service_jobs_total{job="kubernetes-pods", repo="example/app", lane="model", result="error"}'
+        values: '0+1x110'
+    alert_rule_test:
+      - eval_time: 62m
+        alertname: RoadmapServiceJobsFailing
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: RoadmapServiceJobsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              lane: model
+            exp_annotations:
+              summary: "3 model jobs of example/app failed in the last hour"
+              description: "Three or more model jobs of example/app failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
+
+  - name: A lane with no job start for over 2 hours fires after 10 minutes while a replica is available
+    interval: 1m
+    input_series:
+      # The last job of the lane started at time 0.
+      - series: 'devops_cli_service_job_start_timestamp_seconds{job="roadmap-service", repo="example/app", lane="model"}'
+        values: '0x140'
+      # A job of the lane starts each minute.
+      - series: 'devops_cli_service_job_start_timestamp_seconds{job="roadmap-service", repo="example/app", lane="status"}'
+        values: '0+60x140'
+      - series: 'devops_cli_service_job_start_timestamp_seconds{job="kubernetes-pods", repo="example/app", lane="default"}'
+        values: '0x140'
+      - series: 'kube_deployment_status_replicas_available{namespace="devops", deployment="roadmap-service"}'
+        values: '1x140'
+    alert_rule_test:
+      - eval_time: 125m
+        alertname: RoadmapServiceLaneStalled
+        exp_alerts: []
+      - eval_time: 135m
+        alertname: RoadmapServiceLaneStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              lane: model
+            exp_annotations:
+              summary: "No model job of example/app started for 2h 15m 0s"
+              description: "The roadmap Service has an available replica, but no model job of example/app started for over 2 hours (k8s/README.md, Roadmap service)."
+
+  - name: A lane with no job start stays quiet while no replica is available
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_job_start_timestamp_seconds{job="roadmap-service", repo="example/app", lane="model"}'
+        values: '0x140'
+      - series: 'kube_deployment_status_replicas_available{namespace="devops", deployment="roadmap-service"}'
+        values: '0x140'
+    alert_rule_test:
+      - eval_time: 135m
+        alertname: RoadmapServiceLaneStalled
+        exp_alerts: []
+
+  - name: A restart of the service container fires; a pod with no restart and another namespace do not
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_restarts_total{namespace="devops", pod="roadmap-service-7d9f8b6c5-x2x4z", container="service"}'
+        values: '0x60 1x60'
+      - series: 'kube_pod_container_status_restarts_total{namespace="devops", pod="roadmap-service-7d9f8b6c5-q7w8e", container="service"}'
+        values: '0x120'
+      - series: 'kube_pod_container_status_restarts_total{namespace="llm", pod="llm-gateway-5c9d7f8b6-q7w8e", container="gateway"}'
+        values: '0x60 3x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RoadmapServiceRestarted
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RoadmapServiceRestarted
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: devops
+              pod: roadmap-service-7d9f8b6c5-x2x4z
+              container: service
+            exp_annotations:
+              summary: "The roadmap Service container in roadmap-service-7d9f8b6c5-x2x4z restarted"
+              description: "The restart count of container service of pod devops/roadmap-service-7d9f8b6c5-x2x4z increased by 1 in the last hour (k8s/README.md, Roadmap service)."
+
+  - name: An unavailable replica fires after 10 minutes; another deployment does not count
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="devops", deployment="roadmap-service"}'
+        values: '0x10 1x30'
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="devops", deployment="example"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: RoadmapServiceUnavailable
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: RoadmapServiceUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: devops
+              deployment: roadmap-service
+            exp_annotations:
+              summary: "The roadmap Service has an unavailable replica"
+              description: "Deployment devops/roadmap-service has had an unavailable replica for 10 minutes (k8s/README.md, Roadmap service)."
+
+  - name: A rollout with no available replica for 4 minutes stays quiet
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="devops", deployment="roadmap-service"}'
+        values: '0x10 1x3 0x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: RoadmapServiceUnavailable
+        exp_alerts: []
+
+  - name: 600 GitHub requests in an hour fire
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
+        values: '0+10x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 600 GitHub requests in the last hour"
+              description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
+
+  - name: 300 GitHub requests in an hour stay quiet; a workstation's requests do not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
+        values: '0+5x90'
+      - series: 'devops_cli_github_requests_total{job="devops-cli", resource="graphql"}'
+        values: '0+10x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+
+  - name: 420 model requests in an hour fire
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_ai_requests_total{job="roadmap-service", operation="chat", cached="false"}'
+        values: '0+7x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceModelRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 420 model requests in the last hour"
+              description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
+
+  - name: 300 model requests in an hour stay quiet; cached answers and a workstation's requests do not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_ai_requests_total{job="roadmap-service", operation="chat", cached="false"}'
+        values: '0+5x90'
+      - series: 'devops_cli_ai_requests_total{job="roadmap-service", operation="chat", cached="true"}'
+        values: '0+10x90'
+      - series: 'devops_cli_ai_requests_total{job="devops-cli", operation="chat", cached="false"}'
+        values: '0+10x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceModelRequestsHigh
+        exp_alerts: []

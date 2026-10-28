@@ -2547,6 +2547,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Install Trivy",
         ): "Installs the pinned Trivy that the Security Scan step runs, with the lock's installer",
         (
+            "test",
+            "Install promtool",
+        ): "Installs the pinned promtool that the rule tests of the test row run, with the lock's installer",
+        (
             "rule-pack",
             "Detect Changed Rule Pack Files",
         ): "Git diff to check whether src/devops_cli/review/rules/** changed",

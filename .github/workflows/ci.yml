@@ -107,6 +107,13 @@ jobs:
           tooling-cache-paths: |
             .pytest_cache
 
+      # The pinned promtool runs the rule checks and rule unit tests of
+      # tests/test_k8s_monitoring_alerting.py, which skip where promtool is not installed (#2472).
+      - name: Install promtool
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv run devops install-tools --tool promtool --only-missing
+
       - name: Tests & Coverage Quality Gate
         run: uv run devops ci --check --no-cache --only test
 
