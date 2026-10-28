@@ -34,9 +34,9 @@
 
 ## 5. Verification
 
-- [ ] Verify the fail-to-pass check run against `origin/main`
+- [x] Verify the fail-to-pass check run against `origin/main`
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] Verify that the full gate passes
+- [x] Verify that the full gate passes
   - Verification: `uv run devops ci`
 
 ## Workflow follow-up

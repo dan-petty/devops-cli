@@ -12,13 +12,6 @@ Without `--item`, `devops roadmap refine` SHALL take up to `--limit` items in th
 - **WHEN** the backlog holds twelve Ready items and New P3, P2, P1 and P3 items, an open milestone holds one New P3 item, and refine runs with `--limit 4`
 - **THEN** refine asks the model about the milestone's item, the backlog's P1 item, the backlog's P2 item and the backlog's first P3 item, in that order, and about no other item
 
-### Requirement: The roadmap configuration holds only the board
-`.github/roadmap.toml` SHALL hold the key `board` and no other key. A file that sets another key SHALL fail with a configuration error that names that key.
-
-#### Scenario: A file that sets a Ready target
-- **WHEN** the roadmap configuration sets `board = 2` and `refine_ready_target = 12`
-- **THEN** the read fails with a configuration error whose key is `refine_ready_target`
-
 ### Requirement: Refine records the paths that cause a block
 When refine leaves an item New with an open dependency or a suspected block, it SHALL record in the job record, as `refine.block_paths`, the paths of the proposal's `block_paths` that the checkout holds at the refined commit: each path one time, without its line, at most five, and none outside the repository. It SHALL record no path for a proposal with no open dependency and no suspected block.
 
