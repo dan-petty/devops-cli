@@ -546,7 +546,8 @@ class BaseSecurityScanner(ABC):
         """Start the scanner's tool through `tool_executor`; without one, as a child process.
 
         A review gives each scanner the sandbox executor of the review. A scan outside a review,
-        as `devops scan` starts one, gets no executor and runs its tool as a child process.
+        as `devops scan` starts one, gets no executor and runs its tool as a child process. Popeye
+        runs in the sandbox instead (`PopeyeScanner`).
         """
         if tool_executor is None:
             from devops_cli.security.tool_executor import DirectToolExecutor

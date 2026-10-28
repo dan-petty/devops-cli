@@ -618,7 +618,8 @@ Compare benchmarks only when their corpus digests match.
 `tool_runs` holds the record of each run of a review tool, in the order the runs started. A record
 names the tool, its `version` and `binary_sha256`, and the `executor` that started it: `direct`
 means no confinement, and `sandbox` means the bubblewrap sandbox (`SECURITY.md` lists the limits of
-each). It holds `config_digest`, `ruleset_digest` and `targets_digest`, the `argv_template` of the
+each). `network` names the network of the tool: `host` under the direct executor, `none` in the
+sandbox, and `kube-api` for Popeye in the sandbox with that network profile. It holds `config_digest`, `ruleset_digest` and `targets_digest`, the `argv_template` of the
 command, and the `commit` of the tree. The commit ends with `-dirty` when a target differs from it.
 It is empty for a tree that is no git checkout, such as the files of a base revision that the review
 writes to a scratch directory. A digest of files covers their content, not their paths or their

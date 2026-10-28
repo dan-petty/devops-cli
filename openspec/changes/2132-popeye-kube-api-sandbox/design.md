@@ -32,7 +32,7 @@ The sandbox thus has a loopback device and one Unix socket, and the socket leads
 
 Limits of the mechanism:
 
-- The sandbox reaches every API path of the context that the credentials of the user can read, less the paths that the proxy refuses. RBAC of the cluster limits it further. The filter is that of `kubectl proxy`.
+- The sandbox reaches every API path of the context that the credentials of the user can read, less the paths that the proxy refuses. RBAC of the cluster limits it further. The filter is that of `kubectl proxy`: a list of regular expressions that it matches against the decoded and cleaned path. It is a deny list, so a new subresource that reaches past the API server passes until `CONST_KUBE_API_REJECTED_PATHS` lists it.
 - A process in the sandbox can read the responses of the API server, such as Secrets that the user can read. Popeye reads them in a direct run too.
 - The proxy and the relay run for the time of one Popeye run only.
 

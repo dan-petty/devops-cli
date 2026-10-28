@@ -10,13 +10,18 @@ review and gives it to the orchestrator, which gives it to every analyzer, evide
 A review has no way to run its tools outside the sandbox (decision 1 of #772).
 `DirectToolExecutor` starts the tool as a child process of devops-cli, with no sandbox and no limit
 but the wall clock. It is the executor that a scanner gets when nobody gives it another, as the
-scans of `devops scan`, `devops k8s audit` and the agent tools do. Those are not reviews.
+scans of `devops scan` and the agent tools do. Those are not reviews. Popeye is the exception: it
+reads the Kubernetes API, and it runs in the sandbox with the network profile `kube-api`
+(`KubeApiNetwork`, decision 2 of #772, #2132). Only Popeye can select that profile, and the direct
+executor refuses it. The record of each run names the network of the tool.
 
 `SandboxToolExecutor` does not confine or limit a process itself. It builds one command from three
 programs that already do this work:
 
 - bubblewrap, through `HostSandbox`. It gives no network, a cleared environment, a read-only tree,
-  read-only inputs and a private temporary HOME. When the sandbox process ends, the process tree
+  read-only inputs and a private temporary HOME. A request with the network profile `kube-api`
+  reaches the Kubernetes API server through `kubectl proxy` outside the sandbox and `socat` in it
+  (`devops_cli.sandbox.kube_api`). When the sandbox process ends, the process tree
   in it ends (`--die-with-parent` and the process namespace of the sandbox). No code here ends a
   process.
 - `prlimit` from util-linux. It sets the CPU limit and the address space limit of the tool. No code
@@ -548,8 +553,8 @@ class DirectToolExecutor:
     """Starts each tool as a child process of devops-cli, through `run_subprocess`.
 
     There is no sandbox, and the only limit is the wall clock of the request. It is the executor
-    of a scanner that nobody gave another: the scans of `devops scan`, `devops k8s audit` and the
-    agent tools, which are not reviews. A review never runs its tools here. A scan must end as it
+    of a scanner that nobody gave another, except Popeye: the scans of `devops scan` and the agent
+    tools, which are not reviews. A review never runs its tools here. A scan must end as it
     ended before the seam existed, so a checkout that git cannot read does not stop it: the
     record of the run holds no commit. Otherwise the record is built as the sandbox executor
     builds it.

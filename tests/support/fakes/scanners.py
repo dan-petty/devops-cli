@@ -2,8 +2,9 @@
 `scanner_fake` fixture that installs the fake (#1666, #1982, ADR 0007).
 
 A scanner starts its tool through a `ToolExecutor` (`devops_cli.security.tool_executor`). A
-scanner that nobody gives an executor gets a `DirectToolExecutor`, and a review that gets no
-executor runs its tools in a `SandboxToolExecutor` (#2096). `ScannerFake` is the shared fake of
+scanner that nobody gives an executor gets a `DirectToolExecutor`, except Popeye, which gets a
+`SandboxToolExecutor` (#2132), and a review that gets no executor runs its tools in a
+`SandboxToolExecutor` (#2096). `ScannerFake` is the shared fake of
 that seam, `ToolExecutorFake`, scripted with the recorded run of each scanner. It answers a request
 for a scanner it holds with the exit code, the standard output and the standard error of that run,
 and starts nothing. A test that needs another answer, such as a failed scan, scripts it with

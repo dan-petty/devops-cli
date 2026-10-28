@@ -17,10 +17,9 @@
 
 ## 4. Documents and the devcontainer image
 
-- [ ] 4.1 Install `socat` in `.devcontainer/Dockerfile`. Describe the `kube-api` profile, the `network` field of the record and the sandbox default of Popeye in `SECURITY.md` and in the docstrings of `src/devops_cli/security/tool_executor.py`. Run `uv run devops docs generate --sync-readme`. Verify that `uv run devops openspec check` passes and that `git status` shows no other generated change
+- [x] 4.1 Install `socat` in `.devcontainer/Dockerfile`. Describe the `kube-api` profile, the `network` field of the record and the sandbox default of Popeye in `SECURITY.md`, `docs/SELF_IMPROVEMENT.md`, `docs/DEVCONTAINER_USAGE.md`, the docstring of `tests/support/fakes/scanners.py` and the docstrings of `src/devops_cli/security/tool_executor.py`. Run `uv run devops docs generate --sync-readme`. Verify that `uv run devops openspec check` passes and that `git status` shows no other generated change
 
 ## Workflow follow-up
 
 - A Popeye scan with no namespace scans only the namespace of the context, but `build_popeye_cmd` says "every namespace": #2421.
-- Pending a person: run `devops k8s audit` on a host with a cluster, and see that Popeye reports through the relay.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
