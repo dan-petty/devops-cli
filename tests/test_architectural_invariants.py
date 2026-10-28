@@ -1147,41 +1147,6 @@ def test_only_update_prs_holds_actions_write_permission_and_ci_dispatches() -> N
     )
 
 
-def _check_copy_from_ref(tokens: list[str], stage_names: set[str]) -> bool:
-    """Return True if any --from= reference in COPY is an unpinned non-stage image."""
-    for tok in tokens[1:]:
-        if tok.startswith("--from="):
-            ref = tok.split("=", 1)[1]
-            if ref not in stage_names and "@sha256:" not in ref:
-                return True
-    return False
-
-
-def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
-    stage_names: set[str] = set()
-    unpinned: list[str] = []
-    for raw_line in dockerfile.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        tokens = line.split()
-        cmd = tokens[0].upper()
-        if cmd == "FROM":
-            if len(tokens) >= 4 and tokens[2].upper() == "AS":
-                stage_names.add(tokens[3])
-            if "@sha256:" not in tokens[1]:
-                unpinned.append(line)
-        elif cmd == "COPY" and _check_copy_from_ref(tokens, stage_names):
-            unpinned.append(line)
-    return unpinned
-
-
-def test_service_dockerfile_base_images_pinned_by_digest() -> None:
-    """Every FROM and COPY --from= image in Dockerfile carries @sha256: (stage names exempt)."""
-    unpinned = _unpinned_dockerfile_images(REPO_ROOT / "Dockerfile")
-    assert unpinned == []
-
-
 def _expected_exception_name(call: ast.Call) -> str | None:
     """Name the exception type a `pytest.raises` call expects, when it is a plain name."""
     is_raises = isinstance(call.func, ast.Attribute) and call.func.attr == "raises"

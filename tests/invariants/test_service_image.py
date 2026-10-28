@@ -1,11 +1,11 @@
-"""Invariant tests for the gh build that the Service image installs, and its Trivy ignores (#1492).
+"""Service image invariants: what the committed `Dockerfile` and `.trivyignore` must hold.
 
 They read only committed files, so they need no network, no image build and no scanner.
 """
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 from packaging.version import Version
@@ -21,6 +21,41 @@ GH_FIRST_SAFE_VERSION = Version("2.102.1")
 # The HIGH Go findings that Trivy reports in gh v2.102.0 (Go 1.27.1, golang.org/x/net v0.58.0).
 # Go 1.27.2 and golang.org/x/net v0.60.0 fix them, so the pinned gh build does not have them.
 GH_GO_FINDINGS_FIXED_IN_THE_PIN = frozenset({"CVE-2026-78667", "CVE-2026-97031", "CVE-2026-78669"})
+
+
+def _check_copy_from_ref(tokens: list[str], stage_names: set[str]) -> bool:
+    """Return True if any --from= reference in COPY is an unpinned non-stage image."""
+    for tok in tokens[1:]:
+        if tok.startswith("--from="):
+            ref = tok.split("=", 1)[1]
+            if ref not in stage_names and "@sha256:" not in ref:
+                return True
+    return False
+
+
+def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
+    stage_names: set[str] = set()
+    unpinned: list[str] = []
+    for raw_line in dockerfile.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        tokens = line.split()
+        cmd = tokens[0].upper()
+        if cmd == "FROM":
+            if len(tokens) >= 4 and tokens[2].upper() == "AS":
+                stage_names.add(tokens[3])
+            if "@sha256:" not in tokens[1]:
+                unpinned.append(line)
+        elif cmd == "COPY" and _check_copy_from_ref(tokens, stage_names):
+            unpinned.append(line)
+    return unpinned
+
+
+def test_service_dockerfile_base_images_pinned_by_digest() -> None:
+    """Every FROM and COPY --from= image in Dockerfile carries @sha256: (stage names exempt)."""
+    unpinned = _unpinned_dockerfile_images(REPO_ROOT / "Dockerfile")
+    assert unpinned == []
 
 
 def test_service_image_installs_a_gh_release_built_with_go_1_27_2_or_later() -> None:

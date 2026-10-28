@@ -25,7 +25,7 @@
 
 ## 4. The Service image invariants are in one subject file
 
-- [ ] 4.1 Move the two tests of `tests/test_service_image_gh.py` and `test_service_dockerfile_base_images_pinned_by_digest` with its helpers into `tests/invariants/test_service_image.py`, and delete the flat file
+- [x] 4.1 Move the two tests of `tests/test_service_image_gh.py` and `test_service_dockerfile_base_images_pinned_by_digest` with its helpers into `tests/invariants/test_service_image.py`, and delete the flat file
   - Verification: `uv run devops ci test tests/invariants/test_service_image.py tests/test_architectural_invariants.py`
 - [ ] 4.2 Add a failing test of the gh release finder with a quoted URL and a URL after another character
   - Verification: `uv run devops ci test tests/invariants/test_service_image.py`
