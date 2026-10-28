@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: kubeconform reads the one report object that it writes
-The kubeconform adapter SHALL run the kubeconform that `tools.lock` pins with `-output json`. The parser SHALL give one HIGH finding for each resource of the report with the status `statusInvalid` or `statusError`, at `<manifest>:<Kind>/<name>`, and no finding for `statusValid` or `statusSkipped`.
+The kubeconform adapter SHALL run the kubeconform that `tools.lock` pins with `-output json`. The parser SHALL give one HIGH finding at `<manifest>:<Kind>/<name>` for each resource with the status `statusInvalid` or `statusError`. It SHALL give no finding for `statusValid` or `statusSkipped`.
 
 #### Scenario: kubeconform finds two invalid resources and one it cannot validate
-- **WHEN** kubeconform 0.8.0 validates a manifest directory, exits 1, and reports the ConfigMap `settings` and the Service `web` as `statusInvalid` and the Widget `blue` as `statusError`
+- **WHEN** kubeconform 0.8.0 validates a manifest directory and exits 1. It reports the ConfigMap `settings` and the Service `web` as `statusInvalid`, and the Widget `blue` as `statusError`
 - **THEN** the scan ran, and its findings are three HIGH findings, at `k8s/app.yaml:Widget/blue`, `k8s/app.yaml:ConfigMap/settings` and `k8s/app.yaml:Service/web`, in the order of the report
 
 #### Scenario: A verbose report also lists valid and skipped resources
@@ -16,10 +16,10 @@ The kubeconform adapter SHALL run the kubeconform that `tools.lock` pins with `-
 - **THEN** the scan ran and has no finding
 
 ### Requirement: kubeconform validates only the manifests of the target
-The kubeconform adapter SHALL give kubeconform the path of each Kubernetes manifest of the target that git lists and does not ignore, and SHALL give it no other file. When the target holds no manifest, the scan SHALL be `not_applicable`, and kubeconform SHALL NOT start.
+The kubeconform adapter SHALL give kubeconform only the path of each Kubernetes manifest of the target that git lists and does not ignore. When the target holds no manifest, the scan SHALL be `not_applicable`, and kubeconform SHALL NOT start.
 
 #### Scenario: A directory holds manifests and other YAML and JSON files
-- **WHEN** the adapter validates a directory that holds a manifest, a Helm values file, a Helm template, a dashboard, a workflow, a package file, and a manifest in a directory that git ignores
+- **WHEN** the adapter validates a directory with a manifest and other YAML and JSON files. The other files are a Helm values file, a Helm template, a dashboard, a workflow, a package file, and a manifest that git ignores
 - **THEN** kubeconform starts once, and its command names only the manifest
 
 #### Scenario: A directory holds no manifest

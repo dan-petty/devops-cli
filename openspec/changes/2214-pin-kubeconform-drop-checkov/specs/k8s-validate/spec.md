@@ -1,11 +1,11 @@
 ## Purpose
 
-The `devops k8s validate` command validates Kubernetes manifests against their JSON schemas with the kubeconform that `tools.lock` pins, and never reports a pass when kubeconform did not run.
+The `devops k8s validate` command validates Kubernetes manifests against their JSON schemas with the kubeconform that `tools.lock` pins. It never reports a pass when kubeconform did not run.
 
 ## ADDED Requirements
 
 ### Requirement: A validation that did not run is no pass
-The `devops k8s validate` command SHALL exit 1 and say that the validation did not run, with the status and the reason of the scan, when kubeconform did not run. It SHALL NOT say that the manifests are valid.
+When kubeconform did not run, the `devops k8s validate` command SHALL exit 1 and say that the validation did not run. It SHALL give the status and the reason of the scan. It SHALL NOT say that the manifests are valid.
 
 #### Scenario: kubeconform is not on the path
 - **WHEN** `devops k8s validate <manifest>` runs and no directory of PATH holds kubeconform

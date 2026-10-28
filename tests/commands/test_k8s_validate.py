@@ -35,7 +35,7 @@ def test_a_validation_that_did_not_run_says_so_and_fails(
         False,
         "Validating Kubernetes manifests at "
         f"'{tmp_path}' (k8s: master)... ✗ Kubeconform validation unavailable: Binary "
-        "'kubeconform' not found on PATH. The manifests were not validated, so the check did "
+        "'kubeconform' not found on PATH. kubeconform validated no manifest, so the check did "
         "not pass.",
     )
 

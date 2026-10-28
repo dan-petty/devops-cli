@@ -4,13 +4,13 @@
 
 `tools.lock` pins kubeconform 0.8.0 as a `tar.gz` binary with the member `kubeconform`, as it pins Pluto and Trivy. Each `sha256` is the asset `digest` of the release, checked against the release file `CHECKSUMS`. The lock needs no new note: the release has a digest for each asset.
 
-Rejected: the check `schema-validation` of kube-linter, which `tools.lock` pins. It runs kubeconform as a library, but only over objects that kube-linter decodes into their Go types. A Service with `port: "http"` does not decode, so the check did not report it, and the only report of it came from `--fail-on-invalid-resource`, a flag that kube-linter 0.8.3 marks as deprecated. The check also skips a resource with no schema, and it is not in the default checks.
+Rejected: the check `schema-validation` of kube-linter, which `tools.lock` pins. It runs kubeconform as a library, but only over objects that kube-linter decodes into their Go types. A Service with `port: "http"` does not decode, so the check did not report it. The only report of it came from `--fail-on-invalid-resource`, a flag that kube-linter 0.8.3 marks as deprecated. The check also skips a resource with no schema, and it is not in the default checks.
 
 ## The parser reads one report object
 
-`kubeconform -output json` writes one JSON object, `{"resources": [...]}`. The parser gives one HIGH finding for each resource with `statusInvalid` or `statusError`, in the order of the report, and no finding for `statusValid` or `statusSkipped`. It reads `filename`, `kind`, `name` and `status` without a default, as the Pluto parser does (#1434): a report that lacks one of them raises, and the base scanner reports a failed scan.
+`kubeconform -output json` writes one JSON object, `{"resources": [...]}`. The parser gives one HIGH finding for each resource with `statusInvalid` or `statusError`, in the order of the report. It gives no finding for `statusValid` or `statusSkipped`. It reads `filename`, `kind`, `name` and `status` without a default, as the Pluto parser does (#1434). A report that lacks one of them raises, and the base scanner reports a failed scan.
 
-- The location is `<manifest>:<Kind>/<name>`, with the manifest named by `manifest_location` of the kube-linter adapter and the object named by `manifest_object_key`, as Pluto names its findings. kubeconform writes no namespace and no line. A resource that kubeconform could not read, such as a file that is not YAML, has an empty `kind`, and its location is the manifest alone.
+- The location is `<manifest>:<Kind>/<name>`, as Pluto names its findings. `manifest_location` of the kube-linter adapter names the manifest, and `manifest_object_key` names the object. kubeconform writes no namespace and no line. A resource that kubeconform could not read has an empty `kind`. A file that is not YAML is an example. The location of such a resource is the manifest alone.
 - The title names the status and the object: `[Kubeconform statusInvalid] Service 'web' does not match its schema`, or `[Kubeconform statusError] ...` with `could not be validated`. The description is `msg`. The fix of an invalid resource names each `path` and `msg` of `validationErrors`.
 
 Rejected: the location `<manifest>:1` of the old parser. Two invalid resources of one file then have one location, and the review merges findings by location.
@@ -36,7 +36,7 @@ kubeconform reads each schema from `raw.githubusercontent.com` unless `-schema-l
 
 ## No fallback for a pinned tool
 
-The kubeconform adapter has no `fallback_scan` and keeps `has_builtin_patterns` False. With no binary, the scan is `unavailable` with the reason `Binary 'kubeconform' not found on PATH`. `devops k8s validate` says that the validation did not run and exits 1, as `devops k8s lint` does. Before, the command said that every manifest was valid when the tool did not run and the fallback found nothing. The agent tool `k8s_validate_manifests` replies through `_scan_reply`, so its reply gives the status first and says that a scan with no result does not make the target clean.
+The kubeconform adapter has no `fallback_scan` and keeps `has_builtin_patterns` False. With no binary, the scan is `unavailable` with the reason `Binary 'kubeconform' not found on PATH`. `devops k8s validate` says that the validation did not run and exits 1, as `devops k8s lint` does. Before, the command said that every manifest was valid when the tool did not run and the fallback found nothing. The agent tool `k8s_validate_manifests` replies through `_scan_reply`. Its reply gives the status first, and says that a scan with no result does not make the target clean.
 
 ## Checkov goes, and Trivy's misconfiguration scan takes its place
 
