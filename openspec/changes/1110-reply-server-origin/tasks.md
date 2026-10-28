@@ -4,9 +4,9 @@
 
 - [x] Add failing tests: a chat call to each URL of the issue table gives the `backend_info`, the ledger `server`, the counter `server` label and the span `server.address` and `server.port` of the table; a URL with a password sends Basic authentication and leaves no `pw` in any record; a stream over two Ollama URLs records the leased server without its password; a configured URL with no origin shows `unknown`; the span takes its server from the reply origin, else from the one configured origin
   - Verification: `uv run devops ci test tests/ai/client/test_reply_server.py tests/test_ai_client_telemetry.py tests/test_telemetry.py`
-- [ ] Add `LLMResponse.origin`, `authority_label` and `origin_label`; set the origin in the Ollama, OpenAI-compatible and Claude paths; get the configured origins of `LLMClient` once; take the ledger `server`, the counter label and the span `server.*` from an origin; keep the origin of the leased server in `network.stream_server`; delete `_extract_server_from_backend_info`, `_server_span_attributes` and the `urlparse(...).netloc` reads
+- [x] Add `LLMResponse.origin`, `authority_label` and `origin_label`; set the origin in the Ollama, OpenAI-compatible and Claude paths; get the configured origins of `LLMClient` once; take the ledger `server`, the counter label and the span `server.*` from an origin; keep the origin of the leased server in `network.stream_server`; delete `_extract_server_from_backend_info`, `_server_span_attributes` and the `urlparse(...).netloc` reads
   - Verification: `uv run devops ci test tests/ai/client/test_reply_server.py tests/test_ai_client_telemetry.py tests/test_telemetry.py tests/test_ai_streaming.py tests/test_ai_gateway.py tests/test_ai_gateway_base_url.py tests/test_ai_client_providers_and_embeddings.py`
-- [ ] Say in `docs/TELEMETRY.md`, through `src/devops_cli/docs/generator.py`, that the span server comes from the URL origin and holds the default port of the scheme
+- [x] Say in `docs/TELEMETRY.md`, through `src/devops_cli/docs/generator.py`, that the span server comes from the URL origin and holds the default port of the scheme
   - Verification: `uv run devops docs generate --sync-readme`
 
 ## 2. An embedding request names its server by the origin of its endpoint

@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING, Any
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin, _clean_http_error_body
-from devops_cli.ai.client.models import AIClientError, LLMResponse, provider_finish_reason
+from devops_cli.ai.client.models import (
+    AIClientError,
+    LLMResponse,
+    origin_label,
+    provider_finish_reason,
+)
 from devops_cli.ai.client.network import (
     StreamUsage,
     stream_finish_reason,
@@ -317,11 +322,13 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
         )
         model_name = getattr(res, "model", None) or kwargs.get("model")
         stop_reason = getattr(res, "stop_reason", None)
+        origin = httpx2.URL(str(sdk_client.base_url)).origin
         return LLMResponse(
             text,
             processing_seconds=None,
             wall_seconds=wall_elapsed,
-            backend_info=f"claude ({self.backend_host})",
+            backend_info=f"claude ({origin_label(origin)})",
+            origin=origin,
             thinking=thinking_str,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
