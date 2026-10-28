@@ -21,7 +21,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1003-structured-output-path`
 
 ## Workflow follow-up
