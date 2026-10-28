@@ -271,7 +271,11 @@ def test_create_pydantic_ai_provider_never_reads_a_file_base_url() -> None:
     with pytest.raises(APIConnectionError) as caught:
         asyncio.run(provider.client.with_options(max_retries=0).models.list())
 
-    assert isinstance(caught.value.__cause__, httpx2.UnsupportedProtocol)
+    cause = caught.value.__cause__
+    assert (type(cause), str(cause)) == (
+        httpx2.UnsupportedProtocol,
+        "Request URL is missing an 'http://' or 'https://' protocol.",
+    )
 
 
 # 15. Helm diff secret masking (Finding 13)
