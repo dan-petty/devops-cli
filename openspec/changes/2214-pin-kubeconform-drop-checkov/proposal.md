@@ -17,7 +17,7 @@ The issue asks for a decision: pin both tools and fix the parsers, or delete the
 - **Checkov goes.** The pinned Trivy scans the same IaC files with its misconfiguration checks, and Checkov adds no signal that Trivy does not give (Feasibility). The change deletes the Checkov adapter, its hand-written checks, the constants that only those checks read, and `devops scan iac` with its MCP tool. `devops scan trivy --type config` is the IaC scan of the command line.
 - **Trivy's misconfiguration scan takes the place of Checkov in the registry.** The registry holds `trivy-config`, which runs `trivy config` over the target, so `devops scan report` still scans IaC files. The agent tool `scan_iac` runs Trivy's misconfiguration scan.
 - **The recordings.** `tests/fixtures/scanner_runs/runs_with_findings.json` holds a run of kubeconform 0.8.0 with the command of the adapter. `tests/fixtures/scanner_runs/kubeconform_verbose_run.json` holds a `-verbose` run with all four statuses. A contract test holds each run with findings to the version that `tools.lock` pins.
-- The commands, their output, the registry and the agent tools are observable behavior, so the change has a spec delta: ADDED requirements of `scanner-adapters` and `agent-scan-tools`, and the new capability `k8s-validate`.
+- The commands, their output, the registry and the agent tools are observable behavior, so the change has a spec delta: ADDED requirements of `scanner-adapters` and `agent-scan-tools`, the requirement of `scan-json-stdout` MODIFIED to name no `scan iac`, and the new capability `k8s-validate`.
 - The change fits in one pull request.
 
 ## Capabilities
@@ -30,6 +30,7 @@ The issue asks for a decision: pin both tools and fix the parsers, or delete the
 
 - `scanner-adapters`: the kubeconform adapter, the registry entry of Trivy's misconfiguration scan, and no hand-written fallback for kubeconform.
 - `agent-scan-tools`: `k8s_validate_manifests` and `scan_iac` run the pinned adapters.
+- `scan-json-stdout`: the JSON stdout requirement names no `devops scan iac`, which the change deletes.
 
 ## Impact
 

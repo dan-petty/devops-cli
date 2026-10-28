@@ -12,7 +12,7 @@ The `devops k8s validate` command SHALL exit 1 and say that the validation did n
 - **THEN** the command says that the kubeconform validation is `unavailable` because `Binary 'kubeconform' not found on PATH`, says no pass, and exits 1
 
 ### Requirement: A clean validation passes
-The `devops k8s validate` command SHALL say that the manifests are valid and exit 0 only when kubeconform ran and reported no invalid resource.
+The `devops k8s validate` command SHALL say that the manifests are valid only when kubeconform ran and reported no invalid resource, and SHALL then exit 0.
 
 #### Scenario: kubeconform finds nothing
 - **WHEN** `devops k8s validate <manifest>` runs, and kubeconform writes `{"resources": []}` and exits 0

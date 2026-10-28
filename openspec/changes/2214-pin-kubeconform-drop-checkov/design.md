@@ -43,4 +43,5 @@ Rejected: add `misconfig` to the scanners of `trivy fs`. `devops scan trivy` and
 
 ## Out of scope
 
+- `devops k8s validate` shows the findings of kubeconform and exits 0, as `devops k8s check-deprecated` does for Pluto. The change makes only a validation that did not run fail the command, because the deleted fallback made it a pass. A finding that fails the command is a separate decision for `devops k8s validate`, `check-deprecated` and `audit` together.
 - `tflint` and `dive` are in the registry and not in `tools.lock`, and the tflint adapter keeps its hand-written fallback. The issue names kubeconform and Checkov only, and #2427 decides tflint and dive.
