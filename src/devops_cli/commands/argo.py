@@ -34,7 +34,6 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS,
     DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS,
 )
-from devops_cli.config.options import ARGOCD_URL
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.validation import validate_k8s_name
@@ -185,7 +184,7 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
         )
         raise typer.Exit(1)
     try:
-        base = service_base_url(settings.argocd.url, ARGOCD_URL)
+        base = service_base_url(settings.argocd.url, "argocd.url")
     except ValueError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc

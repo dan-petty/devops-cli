@@ -23,7 +23,6 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.config.options import GRAFANA_URL
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -74,7 +73,7 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
         )
         raise typer.Exit(1)
     try:
-        base = service_base_url(settings.grafana.url, GRAFANA_URL)
+        base = service_base_url(settings.grafana.url, "grafana.url")
     except ValueError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc

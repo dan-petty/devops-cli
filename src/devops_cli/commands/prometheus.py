@@ -16,7 +16,6 @@ from devops_cli.config.defaults import (
     DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.config.options import PROMETHEUS_URL
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -54,7 +53,7 @@ def _base_url(settings: Settings) -> str:
         )
         raise typer.Exit(1)
     try:
-        return service_base_url(settings.prometheus.url, PROMETHEUS_URL)
+        return service_base_url(settings.prometheus.url, "prometheus.url")
     except ValueError as exc:
         from devops_cli.security.sanitizer import mask_secrets
 
