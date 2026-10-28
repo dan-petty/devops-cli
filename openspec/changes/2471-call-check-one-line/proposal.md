@@ -15,7 +15,7 @@ Issue #2471: the line after a credential decides whether the credential is maske
 
 - The call check after an unquoted `api_key` value becomes `(?![^\S\r\n]*\()`. A `(` on the same line, also after a space or a tab, continues to stop the match. A line break ends the check, so the next line does not change the result.
 - The tests give each keyword-to-value rule a pair with the line break between the keyword and its separator, and compare the one-line result of each pair with its whole expected text, with a space, a tab or a no-break space between the two parts. A property test shows that the line after a credential line never changes the result for that line.
-- The output of `redact_text`, `mask_secrets` and every caller of them is a result that a consumer sees, so the change carries a spec delta: a MODIFIED requirement of the capability `secret-masking`.
+- The output of `redact_text`, `mask_secrets` and every caller of them is a result that a consumer sees, so the change carries a spec delta for the capability `secret-masking`: a MODIFIED requirement for the whitespace between a keyword and its value, and an ADDED requirement for the text after a line break.
 - This change fits one pull request.
 
 ## Capabilities
@@ -26,7 +26,7 @@ None.
 
 ### Modified Capabilities
 
-- `secret-masking`: the text after a line break does not change the result for the line before it, and a tab or a no-break space joins a keyword and its value.
+- `secret-masking`: a tab or a no-break space joins a keyword, its separator and its value, and a new requirement says that the text after a line break does not change the result for the line before it.
 
 ## Impact
 
