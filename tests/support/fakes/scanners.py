@@ -209,6 +209,18 @@ class ScannerFake(ToolExecutorFake):
         stand_in.chmod(0o755)
         self.programs.add(tool)
 
+    def answer_with(self, tool: str, responder: Callable[[ToolRequest], ToolAnswer]) -> None:
+        """Answer every later request for `tool` with what `responder` gives for the request, and
+        put a stand-in for `tool` in `bin_dir`, so that the scanner finds its program."""
+        self.script(tool, ToolAnswer())
+        super().answer_with(tool, responder)
+
+    def fail(self, tool: str, error: Exception) -> None:
+        """Raise `error` from every later request for `tool`, and put a stand-in for `tool` in
+        `bin_dir`, so that the scanner finds its program and starts it."""
+        self.script(tool, ToolAnswer())
+        super().fail(tool, error)
+
     def _workdir_files(self, cwd: Path) -> dict[str, bytes]:
         """The name and bytes of each file in `cwd`, when the fake snapshots working directories."""
         if not self.snapshot_workdirs:

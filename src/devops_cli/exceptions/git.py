@@ -5,12 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from devops_cli.config.constants import (
-    CONST_ERROR_CODE_GIT,
-    CONST_EXIT_FAILURE,
-    CONST_GITHUB_NOT_FOUND_ERROR_CODE,
-    CONST_GITHUB_SCOPE_ERROR_CODE,
-    CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
-    CONST_GITHUB_UNREAD_ERROR_CODE,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_MSG_BRANCH_INVALID,
 )
@@ -28,23 +22,26 @@ def _bounded_detail(value: Any) -> Any:
 class GitOperationError(DevOpsCLIError, ValueError):
     """Base exception for Git repository and branch operation failures."""
 
+    error_code = "GIT_OPERATION_ERROR"
+
     def __init__(
         self,
         message: str,
         *,
         operation: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_GIT,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"operation": operation} if operation else {}
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
 
 
 class InvalidBranchNameError(GitOperationError):
     """Raised when a proposed Git branch name violates naming conventions."""
+
+    error_code = "INVALID_BRANCH_NAME"
 
     def __init__(
         self,
@@ -60,14 +57,14 @@ class InvalidBranchNameError(GitOperationError):
         super().__init__(
             msg,
             operation="branch_validation",
-            exit_code=CONST_EXIT_FAILURE,
-            error_code="INVALID_BRANCH_NAME",
             details=err_details,
         )
 
 
 class BranchAlreadyExistsError(GitOperationError):
     """Raised when attempting to create a branch that already exists."""
+
+    error_code = "BRANCH_ALREADY_EXISTS"
 
     def __init__(
         self,
@@ -82,8 +79,6 @@ class BranchAlreadyExistsError(GitOperationError):
         super().__init__(
             msg,
             operation="branch_create",
-            exit_code=1,
-            error_code="BRANCH_ALREADY_EXISTS",
             details=err_details,
         )
 
@@ -91,37 +86,41 @@ class BranchAlreadyExistsError(GitOperationError):
 class GitHubOperationError(DevOpsCLIError, RuntimeError):
     """Exception raised for GitHub API or CLI automation failures."""
 
+    error_code = "GITHUB_OPERATION_FAILED"
+
     def __init__(
         self,
         message: str,
         *,
         operation: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "GITHUB_OPERATION_FAILED",
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"operation": operation} if operation else {}
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
 
 
 class GitHubNotFoundError(GitHubOperationError):
     """Raised when GitHub answers that what it was asked for does not exist (HTTP 404)."""
+
+    error_code = "GITHUB_NOT_FOUND"
 
     def __init__(
         self,
         message: str,
         *,
         operation: str = "github_request",
-        error_code: str = CONST_GITHUB_NOT_FOUND_ERROR_CODE,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, operation=operation, error_code=error_code, details=details)
+        super().__init__(message, operation=operation, details=details)
 
 
 class GitHubFileNotFoundError(GitHubNotFoundError):
     """Raised when a repository file GitHub was asked for does not exist on that ref."""
+
+    error_code = "GITHUB_FILE_NOT_FOUND"
 
     def __init__(
         self,
@@ -130,13 +129,13 @@ class GitHubFileNotFoundError(GitHubNotFoundError):
         operation: str = "repository_file",
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(
-            message, operation=operation, error_code="GITHUB_FILE_NOT_FOUND", details=details
-        )
+        super().__init__(message, operation=operation, details=details)
 
 
 class GitHubScopeError(GitHubOperationError):
     """Raised when GitHub refuses a request because the token lacks a scope the endpoint needs."""
+
+    error_code = "GITHUB_SCOPE_MISSING"
 
     def __init__(
         self,
@@ -148,7 +147,6 @@ class GitHubScopeError(GitHubOperationError):
         super().__init__(
             message,
             operation=operation,
-            error_code=CONST_GITHUB_SCOPE_ERROR_CODE,
             details=details,
         )
 
@@ -160,6 +158,8 @@ class GitHubUnreadError(GitHubOperationError):
     decode, or a request to another origin that the session refused to send.
     """
 
+    error_code = "GITHUB_UNREAD"
+
     def __init__(
         self,
         message: str,
@@ -170,7 +170,6 @@ class GitHubUnreadError(GitHubOperationError):
         super().__init__(
             message,
             operation=operation,
-            error_code=CONST_GITHUB_UNREAD_ERROR_CODE,
             details=details,
         )
 
@@ -182,6 +181,8 @@ class GitHubUnauthenticatedError(GitHubOperationError):
     gave with a 401.
     """
 
+    error_code = "GITHUB_UNAUTHENTICATED"
+
     def __init__(
         self,
         message: str,
@@ -192,13 +193,14 @@ class GitHubUnauthenticatedError(GitHubOperationError):
         super().__init__(
             message,
             operation=operation,
-            error_code=CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
             details=details,
         )
 
 
 class GitHubRateLimitError(GitHubOperationError, ValueError):
     """Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved."""
+
+    error_code = "GITHUB_RATE_LIMIT_UNKNOWN"
 
     def __init__(
         self,
@@ -214,6 +216,5 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
         super().__init__(
             message,
             operation=operation,
-            error_code="GITHUB_RATE_LIMIT_UNKNOWN",
             details=err_details,
         )

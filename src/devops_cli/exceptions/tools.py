@@ -4,30 +4,32 @@ from __future__ import annotations
 
 from typing import Any
 
-from devops_cli.config.constants import CONST_ERROR_CODE_TOOL, CONST_EXIT_FAILURE
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
 class ToolExecutionError(DevOpsCLIError, ValueError):
     """Base exception for external developer tool and binary execution failures."""
 
+    error_code = "TOOL_EXECUTION_ERROR"
+
     def __init__(
         self,
         message: str,
         *,
         tool_name: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_TOOL,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"tool_name": tool_name} if tool_name else {}
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
 
 
 class ToolDownloadError(ToolExecutionError):
     """Raised when an external tool download fails or is rejected."""
+
+    error_code = "TOOL_DOWNLOAD_ERROR"
 
     def __init__(
         self,
@@ -44,14 +46,14 @@ class ToolDownloadError(ToolExecutionError):
         super().__init__(
             msg,
             tool_name=tool_name,
-            exit_code=1,
-            error_code="TOOL_DOWNLOAD_ERROR",
             details=err_details,
         )
 
 
 class ChecksumMismatchError(ToolExecutionError):
     """Raised when downloaded tool archive SHA-256 does not match expected checksum."""
+
+    error_code = "CHECKSUM_MISMATCH"
 
     def __init__(
         self,
@@ -71,8 +73,6 @@ class ChecksumMismatchError(ToolExecutionError):
             err_details.update(details)
         super().__init__(
             msg,
-            exit_code=1,
-            error_code="CHECKSUM_MISMATCH",
             details=err_details,
         )
 
@@ -80,12 +80,14 @@ class ChecksumMismatchError(ToolExecutionError):
 class SubprocessError(ToolExecutionError):
     """Raised when an external subprocess command exits with a non-zero code or fails execution."""
 
+    error_code = "SUBPROCESS_FAILED"
+
     def __init__(
         self,
         message: str,
         *,
         command: list[str] | None = None,
-        exit_code: int = 1,
+        exit_code: int | None = None,
         stderr: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
@@ -95,13 +97,14 @@ class SubprocessError(ToolExecutionError):
         super().__init__(
             message,
             exit_code=exit_code,
-            error_code="SUBPROCESS_FAILED",
             details=err_details,
         )
 
 
 class DependencyError(ToolExecutionError):
     """Raised when a required external binary/dependency is missing from the system PATH."""
+
+    error_code = "DEPENDENCY_MISSING"
 
     def __init__(
         self,
@@ -119,7 +122,5 @@ class DependencyError(ToolExecutionError):
         super().__init__(
             msg,
             tool_name=tool_name,
-            exit_code=1,
-            error_code="DEPENDENCY_MISSING",
             details=err_details,
         )

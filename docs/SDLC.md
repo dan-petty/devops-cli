@@ -122,7 +122,7 @@ graph TD
    - Complexity is Ruff `C901` (standard McCabe) at 10, set in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and `tests/test_ruff_complexity_cap.py` checks the resolved settings and every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. Nesting is enforced by the `structural-invariants` pre-commit hook and `test_the_source_tree_keeps_its_structural_invariants`. `devops scan complexity` reports Ruff `C901`'s McCabe count and does not gate.
 2. **Standardized Domain Exception Taxonomy**:
    - Raising bare Python built-ins (`ValueError`, `RuntimeError`, `TypeError`, `Exception`) in domain logic is strictly prohibited.
-   - All domain errors must inherit from `DevOpsCLIError` under `src/devops_cli/exceptions/`, supplying an exit code, machine-readable code (`CONST_ERROR_CODE_*`), and contextual details.
+   - All domain errors must inherit from `DevOpsCLIError` under `src/devops_cli/exceptions/`, and declare their codes as [CONTRIBUTING.md](../CONTRIBUTING.md) says.
    - Idiomatic multiple inheritance is permitted to preserve standard exception catches (e.g. `class KubernetesContextError(KubernetesError, ValueError): ...`).
 3. **Zero Inline Prompts Policy**:
    - All LLM system prompts, task instructions, and evaluation rubrics must reside in dedicated Markdown files under `src/devops_cli/ai/` and be loaded via `load_task_prompt()`. Inline prompt strings in Python code are forbidden.

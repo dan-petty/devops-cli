@@ -7,7 +7,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -15,7 +14,6 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
-from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import (
@@ -25,7 +23,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.binaries import check_binary
-from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import nearest_checkout
 from devops_cli.dry_run import state as dry_run_state
 from devops_cli.exceptions.sandbox import SandboxUnavailableError
@@ -482,23 +479,6 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def _is_mocked(module_name: str | None, attr_name: str) -> Any:
-    """Return mock object if attribute on module is a NonCallableMock, else None."""
-    if not module_name:
-        return None
-    mod = sys.modules.get(module_name)
-    if mod is None:
-        return None
-    target = getattr(mod, attr_name, None)
-    return target if isinstance(target, NonCallableMock) else None
-
-
-def _patched_run_subprocess(scanner_module: str) -> Any:
-    """The `run_subprocess` a test patched in this module or in `scanner_module`, else None."""
-    own = getattr(sys.modules.get(scanner_module), "run_subprocess", None)
-    return next((c for c in (run_subprocess, own) if isinstance(c, NonCallableMock)), None)
-
-
 class ToolDataDir(NamedTuple):
     """A directory of data that a tool reads, such as a database: the environment variable that
     names it to the tool, the directory that the variable names, and the directory that the tool
@@ -645,25 +625,11 @@ class BaseSecurityScanner(ABC):
         ]
 
     def _is_dry_run(self) -> bool:
-        """Determine whether dry-run mode is active, honoring module-level test mocks."""
-        for mod_name in (
-            "devops_cli.dry_run.state",
-            "devops_cli.security.base",
-            self.__class__.__module__,
-        ):
-            mock_dr = _is_mocked(mod_name, "is_dry_run")
-            if mock_dr is not None:
-                return bool(mock_dr())
+        """Whether dry-run mode is active."""
         return dry_run_state.is_dry_run()
 
     def _check_binary(self) -> bool:
-        """Verify binary presence on PATH, honoring module-level test mocks."""
-        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
-            mock_cb = _is_mocked(mod_name, "check_binary")
-            if mock_cb is not None:
-                return bool(mock_cb(self.binary_name))
-        if _patched_run_subprocess(self.__class__.__module__) is not None:
-            return True
+        """Whether the scanner's program is on PATH."""
         return check_binary(self.binary_name)
 
     def _run_tool(
@@ -675,15 +641,12 @@ class BaseSecurityScanner(ABC):
         files: Callable[[], ToolFiles] = ToolFiles,
         network: KubeApiNetwork | None = None,
     ) -> Any:
-        """Start `cmd` through the tool executor and answer as a finished process, honoring
-        module-level test mocks. `files` names the config files and the ruleset files the tool
-        reads, so the record of the run holds a digest of each. `network` is the network profile
-        of the request (`tool_network`).
+        """Start `cmd` through the tool executor and answer as a finished process. `files` names
+        the config files and the ruleset files the tool reads, so the record of the run holds a
+        digest of each. `network` is the network profile of the request (`tool_network`).
 
         A run that ran out of time raises `subprocess.TimeoutExpired`, as the process would.
         """
-        if (patched := _patched_run_subprocess(self.__class__.__module__)) is not None:
-            return patched(cmd, cwd=cwd_dir, timeout=timeout, check=False, input="")
         # Imported here: the executor pulls in the sandbox and the canary, which a scanner that
         # never runs does not need.
         from devops_cli.security.tool_executor import ToolLimits, ToolRequest

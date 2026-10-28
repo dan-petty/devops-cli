@@ -41,9 +41,8 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
     DEFAULT_TEMPO_PORT,
     DEFAULT_VALKEY_PORT,
-    DEFAULT_VALKEY_URL,
 )
-from devops_cli.config.settings import load_settings, save_settings
+from devops_cli.config.settings import load_settings, save_settings, setting_default
 from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ConfigurationError
@@ -474,7 +473,12 @@ def _update_valkey_url(settings: Any, configured: dict[str, str], valkey_url: st
     if endpoint and is_loopback_host(endpoint.host) and endpoint.port != DEFAULT_VALKEY_PORT:
         return
     _apply_service_url(
-        settings, configured, "valkey.url", valkey_url, saved, default_url=DEFAULT_VALKEY_URL
+        settings,
+        configured,
+        "valkey.url",
+        valkey_url,
+        saved,
+        default_url=setting_default("valkey.url"),
     )
 
 

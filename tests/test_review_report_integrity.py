@@ -9,11 +9,13 @@ literal that said "0 critical findings" while three analyzers had failed.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from rich.console import Console
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import (
@@ -21,7 +23,9 @@ from devops_cli.ai.review_schema import (
     SavedFinding,
     sort_findings,
 )
+from devops_cli.review.report import render_console, render_markdown
 from devops_cli.security.base import ScanOutcome
+from tests.support.builders import make_report_input
 from tests.support.fakes.scanners import ScannerFake
 
 _NOW = "2026-10-02T12:00:00+00:00"
@@ -89,7 +93,7 @@ def test_findings_rank_by_status_before_severity_and_never_by_confidence() -> No
     ]
 
 
-def test_an_unverified_advisory_never_reaches_the_headline(tmp_path: Path) -> None:
+def test_an_unverified_advisory_never_reaches_the_headline() -> None:
     """Verify the headline names defect classes of VERIFIED findings that recur, ranked by
     severity then count, and never a CVE, a finding title, or a class seen once."""
     findings = [
@@ -132,8 +136,10 @@ def test_an_unverified_advisory_never_reaches_the_headline(tmp_path: Path) -> No
             category="Error Handling",
         ),
     ]
-    report = _orchestrator(tmp_path)._build_consolidated_markdown_report(
-        "s948", _NOW, sort_findings(findings), [], []
+    report = render_markdown(
+        make_report_input(
+            session_id="s948", generated_at=_NOW, reportable_findings=sort_findings(findings)
+        )
     )
     summary = _executive_summary(report)
 
@@ -146,7 +152,7 @@ def test_an_unverified_advisory_never_reaches_the_headline(tmp_path: Path) -> No
     ) == (False, False, False, [], True)
 
 
-def test_counts_are_split_by_status_with_mitigated_apart(tmp_path: Path) -> None:
+def test_counts_are_split_by_status_with_mitigated_apart() -> None:
     """Verify the headline counts VERIFIED and UNVERIFIED findings apart, and lists the MITIGATED
     ones on their own, each with its severities."""
     findings = [
@@ -164,7 +170,9 @@ def test_counts_are_split_by_status_with_mitigated_apart(tmp_path: Path) -> None
         ),
     ]
     summary = _executive_summary(
-        _orchestrator(tmp_path)._build_consolidated_markdown_report("s948", _NOW, findings, [], [])
+        render_markdown(
+            make_report_input(session_id="s948", generated_at=_NOW, reportable_findings=findings)
+        )
     )
 
     assert (
@@ -216,9 +224,7 @@ def test_the_analyzer_line_comes_from_the_scan(tmp_path: Path, scanner_fake: Sca
     orchestrator = _orchestrator(tmp_path, tool_executor=scanner_fake)
     orchestrator._run_static_scanners(["app.py"])
 
-    summary = _executive_summary(
-        orchestrator._build_consolidated_markdown_report("s948", _NOW, [], [], [])
-    )
+    summary = _executive_summary(orchestrator.generate_consolidated_report([])[1])
 
     assert (
         "0 critical findings" in summary,
@@ -227,15 +233,10 @@ def test_the_analyzer_line_comes_from_the_scan(tmp_path: Path, scanner_fake: Sca
     ) == (False, True)
 
 
-def test_the_terminal_summary_counts_by_status_too(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_terminal_summary_counts_by_status_too() -> None:
     """Verify the terminal's Review Summary splits the reported findings by status as the report
     does, with the findings verification never reached and the MITIGATED ones apart."""
-    tables: list[list[list[str]]] = []
-    monkeypatch.setattr(
-        "devops_cli.ai.review.pipeline.print_table", lambda **kw: tables.append(kw["rows"])
-    )
+    terminal = Console(record=True, width=400, color_system=None, file=io.StringIO())
     findings = [
         _verified(title="Verified high", location="a.py:1", severity="HIGH"),
         SavedFinding(title="Unverified low", location="c.py:1", severity="LOW"),
@@ -249,15 +250,22 @@ def test_the_terminal_summary_counts_by_status_too(
             verified_by="llm",
         ),
     ]
-    _orchestrator(tmp_path)._render_console_summary_table(None, "s948", 3, findings, [], [])
+    render_console(
+        make_report_input(session_id="s948", files_reviewed=3, reportable_findings=findings),
+        terminal,
+    )
 
-    [rows] = tables
-    assert dict(rows)["By Status"] == (
+    [by_status] = [
+        line.split("By Status", 1)[1].strip()
+        for line in terminal.export_text().splitlines()
+        if "By Status" in line
+    ]
+    assert by_status == (
         "1 verified (1 High), 1 unverified (1 Low); listed apart: 1 mitigated (1 Critical)"
     )
 
 
-def test_the_headline_names_the_first_three_recurring_classes(tmp_path: Path) -> None:
+def test_the_headline_names_the_first_three_recurring_classes() -> None:
     """Verify the headline names the three most severe recurring classes and counts the rest,
     which Key Bad Patterns lists in full: the session's 20 recurring classes made a headline
     no one could read."""
@@ -271,8 +279,10 @@ def test_the_headline_names_the_first_three_recurring_classes(tmp_path: Path) ->
         )
         for n in (1, 2)
     ]
-    report = _orchestrator(tmp_path)._build_consolidated_markdown_report(
-        "s948", _NOW, sort_findings(findings), [], []
+    report = render_markdown(
+        make_report_input(
+            session_id="s948", generated_at=_NOW, reportable_findings=sort_findings(findings)
+        )
     )
     headline = _executive_summary(report).split("\n\n", 1)[0]
     bad_patterns = report.split("### Key Bad Patterns Observed", 1)[1]

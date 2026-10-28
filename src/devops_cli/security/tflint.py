@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import logging
-import shutil  # noqa: F401
 from pathlib import Path
 from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
-from devops_cli.core.process import run_subprocess  # noqa: F401
-from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
 

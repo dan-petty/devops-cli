@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from devops_cli.ai.review.cited_code import record_cited_code
 from devops_cli.ai.review_schema import CitedCode, FileReviewPayload, SavedFinding
@@ -110,11 +110,10 @@ def test_a_saved_session_carries_the_cited_code_of_its_findings_and_candidates(
         session_dir=session,
     )
 
-    with patch("devops_cli.ai.review.pipeline.print_table"):
-        orchestrator.generate_consolidated_report(
-            [FileReviewPayload(file_path="runner.py", findings=[_finding("runner.py:6")])],
-            personas=["devsecops"],
-        )
+    orchestrator.generate_consolidated_report(
+        [FileReviewPayload(file_path="runner.py", findings=[_finding("runner.py:6")])],
+        personas=["devsecops"],
+    )
     orchestrator.session.publish()
 
     expected = {"project": "repo", "file": "runner.py", "line": 6, "excerpt": _EXEC_LINE}

@@ -13,6 +13,9 @@ from devops_cli.exceptions.base import DevOpsCLIError
 class ModelRetry(p_exc.ModelRetry, DevOpsCLIError):
     """Raised by tools or output validators to request the model to retry with corrective feedback."""
 
+    error_code = "MODEL_RETRY_REQUESTED"
+    exit_code = 14
+
     def __init__(
         self,
         message: str,
@@ -23,14 +26,15 @@ class ModelRetry(p_exc.ModelRetry, DevOpsCLIError):
         DevOpsCLIError.__init__(
             self,
             message,
-            exit_code=14,
-            error_code="MODEL_RETRY_REQUESTED",
             details=details or {},
         )
 
 
 class UnexpectedModelBehavior(p_exc.UnexpectedModelBehavior, LLMInferenceError):
     """Raised when model retry budget is exhausted or model emits unrecoverable response."""
+
+    error_code = "UNEXPECTED_MODEL_BEHAVIOR"
+    exit_code = 15
 
     def __init__(
         self,
@@ -43,14 +47,15 @@ class UnexpectedModelBehavior(p_exc.UnexpectedModelBehavior, LLMInferenceError):
         LLMInferenceError.__init__(
             self,
             message,
-            exit_code=15,
-            error_code="UNEXPECTED_MODEL_BEHAVIOR",
             details=details,
         )
 
 
 class ToolFailed(p_exc.ToolFailed, DevOpsCLIError):
     """Raised when a tool encounters an unrecoverable runtime failure without requesting model retry."""
+
+    error_code = "TOOL_FAILED"
+    exit_code = 16
 
     def __init__(
         self,
@@ -62,14 +67,15 @@ class ToolFailed(p_exc.ToolFailed, DevOpsCLIError):
         DevOpsCLIError.__init__(
             self,
             message,
-            exit_code=16,
-            error_code="TOOL_FAILED",
             details=details or {},
         )
 
 
 class ApprovalRequired(p_exc.ApprovalRequired, DevOpsCLIError):
     """Raised by a tool or validator when human approval is required to proceed."""
+
+    error_code = "APPROVAL_REQUIRED"
+    exit_code = 17
 
     def __init__(
         self,
@@ -84,8 +90,6 @@ class ApprovalRequired(p_exc.ApprovalRequired, DevOpsCLIError):
         DevOpsCLIError.__init__(
             self,
             message,
-            exit_code=17,
-            error_code="APPROVAL_REQUIRED",
             details=merged_details,
         )
         self.metadata = metadata
@@ -93,6 +97,9 @@ class ApprovalRequired(p_exc.ApprovalRequired, DevOpsCLIError):
 
 class CallDeferred(p_exc.CallDeferred, DevOpsCLIError):
     """Raised by a tool when execution is deferred to an external worker or async system."""
+
+    error_code = "CALL_DEFERRED"
+    exit_code = 18
 
     def __init__(
         self,
@@ -107,8 +114,6 @@ class CallDeferred(p_exc.CallDeferred, DevOpsCLIError):
         DevOpsCLIError.__init__(
             self,
             message,
-            exit_code=18,
-            error_code="CALL_DEFERRED",
             details=merged_details,
         )
         self.metadata = metadata

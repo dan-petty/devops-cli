@@ -12,9 +12,9 @@ from devops_cli.ai.review.category_metrics import (
     format_category_baseline_markdown,
     resolve_finding_category,
 )
-from devops_cli.ai.review.history import review_subject
+from devops_cli.ai.review.history import load_review_history, review_subject
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
+from devops_cli.ai.review_schema import FileReviewPayload, ReviewSessionPayload, SavedFinding
 
 _SUBJECT = review_subject("branch", "feature", ["diff --git a/config.py b/config.py\n"])
 _OLDER = "2026-10-01T09:00:00+00:00"
@@ -224,7 +224,7 @@ def test_collect_historical_category_metrics(tmp_path: Path) -> None:
 
 def test_format_category_baseline_markdown(tmp_path: Path) -> None:
     """Verify markdown table formatting with and without historical baseline comparison."""
-    assert format_category_baseline_markdown([], tmp_path) == []
+    assert format_category_baseline_markdown([], load_review_history(tmp_path)) == []
 
     session_findings = [
         SavedFinding(
@@ -244,7 +244,9 @@ def test_format_category_baseline_markdown(tmp_path: Path) -> None:
     ]
 
     # Without prior historical reviews
-    lines_no_history = format_category_baseline_markdown(session_findings, tmp_path)
+    lines_no_history = format_category_baseline_markdown(
+        session_findings, load_review_history(tmp_path)
+    )
     md_no_history = "\n".join(lines_no_history)
     assert (
         "## Category Verification & False-Positive Baseline" in md_no_history,
@@ -294,7 +296,9 @@ def test_format_category_baseline_markdown(tmp_path: Path) -> None:
         prior_payload2.model_dump_json(indent=2), encoding="utf-8"
     )
 
-    lines_with_history = format_category_baseline_markdown(session_findings, tmp_path)
+    lines_with_history = format_category_baseline_markdown(
+        session_findings, load_review_history(tmp_path)
+    )
     md_with_history = "\n".join(lines_with_history)
     assert (
         "## Category Verification & False-Positive Baseline" in md_with_history,
@@ -303,8 +307,8 @@ def test_format_category_baseline_markdown(tmp_path: Path) -> None:
     ) == (True, True, True)
 
 
-def test_pipeline_category_baseline_and_summary_integration(tmp_path: Path) -> None:
-    """Verify ReviewPipelineOrchestrator baseline section rendering and summary table."""
+def test_a_review_report_compares_its_findings_with_the_review_history(tmp_path: Path) -> None:
+    """Verify a review's report has the category baseline, over every candidate it raised."""
     pipeline = ReviewPipelineOrchestrator(target_dir=tmp_path, session_id="test-session")
     findings = [
         SavedFinding(
@@ -320,18 +324,15 @@ def test_pipeline_category_baseline_and_summary_integration(tmp_path: Path) -> N
             category="other",
             title="Architecture Flaw",
             status="VERIFIED",
+            verified=True,
+            verified_by="criteria",
             location="src/b.py:1",
             reportable=True,
         ),
     ]
 
-    report_md = pipeline._build_consolidated_markdown_report(
-        session_id="test-session",
-        generated_at="2026-09-25T12:00:00Z",
-        reportable_findings=[f for f in findings if f.reportable],
-        all_deps=[],
-        all_nets=[],
-        all_findings=findings,
+    _, report_md = pipeline.generate_consolidated_report(
+        [FileReviewPayload(file_path="src/a.py", findings=findings)]
     )
 
     assert (
@@ -356,7 +357,7 @@ def test_the_baseline_reads_every_raised_finding_and_counts_each_subject_once(
     write_review_session(reviews / "earlier", generated_at=_OLDER, **earlier)
 
     def baseline() -> tuple[str, str]:
-        lines = format_category_baseline_markdown(current_findings, reviews)
+        lines = format_category_baseline_markdown(current_findings, load_review_history(reviews))
         return _baseline(lines, "secret_exposure")
 
     once = baseline()
@@ -387,7 +388,7 @@ def test_the_baseline_shows_once_an_earlier_session_has_the_category(
     ]
 
     def cells() -> tuple[str, str]:
-        lines = format_category_baseline_markdown(current_findings, reviews)
+        lines = format_category_baseline_markdown(current_findings, load_review_history(reviews))
         return _baseline(lines, "secret_exposure")[0], _baseline(lines, "testing")[0]
 
     first_review = cells()

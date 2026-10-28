@@ -5,11 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from devops_cli.config.constants import (
-    CONST_ERROR_CODE_ROADMAP_INTAKE_FAILED,
-    CONST_ERROR_CODE_ROADMAP_ITEM_CHANGED,
-    CONST_ERROR_CODE_ROADMAP_REFINE_FAILED,
-)
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import GitHubOperationError
@@ -49,6 +44,8 @@ class RoadmapItemChangedError(GitHubOperationError):
     written; the next run reads the issue again and plans with the change.
     """
 
+    error_code = "ROADMAP_ITEM_CHANGED"
+
     def __init__(
         self,
         message: str,
@@ -59,7 +56,6 @@ class RoadmapItemChangedError(GitHubOperationError):
         super().__init__(
             message,
             operation=operation,
-            error_code=CONST_ERROR_CODE_ROADMAP_ITEM_CHANGED,
             details=details,
         )
 
@@ -71,6 +67,8 @@ class RoadmapRefineError(DevOpsCLIError):
     item with its error's class and schema violation count, never the model's text.
     """
 
+    error_code = "ROADMAP_REFINE_FAILED"
+
     def __init__(
         self,
         message: str,
@@ -81,7 +79,6 @@ class RoadmapRefineError(DevOpsCLIError):
         self.failed_items = tuple(failed_items)
         super().__init__(
             message,
-            error_code=CONST_ERROR_CODE_ROADMAP_REFINE_FAILED,
             details={"failed_items": list(self.failed_items), **(details or {})},
         )
 
@@ -94,6 +91,8 @@ class RoadmapIntakeError(DevOpsCLIError):
     class; `failed_items` holds the numbers.
     """
 
+    error_code = "ROADMAP_INTAKE_FAILED"
+
     def __init__(
         self,
         message: str,
@@ -104,6 +103,5 @@ class RoadmapIntakeError(DevOpsCLIError):
         self.failed_items = tuple(failed_items)
         super().__init__(
             message,
-            error_code=CONST_ERROR_CODE_ROADMAP_INTAKE_FAILED,
             details={"failed_items": list(self.failed_items), **(details or {})},
         )

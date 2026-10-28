@@ -5,15 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from devops_cli.config.constants import (
-    CONST_ERROR_CODE_K8S,
-    CONST_EXIT_FAILURE,
-)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
 class KubernetesError(DevOpsCLIError):
     """Base exception for Kubernetes operations."""
+
+    error_code = "K8S_ERROR"
 
     def __init__(
         self,
@@ -21,39 +19,25 @@ class KubernetesError(DevOpsCLIError):
         *,
         context: str | None = None,
         namespace: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_K8S,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"context": context, "namespace": namespace}
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
 
 
 class KubernetesContextError(KubernetesError, ValueError):
     """Raised when a Kubernetes context cannot be resolved or is invalid."""
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        context: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_CONTEXT_ERROR",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(
-            message,
-            context=context,
-            exit_code=exit_code,
-            error_code=error_code,
-            details=details,
-        )
+    error_code = "K8S_CONTEXT_ERROR"
 
 
 class ArgoCDGateError(KubernetesError):
     """Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343)."""
+
+    error_code = "ARGOCD_GATE_ERROR"
 
     def __init__(
         self,
@@ -61,8 +45,7 @@ class ArgoCDGateError(KubernetesError):
         *,
         failures: dict[str, list[str]] | None = None,
         context: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "ARGOCD_GATE_ERROR",
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = dict(details or {})
@@ -72,7 +55,6 @@ class ArgoCDGateError(KubernetesError):
             message,
             context=context,
             exit_code=exit_code,
-            error_code=error_code,
             details=err_details,
         )
         self.failures: dict[str, list[str]] = failures or {}
@@ -81,13 +63,14 @@ class ArgoCDGateError(KubernetesError):
 class ChaosExecutionError(KubernetesError, RuntimeError):
     """Raised when chaos engineering injection or validation fails."""
 
+    error_code = "CHAOS_EXECUTION_ERROR"
+
     def __init__(
         self,
         message: str,
         *,
         experiment_name: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "CHAOS_EXECUTION_ERROR",
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"experiment_name": experiment_name}
@@ -96,7 +79,6 @@ class ChaosExecutionError(KubernetesError, RuntimeError):
         super().__init__(
             message,
             exit_code=exit_code,
-            error_code=error_code,
             details=err_details,
         )
 
@@ -104,13 +86,14 @@ class ChaosExecutionError(KubernetesError, RuntimeError):
 class KubernetesDeployError(KubernetesError, RuntimeError):
     """Raised when deploying manifests or Helm charts fails."""
 
+    error_code = "K8S_DEPLOY_ERROR"
+
     def __init__(
         self,
         message: str,
         *,
         chart_or_manifest: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_DEPLOY_ERROR",
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"chart_or_manifest": chart_or_manifest}
@@ -119,7 +102,6 @@ class KubernetesDeployError(KubernetesError, RuntimeError):
         super().__init__(
             message,
             exit_code=exit_code,
-            error_code=error_code,
             details=err_details,
         )
 
@@ -127,14 +109,15 @@ class KubernetesDeployError(KubernetesError, RuntimeError):
 class KubernetesLoggingError(KubernetesError, RuntimeError):
     """Raised when querying cluster logs or Loki fails."""
 
+    error_code = "K8S_LOGGING_ERROR"
+
     def __init__(
         self,
         message: str,
         *,
         status_code: int | None = None,
         query: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_LOGGING_ERROR",
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         self.status_code = status_code
@@ -145,30 +128,6 @@ class KubernetesLoggingError(KubernetesError, RuntimeError):
         super().__init__(
             message,
             exit_code=exit_code,
-            error_code=error_code,
-            details=err_details,
-        )
-
-
-class GitOpsSyncError(KubernetesError, RuntimeError):
-    """Raised when GitOps synchronization trigger or reconciliation fails."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        app_name: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "GITOPS_SYNC_ERROR",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        err_details = {"app_name": app_name[:256] if app_name else None}
-        if details:
-            err_details.update(details)
-        super().__init__(
-            message,
-            exit_code=exit_code,
-            error_code=error_code,
             details=err_details,
         )
 
@@ -176,15 +135,7 @@ class GitOpsSyncError(KubernetesError, RuntimeError):
 class ClusterSecretPushError(KubernetesError, RuntimeError):
     """Raised when cluster Secrets cannot be pushed from the keyring; nothing was written."""
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_SECRET_PUSH_ERROR",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "K8S_SECRET_PUSH_ERROR"
 
 
 class ClusterSecretWriteError(ClusterSecretPushError):
@@ -202,33 +153,19 @@ class StackCredentialError(KubernetesError, RuntimeError):
     error, or the keyring error.
     """
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_STACK_CREDENTIAL_ERROR",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "K8S_STACK_CREDENTIAL_ERROR"
 
 
 class ClusterJobError(KubernetesError, RuntimeError):
     """Raised when a devops-cli Job cannot be created or followed in the cluster."""
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_CLUSTER_JOB_ERROR",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "K8S_CLUSTER_JOB_ERROR"
 
 
 class VolumeReclaimError(KubernetesError, RuntimeError):
     """Raised when volume reclaim fails or is refused due to active claims or mounts."""
+
+    error_code = "K8S_VOLUME_RECLAIM_ERROR"
 
     def __init__(
         self,
@@ -237,8 +174,7 @@ class VolumeReclaimError(KubernetesError, RuntimeError):
         volume: str | None = None,
         reason: str | None = None,
         context: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_VOLUME_RECLAIM_ERROR",
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"volume": volume, "reason": reason}
@@ -248,7 +184,6 @@ class VolumeReclaimError(KubernetesError, RuntimeError):
             message,
             context=context,
             exit_code=exit_code,
-            error_code=error_code,
             details=err_details,
         )
 
@@ -260,15 +195,7 @@ class DoctorCheckError(KubernetesError, RuntimeError):
     the message never holds a secret value.
     """
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_DOCTOR_CHECK_FAILED",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "K8S_DOCTOR_CHECK_FAILED"
 
 
 class VolumeMoveError(KubernetesError, RuntimeError):
@@ -277,14 +204,15 @@ class VolumeMoveError(KubernetesError, RuntimeError):
     `undone` names the steps the undo ran, in order, and `undo_failures` each one that failed.
     """
 
+    error_code = "K8S_VOLUME_MOVE_FAILED"
+
     def __init__(
         self,
         message: str,
         *,
         undone: tuple[str, ...] = (),
         undo_failures: tuple[str, ...] = (),
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "K8S_VOLUME_MOVE_FAILED",
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details: dict[str, Any] = {
@@ -293,7 +221,7 @@ class VolumeMoveError(KubernetesError, RuntimeError):
         }
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
         self.undone = undone
         self.undo_failures = undo_failures
 
@@ -301,10 +229,11 @@ class VolumeMoveError(KubernetesError, RuntimeError):
 class VolumeMoveRefusedError(VolumeMoveError):
     """Raised when a volume move cannot start safely; it changed nothing."""
 
+    error_code = "K8S_VOLUME_MOVE_REFUSED"
+
     def __init__(self, message: str, *, problems: tuple[str, ...] = ()) -> None:
         super().__init__(
             message,
-            error_code="K8S_VOLUME_MOVE_REFUSED",
             details={"problems": list(problems)},
         )
         self.problems = problems
@@ -316,6 +245,8 @@ class VolumeMoveStrandedError(VolumeMoveError):
     A self-heal would make an empty claim, so the move resumes nothing. `saved_claim` is the
     deleted claim as it was read, and `remaining` names the steps that did not run.
     """
+
+    error_code = "K8S_VOLUME_MOVE_STRANDED"
 
     def __init__(
         self,
@@ -329,7 +260,6 @@ class VolumeMoveStrandedError(VolumeMoveError):
     ) -> None:
         super().__init__(
             message,
-            error_code="K8S_VOLUME_MOVE_STRANDED",
             details={
                 "saved_claim": str(saved_claim),
                 "paused": list(paused),
@@ -352,7 +282,6 @@ __all__ = [
     "ClusterSecretPushError",
     "ClusterSecretWriteError",
     "DoctorCheckError",
-    "GitOpsSyncError",
     "KubernetesContextError",
     "KubernetesDeployError",
     "KubernetesError",

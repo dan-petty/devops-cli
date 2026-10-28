@@ -37,9 +37,6 @@ from pydantic import ValidationError
 
 from devops_cli.ai.run_store import digest, file_digest
 from devops_cli.config.constants import (
-    CONST_ERROR_CODE_SANDBOX,
-    CONST_ERROR_CODE_SANDBOX_UNAVAILABLE,
-    CONST_ERROR_CODE_SANDBOX_VALIDATION,
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
     CONST_TOOL_DIGEST_UNAVAILABLE,
     CONST_TOOL_EXECUTOR_DIRECT,
@@ -374,7 +371,7 @@ def test_a_target_that_leaves_the_tree_is_refused(
         executor.run(request)
 
     assert (refused.value.error_code, refused.value.exit_code) == (
-        CONST_ERROR_CODE_SANDBOX_VALIDATION,
+        "SANDBOX_VALIDATION_ERROR",
         1,
     )
 
@@ -546,7 +543,7 @@ def test_a_checkout_that_git_cannot_read_is_refused_and_not_recorded_as_no_commi
     with pytest.raises(SandboxError, match="commit") as refused:
         executor.run(request)
 
-    assert refused.value.error_code == CONST_ERROR_CODE_SANDBOX
+    assert refused.value.error_code == "SANDBOX_ERROR"
 
 
 def test_the_fake_keeps_every_request_it_answered(
@@ -985,7 +982,7 @@ def test_a_host_without_bubblewrap_is_refused(scenario: Scenario, tmp_path: Path
     with pytest.raises(SandboxUnavailableError, match="bubblewrap") as refused:
         executor.run(scenario.request())
 
-    assert refused.value.error_code == CONST_ERROR_CODE_SANDBOX_UNAVAILABLE
+    assert refused.value.error_code == "SANDBOX_UNAVAILABLE_ERROR"
 
 
 def test_a_host_without_prlimit_is_refused(

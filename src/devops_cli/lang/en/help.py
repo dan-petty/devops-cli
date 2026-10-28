@@ -1603,8 +1603,10 @@ class RAGCommandHelp:
     collection: str = "Target collection override."
     query: str = "Natural language query or code search term."
     category: str = "Filter by category (code, docs, topics, tasks)."
-    top_k: str = "Number of results to return."
-    min_score: str = "Minimum similarity score (0.0 - 1.0)."
+    top_k: str = "Number of results to return. The default is the `ai.rag.top_k` setting."
+    min_score: str = (
+        "Minimum similarity score (0.0 - 1.0). The default is the `ai.rag.score_threshold` setting."
+    )
     file_filter: str = "Filter by filepath glob pattern."
     explain: str = "Explain RAG vector embeddings, Qdrant indexing, and terminology."
     drift: str = "Detect staleness and drift between the working tree and the Qdrant vector index."

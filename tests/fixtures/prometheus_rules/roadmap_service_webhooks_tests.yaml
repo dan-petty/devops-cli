@@ -1,0 +1,81 @@
+# promtool rule unit tests of the alert group roadmap-service-webhooks in
+# k8s/monitoring/prometheus-values.yaml (#2476). The alert fires on a burst of rejected
+# deliveries and stays quiet on a few. Accepted deliveries, and the rejected deliveries of another
+# job (a workstation as job="devops-cli"), are in each case, and the rule must not count them.
+#
+# tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
+# beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. A label set of rejected deliveries with no
+# sample in the 15 minutes before the range started in the range, and the rule gives its last
+# value (#2505). Each other series gives its increase(), which promtool extrapolates to the range.
+rule_files:
+  - roadmap-service-webhooks.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: A new label set of rejected deliveries fires above 20; accepted deliveries and another job do not count
+    interval: 1m
+    input_series:
+      # Forged deliveries from minute 30, 5 each minute, under an event that no consumer takes.
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="other", outcome="rejected"}'
+        values: '_x30 5+5x10'
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="accepted"}'
+        values: '0+10x45'
+      - series: 'devops_cli_service_webhook_deliveries_total{job="devops-cli", provider="github", event="issues", outcome="rejected"}'
+        values: '0+10x45'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: RoadmapServiceWebhooksRejected
+        exp_alerts: []
+      - eval_time: 33m
+        alertname: RoadmapServiceWebhooksRejected
+        exp_alerts: []
+      - eval_time: 34m
+        alertname: RoadmapServiceWebhooksRejected
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service rejected 25 webhook deliveries in the last 15 minutes"
+              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
+
+  - name: A few rejected deliveries of an older label set stay quiet; a burst of them fires
+    interval: 1m
+    input_series:
+      # 1 rejected delivery each minute from minute 31, then 3 each minute from minute 61. At 75m
+      # the samples of the range grow by 42 in 14 minutes, which increase() makes 45.
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="rejected"}'
+        values: '1x30 2+1x29 34+3x20'
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="accepted"}'
+        values: '0+10x80'
+      - series: 'devops_cli_service_webhook_deliveries_total{job="devops-cli", provider="github", event="issues", outcome="rejected"}'
+        values: '0+10x80'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: RoadmapServiceWebhooksRejected
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: RoadmapServiceWebhooksRejected
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service rejected 45 webhook deliveries in the last 15 minutes"
+              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
+
+  - name: A label set that counted before is quiet for 40 minutes, then one more rejected delivery stays quiet
+    interval: 1m
+    input_series:
+      # 25 rejected deliveries in minutes 0-24, none for 40 minutes, then 1 at minute 64. The
+      # scrape of /metrics reads the counter each minute, so the label set keeps a sample in each
+      # minute while it does not change, and the rule gives its increase() of 1, not its total.
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="rejected"}'
+        values: '1+1x24 25x39 26x15'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: RoadmapServiceWebhooksRejected
+        exp_alerts: []
+      - eval_time: 79m
+        alertname: RoadmapServiceWebhooksRejected
+        exp_alerts: []

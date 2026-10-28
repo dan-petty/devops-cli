@@ -19,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import shlex
 import subprocess
 import threading
@@ -48,14 +47,12 @@ from devops_cli.config.constants import (
     CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_DATA_DIR,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
-from devops_cli.config.env import env_var_for_option
 from devops_cli.core.paths import (
     is_forbidden_system_path,
     safe_resolve_subpath,
@@ -141,13 +138,14 @@ class JobRow:
 
 
 def _resolve_data_dir(data_dir: Path | str | None = None) -> Path:
-    """Resolve data directory path defensively."""
-    raw: Path | str = (
-        data_dir
-        if data_dir is not None
-        else (os.environ.get(env_var_for_option("data.dir") or "") or DEFAULT_DATA_DIR)
-    )
-    path = Path(raw).resolve()
+    """Resolve data directory path defensively: `data_dir`, else `data.dir` of the loaded
+    settings, which its variable or the config file sets (#2447)."""
+    if data_dir is None:
+        from devops_cli.config.settings import load_settings
+        from devops_cli.core.repo import resolve_data_path
+
+        data_dir = resolve_data_path(load_settings().data.dir)
+    path = Path(data_dir).resolve()
     try:
         validate_no_path_traversal(path, label="Data directory")
     except SecurityError as exc:

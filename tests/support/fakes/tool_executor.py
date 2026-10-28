@@ -31,6 +31,7 @@ answers.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -69,13 +70,26 @@ class ToolExecutorFake:
     ) -> None:
         self.requests: list[ToolRequest] = []
         self._answers: dict[str, ToolAnswer] = {}
+        self._failures: dict[str, Exception] = {}
+        self._responders: dict[str, Callable[[ToolRequest], ToolAnswer]] = {}
         self._require_commit = require_commit
         self._require_files = require_files
         self._network = network
 
     def script(self, tool: str, answer: ToolAnswer) -> None:
         """Answer every later request for `tool` with `answer`."""
+        self._responders.pop(tool, None)
         self._answers[tool] = answer
+
+    def answer_with(self, tool: str, responder: Callable[[ToolRequest], ToolAnswer]) -> None:
+        """Answer every later request for `tool` with what `responder` gives for the request, as
+        a tool answers whose output depends on its arguments and on the files it reads."""
+        self._responders[tool] = responder
+
+    def fail(self, tool: str, error: Exception) -> None:
+        """Raise `error` from every later request for `tool`, as an executor that cannot start the
+        tool raises."""
+        self._failures[tool] = error
 
     def run(self, request: ToolRequest) -> ToolResult:
         """Record `request`, then answer it as the real executor does, starting nothing."""
@@ -83,7 +97,11 @@ class ToolExecutorFake:
         # sandbox engine (`devops_cli.docker.engine`) and the canary, which most tests never need.
         from devops_cli.security.tool_executor import ToolResult, record_tool_run
 
-        answer = self._answers.get(request.tool, ToolAnswer())
+        if (error := self._failures.get(request.tool)) is not None:
+            self.requests.append(request)
+            raise error
+        responder = self._responders.get(request.tool)
+        answer = responder(request) if responder else self._answers.get(request.tool, ToolAnswer())
         run = record_tool_run(
             request,
             version=answer.version,

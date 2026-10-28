@@ -981,6 +981,16 @@ def _key_field(key: str) -> FieldInfo:
     return model.model_fields[name]
 
 
+def setting_default(key: str) -> Any:
+    """The default that the settings field of the dotted `key` declares.
+
+    A module outside `config/` reads a setting from the loaded settings. It reads this only where
+    no settings are loaded, so a config file or a variable that sets the key is never ignored
+    where the settings are at hand (#2447).
+    """
+    return _key_field(key).get_default(call_default_factory=True)
+
+
 def _nested(values: dict[str, Any], key: str, value: Any) -> None:
     """Put `value` at the dotted `key` of the nested mapping `values`."""
     *path, name = key.split(".")

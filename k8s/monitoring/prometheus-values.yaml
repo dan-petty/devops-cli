@@ -732,6 +732,31 @@ serverFiles:
             annotations:
               summary: 'The roadmap Service sent {{ printf "%.0f" $value }} model requests in the last hour'
               description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
+      # The webhook route of the roadmap Service (#2476), in a group apart from roadmap-service.
+      # The route counts each delivery that it refuses under outcome="rejected": unsigned, signed
+      # with no secret of a managed repository, too large, not JSON, or without its event name or
+      # delivery ID. A forged delivery counts under the event that it names, or under "other", so a
+      # flood can start a new label set. A new label set has no zero sample, so the count of the 15
+      # minutes reads a series with no sample in the 15 minutes before as new, and gives its last
+      # value (#2505). Each other series gives its increase(). The Service serves this counter only
+      # on its /metrics, not through OTLP, and the scrape reads it each minute. So a label set that
+      # counted before has a sample in each minute while its pod runs, and only a new label set, or
+      # the label set of a new pod, has no sample in the 15 minutes before.
+      - name: roadmap-service-webhooks
+        rules:
+          - alert: RoadmapServiceWebhooksRejected
+            expr: >-
+              sum(
+              (last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="rejected"}[15m])
+              unless last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="rejected"}[15m] offset 15m))
+              or increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="rejected"}[15m])
+              ) > 20
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The roadmap Service rejected {{ printf "%.0f" $value }} webhook deliveries in the last 15 minutes'
+              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
       # What the roadmap Service writes, the deliveries of its own writes, and its paid web search
       # (#2475): a burst of comments or label writes, an echo loop with another bot or workflow,
       # and a Firecrawl account with no credits or at its rate limit. Each count of the last hour

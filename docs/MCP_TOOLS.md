@@ -497,8 +497,8 @@ Perform semantic search across indexed workspace code and documentation.
 | `project` | `string` | No | - | Project / repository name override. |
 | `language` | `string` | No | - | Filter or target specific programming language. |
 | `category` | `string` | No | - | Filter by category (code, docs, topics, tasks). |
-| `top_k` | `integer` | No | `5` | Number of results to return. |
-| `min_score` | `number` | No | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `top_k` | `integer` | No | - | Number of results to return. The default is the `ai.rag.top_k` setting. |
+| `min_score` | `number` | No | - | Minimum similarity score (0.0 - 1.0). The default is the `ai.rag.score_threshold` setting. |
 | `collection` | `string` | No | - | Target collection override. |
 | `file_filter` | `string` | No | - | Filter by filepath glob pattern. |
 | `explain` | `boolean` | No | `False` | Explain RAG vector embeddings, Qdrant indexing, and terminology. |

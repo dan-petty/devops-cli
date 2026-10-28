@@ -17,7 +17,6 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_NAMESPACE,
     DEFAULT_OBSERVABILITY_NAMESPACE,
     DEFAULT_PACKAGE_ECOSYSTEM,
-    DEFAULT_RAG_TOP_K,
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_SRC_DIR,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -379,7 +378,7 @@ def scan_semgrep(target: str = ".", config: str = DEFAULT_SEMGREP_CONFIG) -> str
 
 def rag_search(
     query: str,
-    top_k: int = DEFAULT_RAG_TOP_K,
+    top_k: int | None = None,
     project: str | None = None,
     language: str | None = None,
     category: str | None = None,
@@ -418,7 +417,9 @@ def rag_search(
             embedder=embedder,
             code_collection=code_coll,
             docs_collection=docs_coll,
-            default_top_k=top_k,
+            # A `top_k` that the model does not give, and the score threshold, are the settings'.
+            default_top_k=settings.ai.rag.top_k,
+            default_score_threshold=settings.ai.rag.score_threshold,
         )
         context = retriever.retrieve_context(
             query,

@@ -19,6 +19,8 @@ from devops_cli.config.constants import (
 from devops_cli.security.base import BaseSecurityScanner, materialize_targets
 from devops_cli.security.dive import DiveAnalysisResult
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 class MockDummyScanner(BaseSecurityScanner):
@@ -58,61 +60,50 @@ class MockDummyScanner(BaseSecurityScanner):
         ]
 
 
-def test_scanner_executes_successfully(tmp_path: Path) -> None:
-    """When binary is available, scanner runs subprocess and parses output."""
-    scanner = MockDummyScanner()
+def test_scanner_executes_successfully(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+    """When binary is available, scanner runs its tool and parses output."""
     fake_data = [{"sev": "HIGH", "line": 42, "title": "Critical flaw", "desc": "Buffer overflow"}]
-    mock_proc = MagicMock(returncode=0, stdout=json.dumps(fake_data), stderr="")
+    scanner_fake.script("mock-tool-bin", ToolAnswer(stdout=json.dumps(fake_data)))
 
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
-    ):
-        findings = scanner.scan(tmp_path)
-        assert len(findings) == 1
-        assert findings[0].severity == "HIGH"
-        assert "42" in findings[0].location
-        assert findings[0].title == "Critical flaw"
+    findings = MockDummyScanner().scan(tmp_path)
+
+    assert [(f.severity, "42" in f.location, f.title) for f in findings] == [
+        ("HIGH", True, "Critical flaw")
+    ]
 
 
-def test_scanner_falls_back_when_binary_missing(tmp_path: Path) -> None:
-    """When binary is not found, executes fallback scan."""
-    scanner = MockDummyScanner()
+def test_scanner_falls_back_when_binary_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When binary is not on PATH, executes fallback scan."""
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
 
-    with patch("devops_cli.security.base.check_binary", return_value=False):
-        findings = scanner.scan(tmp_path)
-        assert len(findings) == 1
-        assert findings[0].title == "Fallback finding"
+    findings = MockDummyScanner().scan(tmp_path)
 
-
-def test_scanner_falls_back_on_subprocess_error(tmp_path: Path) -> None:
-    """When subprocess fails, catches exception and runs fallback."""
-    scanner = MockDummyScanner()
-
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch(
-            "devops_cli.security.base.run_subprocess",
-            side_effect=RuntimeError("Process execution failed"),
-        ),
-    ):
-        findings = scanner.scan(tmp_path)
-        assert len(findings) == 1
-        assert findings[0].title == "Fallback finding"
+    assert [f.title for f in findings] == ["Fallback finding"]
 
 
-def test_scanner_falls_back_on_nonzero_exit_with_malformed_output(tmp_path: Path) -> None:
-    """When process returns non-zero exit code with malformed output, trigger fallback."""
-    scanner = MockDummyScanner()
-    mock_proc = MagicMock(returncode=1, stdout="Fatal Error: corrupted config", stderr="fatal")
+def test_scanner_falls_back_on_subprocess_error(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+    """When the tool cannot start, catches the exception and runs fallback."""
+    scanner_fake.fail("mock-tool-bin", RuntimeError("Process execution failed"))
 
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
-    ):
-        findings = scanner.scan(tmp_path)
-        assert len(findings) == 1
-        assert findings[0].title == "Fallback finding"
+    findings = MockDummyScanner().scan(tmp_path)
+
+    assert [f.title for f in findings] == ["Fallback finding"]
+
+
+def test_scanner_falls_back_on_nonzero_exit_with_malformed_output(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
+    """When the tool exits non-zero with malformed output, trigger fallback."""
+    scanner_fake.script(
+        "mock-tool-bin",
+        ToolAnswer(exit_code=1, stdout="Fatal Error: corrupted config", stderr="fatal"),
+    )
+
+    findings = MockDummyScanner().scan(tmp_path)
+
+    assert [f.title for f in findings] == ["Fallback finding"]
 
 
 class _NoPatternsScanner(BaseSecurityScanner):
@@ -128,18 +119,22 @@ class _NoPatternsScanner(BaseSecurityScanner):
         return []
 
 
-def _failed_reason(tmp_path: Path, stdout: str, stderr: str) -> tuple[str, str]:
+def _failed_reason(
+    tmp_path: Path, scanner_fake: ScannerFake, stdout: str, stderr: str
+) -> tuple[str, str]:
     """Run _NoPatternsScanner on output exiting 1, returning the outcome's status and reason."""
-    proc = MagicMock(returncode=1, stdout=stdout, stderr=stderr)
-    with patch("devops_cli.security.base.run_subprocess", return_value=proc):
-        outcome = _NoPatternsScanner().scan(tmp_path)
+    scanner_fake.script("no-patterns-bin", ToolAnswer(exit_code=1, stdout=stdout, stderr=stderr))
+    outcome = _NoPatternsScanner().scan(tmp_path)
     return outcome.status, outcome.reason
 
 
-def test_a_failed_scan_says_its_output_was_not_json_and_quotes_it(tmp_path: Path) -> None:
+def test_a_failed_scan_says_its_output_was_not_json_and_quotes_it(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify the reason names non-JSON stdout and quotes its start on one line, then stderr."""
     reason = _failed_reason(
         tmp_path,
+        scanner_fake,
         stdout='Working... ━━━━ 100% 0:00:20\n{\n  "errors": []\n}\n',
         stderr="[main]\tINFO\tprofile include tests: None\n",
     )
@@ -152,9 +147,11 @@ def test_a_failed_scan_says_its_output_was_not_json_and_quotes_it(tmp_path: Path
     )
 
 
-def test_a_failed_scan_quotes_a_bounded_start_of_its_output(tmp_path: Path) -> None:
+def test_a_failed_scan_quotes_a_bounded_start_of_its_output(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify the quote and the whole reason are cut short, keeping as much stderr as fits."""
-    status, reason = _failed_reason(tmp_path, stdout="x" * 500, stderr="e" * 500)
+    status, reason = _failed_reason(tmp_path, scanner_fake, stdout="x" * 500, stderr="e" * 500)
 
     assert (status, len(reason), reason.partition('"')[2].partition('"')[0], reason[-12:]) == (
         "failed",
@@ -164,10 +161,14 @@ def test_a_failed_scan_quotes_a_bounded_start_of_its_output(tmp_path: Path) -> N
     )
 
 
-def test_a_failed_scan_masks_its_output_before_cutting_the_quote(tmp_path: Path) -> None:
+def test_a_failed_scan_masks_its_output_before_cutting_the_quote(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify a token the quote's cut would split is masked whole, so no part of it remains."""
     token = "ghp_" + "Q7rT2xW9yB4nM6kP1sD8fG3hJ5lZ0cV2aE7u"
-    status, reason = _failed_reason(tmp_path, stdout="x" * 87 + " " + token, stderr="")
+    status, reason = _failed_reason(
+        tmp_path, scanner_fake, stdout="x" * 87 + " " + token, stderr=""
+    )
 
     assert (status, token[:11] in reason, reason.partition('"')[2].partition('"')[0]) == (
         "failed",
@@ -176,7 +177,7 @@ def test_a_failed_scan_masks_its_output_before_cutting_the_quote(tmp_path: Path)
     )
 
 
-def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
+def test_scanner_registry_lifecycle(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     """Registry correctly registers, retrieves, lists, and executes batch scans."""
     registry = ScannerRegistry()
     scanner = MockDummyScanner()
@@ -185,14 +186,10 @@ def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
     assert registry.get("mock_tool") is scanner
     assert "mock_tool" in registry.list_scanners()
 
-    mock_proc = MagicMock(returncode=0, stdout="[]", stderr="")
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
-    ):
-        results = registry.scan_all(tmp_path)
-        assert "mock_tool" in results
-        assert results["mock_tool"] == []
+    scanner_fake.script("mock-tool-bin", ToolAnswer(stdout="[]"))
+    results = registry.scan_all(tmp_path)
+    assert "mock_tool" in results
+    assert results["mock_tool"] == []
 
     # A scanner that raises is recorded as failed; only named, registered scanners run
     other = MagicMock()
@@ -300,18 +297,20 @@ def test_all_11_scanners_dry_run_simulation(tmp_path: Path) -> None:
             )
 
 
-def test_scanner_fallback_when_binary_unavailable(tmp_path: Path) -> None:
+def test_scanner_fallback_when_binary_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify all 11 scanners gracefully execute fallback when their external binary is missing."""
     test_file = tmp_path / "test.yaml"
     test_file.write_text("apiVersion: v1\nkind: Pod\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
 
-    with patch("devops_cli.security.base.check_binary", return_value=False):
-        for name in ALL_EXPECTED_SCANNER_NAMES:
-            scanner = global_scanner_registry.get(name)
-            assert scanner is not None
-            assert scanner.name == name
-            findings = scanner.scan(test_file)
-            assert isinstance(findings, list)
+    for name in ALL_EXPECTED_SCANNER_NAMES:
+        scanner = global_scanner_registry.get(name)
+        assert scanner is not None
+        assert scanner.name == name
+        findings = scanner.scan(test_file)
+        assert isinstance(findings, list)
 
 
 _SAMPLE_STDOUTS: dict[str, str] = {
@@ -472,15 +471,18 @@ _SAMPLE_STDOUTS: dict[str, str] = {
 
 
 @pytest.mark.parametrize("scanner_name", ALL_EXPECTED_SCANNER_NAMES)
-def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Path) -> None:
+def test_scanner_contract_execution_and_parsing(
+    scanner_name: str, tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify binary-present contract execution and output parsing for all 11 adapters."""
     scanner = global_scanner_registry.get(scanner_name)
     assert scanner is not None
 
     test_file = _sample_target(scanner_name, tmp_path)
 
-    sample_stdout = _SAMPLE_STDOUTS.get(scanner_name, "[]")
-    mock_proc = MagicMock(returncode=0, stdout=sample_stdout, stderr="")
+    scanner_fake.script(
+        scanner.binary_name, ToolAnswer(stdout=_SAMPLE_STDOUTS.get(scanner_name, "[]"))
+    )
     # Dive writes its analysis to a file, so its adapter reads it through `run_dive_analysis`.
     dive_analysis = DiveAnalysisResult(
         image_name="ubuntu:latest",
@@ -490,11 +492,7 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
         total_bytes=200_000_000,
     )
 
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
-        patch("devops_cli.security.dive.run_dive_analysis", return_value=dive_analysis),
-    ):
+    with patch("devops_cli.security.dive.run_dive_analysis", return_value=dive_analysis):
         findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
         assert isinstance(findings, list)
         assert len(findings) >= 1, (
@@ -502,36 +500,35 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
         )
 
 
-def test_kubelinter_contract_finding_names_its_check(tmp_path: Path) -> None:
+def test_kubelinter_contract_finding_names_its_check(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """kube-linter writes `Check` beside `Diagnostic`, and the title names it."""
     scanner = global_scanner_registry.get("kubelinter")
     assert scanner is not None
     test_file = tmp_path / "test_target.py"
     test_file.write_text("content = True\n", encoding="utf-8")
-    mock_proc = MagicMock(returncode=0, stdout=_SAMPLE_STDOUTS["kubelinter"], stderr="")
+    scanner_fake.script(scanner.binary_name, ToolAnswer(stdout=_SAMPLE_STDOUTS["kubelinter"]))
 
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
-    ):
-        findings = scanner.scan(test_file)
+    findings = scanner.scan(test_file)
 
     assert [finding.title for finding in findings] == [
         "[no-read-only-root-fs] Root filesystem writeable"
     ]
 
 
-def test_dive_scanner_skips_directory_without_image(tmp_path: Path) -> None:
+def test_dive_scanner_skips_directory_without_image(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify Dive scanner skips filesystem directories when no image is specified."""
     scanner = global_scanner_registry.get("dive")
     assert scanner is not None
+    scanner_fake.script(scanner.binary_name, ToolAnswer())
 
     dir_path = tmp_path / "my_project"
     dir_path.mkdir()
 
-    with patch("devops_cli.security.base.check_binary", return_value=True):
-        findings = scanner.scan(dir_path)
-        assert findings == []
+    assert scanner.scan(dir_path) == []
 
 
 def test_materialized_targets_are_hard_links_else_copies_and_replace_nothing(

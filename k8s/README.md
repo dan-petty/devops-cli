@@ -425,6 +425,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `ValkeyCacheErrors` | A Valkey exporter reports `redis_up == 0` or rejected client connections | 5m | warning |
 | `RoadmapServiceIdentityRefused`, `RoadmapServiceGitHubThrottled` | GitHub refused the identity of the roadmap Service, or throttled its requests; see Roadmap service, Alerts | — | critical |
 | `RoadmapServiceJobsFailing`, `RoadmapServiceLaneStalled`, `RoadmapServiceRestarted`, `RoadmapServiceUnavailable`, `RoadmapServiceGitHubRequestsHigh`, `RoadmapServiceModelRequestsHigh` | The roadmap Service's jobs fail or stall, its pod restarts or is unavailable, or its GitHub or model requests in an hour are high; see Roadmap service, Alerts | 0–10m | warning |
+| `RoadmapServiceWebhooksRejected` | The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes; see Roadmap service, Alerts | — | warning |
 | `ClusterMetricsMissing` | `kube_node_status_condition` is absent, so the node rules cannot fire | 10m | critical |
 | `PrometheusConfigReloadFailed`, `PrometheusRuleEvaluationFailures`, `PrometheusNotConnectedToAlertmanager`, `PrometheusDroppingAlerts`, `PrometheusCompactionsFailing` | Prometheus's own health | 0–15m | warning |
 | `AlertmanagerConfigReloadFailed`, `AlertmanagerNotificationsFailing` | Alertmanager's own health; the second only once the webhook Secret exists | 10m, 15m | warning |
@@ -544,16 +545,32 @@ kubectl -n devops logs -f job/<name>
 5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
 6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
 7. `devops k8s deploy-stack --stack devops` (or `--stack all`).
-8. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and only the Issues event. The Service acknowledges an event with no subscriber, a push included, and starts no round for it, so a hook that sends every event or only pushes is harmless, but only an issue that opens or reopens starts a round before the next poll ([ADR 0009](../docs/adr/0009-one-webhook-router-delivers-each-event-to-the-consumers-subscribed-to-it.md), #1386).
+8. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and only the Issues event. The roadmap consumer takes only the Issues event, and only an issue that opens or reopens starts a round before the next poll ([ADR 0009](../docs/adr/0009-one-webhook-router-delivers-each-event-to-the-consumers-subscribed-to-it.md), #1386). The Service acknowledges an event with no subscriber, a push included, and starts no round for it, but each such delivery uses the rate limit of the route (Webhook route) and writes a log line. Check the hooks of each repository: `uv run devops gh api repos/<owner>/<name>/hooks --jq '.[]|{id,active,events,code:.last_response.code}'`. Each hook must be `active`, its `events` must be `["issues"]`, and after its first delivery its `code` must be 200 or 202. Change a hook in the repository's settings (Settings > Webhooks). `devops` has no command that changes a hook.
 9. To rotate a credential, update it in the keyring: `uv run devops config set service.webhook_secrets`, or, for the App, generate a new private key and run `uv run devops config set service.github_app.private_key --from-file <key.pem>`. Then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`. Delete the old private key on the App's page after the restart.
 10. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
 11. The Service keeps three files in `/home/devops/.data/roadmap/` on volume `roadmap-service-home`, beside the `schedule.json` of each repository: `service-halt.json` (GitHub refused the identity), `service-budget.json` (the GitHub requests of the last hour) and `service-failures.json` (the jobs that failed rounds in a row). A restart reads them back, so a restart does not clear a halt, the budget or a suspended job. A rate limit that one request gets stops the requests of all workers until its wait ends. When GitHub refuses the identity, for example because the App's installation is suspended, the Service halts and logs `GitHub refused the identity`. To clear the halt after you fix the cause, remove the file and restart the Service: `kubectl -n devops exec deploy/roadmap-service -- rm /home/devops/.data/roadmap/service-halt.json`, then `kubectl -n devops delete pod -l app.kubernetes.io/name=roadmap-service`.
 12. The Service's `/metrics` shows the budget and the suspended jobs (#2475): `devops_cli_service_budget_limit_requests` (the hourly budget), `devops_cli_service_budget_spent_requests` (the GitHub requests of the last hour), `devops_cli_service_budget_holds_total` (one count each time a hold begins) and `devops_cli_service_job_suspended` (1 while a job of a repository, by `repo` and `row`, waits for new input after it failed 3 rounds in a row). Each GitHub request counts in `devops_cli_github_requests_total` under its `method`, the `repo` of the worker that sent it and the job `row` (`metrics`, `intake` or `refine`); a request outside a worker or a row counts as `other`. To find what spent the budget, run `sum by (repo, row, method) (increase(devops_cli_github_requests_total{job="roadmap-service"}[1h]))` in Grafana Explore. A delivery of the App bot's own write counts as outcome `self` in `devops_cli_service_webhook_deliveries_total`.
 13. A refine round writes at most 2 comments on one item in 24 hours. A round that finds 2 refine comments of the last 24 hours on an item leaves the item alone, with no model call and no comment. The item waits on a person and takes no place under the round's limit, so the round refines the next item. For each newest comment on the item that the cap leaves with no answer, the round records the time of that comment in the item's job record (`refine.capped_after`), logs `Refine left #<number> alone and wrote no comment`, and adds 1 to `devops_cli_roadmap_refine_comments_capped_total`. A later round that finds no newer comment does not log or count the item again. A person refines the item at the cap with `devops roadmap refine --item <number> --confirm`. Each Firecrawl search counts in `devops_cli_firecrawl_searches_total` by `result`: `ok`, the HTTP status of a refused search, or `error`. A failed search logs `A Firecrawl web search failed` with the status or the error class, and never the key or the query.
 
+#### Webhook route
+
+The Ingress `devops/roadmap-service` publishes `POST /webhooks/github` at `https://hooks.<domain>`.
+
+Traefik limits the requests to the route before they get to the Service. The Ingress names the Middleware `devops/roadmap-service-rate-limit` (`roadmap-service/middleware.yaml`), which lets 60 requests a minute through, with a burst of 60, in one bucket for the host. Traefik answers a request above the limit with HTTP 429. GitHub does not send a failed delivery again, but the next poll starts the round that the delivery would have started. To see the answers of the route, the 429 of the rate limit included, use `sum by (code) (increase(traefik_router_requests_total{service="devops-roadmap-service-8000@kubernetes"}[15m]))`. Traefik counts `traefik_service_requests_total` only for the requests that get to the Service, so that series does not show a 429 of the rate limit.
+
+The route refuses a delivery before it reads the body when:
+
+- the Service drains: 503;
+- the content type is not `application/json`: 415;
+- the `X-GitHub-Event` or `X-GitHub-Delivery` header is missing: 400;
+- the `X-Hub-Signature-256` header is missing or empty: 401 `missing signature`;
+- the `Content-Length` is more than 25 MiB: 413.
+
+Then the route reads the body. It refuses a body of more than 25 MiB (413), a signature that no secret in `service.webhook_secrets` made (401 `invalid signature`), a payload that does not validate (400), and a repository that is not in `service.repos` or that did not sign the body (401). Each refusal counts under the outcome `rejected` of `devops_cli_service_webhook_deliveries_total`. `RoadmapServiceWebhooksRejected` fires when the route rejects more than 20 deliveries in 15 minutes (Alerts).
+
 #### Alerts
 
-The rule group `roadmap-service` in `monitoring/prometheus-values.yaml` watches the Service (#2472). Each description of a rule points to this section. Each `devops_cli_` series is selected with `job="roadmap-service"`: the scrape of the pod's `/metrics` and the OTLP export both give the Service's series that job, so the same series of a workstation (`job="devops-cli"`) does not count. The failed jobs and the GitHub and model requests of the last hour count a series that starts in the hour from zero, so they also count its first sample (#2505). kube-state-metrics gives the restarts and the replicas.
+The rule group `roadmap-service` in `monitoring/prometheus-values.yaml` watches the Service (#2472), and the rule group `roadmap-service-webhooks` watches its webhook route (#2476). Each description of a rule points to this section. Each `devops_cli_` series is selected with `job="roadmap-service"`: the scrape of the pod's `/metrics` and the OTLP export both give the Service's series that job, so the same series of a workstation (`job="devops-cli"`) does not count. The failed jobs and the GitHub and model requests of the last hour count a series that starts in the hour from zero, so they also count its first sample (#2505). kube-state-metrics gives the restarts and the replicas.
 
 | Alert | Fires when | For | Severity | Do this |
 | :--- | :--- | :--- | :--- | :--- |
@@ -565,6 +582,7 @@ The rule group `roadmap-service` in `monitoring/prometheus-values.yaml` watches 
 | `RoadmapServiceUnavailable` | The deployment has an unavailable replica. A rollout stops the old pod before it starts the new one, so the rule waits 10 minutes. | 10m | warning | Read the events: `kubectl -n devops describe deployment/roadmap-service` and `kubectl -n devops get events --sort-by=.lastTimestamp`. |
 | `RoadmapServiceGitHubRequestsHigh` | The Service sent more than 450 GitHub requests in 1 hour, 90% of the default budget `service.github_requests_per_hour` (500) | — | warning | Read the GitHub Requests by Resource panel of the `devops-cli Telemetry` dashboard, and find the repository in the Service log. Lower the budget or remove a repository from `service.repos`, then run `devops k8s deploy-stack --stack devops`. |
 | `RoadmapServiceModelRequestsHigh` | The Service sent more than 352 model requests in 1 hour. A request that the cache answered does not count. | — | warning | Find the model on the `AI Spend & LLM Usage Telemetry` dashboard, and the repository in the Service log. Remove the repository from `service.repos` until the cause is known, then run `devops k8s deploy-stack --stack devops`. |
+| `RoadmapServiceWebhooksRejected` | The webhook route rejected more than 20 deliveries in 15 minutes (Webhook route). A label set that starts in the 15 minutes counts from zero. | — | warning | Check the last response of each hook (step 8). A hook whose last `code` is 401 has a secret that is not the one in `service.webhook_secrets`: set the same secret on both sides (step 9). If each hook gets 200 or 202, the deliveries are forged: read them in the Service log (`kubectl -n devops logs deployment/roadmap-service \| grep rejected`), and the 429 answers of Traefik (Webhook route). |
 
 The rule group `roadmap-service-activity` watches what the Service writes, the deliveries of its own writes, and its web search (#2475). Its rules count the series of the last hour as the group `roadmap-service` does.
 
@@ -576,7 +594,7 @@ The rule group `roadmap-service-activity` watches what the Service writes, the d
 
 No alert leaves the cluster until the Secret `monitoring/alertmanager-webhook` exists (Alerting, Receiver). Creating it is a step for the owner, who chose Mattermost as the route for the alerts (#1391, #1392). Until then, read the alerts in Grafana (Alerting, with the `Alertmanager` datasource) or on the Alerts page of Prometheus.
 
-`tests/test_k8s_monitoring_alerting.py` pins each rule and runs the pinned promtool (`devops install-tools --tool promtool`) on it. `promtool test rules` runs the unit tests of each group in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml` and `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml`: each alert fires on a sample series with the labels and annotations that the tests pin, and stays quiet on a normal series and on the same series of another job. To run them by hand, write the group to the file that the tests' `rule_files` names, then run `promtool test rules <tests-file>` in that directory.
+`tests/test_k8s_monitoring_alerting.py` pins each rule and runs the pinned promtool (`devops install-tools --tool promtool`) on it. `promtool test rules` runs the unit tests of each group, in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `roadmap_service_webhooks_tests.yaml` and `roadmap_service_activity_tests.yaml`: each alert fires on a sample series with the labels and annotations that the tests pin, and stays quiet on a normal series and on the same series of another job. To run them by hand, write the group to the file that the tests' `rule_files` names, then run `promtool test rules <tests-file>` in that directory.
 
 #### Go-live check
 
@@ -588,7 +606,7 @@ kubectl -n devops get cm devops-cli-config -o jsonpath='{.data.devops-cli\.yaml}
 kubectl -n devops rollout restart deployment/roadmap-service
 ```
 
-Then do these checks, and do them again every 15 minutes for the first 2 hours. If a check fails, do the stop switch. If an alert of the rule group `roadmap-service` fires, do what its row in Alerts says. Select each series of the Service with `job="roadmap-service"`, as the alert rules do.
+Then do these checks, and do them again every 15 minutes for the first 2 hours. If a check fails, do the stop switch. If an alert of the rule group `roadmap-service` or `roadmap-service-webhooks` fires, do what its row in Alerts says. Select each series of the Service with `job="roadmap-service"`, as the alert rules do.
 
 1. The pod runs: `kubectl -n devops get pod -l app.kubernetes.io/name=roadmap-service` shows one pod `Running`, with no restart and no `OOMKilled`.
 2. Prometheus scrapes the pod: `up{job="roadmap-service"}` is 1.
@@ -1059,10 +1077,11 @@ k8s/
 │   ├── configmap.example.yaml # devops-cli config template: deploy-stack renders ConfigMap devops-cli-config from it and config.yaml
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
-│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, NetworkPolicy, PVC
+│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicy, PVC
 │       ├── kustomization.yaml
 │       ├── deployment.yaml
 │       ├── ingress.yaml
+│       ├── middleware.yaml
 │       ├── networkpolicy.yaml
 │       ├── pvc.yaml
 │       └── service.yaml

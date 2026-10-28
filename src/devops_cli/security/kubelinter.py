@@ -15,8 +15,6 @@ from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
 )
-from devops_cli.core.process import run_subprocess  # noqa: F401
-from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.review.manifests import manifest_object_key
 from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
 

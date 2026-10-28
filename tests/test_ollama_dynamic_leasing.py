@@ -89,8 +89,9 @@ def test_concurrent_slot_leasing_across_threads() -> None:
     assert distinct_nodes == set(candidates)
 
 
-def test_acquire_ollama_slot_config_defaults() -> None:
-    """Verify slot leasing and network helpers bind to centralized defaults and constants."""
+def test_slot_leasing_takes_max_parallel_from_its_caller() -> None:
+    """The client passes `ai.ollama_max_parallel` of its settings, so slot leasing declares no
+    default of its own that could ignore the setting (#2447)."""
     import inspect
 
     from devops_cli.ai.client import network
@@ -98,10 +99,7 @@ def test_acquire_ollama_slot_config_defaults() -> None:
         acquire_ollama_slot,
         track_ollama_url,
     )
-    from devops_cli.config.defaults import (
-        DEFAULT_AI_MAX_RESPONSE_BYTES,
-        DEFAULT_OLLAMA_MAX_PARALLEL,
-    )
+    from devops_cli.config.defaults import DEFAULT_AI_MAX_RESPONSE_BYTES
 
     sig_acquire = inspect.signature(acquire_ollama_slot)
     sig_track = inspect.signature(track_ollama_url)
@@ -111,8 +109,8 @@ def test_acquire_ollama_slot_config_defaults() -> None:
         sig_track.parameters["max_parallel"].default,
         network.DEFAULT_AI_MAX_RESPONSE_BYTES,
     ) == (
-        DEFAULT_OLLAMA_MAX_PARALLEL,
-        DEFAULT_OLLAMA_MAX_PARALLEL,
+        inspect.Parameter.empty,
+        inspect.Parameter.empty,
         DEFAULT_AI_MAX_RESPONSE_BYTES,
     )
 
@@ -128,12 +126,15 @@ def test_acquire_ollama_slot_effective_timeout_defaults() -> None:
     with patch(
         "devops_cli.ai.client.network._wait_for_slot", return_value="http://example.com:11434"
     ) as mock_wait:
-        with acquire_ollama_slot(["http://example.com:11434"], timeout=None):
+        with acquire_ollama_slot(["http://example.com:11434"], max_parallel=2, timeout=None):
             pass
         eff_timeout = mock_wait.call_args[0][4]
 
         with acquire_ollama_slot(
-            ["http://example.com:11434"], timeout=None, priority=RequestPriority.AS_AVAILABLE
+            ["http://example.com:11434"],
+            max_parallel=2,
+            timeout=None,
+            priority=RequestPriority.AS_AVAILABLE,
         ):
             pass
         as_avail_timeout = mock_wait.call_args[0][4]
@@ -167,9 +168,9 @@ def _counts(waits: dict[tuple[str, str], tuple[int, float]]) -> dict[tuple[str, 
 def test_a_call_with_a_free_slot_observes_its_wait_by_priority(otlp: FakeCollector) -> None:
     """A call that finds a free slot sends one observation with the priority it asked for, or
     the priority of its context when it names none."""
-    with acquire_ollama_slot([NODE], priority=RequestPriority.HIGH):
+    with acquire_ollama_slot([NODE], max_parallel=2, priority=RequestPriority.HIGH):
         pass
-    with acquire_ollama_slot([NODE]):
+    with acquire_ollama_slot([NODE], max_parallel=2):
         pass
 
     assert _counts(_slot_waits(otlp)) == {("high", "ok"): 1, ("normal", "ok"): 1}

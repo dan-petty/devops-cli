@@ -14,10 +14,12 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.commands.scan import app as scan_app
-from devops_cli.config.commands import build_zizmor_cmd
+from devops_cli.config.commands import BIN_ZIZMOR, build_zizmor_cmd
 from devops_cli.config.constants import CONST_EXIT_COMMAND_NOT_FOUND
 from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.security.zizmor import parse_zizmor_json, run_zizmor
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 runner = CliRunner()
 WORKFLOW = ".github/workflows/release.yml"
@@ -160,14 +162,15 @@ def test_zizmor_is_a_registered_scanner_that_publishes_without_gating(tmp_path: 
 
 
 def test_scan_report_publishes_zizmor_findings_in_its_sarif_by_rule_and_line(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
 ) -> None:
     repo = _repo_with_workflow(tmp_path / "repo")
     monkeypatch.chdir(repo)
     sarif = tmp_path / "scan.sarif"
     found = [_finding("template-injection"), _finding("artipacked", "Medium", row=40)]
-    with patch("devops_cli.security.zizmor.run_subprocess", return_value=_ran(found)):
-        result = runner.invoke(scan_app, ["report", "--scanner", "zizmor", "--sarif", str(sarif)])
+    scanner_fake.script(BIN_ZIZMOR, ToolAnswer(stdout=json.dumps(found)))
+
+    result = runner.invoke(scan_app, ["report", "--scanner", "zizmor", "--sarif", str(sarif)])
     document = json.loads(sarif.read_text(encoding="utf-8"))
     published = sorted(
         (r["ruleId"], r["locations"][0]["physicalLocation"]["region"]["startLine"])

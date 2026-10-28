@@ -11,11 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_ERROR_CODE_SECURITY,
-    CONST_EXIT_FAILURE,
-    CONST_GH_CLI,
-)
+from devops_cli.config.constants import CONST_EXIT_FAILURE, CONST_GH_CLI
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
     DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
@@ -233,7 +229,7 @@ def test_a_caller_override_that_loads_code_into_the_child_is_refused(
     assert (refused.value.message, refused.value.exit_code, refused.value.error_code) == (
         f"Prohibited dangerous environment variable override: '{key}'",
         CONST_EXIT_FAILURE,
-        CONST_ERROR_CODE_SECURITY,
+        "SECURITY_ERROR",
     )
 
 
@@ -294,7 +290,7 @@ def test_a_caller_override_with_a_null_byte_is_refused(
     assert (refused.value.message, refused.value.exit_code, refused.value.error_code) == (
         f"Null byte in environment variable prohibited: '{named_key}'",
         CONST_EXIT_FAILURE,
-        CONST_ERROR_CODE_SECURITY,
+        "SECURITY_ERROR",
     )
 
 

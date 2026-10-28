@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -14,13 +13,19 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.scan import app as scan_app
-from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
+from devops_cli.config.constants import (
+    CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_SANDBOX_TIMEOUT_EXIT_CODE,
+)
+from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.security.bandit import BanditScanner
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, merge_outcomes
 from devops_cli.security.dive import DiveScanner
 from devops_cli.security.pipeline import build_report
 from devops_cli.security.popeye import PopeyeScanner
 from devops_cli.security.registry import ScannerRegistry
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 runner = CliRunner()
 
@@ -92,7 +97,9 @@ def test_merged_outcomes_keep_the_earliest_start_and_latest_end_times() -> None:
     )
 
 
-def test_dive_and_popeye_applicability_preflight(tmp_path: Path) -> None:
+def test_dive_and_popeye_applicability_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Dive and Popeye determine applicability before binary presence check."""
     dive = DiveScanner()
     popeye = PopeyeScanner()
@@ -114,14 +121,14 @@ def test_dive_and_popeye_applicability_preflight(tmp_path: Path) -> None:
         (True, ""),
     )
 
-    with patch("devops_cli.security.base.check_binary", return_value=False):
-        dive_outcome = dive.scan(tmp_path)
-        popeye_outcome = popeye.scan(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
+    dive_outcome = dive.scan(tmp_path)
+    popeye_outcome = popeye.scan(tmp_path)
 
-        assert (dive_outcome.status, popeye_outcome.status) == (
-            "not_applicable",
-            "not_applicable",
-        )
+    assert (dive_outcome.status, popeye_outcome.status) == (
+        "not_applicable",
+        "not_applicable",
+    )
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
@@ -326,11 +333,13 @@ def test_scan_report_unknown_skip_scanner(tmp_path: Path) -> None:
     assert "Unknown scanner(s): nonexistent_scanner" in result.output
 
 
-def test_a_scan_outcome_records_when_the_scanner_started_and_finished(tmp_path: Path) -> None:
+def test_a_scan_outcome_records_when_the_scanner_started_and_finished(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """SARIF invocations carry the scanner's execution window in UTC."""
     utc_millis = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
-    with patch("devops_cli.security.base.check_binary", return_value=False):
-        outcome = BanditScanner().scan(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
+    outcome = BanditScanner().scan(tmp_path)
     assert (
         outcome.status,
         bool(utc_millis.match(outcome.started_utc or "")),
@@ -364,6 +373,14 @@ class _LeakyScannerWithPatterns(_LeakyScanner):
     """The same scanner, falling back to built-in patterns when its command fails."""
 
     has_builtin_patterns = True
+
+
+class _LeakyCommandScanner(_LeakyScanner):
+    """The same scanner, whose command carries the secrets and far more text than a reason may
+    hold."""
+
+    def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
+        return [self.binary_name, f"--url={_URL}", f"--token={_TOKEN}", "x" * 5000]
 
 
 def _report_one_scanner(
@@ -409,16 +426,15 @@ def _leaks(outcome: ScanOutcome, notes: list[str], output: str) -> list[tuple[st
     ids=["the scanner raises", "its command raises"],
 )
 def test_a_scanner_error_reaches_the_outcome_sarif_and_cli_masked_and_bounded(
-    tmp_path: Path, raised_by: str, error: Exception
+    tmp_path: Path, raised_by: str, error: Exception, scanner_fake: ScannerFake
 ) -> None:
     """Verify neither secret survives, and the reason is cut to the shared cap after masking."""
     scanner = _LeakyScanner()
-    failing = (
-        patch.object(scanner, "scan", side_effect=error)
-        if raised_by == "scan"
-        else patch("devops_cli.security.base.run_subprocess", side_effect=error)
-    )
-    with failing:
+    if raised_by == "scan":
+        with patch.object(scanner, "scan", side_effect=error):
+            outcome, notes, output, exit_code = _report_one_scanner(tmp_path, scanner)
+    else:
+        scanner_fake.fail(scanner.binary_name, error)
         outcome, notes, output, exit_code = _report_one_scanner(tmp_path, scanner)
 
     assert (
@@ -440,30 +456,34 @@ def test_a_scanner_error_reaches_the_outcome_sarif_and_cli_masked_and_bounded(
     )
 
 
-def test_a_scanner_timeout_says_how_long_it_had_and_quotes_no_command(tmp_path: Path) -> None:
+def test_a_scanner_timeout_says_how_long_it_had_and_quotes_no_command(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify a timeout's reason is the time the command had, in the outcome, SARIF and the CLI
     (#1079): it quoted the command, cut to the cap before the timeout, with its secrets masked."""
-    timeout = subprocess.TimeoutExpired(
-        ["leaky-bin", f"--url={_URL}", f"--token={_TOKEN}", "x" * 5000], 30
+    scanner = _LeakyCommandScanner()
+    scanner_fake.script(
+        scanner.binary_name, ToolAnswer(exit_code=CONST_SANDBOX_TIMEOUT_EXIT_CODE, timed_out=True)
     )
-    with patch("devops_cli.security.base.run_subprocess", side_effect=timeout):
-        outcome, notes, output, exit_code = _report_one_scanner(tmp_path, _LeakyScanner())
+    outcome, notes, output, exit_code = _report_one_scanner(tmp_path, scanner)
+    reason = f"timed out after {DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS:g} s"
 
     assert (outcome.status, _leaks(outcome, notes, output), outcome.reason, notes, exit_code) == (
         "failed",
         [],
-        "timed out after 30 s",
-        ["leaky: failed: timed out after 30 s"],
+        reason,
+        [f"leaky: failed: {reason}"],
         0,
     )
 
 
-def test_a_scanner_error_behind_built_in_patterns_is_masked_and_bounded(tmp_path: Path) -> None:
+def test_a_scanner_error_behind_built_in_patterns_is_masked_and_bounded(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify the built-in-patterns reason, which quotes the error, is masked before its cap."""
-    with patch("devops_cli.security.base.run_subprocess", side_effect=RuntimeError(_LEAKY_ERROR)):
-        outcome, notes, output, exit_code = _report_one_scanner(
-            tmp_path, _LeakyScannerWithPatterns()
-        )
+    scanner = _LeakyScannerWithPatterns()
+    scanner_fake.fail(scanner.binary_name, RuntimeError(_LEAKY_ERROR))
+    outcome, notes, output, exit_code = _report_one_scanner(tmp_path, scanner)
 
     assert (
         outcome.status,
