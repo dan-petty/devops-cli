@@ -6,19 +6,17 @@ A dry run makes no request at all. It returns the requests a run makes, in order
 model calls. `method` names the transport and whether it reads or writes, and
 `target` what it reads or writes. Every `gh` command shows its exact argv and stdin, built by
 the store's own argument builders (`roadmap/request_plan.py`, #1125), one line per command, so a
-board write shows the read of its one card it makes first (#1361). A value that needs a read is
-a placeholder in angle brackets, a request that runs only when an earlier one returns something
+field write shows the read of its issue it makes first (#1361). A value that needs a read is a
+placeholder in angle brackets, a request that runs only when an earlier one returns something
 names that in `condition`, and a listing read a page at a time, or a request made for each
-candidate, says so in `repeat`. The reads end with the GraphQL budget read the run's spend line
-comes from.
+candidate, says so in `repeat`. No request reaches a project board (ADR 0016).
 
 A `--plan` run makes the reads and the model calls, writes nothing, and reports what it spent:
 each GitHub request the identity's ledger paced during the run, a gh command and a request the
 GitHub session sends alike, by the rate-limit resource it spends, each attempt and so each retry
-counted (#983), and each embedding and proposal call; the run ends with the GraphQL points it
-spent, read from GraphQL itself (#1125). A proposal call counts once though the client retries an
-answer that does not fit the schema, and an embedding call once though the client may batch it
-or answer from its cache.
+counted (#983), and each embedding and proposal call. A proposal call counts once though the
+client retries an answer that does not fit the schema, and an embedding call once though the
+client may batch it or answer from its cache.
 """
 
 from __future__ import annotations
@@ -28,11 +26,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_CONFIG_PATH,
-    CONST_ROADMAP_INTAKE_BOARD_FILTER,
-    CONST_ROADMAP_LABELS_PATH,
-)
+from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.intake_model import IntakeModel, ModelProposal, ProposalRequest
@@ -56,7 +50,6 @@ class _Steps:
 
     repo: str
     ref: str | None
-    board: str = field(default_factory=lambda: MESSAGES.roadmap.intake_placeholder_board)
 
     @property
     def at(self) -> str:
@@ -64,11 +57,11 @@ class _Steps:
 
     @property
     def store(self) -> StoreRequests:
-        return StoreRequests(self.repo, CONST_ROADMAP_INTAKE_BOARD_FILTER)
+        return StoreRequests(self.repo)
 
     def _text(self, key: str, values: dict[str, str]) -> tuple[str, str]:
         texts = MESSAGES.roadmap
-        values = {"ref": self.at, "board": self.board, **values}
+        values = {"ref": self.at, **values}
         own = texts.intake_request_conditions.get(key, "").format(**values)
         return texts.intake_requests[key].format(**values), own
 
@@ -93,14 +86,9 @@ class _Steps:
         return PlannedRequest(method=via.value, target=target, condition=own, repeat=repeat)
 
     def reads(self) -> list[PlannedRequest]:
-        """The reads every run makes before it decides any candidate."""
-        store = self.store
-        return [
-            *self.step("config", store.file(CONST_ROADMAP_CONFIG_PATH, self.ref)),
-            *self.step("issues", store.issues()),
-            *self.step("board", store.board_read()),
-            *self.step("board_issues", store.issues()),
-        ]
+        """The reads every run makes before it decides any candidate: every issue, once, which
+        gives the candidates and the items alike."""
+        return self.step("issues", self.store.issues())
 
     def decisions(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:
         """The reads and model calls that decide each candidate, in the order a run makes them."""
@@ -142,7 +130,6 @@ class _Steps:
         names = [name.split(" ", 1)[0] for name in texts.intake_placeholder_fields]
         steps: list[tuple[str, list[PlannedRequest], dict[str, str]]] = [
             ("label", store.label_issue(subject), {}),
-            ("add", store.add_item(subject), {}),
             *(
                 ("field", store.set_field(subject, name), {"field": shown})
                 for name, shown in zip(names, texts.intake_placeholder_fields, strict=True)
@@ -168,16 +155,15 @@ def planned_requests(
     each: bool = False,
     limit: int | None = None,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
-    """The requests a run over `subjects` makes, as reads and model calls ending with the
-    closing GraphQL budget read, then the writes `--confirm` adds before that read; `new` when
-    the one subject is a candidate that is not an issue yet, and `each` when the one subject
-    stands for every candidate, its requests repeated for each, or for the `limit` oldest."""
+    """The requests a run over `subjects` makes, as reads and model calls, then the writes
+    `--confirm` adds after them; `new` when the one subject is a candidate that is not an issue
+    yet, and `each` when the one subject stands for every candidate, its requests repeated for
+    each, or for the `limit` oldest."""
     steps = _Steps(repo=repo, ref=ref)
     texts = MESSAGES.roadmap
     limited = texts.intake_repeat_limited.format(limit=limit) if limit is not None else ""
     repeat = (limited or texts.intake_repeat_candidate) if each else ""
     reads = steps.reads() + steps.decisions(subjects, new=new, repeat=repeat)
-    reads += steps.store.budget()
     return tuple(reads), tuple(steps.writes(subjects, new=new, repeat=repeat))
 
 

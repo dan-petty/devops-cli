@@ -346,8 +346,8 @@ def test_the_expectations_match_the_board_as_its_owner_configured_it() -> None:
 
     Added and reopened items are New. A linked pull request puts its issue In Review, which
     reconcile would otherwise restore. Auto-close, auto-archive and auto-add are off, so they
-    have no entry: closure writes the summary, the jobs read every item, and intake is the one
-    way onto the board.
+    have no entry: closure writes the summary, and no roadmap job reads or adds a card
+    (ADR 0016).
     """
     assert CONST_PROJECT_WORKFLOW_EXPECTATIONS == {
         "Item added to project": "Set Status to New",
@@ -359,7 +359,7 @@ def test_the_expectations_match_the_board_as_its_owner_configured_it() -> None:
 
 
 def test_an_auto_add_workflow_left_off_is_not_reported_as_a_gap() -> None:
-    """The audit stops asking for auto-add now that intake is the way onto the board."""
+    """The audit does not ask for auto-add: a person decides which issues go onto the board."""
     workflows = [
         _workflow("Item closed", 1, True),
         _workflow("Auto-add sub-issues to project", 4, False),

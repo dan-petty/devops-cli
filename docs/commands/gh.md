@@ -67,7 +67,7 @@ devops gh status [OPTIONS]
 
 ## `devops gh metrics`
 
-**Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and project board items.**
+**Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and roadmap Items.**
 
 ```bash
 devops gh metrics [OPTIONS]
@@ -248,7 +248,7 @@ devops gh project status [OPTIONS]
 
 ### `devops gh project sync`
 
-**Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board: devops roadmap intake places issues, and a pull request's progress shows on its issue's card. Exits 1 when reconcile stops early.**
+**Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board, and a pull request's progress shows on its issue's card. No roadmap job reads the board: labels hold an item's fields. Exits 1 when reconcile stops early.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -564,7 +564,7 @@ devops gh issues create [OPTIONS]
 
 ### `devops gh issues triage`
 
-**Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake.**
+**Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake.**
 
 ```bash
 devops gh issues triage [OPTIONS]
@@ -982,8 +982,8 @@ devops gh pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
-It closes exactly one issue, an open issue of its own repository that is on the roadmap
-board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+It closes exactly one issue, an open issue of its own repository that holds a priority/*
+label: a roadmap item. GitHub closes that issue when the PR merges. The PR
 adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
 writes for that issue's change. Only that archive writes openspec/specs/ and
 openspec/changes/archive/.

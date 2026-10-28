@@ -234,28 +234,14 @@ def test_reconcile_refuses_to_start_below_the_floor(mode: str) -> None:
 @pytest.mark.parametrize("state", ["open", "closed", "all"])
 def test_reconcile_never_adds_a_card_whatever_the_state(state: str) -> None:
     """An open issue, a closed issue, an open pull request and a merged one, all off the board,
-    stay off it. Only the open issue waits for intake, and only a run that listed open issues
-    can count it."""
+    stay off it."""
     fake = ProjectGitHub(
         [card(1, status="Ready")],
         [issue(1), issue(10), issue(11, "closed")],
         [pull(12), pull(13, "closed", merged=True)],
     )
-    result = _reconcile(fake, state=state)
-    intake = "1 open issue is not on the board (awaiting intake: devops roadmap intake)."
-    assert (fake.adds, result.intake_line(), "item-add" in str(fake.sent)) == (
-        [],
-        None if state == "closed" else intake,
-        False,
-    )
-
-
-def test_two_open_issues_off_the_board_are_counted_in_the_plural() -> None:
-    cards, issues = _five_changes()
-    result = _reconcile(ProjectGitHub(cards, issues), mode="plan")
-    assert result.intake_line() == (
-        "2 open issues are not on the board (awaiting intake: devops roadmap intake)."
-    )
+    _reconcile(fake, state=state)
+    assert (fake.adds, "item-add" in str(fake.sent)) == ([], False)
 
 
 def test_the_mutation_budget_stops_the_run_and_says_what_remains() -> None:

@@ -312,7 +312,8 @@ PROJECT_ITEMS = Instrument(
     "devops_cli_project_items",
     InstrumentKind.GAUGE,
     "1",
-    "Project board items by milestone, state, type and priority. "
+    "Roadmap items, the issues with a priority label, by milestone, state, type and "
+    "priority. "
     "A label is empty when the item has no value for it",
 )
 PROJECT_ITEM_LABELS = ("milestone", "state", "type", "priority")

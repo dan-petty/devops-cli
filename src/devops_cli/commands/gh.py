@@ -31,7 +31,7 @@ from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
     load_branch_protection_policies,
@@ -100,7 +100,6 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.store import GitHubState
 
 logger = logging.getLogger(__name__)
@@ -515,9 +514,6 @@ def _report_reconcile(result: ReconcileResult, repo: str) -> None:
             rows=[[c.item, c.field, c.old or "(unset)", c.new, c.source] for c in result.shown],
             safe=True,
         )
-    intake = result.intake_line()
-    if intake:
-        print_info(intake)
     stop = result.stop_line()
     if stop is None:
         print_success(result.summary())
@@ -770,7 +766,7 @@ def _display_issues_saved_views(target_repo: str) -> None:
         ("Sprint Kanban", "is:issue state:open milestone:current"),
         (
             "Triage & Quality Table",
-            "is:issue state:open label:status/triage,status/blocked,type/bug",
+            "is:issue state:open label:status/new,status/blocked,type/bug",
         ),
         ("Roadmap Timeline", "is:issue state:open sort:milestone-desc"),
         ("Value vs Effort Priority Matrix", "is:issue state:open sort:priority-desc"),
@@ -1013,24 +1009,13 @@ def issues_create_cmd(
         print_warning(f"Milestone '{milestone}' was not set on issue #{created.number}.")
 
 
-def _awaiting_intake(repo: str) -> list[int] | None:
-    """The open issues not on the roadmap board, or None for a repository without
-    `.github/roadmap.toml`; any other failed read raises."""
-    try:
-        _, store = open_roadmap(repo, ref=None)
-    except GitHubFileNotFoundError:
-        return None
-    return [candidate.number for candidate in store.candidates()]
-
-
 @issues_app.command("triage", help=HELP.gh.issues_triage)
 def issues_triage_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """Audit open issues for mandatory taxonomy labels, and report those awaiting intake."""
     target_repo = repo or _resolve_repo()
-    awaiting = _awaiting_intake(target_repo)
-    audit = audit_issues_triage(target_repo, awaiting_intake=awaiting or ())
+    audit = audit_issues_triage(target_repo)
     columns = ["Metric", "Value", "Violating Issues"]
     rows = [
         ["Total Open Issues", str(audit.total_open), "—"],
@@ -1046,29 +1031,14 @@ def issues_triage_cmd(
             ", ".join(f"#{n}" for n in audit.issues_missing_scope) or "None",
         ],
         [
-            "Missing Priority",
-            "Not checked"
-            if audit.priority_not_checked
-            else str(len(audit.issues_missing_priority)),
-            "no board"
-            if audit.priority_not_checked
-            else ", ".join(f"#{n}" for n in audit.issues_missing_priority) or "None",
-        ],
-        [
             "Awaiting Intake",
             str(len(audit.issues_awaiting_intake)),
             ", ".join(f"#{n}" for n in audit.issues_awaiting_intake) or "None",
         ],
     ]
     print_table(f"GitHub Issues Triage & Taxonomy Audit ({target_repo})", columns, rows)
-    if audit.priority_not_checked:
-        print_info(MESSAGES.roadmap.triage_priority_not_checked)
-    if awaiting is None:
-        print_info(MESSAGES.roadmap.triage_no_board)
     if audit.valid_count + len(audit.issues_awaiting_intake) < audit.total_open:
-        print_warning(
-            "Triage audit detected issues missing required taxonomy labels or board Priority."
-        )
+        print_warning("Triage audit detected issues missing required taxonomy labels.")
     if audit.issues_awaiting_intake:
         print_info(MESSAGES.roadmap.triage_awaiting_intake)
 
@@ -1807,7 +1777,7 @@ def project_metrics_cmd(
         ),
     ] = False,
 ) -> None:
-    """Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and project board items."""
+    """Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and roadmap Items."""
     target_repo = _resolve_repo(repo)
     report = collect_project_metrics_report(
         repo=target_repo,

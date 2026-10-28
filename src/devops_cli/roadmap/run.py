@@ -31,12 +31,10 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError as MalformedRecordError
 
 from devops_cli.config.constants import (
-    CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GIT_CLI,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
     CONST_ROADMAP_P0_PRIORITIES,
-    CONST_ROADMAP_RUN_BOARD_FILTER,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
@@ -62,7 +60,6 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.board_read import refusal_reset
 from devops_cli.roadmap.intake import (
     IntakeApplied,
     IntakePlan,
@@ -334,13 +331,11 @@ def _refine_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
     return intake_outcome is not None and intake_outcome.placed_critical_or_p0
 
 
-def _places_critical_or_p0(plan: IntakePlan, applied: IntakeApplied) -> bool:
-    """Whether intake placed a critical fix or a P0 item, skipping finished cards (#1540)."""
-    finished = set(applied.finished)
+def _places_critical_or_p0(plan: IntakePlan) -> bool:
+    """Whether intake placed a critical fix or a P0 item (#1540). A round with a failed
+    placement fails before it judges this."""
     return any(
-        decision.outcome is Outcome.PLACE
-        and decision.priority in CONST_ROADMAP_P0_PRIORITIES
-        and (decision.subject.number is None or decision.subject.number not in finished)
+        decision.outcome is Outcome.PLACE and decision.priority in CONST_ROADMAP_P0_PRIORITIES
         for decision in plan.decisions
     )
 
@@ -375,7 +370,7 @@ def _run_intake_adapter(
     applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
     if plan.has_writes:
         raise_for_failed_placements(applied)
-    return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan, applied))
+    return JobOutcome(placed_critical_or_p0=_places_critical_or_p0(plan))
 
 
 def _job_clone(job: str, clone_path: Path | None) -> Path:
@@ -413,7 +408,7 @@ def _run_metrics_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
-    counting the items of the board of `store`, and the GitHub and Cloudflare status, into OTLP
+    counting the Items of `store`, and the GitHub and Cloudflare status, into OTLP
     (#1358). A failed collection or status read is logged and skipped; a missing clone fails the
     job."""
     from devops_cli.github.metrics import (
@@ -817,81 +812,22 @@ def run_due_jobs(
     )
 
 
-def log_round_spend(repo: str, store: RoadmapStore, *, read: bool = True) -> None:
-    """Log the line a Service round of `repo` ends with: the account's GraphQL points spent
-    during the round and the points left, read from GraphQL itself, when the round's store sent
-    a GraphQL request (#1400). With `read` False, as after a budget refusal, the line comes from
-    the last budget the round's responses reported and no request is sent, so the pause starts
-    at once. Any failure here is a warning naming its class, so it never hides the round's own
-    error."""
-    try:
-        spend = store.graphql_spend(read=read)
-    except Exception as exc:
-        unread = MESSAGES.roadmap.graphql_round_spend_unread.format(
-            repo=repo, kind=type(exc).__name__, error=exc
-        )
-        logger.warning(unread, extra={"repo": repo})
-        return
-    if spend is not None:
-        logger.info(spend.round_line(repo), extra={"repo": repo})
-
-
-def _refused_reset(exc: BaseException) -> datetime | None:
-    """The reset a round's GraphQL budget refusal names: from the refusal itself, or the
-    earliest among the member exceptions of a RoadmapRunError; None for any other error."""
-    if isinstance(exc, RoadmapRunError):
-        cause = exc.__cause__
-        if isinstance(cause, BaseExceptionGroup):
-            resets = [r for sub in cause.exceptions if (r := _refused_reset(sub)) is not None]
-            return min(resets) if resets else None
-        return refusal_reset(cause) if cause is not None else None
-    return refusal_reset(exc)
-
-
-def service_pause_until(exc: Exception) -> datetime | None:
-    """The time before which the Service starts no round after one failed with `exc`: the reset
-    a GraphQL budget refusal names plus the bound on how late GitHub still reports the window
-    that ended, so the first round after it meets the new window; None for any other error. The
-    budget is the identity's, which every repository's rounds spend (#1400)."""
-    reset = _refused_reset(exc)
-    if reset is None:
-        return None
-    return reset + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS)
-
-
 def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: str) -> None:
     """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
-    `clone_dirname` for a coalesced trigger batch, ending, however the round ends, with its
-    GraphQL spend line; a round a budget refusal ended reads no budget for it."""
-    from devops_cli.exceptions.config import ConfigurationError
-    from devops_cli.exceptions.git import GitHubFileNotFoundError
-    from devops_cli.roadmap.config import open_roadmap
+    `clone_dirname` for a coalesced trigger batch, on the roadmap store of the batch's
+    repository. The store reads no repository file: a repository needs no roadmap
+    configuration (ADR 0016)."""
+    from devops_cli.roadmap import store as roadmap_store
 
     repo = batch.repo
-    try:
-        _config, store = open_roadmap(repo, ref=None, board_filter=CONST_ROADMAP_RUN_BOARD_FILTER)
-    except GitHubFileNotFoundError as exc:
-        raise ConfigurationError(
-            f"Repository {repo} is missing .github/roadmap.toml; commit the file or remove {repo} from service.repos",
-            key="service.repos",
-            details={"path": ".github/roadmap.toml"},
-        ) from exc
-
-    refused = False
-    try:
-        run_due_jobs(
-            repo,
-            store,
-            batch=batch,
-            table=table,
-            clone_dirname=clone_dirname,
-            failures=SERVICE_FAILURES,
-        )
-    except Exception as exc:
-        refused = _refused_reset(exc) is not None
-        raise
-    finally:
-        log_round_spend(repo, store, read=not refused)
+    run_due_jobs(
+        repo,
+        roadmap_store.get_roadmap_store(repo),
+        batch=batch,
+        table=table,
+        clone_dirname=clone_dirname,
+        failures=SERVICE_FAILURES,
+    )
 
 
 SERVICE_JOBS: Mapping[str, LaneJob] = {
@@ -918,9 +854,7 @@ __all__ = [
     "build_stub_table",
     "ensure_checkout",
     "identity_refused",
-    "log_round_spend",
     "parse_due_tuple",
     "run_due_jobs",
     "service_job",
-    "service_pause_until",
 ]

@@ -248,8 +248,8 @@ devops pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
-It closes exactly one issue, an open issue of its own repository that is on the roadmap
-board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+It closes exactly one issue, an open issue of its own repository that holds a priority/*
+label: a roadmap item. GitHub closes that issue when the PR merges. The PR
 adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
 writes for that issue's change. Only that archive writes openspec/specs/ and
 openspec/changes/archive/.

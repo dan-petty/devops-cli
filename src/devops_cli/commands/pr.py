@@ -26,12 +26,11 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_OPENSPEC_SPECS_DIR,
     CONST_PR_API_STATE_MAP,
-    CONST_PR_CLOSING_ISSUE_CARDS_PAGE,
+    CONST_PR_CLOSING_ISSUE_LABELS_PAGE,
     CONST_PR_CLOSING_ISSUES_PAGE,
     CONST_PR_FILE_ADDED_STATUSES,
     CONST_PR_FILE_REMOVED_STATUS,
     CONST_PR_UPDATE_AUTHOR,
-    CONST_ROADMAP_CONFIG_PATH,
 )
 from devops_cli.config.defaults import (
     DEFAULT_PR_LIMIT,
@@ -44,7 +43,6 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
-from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.defect_classifier import (
@@ -1431,21 +1429,12 @@ class _GraphModel(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
 
-class _ProjectOwner(_GraphModel):
-    login: str = ""
+class _Label(_GraphModel):
+    name: str
 
 
-class _Project(_GraphModel):
-    number: int
-    owner: _ProjectOwner = Field(default_factory=_ProjectOwner)
-
-
-class _Card(_GraphModel):
-    project: _Project
-
-
-class _Cards(_GraphModel):
-    nodes: list[_Card] = Field(default_factory=list)
+class _Labels(_GraphModel):
+    nodes: list[_Label] = Field(default_factory=list)
 
 
 class _IssueRepository(_GraphModel):
@@ -1453,12 +1442,12 @@ class _IssueRepository(_GraphModel):
 
 
 class _ClosingIssue(_GraphModel):
-    """An issue GitHub closes when the pull request merges, with the board cards it has."""
+    """An issue GitHub closes when the pull request merges, with its labels."""
 
     number: int
     state: str
     repository: _IssueRepository
-    cards: _Cards = Field(alias="projectItems", default_factory=_Cards)
+    labels: _Labels = Field(default_factory=_Labels)
 
     def is_of(self, repo: str) -> bool:
         """Whether the issue belongs to repository `repo` (`owner/name`)."""
@@ -1469,12 +1458,14 @@ class _ClosingIssue(_GraphModel):
         prefix = "" if self.is_of(repo) else self.repository.name_with_owner
         return f"{prefix}#{self.number}"
 
-    def is_on_board(self, owner: str, board: int) -> bool:
-        """Whether the issue has a card on project `board` of `owner`."""
-        return any(
-            card.project.number == board and card.project.owner.login.lower() == owner.lower()
-            for card in self.cards.nodes
-        )
+    def is_item(self) -> bool:
+        """Whether the issue is a roadmap Item: it holds a `priority/*` label (ADR 0016)."""
+        from devops_cli.roadmap.store import FIELD_VALUES, ItemField, field_label
+
+        priorities = {
+            field_label(ItemField.PRIORITY, value) for value in FIELD_VALUES[ItemField.PRIORITY]
+        }
+        return any(label.name.lower() in priorities for label in self.labels.nodes)
 
 
 class _ClosingReferences(_GraphModel):
@@ -1497,21 +1488,13 @@ class _ClosingRead(NamedTuple):
     error: str = ""
 
 
-class _BoardRead(NamedTuple):
-    """The number of the roadmap board, or why it could not be read."""
-
-    number: int = 0
-    error: str = ""
-
-
 # GitHub fills `closingIssuesReferences` from the closing keywords of a PR into the default
 # branch and from the issues linked to it by hand; it closes each one when the PR merges.
 _CLOSING_ISSUES_QUERY = (
-    "query($owner: String!, $name: String!, $number: Int!, $issues: Int!, $cards: Int!) {"
+    "query($owner: String!, $name: String!, $number: Int!, $issues: Int!, $labels: Int!) {"
     " repository(owner: $owner, name: $name) { pullRequest(number: $number) {"
     " closingIssuesReferences(first: $issues) { totalCount nodes { number state"
-    " repository { nameWithOwner } projectItems(first: $cards) { nodes { project { number"
-    " owner { ... on User { login } ... on Organization { login } } } } } } } } } }"
+    " repository { nameWithOwner } labels(first: $labels) { nodes { name } } } } } } }"
 )
 
 
@@ -1522,7 +1505,7 @@ def closing_issues_args(owner: str, repo_name: str, pr_num: int) -> list[str]:
         "name": repo_name,
         "number": pr_num,
         "issues": CONST_PR_CLOSING_ISSUES_PAGE,
-        "cards": CONST_PR_CLOSING_ISSUE_CARDS_PAGE,
+        "labels": CONST_PR_CLOSING_ISSUE_LABELS_PAGE,
     }
     return [CONST_GH_CLI, *graphql_args(_CLOSING_ISSUES_QUERY, variables)]
 
@@ -1552,23 +1535,10 @@ def _read_closing_issues(owner: str, repo_name: str, pr_num: int) -> _ClosingRea
     return _ClosingRead(tuple(references.nodes), references.total_count)
 
 
-def _read_roadmap_board(repo: str) -> _BoardRead:
-    """The board `.github/roadmap.toml` names on the default branch, read through the roadmap
-    store as every roadmap job reads it."""
-    from devops_cli.roadmap import store as roadmap_store
-    from devops_cli.roadmap.config import read_roadmap_config
-
-    try:
-        config = read_roadmap_config(roadmap_store.get_roadmap_store(repo), ref=None)
-    except (ConfigurationError, GitHubOperationError) as exc:
-        return _BoardRead(error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
-    return _BoardRead(config.board)
-
-
 class _Grounding(NamedTuple):
     """What the grounding checks judge: the PR's base and its repository's default branch, the
-    files it changes, the issues it closes, read only into the default branch, and the roadmap
-    board, read only when it closes exactly one issue."""
+    files it changes, and the issues it closes with their labels, read only into the default
+    branch."""
 
     pr_num: int
     owner: str
@@ -1577,7 +1547,6 @@ class _Grounding(NamedTuple):
     default: str
     changed: _ChangedFilesRead
     closing: _ClosingRead | None = None
-    board: _BoardRead | None = None
 
     @property
     def into_default(self) -> bool:
@@ -1652,26 +1621,12 @@ def _closes_an_open_issue(grounding: _Grounding) -> str | None:
     )
 
 
-def _board_was_read(grounding: _Grounding) -> str | None:
-    """The roadmap board was read, so the board check has something to judge."""
-    board = grounding.board
-    if board is None or not board.error:
+def _closes_an_item(grounding: _Grounding) -> str | None:
+    """The one issue the PR closes is a roadmap Item: it holds a `priority/*` label."""
+    issue = grounding.own_issue
+    if issue is None or issue.is_item():
         return None
-    return MESSAGES.pr.grounding_board_unread.format(
-        number=grounding.pr_num, path=CONST_ROADMAP_CONFIG_PATH, error=board.error
-    )
-
-
-def _closes_an_issue_on_the_board(grounding: _Grounding) -> str | None:
-    """The one issue the PR closes is on the roadmap board."""
-    issue, board = grounding.own_issue, grounding.board
-    if issue is None or board is None or board.error:
-        return None
-    if issue.is_on_board(grounding.owner, board.number):
-        return None
-    return MESSAGES.pr.grounding_issue_off_board.format(
-        number=grounding.pr_num, issue=issue.number, board=board.number
-    )
+    return MESSAGES.pr.grounding_issue_not_item.format(number=grounding.pr_num, issue=issue.number)
 
 
 def _changed_files_were_read(grounding: _Grounding) -> str | None:
@@ -1775,8 +1730,7 @@ _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
     _closes_one_issue,
     _closes_an_issue_of_its_repository,
     _closes_an_open_issue,
-    _board_was_read,
-    _closes_an_issue_on_the_board,
+    _closes_an_item,
     _changed_files_were_read,
     _archives_its_change,
     _writes_only_its_own_record,
@@ -1786,25 +1740,21 @@ _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
 def _read_grounding(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> _Grounding:
-    """What the checks judge, read lazily: the closing issues only into the default branch, and
-    the board only for a PR that closes exactly one issue of its own repository."""
+    """What the checks judge, read lazily: the closing issues only into the default branch."""
     repo = f"{owner}/{repo_name}"
     base, default = _branch_ref(pr_data, "base"), _default_branch(pr_data)
     grounding = _Grounding(pr_num, owner, repo, base, default, changed)
     if not grounding.into_default:
         return grounding
-    grounding = grounding._replace(closing=_read_closing_issues(owner, repo_name, pr_num))
-    if grounding.own_issue is None:
-        return grounding
-    return grounding._replace(board=_read_roadmap_board(repo))
+    return grounding._replace(closing=_read_closing_issues(owner, repo_name, pr_num))
 
 
 def _grounding_blockers(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> list[str]:
     """Hold a PR to the one item it delivers: it targets the default branch and closes exactly
-    one open issue of its repository that is on the roadmap board, and it archives that issue's
-    change.
+    one open issue of its repository that is a roadmap Item, with a `priority/*` label, and it
+    archives that issue's change.
 
     It applies where the base holds `openspec/changes/`. Where it does not apply, an unread file
     list is a warning, since only the perimeter warning reads it.
@@ -1967,8 +1917,8 @@ def check_readiness(
     """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
     Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
-    It closes exactly one issue, an open issue of its own repository that is on the roadmap
-    board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+    It closes exactly one issue, an open issue of its own repository that holds a priority/*
+    label: a roadmap item. GitHub closes that issue when the PR merges. The PR
     adds openspec/changes/archive/<date>-<issue>-<slug>/, which uv run devops openspec archive
     writes for that issue's change. Only that archive writes openspec/specs/ and
     openspec/changes/archive/.

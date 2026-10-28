@@ -26,25 +26,6 @@ Each counter that devops-cli sends SHALL have a name that ends in `_total`, and 
 - **WHEN** devops-cli sends the project snapshot
 - **THEN** the gauges are `devops_cli_project_releases`, `devops_cli_project_commits`, `devops_cli_project_prs`, `devops_cli_project_ci_runs`, `devops_cli_project_items`, `devops_cli_project_traffic_views`, `devops_cli_project_traffic_views_uniques`, `devops_cli_project_traffic_clones`, `devops_cli_project_traffic_clones_uniques`, `devops_cli_project_traffic_referrers`, `devops_cli_project_traffic_paths`, `devops_cli_project_stars` and `devops_cli_project_forks`
 
-### Requirement: The items gauge counts the items of the project board
-`devops_cli_project_items` SHALL count the items of the project board, open and closed, with the labels `milestone`, `state`, `type` and `priority`. The `milestone` label SHALL be empty for an item in no milestone. The `type` label SHALL be the `type/*` label of the issue without its prefix, and the `priority` label SHALL be the board Priority, each empty when the item has none.
-
-#### Scenario: An open item in no milestone
-- **WHEN** the board holds two open items of type `bug` with Priority `P1-High` and no milestone
-- **THEN** the report has one item count with `milestone` empty, `state` `open`, `type` `bug`, `priority` `P1-High` and a count of 2
-
-#### Scenario: Open and closed items of a milestone
-- **WHEN** the board holds one open item and one closed item in the milestone `2026-11-01`
-- **THEN** the report has one count for each state, and both name the milestone `2026-11-01`
-
-#### Scenario: A pull request or an issue that is not on the board
-- **WHEN** the repository has a pull request, and an issue with no card on the board
-- **THEN** the report counts neither
-
-#### Scenario: The board cannot be read
-- **WHEN** the read of the board fails
-- **THEN** the collection of the report raises the failure and returns no report
-
 ### Requirement: A label set that has no items is sent as 0 once
 After a snapshot, `emit_project_metrics_telemetry` SHALL send the value 0 for each label set that the last snapshot of the same process sent and the new snapshot does not hold. It SHALL send that 0 once.
 
@@ -73,3 +54,22 @@ Each gauge that devops-cli sends SHALL reach Prometheus through one path: throug
 #### Scenario: Two paths send the same gauge name
 - **WHEN** an instrument sent over OTLP as a gauge has the same name as a gauge recorded in an in-memory Prometheus registry or exposed by a Prometheus scrape endpoint
 - **THEN** the telemetry invariant check fails and names the shared gauge names
+
+### Requirement: The items gauge counts the Items of the repository
+`devops_cli_project_items` SHALL count the Items of the repository, open and closed, with the labels `milestone`, `state`, `type` and `priority`. The `milestone` label SHALL be empty for an Item in no milestone. The `type` label SHALL be the `type/*` label of the issue without its prefix, empty when the issue has none, and the `priority` label SHALL be the Item's Priority.
+
+#### Scenario: An open Item in no milestone
+- **WHEN** the repository holds two open issues with `type/bug` and `priority/p1-high` and no milestone
+- **THEN** the report has one item count with `milestone` empty, `state` `open`, `type` `bug`, `priority` `P1-High` and a count of 2
+
+#### Scenario: Open and closed Items of a milestone
+- **WHEN** the repository holds one open Item and one closed Item in the milestone `2026-11-01`
+- **THEN** the report has one count for each state, and both name the milestone `2026-11-01`
+
+#### Scenario: A pull request or an issue that is not an Item
+- **WHEN** the repository has a pull request with `priority/p1-high`, and an issue with no `priority/*` label
+- **THEN** the report counts neither
+
+#### Scenario: The issues cannot be read
+- **WHEN** the read of the issues fails
+- **THEN** the collection of the report raises the failure and returns no report

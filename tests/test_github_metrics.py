@@ -44,7 +44,7 @@ from devops_cli.github.metrics import (
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.telemetry.instruments import PROJECT_ITEM_LABELS, PROJECT_ITEMS
-from tests.roadmap_board_fake import GitHubFake
+from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.telemetry_capture import Captured
 
@@ -53,33 +53,25 @@ REPO = "example/test-repo"
 PLANNED = "2026-11-01"
 
 
-def _board_store(github: GitHubFake) -> GitHubRoadmapStore:
-    """The roadmap store on `github`'s board, as the Service opens it."""
-    return GitHubRoadmapStore(
-        github.repo,
-        board_owner="example",
-        board_number=1,
-        runner=github,
-        session=RunnerSession(github),
-    )
+def _roadmap_store(github: GitHubFake) -> GitHubRoadmapStore:
+    """The roadmap store of `github`'s repository, as the Service opens it."""
+    return GitHubRoadmapStore(github.repo, runner=github, session=RunnerSession(github))
 
 
-def _board_with_items() -> GitHubFake:
-    """A board of five cards: two open bugs in no milestone, an open and a closed feature in the
-    planned milestone, and a card with no type, priority or milestone; and an open issue with no
-    card."""
+def _repository_with_items() -> GitHubFake:
+    """Five Items: two open bugs with P1-High in no milestone, an open and a closed feature with
+    P2-Medium in the planned milestone, and an open Item with P3-Low and no type or milestone.
+    It also holds an open bug with no priority label, a Candidate, and a pull request with a
+    priority label."""
     github = GitHubFake(REPO, milestones=[{"number": 1, "title": PLANNED, "state": "open"}])
     for number in (1, 2):
-        github.seed_issue(
-            number, labels=("type/bug",), card={"status": "New", "priority": "P1-High"}
-        )
-    feature = {"labels": ("type/feature",), "milestone": PLANNED}
-    github.seed_issue(3, **feature, card={"status": "In Progress", "priority": "P2-Medium"})
-    github.seed_issue(
-        4, state="closed", **feature, card={"status": "Done", "priority": "P2-Medium"}
-    )
-    github.seed_issue(5, card={})
+        github.seed_issue(number, labels=("type/bug", "priority/p1-high", "status/new"))
+    feature = ("type/feature", "priority/p2-medium")
+    github.seed_issue(3, labels=(*feature, "status/in-progress"), milestone=PLANNED)
+    github.seed_issue(4, state="closed", labels=feature, milestone=PLANNED)
+    github.seed_issue(5, labels=("priority/p3-low",))
     github.seed_issue(6, labels=("type/bug",))
+    github.seed_issue(7, labels=("type/bug", "priority/p1-high"), pull_request=True)
     return github
 
 
@@ -325,11 +317,11 @@ def test_collect_project_metrics_report(
         git(root, "tag", tag)
     milestone = {"title": "2026-10-01", "state": "closed", "open_issues": 1, "closed_issues": 3}
     github = GitHubFake("example/test-repo", milestones=[milestone])
-    github.seed_issue(1, "feat: export", labels=("type/feature",), card={"priority": "P2-Medium"})
+    github.seed_issue(1, "feat: export", labels=("type/feature", "priority/p2-medium"))
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
 
     report = collect_project_metrics_report(
-        root=root, repo="example/test-repo", store=_board_store(github)
+        root=root, repo="example/test-repo", store=_roadmap_store(github)
     )
     assert (
         report.repo,
@@ -343,16 +335,18 @@ def test_collect_project_metrics_report(
         ["v0.2.25", "v0.2.24", "v0.2.23"],
         2.5,
         [("2026-10-01", 75.0)],
-        [("type/feature", 1)],
+        [("priority/p2-medium", 1), ("type/feature", 1)],
         [ItemCountMetric(state="open", type="feature", priority="P2-Medium", count=1)],
     )
 
 
-def test_an_open_item_in_no_milestone_is_counted() -> None:
-    """The board's items are counted by milestone, state, type and priority, each empty when the
-    item has none (#2263). An issue with no card is no item."""
-    assert get_item_metrics(_board_store(_board_with_items())) == [
-        ItemCountMetric(state="open", count=1),
+def test_the_items_are_counted_by_milestone_state_type_and_priority() -> None:
+    """The Items are counted by milestone, state, type and priority (#2263); a milestone and a
+    type are empty when the Item has none. An open Item in no milestone is counted with an
+    empty milestone, and the open and closed Items of a milestone each have a count. An issue
+    with no priority label and a pull request are no Items (#2399)."""
+    assert get_item_metrics(_roadmap_store(_repository_with_items())) == [
+        ItemCountMetric(state="open", priority="P3-Low", count=1),
         ItemCountMetric(state="open", type="bug", priority="P1-High", count=2),
         ItemCountMetric(
             milestone=PLANNED, state="closed", type="feature", priority="P2-Medium", count=1
@@ -365,7 +359,7 @@ def test_an_open_item_in_no_milestone_is_counted() -> None:
 
 def test_the_items_of_one_milestone_are_counted() -> None:
     """`--milestone` limits the item counts to the milestone, as it limits the milestones."""
-    assert get_item_metrics(_board_store(_board_with_items()), milestone_filter=PLANNED) == [
+    assert get_item_metrics(_roadmap_store(_repository_with_items()), milestone_filter=PLANNED) == [
         ItemCountMetric(
             milestone=PLANNED, state="closed", type="feature", priority="P2-Medium", count=1
         ),
@@ -375,10 +369,10 @@ def test_the_items_of_one_milestone_are_counted() -> None:
     ]
 
 
-def test_a_board_that_cannot_be_read_stops_the_collection(
+def test_issues_that_cannot_be_read_stop_the_collection(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git: Callable[..., None]
 ) -> None:
-    """A failed read of the board raises. It is no empty board: the 0 for each label set that
+    """A failed read of the issues raises. It is no empty roadmap: the 0 for each label set that
     left the last snapshot would otherwise erase every count."""
     _tagged_repository(git, tmp_path / "repo", ("v0.2.25",))
     github = GitHubFake(REPO)
@@ -387,13 +381,7 @@ def test_a_board_that_cannot_be_read_stops_the_collection(
     def unavailable(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args, 1, "", "HTTP 503: Service Unavailable")
 
-    store = GitHubRoadmapStore(
-        REPO,
-        board_owner="example",
-        board_number=1,
-        runner=unavailable,
-        session=RunnerSession(unavailable),
-    )
+    store = GitHubRoadmapStore(REPO, runner=unavailable, session=RunnerSession(unavailable))
     with pytest.raises(DevOpsCLIError):
         collect_project_metrics_report(root=tmp_path / "repo", repo=REPO, store=store)
 
@@ -424,7 +412,7 @@ def test_a_given_root_is_walked_as_it_is_even_inside_another_checkout(
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     with caplog.at_level(logging.WARNING):
         report = collect_project_metrics_report(
-            root=clone, repo="example/roadmap", store=_board_store(github)
+            root=clone, repo="example/roadmap", store=_roadmap_store(github)
         )
     assert (
         [release.tag for release in report.releases],

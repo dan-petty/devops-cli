@@ -91,10 +91,16 @@
   color: "EDEDED"
   description: "A release pull request whose release release-please created"
 
-# ── Status Labels ───────────────────────────────────────────────────────────
-- name: "status/triage"
+# ── Roadmap Item Fields (ADR 0016) ──────────────────────────────────────────
+# One label of each family holds a field of a roadmap item. A roadmap job that
+# sets a field replaces each label of the family with the label of the value.
+- name: "status/new"
   color: "EDEDED"
-  description: "New issue or PR awaiting technical triage and scoping"
+  description: "Status New: the item is not ready yet"
+
+- name: "status/ready"
+  color: "1D76DB"
+  description: "Status Ready: problem, acceptance criteria and an answer to each key question"
 
 - name: "status/in-progress"
   color: "BFDADC"
@@ -108,9 +114,45 @@
   color: "E11D21"
   description: "Execution blocked by external dependency or upstream review"
 
-- name: "status/ready-to-merge"
+- name: "priority/p0-critical"
+  color: "B60205"
+  description: "Urgent blockages, critical vulnerabilities, or release blockers"
+
+- name: "priority/p1-high"
+  color: "D93F0B"
+  description: "Priority P1: high-impact work for the next planned milestone"
+
+- name: "priority/p2-medium"
+  color: "FBCA04"
+  description: "Standard priority feature work and architectural improvements"
+
+- name: "priority/p3-low"
   color: "0E8A16"
-  description: "All quality gates passed and approved by maintainer for merge"
+  description: "Minor polish, low-severity improvements, and backlogged tasks"
+
+- name: "value/high"
+  color: "C2E0C6"
+  description: "Value High: the delivery of the item matters much"
+
+- name: "value/medium"
+  color: "FEF2C0"
+  description: "Value Medium"
+
+- name: "value/low"
+  color: "EDEDED"
+  description: "Value Low: the delivery of the item matters little"
+
+- name: "effort/high"
+  color: "F9D0C4"
+  description: "Effort High: much work, in one pull request"
+
+- name: "effort/medium"
+  color: "FEF2C0"
+  description: "Effort Medium"
+
+- name: "effort/low"
+  color: "C2E0C6"
+  description: "Effort Low: little work"
 
 # ── Roadmap Labels ──────────────────────────────────────────────────────────
 - name: "needs-split"

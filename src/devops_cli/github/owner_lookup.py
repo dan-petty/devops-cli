@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from devops_cli.config.defaults import DEFAULT_GH_GRAPHQL_BUDGET_FLOOR
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.error_classifier import classify_gh_failure
-from devops_cli.roadmap.board_read import GraphQLBudgetPayload, graphql_budget_args
+from devops_cli.github.project_read import GraphQLBudgetPayload, graphql_budget_args
 
 # Runs one gh command, given without its leading `gh`, and returns the finished process.
 GhRead = Callable[[list[str]], subprocess.CompletedProcess[str]]

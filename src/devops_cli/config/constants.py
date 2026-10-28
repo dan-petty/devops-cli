@@ -1514,8 +1514,6 @@ CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
     "closed": "closed",
     "merged": "closed",
 }
-CONST_GH_PROJECT_ITEM_ISSUE_TYPE: Final[str] = "Issue"
-CONST_GH_PROJECT_JOB_RECORD_FIELD: Final[str] = "Job record"
 CONST_GH_ISSUE_EVENT_CHANGE_KINDS: Final[dict[str, str]] = {
     "labeled": "labeled",
     "unlabeled": "unlabeled",
@@ -1557,7 +1555,7 @@ CONST_ERROR_CODE_REVIEW_SESSION_EXISTS = "REVIEW_SESSION_EXISTS"
 CONST_ERROR_CODE_TELEMETRY = "TELEMETRY_ERROR"
 CONST_ERROR_CODE_LOGFIRE = "LOGFIRE_CONFIG_ERROR"
 CONST_ERROR_CODE_SERVICE_STATUS = "SERVICE_STATUS_ERROR"
-CONST_ERROR_CODE_ROADMAP_CARD_CHANGED = "ROADMAP_CARD_CHANGED"
+CONST_ERROR_CODE_ROADMAP_ITEM_CHANGED = "ROADMAP_ITEM_CHANGED"
 CONST_ERROR_CODE_ROADMAP_REFINE_FAILED = "ROADMAP_REFINE_FAILED"
 CONST_ERROR_CODE_ROADMAP_INTAKE_FAILED = "ROADMAP_INTAKE_FAILED"
 CONST_ERROR_CODE_LIBRARY_INGESTION = "LIBRARY_INGESTION_ERROR"
@@ -2827,16 +2825,9 @@ CONST_FRONTIER_MODEL_PREFIXES: Final[tuple[str, ...]] = (
     "deepseek-reasoner",
 )
 
-# ── Roadmap on GitHub (ADR 0001) ──────────────────────────────────────────────
-# Repository files every roadmap runner reads through the contents API at one ref.
-CONST_ROADMAP_CONFIG_PATH: Final[str] = ".github/roadmap.toml"
-# The Projects filter each board read passes at the source, archived items always left out
-# (#1125). "" reads every item not archived, open and closed: intake looks up any issue it is
-# given, and refine reads a milestone's items. The backlog and the candidates read open items only.
-CONST_ROADMAP_OPEN_ITEMS_FILTER: Final[str] = "is:open"
-CONST_ROADMAP_INTAKE_BOARD_FILTER: Final[str] = ""
-CONST_ROADMAP_RUN_BOARD_FILTER: Final[str] = ""
-CONST_ROADMAP_REFINE_BOARD_FILTER: Final[str] = ""
+# ── Roadmap on GitHub (ADR 0001, ADR 0016) ────────────────────────────────────
+# The hidden block at the end of an issue body that holds its job record (ADR 0016).
+CONST_ROADMAP_RECORD_MARKER: Final[str] = "devops-roadmap-record"
 CONST_ROADMAP_REFINE_START_MARKER: Final[str] = "<!-- devops-roadmap-refine:start -->"
 CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end -->"
 CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
@@ -2873,23 +2864,38 @@ CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
 )
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_EPIC_LABEL: Final[str] = "type/epic"
-# The board's Status options (`.github/project-template.json`) the roadmap jobs read.
+# An Item's Status values, in the order of their labels' family (`status/new`, ...; ADR 0016).
+# A closed issue is done, so no label holds Done.
 CONST_ROADMAP_STATUS_NEW: Final[str] = "New"
 CONST_ROADMAP_STATUS_READY: Final[str] = "Ready"
 CONST_ROADMAP_STATUS_IN_PROGRESS: Final[str] = "In Progress"
-CONST_ROADMAP_STATUS_DONE: Final[str] = "Done"
+CONST_ROADMAP_STATUS_IN_REVIEW: Final[str] = "In Review"
 CONST_ROADMAP_STATUS_BLOCKED: Final[str] = "Blocked"
-# The Status options of an open item refine never changes, even when `--item` names it (#1758).
+CONST_ROADMAP_STATUS_VALUES: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_STATUS_NEW,
+    CONST_ROADMAP_STATUS_READY,
+    CONST_ROADMAP_STATUS_IN_PROGRESS,
+    CONST_ROADMAP_STATUS_IN_REVIEW,
+    CONST_ROADMAP_STATUS_BLOCKED,
+)
+# The Status values of an open item refine never changes, even when `--item` names it (#1758).
 CONST_ROADMAP_REFINE_HELD_STATUSES: Final[frozenset[str]] = frozenset(
-    {CONST_ROADMAP_STATUS_IN_PROGRESS, CONST_ROADMAP_STATUS_DONE, CONST_ROADMAP_STATUS_BLOCKED}
+    {CONST_ROADMAP_STATUS_IN_PROGRESS, CONST_ROADMAP_STATUS_BLOCKED}
 )
 # A critical fix is a P0 item that fixes a defect or a security advisory (CONTEXT.md): the
-# board's P0 Priority option and one of these `type/*` labels.
+# P0 Priority and one of these `type/*` labels.
 CONST_ROADMAP_CRITICAL_PRIORITY: Final[str] = "P0-Critical"
 CONST_ROADMAP_P0_PRIORITY: Final[str] = "P0"
 CONST_ROADMAP_P1_PRIORITY: Final[str] = "P1-High"
 CONST_ROADMAP_P2_PRIORITY: Final[str] = "P2-Medium"
 CONST_ROADMAP_P3_PRIORITY: Final[str] = "P3-Low"
+# An Item's Priority values, in the order of their labels' family (`priority/p0-critical`, ...).
+CONST_ROADMAP_PRIORITY_VALUES: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_CRITICAL_PRIORITY,
+    CONST_ROADMAP_P1_PRIORITY,
+    CONST_ROADMAP_P2_PRIORITY,
+    CONST_ROADMAP_P3_PRIORITY,
+)
 CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
     {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
 )
@@ -2909,7 +2915,7 @@ CONST_ROADMAP_CONVENTIONAL_COMMIT_TYPE_MAPPINGS: Final[dict[str, str]] = {
 CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
 # The Priority options the model may propose; only verified evidence sets P0-Critical.
 CONST_ROADMAP_MODEL_PRIORITIES: Final[tuple[str, ...]] = ("P1-High", "P2-Medium", "P3-Low")
-# The Value and Effort options (`.github/project-template.json`).
+# The Value and Effort values, in the order of their labels' families (`value/high`, ...).
 CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
 # An author with write access, as GitHub's author_association says.
 CONST_ROADMAP_TRUSTED_AUTHORS: Final[frozenset[str]] = frozenset(
@@ -2921,7 +2927,6 @@ CONST_ROADMAP_EVIDENCE_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
     "failed_run": re.compile(r"[0-9]{1,20}"),
     "regression_commit": re.compile(r"[0-9a-fA-F]{7,40}"),
 }
-CONST_GH_PROJECT_SINGLE_SELECT_TYPE: Final[str] = "SINGLE_SELECT"
 CONST_GH_RAW_CONTENT_ACCEPT: Final[str] = "Accept: application/vnd.github.raw+json"
 
 # ── Multi-Scale Semantic Outline & Inspection Scanner ────────────────────────
@@ -3422,8 +3427,8 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness holds a pull request to the one item it delivers: it targets the default branch,
-# closes exactly one open issue of its repository that is on the roadmap board, and archives that
-# issue's OpenSpec change (`CONST_OPENSPEC_ARCHIVED_FOLDER_RE`). GitHub closes the issue when the
+# closes exactly one open issue of its repository that holds a `priority/*` label (a roadmap
+# item), and archives that issue's OpenSpec change (`CONST_OPENSPEC_ARCHIVED_FOLDER_RE`). GitHub closes the issue when the
 # pull request merges.
 # The `pulls/{n}/files` statuses under which the path is new in the pull request's head. GitHub's
 # full set is added, removed, modified, renamed, copied, changed (mode only) and unchanged.
@@ -3431,10 +3436,10 @@ CONST_PR_FILE_ADDED_STATUSES: Final[frozenset[str]] = frozenset({"added", "renam
 # The `pulls/{n}/files` status of a file that the pull request deletes from its head.
 CONST_PR_FILE_REMOVED_STATUS: Final[str] = "removed"
 # GitHub's `closingIssuesReferences` page sizes for one readiness read: the issues a pull request
-# closes, where more than one is already a blocker, and the board cards of each, where an issue
-# on more boards than GraphQL's page maximum of 100 does not occur.
+# closes, where more than one is already a blocker, and the labels of each, GraphQL's page
+# maximum of 100.
 CONST_PR_CLOSING_ISSUES_PAGE: Final[int] = 10
-CONST_PR_CLOSING_ISSUE_CARDS_PAGE: Final[int] = 100
+CONST_PR_CLOSING_ISSUE_LABELS_PAGE: Final[int] = 100
 # The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
 # so a pull request that a bot or another person owns is never updated.
 CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"

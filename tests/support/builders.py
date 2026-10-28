@@ -54,7 +54,7 @@ def make_verdict(**overrides: Any) -> Verdict:
 
 
 def make_item(**overrides: Any) -> Item:
-    """An open issue on the board, #1, with no board fields set."""
+    """An open Item, #1, with no fields set."""
     number = overrides.get("number", 1)
     defaults = {"number": number, "title": "An item", "url": f"{_ISSUES_URL}/{number}"}
     return _validated(Item, defaults, overrides)
@@ -66,7 +66,7 @@ def make_milestone(**overrides: Any) -> Milestone:
 
 
 def make_candidate(**overrides: Any) -> Candidate:
-    """An open issue off the board, #2, in no milestone."""
+    """An open issue with no priority label, #2, in no milestone."""
     number = overrides.get("number", 2)
     defaults = {"number": number, "title": "A candidate", "url": f"{_ISSUES_URL}/{number}"}
     return _validated(Candidate, defaults, overrides)

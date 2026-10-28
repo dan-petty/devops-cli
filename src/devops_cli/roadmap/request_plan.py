@@ -10,13 +10,10 @@ for each page, item or field says so in `repeat`.
 
 `StoreRequests` gives the requests of each store operation; `refine_requests` puts the refine
 job's operations in the order the job makes them, and intake's plan (`intake_requests`) does the
-same for intake. A store reads the board's fields, and the listing of each filter, once (#1361),
-so an operation that needs them lists their read under the condition that the run has not made
-it yet.
-A board write lists the read of its one card and the edit by node ids; an add lists the read of
-the card it names and that card's restore when it is archived. Every run of a job that sent a
-GraphQL request, as every run that reads the board does, ends with one GraphQL budget read, for
-its spend line, after any write; a run that sent none makes no budget read (#1400).
+same for intake. A store reads the listing of every issue once (#1361), so an operation that
+needs it lists its read under the condition that the run has not made it yet. A field or mark
+write lists the read of its issue, then one `PATCH` of the issue's labels and body (ADR 0016).
+No request reaches a project board.
 """
 
 from __future__ import annotations
@@ -24,22 +21,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 
-from devops_cli.config.constants import (
-    CONST_GH_PROJECT_JOB_RECORD_FIELD,
-    CONST_ROADMAP_CONFIG_PATH,
-    CONST_ROADMAP_OPEN_ITEMS_FILTER,
-    CONST_ROADMAP_REFINE_BOARD_FILTER,
-    CONST_URL_GITHUB_API_BASE,
-)
+from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import github_store as gh
-from devops_cli.roadmap.board_read import (
-    board_budget_args,
-    board_card_args,
-    board_items_args,
-    graphql_budget_args,
-)
 
 _GH = "gh"
 Requests = list[PlannedRequest]
@@ -113,20 +98,9 @@ def is_page_repeat(repeat: str) -> bool:
 
 @dataclass(frozen=True)
 class StoreRequests:
-    """The requests each `GitHubRoadmapStore` operation makes on `repo`'s board, whose number
-    `.github/roadmap.toml` gives, reading the board with the job's Projects filter."""
+    """The requests each `GitHubRoadmapStore` operation makes on `repo`."""
 
     repo: str
-    board_filter: str = ""
-    board: str = ""
-
-    @property
-    def owner(self) -> str:
-        return self.repo.split("/", 1)[0]
-
-    @property
-    def number(self) -> str:
-        return self.board or _p("board")
 
     def gh(
         self,
@@ -144,9 +118,7 @@ class StoreRequests:
 
     def _target(self, key: str, **values: str) -> str:
         """What the request `key` names in `plan_targets` reads or writes."""
-        return MESSAGES.roadmap.plan_targets[key].format(
-            board=self.number, owner=self.owner, **values
-        )
+        return MESSAGES.roadmap.plan_targets[key].format(**values)
 
     # ── Reads ──
 
@@ -169,55 +141,25 @@ class StoreRequests:
     def _issues(self, query: str) -> Requests:
         return self.listing(gh.issues_endpoint(self.repo, query), "issues", query=query)
 
-    def board_read(self, board_filter: str | None = None) -> Requests:
-        """A board read: the budget query, the first page, then a page per cursor."""
-        query = self.board_filter if board_filter is None else board_filter
-        matching = f' matching "{query}"' if query else ""
-        later = board_items_args(self.owner, self.number, query, after=_p("cursor"))
-        return [
-            self.gh(
-                board_budget_args(self.owner, self.number, query), "board_budget", matching=matching
-            ),
-            self.gh(
-                board_items_args(self.owner, self.number, query), "board_first", matching=matching
-            ),
-            self.gh(
-                later,
-                "board_page",
-                repeat=MESSAGES.roadmap.plan_repeat_board_page,
-                matching=matching,
-            ),
-        ]
-
-    def kept_board(self, board_filter: str | None = None) -> Requests:
-        """The board read a store makes the first time it needs this filter's listing."""
-        unread = MESSAGES.roadmap.plan_conditions["board_unread"]
-        return within(self.board_read(board_filter), unread)
+    def every_issue(self) -> Requests:
+        """The listing of every issue, which a store reads the first time it needs it."""
+        unread = MESSAGES.roadmap.plan_conditions["issues_unread"]
+        return within(self._issues("state=all"), unread)
 
     def items(self, *, milestone: str | None = None) -> Requests:
         """Every Item, or the Items of the milestone numbered `milestone`, a placeholder."""
-        query = "state=all" if milestone is None else f"milestone={milestone}&state=all"
-        return [*self.kept_board(), *self._issues(query)]
+        if milestone is None:
+            return self.every_issue()
+        return self._issues(f"milestone={milestone}&state=all")
 
     def backlog(self) -> Requests:
-        return [
-            *self.kept_board(CONST_ROADMAP_OPEN_ITEMS_FILTER),
-            *self._issues("milestone=none&state=open"),
-        ]
+        return self._issues("milestone=none&state=open")
+
+    def candidates(self) -> Requests:
+        return self.every_issue()
 
     def issues(self) -> Requests:
-        return self._issues("state=all")
-
-    def board_fields(self) -> Requests:
-        return [self.gh(gh.board_fields_args(self.owner, self.number), "fields")]
-
-    def kept_fields(self) -> Requests:
-        """The fields read a store makes the first time it needs the board's fields."""
-        return within(self.board_fields(), MESSAGES.roadmap.plan_conditions["fields_unread"])
-
-    def card(self, subject: str) -> Requests:
-        """One card by its node id: its fields, its job record and the GraphQL points left."""
-        return [self.gh(board_card_args(_p("card_id")), "card", subject=subject)]
+        return self.every_issue()
 
     def comments_on(self, subject: str) -> Requests:
         endpoint = gh.comments_endpoint(self.repo, _number(subject))
@@ -225,6 +167,10 @@ class StoreRequests:
 
     def issue(self, subject: str) -> Requests:
         return [self.gh(gh.issue_args(self.repo, _number(subject)), "issue", subject=subject)]
+
+    def issue_now(self, subject: str) -> Requests:
+        """The read of an issue a write makes first: its labels and its job record now."""
+        return [self.gh(gh.issue_args(self.repo, _number(subject)), "issue_now", subject=subject)]
 
     def path_change(self, path: str) -> Requests:
         """The newest commit on the default branch that changed `path` (#2005)."""
@@ -246,35 +192,24 @@ class StoreRequests:
         repeat = texts.plan_repeat["evidence"]
         return [self.gh(args, key, subject=subject, repeat=repeat) for args, key in kinds]
 
-    def budget(self) -> Requests:
-        """The run's last request, once it has sent a GraphQL request: the GraphQL budget its
-        spend line reports."""
-        done = MESSAGES.roadmap.plan_conditions["done"]
-        return [self.gh(graphql_budget_args(), "budget", condition=done)]
-
     # ── Writes ──
 
-    def _edit(
-        self, subject: str, field_name: str, change: Sequence[str], key: str
-    ) -> PlannedRequest:
-        """An `item-edit` of one card by node ids, which sends only the mutation."""
-        args = gh.card_edit_args(_p("card_id"), _p("board_id"), _p("field_id"), change)
-        return self.gh(args, key, subject=subject, field=field_name)
-
-    def _record(self, subject: str) -> PlannedRequest:
-        record = CONST_GH_PROJECT_JOB_RECORD_FIELD
-        return self._edit(subject, record, ["--text", _p("record")], "record")
+    def _edit(self, subject: str, key: str, stdin: str, **values: str) -> PlannedRequest:
+        """One `PATCH` of an issue, its fields as JSON on stdin."""
+        args = gh.issue_edit_args(self.repo, _number(subject))
+        return self.gh(args, key, stdin=stdin, subject=subject, **values)
 
     def set_marks(self, subject: str) -> Requests:
-        """The board's fields once a run, the card, then the job record."""
-        return [*self.kept_fields(), *self.card(subject), self._record(subject)]
+        """The issue now, then its body with the job record's marks."""
+        edit = self._edit(subject, "record", gh.issue_edit(body=_p("record")))
+        return [*self.issue_now(subject), edit]
 
     def set_field(self, subject: str, field_name: str | None = None) -> Requests:
-        """The board's fields once a run, the card, the job record, then the field by its
-        option's id. `field_name` None stands for any board field."""
-        change = ["--single-select-option-id", _p("option_id")]
-        edit = self._edit(subject, field_name or _p("field"), change, "set_field")
-        return [*self.kept_fields(), *self.card(subject), self._record(subject), edit]
+        """The issue now, then its labels, the field's family replaced, and its body with the
+        job record, in one write. `field_name` None stands for any field."""
+        stdin = gh.issue_edit(labels=[_p("labels")], body=_p("record"))
+        edit = self._edit(subject, "set_field", stdin, field=field_name or _p("field"))
+        return [*self.issue_now(subject), edit]
 
     def comment(self, subject: str) -> Requests:
         args = gh.comment_args(self.repo, _number(subject), _p("comment"))
@@ -284,26 +219,14 @@ class StoreRequests:
         args = gh.label_args(self.repo, _number(subject), _p("label"))
         return [self.gh(args, "label", subject=subject)]
 
-    def add_item(self, subject: str) -> Requests:
-        """The issue, the add, which names the card, then that card, and its restore when it is
-        archived (#1403)."""
-        args = gh.item_add_args(self.owner, self.number, _p("url"))
-        unarchive = gh.item_unarchive_args(self.owner, self.number, _p("card_id"))
-        archived = MESSAGES.roadmap.plan_conditions["card_archived"]
-        return [
-            *self.issue(subject),
-            self.gh(args, "add_item", subject=subject),
-            *self.card(subject),
-            self.gh(unarchive, "unarchive_card", condition=archived, subject=subject),
-        ]
-
     def create_issue(self, subject: str, labels: Sequence[str] = ()) -> Requests:
         args = gh.create_issue_args(self.repo, _p("title"), _p("body"), labels)
         return [self.gh(args, "create_issue", subject=subject)]
 
     def write_issue_body(self, subject: str) -> Requests:
-        args = gh.write_issue_body_args(self.repo, _number(subject), _p("body"))
-        return [self.gh(args, "issue", subject=subject)]
+        """The issue now, for the job record it holds, then its new body with that record."""
+        edit = self._edit(subject, "body", gh.issue_edit(body=_p("body")))
+        return [*self.issue(subject), edit]
 
 
 def _number(subject: str) -> str:
@@ -314,10 +237,6 @@ def _number(subject: str) -> str:
 # ── The jobs ──────────────────────────────────────────────────────────────────
 
 
-def _config(store: StoreRequests, ref: str | None) -> Requests:
-    return store.file(CONST_ROADMAP_CONFIG_PATH, ref)
-
-
 def refine_requests(
     repo: str,
     ref: str | None,
@@ -325,12 +244,13 @@ def refine_requests(
     item: int | None = None,
     limit: int | None = None,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
-    """What `devops roadmap refine` reads, in order, ending with its closing budget read,
-    and the writes `--confirm` makes before that last read. Each item's comments are read for
-    the replies since refine's last comment, and each open item a blocked item waits on is read
-    for its state (#1758). A round without `--item` reads the newest commit of each path the
-    block of a waiting item cites, when no reply ends the wait first (#2005)."""
-    store = StoreRequests(repo, CONST_ROADMAP_REFINE_BOARD_FILTER)
+    """What `devops roadmap refine` reads, in order, and the writes `--confirm` makes after
+    them. Each item's comments are read for the replies since refine's last comment, and each
+    open item a blocked item waits on is read for its state (#1758). A round without `--item`
+    reads the newest commit of each path the block of a waiting item cites, when no reply ends
+    the wait first (#2005). Refine reads no repository file, so `ref` changes no request."""
+    del ref
+    store = StoreRequests(repo)
     texts = MESSAGES.roadmap
     cond, rep = texts.plan_conditions, texts.plan_repeat
     target_item = f"#{item}" if item is not None else _p("item")
@@ -338,11 +258,10 @@ def refine_requests(
 
     if item is not None:
         reads = [
-            *_config(store, ref),
-            *store.board_fields(),
-            *store.card(target_item),
+            *store.issue(target_item),
             *store.issue(target_item),
             *store.comments_on(target_item),
+            *store.every_issue(),
             *blockers,
         ]
         writes = [
@@ -354,13 +273,15 @@ def refine_requests(
         each_milestone = rep["milestone"]
         each_candidate = rep["item"]
         reads = [
-            *_config(store, ref),
-            *store.board_fields(),
             *store.milestones(),
             *within(store.items(milestone=_p("milestone")), repeat=each_milestone),
             *store.backlog(),
             *within(
-                [*store.issue(target_item), *store.comments_on(target_item)],
+                [
+                    *store.issue(target_item),
+                    *store.comments_on(target_item),
+                    *store.every_issue(),
+                ],
                 repeat=each_candidate,
             ),
             *blockers,
@@ -381,7 +302,7 @@ def refine_requests(
             )
         ]
 
-    return (*reads, *store.budget()), tuple(writes)
+    return tuple(reads), tuple(writes)
 
 
 def render_dry_run(

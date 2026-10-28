@@ -49,7 +49,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_issues_edit`](#gh-issues-edit) | `false` | Edit an existing issue title, body, state, milestone, or taxonomy labels. |
 | [`gh_issues_list`](#gh-issues-list) | `true` | List repository issues with milestone, taxonomy labels, and status. |
 | [`gh_issues_status`](#gh-issues-status) | `true` | Display aggregated issue counts by priority, type, and milestone. |
-| [`gh_issues_triage`](#gh-issues-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake. |
+| [`gh_issues_triage`](#gh-issues-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake. |
 | [`gh_issues_view`](#gh-issues-view) | `true` | Print one issue with its state, milestone, labels, assignees, dates and full body. |
 | [`gh_labels_list`](#gh-labels-list) | `true` | List all labels defined in the remote repository. |
 | [`gh_labels_sync`](#gh-labels-sync) | `false` | Synchronize repository labels against the declarative YAML schema. |
@@ -63,7 +63,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_project_list`](#gh-project-list) | `true` | List available GitHub Projects v2 boards for user or organization. |
 | [`gh_project_reconcile`](#gh-project-reconcile) | `false` | Reconcile Status and Priority on the cards already on the board, listing each change and its source; the board owns Status, and reconcile never writes Milestone, Value or Effort or adds a card. A planned value the board's field has no option for is refused before any write. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1. Running it again continues from there: after the reset when the quota stopped it, and once the cause is fixed when a write failed. |
 | [`gh_project_status`](#gh-project-status) | `true` | Inspect the declarative GitHub Projects v2 template structure and views. |
-| [`gh_project_sync`](#gh-project-sync) | `false` | Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board: devops roadmap intake places issues, and a pull request's progress shows on its issue's card. Exits 1 when reconcile stops early. |
+| [`gh_project_sync`](#gh-project-sync) | `false` | Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board, and a pull request's progress shows on its issue's card. No roadmap job reads the board: labels hold an item's fields. Exits 1 when reconcile stops early. |
 | [`gh_rate_limit`](#gh-rate-limit) | `true` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_runs_list`](#gh-runs-list) | `true` | List recent workflow runs for the repository or branch. |
 | [`gh_runs_view`](#gh-runs-view) | `true` | View details and failure logs of a specific workflow run. |
@@ -88,7 +88,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 | [`k8s_tempo_info`](#k8s-tempo-info) | `true` | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
 | [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
-| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that is on the roadmap board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. |
+| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
 | [`pr_diff`](#pr-diff) | `true` | View diff of a pull request. |
@@ -109,7 +109,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | `true` | Review source files directly (no git required). |
 | [`review_pr`](#review-pr) | `false` | Review a GitHub pull request. |
 | [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
-| [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. The model compares each with the board's items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
+| [`roadmap_intake`](#roadmap-intake) | `false` | Turn candidates into items: every open issue with no priority/* label. The model compares each with the items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a status/new label, Value and Effort labels and a reason comment, then its priority label last, and goes to the backlog. A label a person set stays. Intake sets no milestone: a person plans the milestones, and a milestone an issue has stays. Close an issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
 | [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: each open milestone's New items, by due date and then by number, then the backlog's P0 and P1 items, then the backlog's other New items, each place by priority. Only --limit stops a run. The number of Ready items does not stop it. In each open milestone and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. An item refine cannot set to Ready gets one comment with its next step. The step is the questions a person answers, the split a person makes, or the open items it waits on. Refine looks at the item again after a reply, a body edit or the close of those items, or after a commit on the default branch changes a file that the block cites. The report groups every item by its next step. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1. |
 | [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: metrics, then intake and refine, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 | [`sandbox_deploy`](#sandbox-deploy) | `false` | Deploy an isolated background container sandbox with security containment. |
@@ -841,7 +841,7 @@ Display aggregated issue counts by priority, type, and milestone.
 
 ### `gh_issues_triage`
 
-Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake.
+Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1024,7 +1024,7 @@ Inspect the declarative GitHub Projects v2 template structure and views.
 
 ### `gh_project_sync`
 
-Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board: devops roadmap intake places issues, and a pull request's progress shows on its issue's card. Exits 1 when reconcile stops early.
+Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board, and a pull request's progress shows on its issue's card. No roadmap job reads the board: labels hold an item's fields. Exits 1 when reconcile stops early.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1415,8 +1415,8 @@ Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
-It closes exactly one issue, an open issue of its own repository that is on the roadmap
-board that .github/roadmap.toml names. GitHub closes that issue when the PR merges. The PR
+It closes exactly one issue, an open issue of its own repository that holds a priority/*
+label: a roadmap item. GitHub closes that issue when the PR merges. The PR
 adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
 writes for that issue's change. Only that archive writes openspec/specs/ and
 openspec/changes/archive/.
@@ -1800,7 +1800,7 @@ Compute and display review accuracy statistics across saved sessions.
 
 ### `roadmap_intake`
 
-Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. The model compares each with the board's items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog. Intake sets no milestone: a person plans the milestones on the board, and a milestone an issue has stays. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.
+Turn candidates into items: every open issue with no priority/* label. The model compares each with the items and the issues closed as not planned, but not with an issue that has sub-issues, because its sub-issues deliver it. It names a possible duplicate for a person to close: intake never closes an issue and never drops a candidate. Each gets a type, a status/new label, Value and Effort labels and a reason comment, then its priority label last, and goes to the backlog. A label a person set stays. Intake sets no milestone: a person plans the milestones, and a milestone an issue has stays. Close an issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent, and intake files it, a possible duplicate too, unless a run that stopped after filing left an open issue with its title and body, which intake then places; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1809,7 +1809,7 @@ Turn candidates into items: every open issue not on the board, and every board i
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
+| `ref` | `string` | No | - | Branch, tag or commit to read .github/labels.yml at (default: the repository's default branch). |
 | `issue` | `array[integer]` | No | - | Only this issue (repeatable). |
 | `title` | `string` | No | - | Title of a candidate that is not an issue yet; intake files it, and names a possible duplicate for a person to close. Needs --body-file. |
 | `body_file` | `string` | No | - | File holding the new candidate's body. Needs --title. |
@@ -1831,7 +1831,6 @@ Refine roadmap items to Ready with proposed design, tasks, and acceptance criter
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `source` | `string` | No | `.` | Path to the repository checkout (defaults to current directory). |
 | `item` | `integer` | No | - | Specific issue number to refine instead of selecting by priority. Refine refines it when it is open and New or Ready, even when nothing changed since its last round. |
 | `limit` | `integer` | No | `3` | Maximum number of items to refine in this run (default 3). |
@@ -1849,7 +1848,6 @@ Run the roadmap jobs that are due, in order: metrics, then intake and refine, an
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
-| `ref` | `string` | No | - | Branch, tag or commit to read .github/roadmap.toml at (default: the repository's default branch). |
 | `dry_run` | `boolean` | No | `False` | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
 | `confirm` | `boolean` | No | `False` | Execute the due roadmap jobs. Without it, run prints the due list only. |
 

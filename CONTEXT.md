@@ -5,11 +5,11 @@ devops-cli automates DevOps work across the GitHub repositories it manages. This
 ## Planning and releases
 
 **Roadmap**:
-The items on the project board, the milestones a person plans them into, and the backlog, taken together.
+The items, the milestones a person plans them into, and the backlog, taken together. Labels and milestones on GitHub hold them (ADR 0016).
 _Avoid_: plan, board
 
 **Item**:
-One unit of planned work on the roadmap, tracked as exactly one issue and delivered by exactly one pull request that delivers nothing else. An open issue becomes an item when intake places it on the roadmap.
+One unit of planned work on the roadmap, tracked as exactly one issue and delivered by exactly one pull request that delivers nothing else. An open issue becomes an item when intake places it on the roadmap: an item is an issue with a `priority/*` label. One label family holds each of its Status, Priority, Value and Effort.
 _Avoid_: task, deliverable, card, ticket, work item, tracking issue
 
 **Change**:
@@ -61,7 +61,7 @@ An item closed without being delivered. It stays on record so the same idea is r
 _Avoid_: rejected, won't fix, deferred
 
 **Milestone**:
-A planning bucket that a person sets on the board, ordered by its due date. It never names a version, and no release reads it.
+A planning bucket that a person sets on an issue, ordered by its due date. It never names a version, and no release reads it.
 _Avoid_: release, sprint
 
 **Backlog**:
@@ -83,7 +83,7 @@ _Avoid_: cut PR, release branch
 ## Roadmap jobs
 
 **Candidate**:
-Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue that intake has not yet placed on the roadmap, or whose card a person archived, is a candidate.
+Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue with no `priority/*` label is a candidate: intake has not yet placed it on the roadmap, or a person took its priority off.
 _Avoid_: proposal, suggestion
 
 **Intake**:

@@ -1,6 +1,0 @@
-# The roadmap jobs' settings for this repository (ADR 0001). Every runner reads this file
-# through the GitHub contents API at one ref; `devops roadmap intake` and `refine` take it with
-# `--ref`, which defaults to the default branch.
-
-# The project board (number) that holds the roadmap's Items. It has no default.
-board = 12

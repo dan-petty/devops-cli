@@ -1,6 +1,6 @@
-# The types of GitHub's public GraphQL schema that the roadmap board reads use (#1125, #1361),
+# The types of GitHub's public GraphQL schema that the project board reads use (#1125, #1361),
 # cut from https://docs.github.com/public/fpt/schema.docs.graphql (downloaded 2026-10-04):
-# each type keeps the fields the documents in devops_cli.roadmap.board_read select, the
+# each type keeps the fields the documents in devops_cli.github.project_read select, the
 # fields of the interfaces it implements, and the input types and enums their arguments take.
 # Descriptions and directives are dropped. Cut again when a document changes.
 

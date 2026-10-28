@@ -316,64 +316,39 @@ def test_gh_issues_create() -> None:
         assert "#99" in result.output
 
 
-def test_gh_issues_triage(roadmap_store: InMemoryRoadmapStore) -> None:
-    """devops gh issues triage reports compliance metrics; with no roadmap board it can't tell
-    which issues await intake, and says so."""
-    from devops_cli.github.issues import IssueTriageAudit
-
-    mock_audit = IssueTriageAudit(
-        total_open=5,
-        valid_count=5,
-        issues_missing_type=[],
-        issues_missing_scope=[],
-        issues_missing_priority=[],
+def test_gh_issues_triage_reports_the_items_and_the_candidates(
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    """An Item is checked for its type/* and scope/* labels, and an open issue with no
+    priority/* label is reported once, as awaiting intake (#742, #2399)."""
+    compliant = roadmap_store.seed_issue(
+        "compliant", labels=("type/bug", "scope/cli", "priority/p2-medium")
     )
-    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=mock_audit) as audit:
-        result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+    unscoped = roadmap_store.seed_issue("unscoped", labels=("type/bug", "priority/p3-low"))
+    candidate = roadmap_store.seed_issue("candidate", labels=("type/bug",))
+    result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+    output = _flat(result.output)
     assert (
         result.exit_code,
-        "5 (100.0%)" in result.output,
-        "Milestone" in result.output,
-        audit.call_args.kwargs,
-    ) == (0, True, False, {"awaiting_intake": ()})
+        "1 (33.3%)" in output,
+        f"Missing scope/* 1 #{unscoped}" in output,
+        f"Awaiting Intake 1 #{candidate}" in output,
+        f"#{compliant}" in output,
+        "Missing Priority" in output,
+        "missing required taxonomy labels." in output,
+    ) == (0, True, True, True, False, False, True)
 
 
-def test_gh_issues_triage_passes_the_issues_off_the_board_as_awaiting_intake(
+def test_gh_issues_triage_does_not_hide_a_failed_read(
     roadmap_store: InMemoryRoadmapStore,
 ) -> None:
-    from devops_cli.github.issues import IssueTriageAudit
-
-    roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
-    off_board = roadmap_store.seed_issue("not on the board yet")
-    roadmap_store.seed_issue("an item", on_board=True)
-    found = IssueTriageAudit(total_open=2, valid_count=1, issues_awaiting_intake=[off_board])
-    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=found) as audit:
-        result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
-    assert (result.exit_code, audit.call_args.kwargs, f"#{off_board}" in result.output) == (
-        0,
-        {"awaiting_intake": [off_board]},
-        True,
-    )
-
-
-def test_gh_issues_triage_does_not_hide_a_failed_board_read(
-    roadmap_store: InMemoryRoadmapStore,
-) -> None:
-    """Only a missing `.github/roadmap.toml` means no board; a rate limit is reported."""
+    """A rate limit on the read of the issues fails the command."""
     from devops_cli.exceptions.git import GitHubRateLimitError
-    from devops_cli.github.issues import IssueTriageAudit
 
-    roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
     limited = GitHubRateLimitError("API rate limit exceeded")
-    with (
-        patch.object(roadmap_store, "candidates", side_effect=limited),
-        patch(
-            "devops_cli.commands.gh.audit_issues_triage",
-            return_value=IssueTriageAudit(total_open=1, valid_count=1),
-        ),
-    ):
+    with patch.object(roadmap_store, "candidates", side_effect=limited):
         result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
-    assert (result.exit_code != 0, "no .github/roadmap.toml" in result.output) == (True, False)
+    assert result.exit_code != 0
 
 
 def test_gh_issues_status() -> None:
@@ -469,9 +444,9 @@ def test_gh_project_reconcile_plan_lists_every_change_with_what_decided_it() -> 
         result.exit_code,
         "label status/in-progress" in result.output,
         "Would change 5 of 5 items on project #2 (5 field changes)." in _flat(result.output),
-        "1 open issue is not on the board" in _flat(result.output),
+        "not on the board" in _flat(result.output),
         fake.edits,
-    ) == (0, True, True, True, [])
+    ) == (0, True, True, False, [])
 
 
 def test_a_complete_live_run_prints_changed_and_exits_0() -> None:

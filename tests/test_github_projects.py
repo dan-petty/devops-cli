@@ -22,8 +22,8 @@ from devops_cli.github.projects import (
     ProjectTemplate,
     load_project_template,
 )
+from tests.project_board_fake import budget_reply
 from tests.project_reconcile_fake import BOARD_TITLE, REPO, ProjectGitHub, card, issue, pull
-from tests.roadmap_board_fake import budget_reply
 from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 from tests.support.paths import REPO_ROOT
 
@@ -313,8 +313,8 @@ def test_sync_adds_no_card_and_exits_0_when_reconcile_completes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A live sync against a board missing an open issue and an open pull request links the
-    board, creates no field, makes every planned change and no `item-add`: intake places
-    issues, and a pull request gets no card."""
+    board, creates no field, makes every planned change and no `item-add`: a person adds
+    cards, and a pull request gets no card."""
     fake = _board_with_five_changes()
     result = _sync_cli(fake, tmp_path, monkeypatch)
     text = " ".join(result.output.split())
@@ -324,9 +324,9 @@ def test_sync_adds_no_card_and_exits_0_when_reconcile_completes(
         len(fake.links),
         len(fake.edits),
         "Provisioned fields: all up-to-date." in text,
-        "1 open issue is not on the board (awaiting intake: devops roadmap intake)." in text,
+        "awaiting intake" in text,
         "Changed 5 of 5 items on project #2 (5 field changes)." in text,
-    ) == (0, [], 1, 5, True, True, True)
+    ) == (0, [], 1, 5, True, False, True)
 
 
 def test_sync_reports_reconciles_stop_and_exits_1(
@@ -792,10 +792,10 @@ def test_a_board_read_whose_owner_lookup_gh_drops_asks_graphql_for_its_budget(
     error: type[GitHubOperationError],
 ) -> None:
     """`gh project field-list --owner <login>` has no `@me` fallback: when gh drops its owner
-    lookup's cause, the read asks GraphQL for its budget, as the roadmap store does (#983). With
+    lookup's cause, the read asks GraphQL for its budget (#983). With
     points left the read fails plainly, naming them; a spent or refused budget keeps the rate
     limit."""
-    from devops_cli.roadmap.board_read import GRAPHQL_BUDGET_OPERATION
+    from devops_cli.github.project_read import GRAPHQL_BUDGET_OPERATION
 
     sent: list[list[str]] = []
 
@@ -1157,7 +1157,7 @@ def test_project_view_writes_are_paced_as_writes_and_the_view_read_is_not() -> N
 
 
 def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None:
-    """Project sync reads its board with the roadmap store's paged GraphQL query, not
+    """Project sync reads its board with the paged GraphQL query of `project_read`, not
     `gh project item-list`, which pages unseen and reports no cost (#1125): through the real
     `run_gh` with gh's process stubbed, 150 items and one archived take two pages, each charged
     the points it reports, and the archived item neither shows nor fails the count."""
@@ -1168,7 +1168,7 @@ def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None
 
     from devops_cli.github import rate_limiter
     from devops_cli.github.projects import _read_board
-    from tests.roadmap_board_fake import BoardServer
+    from tests.project_board_fake import BoardServer
 
     def entry(n: int, **extra: Any) -> dict[str, Any]:
         url = f"https://github.com/o/r/issues/{n}"

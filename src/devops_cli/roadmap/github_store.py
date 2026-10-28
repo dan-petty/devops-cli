@@ -1,5 +1,5 @@
-"""The GitHub roadmap store: milestones, Items and board fields read and written through `gh`,
-and REST listings read through the GitHub session.
+"""The GitHub roadmap store: milestones, Items and their labels read and written through `gh`,
+and REST listings read through the GitHub session (ADR 0016).
 
 Every gh command goes through an injected runner that defaults to `run_gh`. The REST listings
 (milestones, issues, issue events and comments) are read through the session the store is
@@ -9,46 +9,28 @@ short without saying so, and it requests a page only when the store reads on int
 milestone is a planning bucket with any title: the store reads every milestone, identifies it by
 its number and orders the milestones by due date, then by number. No title is read as a version.
 
-The board comes from the store's own paged GraphQL query (`board_read`): each read passes a
-Projects filter at the source, leaves archived items out, checks the budget first and charges
-each page's reported points, and is checked against the total for the same filter, so a short
-read is caught; a count that changes during the read is read again once before the read fails.
-A poll reads the repository's issue events newest first and stops at the first event older
-than the time it reads from, requesting no later page (#1360). The newest commit that changed a
-path is one `gh api` read of the commits listing, one commit a page, which the store makes once
-for each path (#2005).
+The store reads the listing of every issue, open and closed, once for its life, one command or
+one Service round (#1361): `items()`, `issues()` and `candidates()` share it, and the store's own
+writes keep it current with the issues GitHub returns. A milestone's items and the backlog are
+read as their own listings. A poll reads the repository's issue events newest first and stops at
+the first event older than the time it reads from, requesting no later page (#1360). The newest
+commit that changed a path is one `gh api` read of the commits listing, one commit a page, which
+the store makes once for each path (#2005).
 
-The store reads the board listing once for each filter, and the board's fields once, and keeps
-both for its life, one command or one Service round (#1361): every reader of a filter shares its
-listing, and the store's own writes keep it current with the values they sent and the cards
-they add. A write reads only the card it writes, by node id (`RoadmapBoardCard`,
-about one point), so the job record it writes joins the one the card holds then, a card gone or
-archived raises before any write, and the points that read reports below the reserve refuse the
-write. Within one process, `_JOB_RECORD_LOCK` holds each job-record write from that read to its
-write, so the Service's two lanes, which open a store each, never write back a record the other
-has changed since it was read (#1532).
-
-A field someone changed since the store read the card raises `RoadmapCardChangedError` before
-any write, unless the card already holds the value the write sends: the job planned without
-that change, and ADR 0002 forbids a revert of it, so the job fails and the next store plans
-again. Every board write is `gh project item-edit` by node ids (`--id`, `--project-id`,
-`--field-id`, and an option's id), which sends only the mutation; given a card's URL or a
-field's name, gh first reads the board's first 100 items with all their field values, about 101
-points. `item-add` returns the card it makes (`--format json`), which the store writes to
-without a look for it in a listing that can lag the add by minutes. `item-add` names the card an
-issue already has, archived or not: the store reads that card once and restores an archived one
-with `gh project item-archive --undo`, so it comes back with the fields it holds (#1403).
-
-The board's node id and its fields, with their option ids, colors and descriptions, come from
-GraphQL. A GraphQL connection is read in one request of up to its limit, and one longer than
-that raises. Issue events carry the Item's job record from the board listing, and those of the
-actor a caller leaves out read none.
+A field or mark write reads the issue first (`GET`), so the job record it writes joins the one
+the issue holds then and a field a person changed since the store read it raises
+`RoadmapItemChangedError` before any write. It then sends one `PATCH` of the issue with its
+labels and its body, which holds the record block: GitHub takes both in one request, so the
+field and its record never disagree. GitHub has no conditional write of an issue, so a person's
+edit between the two requests is lost; within one process, `_JOB_RECORD_LOCK` holds each write
+from its read to its `PATCH`, so the Service's two lanes, which open a store each, never write
+back a record the other has changed since it was read (#1532). The only GraphQL reads are an
+issue's closes and reopens and the repository's visibility; no request reaches a project board.
 """
 
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
 import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
@@ -57,93 +39,52 @@ from http import HTTPStatus
 from typing import Any, Protocol
 from urllib.parse import quote
 
-from pydantic import AliasPath, BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AliasPath, BaseModel, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
     CONST_GH_ISSUE_EVENT_CHANGE_KINDS,
-    CONST_GH_PROJECT_ITEM_ISSUE_TYPE,
-    CONST_GH_PROJECT_JOB_RECORD_FIELD,
-    CONST_GH_PROJECT_SINGLE_SELECT_TYPE,
     CONST_GH_RAW_CONTENT_ACCEPT,
-    CONST_ROADMAP_OPEN_ITEMS_FILTER,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_GH_ISSUE_TIMELINE_LIMIT,
-    DEFAULT_GH_MAX_PAGINATED_PAGES,
-    DEFAULT_GH_PROJECT_FIELD_LIMIT,
-    DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS,
-    DEFAULT_GH_PROJECT_OPTION_COLOR,
-    DEFAULT_GH_REST_PER_PAGE,
-)
+from devops_cli.config.defaults import DEFAULT_GH_ISSUE_TIMELINE_LIMIT, DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
-from devops_cli.github.error_classifier import (
-    classify_gh_failure,
-    gh_http_status,
-    is_gh_owner_lookup_failure,
-)
-from devops_cli.github.owner_lookup import owner_lookup_failure
-from devops_cli.github.rate_limiter import gh_request_resource, run_gh
+from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
-from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.board_read import (
-    BoardBudgetPayload,
-    BoardCardPayload,
-    BoardItemsPage,
-    GraphQLBudget,
-    GraphQLBudgetPayload,
-    GraphQLSpend,
-    board_budget_args,
-    board_card_args,
-    board_items_args,
-    graphql_budget_args,
-    item_list_key,
-    read_cost,
-    require_budget,
-    require_floor,
-    require_write_floor,
-    spend_between,
-)
 from devops_cli.roadmap.store import (
-    AddedItem,
-    BoardEntry,
-    BoardField,
     Candidate,
     Change,
     ChangeKind,
     Closure,
     Evidence,
     EvidenceKind,
-    FieldOption,
     GitHubState,
     IssueComment,
     IssueRecord,
     Item,
     ItemField,
-    JobRecord,
     Milestone,
-    RefineRecordKey,
     RoadmapStore,
     as_utc,
-    field_options,
+    decode_job_record,
+    encode_job_record,
     find_milestone,
-    join_items,
+    item_of,
     milestone_edits,
     milestone_order,
-    require_field,
-    require_job_record_field,
+    relabeled,
     require_milestone,
-    require_option,
     require_unchanged,
+    require_value,
     select_candidates,
-    with_marks,
+    select_items,
+    split_record,
+    with_record,
 )
 
-logger = logging.getLogger(__name__)
-
 _JOB_RECORD_LOCK = threading.Lock()
-"""Held from the read of a card to the write of its job record, across every store in the
-process: the Service's lanes each open a store, and mark the same cards (#1532)."""
+"""Held from the read of an issue to the write of its job record, across every store in the
+process: the Service's lanes each open a store, and mark the same Items (#1532)."""
 
 
 class GhRunner(Protocol):
@@ -224,15 +165,24 @@ class _IssuePayload(BaseModel):
         number = self.parent_issue_url.removeprefix(f"{self.repository_url}/issues/")
         return int(number) if number.isdecimal() else None
 
+    @property
+    def label_names(self) -> tuple[str, ...]:
+        return tuple(label.name for label in self.labels)
+
+    def split(self) -> tuple[str, dict[str, Any]]:
+        """The body with its record block taken out, and the JSON object the block holds."""
+        return split_record(self.body or "", issue=f"#{self.number}")
+
     def record(self) -> IssueRecord:
+        body, held = self.split()
         return IssueRecord(
             number=self.number,
             title=self.title,
             url=self.html_url,
-            body=self.body or "",
+            body=body,
             state=self.state,
             state_reason=self.state_reason,
-            labels=tuple(label.name for label in self.labels),
+            labels=self.label_names,
             milestone=self.milestone,
             pull_request=self.pull_request is not None,
             author_association=self.author_association,
@@ -241,6 +191,7 @@ class _IssuePayload(BaseModel):
             closed_at=self.closed_at,
             sub_issues=self.sub_issues,
             parent=self.parent,
+            job_record=decode_job_record(held, issue=f"#{self.number}"),
         )
 
 
@@ -255,7 +206,7 @@ class _EventPayload(BaseModel):
     label: str | None = Field(default=None, validation_alias=AliasPath("label", "name"))
 
     def change(self) -> Change | None:
-        """The Item change this event reports, or None for pull requests and other events."""
+        """The issue change this event reports, or None for pull requests and other events."""
         kind = CONST_GH_ISSUE_EVENT_CHANGE_KINDS.get(self.event)
         if kind is None or self.number is None or self.pull_request is not None:
             return None
@@ -319,154 +270,9 @@ class _CommitPayload(BaseModel):
     committed_at: datetime = Field(validation_alias=AliasPath("commit", "committer", "date"))
 
 
-class _BoardItemPayload(BaseModel):
-    """One board item. gh keys each field's value by the field's name, so those stay extra."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    content_type: str | None = Field(default=None, validation_alias=AliasPath("content", "type"))
-    content_number: int | None = Field(
-        default=None, validation_alias=AliasPath("content", "number")
-    )
-    content_repository: str | None = Field(
-        default=None, validation_alias=AliasPath("content", "repository")
-    )
-
-    def is_issue_of(self, repo: str) -> bool:
-        """Report whether this item is an issue of `repo`, not a pull request, draft or other repo's."""
-        return (
-            self.content_type == CONST_GH_PROJECT_ITEM_ISSUE_TYPE
-            and self.content_number is not None
-            and (self.content_repository or "").lower() == repo.lower()
-        )
-
-    def values(self) -> dict[str, Any]:
-        """The card's board fields and job record, keyed as `BoardEntry` holds them."""
-        fields = {f.name.lower(): self.field_value(f.value) for f in ItemField}
-        return fields | {"job_record": decode_job_record(self.job_record_text(), card=self.name())}
-
-    def field_value(self, field_name: str) -> str | None:
-        """The value the card holds for the board field `field_name`, None when it has none."""
-        return _text_value((self.model_extra or {}).get(item_list_key(field_name)))
-
-    def name(self) -> str:
-        """The card as an error names it: its issue's number, or its node id."""
-        return f"#{self.content_number}" if self.content_number else f"card {self.id}"
-
-    def job_record_text(self) -> str | None:
-        """The job record as the board's text field holds it."""
-        return self.field_value(CONST_GH_PROJECT_JOB_RECORD_FIELD)
-
-    def recorded(self, changes: JobRecord) -> str:
-        """The job record with `changes` made, as the text field takes it, keeping every key of
-        the record held now that this version does not know."""
-        held = self.job_record_text()
-        record = decode_job_record(held, card=self.name()) | dict(changes)
-        return encode_job_record(record, over=held, card=self.name())
-
-    def entry(self) -> BoardEntry:
-        """The board's fields and job record for this issue, with its card's node id."""
-        return BoardEntry.model_validate(
-            self.values() | {"number": self.content_number, "card_id": self.id}
-        )
-
-    def written(self, field_name: str, value: str | None) -> _BoardItemPayload:
-        """The card as it is once the store has written `value` to the field `field_name`."""
-        return self.model_copy(update={item_list_key(field_name): value})
-
-
-class _AddedCardPayload(BaseModel):
-    """What `gh project item-add` or `item-archive --undo` prints with `--format json`: the card
-    it named or restored."""
-
-    id: str
-
-
-class _BoardFieldPayload(BaseModel):
-    name: str
-    options: list[_NamedPayload] = Field(default_factory=list)
-
-
-class FieldListingPayload(BaseModel):
-    """The reply to `field_list_args`: every board field, with its options by name. Project
-    reconcile reads it (#892); the store reads its fields through GraphQL instead."""
-
-    fields: list[_BoardFieldPayload]
-    total_count: int = Field(alias="totalCount")
-
-    def options(self) -> dict[str, tuple[str, ...]]:
-        """Each field's option names by field name; a field that is not single-select has none."""
-        return {field.name: tuple(option.name for option in field.options) for field in self.fields}
-
-
-class _OptionPayload(BaseModel):
-    id: str
-    name: str
-    color: str = DEFAULT_GH_PROJECT_OPTION_COLOR
-    description: str = ""
-
-
-class _FieldNodePayload(BaseModel):
-    """A board field as GraphQL gives it; a field that is not single-select has no options."""
-
-    id: str
-    name: str
-    data_type: str = Field(alias="dataType")
-    options: list[_OptionPayload] = Field(default_factory=list)
-
-    def field(self) -> BoardField:
-        return BoardField(
-            id=self.id,
-            name=self.name,
-            single_select=self.data_type == CONST_GH_PROJECT_SINGLE_SELECT_TYPE,
-            options=tuple(FieldOption.model_validate(o.model_dump()) for o in self.options),
-        )
-
-
-class _FieldConnectionPayload(BaseModel):
-    nodes: list[_FieldNodePayload]
-    total_count: int = Field(alias="totalCount")
-
-
-class _BoardFieldsPayload(BaseModel):
-    board_id: str = Field(validation_alias=AliasPath("data", "repositoryOwner", "projectV2", "id"))
-    fields: _FieldConnectionPayload = Field(
-        validation_alias=AliasPath("data", "repositoryOwner", "projectV2", "fields")
-    )
-
-
-class _BoardSchema(BaseModel):
-    """The board's node id and its fields, which every write addresses by id."""
-
-    model_config = ConfigDict(frozen=True)
-
-    board_id: str
-    fields: tuple[BoardField, ...]
-
-    def options(self) -> dict[str, tuple[str, ...]]:
-        """Each field's option names by field name."""
-        return field_options(self.fields)
-
-    def field(self, name: str, operation: str) -> BoardField:
-        """The field named `name`, raising when the board has none."""
-        return require_field(self.fields, name, operation)
-
-
 _MILESTONE = TypeAdapter(_MilestonePayload)
 _ISSUE = TypeAdapter(_IssuePayload)
 _EVENT = TypeAdapter(_EventPayload)
-_BOARD_PAGE = TypeAdapter(BoardItemsPage)
-_BOARD_BUDGET = TypeAdapter(BoardBudgetPayload)
-_GRAPHQL_BUDGET = TypeAdapter(GraphQLBudgetPayload)
-_BOARD_ITEMS = TypeAdapter(list[_BoardItemPayload])
-_BOARD_ITEM = TypeAdapter(_BoardItemPayload)
-_BOARD_CARD = TypeAdapter(BoardCardPayload)
-_ADDED_CARD = TypeAdapter(_AddedCardPayload)
-_JOB_RECORD = TypeAdapter(JobRecord)
-# The job record keys this version reads; the others are another version's, kept as they are.
-_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *RefineRecordKey))
-_BOARD_FIELDS = TypeAdapter(_BoardFieldsPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _COMMENT = TypeAdapter(_CommentPayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
@@ -474,19 +280,6 @@ _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _COMMITS = TypeAdapter(list[_CommitPayload])
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
 
-# The board is found by its owner's login and number; `ProjectV2Owner` covers users and
-# organizations alike.
-_OWNED_BOARD = (
-    "query($owner: String!, $number: Int!, $first: Int!) {{ repositoryOwner(login: $owner) {{ "
-    "... on ProjectV2Owner {{ projectV2(number: $number) {{ {selection} }} }} }} }}"
-)
-_FIELD_SELECTION = (
-    "... on ProjectV2FieldCommon { id name dataType } "
-    "... on ProjectV2SingleSelectField { options { id name color description } }"
-)
-_FIELDS_QUERY = _OWNED_BOARD.format(
-    selection=f"id fields(first: $first) {{ totalCount nodes {{ {_FIELD_SELECTION} }} }}"
-)
 _REPOSITORY = (
     "query($owner: String!, $name: String!{params}) {{ "
     "repository(owner: $owner, name: $name) {{ {selection} }} }}"
@@ -502,57 +295,6 @@ _CLOSURES_QUERY = _REPOSITORY.format(
         "... on ReopenedEvent { createdAt } } } }"
     ),
 )
-
-
-def _text_value(raw: object) -> str | None:
-    return raw if isinstance(raw, str) and raw else None
-
-
-def _malformed_job_record(text: str, card: str) -> GitHubOperationError:
-    return GitHubOperationError(
-        f"The job record of {card} is not a JSON object whose known keys hold text, so the "
-        f"store cannot tell what a job set on it: {text[:256]!r}. Clear the card's "
-        f"{CONST_GH_PROJECT_JOB_RECORD_FIELD} field or restore it.",
-        operation="roadmap.read",
-        details={"card": card[:256]},
-    )
-
-
-def _record_object(text: str, card: str) -> dict[str, Any]:
-    """The job record's JSON object, raising when the text is not one."""
-    try:
-        found = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise _malformed_job_record(text, card) from exc
-    if not isinstance(found, dict):
-        raise _malformed_job_record(text, card)
-    return found
-
-
-def decode_job_record(text: str | None, *, card: str = "a card") -> JobRecord:
-    """Read a job record: the keys this version knows.
-
-    A key it does not know, such as one another version writes, is left out here and kept by
-    every write (`encode_job_record`). A record that is not a JSON object, or gives a known key
-    a value that is not text or null, raises: read as empty, it would make its Item look as if
-    no job had ever set a field on it.
-    """
-    if not text:
-        return {}
-    found = _record_object(text, card)
-    known = {key: value for key, value in found.items() if key in _JOB_RECORD_KEYS}
-    try:
-        return _JOB_RECORD.validate_python(known)
-    except MalformedPayloadError as exc:
-        raise _malformed_job_record(text, card) from exc
-
-
-def encode_job_record(record: JobRecord, *, over: str | None = None, card: str = "a card") -> str:
-    """Write a job record as the JSON the board's text field holds, keeping each key of the
-    record it replaces (`over`) that this version does not know."""
-    found = _record_object(over, card) if over else {}
-    kept = {key: value for key, value in found.items() if key not in _JOB_RECORD_KEYS}
-    return json.dumps(kept | {key.value: value for key, value in record.items()}, sort_keys=True)
 
 
 def _wire_value(value: str | date) -> str:
@@ -610,116 +352,24 @@ def repository_query_args(repo: str, query: str, **variables: Number) -> list[st
     ] + typed
 
 
-def board_query_args(query: str, owner: str, number: Number, first: int) -> list[str]:
-    """A GraphQL read about board `number` of `owner`, asking for up to `first` nodes."""
-    return [
-        "api",
-        "graphql",
-        "-f",
-        f"query={query}",
-        "-f",
-        f"owner={owner}",
-        "-F",
-        f"number={number}",
-        "-F",
-        f"first={first}",
-    ]
-
-
-def board_fields_args(owner: str, number: Number) -> list[str]:
-    """The GraphQL read of board `number`'s node id and fields, with each option's id, color and
-    description; it reads no item, so it costs about one point."""
-    return board_query_args(_FIELDS_QUERY, owner, number, DEFAULT_GH_PROJECT_FIELD_LIMIT)
-
-
-def field_list_args(owner: str, number: Number) -> list[str]:
-    """`gh project field-list`: every board field's options by name. gh also reads the board's
-    first 100 items with every field value (about 101 points), so the store never sends it;
-    project reconcile does (#892)."""
-    limit = str(DEFAULT_GH_PROJECT_FIELD_LIMIT)
-    return [
-        "project",
-        "field-list",
-        str(number),
-        "--owner",
-        owner,
-        "--format",
-        "json",
-        "--limit",
-        limit,
-    ]
-
-
-def item_add_args(owner: str, number: Number, url: str) -> list[str]:
-    """`gh project item-add` of the issue at `url`, printing the card it adds, or the card the
-    issue already has."""
-    return ["project", "item-add", str(number), "--owner", owner, "--url", url, "--format", "json"]
-
-
-def item_edit_args(
-    owner: str, number: Number, url: str, field_name: str, change: Sequence[str]
-) -> list[str]:
-    """`gh project item-edit` on the issue at `url`, by the field's name. gh resolves both names
-    with a read of the board's first 100 items with every field value (about 101 points), so the
-    store edits by node ids (`card_edit_args`); project reconcile sends this (#892)."""
-    return [
-        "project",
-        "item-edit",
-        str(number),
-        "--owner",
-        owner,
-        "--url",
-        url,
-        "--field",
-        field_name,
-        *change,
-    ]
-
-
-def card_edit_args(
-    card_id: str, project_id: str, field_id: str, change: Sequence[str]
-) -> list[str]:
-    """`gh project item-edit` on any card, by node ids: gh sends only the mutation."""
-    return [
-        "project",
-        "item-edit",
-        "--id",
-        card_id,
-        "--project-id",
-        project_id,
-        "--field-id",
-        field_id,
-        *change,
-    ]
-
-
-def item_unarchive_args(owner: str, number: Number, card_id: str) -> list[str]:
-    """`gh project item-archive --undo` of card `card_id`, printing the card it restores."""
-    return [
-        "project",
-        "item-archive",
-        str(number),
-        "--owner",
-        owner,
-        "--id",
-        card_id,
-        "--undo",
-        "--format",
-        "json",
-    ]
-
-
-GRAPHQL_INPUT_ARGS: tuple[str, ...] = ("api", "graphql", "--input", "-")
-"""A GraphQL write, its request on stdin."""
-
-
-def graphql_request(query: str, variables: Mapping[str, Any]) -> str:
-    """The stdin of a `GRAPHQL_INPUT_ARGS` write."""
-    return json.dumps({"query": query, "variables": dict(variables)})
-
-
 def issue_args(repo: str, number: Number) -> list[str]:
     return ["api", f"repos/{repo}/issues/{number}"]
+
+
+def issue_edit_args(repo: str, number: Number) -> list[str]:
+    """The REST write of issue `number`, its fields as JSON on stdin (`issue_edit`)."""
+    return ["api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "--input", "-"]
+
+
+def issue_edit(*, labels: Sequence[str] | None = None, body: str | None = None) -> str:
+    """The stdin of an `issue_edit_args` write: the labels that replace the issue's, and its
+    whole body, each only when given."""
+    fields: dict[str, Any] = {}
+    if labels is not None:
+        fields["labels"] = list(labels)
+    if body is not None:
+        fields["body"] = body
+    return json.dumps(fields)
 
 
 def repository_issue_events_endpoint(repo: str) -> str:
@@ -741,11 +391,6 @@ def create_issue_args(repo: str, title: str, body: str, labels: Sequence[str] = 
     fields = [("title", title), ("body", body), *(("labels[]", label) for label in labels)]
     flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
     return ["api", "-X", "POST", f"repos/{repo}/issues", *flags]
-
-
-def write_issue_body_args(repo: str, number: Number, body: str) -> list[str]:
-    """The `gh` arguments that write `body` as the body of issue `number`."""
-    return ["api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "-f", f"body={body}"]
 
 
 def comment_args(repo: str, number: Number, body: str) -> list[str]:
@@ -789,40 +434,24 @@ def closures_args(repo: str, number: Number) -> list[str]:
 
 
 class GitHubRoadmapStore(RoadmapStore):
-    """The roadmap on GitHub, read and written as whoever `gh` is logged in as.
-
-    Without a board, milestone operations work, and Item reads and writes raise. One store lives
-    for one command or one Service round: it keeps the board's fields, and the listing of each
-    filter it read, for its life.
-    """
+    """The roadmap on GitHub, read and written as whoever `gh` is logged in as. One store lives
+    for one command or one Service round: it keeps the listing of every issue for its life."""
 
     def __init__(
         self,
         repo: str,
         *,
-        board_owner: str | None = None,
-        board_number: int | None = None,
         runner: GhRunner = run_gh,
         session: ListingSession | None = None,
-        board_filter: str = "",
     ) -> None:
         self._repo = repo
         # The REST listings are read through this session, or the process's when it is None.
         self._session = session
-        self._board_filter = board_filter
-        # The first and last GraphQL budgets a response reported, and what a board page cost.
-        self._first_budget: GraphQLBudget | None = None
-        self._last_budget: GraphQLBudget | None = None
-        # Whether the store has sent a GraphQL request, as `run_gh` paces it (#1400).
-        self._sent_graphql = False
-        self._page_points = DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS
-        self._board: tuple[str, int] | None = (
-            (board_owner, board_number) if board_owner and board_number else None
-        )
         self._runner = runner
-        # The board's node id and fields, and its listing by filter, read once when first needed.
-        self._schema: _BoardSchema | None = None
-        self._listings: dict[str, list[_BoardItemPayload]] = {}
+        # Every issue and pull request by number, read once when first needed.
+        self._all: dict[int, IssueRecord] | None = None
+        # The value this store last wrote to each field of each issue.
+        self._written: dict[tuple[int, ItemField], str | None] = {}
         # When the newest commit that changed each path refine reads was made (#2005).
         self._path_changes: dict[str, datetime | None] = {}
 
@@ -866,33 +495,28 @@ class GitHubRoadmapStore(RoadmapStore):
     # ── Items ──
 
     def item(self, number: int) -> Item | None:
-        """The Item numbered `number`, or None when that issue is not on the board."""
-        board = self._read_board()
-        if number not in board:
-            return None
-        issue = self._read_issue(number)
-        return next(iter(join_items([issue.record()], board)), None)
+        """The Item numbered `number`, from one read of its issue, or None when the issue holds
+        no Priority, is a pull request or does not exist."""
+        found = self._read_or_none(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
+        return None if found is None else next(iter(select_items([found.record()])), None)
 
     def items(self, *, milestone: int | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the milestone numbered `milestone`."""
-        board = self._read_board()
-        query = "state=all" if milestone is None else f"milestone={milestone}&state=all"
-        return join_items(self._read_issues(query), board)
+        if milestone is None:
+            return select_items(self._every_issue())
+        return select_items(self._read_issues(f"milestone={milestone}&state=all"))
 
     def backlog(self) -> list[Item]:
         """The open Items in no milestone."""
-        board = self._read_board(CONST_ROADMAP_OPEN_ITEMS_FILTER)
-        return join_items(self._read_issues("milestone=none&state=open"), board)
+        return select_items(self._read_issues("milestone=none&state=open"))
 
     def candidates(self) -> list[Candidate]:
-        """The open issues of the repository that are not on the board."""
-        board = self._read_board(CONST_ROADMAP_OPEN_ITEMS_FILTER)
-        return select_candidates(self._read_issues("state=open"), board)
+        """The open issues of the repository that hold no Priority."""
+        return select_candidates(self._every_issue())
 
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
-        """The Item changes the issue events report at or after `since`, oldest first (#1360).
-        Those `except_actor` made are left out before any job record is read; an empty actor
-        leaves out nothing."""
+        """The issue changes the issue events report at or after `since`, oldest first (#1360),
+        without those `except_actor` made; an empty actor leaves out nothing."""
         cutoff = as_utc(since)
         skipped = except_actor or None
         events = self._listing(
@@ -901,37 +525,13 @@ class GitHubRoadmapStore(RoadmapStore):
             "issue events",
             ends=lambda event: event.created_at < cutoff,
         )
-        changes = [
+        return [
             change
             for event in reversed(events)
             if (change := event.change()) is not None
             and change.at >= cutoff
             and (skipped is None or change.actor != skipped)
         ]
-        return self._with_job_records(changes)
-
-    def add_item(self, number: int) -> AddedItem:
-        """Put issue `number` on the board and return its Item, raising if it is not an issue
-        of this repository. The card is the one `item-add` names, the issue's own when it is on
-        the board already, restored and marked `restored` when it is archived, and its fields
-        come from one read of that card, never from the board listing, which can show a new card
-        minutes late."""
-        owner, board_number = self._require_board()
-        issue = self._read_issue(number)
-        if issue.pull_request is not None:
-            raise GitHubOperationError(
-                f"#{number} in {self._repo} is a pull request, and only issues are Items.",
-                operation="roadmap.item.add",
-                details={"repo": self._repo[:256], "number": number},
-            )
-        written = self._write(
-            item_add_args(owner, board_number, issue.html_url), f"add #{number} to the board"
-        )
-        added = self._validate(written, _ADDED_CARD, f"card of #{number} after it was added")
-        card, restored = self._active_card(added.id, number)
-        self._added(card, is_open=issue.state is GitHubState.OPEN)
-        item = join_items([issue.record()], {number: card.entry()})[0]
-        return AddedItem.model_validate(item.model_dump() | {"restored": restored})
 
     def set_field(
         self,
@@ -941,69 +541,55 @@ class GitHubRoadmapStore(RoadmapStore):
         *,
         marks: Mapping[Any, str | None] | None = None,
     ) -> None:
-        """Record the value in the Item's job record, with `marks`, then set or clear the field.
-
-        GitHub takes the two as separate calls, and the record goes first: a run that stops
-        between them leaves the field as it was and the record naming the job's value, never
-        a field the job changed with no record of it. The value joins the job record the card
-        holds now, read by its node id just before the write, not the one `item` was read with,
-        so two writes from one read both stay recorded. A board field someone changed since the
-        store read the card raises before any write, unless the card already holds `value`, so
-        a job never reverts a change it did not see (ADR 0002).
-        """
+        """Replace the field's label family and record the value, with `marks`, in one `PATCH`
+        of the issue, after one read of it. The value joins the job record the issue holds at
+        that read, not the one `item` was read with, so two writes from one read both stay
+        recorded. A field someone changed since the store read it raises before any write,
+        unless the issue already holds `value` (ADR 0002)."""
         operation = "roadmap.item.set_field"
-        options = self._read_schema().options()
-        require_job_record_field(options)
-        require_option(options, field, value)
+        require_value(field, value, operation)
         with _JOB_RECORD_LOCK:
-            card = self._require_entry(item, operation, field, value)
-            text = card.recorded(with_marks({field: value}, marks or {}))
-            card = self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
-            self._edit_card(card, field.value, value, operation)
+            issue = self._require_issue(item.number, operation)
+            now = item_of(issue.record()).field_value(field)
+            read = self._written.get((item.number, field), item.field_value(field))
+            require_unchanged(f"#{item.number}", field, read, now, value, operation)
+            labels = relabeled(issue.label_names, field, value)
+            self._edit_issue(issue, labels=labels, changes={field: value, **(marks or {})})
+            self._written[(item.number, field)] = value
 
     def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
-        """Set or clear a job's marks in the Item's job record, as its card holds it now, in one
-        write."""
-        operation = "roadmap.item.set_marks"
-        require_job_record_field(self._read_schema().options())
+        """Set or clear a job's marks in the Item's job record, as its issue holds it now, in
+        one `PATCH` of the body after one read of the issue."""
         with _JOB_RECORD_LOCK:
-            card = self._require_entry(item, operation)
-            text = card.recorded(with_marks({}, marks))
-            self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
+            issue = self._require_issue(item.number, "roadmap.item.set_marks")
+            self._edit_issue(issue, changes=marks)
 
     # ── Issues ──
 
     def issues(self) -> list[IssueRecord]:
-        """Every issue, open and closed, on the board or not; never pull requests."""
-        return [issue for issue in self._read_issues("state=all") if not issue.pull_request]
+        """Every issue, open and closed, Item or not; never pull requests."""
+        return [issue for issue in self._every_issue() if not issue.pull_request]
 
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""
         written = self._write(
             create_issue_args(self._repo, title, body, labels), f"open the issue {title[:64]!r}"
         )
-        return self._validate(written, _ISSUE, "issue after it was opened").record()
+        return self._kept(self._validate(written, _ISSUE, "issue after it was opened"))
 
     def read_issue_body(self, number: int) -> str:
-        """The body of issue `number`, raising if it is not an issue of this repository."""
-        issue = self._read_issue(number)
-        if issue.pull_request is not None:
-            raise GitHubOperationError(
-                f"#{number} in {self._repo} is a pull request, not an issue.",
-                operation="roadmap.issue.read_body",
-                details={"repo": self._repo[:256], "number": number},
-            )
-        return issue.body or ""
+        """The body of issue `number`, with no record block, raising if it is not an issue of
+        this repository."""
+        return self._require_issue(number, "roadmap.issue.read_body").split()[0]
 
     def write_issue_body(self, number: int, body: str) -> None:
-        """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
-        if self._read_issue(number).pull_request is not None:
-            raise GitHubOperationError(
-                f"#{number} in {self._repo} is a pull request, not an issue.",
-                operation="roadmap.issue.write_body",
-                details={"repo": self._repo[:256], "number": number},
-            )
-        self._write(write_issue_body_args(self._repo, number, body), f"write body of #{number}")
+        """Write `body` as the body of issue `number`, with the record block it holds, raising
+        if it is not an issue of this repository."""
+        with _JOB_RECORD_LOCK:
+            issue = self._require_issue(number, "roadmap.issue.write_body")
+            _, held = issue.split()
+            block = encode_job_record(held, {}) if held else None
+            self._send_edit(number, issue_edit(body=with_record(body, block)))
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
@@ -1037,6 +623,11 @@ class GitHubRoadmapStore(RoadmapStore):
     def label_issue(self, number: int, label: str) -> None:
         """Add `label` to issue `number`; GitHub keeps its other labels."""
         self._write(label_args(self._repo, number, label), f"label #{number} {label}")
+        kept = (self._all or {}).get(number)
+        if kept is not None and label not in kept.labels:
+            self._all = (self._all or {}) | {
+                number: kept.model_copy(update={"labels": (*kept.labels, label)})
+            }
 
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether GitHub confirms the evidence. The value is one path segment of its endpoint,
@@ -1081,303 +672,58 @@ class GitHubRoadmapStore(RoadmapStore):
 
     # ── Writes ──
 
-    def _with_job_records(self, changes: list[Change]) -> list[Change]:
-        """The changes, each with its Item's job record from the board, when one is configured.
-        A poll that finds no change reads no board."""
-        if self._board is None or not changes:
-            return changes
-        board = self._read_board()
-        return [
-            change.model_copy(update={"job_record": board[change.number].job_record})
-            if change.number in board
-            else change
-            for change in changes
-        ]
-
-    def _require_entry(
-        self, item: Item, operation: str, field: ItemField | None = None, value: str | None = None
-    ) -> _BoardItemPayload:
-        """The Item's card as it is now, read by its node id, raising before any write when the
-        Item has none, or it is gone, archived or another issue's, when the points left are
-        below the reserve, or when someone changed `field` since the store read the card."""
-        return self._require_card_node(
-            item.card_id,
-            f"#{item.number}",
-            operation,
-            number=item.number,
-            field=field,
-            value=value,
-            held=None if field is None else item.field_value(field),
-        )
-
-    def _require_card_node(
-        self,
-        card_id: str | None,
-        name: str,
-        operation: str,
-        *,
-        number: int | None = None,
-        field: ItemField | None = None,
-        value: str | None = None,
-        held: str | None = None,
-    ) -> _BoardItemPayload:
-        """The card `card_id` as it is now, from one read by its node id, raising before any
-        write when it is gone or archived, or not issue `number`'s when one is given, when that
-        read leaves fewer points than the reserve, or when the write of `value` to `field` would
-        revert a change made since the store read the card: the value read is the card's in the
-        store's listings, which its own writes keep current, or `held`, the caller's, when no
-        listing holds the card. The listings take the card's job record as it is now, and keep
-        its fields as the store read them."""
-        if not card_id:
-            raise self._not_on_board(name, operation)
-        card, budget = self._read_card(card_id, name)
-        if card is None:
-            raise self._not_on_board(name, operation)
-        require_write_floor(budget, name)
-        if number is not None and not (
-            card.is_issue_of(self._repo) and card.content_number == number
-        ):
-            raise self._not_on_board(name, operation)
-        if field is not None:
-            read = {listed.field_value(field.value) for listed in self._listed(card.id)}
-            now = card.field_value(field.value)
-            require_unchanged(card.name(), field, read or {held}, now, value, operation)
-        self._remember(card.id, CONST_GH_PROJECT_JOB_RECORD_FIELD, card.job_record_text())
-        return card
-
-    def _active_card(self, card_id: str, number: int) -> tuple[_BoardItemPayload, bool]:
-        """Card `card_id`, which `item-add` named for issue `number`, from one read by its node
-        id, restored with `item-archive --undo` when it is archived, and whether it was;
-        raising when it is gone or another issue's, when the read leaves fewer points than the
-        reserve before a restore, or when the restore names another card. A person archived it,
-        as nothing here archives a card: the restore undoes only that, and the card keeps its
-        fields (#1403)."""
-        owner, board_number = self._require_board()
-        read = self._read_card_node(card_id, f"#{number}")
-        card = self._card_payload(read.listed(archived=True), f"#{number}")
-        if card is None or card.content_number != number:
+    def _require_issue(self, number: int, operation: str) -> _IssuePayload:
+        """Issue `number` as GitHub holds it now, raising when it is a pull request or no issue
+        of this repository."""
+        found = self._read_or_none(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
+        if found is None or found.pull_request is not None:
             raise GitHubOperationError(
-                f"Board #{board_number} does not hold card {card_id} that #{number} was just "
-                "added as.",
-                operation="roadmap.item.add",
-                details={"repo": self._repo[:256], "number": number, "card": card_id[:256]},
+                f"#{number} is not an issue of {self._repo}.",
+                operation=operation,
+                details={"repo": self._repo[:256], "number": number},
             )
-        if read.is_archived():
-            require_write_floor(read.rate_limit, f"#{number}")
-            written = self._write(
-                item_unarchive_args(owner, board_number, card_id),
-                f"restore the archived card of #{number}",
-            )
-            restored = self._validate(written, _ADDED_CARD, f"card of #{number} it restored")
-            if restored.id != card_id:
-                raise GitHubOperationError(
-                    f"Restoring card {card_id} of #{number} on board #{board_number} answered "
-                    f"with card {restored.id[:256]}.",
-                    operation="roadmap.item.add",
-                    details={"repo": self._repo[:256], "number": number, "card": card_id[:256]},
-                )
-        return card, read.is_archived()
+        return found
 
-    def _read_card(self, card_id: str, name: str) -> tuple[_BoardItemPayload | None, GraphQLBudget]:
-        """Card `card_id` from one GraphQL read by its node id, None when GitHub holds no such
-        card or it is archived, and the budget the read reported; any other failure raises."""
-        read = self._read_card_node(card_id, name)
-        return self._card_payload(read.listed(), name), read.rate_limit
+    def _edit_issue(
+        self,
+        issue: _IssuePayload,
+        *,
+        changes: Mapping[Any, str | None],
+        labels: Sequence[str] | None = None,
+    ) -> None:
+        """One `PATCH` of `issue`: `labels` when given, and its body with the record block it
+        holds, `changes` made."""
+        body, held = issue.split()
+        block = encode_job_record(held, changes)
+        self._send_edit(issue.number, issue_edit(labels=labels, body=with_record(body, block)))
 
-    def _read_card_node(self, card_id: str, name: str) -> BoardCardPayload:
-        """GitHub's answer to one read of card `card_id` by its node id, its budget noted; a
-        failure other than GitHub holding no such card raises."""
-        what = f"the card of {name}"
-        proc = self._run(board_card_args(card_id))
-        if proc.returncode == 0:
-            read = self._validate(proc.stdout or "", _BOARD_CARD, what)
-        else:
-            read = self._gone_card(proc, what)
-        self._note_budget(read.rate_limit)
-        return read
-
-    def _card_payload(self, listed: dict[str, Any] | None, name: str) -> _BoardItemPayload | None:
-        """A card read's item as the store holds a listed card, or None."""
-        if listed is None:
-            return None
-        return self._validate(json.dumps(listed), _BOARD_ITEM, f"the card of {name}")
-
-    def _gone_card(self, proc: subprocess.CompletedProcess[str], what: str) -> BoardCardPayload:
-        """A failed card read's answer when GitHub says only that the node does not exist, which
-        `gh` reports by exiting 1 with the answer on stdout; any other failure raises."""
-        try:
-            read = _BOARD_CARD.validate_json(proc.stdout or "")
-        except MalformedPayloadError:
-            raise self._failure(proc, f"read {what}", "roadmap.read") from None
-        if not read.is_gone():
-            raise self._failure(proc, f"read {what}", "roadmap.read")
-        return read
-
-    def _not_on_board(self, name: str, operation: str) -> GitHubOperationError:
-        return GitHubOperationError(
-            f"{name} is not on the board.",
-            operation=operation,
-            details={"repo": self._repo[:256], "card": name[:256]},
+    def _send_edit(self, number: int, stdin: str) -> None:
+        """Send one `PATCH` of issue `number`, keeping the issue GitHub returns."""
+        written = self._write(
+            issue_edit_args(self._repo, number), f"write issue #{number}", input=stdin
         )
+        self._kept(self._validate(written, _ISSUE, f"issue #{number} after it was written"))
 
-    def _edit_card(
-        self, card: _BoardItemPayload, field_name: str, value: str | None, operation: str
-    ) -> _BoardItemPayload:
-        """Write `value` to the board field `field_name` on `card` by node ids: text for the job
-        record, an option's id for a single-select field, a clear for None. The listings the
-        store holds take the value it sent."""
-        schema = self._read_schema()
-        board_field = schema.field(field_name, operation)
-        self._write(
-            card_edit_args(card.id, schema.board_id, board_field.id, _change(board_field, value)),
-            f"set {field_name} on {card.name()}",
-        )
-        self._remember(card.id, field_name, value)
-        return card.written(field_name, value)
+    def _kept(self, issue: _IssuePayload) -> IssueRecord:
+        """The issue as a record, kept in the listing of every issue when the store holds it."""
+        record = issue.record()
+        if self._all is not None:
+            self._all = self._all | {record.number: record}
+        return record
 
-    def _listed(self, card_id: str) -> list[_BoardItemPayload]:
-        """Card `card_id` in each listing the store holds it in, as the store read it."""
-        return [
-            listed for items in self._listings.values() for listed in items if listed.id == card_id
-        ]
-
-    def _remember(self, card_id: str, field_name: str, value: str | None) -> None:
-        """Hold `value` as card `card_id`'s field `field_name` in every listing the store holds
-        the card in; its other fields stay as the store read them."""
-        for listing in self._listings.values():
-            listing[:] = [
-                listed.written(field_name, value) if listed.id == card_id else listed
-                for listed in listing
-            ]
-
-    def _added(self, card: _BoardItemPayload, *, is_open: bool) -> None:
-        """Hold a card the store added in each listing that selects it: the unfiltered one,
-        which selects every card not archived, and the open items' when its issue is open; a
-        listing that already holds the card keeps it as the store read it. Any other listing,
-        whose filter the store cannot judge, is read again when next needed."""
-        kept = {"", CONST_ROADMAP_OPEN_ITEMS_FILTER} if is_open else {""}
-        self._listings = {
-            query: listing if any(listed.id == card.id for listed in listing) else [*listing, card]
-            for query, listing in self._listings.items()
-            if query in kept
-        }
-
-    def _write(self, args: list[str], action: str) -> str:
-        proc = self._run(args)
+    def _write(self, args: list[str], action: str, *, input: str | None = None) -> str:
+        proc = self._run(args, input=input)
         if proc.returncode != 0:
             raise self._failure(proc, action, "roadmap.write")
         return proc.stdout or ""
 
     # ── Reads ──
 
-    def _require_board(self) -> tuple[str, int]:
-        if self._board is None:
-            raise GitHubOperationError(
-                f"No board is configured for {self._repo}, so its Items cannot be read or written.",
-                operation="roadmap.board",
-                details={"repo": self._repo[:256]},
-            )
-        return self._board
-
-    def _read_board_listing(self, board_filter: str | None = None) -> list[_BoardItemPayload]:
-        """The board's items that `board_filter`, or the job's filter, selects, archived ones
-        left out: read the first time the store needs that filter, and kept for its life."""
-        query = self._board_filter if board_filter is None else board_filter
-        if query not in self._listings:
-            self._listings[query] = self._fetch_board_listing(query)
-        return self._listings[query]
-
-    def _fetch_board_listing(self, query: str) -> list[_BoardItemPayload]:
-        """One read of the items `query` selects, refusing before any page when the budget cannot
-        cover the read and raising on a short read. A count that changes during the read is read
-        again once."""
-        owner, number = self._require_board()
-        texts = MESSAGES.roadmap
-        what = (
-            texts.board_items_filtered.format(number=number, query=query)
-            if query
-            else texts.board_items.format(number=number)
-        )
-        probe = self._read(board_budget_args(owner, number, query), _BOARD_BUDGET, what)
-        self._note_budget(probe.rate_limit)
-        require_budget(
-            probe.rate_limit, read_cost(probe.items.total_count, self._page_points), what
-        )
-        counts: list[int] = []
-        for attempt in range(2):
-            listing, totals = self._read_board_pages(owner, number, query, what)
-            counts.extend(totals)
-            if set(totals) == {len(listing)}:
-                return self._validate(json.dumps(listing), _BOARD_ITEMS, what)
-            if attempt == 0:
-                logger.info(texts.board_reread.format(what=what, counts=_counts(totals, listing)))
-        if len(set(counts)) == 1:
-            self._require_whole(len(listing), counts[0], what)
-        raise GitHubOperationError(
-            texts.board_count_changed.format(what=what, counts=_counts(counts, listing)),
-            operation="roadmap.read",
-            details={"repo": self._repo[:256], "counts": counts[:16]},
-        )
-
-    def _read_board_pages(
-        self, owner: str, number: int, query: str, what: str
-    ) -> tuple[list[dict[str, Any]], list[int]]:
-        """Every page of one read, each item once by its id, and the total each page reported.
-
-        Before each page after the first, a read with fewer points left than the floor stops.
-        """
-        listing: dict[str, dict[str, Any]] = {}
-        totals: list[int] = []
-        after: str | None = None
-        for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
-            if page > 1 and self._last_budget is not None:
-                require_floor(self._last_budget, what, page)
-            read = self._read(
-                board_items_args(owner, number, query, after=after),
-                _BOARD_PAGE,
-                f"{what} (page {page})",
-            )
-            self._note_budget(read.rate_limit)
-            self._page_points = max(self._page_points, read.rate_limit.cost)
-            totals.append(read.items.total_count)
-            listing.update((entry["id"], entry) for entry in read.listed())
-            after = read.next_cursor()
-            if after is None:
-                return list(listing.values()), totals
-        raise GitHubOperationError(
-            f"The {what} run past {DEFAULT_GH_MAX_PAGINATED_PAGES} pages, so the read cannot "
-            "complete.",
-            operation="roadmap.read",
-            details={"repo": self._repo[:256], "read": what[:256]},
-        )
-
-    def _note_budget(self, budget: GraphQLBudget) -> None:
-        """Keep the first and last GraphQL budgets a response reported."""
-        self._first_budget = self._first_budget or budget
-        self._last_budget = budget
-
-    def graphql_spend(self, *, read: bool = True) -> GraphQLSpend | None:
-        """The GraphQL points this store's run spent and the points left, read from GraphQL;
-        None, with no request sent, when the store has sent no GraphQL request (#1400). With
-        `read` False, as after a budget refusal, the spend runs to the last budget a response
-        reported, and no request is sent; None when no response reported one."""
-        if not self._sent_graphql:
-            return None
-        if not read:
-            last = self._last_budget
-            return None if last is None else spend_between(self._first_budget or last, last)
-        budget = self._read(graphql_budget_args(), _GRAPHQL_BUDGET, "the GraphQL budget")
-        self._note_budget(budget.rate_limit)
-        return spend_between(self._first_budget or budget.rate_limit, budget.rate_limit)
-
-    def _read_board(self, board_filter: str | None = None) -> dict[int, BoardEntry]:
-        """The board's issues of this repository that the filter selects, by number."""
-        items = self._read_board_listing(board_filter)
-        return {
-            item.content_number: item.entry()
-            for item in items
-            if item.is_issue_of(self._repo) and item.content_number is not None
-        }
+    def _every_issue(self) -> list[IssueRecord]:
+        """Every issue and pull request, read the first time the store needs them."""
+        if self._all is None:
+            self._all = {issue.number: issue for issue in self._read_issues("state=all")}
+        return list(self._all.values())
 
     def _read_or_none[PayloadT](
         self,
@@ -1395,31 +741,6 @@ class GitHubRoadmapStore(RoadmapStore):
         if gh_http_status(proc.stderr or "") in absent:
             return None
         raise self._failure(proc, f"read {what}", "roadmap.read")
-
-    def _read_schema(self) -> _BoardSchema:
-        """The configured board's node id and fields through GraphQL, which alone gives option
-        colors and descriptions, read the first time a store needs them."""
-        if self._schema is None:
-            owner, number = self._require_board()
-            payload = self._read(
-                board_fields_args(owner, number), _BOARD_FIELDS, f"board #{number} fields"
-            )
-            connection = payload.fields
-            self._require_whole(len(connection.nodes), connection.total_count, "board fields")
-            self._schema = _BoardSchema(
-                board_id=payload.board_id, fields=tuple(node.field() for node in connection.nodes)
-            )
-        return self._schema
-
-    def _graphql(self, request: str, action: str) -> str:
-        """Send a GraphQL write, its request on stdin."""
-        proc = self._run(list(GRAPHQL_INPUT_ARGS), input=request)
-        if proc.returncode != 0:
-            raise self._failure(proc, action, "roadmap.write")
-        return proc.stdout or ""
-
-    def _read_issue(self, number: int) -> _IssuePayload:
-        return self._read(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
 
     def _read_issues(self, query: str) -> list[IssueRecord]:
         issues = self._listing(issues_endpoint(self._repo, query), _ISSUE, "issues")
@@ -1493,7 +814,6 @@ class GitHubRoadmapStore(RoadmapStore):
             )
 
     def _run(self, args: list[str], input: str | None = None) -> subprocess.CompletedProcess[str]:
-        self._sent_graphql = self._sent_graphql or gh_request_resource(args) == "graphql"
         return self._runner(args, input=input, check=False, quiet=True, use_cache=False)
 
     def _failure(
@@ -1503,14 +823,9 @@ class GitHubRoadmapStore(RoadmapStore):
         stderr, such as `GitHubRateLimitError`, else a failure to do `action`. gh's stdout holds
         GitHub's answer, possibly partial data with item titles, and is never classified."""
         output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
-        stderr = proc.stderr or ""
-        classified = classify_gh_failure(stderr, exit_code=proc.returncode, operation=operation)
-        if classified is not None and is_gh_owner_lookup_failure(stderr):
-            # The store's `--owner <login>` commands have no `@me` fallback (#983).
-            failed = f"Could not {action} in {self._repo}"
-            return owner_lookup_failure(
-                classified, read=self._run, failed=failed, operation=operation
-            )
+        classified = classify_gh_failure(
+            proc.stderr or "", exit_code=proc.returncode, operation=operation
+        )
         return classified or GitHubOperationError(
             f"Could not {action} in {self._repo} (exit {proc.returncode}): {output[:256]}",
             operation=operation,
@@ -1518,53 +833,21 @@ class GitHubRoadmapStore(RoadmapStore):
         )
 
 
-def _change(board_field: BoardField, value: str | None) -> list[str]:
-    """The `item-edit` flags that write `value` to `board_field`: its text for a text field,
-    the option's id for a single-select one, and a clear for None."""
-    if value is None:
-        return ["--clear"]
-    if not board_field.single_select:
-        return ["--text", value]
-    found = next((o.id for o in board_field.options if o.name == value and o.id), None)
-    if found is None:
-        raise GitHubOperationError(
-            f"The board's {board_field.name} field has no option {value[:64]!r} to write.",
-            operation="roadmap.write",
-            details={"field": board_field.name[:256], "value": value[:256]},
-        )
-    return ["--single-select-option-id", found]
-
-
-def _counts(totals: Sequence[int], listing: Sequence[object]) -> str:
-    """The totals a read saw, then what it received."""
-    return ", ".join(str(total) for total in totals) + f"; received {len(listing)}"
-
-
 __all__ = [
-    "GRAPHQL_INPUT_ARGS",
-    "FieldListingPayload",
     "GhRunner",
     "GitHubRoadmapStore",
     "ListingSession",
     "advisory_args",
-    "board_fields_args",
-    "board_query_args",
-    "card_edit_args",
     "closures_args",
     "comment_args",
     "comments_endpoint",
     "commit_args",
     "create_issue_args",
-    "decode_job_record",
-    "encode_job_record",
-    "field_list_args",
-    "graphql_request",
     "is_private_args",
     "issue_args",
+    "issue_edit",
+    "issue_edit_args",
     "issues_endpoint",
-    "item_add_args",
-    "item_edit_args",
-    "item_unarchive_args",
     "label_args",
     "listing_path",
     "milestone_edit_args",
@@ -1574,5 +857,4 @@ __all__ = [
     "repository_issue_events_endpoint",
     "repository_query_args",
     "workflow_run_args",
-    "write_issue_body_args",
 ]

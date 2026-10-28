@@ -27,7 +27,7 @@ prSections:
 issuesSections:
   # The first filter is the filter of the "Triage & Quality Table" view of the project board.
   - title: Triage and quality
-    filters: is:open label:status/triage,status/blocked,type/bug
+    filters: is:open label:status/new,status/blocked,type/bug
   - title: P0 and P1
     filters: is:open label:priority/p0-critical,priority/p1-high
   - title: No milestone

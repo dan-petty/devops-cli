@@ -4,7 +4,7 @@ Provides analysis and aggregations for:
 - Release frequency and cadence (intervals in days between releases).
 - Commits and merged pull requests per release.
 - CI quality gate checks and workflow run pass rates.
-- Project board items counted by milestone, state, type and priority.
+- Roadmap Items counted by milestone, state, type and priority.
 - Open issues grouped by taxonomy label (type, scope).
 - OpenTelemetry instrumentation for Prometheus export and Grafana visualization.
 """
@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from devops_cli.config.constants import CONST_ROADMAP_TYPE_LABEL_PREFIX
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.github.client import GhCliClient, parse_paginated_json
-from devops_cli.roadmap.config import open_roadmap
+from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.store import RoadmapStore
 from devops_cli.telemetry.instruments import (
     PROJECT_CI_RUNS,
@@ -85,9 +85,10 @@ class MilestoneMetric(BaseModel):
 
 
 class ItemCountMetric(BaseModel):
-    """The project board items that share a milestone, a state, a type and a priority.
+    """The roadmap Items that share a milestone, a state, a type and a priority.
 
-    A value is empty when the item has none: no milestone, no `type/*` label or no Priority.
+    A value is empty when the Item has none: no milestone or no `type/*` label. Every Item holds
+    a Priority.
     """
 
     milestone: str = ""
@@ -399,8 +400,9 @@ def _item_type(labels: Iterable[str]) -> str:
 def get_item_metrics(
     store: RoadmapStore, milestone_filter: str | None = None
 ) -> list[ItemCountMetric]:
-    """Count the items of the board of `store`, open and closed, by milestone, state, type and
-    priority (#2263). Raises when the board cannot be read, so a failed read is no empty board."""
+    """Count the Items of `store`, open and closed, by milestone, state, type and priority
+    (#2263): the issues that hold a `priority/*` label. Raises when the issues cannot be read,
+    so a failed read is no empty roadmap."""
     counts = Counter(
         (item.milestone or "", item.state.value, _item_type(item.labels), item.priority or "")
         for item in store.items()
@@ -548,12 +550,11 @@ def collect_project_metrics_report(
     milestone_filter: str | None = None,
     store: RoadmapStore | None = None,
 ) -> ProjectMetricsReport:
-    """Aggregate complete project metrics across releases, CI checks, milestones, and the items
-    of the project board.
+    """Aggregate complete project metrics across releases, CI checks, milestones, and the
+    roadmap's Items.
 
-    The items are read through `store`, the roadmap store on the board; without one, through
-    the board that `.github/roadmap.toml` of the repository names. A board that cannot be read
-    raises.
+    The Items are read through `store`, the roadmap store of the job; without one, through the
+    roadmap store of the repository. Issues that cannot be read raise.
 
     The releases are the `v*` tags of the git repository at `root`, taken as it is, so a clone
     nested in another checkout, as the roadmap jobs keep under the data directory, reports its
@@ -564,8 +565,8 @@ def collect_project_metrics_report(
     target_repo = repo or get_repo_origin_name(project_root) or "repository"
     now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    board = store if store is not None else open_roadmap(target_repo, ref=None)[1]
-    items = get_item_metrics(board, milestone_filter=milestone_filter)
+    roadmap = store if store is not None else roadmap_store.get_roadmap_store(target_repo)
+    items = get_item_metrics(roadmap, milestone_filter=milestone_filter)
     releases = get_release_cadence_metrics(project_root, limit=release_limit)
     workflow_runs = get_ci_workflow_metrics(target_repo, limit=ci_limit)
     milestones = get_milestone_metrics(target_repo, milestone_filter=milestone_filter)

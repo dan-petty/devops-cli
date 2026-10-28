@@ -957,12 +957,9 @@ class PRMessages:
     grounding_closes_closed_issue: str = (
         "PR #{number} is not grounded: it closes #{issue}, which is not open."
     )
-    grounding_board_unread: str = (
-        "PR #{number} is not grounded: the roadmap board in {path} could not be read ({error})."
-    )
-    grounding_issue_off_board: str = (
-        "PR #{number} is not grounded: #{issue} is not on the roadmap board, project {board}. "
-        "File new work with devops roadmap intake, which puts it on the board."
+    grounding_issue_not_item: str = (
+        "PR #{number} is not grounded: #{issue} is not a roadmap item: it holds no priority "
+        "label. Run devops roadmap intake on it."
     )
     grounding_change_not_archived: str = (
         "PR #{number} is not grounded: it adds no {folder} for #{issue}. Archive the change in"
@@ -1565,41 +1562,16 @@ class RoadmapMessages:
         "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
         "so the read of {what} stopped before page {page}. Run it again after {reset}."
     )
-    graphql_budget_write_floor: str = (
-        "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
-        "so the run stopped before writing {what}. Run it again after {reset}."
+    item_changed: str = (
+        "{item}'s {field} is {now} on GitHub but was {read} when this run read it, so someone "
+        "changed it since and the run stopped before writing it. Nothing was written; the next "
+        "run reads the issue again and plans with that change."
     )
-    card_changed: str = (
-        "{card}'s {field} is {now} on the board but was {read} when this run read it, so "
-        "someone changed it since and the run stopped before writing it. Nothing was written; "
-        "the next run reads the board again and plans with that change."
-    )
-    card_value_unset: str = "unset"
-    board_count_changed: str = (
-        "The {what} changed while they were read ({counts}), and again on a second read, so "
-        "the read is incomplete. Run it again once the board is still."
-    )
-    board_items: str = "board #{number} items"
-    board_items_filtered: str = 'board #{number} items matching "{query}"'
-    board_reread: str = "The {what} changed while they were read ({counts}); reading them again."
-    graphql_spend: str = "GraphQL: {spent} points spent, {remaining} left until {reset}."
-    graphql_spend_since_reset: str = (
-        "GraphQL: {spent} points spent since the hourly reset during the run, {remaining} left "
-        "until {reset}."
-    )
-    # The line each Service round that sent GraphQL ends with (#1400). The points are the
-    # machine account's, which every repository's rounds share.
-    graphql_round_spend: str = (
-        "{repo}: GraphQL, {spent} of the account's points spent during the round, {remaining} "
-        "left until {reset}."
-    )
-    graphql_round_spend_since_reset: str = (
-        "{repo}: GraphQL, {spent} of the account's points spent since the hourly reset during "
-        "the round, {remaining} left until {reset}."
-    )
-    graphql_round_spend_unread: str = (
-        "{repo}: could not read the GraphQL budget after the round, so it has no spend line: "
-        "{kind}: {error}"
+    item_value_unset: str = "unset"
+    field_value_unknown: str = "{value!r} is not a {field} value; the values are {values}."
+    record_unreadable: str = (
+        "The job record block of {issue} holds no JSON object of text values, so it reads as "
+        "empty, and the next write of its record replaces it."
     )
     # Every comment refine posts starts with its marker (#1758), so a later round finds a reply.
     refine_ready_comment: str = (
@@ -1676,26 +1648,17 @@ class RoadmapMessages:
     plan_dry_run_writes: str = "With --confirm, after the reads and before the last request:"
     plan_dry_run_title: str = "# devops roadmap {job} for {repo}"
     plan_dry_run_notes: tuple[str, ...] = (
-        "A board read whose count changes while it is read reads it once more, from its first "
-        "page. Pacing a request, whether gh runs it or the GitHub session sends it, may read "
-        "`gh api rate_limit`; that read costs no quota. A board command whose owner lookup gh "
-        "could not finish reads GraphQL's budget once, for about one point.",
+        "Pacing a request, whether gh runs it or the GitHub session sends it, may read "
+        "`gh api rate_limit`; that read costs no quota.",
     )
     plan_modes_exclusive: str = "Pass one of {modes}, not more."
     plan_repeat_page: str = "per page, while GitHub links a next one"
-    plan_repeat_board_page: str = "per page after the first, while GraphQL reports a next page"
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
-            "board": "<board>",
-            "cursor": "<cursor>",
             "number": "<number>",
             "milestone": "<milestone>",
-            "url": "<issue url>",
-            "record": "<job record>",
-            "board_id": "<board id>",
-            "field_id": "<field id>",
-            "card_id": "<card id>",
-            "option_id": "<option id>",
+            "labels": "<the labels, the field's family replaced>",
+            "record": "<the body, its job record block written>",
             "comment": "<comment>",
             "title": "<title>",
             "body": "<body>",
@@ -1714,45 +1677,29 @@ class RoadmapMessages:
             "file": "{path} at {ref}",
             "milestones": "every milestone",
             "issues": "the issues ({query})",
-            "board_budget": (
-                "GraphQL's points left and the total of board {board}'s items{matching}; the "
-                "read stops here when the points cannot cover it"
-            ),
-            "board_first": "the first page of board {board}'s items{matching}",
-            "board_page": "the next page of board {board}'s items{matching}",
-            "fields": "board {board}'s node id and fields, with their options",
-            "card": (
-                "the card of {subject}: its fields, its job record and GraphQL's points left; a "
-                "write stops here when the points are below the reserve, or when someone changed "
-                "the field it writes since the run read it"
-            ),
             "comments": "the comments on {subject}",
             "issue": "{subject}",
+            "issue_now": (
+                "{subject} as it is now: its labels and its job record; a write stops here when "
+                "someone changed the field it writes since the run read it"
+            ),
             "closures": "the closes and reopens on {subject}'s timeline",
             "advisory": "the advisory {subject} cites",
             "workflow_run": "the workflow run {subject} cites",
             "commit": "the commit {subject} cites",
             "path_change": "the newest commit on the default branch that changed {subject}",
-            "record": "the job record of {subject}",
-            "set_field": "set {field} on {subject}",
+            "record": "the job record of {subject}, in its body",
+            "set_field": "set {field} on {subject}: its labels and its job record, in one write",
+            "body": "the body of {subject}, its job record kept",
             "comment": "comment on {subject}",
             "label": "label {subject}",
-            "add_item": "add {subject} to board {board}",
-            "unarchive_card": "restore {subject}'s archived card on board {board}",
             "create_issue": "open an issue for {subject}",
-            "budget": "GraphQL's points spent and left, for the run's last line",
         }
     )
     plan_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "posted": "the change posts a comment",
-            "board_unread": (
-                "the run has not read these items of the board since it began or last closed an "
-                "issue"
-            ),
-            "fields_unread": "the run has not read the board's fields yet",
-            "card_archived": "the card the add names is archived",
-            "done": "the run is done and sent a GraphQL request: it comes after any write",
+            "issues_unread": "the run has not read every issue yet",
             "still_waiting": "no comment follows refine's last comment on the waiting item",
         }
     )
@@ -1767,12 +1714,11 @@ class RoadmapMessages:
     )
     # `devops roadmap intake` (#742).
     intake_title: str = "# Intake for {repo}"
-    intake_nothing: str = "No candidates and no unfinished items."
+    intake_nothing: str = "No candidates."
     intake_issue: str = "#{number} {title}"
     intake_new: str = 'new candidate "{title}"'
     intake_not_candidate: str = (
-        "- #{number}: neither an open issue off the board nor an unfinished item, so intake "
-        "leaves it alone."
+        "- #{number}: not an open issue with no Priority, so intake leaves it alone."
     )
     intake_place_line: str = (
         "- {subject}: {type}, {priority}, Value {value}, Effort {effort}; {placement}"
@@ -1793,23 +1739,22 @@ class RoadmapMessages:
     intake_write_file: str = "file the issue with {labels}"
     intake_no_labels: str = "no labels"
     intake_write_label: str = "label {label}"
-    intake_write_add: str = "add to the board"
     intake_write_field: str = "{field} {value}"
     intake_write_comment: str = "reason comment"
     intake_placement_backlog: str = "to the backlog: {reason}"
     intake_placement_kept: str = "kept in milestone {milestone}: {reason}"
     intake_reason_backlog: str = (
-        "intake puts every new item in the backlog. A person plans the milestones on the board."
+        "intake puts every new item in the backlog. A person plans the milestones."
     )
     intake_reason_person: str = "a person placed it in {milestone}, and that placement stands."
-    intake_reason_resumed: str = "it was already in {milestone}."
     intake_comment: str = "{marker}\nIntake placed this item {placement}\n\n{fields}"
     intake_comment_field: str = "- {field}: {value}. {reason}"
     intake_p0_granted: str = (
         "P0: the {kind} {value} is evidence GitHub confirms, from a trusted source."
     )
     intake_p0_refused: str = (
-        "The {kind} {value} does not set P0: {why}. A person can set P0 on the board."
+        "The {kind} {value} does not set P0: {why}. A person can set P0 with the label "
+        "priority/p0-critical."
     )
     intake_why_not_verbatim: str = "it does not appear in the candidate's text"
     intake_why_untrusted: str = (
@@ -1860,21 +1805,16 @@ class RoadmapMessages:
         "when it holds."
     )
     intake_dry_run_writes: str = (
-        "With --confirm, after the reads and before the last request, for each candidate "
-        "intake places or closes as a duplicate:"
+        "With --confirm, after the reads, for each candidate intake places:"
     )
     intake_request_read: str = "read"
     intake_request_write: str = "write"
-    intake_repeat_candidate: str = (
-        "for each candidate: an open issue off the board or an item without a Priority"
-    )
+    intake_repeat_candidate: str = "for each candidate: an open issue with no Priority"
     intake_repeat_limited: str = (
-        "for each of the {limit} oldest candidates: an open issue off the board or an item "
-        "without a Priority"
+        "for each of the {limit} oldest candidates: an open issue with no Priority"
     )
     intake_left: str = "Left for a later run, beyond the limit of {limit}: {left}."
     intake_placeholder_default_branch: str = "the default branch"
-    intake_placeholder_board: str = "<the board .github/roadmap.toml names>"
     intake_placeholder_each: str = "<the candidate>"
     intake_placeholder_filed: str = "<the filed issue>"
     intake_placeholder_fields: tuple[str, ...] = (
@@ -1884,18 +1824,17 @@ class RoadmapMessages:
     )
     intake_requests: dict[str, str] = field(
         default_factory=lambda: {
-            "config": ".github/roadmap.toml at {ref}, which names the board",
-            "issues": "every issue, open and closed",
-            "board": "the items on board {board}, a page of GraphQL at a time",
-            "board_issues": "every issue again, to join the board's items",
+            "issues": (
+                "every issue, open and closed, with its labels and job record: the candidates "
+                "and the items"
+            ),
             "closures": "the closes and reopens on {subject}'s timeline",
             "embed": (
-                "every item, every issue closed as not planned and each candidate off the "
-                "board, in one call"
+                "every item, every issue closed as not planned and each candidate, in one call"
             ),
             "embed_new": (
                 "every item, every issue closed as not planned, the open source/agent issues "
-                "off the board and the new candidate, in one call"
+                "with no Priority and the new candidate, in one call"
             ),
             "labels": ".github/labels.yml at {ref}, for the type/* labels, once",
             "propose": "the proposal for {subject}",
@@ -1903,28 +1842,25 @@ class RoadmapMessages:
             "comments": "the comments on {subject}, for intake's marker",
             "file": "file {subject}, with source/agent when an agent files it",
             "label": "label {subject} with its type/* label when it has none",
-            "add": "read {subject}, add it to board {board}, then read the card the add names",
             "field": (
-                "set {field} on {subject}: the board's fields once a run, its card, the job "
-                "record, then the field"
+                "set {field} on {subject}: read the issue, then write its labels and its job "
+                "record in one request"
             ),
             "comment": "the reason comment on {subject}",
             "priority": (
-                "set Priority <the proposed Priority> on {subject}: the board's fields once a "
-                "run, its card, the job record, then the field"
+                "set Priority <the proposed Priority> on {subject}: read the issue, then write "
+                "its labels and its job record in one request"
             ),
         }
     )
     intake_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "candidate": "the run has a candidate",
-            "closures": "{subject} is not on the board",
-            "embed": "a candidate is off the board",
+            "embed": "the run has a candidate",
             "evidence": "the model cites any",
             "comments": "{subject} is placed",
-            "file": "no open issue that is not finished holds its title and body",
+            "file": "no open issue with no Priority holds its title and body",
             "placed": "intake places {subject}",
-            "add": "it is not on the board",
             "field": "it has none",
             "comment": "intake's is not there",
             "priority": "it has none",
@@ -1932,11 +1868,6 @@ class RoadmapMessages:
     )
     intake_applied: str = "Intake placed {placed} item(s)."
     intake_filed: str = "Filed #{number}."
-    intake_finished: str = (
-        "#{number}'s card holds a Priority, so it was already placed: the add restored the "
-        "card if a person had archived it, and intake wrote nothing else to it."
-    )
-    intake_skipped_fields: str = "Intake skipped fields for #{number}: {fields}."
     intake_skipped: str = (
         "Intake skipped {name}: its writes failed, and the next run tries it again: {error}"
     )
@@ -1946,15 +1877,8 @@ class RoadmapMessages:
     )
     intake_failed_item: str = "{name} ({error})"
     intake_failed_new: str = '"{title}"'
-    triage_no_board: str = (
-        "This repository has no .github/roadmap.toml, so issues awaiting intake are not reported."
-    )
     triage_awaiting_intake: str = (
         "Issues awaiting intake get their type and Priority from `devops roadmap intake`."
-    )
-    triage_priority_not_checked: str = (
-        "Priority is not checked: this repository has no roadmap board, so an issue has no "
-        "Priority until intake gives it one."
     )
     intake_title_needs_body: str = "Pass --title and --body-file together."
     intake_secret: str = (
@@ -2014,10 +1938,6 @@ class ProjectMessages:
         "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve"
     )
     stop_write_failed: str = "the write of {field} on {item} failed: {error}"
-    awaiting_intake: tuple[str, str] = (
-        "{count} open issue is not on the board (awaiting intake: devops roadmap intake).",
-        "{count} open issues are not on the board (awaiting intake: devops roadmap intake).",
-    )
     dry_run_title: str = "# devops gh project reconcile for {repo}"
     dry_run_notes: tuple[str, ...] = (
         "run_gh may read `gh api rate_limit` to pace a request; that read costs no quota.",
@@ -2056,6 +1976,7 @@ class ProjectMessages:
             "login_unread": ", and the login was not read earlier in the run",
         }
     )
+    request_repeat_page: str = "per page after the first, while GraphQL reports a next page"
     request_repeat_edit: str = (
         "for each planned change, in order, until {limit} are made, GraphQL keeps fewer than "
         "{floor} points, or a write fails"
