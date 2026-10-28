@@ -23,7 +23,9 @@ class EngineContainer(Protocol):
     """A container, as `containers.get`, `containers.create` and `containers.list` return it.
 
     `start`, `wait`, `logs`, `stats` and `remove` take the keywords of the SDK's low-level calls
-    of the same name; `logs` and `stats` give a stream with `stream=True`.
+    of the same name; `logs` and `stats` give a stream with `stream=True`. `logs` joins the frames
+    of stdout and stderr, so `devops_cli.docker.engine.container_log_frames` reads a log that keeps
+    them apart through `EngineApi.get`.
     """
 
     attrs: dict[str, Any]
@@ -150,7 +152,20 @@ class EngineVolumes(Protocol):
 
 
 class EngineApi(Protocol):
-    """`DockerClient.api`: the low-level calls that take a container ID and no model."""
+    """`DockerClient.api`: the low-level calls that take a container ID and no model.
+
+    It is also the `requests.Session` that sends the SDK's requests to the engine: `get` takes
+    the keywords of `requests.Session.get`, `base_url` and `api_version` give the start of each
+    Engine API URL, and `timeout` is the client's timeout in seconds.
+    """
+
+    base_url: str
+    timeout: int
+
+    @property
+    def api_version(self) -> str: ...
+
+    def get(self, url: str, **kwargs: Any) -> Any: ...
 
     def stop(self, container: str, timeout: int | None = None) -> None: ...
 

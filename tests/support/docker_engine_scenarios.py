@@ -15,8 +15,9 @@ object a scenario makes is named with `PREFIX`, so the recording keeps those and
 
 from __future__ import annotations
 
+import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -34,6 +35,8 @@ IMAGE = "alpine:3"
 EXIT_NAME = f"{PREFIX}-exit"
 EXIT_COMMAND = ["sh", "-c", "echo hello; echo oops >&2; exit 2"]
 RUN_NAME = f"{PREFIX}-run"
+LOG_NAME = f"{PREFIX}-logs"
+TTY_NAME = f"{PREFIX}-tty"
 EXEC_COMMAND = ["sh", "-c", "echo hi; exit 3"]
 NETWORK_NAME = f"{PREFIX}-net"
 VOLUME_NAME = f"{PREFIX}-vol"
@@ -44,6 +47,8 @@ STATS_SECTIONS = frozenset({"cpu_stats", "precpu_stats", "memory_stats", "pids_s
 # The sections of `GET /system/df` that the service and the dashboard read.
 DISK_SECTIONS = frozenset({"LayersSize", "Images", "Containers", "Volumes", "BuildCache"})
 _DOCKERFILE = f"FROM {IMAGE}\nLABEL devops.contract=build\n"
+# The RFC 3339 time and the space that the engine puts before each line of a timestamped log.
+_LOG_TIME = re.compile(rb"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z ")
 
 
 def _refusal(call: Callable[[], Any]) -> tuple[str, int | None, str]:
@@ -96,6 +101,49 @@ def container_runs_to_exit(client: EngineClient) -> tuple[Any, ...]:
         listed,
         found,
         _refusal(lambda: client.containers.get(container.id))[:2],
+    )
+
+
+def _stream_lines(frames: Iterable[tuple[bytes | None, bytes | None]]) -> list[tuple[str, bytes]]:
+    """The lines of each stream of `(stdout, stderr)` frames, without their line ends, sorted.
+
+    The order of the lines of two pipes can differ from run to run, so the bytes of each stream are
+    joined, split at each line end (a TTY ends a line with CR LF) and compared as a sorted list.
+    """
+    written: dict[str, bytes] = {"stdout": b"", "stderr": b""}
+    for out, err in frames:
+        written["stdout"] += out or b""
+        written["stderr"] += err or b""
+    return sorted((stream, line) for stream, data in written.items() for line in data.splitlines())
+
+
+def log_frames_keep_their_stream(client: EngineClient) -> tuple[Any, ...]:
+    """A container's log read as frames keeps each line's stream, with tail, timestamps and follow;
+    a container with a TTY gives every line on stdout; the log of a removed container is refused."""
+    # Imported here: the fail-to-pass replay loads this plugin on a base without the function.
+    from devops_cli.docker.engine import container_log_frames
+
+    piped = client.containers.create(IMAGE, EXIT_COMMAND, name=LOG_NAME)
+    tty = client.containers.create(IMAGE, EXIT_COMMAND, name=TTY_NAME, tty=True)
+    for container in (piped, tty):
+        container.start()
+        container.wait(timeout=30)
+    every = _stream_lines(container_log_frames(client, piped))
+    last = _stream_lines(container_log_frames(client, piped, tail=1))
+    stamped = _stream_lines(container_log_frames(client, piped, timestamps=True))
+    followed = _stream_lines(container_log_frames(client, piped, follow=True))
+    in_tty = _stream_lines(container_log_frames(client, tty))
+    for container in (piped, tty):
+        client.api.remove_container(container.id, force=True)
+    gone = _refusal(lambda: container_log_frames(client, piped))[:2]
+    return (
+        every,
+        len(last),
+        all(_LOG_TIME.match(line) for _, line in stamped),
+        sorted((stream, _LOG_TIME.sub(b"", line)) for stream, line in stamped),
+        followed,
+        in_tty,
+        gone,
     )
 
 
@@ -204,6 +252,11 @@ def _seed_exit(fake: DockerEngineFake) -> None:
     fake.script_run(EXIT_NAME, stdout=b"hello\n", stderr=b"oops\n", exit_code=2)
 
 
+def _seed_logs(fake: DockerEngineFake) -> None:
+    for name in (LOG_NAME, TTY_NAME):
+        fake.script_run(name, stdout=b"hello\n", stderr=b"oops\n", exit_code=2)
+
+
 def _seed_exec(fake: DockerEngineFake) -> None:
     fake.script_exec(RUN_NAME, EXEC_COMMAND, exit_code=3, output=b"hi\n")
 
@@ -247,6 +300,7 @@ def _prepare_and_add_volume(real: Any) -> None:
 SCENARIOS: tuple[EngineScenario, ...] = (
     EngineScenario("daemon_facts", daemon_facts),
     EngineScenario("container_runs_to_exit", container_runs_to_exit, _seed_exit),
+    EngineScenario("log_frames_keep_their_stream", log_frames_keep_their_stream, _seed_logs),
     EngineScenario(
         "container_execs_and_reports_stats", container_execs_and_reports_stats, _seed_exec
     ),

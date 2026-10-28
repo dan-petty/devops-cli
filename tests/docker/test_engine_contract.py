@@ -7,17 +7,19 @@ recorded from Docker Engine 29.9.2 (API 1.56) on 2026-10-28 in
 a Unix socket the test binds, offline, and fails a request the recording does not hold. Both runs
 must show what each case writes out; where they differ, the fake is wrong.
 
-Covered: the daemon's ping, facts and version; a container that runs to its exit, with its logs
-by stream, its state, its listing and its removal; a running container's exec, stats stream and
-stop; the 404 of a container, a network and an image that do not exist; an internal network made,
-read, listed, refused a second time and removed; the images of a repository, the volumes and the
-disk use; each prune; a build and a push that the engine refuses. Through `DockerEngineService`,
-the service builds the SDK's own client of its endpoint and reads the same daemon facts as over
-the fake, and an engine that does not answer fails alike over both.
+Covered: the daemon's ping, facts and version; a container that runs to its exit, with its logs by
+stream, its state, its listing and its removal; a container's log read as `(stdout, stderr)` frames
+with `tail`, `timestamps` and `follow`, with a TTY, and refused once the container is removed; a
+running container's exec, stats stream and stop; the 404 of a container, a network and an image
+that do not exist; an internal network made, read, listed, refused a second time and removed; the
+images of a repository, the volumes and the disk use; each prune; a build and a push that the
+engine refuses. Through `DockerEngineService`, the service builds the SDK's own client of its
+endpoint and reads the same daemon facts as over the fake, and an engine that does not answer fails
+alike over both.
 
 Not recorded: a Podman engine, for want of one on the recording host (`set_podman` follows the
 `Components` that Podman's `/version` names); a TLS endpoint; an engine that stops in the middle
-of a session; and the `timestamps`, `since` and `until` options of `logs`, which no caller uses.
+of a session; and the `since` and `until` options of `logs`, which no caller uses.
 """
 
 from __future__ import annotations
@@ -55,6 +57,15 @@ EXPECTED: dict[str, tuple[Any, ...]] = {
         {"devops.contract": "exit"},
         ["devops-contract-exit"],
         "devops-contract-exit",
+        ("NotFound", 404),
+    ),
+    "log_frames_keep_their_stream": (
+        [("stderr", b"oops"), ("stdout", b"hello")],
+        1,
+        True,
+        [("stderr", b"oops"), ("stdout", b"hello")],
+        [("stderr", b"oops"), ("stdout", b"hello")],
+        [("stdout", b"hello"), ("stdout", b"oops")],
         ("NotFound", 404),
     ),
     "container_execs_and_reports_stats": (

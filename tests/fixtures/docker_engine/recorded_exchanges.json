@@ -1917,6 +1917,685 @@
     }
    }
   ],
+  "log_frames_keep_their_stream": [
+   {
+    "method": "GET",
+    "target": "/version",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Version": "29.9.2",
+      "ApiVersion": "1.56",
+      "MinAPIVersion": "1.40",
+      "Os": "linux",
+      "Arch": "amd64",
+      "Components": [
+       {
+        "Name": "Engine",
+        "Version": "29.9.2"
+       },
+       {
+        "Name": "containerd",
+        "Version": "v2.4.2"
+       },
+       {
+        "Name": "runc",
+        "Version": "1.5.2"
+       },
+       {
+        "Name": "docker-init",
+        "Version": "0.19.0"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/containers/create?name=devops-contract-logs",
+    "status": 201,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Id": "d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74",
+      "Warnings": []
+     }
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/json",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Id": "d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74",
+      "Created": "2026-10-28T21:45:38.793393701Z",
+      "Path": "sh",
+      "Args": [
+       "-c",
+       "echo hello; echo oops >&2; exit 2"
+      ],
+      "State": {
+       "Status": "created",
+       "Running": false,
+       "Paused": false,
+       "Restarting": false,
+       "OOMKilled": false,
+       "Dead": false,
+       "Pid": 0,
+       "ExitCode": 0,
+       "Error": "",
+       "StartedAt": "0001-01-01T00:00:00Z",
+       "FinishedAt": "0001-01-01T00:00:00Z"
+      },
+      "Image": "sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35",
+      "ResolvConfPath": "",
+      "HostnamePath": "",
+      "HostsPath": "",
+      "LogPath": "",
+      "Name": "/devops-contract-logs",
+      "RestartCount": 0,
+      "Driver": "overlayfs",
+      "Platform": "linux",
+      "MountLabel": "",
+      "ProcessLabel": "",
+      "AppArmorProfile": "",
+      "ExecIDs": null,
+      "HostConfig": {
+       "Binds": null,
+       "ContainerIDFile": "",
+       "LogConfig": {
+        "Type": "json-file",
+        "Config": {}
+       },
+       "NetworkMode": "bridge",
+       "PortBindings": {},
+       "RestartPolicy": {
+        "Name": "no",
+        "MaximumRetryCount": 0
+       },
+       "AutoRemove": false,
+       "VolumeDriver": "",
+       "VolumesFrom": null,
+       "ConsoleSize": [
+        0,
+        0
+       ],
+       "CapAdd": null,
+       "CapDrop": null,
+       "CgroupnsMode": "private",
+       "Dns": null,
+       "DnsOptions": null,
+       "DnsSearch": null,
+       "ExtraHosts": null,
+       "GroupAdd": null,
+       "IpcMode": "private",
+       "Cgroup": "",
+       "Links": null,
+       "OomScoreAdj": 0,
+       "PidMode": "",
+       "Privileged": false,
+       "PublishAllPorts": false,
+       "ReadonlyRootfs": false,
+       "SecurityOpt": null,
+       "UTSMode": "",
+       "UsernsMode": "",
+       "ShmSize": 67108864,
+       "Runtime": "runc",
+       "Isolation": "",
+       "CpuShares": 0,
+       "Memory": 0,
+       "NanoCpus": 0,
+       "CgroupParent": "",
+       "BlkioWeight": 0,
+       "BlkioWeightDevice": null,
+       "BlkioDeviceReadBps": null,
+       "BlkioDeviceWriteBps": null,
+       "BlkioDeviceReadIOps": null,
+       "BlkioDeviceWriteIOps": null,
+       "CpuPeriod": 0,
+       "CpuQuota": 0,
+       "CpuRealtimePeriod": 0,
+       "CpuRealtimeRuntime": 0,
+       "CpusetCpus": "",
+       "CpusetMems": "",
+       "Devices": null,
+       "DeviceCgroupRules": null,
+       "DeviceRequests": null,
+       "MemoryReservation": 0,
+       "MemorySwap": 0,
+       "MemorySwappiness": null,
+       "OomKillDisable": false,
+       "PidsLimit": null,
+       "Ulimits": null,
+       "CpuCount": 0,
+       "CpuPercent": 0,
+       "IOMaximumIOps": 0,
+       "IOMaximumBandwidth": 0,
+       "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware"
+       ],
+       "ReadonlyPaths": [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger"
+       ]
+      },
+      "Storage": {
+       "RootFS": {
+        "Snapshot": {
+         "Name": "overlayfs"
+        }
+       }
+      },
+      "Mounts": [],
+      "Config": {
+       "Hostname": "d3a39a258937",
+       "Domainname": "",
+       "User": "",
+       "AttachStdin": false,
+       "AttachStdout": true,
+       "AttachStderr": true,
+       "Tty": false,
+       "OpenStdin": false,
+       "StdinOnce": false,
+       "Env": [
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+       ],
+       "Cmd": [
+        "sh",
+        "-c",
+        "echo hello; echo oops >&2; exit 2"
+       ],
+       "Image": "alpine:3",
+       "Volumes": null,
+       "WorkingDir": "/",
+       "Entrypoint": null,
+       "Labels": {}
+      },
+      "NetworkSettings": {
+       "SandboxID": "",
+       "SandboxKey": "",
+       "Ports": {},
+       "Networks": {
+        "bridge": {
+         "IPAMConfig": null,
+         "Links": null,
+         "Aliases": null,
+         "DriverOpts": null,
+         "GwPriority": 0,
+         "NetworkID": "",
+         "EndpointID": "",
+         "Gateway": "",
+         "IPAddress": "",
+         "MacAddress": "",
+         "IPPrefixLen": 0,
+         "IPv6Gateway": "",
+         "GlobalIPv6Address": "",
+         "GlobalIPv6PrefixLen": 0,
+         "DNSNames": null
+        }
+       }
+      },
+      "ImageManifestDescriptor": {
+       "mediaType": "application/vnd.oci.image.manifest.v1+json",
+       "digest": "sha256:c26612752c78b18faacd63c7d50f4592c2e7b0f25e0e20e82bd74e465c57ab0d",
+       "size": 1022,
+       "annotations": {
+        "com.docker.official-images.bashbrew.arch": "amd64",
+        "org.opencontainers.image.base.name": "scratch",
+        "org.opencontainers.image.created": "2026-10-21T22:37:09Z",
+        "org.opencontainers.image.revision": "5aec467fb81238bae9441eea2edb000655d7044f",
+        "org.opencontainers.image.source": "https://github.com/alpinelinux/docker-alpine.git#5aec467fb81238bae9441eea2edb000655d7044f:x86_64",
+        "org.opencontainers.image.url": "https://hub.docker.com/_/alpine",
+        "org.opencontainers.image.version": "3.24.3"
+       },
+       "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+       }
+      }
+     }
+    }
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/containers/create?name=devops-contract-tty",
+    "status": 201,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Id": "2914e917e626d7b250a5ecc7d278dc0d1c8ee5801cedd0372cc6132237b81f39",
+      "Warnings": []
+     }
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/2914e917e626d7b250a5ecc7d278dc0d1c8ee5801cedd0372cc6132237b81f39/json",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Id": "2914e917e626d7b250a5ecc7d278dc0d1c8ee5801cedd0372cc6132237b81f39",
+      "Created": "2026-10-28T21:45:39.339663267Z",
+      "Path": "sh",
+      "Args": [
+       "-c",
+       "echo hello; echo oops >&2; exit 2"
+      ],
+      "State": {
+       "Status": "created",
+       "Running": false,
+       "Paused": false,
+       "Restarting": false,
+       "OOMKilled": false,
+       "Dead": false,
+       "Pid": 0,
+       "ExitCode": 0,
+       "Error": "",
+       "StartedAt": "0001-01-01T00:00:00Z",
+       "FinishedAt": "0001-01-01T00:00:00Z"
+      },
+      "Image": "sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35",
+      "ResolvConfPath": "",
+      "HostnamePath": "",
+      "HostsPath": "",
+      "LogPath": "",
+      "Name": "/devops-contract-tty",
+      "RestartCount": 0,
+      "Driver": "overlayfs",
+      "Platform": "linux",
+      "MountLabel": "",
+      "ProcessLabel": "",
+      "AppArmorProfile": "",
+      "ExecIDs": null,
+      "HostConfig": {
+       "Binds": null,
+       "ContainerIDFile": "",
+       "LogConfig": {
+        "Type": "json-file",
+        "Config": {}
+       },
+       "NetworkMode": "bridge",
+       "PortBindings": {},
+       "RestartPolicy": {
+        "Name": "no",
+        "MaximumRetryCount": 0
+       },
+       "AutoRemove": false,
+       "VolumeDriver": "",
+       "VolumesFrom": null,
+       "ConsoleSize": [
+        0,
+        0
+       ],
+       "CapAdd": null,
+       "CapDrop": null,
+       "CgroupnsMode": "private",
+       "Dns": null,
+       "DnsOptions": null,
+       "DnsSearch": null,
+       "ExtraHosts": null,
+       "GroupAdd": null,
+       "IpcMode": "private",
+       "Cgroup": "",
+       "Links": null,
+       "OomScoreAdj": 0,
+       "PidMode": "",
+       "Privileged": false,
+       "PublishAllPorts": false,
+       "ReadonlyRootfs": false,
+       "SecurityOpt": null,
+       "UTSMode": "",
+       "UsernsMode": "",
+       "ShmSize": 67108864,
+       "Runtime": "runc",
+       "Isolation": "",
+       "CpuShares": 0,
+       "Memory": 0,
+       "NanoCpus": 0,
+       "CgroupParent": "",
+       "BlkioWeight": 0,
+       "BlkioWeightDevice": null,
+       "BlkioDeviceReadBps": null,
+       "BlkioDeviceWriteBps": null,
+       "BlkioDeviceReadIOps": null,
+       "BlkioDeviceWriteIOps": null,
+       "CpuPeriod": 0,
+       "CpuQuota": 0,
+       "CpuRealtimePeriod": 0,
+       "CpuRealtimeRuntime": 0,
+       "CpusetCpus": "",
+       "CpusetMems": "",
+       "Devices": null,
+       "DeviceCgroupRules": null,
+       "DeviceRequests": null,
+       "MemoryReservation": 0,
+       "MemorySwap": 0,
+       "MemorySwappiness": null,
+       "OomKillDisable": false,
+       "PidsLimit": null,
+       "Ulimits": null,
+       "CpuCount": 0,
+       "CpuPercent": 0,
+       "IOMaximumIOps": 0,
+       "IOMaximumBandwidth": 0,
+       "MaskedPaths": [
+        "/proc/acpi",
+        "/proc/asound",
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/sched_debug",
+        "/proc/scsi",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/sys/devices/virtual/powercap",
+        "/sys/firmware"
+       ],
+       "ReadonlyPaths": [
+        "/proc/bus",
+        "/proc/fs",
+        "/proc/irq",
+        "/proc/sys",
+        "/proc/sysrq-trigger"
+       ]
+      },
+      "Storage": {
+       "RootFS": {
+        "Snapshot": {
+         "Name": "overlayfs"
+        }
+       }
+      },
+      "Mounts": [],
+      "Config": {
+       "Hostname": "2914e917e626",
+       "Domainname": "",
+       "User": "",
+       "AttachStdin": false,
+       "AttachStdout": true,
+       "AttachStderr": true,
+       "Tty": true,
+       "OpenStdin": false,
+       "StdinOnce": false,
+       "Env": [
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+       ],
+       "Cmd": [
+        "sh",
+        "-c",
+        "echo hello; echo oops >&2; exit 2"
+       ],
+       "Image": "alpine:3",
+       "Volumes": null,
+       "WorkingDir": "/",
+       "Entrypoint": null,
+       "Labels": {}
+      },
+      "NetworkSettings": {
+       "SandboxID": "",
+       "SandboxKey": "",
+       "Ports": {},
+       "Networks": {
+        "bridge": {
+         "IPAMConfig": null,
+         "Links": null,
+         "Aliases": null,
+         "DriverOpts": null,
+         "GwPriority": 0,
+         "NetworkID": "",
+         "EndpointID": "",
+         "Gateway": "",
+         "IPAddress": "",
+         "MacAddress": "",
+         "IPPrefixLen": 0,
+         "IPv6Gateway": "",
+         "GlobalIPv6Address": "",
+         "GlobalIPv6PrefixLen": 0,
+         "DNSNames": null
+        }
+       }
+      },
+      "ImageManifestDescriptor": {
+       "mediaType": "application/vnd.oci.image.manifest.v1+json",
+       "digest": "sha256:c26612752c78b18faacd63c7d50f4592c2e7b0f25e0e20e82bd74e465c57ab0d",
+       "size": 1022,
+       "annotations": {
+        "com.docker.official-images.bashbrew.arch": "amd64",
+        "org.opencontainers.image.base.name": "scratch",
+        "org.opencontainers.image.created": "2026-10-21T22:37:09Z",
+        "org.opencontainers.image.revision": "5aec467fb81238bae9441eea2edb000655d7044f",
+        "org.opencontainers.image.source": "https://github.com/alpinelinux/docker-alpine.git#5aec467fb81238bae9441eea2edb000655d7044f:x86_64",
+        "org.opencontainers.image.url": "https://hub.docker.com/_/alpine",
+        "org.opencontainers.image.version": "3.24.3"
+       },
+       "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+       }
+      }
+     }
+    }
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/start",
+    "status": 204,
+    "headers": {
+     "Api-Version": "1.56",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": null
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/wait",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "json",
+     "value": {
+      "StatusCode": 2
+     }
+    }
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/containers/2914e917e626d7b250a5ecc7d278dc0d1c8ee5801cedd0372cc6132237b81f39/start",
+    "status": 204,
+    "headers": {
+     "Api-Version": "1.56",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": null
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/containers/2914e917e626d7b250a5ecc7d278dc0d1c8ee5801cedd0372cc6132237b81f39/wait",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "json",
+     "value": {
+      "StatusCode": 2
+     }
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/logs?stdout=1&stderr=1&timestamps=0&follow=0&tail=all",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/vnd.docker.multiplexed-stream",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "base64",
+     "value": "AQAAAAAAAAZoZWxsbwoCAAAAAAAABW9vcHMK"
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/logs?stdout=1&stderr=1&timestamps=0&follow=0&tail=1",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/vnd.docker.multiplexed-stream",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "base64",
+     "value": "AgAAAAAAAAVvb3BzCg=="
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/logs?stdout=1&stderr=1&timestamps=1&follow=0&tail=all",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/vnd.docker.multiplexed-stream",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "base64",
+     "value": "AQAAAAAAACUyMDI2LTEwLTI4VDIxOjQ1OjM5Ljk4NDkwNjA0MFogaGVsbG8KAgAAAAAAACQyMDI2LTEwLTI4VDIxOjQ1OjM5Ljk4NTI2ODg2M1ogb29wcwo="
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/logs?stdout=1&stderr=1&timestamps=0&follow=1&tail=all",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/vnd.docker.multiplexed-stream",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "base64",
+     "value": "AQAAAAAAAAZoZWxsbwoCAAAAAAAABW9vcHMK"
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/2914e917e626d7b250a5ecc7d278dc0d1c8ee5801cedd0372cc6132237b81f39/logs?stdout=1&stderr=1&timestamps=0&follow=0&tail=all",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/vnd.docker.raw-stream",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "base64",
+     "value": "aGVsbG8NCm9vcHMNCg=="
+    }
+   },
+   {
+    "method": "DELETE",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74?v=False&link=False&force=True",
+    "status": 204,
+    "headers": {
+     "Api-Version": "1.56",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": null
+   },
+   {
+    "method": "DELETE",
+    "target": "/v1.56/containers/2914e917e626d7b250a5ecc7d278dc0d1c8ee5801cedd0372cc6132237b81f39?v=False&link=False&force=True",
+    "status": 204,
+    "headers": {
+     "Api-Version": "1.56",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": null
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/containers/d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74/logs?stdout=1&stderr=1&timestamps=0&follow=0&tail=all",
+    "status": 404,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "message": "No such container: d3a39a25893786458b4f7cdd08014d461e02bf70cc53e49eb0df16cb76bf1d74"
+     }
+    }
+   }
+  ],
   "container_execs_and_reports_stats": [
    {
     "method": "GET",

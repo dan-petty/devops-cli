@@ -20,11 +20,15 @@ reading the Engine API's recorded answers, and both must agree.
 from __future__ import annotations
 
 import hashlib
+import io
 import itertools
 import json
+import re
+import struct
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 import docker
 import pytest
@@ -54,6 +58,13 @@ _DEFAULT_NETWORKS = ("bridge", "host", "none")
 ANONYMOUS_VOLUME_LABEL = "com.docker.volume.anonymous"
 _STDOUT = "stdout"
 _STDERR = "stderr"
+# The number of each stream in the header of a multiplexed log frame, and the header's form.
+_STREAM_NUMBERS = {_STDOUT: 1, _STDERR: 2}
+_LOG_FRAME_HEADER = struct.Struct(">BxxxL")
+# The time the fake puts before each frame of a log read with `timestamps=1`, as an engine does.
+LOG_TIME = b"2026-10-28T00:00:00.000000000Z "
+# The path of the one request that `EngineApi.get` serves.
+_LOGS_PATH = re.compile(r"/v[\d.]+/containers/(?P<container>[^/]+)/logs")
 
 
 def _digest(*parts: object) -> str:
@@ -414,11 +425,50 @@ class FakeVolumes:
         return self._engine.prune_volumes()
 
 
+class _LogReply:
+    """A streamed log reply: the body as the engine sends it, read as `requests` reads it."""
+
+    def __init__(self, engine: DockerEngineFake, container_id: str, body: bytes) -> None:
+        self._engine = engine
+        self._container_id = container_id
+        self.raw = io.BytesIO(body)
+
+    def raise_for_status(self) -> None:
+        """The reply of a container that exists is `200 OK`."""
+
+    def iter_content(self, chunk_size: int | None = None) -> Iterator[bytes]:
+        """The body in chunks, as a streamed reply gives it."""
+        yield from iter(lambda: self.raw.read(chunk_size or 4096), b"")
+
+    def close(self) -> None:
+        """Close the reply."""
+        self._engine.record("logs.close", (self._container_id,))
+
+
 class FakeApi:
-    """`DockerClient.api`: the low-level calls that take a container ID."""
+    """`DockerClient.api`: the low-level calls that take a container ID, and the session that
+    sends a log read (`GET /containers/{id}/logs` with `stream=True`)."""
+
+    base_url = "http+docker://localhost"
+    timeout = 60
 
     def __init__(self, engine: DockerEngineFake) -> None:
         self._engine = engine
+
+    @property
+    def api_version(self) -> str:
+        """The Engine API version the client speaks."""
+        return ENGINE_API_VERSION
+
+    def get(self, url: str, **kwargs: Any) -> _LogReply:
+        """The streamed log of a container; the fake serves no other request of the session."""
+        self._engine.record("api.get", (url,), kwargs)
+        match = _LOGS_PATH.fullmatch(urlsplit(url).path)
+        if match is None or not kwargs.get("stream"):
+            raise NotImplementedError(f"DockerEngineFake serves no GET {url} with {kwargs}")
+        container_id = self._engine.find_container(match["container"])
+        body = self._engine.log_body(container_id, kwargs.get("params") or {})
+        return _LogReply(self._engine, container_id, body)
 
     def stop(self, container: str, timeout: int | None = None) -> None:
         """Stop a container; a running one is killed after its grace time."""
@@ -772,17 +822,47 @@ class DockerEngineFake:
             )
         return {"Error": None, "StatusCode": state["ExitCode"]}
 
+    def log_frames(
+        self, container_id: str, *, stdout: bool, stderr: bool, tail: Any
+    ) -> list[tuple[str, bytes]]:
+        """The `(stream, bytes)` frames of the selected streams of a container's log, in order.
+
+        Each scripted frame is one entry of the log, so `tail` counts frames.
+        """
+        name = self.container_state[container_id]["Name"].lstrip("/")
+        run = self.runs.get(name)
+        wanted = {stream for stream, on in ((_STDOUT, stdout), (_STDERR, stderr)) if on}
+        frames = [
+            (stream, data) for stream, data in (run.frames if run else []) if stream in wanted
+        ]
+        if isinstance(tail, int) and tail >= 0:
+            return frames[len(frames) - tail :] if tail else []
+        return frames
+
     def log_chunks(
         self, container_id: str, *, stdout: bool, stderr: bool, tail: Any
     ) -> list[bytes]:
         """The payload of each log frame of the selected streams, as the SDK reads them."""
-        name = self.container_state[container_id]["Name"].lstrip("/")
-        run = self.runs.get(name)
-        wanted = {stream for stream, on in ((_STDOUT, stdout), (_STDERR, stderr)) if on}
-        chunks = [data for stream, data in (run.frames if run else []) if stream in wanted]
-        if isinstance(tail, int) and tail >= 0:
-            return chunks[len(chunks) - tail :] if tail else []
-        return chunks
+        frames = self.log_frames(container_id, stdout=stdout, stderr=stderr, tail=tail)
+        return [data for _, data in frames]
+
+    def log_body(self, container_id: str, params: Mapping[str, Any]) -> bytes:
+        """The body of `GET /containers/{id}/logs`: the multiplexed frames that the query selects,
+        or, for a container with a TTY, their bytes with no headers."""
+        frames = self.log_frames(
+            container_id,
+            stdout=bool(params.get("stdout")),
+            stderr=bool(params.get("stderr")),
+            tail=params.get("tail", "all"),
+        )
+        if params.get("timestamps"):
+            frames = [(stream, LOG_TIME + data) for stream, data in frames]
+        if self.container_state[container_id]["Config"]["Tty"]:
+            return b"".join(data for _, data in frames)
+        return b"".join(
+            _LOG_FRAME_HEADER.pack(_STREAM_NUMBERS[stream], len(data)) + data
+            for stream, data in frames
+        )
 
     def stats_frames(self, container_id: str) -> list[dict[str, Any]]:
         """The stats frames of a container: the scripted ones, or two idle ones."""
@@ -966,6 +1046,7 @@ class DockerEngineFake:
                 "Image": image,
                 "Cmd": argv,
                 "Labels": dict(options.get("labels") or {}),
+                "Tty": bool(options.get("tty")),
             },
             "HostConfig": {"NetworkMode": str(options.get("network_mode") or "bridge")},
             "NetworkSettings": {"Ports": {}},
