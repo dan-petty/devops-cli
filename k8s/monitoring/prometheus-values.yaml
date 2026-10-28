@@ -548,6 +548,31 @@ serverFiles:
             annotations:
               summary: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} is shipping no logs"
               description: "Alloy log collector {{ $labels.pod }} on node {{ $labels.node }} has sent 0 log entries to Loki for 30 minutes."
+      # The OpenTelemetry collector's own export health (#1642), from the server's kubernetes-pods
+      # job, which scrapes the collector directly. Each send_failed counter starts at the first
+      # send that fails, and label_replace names its signal as the queue gauges do. An export
+      # failure is the collector's, and its pod can move to any node, so neither rule has `node`.
+      - name: otel-collector
+        rules:
+          - alert: OtelCollectorExportFailing
+            expr: >-
+              label_replace(sum by (exporter) (increase(otelcol_exporter_send_failed_spans[15m])) > 0, "data_type", "traces", "", "")
+              or label_replace(sum by (exporter) (increase(otelcol_exporter_send_failed_metric_points[15m])) > 0, "data_type", "metrics", "", "")
+              or label_replace(sum by (exporter) (increase(otelcol_exporter_send_failed_log_records[15m])) > 0, "data_type", "logs", "", "")
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The OpenTelemetry collector cannot send {{ $labels.data_type }} through {{ $labels.exporter }}"
+              description: "The {{ $labels.exporter }} exporter of the OpenTelemetry collector could not send {{ $value | humanize }} items ({{ $labels.data_type }}) in the last 15 minutes, and its sends also failed in the 15 minutes before. The log of the collector and the OpenTelemetry Collector dashboard name the error (k8s/README.md, Alerting)."
+          - alert: OtelCollectorExportQueueFull
+            expr: max by (exporter, data_type) (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) >= 0.9
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The {{ $labels.exporter }} queue of the OpenTelemetry collector is {{ $value | humanizePercentage }} full"
+              description: "The {{ $labels.exporter }} exporter of the OpenTelemetry collector has kept its {{ $labels.data_type }} queue at 90% or more of its capacity for 15 minutes. When the queue is full, the collector drops new {{ $labels.data_type }}. Its backend is slow or down (k8s/README.md, Alerting)."
       # Argo CD sync and health, Cloudflare Tunnel HA connectivity, Valkey cache health (#551),
       # and CoreDNS SERVFAIL rate (#822).
       - name: homelab-services

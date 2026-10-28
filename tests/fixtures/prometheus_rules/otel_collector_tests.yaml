@@ -1,0 +1,98 @@
+# promtool rule unit tests of the alert group otel-collector in
+# k8s/monitoring/prometheus-values.yaml (#1642). One rule fires when an exporter of the
+# OpenTelemetry collector fails to send in two 15-minute periods in a row, the other when an
+# exporter queue stays 90% full or more for 15 minutes. Both stay quiet on an exporter that
+# sends, on one failed send and on a queue that is not full.
+#
+# tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
+# beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. increase() over 15 one-minute samples that
+# grow by 10 each minute gives 150: promtool extrapolates the 140 between the first and last
+# sample to the 15 minutes of the range.
+rule_files:
+  - otel-collector.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: Each signal whose exporter keeps failing fires after 15 minutes; an exporter that sends does not
+    interval: 1m
+    input_series:
+      - series: 'otelcol_exporter_send_failed_spans{job="kubernetes-pods", exporter="otlp_grpc/tempo"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_send_failed_metric_points{job="kubernetes-pods", exporter="prometheus_remote_write"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_send_failed_log_records{job="kubernetes-pods", exporter="otlp_http/loki"}'
+        values: '0+10x40'
+      # An exporter whose counter counted failures before, and sends again: its increase is 0.
+      - series: 'otelcol_exporter_send_failed_spans{job="kubernetes-pods", exporter="otlp_grpc/backup"}'
+        values: '30x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OtelCollectorExportFailing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: OtelCollectorExportFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              exporter: otlp_http/loki
+              data_type: logs
+            exp_annotations:
+              summary: "The OpenTelemetry collector cannot send logs through otlp_http/loki"
+              description: "The otlp_http/loki exporter of the OpenTelemetry collector could not send 150 items (logs) in the last 15 minutes, and its sends also failed in the 15 minutes before. The log of the collector and the OpenTelemetry Collector dashboard name the error (k8s/README.md, Alerting)."
+          - exp_labels:
+              severity: warning
+              exporter: prometheus_remote_write
+              data_type: metrics
+            exp_annotations:
+              summary: "The OpenTelemetry collector cannot send metrics through prometheus_remote_write"
+              description: "The prometheus_remote_write exporter of the OpenTelemetry collector could not send 150 items (metrics) in the last 15 minutes, and its sends also failed in the 15 minutes before. The log of the collector and the OpenTelemetry Collector dashboard name the error (k8s/README.md, Alerting)."
+          - exp_labels:
+              severity: warning
+              exporter: otlp_grpc/tempo
+              data_type: traces
+            exp_annotations:
+              summary: "The OpenTelemetry collector cannot send traces through otlp_grpc/tempo"
+              description: "The otlp_grpc/tempo exporter of the OpenTelemetry collector could not send 150 items (traces) in the last 15 minutes, and its sends also failed in the 15 minutes before. The log of the collector and the OpenTelemetry Collector dashboard name the error (k8s/README.md, Alerting)."
+
+  - name: One failed send stays quiet
+    interval: 1m
+    input_series:
+      # 10 failed spans at minute 5, then none. The increase of the 15 minutes is above 0 from
+      # minute 5 to minute 18, which is shorter than the 15 minutes that the rule waits.
+      - series: 'otelcol_exporter_send_failed_spans{job="kubernetes-pods", exporter="otlp_grpc/tempo"}'
+        values: '0x4 10x35'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: OtelCollectorExportFailing
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: OtelCollectorExportFailing
+        exp_alerts: []
+
+  - name: A queue at 90% or more for 15 minutes fires; a queue under 90% does not
+    interval: 1m
+    input_series:
+      - series: 'otelcol_exporter_queue_size{job="kubernetes-pods", exporter="otlp_grpc/tempo", data_type="traces"}'
+        values: '950x30'
+      - series: 'otelcol_exporter_queue_capacity{job="kubernetes-pods", exporter="otlp_grpc/tempo", data_type="traces"}'
+        values: '1000x30'
+      - series: 'otelcol_exporter_queue_size{job="kubernetes-pods", exporter="otlp_http/loki", data_type="logs"}'
+        values: '500x30'
+      - series: 'otelcol_exporter_queue_capacity{job="kubernetes-pods", exporter="otlp_http/loki", data_type="logs"}'
+        values: '1000x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OtelCollectorExportQueueFull
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: OtelCollectorExportQueueFull
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              exporter: otlp_grpc/tempo
+              data_type: traces
+            exp_annotations:
+              summary: "The otlp_grpc/tempo queue of the OpenTelemetry collector is 95% full"
+              description: "The otlp_grpc/tempo exporter of the OpenTelemetry collector has kept its traces queue at 90% or more of its capacity for 15 minutes. When the queue is full, the collector drops new traces. Its backend is slow or down (k8s/README.md, Alerting)."

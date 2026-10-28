@@ -415,6 +415,8 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `AlloyRemoteWriteSamplesFailed` | An Alloy collector failed to remote-write samples to Prometheus | 15m | warning |
 | `AlloyLogEntriesDropped` | An Alloy collector dropped log entries on their way to Loki | 15m | warning |
 | `PodLogsNotShipped` | An `alloy-logs` pod has sent 0 log entries to Loki (`node` joined from `kube_pod_info`) | 30m | warning |
+| `OtelCollectorExportFailing` | An exporter of the OpenTelemetry collector failed to send spans, metric points or log records to Tempo, Prometheus or Loki in each of two 15-minute periods in a row; it names the exporter and the signal | 15m | warning |
+| `OtelCollectorExportQueueFull` | An exporter queue of the OpenTelemetry collector is at 90% or more of its capacity; a full queue drops new data | 15m | warning |
 | `ArgoCdApplicationOutOfSync` | An Argo CD Application's `sync_status` is not `Synced` | 15m | warning |
 | `ArgoCdApplicationUnhealthy` | An Argo CD Application's `health_status` is neither `Healthy` nor `Progressing` | 15m | warning |
 | `ArgoCdAutoSyncDisabled` | An Argo CD Application's `autosync_enabled` is `false` | 15m | warning |

@@ -61,6 +61,8 @@ ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS = (
 ROADMAP_SERVICE_ACTIVITY_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_activity_tests.yaml"
 )
+OTEL_COLLECTOR_CAPTURE = FIXTURES / "metrics" / "otel-collector.yaml"
+OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
@@ -76,6 +78,13 @@ ROADMAP_SERVICE_GROUP_TESTS = (
     (ROADMAP_SERVICE_ACTIVITY_GROUP, ROADMAP_SERVICE_ACTIVITY_RULE_TESTS),
 )
 ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
+# The rules over the OpenTelemetry collector's own telemetry (#1642).
+OTEL_COLLECTOR_GROUP = "otel-collector"
+# Each group whose rules have promtool unit tests, with the file of its tests.
+RULE_GROUP_TESTS = (
+    *ROADMAP_SERVICE_GROUP_TESTS,
+    (OTEL_COLLECTOR_GROUP, OTEL_COLLECTOR_RULE_TESTS),
+)
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -130,6 +139,13 @@ SERVED_SERIES = frozenset(
         # finds Loki's pods only where the logging stack runs.
         "loki_compactor_apply_retention_last_successful_run_timestamp_seconds",
         "loki_request_duration_seconds_count",
+        # The OpenTelemetry collector's own telemetry, scraped by the server's kubernetes-pods
+        # job (#1642). Each send_failed counter starts at the first send that fails.
+        "otelcol_exporter_queue_capacity",
+        "otelcol_exporter_queue_size",
+        "otelcol_exporter_send_failed_log_records",
+        "otelcol_exporter_send_failed_metric_points",
+        "otelcol_exporter_send_failed_spans",
         # Pyroscope, scraped through its ServiceMonitor (#1131, #1134).
         "pyroscope_request_duration_seconds_count",
         # Alertmanager, found through its pod annotations by k8s-monitoring's annotation
@@ -220,7 +236,8 @@ def test_every_alert_rule_selects_only_series_the_stack_serves() -> None:
 def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
-    the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476).
+    the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476), and the
+    OpenTelemetry collector's export rules (#1642).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -251,6 +268,8 @@ def test_the_baseline_rule_set() -> None:
         ("LokiRetentionNotRunning", "warning"),
         ("NodeNotReady", "critical"),
         ("NodeRebooted", "warning"),
+        ("OtelCollectorExportFailing", "warning"),
+        ("OtelCollectorExportQueueFull", "warning"),
         ("PersistentVolumeSpaceLow", "warning"),
         ("PodLogsNotShipped", "warning"),
         ("PrometheusCompactionsFailing", "warning"),
@@ -1013,6 +1032,31 @@ def test_the_roadmap_service_rules_read_kube_state_metrics_that_the_chart_keeps(
     assert (len(metrics), sorted(m for m in metrics if not kept.fullmatch(m))) == (3, [])
 
 
+def test_the_otel_collector_rules_warn_after_15_minutes_and_name_no_node() -> None:
+    """Both rules wait 15 minutes and warn. They carry no `node` label: a failing export is the
+    collector's, and the collector's pod can move to any node (#1642)."""
+    assert [
+        (rule["alert"], rule["labels"], rule["for"]) for rule in _group(OTEL_COLLECTOR_GROUP)
+    ] == [
+        ("OtelCollectorExportFailing", {"severity": "warning"}, "15m"),
+        ("OtelCollectorExportQueueFull", {"severity": "warning"}, "15m"),
+    ]
+
+
+def test_the_otel_collector_rules_read_families_of_the_collector_capture() -> None:
+    """Each series that the `otel-collector` group selects is a family that the deployed
+    collector printed, or one that it prints from its first event, read from its source (#1642).
+    """
+    capture = _yaml(OTEL_COLLECTOR_CAPTURE)
+    families = {**capture["families"], **capture.get("from_source", {})}
+    metrics = {
+        selector.metric or ""
+        for rule in _group(OTEL_COLLECTOR_GROUP)
+        for selector in selectors(rule["expr"])
+    }
+    assert (len(metrics), sorted(metrics - families.keys())) == (5, [])
+
+
 def _readme_section(heading: str) -> str:
     """The text of one `###` section of k8s/README.md, its subsections included."""
     text = K8S_README.read_text(encoding="utf-8")
@@ -1058,16 +1102,19 @@ def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
 
 @pytest.mark.live("promtool")
 @pytest.mark.parametrize(
-    ("group", "rule_tests"), ROADMAP_SERVICE_GROUP_TESTS, ids=ROADMAP_SERVICE_GROUPS
+    ("group", "rule_tests"),
+    RULE_GROUP_TESTS,
+    ids=[group for group, _ in RULE_GROUP_TESTS],
 )
-def test_each_roadmap_service_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series(
+def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series(
     group: str, rule_tests: Path, tmp_path: Path
 ) -> None:
-    """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472) and
-    of `roadmap-service-webhooks` (#2476) and `roadmap-service-activity` (#2475).
+    """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
+    `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475) and of
+    `otel-collector` (#1642).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
-    on a normal series, before its wait ends, and on the same series of another job.
+    on a normal series, before its wait ends, and on the series it must not count.
     """
     unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
     (rule_file,) = unit_tests["rule_files"]
