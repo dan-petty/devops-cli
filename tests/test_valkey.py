@@ -784,6 +784,41 @@ class TestValkeyCliCommands:
         assert res.exit_code == 0
         assert "Flushed Valkey database 0" in res.output
 
+    @patch("devops_cli.commands.valkey._resolve_client")
+    def test_cli_flush_all_flushes_every_database(self, mock_resolve: MagicMock) -> None:
+        mock_client = MagicMock()
+        mock_resolve.return_value = mock_client
+
+        res = runner.invoke(app, ["flush", "--all"])
+
+        assert (
+            res.exit_code,
+            res.output,
+            mock_client.flushall.call_count,
+            mock_client.flushdb.call_count,
+        ) == (0, "✓ Flushed all Valkey databases.\n", 1, 0)
+
+    @patch("devops_cli.commands.valkey._resolve_client")
+    def test_cli_without_a_command_names_the_server_and_runs_nothing(
+        self, mock_resolve: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.host = "valkey.example.com"
+        mock_client.port = 6379
+        mock_resolve.return_value = mock_client
+
+        res = runner.invoke(app, ["cli"])
+
+        assert (
+            res.exit_code,
+            "valkey.example.com:6379" in res.output,
+            mock_client.execute.called,
+        ) == (
+            0,
+            True,
+            False,
+        )
+
     def test_cli_flush_dry_run(self) -> None:
         res = runner.invoke(app, ["flush", "--dry-run"])
         assert res.exit_code == 0
