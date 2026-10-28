@@ -4,13 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import pytest
 import yaml
 from packaging.version import Version
 
-from tests.support.k8s_tree import chart_values, manifests, pinned_charts, pod_spec, value_at
+from tests.support.k8s_tree import (
+    POD_SPEC_PATHS,
+    application_sources,
+    chart_values,
+    manifests,
+    pinned_charts,
+    pod_spec,
+    value_at,
+)
 from tests.support.paths import REPO_ROOT
 
 # The Proxy Read Timeout of the Cloudflare edge, which only an Enterprise zone can change.
@@ -527,5 +536,162 @@ def test_every_exception_names_a_pod_with_a_token_that_no_role_binds() -> None:
             pod
             for pod, reason in CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS.items()
             if not reason.strip()
+        ),
+    ) == ([], [])
+
+
+# ── What the readers of the tree see (#1652) ─────────────────────────────────
+#
+# tests/support/k8s_tree.py reads the files under k8s/ and the values files of the Applications.
+# Argo CD also takes chart values from options of the Application, and Kustomize changes objects
+# with patches and transformers. The readers see none of these, so the tree uses only the options
+# that leave the objects of a check as the files show them.
+
+# The options of an Application source that the readers read, or that change no object.
+_READ_CHART_SOURCE_OPTIONS = frozenset({"repoURL", "chart", "targetRevision", "helm"})
+_READ_HELM_OPTIONS = frozenset({"valueFiles"})
+_READ_PATH_SOURCE_OPTIONS = frozenset({"repoURL", "targetRevision", "path", "ref"})
+
+# The keys of a kustomization that change no object that a check reads. A patch is read apart.
+_READ_KUSTOMIZATION_KEYS = frozenset(
+    {
+        "apiVersion",
+        "kind",
+        "resources",
+        "namespace",
+        "configMapGenerator",
+        "generatorOptions",
+        "sortOptions",
+        "patches",
+    }
+)
+
+# The kinds that the checks of the tree read: the workloads, and the objects that give a pod its
+# token, its role or its claim.
+_CHECKED_KINDS = frozenset(POD_SPEC_PATHS) | {
+    "ServiceAccount",
+    "Secret",
+    "RoleBinding",
+    "ClusterRoleBinding",
+    "PersistentVolumeClaim",
+}
+
+
+def unread_source_options(source: dict[str, Any]) -> list[str]:
+    """The options of an Application source that change objects that the readers do not see."""
+    chart = "chart" in source
+    read = _READ_CHART_SOURCE_OPTIONS if chart else _READ_PATH_SOURCE_OPTIONS
+    helm = (source.get("helm") or {}) if chart else {}
+    return sorted(
+        [option for option in source if option not in read]
+        + [f"helm.{option}" for option in helm if option not in _READ_HELM_OPTIONS]
+    )
+
+
+def _patched_kinds(directory: Path, patch: dict[str, Any]) -> frozenset[str]:
+    """The kinds that a patch changes: the kind of its target, or else the kind of each object in
+    the patch. Empty for a patch whose kind the test cannot tell."""
+    if kind := value_at(patch, "target.kind"):
+        return frozenset({kind})
+    text = patch.get("patch") or (directory / patch.get("path", "")).read_text(encoding="utf-8")
+    documents = list(yaml.safe_load_all(text))
+    if not documents or not all(isinstance(document, dict) for document in documents):
+        return frozenset()
+    kinds = {document.get("kind") for document in documents}
+    return frozenset() if None in kinds else frozenset(kinds)
+
+
+def unread_kustomization_keys(directory: Path, kustomization: dict[str, Any]) -> list[str]:
+    """The keys of a kustomization that change objects that the readers do not see, and each
+    patch of an object that a check reads or of a kind that the test cannot tell."""
+    unread = [key for key in kustomization if key not in _READ_KUSTOMIZATION_KEYS]
+    for patch in kustomization.get("patches") or []:
+        kinds = _patched_kinds(directory, patch)
+        if not kinds:
+            unread.append("patch of no kind")
+        unread.extend(f"patch of {kind}" for kind in sorted(kinds & _CHECKED_KINDS))
+    return sorted(unread)
+
+
+@pytest.mark.parametrize(
+    ("source", "unread"),
+    [
+        ({"chart": "tempo", "helm": {"valueFiles": ["$values/k8s/otel/tempo-values.yaml"]}}, []),
+        ({"chart": "argo-cd", "helm": {"valuesObject": {"redis": {}}}}, ["helm.valuesObject"]),
+        ({"chart": "argo-cd", "helm": {"values": "redis: {}"}}, ["helm.values"]),
+        ({"chart": "argo-cd", "helm": {"parameters": []}}, ["helm.parameters"]),
+        ({"path": "k8s/llm", "targetRevision": "main"}, []),
+        ({"path": "k8s/llm", "kustomize": {"patches": []}}, ["kustomize"]),
+        ({"path": "k8s/llm", "helm": {"valueFiles": []}}, ["helm"]),
+    ],
+    ids=[
+        "value-files",
+        "values-object",
+        "values",
+        "parameters",
+        "path",
+        "path-kustomize",
+        "path-helm",
+    ],
+)
+def test_an_application_source_option_that_the_readers_do_not_see_is_named(
+    source: dict[str, Any], unread: list[str]
+) -> None:
+    """Pin the check on literal sources: inline chart values and the options of a path source
+    change objects that the readers do not see."""
+    assert unread_source_options(source) == unread
+
+
+@pytest.mark.parametrize(
+    ("kustomization", "unread"),
+    [
+        (
+            {"patches": [{"patch": "$patch: delete\nkind: Ingress\nmetadata: {name: web}\n"}]},
+            [],
+        ),
+        (
+            {"patches": [{"patch": "kind: Deployment\nmetadata: {name: valkey}\n"}]},
+            ["patch of Deployment"],
+        ),
+        (
+            {"patches": [{"target": {"kind": "ServiceAccount"}, "patch": "[]"}]},
+            ["patch of ServiceAccount"],
+        ),
+        ({"patches": [{"target": {"name": "valkey"}, "patch": "[]"}]}, ["patch of no kind"]),
+        ({"patchesStrategicMerge": ["valkey.yaml"]}, ["patchesStrategicMerge"]),
+        ({"replacements": []}, ["replacements"]),
+    ],
+    ids=[
+        "delete-ingress",
+        "merge-deployment",
+        "target-service-account",
+        "target-no-kind",
+        "strategic-merge",
+        "replacements",
+    ],
+)
+def test_a_kustomization_change_that_the_readers_do_not_see_is_named(
+    kustomization: dict[str, Any], unread: list[str]
+) -> None:
+    """Pin the check on literal kustomizations: a patch of a workload, a ServiceAccount, a Secret,
+    a binding or a claim changes an object that a check reads from its file."""
+    assert unread_kustomization_keys(REPO_ROOT, kustomization) == unread
+
+
+def test_the_readers_see_each_value_and_patch_that_reaches_a_checked_object() -> None:
+    """Argo CD and Kustomize give a checked object nothing that the readers do not see: each
+    chart source takes its values from its values files only, and no kustomization patches a
+    checked object."""
+    assert (
+        sorted(
+            f"{source.get('chart') or source.get('path')}: {option}"
+            for source in application_sources()
+            for option in unread_source_options(source)
+        ),
+        sorted(
+            f"{relative}: {key}"
+            for relative, document in manifests()
+            if document["kind"] == "Kustomization"
+            for key in unread_kustomization_keys((REPO_ROOT / relative).parent, document)
         ),
     ) == ([], [])

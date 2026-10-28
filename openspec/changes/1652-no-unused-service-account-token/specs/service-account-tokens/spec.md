@@ -19,6 +19,10 @@ Each pod that a manifest under `k8s/` declares, and each pod that a chart of an 
 - **WHEN** an Application installs a chart that has no entry in the test's table of chart pods, or pins a chart version other than the version of the entry
 - **THEN** the test fails and names the chart and the version
 
+#### Scenario: Argo CD or Kustomize changes a pod that the test reads from its file
+- **WHEN** an Application source gives a chart values that are not in its values files, or a path source has options that change objects, or a kustomization under `k8s/` patches a workload, a ServiceAccount, a Secret, a binding or a claim
+- **THEN** the test fails and names the option or the patch
+
 #### Scenario: An exception is stale
 - **WHEN** an exception names a pod that the test does not find, or a pod that mounts no token, or a pod with a role
 - **THEN** the test fails and names the exception
