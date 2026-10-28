@@ -1125,21 +1125,28 @@ def _read_config_file(path: Path) -> Any:
     """The YAML document of the config file `path`, or `{}` for an empty file.
 
     A file that is not valid YAML raises ConfigurationError that names the file, the type of the
-    YAML error, and its line and column. The error of PyYAML quotes the line where the parser
-    stopped, and the `buffer` of its mark holds the full text of the file, which can hold a
-    credential. So the message holds no text of the file, and the error is raised after the
-    `except` block: it has no cause and no context that holds the error of PyYAML (#1468).
+    error, and its line and column when the error has a mark. The error of PyYAML quotes the line
+    where the parser stopped, and the `buffer` of its mark holds the full text of the file, which
+    can hold a credential. The safe loader also raises `ValueError`, `KeyError` or
+    `AttributeError` with the value in the message for a tagged value that it cannot build, such
+    as `!!int <text>`, and the decode of a file that is not UTF-8 raises `UnicodeDecodeError`,
+    whose `object` holds the bytes of the file. So each error but `OSError` gives the same
+    message, which holds no text of the file, and the error is raised after the `except` block:
+    it has no cause and no context that holds the first error (#1468). An `OSError` names only
+    the file and is not a YAML problem, so it goes up as it is.
     """
     try:
         return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
+    except OSError:
+        raise
+    except Exception as exc:
         error_type, location = type(exc).__name__, _yaml_error_location(exc)
     raise ConfigurationError(
         ERRORS.config.not_yaml.format(path=path, error_type=error_type, location=location)
     )
 
 
-def _yaml_error_location(exc: yaml.YAMLError) -> str:
+def _yaml_error_location(exc: Exception) -> str:
     """` at line <n>, column <n>` where PyYAML stopped, counted from 1, or "" with no mark."""
     mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
     if mark is None:

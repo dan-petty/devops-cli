@@ -30,12 +30,18 @@
   - Rejected: The problem text is a format string with file text in it for some errors. A filter of safe problem strings is a list to keep current with PyYAML.
 
 ### 3. The error is raised after the `except` block
-- Decision: The `except yaml.YAMLError` block keeps only the type name and the position. The helper raises `ConfigurationError` after the block, so the new error has no `__cause__` and no `__context__`.
+- Decision: The `except` block keeps only the type name and the position. The helper raises `ConfigurationError` after the block, so the new error has no `__cause__` and no `__context__`.
 - Rationale: `raise ... from None` sets `__suppress_context__`, but `__context__` still holds the PyYAML error. Its `problem_mark.buffer` holds the full text of the file. A tool that walks `__context__` would get the credential.
 - Alternative considered: `raise ConfigurationError(...) from None`, as the issue proposes.
   - Rejected: PyYAML 6.0.3 keeps the full text of the document in `Mark.buffer`, and `from None` keeps the error in `__context__`.
 
-### 4. `devops config get` uses the existing exit seam
+### 4. The helper catches each error of the read and the parse but `OSError`
+- Decision: The `except` block catches `Exception`, after an `except OSError: raise` block. Each error that it catches gives the same message. An error with no mark gives the message with no position.
+- Rationale: The safe loader of PyYAML raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value that it cannot build, such as `!!int <text>` or `!!bool <text>`. These errors are not `yaml.YAMLError`, and their messages quote the value. The decode of a file that is not UTF-8 raises `UnicodeDecodeError`, whose `object` attribute holds the bytes of the file. An `OSError` names only the file and is not a YAML problem, so it goes up as it did before.
+- Alternative considered: Catch `(yaml.YAMLError, ValueError, LookupError, AttributeError)`.
+  - Rejected: That list comes from the code of the constructors of PyYAML, and it is a list to keep current with PyYAML. An error that is not on the list quotes the value again.
+
+### 5. `devops config get` uses the existing exit seam
 - Decision: `devops config get` loads the settings inside `exit_on_error(ConfigurationError)`.
 - Rationale: The issue asks that `devops config get ai.provider` exits 1 with the message and no traceback. `exit_on_error` is the seam that `devops config unset` already uses. The same seam also reports the error of an unknown key (#2201) on one line.
 - Alternative considered: Build the `config` app with `new_typer(exit_on=ConfigurationError)`.
@@ -43,7 +49,7 @@
 - Alternative considered: Catch `DevOpsCLIError` in `main._delegate` for all commands.
   - Rejected: #1006 decides where the one exit seam is, and chose the wrapper of `OTelTyper.command`.
 
-### 5. `_delegate` raises a non-zero exit outside its `except` clauses
+### 6. `_delegate` raises a non-zero exit outside its `except` clauses
 - Decision: The `if exit_code != 0: raise typer.Exit(exit_code)` lines move from the body of the `try` in `main._delegate` to its `else` clause.
 - Rationale: `typer.Exit` is a `RuntimeError`. Raised in the `try`, it went to `except Exception`, which logged `Command '<name>' failed: <code>` with `exc_info=True`. When the settings do not load, telemetry is off, the root logger has no handler, and Python's last-resort handler printed that record and its traceback on stderr. Thus `devops config get` showed a traceback after its one-line error. The same clause counted the command a second time in `devops_cli_command_total` and set `cli.exit_code` to 1 for each exit code. The `else` clause runs only when the `try` raised nothing, and the `finally` clause still flushes the tracer.
 - Alternative considered: Add `except typer.Exit: raise` before `except Exception`.
@@ -51,5 +57,5 @@
 
 ## Risks / Trade-offs
 
-- [A caller caught `yaml.YAMLError` from `load_settings`] -> No caller in `src` does. `telemetry/tracer.py::_resolve_telemetry_settings` catches `Exception`, so it still falls back to the telemetry variables.
+- [A caller caught `yaml.YAMLError`, `ValueError` or `UnicodeDecodeError` from `load_settings`] -> No caller in `src` does. `telemetry/tracer.py::_resolve_telemetry_settings` catches `Exception`, so it still falls back to the telemetry variables.
 - [The message has less detail than the PyYAML error] -> The file, the line, the column and the error type locate the problem. The person opens the file at that line.
