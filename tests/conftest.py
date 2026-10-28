@@ -1311,20 +1311,25 @@ def mock_keyring():
 
 
 @contextmanager
-def _patched_docker_engine(client: Any) -> Iterator[Any]:
-    """Bind a mock Engine API client to an isolated DockerEngineService singleton."""
+def _installed_docker_client(client: Any) -> Iterator[Any]:
+    """Make `client` the SDK client of the process-wide DockerEngineService.
+
+    The floor resets the service after the test, so the block leaves the client installed and
+    unclosed for the test's assertions on its calls.
+    """
     from devops_cli.docker.engine import DockerEngineService
 
-    engine = DockerEngineService()
-    engine._client = client
-    with patch.object(DockerEngineService, "get_instance", return_value=engine):
-        yield engine
+    yield DockerEngineService.install(lambda **_params: client)
 
 
 @pytest.fixture
 def docker_engine():
-    """Provide a factory binding mock Engine API clients to the Docker engine singleton."""
-    return _patched_docker_engine
+    """Provide a factory that installs a test's own SDK client in the Docker engine service.
+
+    Its users pass the clients they build until their package's tests move to `docker_daemon`,
+    the in-memory engine of `tests/support/fakes/docker_engine.py` (#1316).
+    """
+    return _installed_docker_client
 
 
 def _build_specced_docker_client() -> Any:

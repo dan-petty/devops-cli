@@ -3,6 +3,10 @@
 Every Docker interaction in the codebase funnels through :class:`DockerEngineService`,
 which speaks the Engine API directly over the daemon Unix domain socket (or a validated
 TCP endpoint) instead of spawning `docker` CLI subprocesses and scraping their stdout.
+
+The service is the seam of the Docker engine edge (#1316). It resolves and checks the endpoint,
+and then builds the one SDK client of the process with a `ClientFactory` (`devops_cli.docker.sdk`),
+`docker.DockerClient` unless `DockerEngineService.install` gives it another, such as a fake.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlsplit
 
 from devops_cli.config.constants import (
@@ -47,6 +51,9 @@ from devops_cli.models.docker import (
     DockerEndpoint,
     EngineSecurityInfo,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.docker.sdk import ClientFactory, EngineClient, EngineContainer, EngineImage
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +239,14 @@ def _check_container_connection() -> None:
         )
 
 
+def _sdk_client(**params: Any) -> EngineClient:
+    """Build the docker SDK client of an endpoint; it reads `GET /version` before it returns."""
+    import docker  # type: ignore[import-untyped]
+
+    client: EngineClient = docker.DockerClient(**params)
+    return client
+
+
 def _with_tls(env_tls: Any) -> dict[str, Any]:
     """Return dict with tls key if env_tls is provided."""
     return {"tls": env_tls} if env_tls is not None else {}
@@ -252,8 +267,9 @@ class DockerEngineService:
 
     _instance: ClassVar[DockerEngineService | None] = None
 
-    def __init__(self) -> None:
-        self._client: Any = None
+    def __init__(self, client_factory: ClientFactory | None = None) -> None:
+        self._client_factory: ClientFactory = client_factory or _sdk_client
+        self._client: EngineClient | None = None
         self._host: str | None = None
         self._cache: dict[str, tuple[float, Any]] = {}
         self._cache_ttl: float = DEFAULT_DOCKER_CACHE_TTL_SECONDS
@@ -264,6 +280,18 @@ class DockerEngineService:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    @classmethod
+    def install(cls, client_factory: ClientFactory) -> DockerEngineService:
+        """Make a service that builds its SDK client with `client_factory` the process-wide one.
+
+        The service still resolves and checks the endpoint first, and gives the factory the same
+        keyword arguments as `docker.DockerClient`. `reset_instance` returns to the SDK's client.
+        """
+        cls.reset_instance()
+        service = cls(client_factory)
+        cls._instance = service
+        return service
 
     @classmethod
     def reset_instance(cls) -> None:
@@ -277,7 +305,7 @@ class DockerEngineService:
     @staticmethod
     def _context_endpoint(name: str, env_tls: Any) -> tuple[str, str, dict[str, Any]]:
         """Retrieve endpoint definition and TLS config for a named Docker context."""
-        from docker import ContextAPI  # type: ignore[import-untyped]
+        from docker import ContextAPI
 
         ctx = ContextAPI.get_context(name)
         if ctx is None:
@@ -404,16 +432,14 @@ class DockerEngineService:
             return None
         return Path(UnixHTTPAdapter(base_url).socket_path)
 
-    def client(self) -> Any:
+    def client(self) -> EngineClient:
         """Return the cached Engine API client, negotiating the daemon socket on first use."""
         if self._client is not None:
             return self._client
 
         endpoint = self.resolve_host()
         try:
-            import docker
-
-            self._client = docker.DockerClient(
+            client = self._client_factory(
                 timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS),
                 **endpoint.params,
             )
@@ -426,8 +452,9 @@ class DockerEngineService:
                 )
             raise DockerDaemonUnavailableError(msg, host=endpoint.source) from exc
 
+        self._client = client
         self._host = endpoint.base_url
-        return self._client
+        return client
 
     def close(self) -> None:
         """Release the cached Engine API socket connection and drop memoised responses."""
@@ -539,7 +566,7 @@ class DockerEngineService:
 
     # -- Container introspection ---------------------------------------------
 
-    def get_container(self, container_id: str) -> Any:
+    def get_container(self, container_id: str) -> EngineContainer:
         """Fetch the raw Engine API container handle for lifecycle operations."""
         try:
             return self.client().containers.get(container_id)
@@ -615,7 +642,7 @@ class DockerEngineService:
 
     # -- Container lifecycle --------------------------------------------------
 
-    def create_container(self, **create_kwargs: Any) -> Any:
+    def create_container(self, **create_kwargs: Any) -> EngineContainer:
         """Create a container over the Engine API socket without spawning `docker run`."""
         try:
             return self.client().containers.create(**create_kwargs)
@@ -755,7 +782,7 @@ class DockerEngineService:
 
     # -- Images & BuildKit cache introspection --------------------------------
 
-    def list_images(self, *, name: str | None = None) -> list[Any]:
+    def list_images(self, *, name: str | None = None) -> list[EngineImage]:
         """List local images through the Engine API."""
         try:
             return list(self.client().images.list(name=name))
