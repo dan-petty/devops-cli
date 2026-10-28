@@ -1685,6 +1685,13 @@ class RoadmapMessages:
     )
     refine_held_status: str = "Status {status}: refine changes only open New and Ready items."
     refine_held_closed: str = "The issue is closed: refine changes only open items."
+    # Why a refine round leaves an item that an account without write access opened (#2478).
+    refine_outside_author: str = (
+        "The author's association with the repository is {association}. A refine round "
+        "refines only the items that the owner, a member or a collaborator opened. A person "
+        "refines this item with --item {number}."
+    )
+    refine_author_unknown: str = "unknown"
     refine_title: str = "# Refinement plan for {repo}"
     # Why a refine round had no web search (#2398).
     refine_web_search_off: str = "Web search is off: {reason}."

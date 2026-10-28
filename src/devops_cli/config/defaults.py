@@ -698,6 +698,8 @@ DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 60
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 15
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
+# The author of an issue the in-memory store opens: GitHub gives every issue an association.
+DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION: str = "OWNER"
 # The most items one refine round takes. It is the only cap of a round (#2004).
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).

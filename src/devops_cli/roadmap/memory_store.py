@@ -26,7 +26,11 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from devops_cli.config.constants import CONST_GH_ISSUE_STATE_REASON_REOPENED
-from devops_cli.config.defaults import DEFAULT_ROADMAP_MEMORY_ACTOR, DEFAULT_ROADMAP_MEMORY_REPO
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_MEMORY_ACTOR,
+    DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
+    DEFAULT_ROADMAP_MEMORY_REPO,
+)
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.roadmap.store import (
     Candidate,
@@ -153,7 +157,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         fields: Mapping[ItemField, str] | None = None,
         milestone: str | None = None,
         pull_request: bool = False,
-        author_association: str | None = None,
+        author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
         sub_issues: int = 0,
         parent: int | None = None,
     ) -> int:
@@ -161,10 +165,11 @@ class InMemoryRoadmapStore(RoadmapStore):
 
         `fields` adds the label of each field's value to `labels`, as a person sets them, with
         no job record; a Priority makes the issue an Item. `milestone` is the title of a seeded
-        milestone. Seeding records no change. `sub_issues` is how many sub-issues GitHub records
-        for it, and `parent` is the issue that has it as a sub-issue. The issue is created now
-        by the store's clock, and closed now when seeded closed. `body` is kept as given, so a
-        test can seed a record block.
+        milestone. Seeding records no change. `author_association` is the author's relation to
+        the repository, the owner's unless given, since GitHub gives one for every issue.
+        `sub_issues` is how many sub-issues GitHub records for it, and `parent` is the issue
+        that has it as a sub-issue. The issue is created now by the store's clock, and closed
+        now when seeded closed. `body` is kept as given, so a test can seed a record block.
         """
         if milestone is not None:
             require_milestone(self._roadmap.milestones.values(), milestone, "roadmap.issue.seed")

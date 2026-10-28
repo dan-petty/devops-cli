@@ -79,11 +79,13 @@ class GitHubFake:
         parent: int | None = None,
         parent_repo: str | None = None,
         pull_request: bool = False,
+        author_association: str = "COLLABORATOR",
     ) -> None:
         """Issue `number` with `labels` and `body`, which may hold a record block. It has
         `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`. It is
         a sub-issue of issue `parent` of `parent_repo`, this repository by default, which GitHub
-        gives in each issue's `parent_issue_url`."""
+        gives in each issue's `parent_issue_url`. Its author has `author_association` with the
+        repository."""
         self.issues[number] = {
             "number": number,
             "title": title or f"Issue {number}",
@@ -99,7 +101,7 @@ class GitHubFake:
             "labels": [{"name": label} for label in labels],
             "milestone": self._milestone(milestone),
             "node_id": f"I_{number}",
-            "author_association": "COLLABORATOR",
+            "author_association": author_association,
             "created_at": "2026-10-01T00:00:00Z",
             "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},
         }
