@@ -53,10 +53,11 @@ nothing (#1526).
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -822,25 +823,128 @@ _HTML_TAG_RE = re.compile(r"<[a-zA-Z/][^>]*>")
 # The `<` that opens an HTML comment, declaration, CDATA section or processing instruction:
 # GitHub hides the text after an unclosed one, and `<!--` can forge a marker or a record block.
 _RAW_HTML_OPENER_RE = re.compile(r"<(?=[!?])")
-_HANDLE_RE = re.compile(r"(?<!`)(@[a-zA-Z0-9_\-]+)(?!`)")
-_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)]+)\)")
-_BARE_URL_RE = re.compile(r"(?<!`)(https?://[^\s\)\]]+)(?!`)")
-# A `www.` link that GitHub links with no scheme: after the start, a space, `*`, `_`, `~` or `(`.
-_BARE_WWW_RE = re.compile(r"(?<![^\s*_~(])(www\.[^\s\)\]`]+)", re.IGNORECASE)
-# An `owner/repo#N` reference, which GitHub links and records on the other issue.
-_CROSS_REPO_REF_RE = re.compile(r"(?<![\w`/.\-])([\w.\-]+/[\w.\-]+#\d+)(?![\w`])")
+# The URL holds no backtick or space, so the code span that replaces the link closes on its own
+# backticks.
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)`]+)\)")
+# The text that GitHub links, mentions or cross-references by itself, the leftmost first: a URL
+# with a scheme that its autolinks take, in any case; a `www.` link, wherever it starts, as in
+# a table cell or after `>`; a handle; and an `owner/repo#N` reference, also in emphasis or
+# after a slash, `.` or a handle, with the letters, digits, `.`, `-`, `/`, `#` and `:` after it,
+# which can hold a second reference or a URL. A URL and a `www.` link end before a backtick, a
+# `|`, a bracket, a parenthesis or a backslash, so neither runs into a code span or the next
+# table cell, nor takes in what opens a link or escapes a backtick. An owner holds letters, digits
+# and `-`, as an account name does, and starts after none of them, and no quantifier gives back
+# what it took, so the search takes time in proportion to the text.
+_LIVE_TEXT_RE = re.compile(
+    r"(?:https?|ftp)://[^\s()\[\]`|\\]++"
+    r"|www\.[^\s()\[\]`|\\]++"
+    r"|@[a-zA-Z0-9_\-]++"
+    r"|(?<![a-zA-Z0-9\-])[a-zA-Z0-9\-]++/[\w.\-]++#\d[a-zA-Z0-9.\-/#:]*+",
+    re.IGNORECASE,
+)
 _TRAILING_PUNCTUATION: Final[str] = ".,;:!?"
+_BACKTICK_RUN_RE = re.compile(r"`+")
+# A backtick before the next space, which an autolink at that place would take in.
+_BACKTICK_BEFORE_SPACE_RE = re.compile(r"\S*`")
+# GitHub's Markdown is CommonMark, with tables, which split a row into cells before code spans.
+_GITHUB_MARKDOWN: Final = MarkdownIt("commonmark").enable("table")
+# The block tokens that GitHub shows as code, in which it links, mentions and references nothing.
+_CODE_BLOCKS: Final = frozenset({"code_block", "fence"})
 
 
-def _code_span_unless_allowed(match: re.Match[str], allowed_urls: set[str]) -> str:
-    """The link `match` holds as it is when `allowed_urls` holds it, else as a code span, with
-    its trailing punctuation kept outside."""
-    raw_match = match.group(1)
-    stripped = raw_match.rstrip(_TRAILING_PUNCTUATION)
-    punct = raw_match[len(stripped) :]
-    if stripped in allowed_urls:
-        return f"{stripped}{punct}"
-    return f"`{stripped}`{punct}"
+@dataclass(frozen=True)
+class _Code:
+    """What a text shows as code: the text of its code spans and the text of its code blocks,
+    with the info strings of its fenced code blocks; and whether it shows a backtick as text."""
+
+    spans: str
+    blocks: str
+    stray_backtick: bool
+
+
+def _shown_code(text: str) -> _Code:
+    """The code that `text` shows, as markdown-it parses it."""
+    spans: list[str] = []
+    blocks: list[str] = []
+    stray = False
+    for block in _GITHUB_MARKDOWN.parse(text):
+        if block.type in _CODE_BLOCKS:
+            blocks += (block.content, block.info)
+        for token in block.children or ():
+            if token.type == "code_inline":
+                spans.append(token.content)
+            stray = stray or (token.type == "text" and "`" in token.content)
+    return _Code("\n".join(spans), "\n".join(blocks), stray)
+
+
+def _replace_outside_code(
+    text: str,
+    pattern: re.Pattern[str],
+    group: int,
+    replace: Callable[[re.Match[str]], str],
+    *,
+    spans_are_code: bool,
+) -> str:
+    """`text` with `replace` applied to each match of `pattern` whose `group` starts outside
+    code; a match in a code block, and in a code span when `spans_are_code`, stays as it is
+    (#2525).
+
+    A character that `text` does not hold, from U+E000 on, marks the start of each match, and the
+    marks that the Markdown parser then shows as code give the matches in code. Such a character
+    is no space, backslash, backtick or block mark, so the marks change no code. A space goes
+    between a replacement and a backtick next to it, or a backslash before it, so that a backtick
+    run of the replacement joins no other run and is not escaped.
+    """
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return text
+    held = set(text)
+    absent = (chr(code) for code in itertools.count(0xE000) if chr(code) not in held)
+    marks = list(itertools.islice(absent, len(matches)))
+    pieces: list[str] = []
+    end = 0
+    for mark, match in zip(marks, matches, strict=True):
+        pieces += (text[end : match.start(group)], mark)
+        end = match.start(group)
+    code = _shown_code("".join(pieces) + text[end:])
+    in_code = set(code.blocks + code.spans if spans_are_code else code.blocks)
+    out: list[str] = []
+    end = 0
+    for mark, match in zip(marks, matches, strict=True):
+        replacement = match[0] if mark in in_code else replace(match)
+        if replacement != match[0]:
+            out += (text[end : match.start()], replacement)
+            end = match.end()
+    out.append(text[end:])
+    return _spaced(out)
+
+
+def _spaced(pieces: Sequence[str]) -> str:
+    """`pieces` joined, with a space between a backtick or a backslash and a backtick after it."""
+    joined: list[str] = []
+    last = ""
+    for piece in filter(None, pieces):
+        if last in ("`", "\\") and piece.startswith("`"):
+            joined.append(" ")
+        joined.append(piece)
+        last = piece[-1]
+    return "".join(joined)
+
+
+def _neutralized(match: re.Match[str], allowed_urls: set[str], fence: Callable[[], str]) -> str:
+    """The link, handle or reference that `match` holds, in a code span between two of the next
+    `fence`, with its trailing punctuation kept outside.
+
+    A link that `allowed_urls` holds stays a link, unless a backtick comes before the next
+    space: GitHub's autolink runs to that space and would take the backtick that opens a code
+    span.
+    """
+    raw = match[0]
+    link = raw.rstrip(_TRAILING_PUNCTUATION)
+    if link in allowed_urls and not _BACKTICK_BEFORE_SPACE_RE.match(match.string, match.end()):
+        return raw
+    ticks = fence()
+    return f"{ticks}{link}{ticks}{raw[len(link) :]}"
 
 
 def sanitize_text(text: str, allowed_urls: set[str]) -> str:
@@ -848,7 +952,15 @@ def sanitize_text(text: str, allowed_urls: set[str]) -> str:
     handles, unallowed URLs and `www.` links, and cross-repository references in code spans.
 
     The opener is neutralized after the tags are stripped, so a stripped tag cannot build one
-    again (#2478).
+    again (#2478), and also in code, since the record block and the markers are found in the raw
+    text. A link, handle or reference in code stays as it is. An added code span takes one
+    backtick more than the longest run in the text, so it closes on its own backticks and on no
+    backtick of the model's (#2525).
+
+    A backtick that the text shows as text makes GitHub's parser, cmark, take a later code span
+    of a length it has already closed as text, and makes markdown-it miss a code span after an
+    unclosed `[`. In such a text each added code span takes a length of its own, and a link,
+    handle or reference in a code span is wrapped too (#2525).
     """
     # 1. Remove end markers inside text
     t = text.replace(CONST_ROADMAP_REFINE_END_MARKER, "[end-marker]")
@@ -858,26 +970,31 @@ def sanitize_text(text: str, allowed_urls: set[str]) -> str:
     t = _HTML_TAG_RE.sub("", t)
     # 4. Neutralize comment, declaration and processing instruction openers
     t = _RAW_HTML_OPENER_RE.sub("&lt;", t)
-    # 5. Wrap @handles
-    t = _HANDLE_RE.sub(r"`\1`", t)
+    shortest = max(map(len, _BACKTICK_RUN_RE.findall(t)), default=0) + 1
+    stray = "`" in t and _shown_code(t).stray_backtick
+    lengths = itertools.count(shortest) if stray else itertools.repeat(shortest)
 
-    # 6. Process markdown links
+    def _fence() -> str:
+        return "`" * next(lengths)
+
+    # 5. Process markdown links outside code
     def _link_sub(m: re.Match[str]) -> str:
         label, url = m.group(1), m.group(2)
         if url in allowed_urls:
             return f"[{label}]({url})"
-        return f"{label} (`{url}`)"
+        ticks = _fence()
+        return f"{label} ({ticks}{url}{ticks})"
 
-    t = _MARKDOWN_LINK_RE.sub(_link_sub, t)
+    t = _replace_outside_code(t, _MARKDOWN_LINK_RE, 2, _link_sub, spans_are_code=not stray)
 
-    # 7. Wrap bare URLs and `www.` links not in allowed_urls
-    def _unallowed_sub(m: re.Match[str]) -> str:
-        return _code_span_unless_allowed(m, allowed_urls)
-
-    t = _BARE_URL_RE.sub(_unallowed_sub, t)
-    t = _BARE_WWW_RE.sub(_unallowed_sub, t)
-    # 8. Wrap cross-repository references
-    return _CROSS_REPO_REF_RE.sub(r"`\1`", t)
+    # 6. Wrap handles, unallowed URLs and `www.` links, and references outside code
+    return _replace_outside_code(
+        t,
+        _LIVE_TEXT_RE,
+        0,
+        lambda match: _neutralized(match, allowed_urls, _fence),
+        spans_are_code=not stray,
+    )
 
 
 def _option_lines(qa: QuestionAnswer) -> list[str]:
@@ -1259,8 +1376,9 @@ def refine_one_item(
         store, proposal, open_questions, is_ready=is_ready
     )
     # The details hold the model's text, which goes into a comment: sanitized like the section,
-    # on one line each (#1758).
-    details = tuple(" ".join(sanitize_text(d, allowed_urls).split()) for d in model_details)
+    # on one line each (#1758). Each goes on its line first, so its code is the code that the
+    # comment shows (#2525).
+    details = tuple(sanitize_text(" ".join(d.split()), allowed_urls) for d in model_details)
     # The paths are the cause of a block: an open dependency or a suspected block (#2005).
     blocked = bool(blocked_by) or _suspected_block(proposal) is not None
     block_paths = tuple(proposal.block_paths) if blocked else ()
