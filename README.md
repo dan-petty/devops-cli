@@ -58,7 +58,8 @@
 git clone https://github.com/dan-petty/devops-cli.git
 cd devops-cli
 
-# 2. Inside the Dev Container, sync Python 3.14 dependencies:
+# 2. Inside the Dev Container, sync Python 3.14 dependencies. The Dev Container puts .venv/bin
+#    first on PATH, so `devops` is the editable install of this checkout:
 uv sync
 
 # 3. Log in to GitHub with gh, and store other credentials in the OS Keyring
