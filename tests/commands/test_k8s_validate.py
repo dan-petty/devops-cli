@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -68,3 +69,33 @@ def test_a_target_with_no_manifest_says_so_and_fails(
         "No Kubernetes manifest in the target" in " ".join(result.output.split()),
         scanner_fake.runs,
     ) == (1, False, True, [])
+
+
+def test_a_finding_shows_the_text_of_the_manifest_as_text(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """The kind, the name and the schema errors of a finding come from the manifest. The table
+    shows them as text, also a name that looks like Rich markup."""
+    manifest = tmp_path / "svc.yaml"
+    manifest.write_text("apiVersion: v1\nkind: Service\nmetadata:\n  name: x\n", encoding="utf-8")
+    resource = {
+        "filename": str(manifest),
+        "kind": "Service",
+        "name": "web[/bold]",
+        "version": "v1",
+        "status": "statusInvalid",
+        "msg": "problem validating schema",
+        "validationErrors": [{"path": "/spec/ports/0/port", "msg": "got [red]string[/red]"}],
+    }
+    scanner_fake.script(
+        "kubeconform", ToolAnswer(exit_code=1, stdout=json.dumps({"resources": [resource]}))
+    )
+
+    result = cli("k8s", "validate", str(tmp_path))
+
+    output = "".join(result.output.split())
+    assert (result.exit_code, "web[/bold]" in output, "got[red]string[/red]" in output) == (
+        0,
+        True,
+        True,
+    )

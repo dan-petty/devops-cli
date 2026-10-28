@@ -564,9 +564,9 @@ def format_k8s_schema_table(findings: list[Any], target_name: str) -> TablePaylo
     rows = [
         [
             getattr(f, "severity", ""),
-            getattr(f, "location", ""),
-            getattr(f, "title", ""),
-            getattr(f, "fix", None) or getattr(f, "description", "-"),
+            escape_text(str(getattr(f, "location", ""))),
+            escape_text(str(getattr(f, "title", ""))),
+            escape_text(str(getattr(f, "fix", None) or getattr(f, "description", "-"))),
         ]
         for f in findings
     ]
