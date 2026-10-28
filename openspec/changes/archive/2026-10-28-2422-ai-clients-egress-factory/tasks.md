@@ -45,7 +45,7 @@
 
 ## 8. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2422-ai-clients-egress-factory`
 
 ## Workflow follow-up
