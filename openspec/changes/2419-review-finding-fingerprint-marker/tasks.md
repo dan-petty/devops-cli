@@ -9,11 +9,11 @@
 
 ## 2. A filed finding carries its fingerprint, and the review leaves it out
 
-- [ ] Add failing tests: the marker round-trips its fingerprints and refuses a value that is no fingerprint; the lookup leaves out the findings that an open, a not planned or a duplicate issue carries and keeps the completed and the unfiled ones; a dry run makes no request and names the search
+- [x] Add failing tests: the marker round-trips its fingerprints and refuses a value that is no fingerprint; the lookup leaves out the findings that an open, a not planned or a duplicate issue carries and keeps the completed and the unfiled ones; a dry run makes no request and names the search
   - Verification: `uv run devops ci test tests/test_review_filed_findings.py`
-- [ ] Add `src/devops_cli/review/filed_findings.py` with `finding_marker`, `carried_fingerprints`, `read_filed_findings` and `FiledFindings`
+- [x] Add `src/devops_cli/review/filed_findings.py` with `finding_marker`, `carried_fingerprints`, `read_filed_findings` and `FiledFindings`
   - Verification: `uv run devops ci test tests/test_review_filed_findings.py tests/test_github_client.py`
-- [ ] Regenerate the documentation
+- [x] Regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme`
 
 ## 3. Archive
