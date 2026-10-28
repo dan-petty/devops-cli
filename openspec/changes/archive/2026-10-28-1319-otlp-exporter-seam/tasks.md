@@ -24,7 +24,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1319-otlp-exporter-seam`
 
 ## Workflow follow-up
