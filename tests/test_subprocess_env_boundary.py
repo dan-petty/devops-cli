@@ -164,8 +164,8 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 # (zshparam(1)). The Python, Node.js, Perl, Ruby and Java keys name a file, a module, a directory
 # or an option that makes the interpreter load code (python(1), node(1), perlrun(1), ruby(1),
 # java(1), the JVM TI specification). The default env_delete table of sudo lists each zsh and
-# interpreter key but PYTHONPYCACHEPREFIX and JDK_JAVA_OPTIONS, and it is the source of
-# _JAVA_OPTIONS.
+# interpreter key but PYTHONPLATLIBDIR, PYTHONPYCACHEPREFIX, NODE_COMPILE_CACHE,
+# NODE_REPL_EXTERNAL_MODULE and JDK_JAVA_OPTIONS, and it is the source of _JAVA_OPTIONS.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
@@ -196,9 +196,12 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "PYTHONHOME",
     "PYTHONSTARTUP",
     "PYTHONUSERBASE",
+    "PYTHONPLATLIBDIR",
     "PYTHONPYCACHEPREFIX",
     "NODE_OPTIONS",
     "NODE_PATH",
+    "NODE_COMPILE_CACHE",
+    "NODE_REPL_EXTERNAL_MODULE",
     "PERL5OPT",
     "PERL5LIB",
     "PERLLIB",
