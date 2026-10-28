@@ -2,8 +2,8 @@
 
 ## 1. The egress tests have a row for each Grafana, Prometheus, Argo CD and Loki caller
 
-- [ ] Add failing rows to `test_each_caller_dials_at_its_level` for each caller of the table, with and without `ai.allow_private_network`, and make the test fail when a caller host name reaches the dial; add `test_each_k8s_service_caller_dials_the_address_it_checked`, where each host answers a public address and then cloud metadata; add `test_loki_and_a_direct_service_url_look_up_their_host_once`
-  - Verification: `uv run devops ci test tests/test_http_egress.py`
+- [x] Add failing rows to `test_each_caller_dials_at_its_level` for each caller of the table, with and without `ai.allow_private_network`, and make the test fail when a caller host name reaches the dial; add `test_each_k8s_service_caller_dials_the_address_it_checked`, where each host answers a public address and then cloud metadata; add `test_loki_and_a_direct_service_url_look_up_their_host_once`; add the failing tests of the sync refusal and the Prometheus URL errors
+  - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_k8s_credentials.py tests/test_prometheus.py`
 
 ## 2. The Grafana, Prometheus and Argo CD commands
 

@@ -34,7 +34,7 @@ from devops_cli.k8s.credentials import (
 )
 from tests.cluster_secret_fakes import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.web_fakes import StubWeb
+from tests.web_fakes import StubWeb, scripted_resolver
 
 ARGOCD = "https://argocd.example.com"
 GRAFANA = "https://grafana.example.com"
@@ -698,6 +698,34 @@ def test_an_accepted_token_that_the_keyring_cannot_store_reports_the_cause(
         True,
         [("GET", ARGOCD_USERINFO)],
     )
+
+
+def test_a_private_address_without_the_flag_fails_the_check_and_keeps_the_stored_token(
+    process_fake: ProcessFake,
+    stub_web: StubWeb,
+    mock_keyring: FakeKeyring,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Old vs new (#2424): the check dials at the configured level, as the Grafana commands do.
+
+    Before, the sync checked the URL as if `ai.allow_private_network` were set, and sent the
+    stored token to a private address. Now the connect refuses the address before a request,
+    and the refusal is a failed check with its cause.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    scripted_resolver(monkeypatch, {"grafana.example.com": [["10.0.0.1"]]})
+    _cluster_password(process_fake, None)
+    mock_keyring.values["grafana_token"] = "stored-token"
+
+    state, cause = _sync()["grafana_token"]
+
+    assert (
+        state,
+        (cause or "").startswith(f"The Grafana token check at {GRAFANA_ORG} failed: SSRFBlocked"),
+        (cause or "").endswith(KEPT),
+        stub_web.sent,
+        mock_keyring.values["grafana_token"],
+    ) == ("failed", True, True, [], "stored-token")
 
 
 def test_a_service_with_no_url_gets_no_token_step(

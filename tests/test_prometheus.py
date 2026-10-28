@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +13,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.prometheus import app as prometheus_app
 from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
+from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
 
 runner = CliRunner()
 
@@ -192,3 +195,54 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
     assert _parse_duration("invalid") == 0.0
     with pytest.raises(typer.BadParameter):
         _parse_duration("400d")
+
+
+def test_a_k8s_address_in_the_prometheus_url_stops_the_query_before_a_lookup(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Old vs new (#2424): the error names the setting, and the URL check makes no lookup.
+
+    `devops k8s configure-urls --addressing proxy` writes a `k8s://` address, which this command
+    cannot dial. The command reads the scheme of the URL and stops before any lookup or dial.
+    """
+    resolver = scripted_resolver(monkeypatch, {"monitoring": [[PUBLIC_ADDRESS]]})
+    recorder = record_connects(monkeypatch, [])
+
+    result = cli(
+        "prometheus",
+        "query",
+        "up",
+        env={"DEVOPS_CLI_PROMETHEUS_URL": "k8s://monitoring/prometheus-server:9090"},
+    )
+
+    assert (
+        result.exit_code,
+        "prometheus.url" in result.output,
+        resolver.lookups["monitoring"],
+        recorder.dialled,
+    ) == (1, True, 0, [])
+
+
+def test_a_refused_prometheus_address_ends_the_query_with_the_refusal(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The connect refuses a private answer without the flag, and the command prints why (#2424)."""
+    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    recorder = record_connects(monkeypatch, [])
+
+    result = cli(
+        "prometheus",
+        "query",
+        "up",
+        env={
+            "DEVOPS_CLI_PROMETHEUS_URL": "http://example.com:9090",
+            "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "false",
+        },
+    )
+
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "the loopback egress level refuses" in result.output,
+        recorder.dialled,
+    ) == (1, SystemExit, True, [])

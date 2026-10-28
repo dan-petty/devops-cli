@@ -32,13 +32,16 @@ from devops_cli.ai.providers import create_pydantic_ai_provider
 from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.spend.pricing import PricingRegistry
-from devops_cli.commands import ai_gateway
+from devops_cli.argo.fleet import sync_single_target
+from devops_cli.argo.gitops import trigger_argocd_sync
+from devops_cli.argo.rollouts import evaluate_rollout_gate
+from devops_cli.commands import ai_gateway, argo, grafana, prometheus
 from devops_cli.commands.install_tools import _download
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
     DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
 )
-from devops_cli.config.settings import AIConfig, Settings
+from devops_cli.config.settings import AIConfig, Settings, load_settings
 from devops_cli.core.process import reset_process_runner, set_process_runner
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.http.broker import HttpClientBroker
@@ -53,6 +56,12 @@ from devops_cli.http.egress import (
 )
 from devops_cli.http.pool import close_shared_clients, get_shared_async_client, get_shared_client
 from devops_cli.k8s import service_http
+from devops_cli.k8s.credentials import (
+    get_or_mint_argocd_token,
+    get_or_mint_grafana_auth,
+    sync_k8s_credentials,
+)
+from devops_cli.k8s.logql import execute_loki_query, parse_logql_query
 from devops_cli.k8s.service_proxy import ProxyTarget
 from devops_cli.sandbox.probe import probe_http, probe_tcp
 from devops_cli.security.vault_broker import VaultSecretBroker
@@ -819,8 +828,72 @@ def _ai_service_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]
     }
 
 
+_GRAFANA_URL = "http://example.com:3000"
+_PROMETHEUS_URL = "http://example.com:9090"
+_ARGOCD_URL = "http://example.com:8080"
+_LOKI_URL = "http://example.com:3100"
+
+
+def _with_env(env: dict[str, str], call: Callable[[], Any]) -> Callable[[], Any]:
+    """`call`, run with the settings and the secrets of `env` in the environment."""
+
+    def run() -> Any:
+        with patch.dict(os.environ, env):
+            return call()
+
+    return run
+
+
+def _grafana_env(**secret: str) -> dict[str, str]:
+    """`grafana.url` and one Grafana secret, as `DEVOPS_CLI_GRAFANA_<NAME>` variables."""
+    named = {f"DEVOPS_CLI_GRAFANA_{name.upper()}": value for name, value in secret.items()}
+    return {"DEVOPS_CLI_GRAFANA_URL": _GRAFANA_URL, **named}
+
+
+def _argocd_env(**secret: str) -> dict[str, str]:
+    """`argocd.url` and one Argo CD secret, as `DEVOPS_CLI_ARGOCD_<NAME>` variables."""
+    named = {f"DEVOPS_CLI_ARGOCD_{name.upper()}": value for name, value in secret.items()}
+    return {"DEVOPS_CLI_ARGOCD_URL": _ARGOCD_URL, **named}
+
+
+def _k8s_service_calls() -> dict[str, Callable[[], Any]]:
+    """Each Grafana, Prometheus, Argo CD and Loki caller #2424 moves, invoked against example.com.
+
+    The token check runs in the credential sync, whose read of the Argo CD admin password gets
+    the empty answer of `process_fake`.
+    """
+    prometheus_env = {"DEVOPS_CLI_PROMETHEUS_URL": _PROMETHEUS_URL}
+    return {
+        "grafana command": _with_env(_grafana_env(token="glsa-test"), grafana.datasources),
+        "prometheus command": _with_env(prometheus_env, lambda: prometheus.query("up")),
+        "argo cd command": _with_env(
+            _argocd_env(token="argocd-test"), lambda: argo.cd_apps_sync("web")
+        ),
+        "argo cd fleet": _with_env(
+            _argocd_env(token="argocd-test"), lambda: sync_single_target("web", "edge")
+        ),
+        "argo cd gitops": _with_env(
+            _argocd_env(token="argocd-test"), lambda: trigger_argocd_sync("web")
+        ),
+        "rollout metric gate": _with_env(
+            prometheus_env, lambda: evaluate_rollout_gate("web", auto_abort=False, dry_run=True)
+        ),
+        "argo cd token mint": _with_env(
+            _argocd_env(password="admin-pw"), lambda: get_or_mint_argocd_token(load_settings())
+        ),
+        "grafana token mint": _with_env(
+            _grafana_env(password="admin-pw"), lambda: get_or_mint_grafana_auth(load_settings())
+        ),
+        "stack token check": _with_env(
+            {"DEVOPS_CLI_GRAFANA_TOKEN": "glsa-test"},
+            lambda: sync_k8s_credentials(stack="infra", grafana_url=_GRAFANA_URL),
+        ),
+        "loki": lambda: execute_loki_query(parse_logql_query('{app="web"}'), loki_url=_LOKI_URL),
+    }
+
+
 def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
-    """Each caller #898 and #2422 move, invoked against example.com or its fixed API host."""
+    """Each caller #898, #2422 and #2424 move, invoked against example.com or its fixed API host."""
     return {
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
@@ -834,6 +907,7 @@ def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
         "firecrawl": lambda: firecrawl_search("devops", api_key="fc-test"),
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
         **_ai_service_calls(flag, tmp_path),
+        **_k8s_service_calls(),
     }
 
 
@@ -860,8 +934,25 @@ def _ai_service_levels(flag: bool) -> dict[str, EgressLevel]:
     }
 
 
+def _k8s_service_levels(flag: bool) -> dict[str, EgressLevel]:
+    """The level table of #2424. Configured is loopback, or private with the flag."""
+    configured = PRIVATE if flag else LOOPBACK
+    return {
+        "grafana command": configured,
+        "prometheus command": configured,
+        "argo cd command": configured,
+        "argo cd fleet": configured,
+        "argo cd gitops": configured,
+        "rollout metric gate": configured,
+        "argo cd token mint": configured,
+        "grafana token mint": configured,
+        "stack token check": configured,
+        "loki": PRIVATE,
+    }
+
+
 def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
-    """The level tables of #898 and #2422, for the callers those changes move."""
+    """The level tables of #898, #2422 and #2424, for the callers those changes move."""
     return {
         "tool download": PUBLIC,
         "vault": PRIVATE,
@@ -875,6 +966,7 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "firecrawl": PUBLIC,
         "statuspage": PUBLIC,
         **_ai_service_levels(flag),
+        **_k8s_service_levels(flag),
     }
 
 
@@ -884,7 +976,7 @@ _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True)
 """A level, by whether a loopback answer and an RFC 1918 answer reached the dial."""
 
 
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("mock_keyring", "process_fake")
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
 @pytest.mark.parametrize("caller", list(_expected_levels(False)))
 def test_each_caller_dials_at_its_level(
@@ -897,8 +989,8 @@ def test_each_caller_dials_at_its_level(
     that come from configuration follow the flag; the tool downloads, the documentation crawler
     and the default pricing registry do not widen with it. A caller host name never reaches the
     dial: a client that hands the socket the name lets it resolve the name again after the check
-    (#2422). Only dials to the answer or a caller host count: the test configuration's telemetry
-    exporter may dial its collector from a background thread meanwhile.
+    (#2422, #2424). Only dials to the answer or a caller host count: the test configuration's
+    telemetry exporter may dial its collector from a background thread meanwhile.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
     call = _caller_calls(flag, tmp_path)[caller]
@@ -945,6 +1037,62 @@ def test_each_ai_service_caller_dials_the_address_it_checked(
 
     unvetted = {*_CALLER_HOSTS, _METADATA_ADDRESS}
     assert [host for host, _ in recorder.dialled if host in unvetted] == []
+
+
+@pytest.mark.usefixtures("mock_keyring", "process_fake")
+@pytest.mark.parametrize("caller", list(_k8s_service_calls()))
+def test_each_k8s_service_caller_dials_the_address_it_checked(
+    monkeypatch: pytest.MonkeyPatch, caller: str
+) -> None:
+    """Old vs new (#2424): a host that answers cloud metadata after its first lookup is not reached.
+
+    Before, the caller checked the host name before the request, and httpx2 resolved it again at
+    the socket, so a rebinding DNS server reached an address that no check saw. Now the connect
+    resolves the name once and dials the address that it checked; a later connect resolves again
+    and refuses the metadata answer. Neither the name nor the metadata address reaches the socket.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    scripted_resolver(monkeypatch, {"example.com": rebinding(1, _METADATA_ADDRESS)})
+    recorder = record_connects(monkeypatch, [])
+
+    _call_ignoring_errors(_k8s_service_calls()[caller])
+
+    unvetted = {"example.com", _METADATA_ADDRESS}
+    assert [host for host, _ in recorder.dialled if host in unvetted] == []
+
+
+@pytest.mark.parametrize(
+    ("call", "port"),
+    [
+        (_k8s_service_calls()["loki"], 3100),
+        (lambda: service_http.get_json("http://example.com:9090", "api/v1/query"), 9090),
+    ],
+    ids=["loki", "k8s direct"],
+)
+def test_loki_and_a_direct_service_url_look_up_their_host_once(
+    monkeypatch: pytest.MonkeyPatch, call: Callable[[], Any], port: int
+) -> None:
+    """Old vs new (#2424): one request makes one lookup, at the connect, and dials its answer.
+
+    Before, `validate_url_egress` resolved the public name in a check before the request, and the
+    connect resolved it a second time.
+    """
+    resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    recorder = record_connects(monkeypatch, [])
+
+    _call_ignoring_errors(call)
+
+    assert (resolver.lookups["example.com"], recorder.dialled) == (1, [(PUBLIC_ADDRESS, port)])
+
+
+def test_a_loki_url_that_is_not_http_fails_with_no_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """httpx2 refuses the scheme before the connect, so no check of its own runs before it."""
+    resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+
+    with pytest.raises(httpx2.UnsupportedProtocol):
+        execute_loki_query(parse_logql_query('{app="web"}'), loki_url="ftp://example.com:3100")
+
+    assert resolver.lookups["example.com"] == 0
 
 
 def test_the_memory_profiler_exercises_its_pool_without_a_lookup_or_a_dial(
