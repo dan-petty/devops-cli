@@ -104,7 +104,7 @@ def test_command_builders(tmp_path: Path) -> None:
         [BIN_PLUTO, "detect", "k8s/deployment.yaml", "-o", "json"],
         [BIN_PLUTO, "detect", "deployment.yaml", "-o", "json"],
         [BIN_PLUTO, "detect-files", "-d", "../tree/k8s", "-o", "json"],
-        [BIN_UV, "audit"],
+        [BIN_UV, "audit", "--frozen", "--quiet", "--output-format", "json"],
     )
     assert build_tf_cmd("plan", ["-out=tfplan"]) == [BIN_TERRAFORM, "plan", "-out=tfplan"]
     assert build_tofu_cmd("apply", ["-auto-approve"]) == [BIN_TOFU, "apply", "-auto-approve"]
