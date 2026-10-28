@@ -648,7 +648,7 @@ def audit_keys_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited."""
+    """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit."""
     if dry_run:
         render_dry_run_result(
             command="devops config audit-keys",
@@ -746,7 +746,7 @@ def audit_keys_cmd(
             "keys": key_audit_records,
         }
         emit_serialized(report, resolved)
-        if unaudited_files:
+        if not is_overall_compliant:
             raise typer.Exit(1)
         return
 
@@ -781,8 +781,8 @@ def audit_keys_cmd(
             "fix the file and re-run 'devops config audit-keys'.",
             prefix=False,
         )
+    if not is_overall_compliant:
         raise typer.Exit(1)
-    if not plaintext_leaks:
-        print_success(
-            "Zero-Trust Secret Isolation: All configuration files verified free of plaintext secrets.",
-        )
+    print_success(
+        "Zero-Trust Secret Isolation: All configuration files verified free of plaintext secrets.",
+    )

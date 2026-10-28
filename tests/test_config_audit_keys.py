@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -71,19 +73,33 @@ def test_config_audit_keys_table_rendering() -> None:
     assert "Zero-Plaintext Check" in result.output
 
 
-def test_config_audit_keys_plaintext_leak_detected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_table(
+    cli: Callable[..., Any], config: Callable[..., Path]
 ) -> None:
-    """Verify that a plaintext secret in config file triggers leak detection and non-compliant status."""
-    leaked_config = tmp_path / "config.yaml"
-    leaked_config.write_text("grafana:\n  token: FAKE-leaked-plaintext-token\n", encoding="utf-8")
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(leaked_config))
+    """A plaintext secret in the config file fails the audit: the table flags it and the command exits 1."""
+    config(grafana={"token": "FAKE-leaked-plaintext-token"})
 
-    result = runner.invoke(app, ["audit-keys", "--json"])
-    assert result.exit_code == 0
-    data = json.loads(result.output)
+    result = cli("config", "audit-keys")
+
+    assert result.exit_code == 1
+    assert "LEAK DETECTED" in result.output
+    assert "Security Alert" in result.output
+    assert "verified free of plaintext secrets" not in result.output
+
+
+def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_json_report(
+    cli: Callable[..., Any], config: Callable[..., Path]
+) -> None:
+    """--json prints the full report of a plaintext secret, then the command exits 1."""
+    config_file = config(grafana={"token": "FAKE-leaked-plaintext-token"})
+
+    result = cli("config", "audit-keys", "--json")
+
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
     assert data["is_compliant"] is False
-    assert any("grafana.token" in leak for leak in data["plaintext_leaks"])
+    assert data["plaintext_leaks"] == [f"{config_file.name}:grafana.token"]
+    assert data["unaudited_config_files"] == []
 
 
 def test_config_audit_keys_canonical_secret_leak_detected(

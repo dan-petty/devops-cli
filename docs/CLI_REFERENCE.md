@@ -2671,7 +2671,7 @@ devops config audit-stream <destination>
 
 ### `devops config audit-keys`
 
-**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited.**
+**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit.**
 
 ```bash
 devops config audit-keys [OPTIONS]
