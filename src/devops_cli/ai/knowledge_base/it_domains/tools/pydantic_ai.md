@@ -23,7 +23,7 @@ tags:
 
 - **Type-Safe Agent Execution**: Uses Pydantic schemas to validate LLM responses and arguments passed to agent tools.
 - **Model Agnostic**: Integrates with local Ollama backends, Anthropic Claude, OpenAI, and GitHub Copilot.
-- **Endpoint-Safe Model Resolution**: A remote model is sent to the endpoint its settings name, after the URL passes the egress policy (loopback allowed, any other non-public host needs `ai.allow_private_network`).
+- **Endpoint-Safe Model Resolution**: A remote model is sent to the endpoint its settings name. Its provider, and the Ollama provider too, gets a client from `new_async_http_client` that checks each address at the connect against the configured egress level (loopback allowed, any other non-public host needs `ai.allow_private_network`).
 - **Fallback Cascades**: `build_fallback_cascade_model` tries the gateway routes and then Ollama in order, through pydantic-ai's `FallbackModel`.
 
 ---

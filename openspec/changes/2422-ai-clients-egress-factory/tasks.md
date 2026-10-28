@@ -40,8 +40,8 @@
 
 ## 7. Documentation
 
-- [ ] Name the moved clients in `README.md`, `docs/KNOWN_ISSUES.md` and the pydantic-ai page of the knowledge base
-  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci test tests/test_docs_sync.py`
+- [x] Name the moved clients in `README.md`, `docs/KNOWN_ISSUES.md` and the pydantic-ai page of the knowledge base
+  - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 8. Archive
 
