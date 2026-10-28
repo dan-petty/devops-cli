@@ -468,6 +468,9 @@ class K8sMessages:
     kubeconform_not_run: str = "Kubeconform validation {status}: {reason}. kubeconform validated no manifest, so the check did not pass."
     popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
+    popeye_not_run: str = (
+        "Popeye cluster audit {status}: {reason}. Popeye did not run, so the check did not pass."
+    )
     pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."
     rbac_audit_passed: str = (
         "RBAC audit passed: no broad or wildcard role granted to a non-system subject "

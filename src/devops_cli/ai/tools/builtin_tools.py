@@ -352,10 +352,7 @@ def scan_popeye(namespace: str = "") -> str:
     """Run Popeye Kubernetes cluster and namespace resource sanitizer."""
     from devops_cli.security.popeye import run_popeye_scan
 
-    workspace = _workspace_target(".")
-    if workspace is None:
-        return _outside_workspace_reply(".")
-    return _scan_reply("Popeye", run_popeye_scan(namespace=namespace or None, workdir=workspace))
+    return _scan_reply("Popeye", run_popeye_scan(namespace=namespace or None))
 
 
 def scan_gitleaks(target: str = ".") -> str:

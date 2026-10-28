@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_POPEYE, build_popeye_cmd
-from devops_cli.config.constants import CONST_POPEYE_RESOURCE_GROUPS
+from devops_cli.config.constants import CONST_POPEYE_RESOURCE_GROUPS, CONST_POPEYE_SCAN_DIR_PREFIX
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 if TYPE_CHECKING:
-    from devops_cli.security.tool_executor import KubeApiNetwork
+    from devops_cli.security.tool_executor import KubeApiNetwork, ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,19 @@ class PopeyeScanner(BaseSecurityScanner):
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
 
+    def __init__(self, tool_executor: ToolExecutor | None = None) -> None:
+        """Start Popeye through `tool_executor`; without one, in the sandbox (#2132).
+
+        Popeye selects the network profile `kube-api` (`tool_network`), which only the sandbox
+        runs. A host that cannot start the sandbox runs no Popeye scan: the scan reports a coverage
+        gap with the cause.
+        """
+        if tool_executor is None:
+            from devops_cli.security.tool_executor import SandboxToolExecutor
+
+            tool_executor = SandboxToolExecutor()
+        super().__init__(tool_executor)
+
     def is_applicable(self, target_path: Path, **kwargs: Any) -> tuple[bool, str]:
         """Verify cluster context presence before invoking Popeye."""
         context = kwargs.get("context")
@@ -113,18 +127,14 @@ class PopeyeScanner(BaseSecurityScanner):
         ]
 
 
-def run_popeye_scan(
-    namespace: str | None = None,
-    context: str | None = None,
-    save_output: bool = True,
-    *,
-    workdir: Path,
-) -> ScanOutcome:
-    """Execute Popeye sanitizer and return scan outcome.
+def run_popeye_scan(namespace: str | None = None, context: str | None = None) -> ScanOutcome:
+    """Run Popeye over `namespace`, else over the namespace of the context, of the context
+    `context`, else of the current context, and return the outcome of the scan.
 
-    Popeye reads the cluster, not a tree. It starts in `workdir`, which the caller gives: the
-    command gives the directory that it runs in (#2098).
+    Popeye reads the cluster, not a tree. It runs in the sandbox with the network profile
+    `kube-api`, from a new empty directory: the sandbox shows the tool the directory that a scan
+    starts in, and Popeye needs no file there (#2132).
     """
     scanner = PopeyeScanner()
-    effective_context = context or "current"
-    return scanner.scan(workdir, namespace=namespace, context=effective_context)
+    with tempfile.TemporaryDirectory(prefix=CONST_POPEYE_SCAN_DIR_PREFIX) as empty:
+        return scanner.scan(Path(empty), namespace=namespace, context=context or "current")

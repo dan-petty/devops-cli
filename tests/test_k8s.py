@@ -927,7 +927,10 @@ def test_k8s_security_tools_and_scans(tmp_path: Path) -> None:
         res_lint_dry = runner.invoke(app, ["lint", str(tmp_path), "--dry-run"])
         assert res_lint_dry.exit_code == 0
 
-    with patch("devops_cli.security.popeye.run_popeye_scan", return_value=[mock_finding]):
+    with patch(
+        "devops_cli.security.popeye.run_popeye_scan",
+        return_value=ScanOutcome("ran", [mock_finding]),
+    ):
         res_audit = runner.invoke(app, ["audit"])
         assert res_audit.exit_code == 0
 
@@ -1182,7 +1185,7 @@ def test_k8s_extended_subcommands(tmp_path: Path) -> None:
             "devops_cli.security.kubelinter.run_kubelinter_scan",
             return_value=ScanOutcome("ran", []),
         ),
-        patch("devops_cli.security.popeye.run_popeye_scan", return_value=[]),
+        patch("devops_cli.security.popeye.run_popeye_scan", return_value=ScanOutcome("ran", [])),
         patch("devops_cli.security.pluto.run_pluto_scan", return_value=[]),
         patch(
             "devops_cli.security.kubeconform.run_kubeconform_validation",

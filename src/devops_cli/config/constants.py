@@ -608,6 +608,8 @@ CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
 # The `group` that Popeye 0.22 writes for an issue of the resource itself, not of one of its
 # containers: `__root__`, or empty for an issue that it measured (#1434).
 CONST_POPEYE_RESOURCE_GROUPS: Final[frozenset[str]] = frozenset({"", "__root__"})
+# The prefix of the empty directory that a Popeye scan starts in (#2132).
+CONST_POPEYE_SCAN_DIR_PREFIX: Final[str] = "devops-scan-popeye-"
 CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG: Final[str] = (
     "linters:\n"
     "  disable-all: true\n"

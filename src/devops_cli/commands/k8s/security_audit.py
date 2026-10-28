@@ -162,7 +162,7 @@ def k8s_audit(
     if not is_dry_run():
         print_info(MESSAGES.k8s.popeye_executing, prefix=False)
 
-    findings = run_popeye_scan(workdir=Path.cwd())
+    findings = run_popeye_scan()
 
     if is_dry_run():
         render_dry_run_result(
@@ -171,6 +171,13 @@ def k8s_audit(
             details={"findings_count": len(findings)},
         )
         return
+
+    if findings.status != "ran":
+        print_error(
+            MESSAGES.k8s.popeye_not_run.format(status=findings.status, reason=findings.reason),
+            safe=True,
+        )
+        raise typer.Exit(1)
 
     if not findings:
         print_success(MESSAGES.k8s.popeye_passed)
