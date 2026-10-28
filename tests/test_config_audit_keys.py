@@ -150,6 +150,45 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_json_report(
     assert data["unaudited_config_files"] == []
 
 
+def test_config_audit_keys_skips_a_top_level_setting_and_finds_the_secret_of_a_section(
+    tmp_path: Path,
+) -> None:
+    """A top-level key with a scalar value is not a section, so the audit goes on to the next key
+    and finds the plaintext secret of the section after it."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "log_level: INFO\ngrafana:\n  token: FAKE-2426-section-token\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["audit-keys", "--json"])
+
+    data = json.loads(result.stdout)
+    assert (result.exit_code, data["plaintext_leaks"], data["unaudited_config_files"]) == (
+        1,
+        [f"{config_file.resolve()}:grafana.token"],
+        [],
+    )
+
+
+def test_config_audit_keys_finds_no_secret_key_in_a_config_file_whose_document_is_a_list(
+    tmp_path: Path,
+) -> None:
+    """A config file whose YAML document is a list holds no key, so no key in it can be a
+    plaintext secret: the audit scans the file and finds no leak."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("- FAKE-2426-list-item\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["audit-keys", "--json"])
+
+    data = json.loads(result.stdout)
+    assert (
+        result.exit_code,
+        str(config_file.resolve()) in data["scanned_config_files"],
+        data["plaintext_leaks"],
+        data["unaudited_config_files"],
+    ) == (0, True, [], [])
+
+
 @pytest.mark.parametrize("walk_finds_the_project_file", [False, True])
 def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_global_config_file(
     walk_finds_the_project_file: bool,
