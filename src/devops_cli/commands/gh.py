@@ -1009,6 +1009,8 @@ def issues_create_cmd(
         labels=label,
     )
     print_success(f"Created issue #{created.number}: '{created.title}' ({created.url or 'local'})")
+    if milestone and created.milestone is None:
+        print_warning(f"Milestone '{milestone}' was not set on issue #{created.number}.")
 
 
 def _awaiting_intake(repo: str) -> list[int] | None:
@@ -1045,8 +1047,12 @@ def issues_triage_cmd(
         ],
         [
             "Missing Priority",
-            str(len(audit.issues_missing_priority)),
-            ", ".join(f"#{n}" for n in audit.issues_missing_priority) or "None",
+            "Not checked"
+            if audit.priority_not_checked
+            else str(len(audit.issues_missing_priority)),
+            "no board"
+            if audit.priority_not_checked
+            else ", ".join(f"#{n}" for n in audit.issues_missing_priority) or "None",
         ],
         [
             "Awaiting Intake",
@@ -1055,6 +1061,8 @@ def issues_triage_cmd(
         ],
     ]
     print_table(f"GitHub Issues Triage & Taxonomy Audit ({target_repo})", columns, rows)
+    if audit.priority_not_checked:
+        print_info(MESSAGES.roadmap.triage_priority_not_checked)
     if awaiting is None:
         print_info(MESSAGES.roadmap.triage_no_board)
     if audit.valid_count + len(audit.issues_awaiting_intake) < audit.total_open:

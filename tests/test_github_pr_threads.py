@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,25 @@ from devops_cli.github.pr_threads import (
     resolve_pr_review_thread,
     unresolve_pr_review_thread,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+
+def _rate_limit_payload() -> str:
+    """A /rate_limit answer with a live quota so `run_gh` refreshes without a real gh."""
+    return json.dumps(
+        {
+            "resources": {
+                name: {"limit": 5000, "used": 0, "remaining": 4990, "reset": int(time.time()) + 600}
+                for name in ("core", "graphql", "search")
+            }
+        }
+    )
+
+
+def _is_listing(call: ProcessCall) -> bool:
+    """The review-thread listing query, as opposed to a later comment page or a rate-limit read."""
+    return any("GetReviewThreads" in arg for arg in call.argv)
+
 
 SAMPLE_GRAPHQL_RESPONSE = {
     "data": {
@@ -627,3 +647,113 @@ def test_a_deleted_author_reads_as_ghost_and_an_outdated_thread_keeps_its_origin
         40,
         "ghost",
     )
+
+
+def test_a_thread_whose_comments_span_three_pages_reads_every_comment_in_order(
+    process_fake: ProcessFake,
+) -> None:
+    """A review thread whose comments are on three pages returns every comment, in order (#2158)."""
+    listing = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False},
+                        "nodes": [
+                            {
+                                "id": "PRRT_thread_1",
+                                "isResolved": False,
+                                "path": "a.py",
+                                "line": 5,
+                                "comments": {
+                                    "nodes": [
+                                        {"id": "C1", "body": "first", "author": {"login": "r"}}
+                                    ],
+                                    "pageInfo": {"hasNextPage": True, "endCursor": "c1"},
+                                },
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    }
+    after_c1 = {
+        "data": {
+            "node": {
+                "comments": {
+                    "nodes": [{"id": "C2", "body": "second", "author": {"login": "r"}}],
+                    "pageInfo": {"hasNextPage": True, "endCursor": "c2"},
+                }
+            }
+        }
+    }
+    after_c2 = {
+        "data": {
+            "node": {
+                "comments": {
+                    "nodes": [{"id": "C3", "body": "third", "author": {"login": "r"}}],
+                    "pageInfo": {"hasNextPage": False},
+                }
+            }
+        }
+    }
+
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    )
+    process_fake.answer(_is_listing, ProcessAnswer(returncode=0, stdout=json.dumps(listing)))
+    process_fake.answer(
+        lambda call: any(arg == "cursor=c1" for arg in call.argv),
+        ProcessAnswer(returncode=0, stdout=json.dumps(after_c1)),
+    )
+    process_fake.answer(
+        lambda call: any(arg == "cursor=c2" for arg in call.argv),
+        ProcessAnswer(returncode=0, stdout=json.dumps(after_c2)),
+    )
+
+    (thread,) = list_pr_review_threads("o", "r", 7)
+    assert [comment.id for comment in thread.comments] == ["C1", "C2", "C3"]
+    assert [comment.body for comment in thread.comments] == ["first", "second", "third"]
+
+
+def test_a_non_json_listing_reply_raises_a_github_operation_error(
+    process_fake: ProcessFake,
+) -> None:
+    """A listing reply that is not JSON is a GitHubOperationError naming the parse failure."""
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    )
+    process_fake.answer(_is_listing, ProcessAnswer(returncode=0, stdout="not json"))
+
+    with pytest.raises(GitHubOperationError, match="Failed to parse GraphQL response"):
+        list_pr_review_threads("o", "r", 7)
+
+
+def test_a_list_listing_reply_raises_a_github_operation_error(process_fake: ProcessFake) -> None:
+    """A listing reply that is a JSON list, not an object, is a GitHubOperationError."""
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    )
+    process_fake.answer(_is_listing, ProcessAnswer(returncode=0, stdout=json.dumps([1, 2, 3])))
+
+    with pytest.raises(GitHubOperationError, match="expected JSON object"):
+        list_pr_review_threads("o", "r", 7)
+
+
+def test_a_listing_reply_with_graphql_errors_raises_a_github_operation_error(
+    process_fake: ProcessFake,
+) -> None:
+    """A listing reply carrying GraphQL errors is a GitHubOperationError naming the first message."""
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    )
+    process_fake.answer(
+        _is_listing,
+        ProcessAnswer(
+            returncode=0, stdout=json.dumps({"errors": [{"message": "Cannot query field"}]})
+        ),
+    )
+
+    with pytest.raises(GitHubOperationError, match="GraphQL error: Cannot query field"):
+        list_pr_review_threads("o", "r", 7)
