@@ -131,6 +131,20 @@ def origin_label(origin: httpx2.Origin) -> str:
     return authority_label(origin.host, origin.port, origin.scheme)
 
 
+def origin_span_attributes(origin: httpx2.Origin | None) -> dict[str, Any]:
+    """`server.address` and `server.port` of the one server that a request went to.
+
+    The origin holds the default port of its scheme when the URL has no port. With no origin,
+    the request names no single server, so the span gets neither attribute.
+    """
+    if origin is None:
+        return {}
+    attributes: dict[str, Any] = {"server.address": origin.host}
+    if origin.port is not None:
+        attributes["server.port"] = origin.port
+    return attributes
+
+
 class ServedByAuthority(NamedTuple):
     """The server that a gateway's served_by value names: its host and its `host[:port]` text."""
 

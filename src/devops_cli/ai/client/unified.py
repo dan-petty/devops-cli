@@ -22,6 +22,7 @@ from devops_cli.ai.client.models import (
     _is_json_error_payload,
     genai_provider_name,
     origin_label,
+    origin_span_attributes,
 )
 from devops_cli.ai.client.network import validate_base_url
 from devops_cli.ai.client.ollama import OllamaProviderMixin
@@ -57,20 +58,6 @@ if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
 
 logger = logging.getLogger(__name__)
-
-
-def _origin_span_attributes(origin: httpx2.Origin | None) -> dict[str, Any]:
-    """`server.address` and `server.port` of the one server that a request went to.
-
-    The origin holds the default port of its scheme when the URL has no port. With no origin,
-    the request names no single server, so the span gets neither attribute.
-    """
-    if origin is None:
-        return {}
-    attributes: dict[str, Any] = {"server.address": origin.host}
-    if origin.port is not None:
-        attributes["server.port"] = origin.port
-    return attributes
 
 
 def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
@@ -129,7 +116,7 @@ def _set_response_span_attributes(
     counted once, on the span that made it. The server is the reply's origin, else
     ``configured``, the one origin that the client is configured with.
     """
-    for key, value in _origin_span_attributes(res.origin or configured).items():
+    for key, value in origin_span_attributes(res.origin or configured).items():
         span_handle.set_attribute(key, value)
     if getattr(res, "served_by", None):
         span_handle.set_attribute("llm.served_by", res.served_by)
@@ -978,7 +965,7 @@ class LLMClient(
             "llm.request.enable_thinking": enable_thinking,
             "llm.stream.sanitize": sanitize,
         }
-        stream_attrs.update(_origin_span_attributes(self._configured_origin))
+        stream_attrs.update(origin_span_attributes(self._configured_origin))
         with (
             trace_span(
                 "ai.llm.stream", attributes=stream_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT

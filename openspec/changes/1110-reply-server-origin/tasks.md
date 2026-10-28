@@ -13,7 +13,7 @@
 
 - [x] Add a failing test: an Ollama embedding batch to a URL with a password writes the ledger `server` `example.com:11434`, the counter label `example.com:11434` and the span `server.address` `example.com` with `server.port` 11434
   - Verification: `uv run devops ci test tests/test_rag_embeddings.py`
-- [ ] Take the ledger `server`, the `backend_info` and the batch span `server.*` of an embedding request from the origin of its endpoint, and delete the `urlsplit(endpoint).netloc` read
+- [x] Take the ledger `server`, the `backend_info` and the batch span `server.*` of an embedding request from the origin of its endpoint, and delete the `urlsplit(endpoint).netloc` read
   - Verification: `uv run devops ci test tests/test_rag_embeddings.py`
 
 ## 3. The served_by displays show the server without userinfo
