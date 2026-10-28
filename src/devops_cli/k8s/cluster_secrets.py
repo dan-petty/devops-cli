@@ -14,7 +14,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from devops_cli.config import options as opt
-from devops_cli.config.constants import CONST_K8S_GITEA_ADMIN_USER
+from devops_cli.config.constants import (
+    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
+    CONST_K8S_GITEA_ADMIN_USER,
+)
 
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "devops-cli"
@@ -45,16 +48,6 @@ class KeyringSource:
 
 
 @dataclass(frozen=True)
-class GitHubAccountSource:
-    """The token gh keeps in the OS keyring for the machine account (`k8s.github_account`)."""
-
-    @property
-    def label(self) -> str:
-        """How output names the source."""
-        return "gh account"
-
-
-@dataclass(frozen=True)
 class SettingSource:
     """A non-secret setting, such as a username."""
 
@@ -78,7 +71,7 @@ class LiteralSource:
         return "literal"
 
 
-SecretSource = KeyringSource | GitHubAccountSource | SettingSource | LiteralSource
+SecretSource = KeyringSource | SettingSource | LiteralSource
 
 
 @dataclass(frozen=True)
@@ -243,7 +236,12 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         name="devops-cli",
         stack="devops",
         entries=(
-            SecretEntry("GH_TOKEN", GitHubAccountSource()),
+            # The GitHub App's private key: a pod whose environment holds it acts as the App
+            # (ADR 0015). A person stores it with `devops config set --from-file`.
+            SecretEntry(
+                CONST_GITHUB_APP_PRIVATE_KEY_ENV,
+                KeyringSource("service_github_app_private_key", opt.SERVICE_GITHUB_APP_PRIVATE_KEY),
+            ),
             SecretEntry(
                 "DEVOPS_CLI_AI_API_KEY",
                 _LLM_GATEWAY_KEY,

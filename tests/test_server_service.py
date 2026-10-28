@@ -40,7 +40,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
     WebhookProviderName,
 )
-from devops_cli.config.settings import ServiceConfig, Settings
+from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions import ConfigurationError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.roadmap.board_read import GraphQLBudget, require_budget, require_write_floor
@@ -84,14 +84,14 @@ def _sign(payload: bytes, secret: str) -> str:
 
 def _make_settings(
     repos: list[str] | None = None,
-    machine_account: str | None = "bot-account",
+    app_slug: str | None = "bot-account",
     poll_interval: int = 300,
     drain_timeout: int = 120,
 ) -> Settings:
-    """Helper creating Settings with configured ServiceConfig."""
+    """Helper creating Settings with configured ServiceConfig; the App's bot is `<slug>[bot]`."""
     service_conf = ServiceConfig(
         repos=repos or ["example-org/repo1", "example-org/repo2"],
-        machine_account=machine_account,
+        github_app=GitHubAppConfig(app_id=1001, installation_id=42, slug=app_slug),
         poll_interval_seconds=poll_interval,
         drain_timeout_seconds=drain_timeout,
     )
@@ -276,8 +276,8 @@ def test_webhook_authentication_rejections(caplog: pytest.LogCaptureFixture) -> 
 
 
 def test_webhook_duplicate_and_ignored_deliveries() -> None:
-    """Test 200 responses for duplicate deliveries, ping events, and machine account triggers."""
-    settings = _make_settings(repos=["example-org/repo1"], machine_account="bot-account")
+    """Test 200 responses for duplicate deliveries, ping events, and the App bot's own writes."""
+    settings = _make_settings(repos=["example-org/repo1"], app_slug="bot-account")
     secrets = {"example-org/repo1": "secret-1"}
     received_batches: list[TriggerBatch] = []
 
@@ -314,12 +314,12 @@ def test_webhook_duplicate_and_ignored_deliveries() -> None:
         )
         res_ping = client.post("/webhooks/github", content=payload, headers=ping_headers)
 
-        # Machine account event (case-insensitive check)
+        # The App's own bot (case-insensitive check)
         bot_payload = json.dumps(
             {
                 "repository": {"full_name": "example-org/repo1"},
                 "action": "opened",
-                "sender": {"login": "BOT-ACCOUNT"},
+                "sender": {"login": "BOT-ACCOUNT[bot]"},
             }
         ).encode("utf-8")
         bot_headers = {
@@ -338,7 +338,7 @@ def test_webhook_duplicate_and_ignored_deliveries() -> None:
             res_ping.json()["status"],
             res_bot.status_code,
             res_bot.json()["status"],
-        ) == (202, 200, "duplicate", 200, "pong", 200, "ignored_machine_account")
+        ) == (202, 200, "duplicate", 200, "pong", 200, "ignored_own_write")
 
 
 def test_webhook_payload_size_and_bad_request() -> None:
@@ -1739,19 +1739,19 @@ def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_both_lanes(eve
     )
 
 
-def test_the_machine_accounts_own_event_reaches_neither_lane() -> None:
-    """The roadmap's own writes come back as webhooks from the machine account. The roadmap
+def test_the_app_bots_own_event_reaches_neither_lane() -> None:
+    """The roadmap's own writes come back as webhooks from the GitHub App's bot. The roadmap
     consumer refuses them, and answers with the reason."""
     lanes = _unblocked_lanes()
     app = _lanes_app(lanes)
     with TestClient(app) as client:
         response = _github_post(
-            client, "issues", _event_payload("opened", sender="BOT-ACCOUNT"), "own-write-1"
+            client, "issues", _event_payload("opened", sender="BOT-ACCOUNT[bot]"), "own-write-1"
         )
         settled = _lanes_settled(app)
     assert (response.status_code, response.json(), settled, _webhook_keys(lanes)) == (
         200,
-        {"status": "ignored_machine_account"},
+        {"status": "ignored_own_write"},
         True,
         {STATUS_LANE: [], MODEL_LANE: []},
     )
@@ -1893,7 +1893,7 @@ def test_header_values_in_the_record_and_the_counter_are_bounded(
 
 
 def test_every_path_counts_its_delivery_by_provider_event_and_outcome() -> None:
-    """Accepted, repeated, pong, machine-account, no-subscriber, refused and draining deliveries
+    """Accepted, repeated, pong, own-write, no-subscriber, refused and draining deliveries
     all count under the provider, the event (an undeclared one as "other") and the outcome."""
     app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
     with TestClient(app) as client:
@@ -1901,7 +1901,7 @@ def test_every_path_counts_its_delivery_by_provider_event_and_outcome() -> None:
             _github_post(client, "issues", _event_payload(), "count-1").status_code,
             _github_post(client, "issues", _event_payload(), "count-1").status_code,
             _github_post(
-                client, "issues", _event_payload(sender="bot-account"), "count-2"
+                client, "issues", _event_payload(sender="bot-account[bot]"), "count-2"
             ).status_code,
             _github_post(client, "ping", _event_payload(None), "count-3").status_code,
             _github_post(client, "issue_comment", _event_payload(), "count-4").status_code,
@@ -2010,8 +2010,8 @@ def _refusing_consumer(name: str, refusal: str, delivered: list[str]) -> Webhook
     )
 
 
-def test_the_machine_accounts_event_is_refused_by_the_roadmap_consumer_alone() -> None:
-    """The roadmap consumer refuses the machine account's own writes, and the refusal is its own:
+def test_the_app_bots_event_is_refused_by_the_roadmap_consumer_alone() -> None:
+    """The roadmap consumer refuses the App bot's own writes, and the refusal is its own:
     a consumer subscribed beside it still receives the event, while neither lane runs a round for
     it. Another sender's event reaches the recorder and both lanes."""
     lanes = _unblocked_lanes()
@@ -2037,7 +2037,10 @@ def test_the_machine_accounts_event_is_refused_by_the_roadmap_consumer_alone() -
             answers = [
                 _github_post(client, "issues", _event_payload("opened"), "shared-1"),
                 _github_post(
-                    client, "issues", _event_payload("closed", sender="BOT-ACCOUNT"), "shared-2"
+                    client,
+                    "issues",
+                    _event_payload("closed", sender="BOT-ACCOUNT[bot]"),
+                    "shared-2",
                 ),
             ]
         settled = all(

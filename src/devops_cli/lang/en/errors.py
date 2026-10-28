@@ -43,6 +43,16 @@ class GitErrorMessages:
     )
     github_token_lookup_not_found: str = "gh is not on PATH"
     github_token_lookup_timed_out: str = "no answer within {seconds:g} s"
+    github_app_settings_missing: str = (
+        "The environment holds {key_env}, so this process acts as a GitHub App, but these "
+        "settings are not set: {settings}. Set them with 'devops config set'."
+    )
+    github_app_token_failed: str = (
+        "GitHub App {login} has no installation token: {reason}. Check the App ID, the "
+        "installation ID and the private key in {key_env}."
+    )
+    github_app_key_unreadable: str = "the private key is not an RSA private key in PEM form"
+    github_app_answer_unreadable: str = "GitHub's answer holds no token and expiry time"
 
 
 @dataclass(frozen=True)

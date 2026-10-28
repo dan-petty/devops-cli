@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from devops_cli.config.constants import (
+    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_SECRET_AUDIT_MAX_ENTRIES,
     CONST_SECRET_PROVIDER_ENVIRONMENT,
     CONST_SECRET_PROVIDER_KEYRING,
@@ -440,6 +441,12 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             opt.SERVICE_WEBHOOK_SECRETS,
             "service_webhook_secrets",
             ("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",),
+            None,
+        ),
+        (
+            opt.SERVICE_GITHUB_APP_PRIVATE_KEY,
+            "service_github_app_private_key",
+            (CONST_GITHUB_APP_PRIVATE_KEY_ENV,),
             None,
         ),
         (

@@ -2,68 +2,89 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from devops_cli.config import options as opt
 from devops_cli.config.defaults import DEFAULT_K8S_DIR
-from devops_cli.config.settings import Settings, load_settings
+from devops_cli.config.settings import GitHubAppConfig, Settings, load_settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 
-_SERVICE_BLOCK_PATTERN = re.compile(
-    r"(    service:\s*\n      repos:\s*\n)(?:        - [^\n]+\s*\n)+(\s*machine_account:\s*)[^\n]+",
-    re.MULTILINE,
-)
+_CONFIG_KEY = "devops-cli.yaml"
+
+
+class _BlockDumper(yaml.SafeDumper):
+    """YAML that writes a multi-line string as a literal block, as the template holds its config."""
+
+
+def _represent_text(dumper: yaml.SafeDumper, text: str) -> yaml.ScalarNode:
+    style = "|" if "\n" in text else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", text, style=style)
+
+
+_BlockDumper.add_representer(str, _represent_text)
+
+
+def _service_block(
+    repos: Sequence[str],
+    github_app: GitHubAppConfig,
+    drain_timeout_seconds: int | None,
+    poll_interval_seconds: int | None,
+) -> dict[str, Any]:
+    """The ConfigMap's `service` section: the repositories, the GitHub App the Service acts as,
+    and the timings when set."""
+    clean_repos = [r.strip() for r in repos if r and r.strip()]
+    if not clean_repos or _missing_app_settings(github_app):
+        raise KubernetesContextError(
+            "The devops ConfigMap needs at least one repository and the GitHub App's ID, "
+            "installation ID and slug."
+        )
+    service: dict[str, Any] = {
+        "repos": clean_repos,
+        "github_app": github_app.model_dump(mode="json"),
+    }
+    if drain_timeout_seconds is not None:
+        service["drain_timeout_seconds"] = drain_timeout_seconds
+    if poll_interval_seconds is not None:
+        service["poll_interval_seconds"] = poll_interval_seconds
+    return service
 
 
 def render_devops_configmap_content(
     template_content: str,
     repos: Sequence[str],
-    machine_account: str,
+    github_app: GitHubAppConfig,
     drain_timeout_seconds: int | None = None,
     poll_interval_seconds: int | None = None,
 ) -> str:
-    """The ConfigMap template with its service block set to `repos` and `machine_account`."""
-    m = _SERVICE_BLOCK_PATTERN.search(template_content)
-    if not m:
+    """The ConfigMap template with its service section set to `repos` and `github_app`.
+
+    The template's config is read as YAML and written again, so the applied ConfigMap does not
+    keep the template's comments.
+    """
+    manifest = yaml.safe_load(template_content)
+    data = manifest.get("data") if isinstance(manifest, dict) else None
+    if not isinstance(data, dict):
+        data = {}
+    config = yaml.safe_load(data.get(_CONFIG_KEY) or "")
+    if not isinstance(config, dict) or not isinstance(config.get("service"), dict):
         raise KubernetesContextError(
             "Could not locate standard service configuration block in devops ConfigMap template."
         )
-    clean_repos = [r.strip() for r in repos if r and r.strip()]
-    account = (machine_account or "").strip()
-    if not clean_repos or not account:
-        raise KubernetesContextError(
-            "The devops ConfigMap needs at least one repository and a machine account."
-        )
-
-    formatted_repos = "\n".join(f"        - {repo}" for repo in clean_repos)
-    extra_lines = ""
-    if drain_timeout_seconds is not None:
-        extra_lines += f"\n      drain_timeout_seconds: {drain_timeout_seconds}"
-    if poll_interval_seconds is not None:
-        extra_lines += f"\n      poll_interval_seconds: {poll_interval_seconds}"
-    replacement = f"{m.group(1)}{formatted_repos}\n{m.group(2)}{account}{extra_lines}"
-    rendered = _SERVICE_BLOCK_PATTERN.sub(replacement, template_content, count=1)
-
-    parsed_cm = yaml.safe_load(rendered)
-    if not isinstance(parsed_cm, dict) or "data" not in parsed_cm:
-        raise KubernetesContextError("Rendered ConfigMap is not a valid Kubernetes resource.")
-    inner_raw = yaml.safe_load(parsed_cm["data"].get("devops-cli.yaml", ""))
-    Settings.model_validate(inner_raw)
-
-    return rendered
+    config["service"] = _service_block(
+        repos, github_app, drain_timeout_seconds, poll_interval_seconds
+    )
+    Settings.model_validate(config)
+    data[_CONFIG_KEY] = yaml.dump(config, Dumper=_BlockDumper, sort_keys=False)
+    return yaml.dump(manifest, Dumper=_BlockDumper, sort_keys=False)
 
 
-def _configured_repos(settings: Any) -> list[str]:
+def _configured_repos(settings: Settings) -> list[str]:
     """The repositories the service works for, or an error naming the setting."""
-    repos = [
-        str(r).strip()
-        for r in getattr(getattr(settings, "service", None), "repos", None) or []
-        if str(r).strip()
-    ]
+    repos = [str(r).strip() for r in settings.service.repos if str(r).strip()]
     if not repos:
         raise KubernetesContextError(
             "No repositories configured for the roadmap service. "
@@ -72,28 +93,37 @@ def _configured_repos(settings: Any) -> list[str]:
     return repos
 
 
-def _configured_account(settings: Any) -> str:
-    """The machine account the service acts as, or an error naming the settings."""
-    for account in (
-        getattr(getattr(settings, "service", None), "machine_account", None),
-        getattr(getattr(settings, "k8s", None), "github_account", None),
-    ):
-        if account and str(account).strip():
-            return str(account).strip()
-    raise KubernetesContextError(
-        "No machine account configured for the roadmap service. "
-        "Set 'service.machine_account' (or 'k8s.github_account') in config.yaml."
+def _missing_app_settings(github_app: GitHubAppConfig) -> list[str]:
+    """The App settings that are not set."""
+    wanted = (
+        (opt.SERVICE_GITHUB_APP_APP_ID, github_app.app_id),
+        (opt.SERVICE_GITHUB_APP_INSTALLATION_ID, github_app.installation_id),
+        (opt.SERVICE_GITHUB_APP_SLUG, github_app.slug),
     )
+    return [option for option, value in wanted if not value]
+
+
+def _configured_app(settings: Settings) -> GitHubAppConfig:
+    """The GitHub App the service acts as, or an error naming each setting that is not set."""
+    github_app = settings.service.github_app
+    missing = _missing_app_settings(github_app)
+    if missing:
+        raise KubernetesContextError(
+            "The roadmap service acts as a GitHub App, so set "
+            + ", ".join(f"'{option}'" for option in missing)
+            + " in config.yaml."
+        )
+    return github_app
 
 
 def render_active_devops_configmap(
     k8s_dir: Path | None = None,
-    settings: Any = None,
+    settings: Settings | None = None,
 ) -> str:
     """ConfigMap devops-cli-config rendered in memory from the active config.
 
-    The repository holds only its template, so the homelab's repositories and account never
-    enter git; a deploy applies this rendering and refuses when a setting it needs is unset.
+    The repository holds only its template, so the homelab's repositories and App never enter
+    git; a deploy applies this rendering and refuses when a setting it needs is unset.
     """
     base_dir = k8s_dir or DEFAULT_K8S_DIR
     template_path = base_dir / "devops" / "configmap.example.yaml"
@@ -106,17 +136,16 @@ def render_active_devops_configmap(
 
     active_settings = settings if settings is not None else load_settings()
     effective_repos = _configured_repos(active_settings)
-    effective_account = _configured_account(active_settings)
+    github_app = _configured_app(active_settings)
 
-    svc = getattr(active_settings, "service", None)
-    drain_timeout = getattr(svc, "drain_timeout_seconds", None)
-    poll_interval = getattr(svc, "poll_interval_seconds", None)
+    drain_timeout = active_settings.service.drain_timeout_seconds
+    poll_interval = active_settings.service.poll_interval_seconds
 
     template_text = template_path.read_text(encoding="utf-8")
     return render_devops_configmap_content(
         template_text,
         repos=effective_repos,
-        machine_account=effective_account,
+        github_app=github_app,
         drain_timeout_seconds=drain_timeout,
         poll_interval_seconds=poll_interval,
     )

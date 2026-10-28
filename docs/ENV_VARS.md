@@ -56,7 +56,6 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_GRAFANA_URL` | `grafana.url` | No | Grafana service URL |
 | `DEVOPS_CLI_K8S_CONTEXT` | `k8s.context` | No | Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster) |
 | `DEVOPS_CLI_K8S_DOMAIN` | `k8s.domain` | No | Base or root domain name for homelab ingress routes and tunnel services |
-| `DEVOPS_CLI_K8S_GITHUB_ACCOUNT` | `k8s.github_account` | No | Login of the machine account whose gh token `devops k8s push-secrets` writes to the cluster as GH_TOKEN |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |
@@ -66,7 +65,10 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | `service.drain_timeout_seconds` | No | Shutdown drain timeout for running service jobs in seconds |
-| `DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT` | `service.machine_account` | No | GitHub username of the machine account to ignore events from |
+| `DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID` | `service.github_app.app_id` | No | ID of the GitHub App that the roadmap Service and the cluster jobs act as |
+| `DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID` | `service.github_app.installation_id` | No | ID of the GitHub App's installation on the account that owns the managed repositories |
+| `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` | `service.github_app.private_key` | 🔒 Yes | PEM private key of the GitHub App (stored in OS keyring). A process whose environment holds it acts as the App |
+| `DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG` | `service.github_app.slug` | No | Slug of the GitHub App; its bot's login is `<slug>[bot]` |
 | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | `service.poll_interval_seconds` | No | Periodic polling interval for service mode in seconds |
 | `DEVOPS_CLI_SERVICE_REPOS` | `service.repos` | No | Target repository list for service mode |
 | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | `service.webhook_secrets` | 🔒 Yes | JSON map of repo to webhook HMAC secret for incoming GitHub webhooks |

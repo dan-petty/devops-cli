@@ -970,11 +970,10 @@ devops k8s push-secrets [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `all` | Push the Secrets of one stack: base, infra, llm, logging, devops, gitea, or all (default). |
 | `--only` | `string` | - | Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack. |
-| `--github-account` | `string` | - | Machine account whose gh token becomes GH_TOKEN (default: k8s.github_account). |
 | `--rotate` | `boolean` | - | Replace live values that differ from the keyring's. |
 | `--restart` / `--no-restart` | `boolean` | `True` | Restart the workloads of each existing Secret whose data changed; --no-restart prints the commands instead. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--plan` | `boolean` | - | Read the keyring, the live Secrets and, for the machine account's token, gh's own record of the account (read-only; gh checks the token on github.com); print each key's state and the workloads a change would restart, and write nothing. |
+| `--plan` | `boolean` | - | Read the keyring and the live Secrets (read-only); print each key's state and the workloads a change would restart, and write nothing. |
 | `--dry-run` | `boolean` | - | Make no request, reads included: print the requests a push would make, in order, with placeholders for every value. Wins over --plan. |
 
 ### `devops k8s run-job`

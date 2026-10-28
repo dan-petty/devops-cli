@@ -1,11 +1,14 @@
 """The process's one GitHub session: one identity that owns its token, quota and pacing (#767).
 
-The identity is whatever `gh auth token` prints, looked up once on the first GitHub call; that
-command applies GH_TOKEN, then GITHUB_TOKEN, then gh's stored login. The lookup and the pin that
-gives every gh and git child that token live in `core.process`, which does not import `github/`;
-the session reads its token from there. Its quota ledger and response cache are the identity's
-directory under the cache dir, and the typed client of its calls is built here, from the session,
-and nowhere else.
+The identity is gh's login, whatever `gh auth token` prints, looked up once on the first GitHub
+call; that command applies GH_TOKEN, then GITHUB_TOKEN, then gh's stored login. A process whose
+environment holds a GitHub App's private key acts as that App instead, with an installation token
+it mints again before the token expires (ADR 0015). The lookup, the renewal and the pin that gives
+every gh and git child the current token live in `core.process`, which does not import `github/`;
+an App's session reads the current token from there for each request. Its quota ledger and response
+cache are the identity's directory under the cache dir, named by the identity's key: gh's token,
+or the App's installation, so each new installation token keeps them. The typed client of its
+calls is built here, from the session, and nowhere else.
 
 `rest()` sends a REST request as the identity through gidgethub (#983, ADR 0006), paced and
 charged on the same ledger as `run_gh`, and `paginate()` reads a REST listing page by page; a GET
@@ -19,9 +22,15 @@ from __future__ import annotations
 import threading
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
+from devops_cli.config.constants import CONST_GITHUB_NOREPLY_EMAIL
 from devops_cli.config.defaults import DEFAULT_GH_MAX_PAGINATED_PAGES
-from devops_cli.core.process import github_token, reset_github_token
+from devops_cli.core.process import (
+    GitHubIdentity,
+    github_identity,
+    reset_github_token,
+)
 from devops_cli.github.error_classifier import listing_past_page_cap
 from devops_cli.github.rate_limiter import resolve_identity_cache_dir
 
@@ -34,10 +43,11 @@ if TYPE_CHECKING:
 
 
 class GitHubSession:
-    """One GitHub identity: its token, the login behind it, its ledger directory and its client."""
+    """One GitHub identity: its current token, the login behind it, its ledger directory and its
+    client."""
 
-    def __init__(self, token: str) -> None:
-        self._token = token
+    def __init__(self, identity: GitHubIdentity) -> None:
+        self._identity = identity
         self._rest: RestTransport | None = None
         self._rest_lock = threading.Lock()
 
@@ -45,20 +55,37 @@ class GitHubSession:
         return f"{type(self).__name__}(cache_dir={self.cache_dir.name!r})"
 
     @property
+    def identity(self) -> GitHubIdentity:
+        """Who the session's calls act as."""
+        return self._identity
+
+    @property
     def token(self) -> str:
-        """The token every GitHub call of this process is made with."""
-        return self._token
+        """The token the session's calls are made with now: gh's token, or the App's current
+        installation token."""
+        return self._identity.token()
 
     @property
     def cache_dir(self) -> Path:
         """The identity's directory, which holds its quota ledger and response cache."""
-        return resolve_identity_cache_dir(self._token)
+        return resolve_identity_cache_dir(self._identity.key)
 
     @cached_property
     def login(self) -> str:
-        """The account the token belongs to, from `GET /user` the first time it is read."""
+        """The identity's login: the App's bot login with no request, or else the account the
+        token belongs to, from `GET /user` the first time it is read."""
+        if self._identity.login is not None:
+            return self._identity.login
         user = self.rest("GET", "/user")
         return str(user["login"])
+
+    @cached_property
+    def commit_email(self) -> str:
+        """The email GitHub links to the login's account, `<id>+<login>@users.noreply.github.com`,
+        with the ID from `GET /users/<login>` the first time it is read. A bot's commits link to
+        its App only through this form."""
+        account = self.rest("GET", f"/users/{quote(self.login, safe='')}")
+        return CONST_GITHUB_NOREPLY_EMAIL.format(account_id=account["id"], login=self.login)
 
     @cached_property
     def client(self) -> GitHubClient:
@@ -123,7 +150,7 @@ class GitHubSession:
 
         with self._rest_lock:
             if self._rest is None:
-                self._rest = RestTransport(self._token)
+                self._rest = RestTransport(self._identity)
             return self._rest
 
 
@@ -134,14 +161,15 @@ _SESSION_LOCK = threading.Lock()
 def get_github_session() -> GitHubSession:
     """The session of the process's GitHub identity, raising the unauthenticated error without one.
 
-    A session the identity's change replaces is closed.
+    A session the identity's change replaces is closed. A new installation token of the same App
+    keeps the session, so a listing in progress keeps its transport.
     """
     global _SESSION
-    token = github_token()
+    identity = github_identity()
     replaced = None
     with _SESSION_LOCK:
-        if _SESSION is None or _SESSION.token != token:
-            replaced, _SESSION = _SESSION, GitHubSession(token)
+        if _SESSION is None or _SESSION.identity != identity:
+            replaced, _SESSION = _SESSION, GitHubSession(identity)
         current = _SESSION
     if replaced is not None:
         replaced.close()

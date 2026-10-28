@@ -26,7 +26,6 @@ from devops_cli.config.constants import (
     CONST_KEYRING_UNLOCK_PROBE_KEY,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-from devops_cli.config.options import K8S_GITHUB_ACCOUNT
 from devops_cli.config.settings import (
     SecretStorageError,
     keyring_read,
@@ -39,7 +38,6 @@ from devops_cli.exceptions.k8s import ClusterSecretPushError, ClusterSecretWrite
 from devops_cli.k8s.cluster_secrets import (
     FIELD_MANAGER,
     ClusterSecret,
-    GitHubAccountSource,
     KeyringSource,
     LiteralSource,
     SecretEntry,
@@ -48,11 +46,6 @@ from devops_cli.k8s.cluster_secrets import (
     SettingSource,
 )
 
-GITHUB_HOST = "github.com"
-# gh reaches its keyring over the session bus and finds its login state in its config dir.
-_GH_ENV = frozenset(
-    {"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"}
-)
 # Names and resource versions only: the applied objects carry the values.
 _APPLY_OUTPUT = (
     "jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} "
@@ -86,14 +79,9 @@ _PLAN_LABELS: dict[EntryState, str] = {
 
 @dataclass(frozen=True)
 class PushOptions:
-    """How a push runs. `strict_namespaces` (`--only`) fails on a missing namespace.
-
-    `github_account` is `--github-account`; without it the `k8s.github_account` setting is
-    read, and only when a selected Secret needs the gh account.
-    """
+    """How a push runs. `strict_namespaces` (`--only`) fails on a missing namespace."""
 
     context: str | None = None
-    github_account: str | None = None
     rotate: bool = False
     restart: bool = True
     strict_namespaces: bool = False
@@ -318,78 +306,11 @@ class _LiveSecrets:
         return (live.data.get(ref.key) or None) if live else None
 
 
-def _gh(args: list[str]) -> str:
-    """Run one of gh's own `gh auth` commands and return its stdout.
-
-    `gh auth` is local to gh (`is_local_gh_command`), so the child gets no session token: gh
-    answers from its own store for the account named, never as the person running the push.
-    """
-    result = run_subprocess(
-        ["gh", *args],
-        extra_allowed_env=_GH_ENV,
-        quiet=True,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-    )
-    if result.returncode != 0:
-        raise ClusterSecretPushError(f"`gh {' '.join(args[:2])}` failed")
-    return (result.stdout or "").strip()
-
-
-_GH_STATUS_ARGS = ["auth", "status", "--hostname", GITHUB_HOST, "--json", "hosts"]
-# The state `gh auth status` gives an account whose stored token it checked and found working.
-_GH_ACCOUNT_OK = "success"
-
-
-def _gh_token_args(login: str) -> list[str]:
-    """`--user` first: the output masker hides a 10-character word after "token", such as
-    `--hostname`, which would mangle the printed command."""
-    return ["auth", "token", "--user", login, "--hostname", GITHUB_HOST]
-
-
-def read_github_account_token(login: str) -> str:
-    """The token gh keeps in the OS keyring for `login`, as gh's own record vouches for it.
-
-    `gh auth status` lists the accounts gh stores, each with the login gh recorded for its token
-    and the state of gh's own check of that token; `gh auth token --user` then reads it. The push
-    never calls GitHub with the token itself, so the process keeps its one identity (#767).
-    Raises ClusterSecretPushError when gh has no such account, keeps its token in gh's config
-    file rather than the keyring, or reports the token as not working.
-    """
-    status = json.loads(_gh(_GH_STATUS_ARGS) or "{}")
-    accounts = [
-        entry
-        for entry in (status.get("hosts") or {}).get(GITHUB_HOST) or []
-        if entry.get("login") == login
-    ]
-    if not accounts:
-        raise ClusterSecretPushError(
-            f"gh has no {GITHUB_HOST} account {login}; run `gh auth login`"
-        )
-    # An ambient GH_TOKEN of the same login is listed too, with the variable as its source.
-    account = next((entry for entry in accounts if entry.get("tokenSource") == "keyring"), None)
-    if account is None:
-        raise ClusterSecretPushError(
-            f"gh keeps {login}'s token in its config file, not the OS keyring; unlock the keyring "
-            "and log the account in again"
-        )
-    if account.get("state") != _GH_ACCOUNT_OK:
-        raise ClusterSecretPushError(
-            f"gh reports {login}'s token as {account.get('state') or 'unchecked'}; run "
-            f"`gh auth status --hostname {GITHUB_HOST}` and log the account in again"
-        )
-    token = _gh(_gh_token_args(login))
-    if not token:
-        raise ClusterSecretPushError(f"gh printed no token for {login}")
-    return token
-
-
 class _Sources:
     """Each source read once. Values a plan adopts or generates count as the keyring's own."""
 
-    def __init__(self, github_account: str | None) -> None:
-        self._github_account = github_account
+    def __init__(self) -> None:
         self._keyring: dict[str, str | None] = {}
-        self._github: tuple[str | None, str] | None = None
 
     def read(self, source: SecretSource) -> tuple[str | None, str]:
         """The source's value, or None and why it has none."""
@@ -398,10 +319,6 @@ class _Sources:
                 if key not in self._keyring:
                     self._keyring[key] = keyring_read(key)
                 return self._keyring[key], ""
-            case GitHubAccountSource():
-                if self._github is None:
-                    self._github = self._read_github()
-                return self._github
             case SettingSource(option=option):
                 return _setting(option), ""
             case LiteralSource(value=value):
@@ -412,18 +329,6 @@ class _Sources:
     def plan_store(self, key: str, value: str) -> None:
         """Count a value the push will store as the keyring's, for later entries of the key."""
         self._keyring[key] = value
-
-    def _read_github(self) -> tuple[str | None, str]:
-        account = self._github_account or _setting(K8S_GITHUB_ACCOUNT)
-        if not account:
-            return (
-                None,
-                "the machine account is unset: pass --github-account or set k8s.github_account",
-            )
-        try:
-            return read_github_account_token(account), ""
-        except (ClusterSecretPushError, json.JSONDecodeError) as exc:
-            return None, str(exc) or type(exc).__name__
 
 
 def _setting(option: str) -> str | None:
@@ -532,7 +437,7 @@ def plan_push(selected: Sequence[ClusterSecret], options: PushOptions) -> PushPl
     """
     require_persistent_keyring()
     present, skipped = _present(selected, options)
-    sources = _Sources(options.github_account)
+    sources = _Sources()
     lives = _LiveSecrets(options.context)
     plans: list[SecretPlan] = []
     for secret in present:
@@ -720,15 +625,6 @@ def execute_push(plan: PushPlan, options: PushOptions) -> None:
         raise ClusterSecretWriteError(str(exc), completed=tuple(done)) from exc
 
 
-def reads_github(plan: PushPlan) -> bool:
-    """Whether resolving the plan read the machine account's token from gh and GitHub."""
-    return any(
-        isinstance(entry.entry.source, GitHubAccountSource)
-        for secret_plan in plan.secrets
-        for entry in secret_plan.entries
-    )
-
-
 def state_label(state: EntryState, *, preview: bool) -> str:
     """How output names a state; a preview (`--plan`) says what a push would do."""
     return _PLAN_LABELS.get(state, state.value) if preview else state.value
@@ -747,8 +643,6 @@ def secret_line(plan: SecretPlan, *, preview: bool) -> str:
 
 
 # ── Dry run: the requests a push makes, made by nobody ─────────────────────
-
-_ACCOUNT_PLACEHOLDER = f"<{K8S_GITHUB_ACCOUNT}>"
 
 
 class _RequestPlan:
@@ -792,23 +686,6 @@ class _RequestPlan:
         target = f"{CONST_KEYRING_SERVICE}/{key}"
         self._add(PlannedRequest(f"keyring {method}", target), when, f"keyring {method} {key}")
 
-    def gh(self, when: tuple[str, ...]) -> None:
-        """The machine account's token: gh's accounts, then its token once gh's record lists
-        it as `read_github_account_token` needs."""
-        login = self.options.github_account or _ACCOUNT_PLACEHOLDER
-        if not self.options.github_account:
-            when = (*when, f"{K8S_GITHUB_ACCOUNT} is set")
-        for args, after in (
-            (_GH_STATUS_ARGS, ()),
-            (
-                _gh_token_args(login),
-                (f"gh auth status lists {login} with a working token in the keyring",),
-            ),
-        ):
-            method = f"gh {' '.join(args[:2])}"
-            request = PlannedRequest(method, GITHUB_HOST, ("gh", *args))
-            self._add(request, (*when, *after), method)
-
 
 def _placeholder(entry: SecretEntry) -> str:
     """What stands in an applied Secret's `data` for an entry's value."""
@@ -830,8 +707,6 @@ def _plan_reads(requests: _RequestPlan, secret: ClusterSecret, present: tuple[st
                     (*present, f"keyring {key} is empty"),
                     once=True,
                 )
-            case GitHubAccountSource():
-                requests.gh(present)
             case SettingSource() | LiteralSource():
                 pass
             case _:

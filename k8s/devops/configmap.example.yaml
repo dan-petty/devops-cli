@@ -31,4 +31,9 @@ data:
     service:
       repos:
         - owner/repo
-      machine_account: devops-bot
+      # The GitHub App the Service and the cluster jobs act as (ADR 0015). Its private key
+      # reaches the pods from Secret devops-cli, never from this ConfigMap.
+      github_app:
+        app_id: 1
+        installation_id: 1
+        slug: devops-roadmap

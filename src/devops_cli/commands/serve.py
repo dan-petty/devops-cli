@@ -32,6 +32,39 @@ app = new_typer(
 )
 
 
+def _require_github_app(settings: Settings) -> None:
+    """Exit 1 unless the Service can act as its GitHub App: the App's settings are set and the
+    environment holds the App's private key (ADR 0015)."""
+    from devops_cli.config import options as opt
+    from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
+    from devops_cli.core.process import acts_as_github_app
+
+    app_config = settings.service.github_app
+    missing = [
+        option
+        for option, value in (
+            (opt.SERVICE_GITHUB_APP_APP_ID, app_config.app_id),
+            (opt.SERVICE_GITHUB_APP_INSTALLATION_ID, app_config.installation_id),
+            (opt.SERVICE_GITHUB_APP_SLUG, app_config.slug),
+        )
+        if not value
+    ]
+    if missing:
+        print_error(
+            MESSAGES.serve.github_app_unset.format(settings=", ".join(missing)), prefix=False
+        )
+        raise typer.Exit(code=1)
+    if not acts_as_github_app():
+        print_error(
+            MESSAGES.serve.github_app_key_missing.format(
+                login=app_config.bot_login, key_env=CONST_GITHUB_APP_PRIVATE_KEY_ENV
+            ),
+            prefix=False,
+            safe=True,
+        )
+        raise typer.Exit(code=1)
+
+
 def _validate_service_mode(
     reload: bool,
     workers: int,
@@ -53,11 +86,7 @@ def _validate_service_mode(
             prefix=False,
         )
         raise typer.Exit(code=1)
-    if not settings.service.machine_account:
-        print_error(
-            "Configuration error: service.machine_account must be configured.", prefix=False
-        )
-        raise typer.Exit(code=1)
+    _require_github_app(settings)
 
     from devops_cli.config.settings import get_service_webhook_secrets
 

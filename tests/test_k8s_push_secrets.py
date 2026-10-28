@@ -36,12 +36,11 @@ from devops_cli.k8s.cluster_secrets import (
 from devops_cli.security.secrets import build_secret_registry
 from devops_cli.telemetry import tracer
 from tests.cluster_secret_fakes import (
-    MACHINE_LOGIN,
-    MACHINE_TOKEN,
+    APP_KEY,
+    APP_KEY_ENTRY,
     FakeCluster,
     FakeKeyring,
 )
-from tests.support.github_identity import PINNED_GITHUB_TOKEN
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -62,6 +61,7 @@ FULL_KEYRING = {
     "runs_index_password": RUNS_PASSWORD,
     "valkey_password": CACHE_PASSWORD,
     "cloudflare_tunnel_token": TUNNEL_TOKEN,
+    "service_github_app_private_key": APP_KEY,
 }
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
@@ -163,7 +163,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
         ),
         (
             "devops/devops-cli",
-            "GH_TOKEN",
+            APP_KEY_ENTRY,
             "devops",
             True,
             None,
@@ -321,15 +321,18 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
     option_keys = [e.key for e in devops_cli.entries if e.key.startswith("DEVOPS_CLI_")]
     assert (
         {key: ENV_VAR_TO_OPTION.get(key) for key in option_keys},
+        OPTION_TO_ENV_VAR[opt.SERVICE_GITHUB_APP_PRIVATE_KEY],
         OPTION_TO_ENV_VAR[opt.AI_API_KEY],
         OPTION_TO_ENV_VAR[opt.SERVICE_WEBHOOK_SECRETS],
         OPTION_TO_ENV_VAR[opt.TAVILY_API_KEY],
     ) == (
         {
+            "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY": opt.SERVICE_GITHUB_APP_PRIVATE_KEY,
             "DEVOPS_CLI_AI_API_KEY": opt.AI_API_KEY,
             "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": opt.SERVICE_WEBHOOK_SECRETS,
             "DEVOPS_CLI_TAVILY_API_KEY": opt.TAVILY_API_KEY,
         },
+        "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
         "DEVOPS_CLI_AI_API_KEY",
         "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",
         "DEVOPS_CLI_TAVILY_API_KEY",
@@ -462,7 +465,7 @@ def test_readme_lists_the_table() -> None:
 def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:
-    result = _push("--github-account", MACHINE_LOGIN)
+    result = _push()
     applies = cluster.applies()
     items = cluster.applied_items()
     assert result.exit_code == 0, result.output
@@ -491,7 +494,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
             "llm/valkey-runs-auth": ["password"],
             "llm/valkey-auth": ["VALKEY_PASSWORD"],
             "cloudflared/cloudflared-token": ["token"],
-            "devops/devops-cli": ["DEVOPS_CLI_AI_API_KEY", "GH_TOKEN"],
+            "devops/devops-cli": ["DEVOPS_CLI_AI_API_KEY", APP_KEY_ENTRY],
         },
         [],
         {"devops-cli"},
@@ -502,7 +505,7 @@ def test_keyring_values_without_live_secrets_are_created_and_restart_nothing(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:
     cluster.workloads = {("llm", "deployment/llm-gateway"), ("llm", "statefulset/qdrant")}
-    result = _push("--github-account", MACHINE_LOGIN)
+    result = _push()
     assert (
         result.exit_code,
         "llm/qdrant-api-key: api-key (keyring qdrant_api_key) created" in result.output,
@@ -511,7 +514,7 @@ def test_keyring_values_without_live_secrets_are_created_and_restart_nothing(
     ) == (
         0,
         True,
-        {"GH_TOKEN": MACHINE_TOKEN, "DEVOPS_CLI_AI_API_KEY": GATEWAY_KEY},
+        {APP_KEY_ENTRY: APP_KEY, "DEVOPS_CLI_AI_API_KEY": GATEWAY_KEY},
         [],
     )
 
@@ -592,13 +595,13 @@ def test_a_generated_value_is_stored_in_the_keyring_before_the_apply(
 def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
     cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    backend = _install(monkeypatch, cluster, values={})
+    backend = _install(monkeypatch, cluster, values={"service_github_app_private_key": APP_KEY})
     cluster.add_secret("llm", "llm-gateway-secrets", {"master-key": "sk-live-gateway-0001"})
-    result = _push("--stack", "devops", "--github-account", MACHINE_LOGIN)
+    result = _push("--stack", "devops")
     assert (result.exit_code, backend.writes, cluster.live_data("devops", "devops-cli")) == (
         0,
         {LLM_GATEWAY_MASTER_KEY: "sk-live-gateway-0001"},
-        {"GH_TOKEN": MACHINE_TOKEN, "DEVOPS_CLI_AI_API_KEY": "sk-live-gateway-0001"},
+        {APP_KEY_ENTRY: APP_KEY, "DEVOPS_CLI_AI_API_KEY": "sk-live-gateway-0001"},
     )
 
 
@@ -677,9 +680,9 @@ def test_missing_required_sources_are_named_together_and_nothing_is_written(
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
-        "GH_TOKEN" in output,
+        "keyring service_github_app_private_key is empty" in output,
         "keyring llm_gateway_master_key is empty" in output,
-        "--github-account" in output and "k8s.github_account" in output,
+        "devops config set service.github_app.private_key" in output,
         backend.writes,
         cluster.applies(),
     ) == (1, True, True, True, {}, [])
@@ -762,18 +765,25 @@ def test_an_unknown_stack_exits_2(cluster: FakeCluster, stub_keyring: FakeKeyrin
     assert _push("--stack", "nope").exit_code == 2
 
 
-def test_stack_devops_reads_gh_gateway_key_and_webhook_secrets(
+def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs_no_gh(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:
-    result = _push("--stack", "devops", "--github-account", MACHINE_LOGIN)
+    result = _push("--stack", "devops")
     assert (
         result.exit_code,
         stub_keyring.secret_reads(),
-        bool(cluster.commands("gh", "auth", "token")),
+        cluster.commands("gh"),
+        cluster.live_data("devops", "devops-cli")[APP_KEY_ENTRY],
     ) == (
         0,
-        {LLM_GATEWAY_MASTER_KEY, "service_webhook_secrets", "tavily_api_key"},
-        True,
+        {
+            "service_github_app_private_key",
+            LLM_GATEWAY_MASTER_KEY,
+            "service_webhook_secrets",
+            "tavily_api_key",
+        },
+        [],
+        APP_KEY,
     )
 
 
@@ -789,95 +799,6 @@ def test_a_missing_namespace_skips_under_stack_and_fails_under_only(
         failed.exit_code,
         cluster.applies(),
     ) == (0, True, 1, [])
-
-
-def test_without_devops_a_bare_push_needs_no_github_account(
-    cluster: FakeCluster, stub_keyring: FakeKeyring, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("DEVOPS_CLI_K8S_GITHUB_ACCOUNT", raising=False)
-    cluster.namespaces = {"llm", "cloudflared"}
-    result = _push()
-    assert (result.exit_code, cluster.commands("gh")) == (0, [])
-
-
-# ── gh ───────────────────────────────────────────────────────────────────────
-
-
-def test_gh_runs_only_its_auth_commands_and_never_gets_the_session_token(
-    cluster: FakeCluster, stub_keyring: FakeKeyring, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """`gh auth` is exempt from the session pin (#767): its children get the ambient tokens
-    unchanged and never the session's, and `gh auth token --user` still reads the account's
-    stored token. No gh call of the push reaches GitHub with the machine token."""
-    for name in ("GH_TOKEN", "GITHUB_TOKEN"):
-        monkeypatch.setenv(name, f"ambient-{name.lower()}-0001")
-    result = _push("--stack", "devops", "--github-account", MACHINE_LOGIN)
-    gh_calls = [c for c in cluster.calls if c.argv[0] == "gh"]
-    assert (
-        result.exit_code,
-        [c.argv for c in gh_calls],
-        [(c.env.get("GH_TOKEN"), c.env.get("GITHUB_TOKEN")) for c in gh_calls],
-        cluster.live_data("devops", "devops-cli")["GH_TOKEN"],
-    ) == (
-        0,
-        [
-            ["gh", "auth", "status", "--hostname", "github.com", "--json", "hosts"],
-            ["gh", "auth", "token", "--user", MACHINE_LOGIN, "--hostname", "github.com"],
-        ],
-        [("ambient-gh_token-0001", "ambient-github_token-0001")] * 2,
-        MACHINE_TOKEN,
-    )
-    assert PINNED_GITHUB_TOKEN not in {v for c in gh_calls for v in c.env.values()}
-
-
-def test_an_ambient_token_of_the_same_login_does_not_hide_the_keyring_account(
-    cluster: FakeCluster, stub_keyring: FakeKeyring, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """gh lists an ambient GH_TOKEN as an account of its own; the keyring entry still wins."""
-    monkeypatch.setenv("GH_TOKEN", MACHINE_TOKEN)
-    result = _push("--stack", "devops", "--github-account", MACHINE_LOGIN)
-    assert (result.exit_code, cluster.live_data("devops", "devops-cli")["GH_TOKEN"]) == (
-        0,
-        MACHINE_TOKEN,
-    )
-
-
-def test_the_account_comes_from_the_setting_when_no_flag_is_given(
-    cluster: FakeCluster, stub_keyring: FakeKeyring, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("DEVOPS_CLI_K8S_GITHUB_ACCOUNT", MACHINE_LOGIN)
-    result = _push("--stack", "devops")
-    assert (result.exit_code, cluster.live_data("devops", "devops-cli")["GH_TOKEN"]) == (
-        0,
-        MACHINE_TOKEN,
-    )
-
-
-def test_a_token_gh_could_not_confirm_fails_and_applies_nothing(
-    cluster: FakeCluster, stub_keyring: FakeKeyring
-) -> None:
-    cluster.gh_state = "error"
-    result = _push("--stack", "devops", "--github-account", MACHINE_LOGIN)
-    assert (
-        result.exit_code,
-        f"gh reports {MACHINE_LOGIN}'s token as error" in " ".join(result.output.split()),
-        cluster.commands("gh", "auth", "token"),
-        cluster.applies(),
-    ) == (1, True, [], [])
-
-
-def test_a_token_in_ghs_config_file_fails(cluster: FakeCluster, stub_keyring: FakeKeyring) -> None:
-    cluster.gh_accounts = {MACHINE_LOGIN: (MACHINE_TOKEN, "oauth_token")}
-    result = _push("--stack", "devops", "--github-account", MACHINE_LOGIN)
-    assert (
-        result.exit_code,
-        "config file" in result.output,
-        cluster.commands("gh", "auth", "token"),
-    ) == (
-        1,
-        True,
-        [],
-    )
 
 
 # ── Leaked annotation, values and --plan ───────────────────────────────────
@@ -909,10 +830,14 @@ def test_no_value_reaches_argv_logs_or_output(
     cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    backend = _install(monkeypatch, cluster, values={"cloudflare_tunnel_token": TUNNEL_TOKEN})
+    backend = _install(
+        monkeypatch,
+        cluster,
+        values={"cloudflare_tunnel_token": TUNNEL_TOKEN, "service_github_app_private_key": APP_KEY},
+    )
     cluster.add_secret("llm", "qdrant-api-key", {"api-key": "live-qdrant-value-0002"})
-    result = _push("--github-account", MACHINE_LOGIN)
-    values = [TUNNEL_TOKEN, "live-qdrant-value-0002", MACHINE_TOKEN, *backend.writes.values()]
+    result = _push()
+    values = [TUNNEL_TOKEN, "live-qdrant-value-0002", *backend.writes.values()]
     encoded = [base64.b64encode(v.encode()).decode() for v in values]
     argv = " ".join(" ".join(call.argv) for call in cluster.calls)
     texts = [argv, caplog.text, result.output, result.stderr if result.stderr_bytes else ""]
@@ -978,23 +903,6 @@ def test_dry_run_makes_no_request_and_prints_the_requests_in_order() -> None:
     ) == (0, None, False, True, True), output
 
 
-def test_plan_says_it_read_ghs_record_of_the_machine_account(
-    cluster: FakeCluster, stub_keyring: FakeKeyring
-) -> None:
-    result = _push("--only", "devops/devops-cli", "--github-account", MACHINE_LOGIN, "--plan")
-    output = " ".join(result.output.split())
-    assert (
-        result.exit_code,
-        "read the keyring, gh's record of its machine account (gh checks the token on "
-        "github.com) and the cluster (context test-ctx); wrote nothing" in output,
-        [call.argv[:3] for call in cluster.calls if call.argv[0] == "gh"],
-    ) == (
-        0,
-        True,
-        [["gh", "auth", "status"], ["gh", "auth", "token"]],
-    )
-
-
 def test_dry_run_wins_over_plan() -> None:
     result = _push("--only", "llm/qdrant-api-key", "--plan", "--dry-run")
     assert (result.exit_code, "no request was made" in result.output) == (0, True)
@@ -1026,31 +934,20 @@ def test_a_real_push_returns_the_same_type_with_its_plan(
 def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:
-    """With both namespaces, every key in the keyring, gh holding the account's token and no
-    live Secret, the push makes exactly the dry run's requests whose conditions that answers,
-    in order, and applies the Secrets it showed with placeholders."""
+    """With both namespaces, every key in the keyring and no live Secret, the push makes exactly
+    the dry run's requests whose conditions that answers, in order, and applies the Secrets it
+    showed with placeholders."""
     from devops_cli.k8s.cluster_secrets import secrets_by_ref
     from devops_cli.k8s.secret_push import PushOptions, dry_run_push
 
     selected, _ = secrets_by_ref(["llm/qdrant-api-key", "devops/devops-cli"])
-    options = PushOptions(context="test-ctx", github_account=MACHINE_LOGIN, strict_namespaces=True)
-    present = "every selected namespace exists"
-    holds = {
-        present,
-        f"{present} and gh auth status lists {MACHINE_LOGIN} with a working token in the keyring",
-    }
+    options = PushOptions(context="test-ctx", strict_namespaces=True)
+    holds = {"every selected namespace exists"}
     requests = dry_run_push(selected, options).requests
     planned = [r for r in requests if not r.condition or r.condition in holds]
     stub_keyring.values["service_webhook_secrets"] = "service-secrets-value-0001"
     stub_keyring.values["tavily_api_key"] = "tavily-secrets-value-0001"
-    result = _push(
-        "--only",
-        "llm/qdrant-api-key",
-        "--only",
-        "devops/devops-cli",
-        "--github-account",
-        MACHINE_LOGIN,
-    )
+    result = _push("--only", "llm/qdrant-api-key", "--only", "devops/devops-cli")
     planned_apply = json.loads(next(r.stdin for r in planned if r.stdin) or "{}")
     applied = cluster.applied_items()
     assert result.exit_code == 0, result.output
@@ -1083,12 +980,15 @@ def test_under_only_every_request_after_the_namespace_reads_needs_them_all() -> 
 
 
 def test_the_dry_run_names_the_conditional_requests_and_holds_no_value() -> None:
+    """The dry run lists the App key's keyring read and its entry with a placeholder, never its
+    value, and no GH_TOKEN entry or gh request (#1647)."""
     from devops_cli.k8s.cluster_secrets import secrets_by_ref
     from devops_cli.k8s.secret_push import PushOptions, dry_run_push
 
     selected, _ = secrets_by_ref(["devops/devops-cli"])
     requests = dry_run_push(selected, PushOptions(rotate=True)).requests
     text = "\n".join(f"{r.line()}\n{r.stdin or ''}" for r in requests)
+    applied = json.loads(next(r.stdin for r in requests if r.stdin) or "{}")["items"][0]
     assert (
         [
             r.condition
@@ -1096,18 +996,20 @@ def test_the_dry_run_names_the_conditional_requests_and_holds_no_value() -> None
             if r.argv[1:3] == ("get", "secret/devops-cli")
             or r.argv[1:3] == ("get", "secret/llm-gateway-secrets")
         ],
-        [r.argv[:3] for r in requests if r.argv[:1] == ("gh",)],
-        "gh auth token --user '<k8s.github_account>' --hostname github.com  [only if namespace "
-        "devops exists and k8s.github_account is set and gh auth status lists "
-        "<k8s.github_account> with a working token in the keyring]" in text,
-        any(v in text for v in (*FULL_KEYRING.values(), MACHINE_TOKEN)),
+        [r.target for r in requests if r.method == "keyring read"][1:2],
+        applied["data"][APP_KEY_ENTRY],
+        [r.argv[:1] for r in requests if r.argv[:1] == ("gh",)],
+        "GH_TOKEN" in text,
+        any(v in text for v in FULL_KEYRING.values()),
     ) == (
         [
             "namespace devops exists",
             "namespace devops exists and keyring llm_gateway_master_key is empty",
         ],
-        [("gh", "auth", "status"), ("gh", "auth", "token")],
-        True,
+        ["devops-cli/service_github_app_private_key"],
+        "<base64 of keyring service_github_app_private_key>",
+        [],
+        False,
         False,
     )
 
@@ -1131,14 +1033,14 @@ def test_setting_and_literal_sources_feed_rows_later_items_add(
         (
             SecretEntry("url", LiteralSource("https://example.com/repo.git")),
             SecretEntry("domain", SettingSource(opt.K8S_DOMAIN)),
-            SecretEntry("username", SettingSource(opt.K8S_GITHUB_ACCOUNT), required=False),
+            SecretEntry("slug", SettingSource(opt.SERVICE_GITHUB_APP_SLUG), required=False),
         ),
     )
     plan = plan_push([row], PushOptions(context="test-ctx"))
     assert [(e.entry.key, e.state.value, e.value) for e in plan.secrets[0].entries] == [
         ("url", "created", "https://example.com/repo.git"),
         ("domain", "created", "example.com"),
-        ("username", "skipped", None),
+        ("slug", "skipped", None),
     ]
 
 

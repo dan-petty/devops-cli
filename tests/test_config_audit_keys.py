@@ -43,7 +43,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 14)
+    ) == (True, True, True, 15)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -60,8 +60,25 @@ def test_config_audit_keys_json_output() -> None:
         "telemetry.logfire_token" in keys,
         "cloudflare.api_token" in keys,
         "service.webhook_secrets" in keys,
+        "service.github_app.private_key" in keys,
         "tavily.api_key" in keys,
-    ) == (True, True, True, True, True, True, True, True, True, True, True, True, True, True)
+    ) == (
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+    )
 
 
 def test_config_audit_keys_table_rendering() -> None:

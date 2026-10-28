@@ -20,7 +20,7 @@ The GitHub CLI (`gh`) brings GitHub pull requests, issues, Actions workflows, re
 
 ## 2. Usage Information & Architecture
 
-- **Token Authentication**: One GitHub identity per process: on the first GitHub call `gh auth token` runs once (it applies `GH_TOKEN`, then `GITHUB_TOKEN`, then gh's stored login), and every gh and git child gets that token as `GH_TOKEN`. `gh auth` subcommands are exempt and see the environment unchanged.
+- **Token Authentication**: One GitHub identity per process: on the first GitHub call `gh auth token` runs once (it applies `GH_TOKEN`, then `GITHUB_TOKEN`, then gh's stored login), and every gh and git child gets that token as `GH_TOKEN`. `gh auth` subcommands are exempt and see the environment unchanged. In the cluster, a process whose environment holds `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` acts as GitHub App `devops-roadmap` instead: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as `GH_TOKEN` (ADR 0015).
 - **API Client**: Programmatic interaction via `src/devops_cli/github/client.py` and rate-managed CLI invocation via `run_gh([CONST_GH_CLI, ...])`.
 - **Active Monitoring**: When creating or updating PRs, DevOps CLI actively polls and verifies remote GitHub Actions check runs.
 - **CLI Subcommands**: `devops pr`, `devops gh` and `devops repos` commands wrap GitHub operations.
