@@ -14,6 +14,8 @@
 
 - [x] Build the client of `CloudflareClient._request` with `new_http_client` at the public level and a 30 s read timeout
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_cloudflare_commands.py`
+- [x] Add a failing row to `test_cli_cloudflare_refused_address_is_reported` for a command of each `devops cloudflare` group, then give `exit_on=SSRFBlockedError` to the four groups, so each command reports a refusal with no traceback
+  - Verification: `uv run devops ci test tests/test_cloudflare_commands.py`
 
 ## 4. Documentation
 
