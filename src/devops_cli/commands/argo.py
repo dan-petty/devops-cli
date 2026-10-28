@@ -77,7 +77,7 @@ cd_app.add_typer(fleet_app, name="fleet")
 app.add_typer(gitops_app, name="gitops")
 cd_app.add_typer(gitops_app, name="gitops")
 
-# A refusal at the connect ends a command with its message, as the URL check before it does.
+# A refusal at the connect ends each command with its message and no traceback.
 cd_apps_app = new_typer(help=HELP.argo.cd, exit_on=SSRFBlockedError)
 cd_app.add_typer(cd_apps_app, name="apps")
 

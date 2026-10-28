@@ -34,7 +34,7 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
-# A refusal at the connect ends a command with its message, as the URL check before it does.
+# A refusal at the connect ends each command with its message and no traceback.
 app = new_typer(help=HELP.prometheus.app, no_args_is_help=True, exit_on=SSRFBlockedError)
 
 _MAX_PROMQL_LEN = 4096
