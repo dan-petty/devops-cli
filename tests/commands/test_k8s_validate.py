@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,11 @@ def test_a_validation_that_did_not_run_says_so_and_fails(
     cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no kubeconform on PATH, the command says that the validation did not run and why, says
-    no pass, and exits 1. Before, it said that every manifest was valid."""
+    no pass, and exits 1. The PATH holds git, which the command loads GitPython for, and no
+    scanner."""
     no_scanners = tmp_path / "no-scanners"
     no_scanners.mkdir()
+    (no_scanners / "git").symlink_to(str(shutil.which("git")))
     monkeypatch.setenv("PATH", str(no_scanners))
     (tmp_path / "deploy.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
 
