@@ -2,11 +2,11 @@
 
 ## 1. The next line does not decide the call check
 
-- [ ] 1.1 Add failing tests: an unquoted `api_key`, `access_token` or `bearer_token` value is masked when the next line, or a line after a blank line, starts with `(`, with LF and CRLF line breaks, in data and code syntax; a call with a space before `(` on the same line stays unmasked; a property shows that the line after a credential line never changes the result for that line
+- [x] 1.1 Add failing tests: an unquoted `api_key`, `access_token` or `bearer_token` value is masked when the next line, or a line after a blank line, starts with `(`, with LF and CRLF line breaks, in data and code syntax; a call with a space before `(` on the same line stays unmasked; a property shows that the line after a credential line never changes the result for that line
   - Verification: `uv run devops ci test tests/test_consolidation_security_sanitizer.py`
-- [ ] 1.2 Replace `(?!\s*\()` with `(?![^\S\r\n]*\()` in the `api_key` rule, and say in the comment of `_build_secret_patterns` that the call check also stops at a line break
+- [x] 1.2 Replace `(?!\s*\()` with `(?![^\S\r\n]*\()` in the `api_key` rule, and say in the comment of `_build_secret_patterns` that the call check also stops at a line break
   - Verification: `uv run devops ci test tests/test_consolidation_security_sanitizer.py tests/test_url_credential_masking.py tests/test_review_syntax_masking.py tests/test_review_defenses_and_verification.py`
-- [ ] 1.3 Regenerate the documentation
+- [x] 1.3 Regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme`
 
 ## 2. A test holds each whitespace class

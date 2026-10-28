@@ -175,10 +175,10 @@ def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> s
 
 
 def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Replacement], ...]:
-    # A keyword and its value sit on one line. Between them, a pattern allows whitespace
-    # other than a line break, `[^\S\r\n]`, and never `\s`: with `\s`, a line that ends with
-    # a keyword took the first word of the next line as its value, so a terminal transcript
-    # lost the first word of an output line.
+    # A keyword and its value sit on one line. Between them, and in a check after the value,
+    # a pattern allows whitespace other than a line break, `[^\S\r\n]`, and never `\s`: with
+    # `\s`, a line that ends with a keyword took the first word of the next line as its value,
+    # and a `(` at the start of the next line unmasked the value as if it were a call.
     return (
         (
             # GitHub documents six token prefixes; the only length it states is the legacy
@@ -247,7 +247,8 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
             re.compile(
                 r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)"
                 r"[^\S\r\n]*[:=][^\S\r\n]*"
-                r"(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-.]{20,}\b(?!\s*\())",
+                r"(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-.]{20,}\b"
+                r"(?![^\S\r\n]*\())",
                 re.IGNORECASE,
             ),
             "api_key=<masked-api-key>",
