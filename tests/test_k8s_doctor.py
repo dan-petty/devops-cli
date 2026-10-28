@@ -26,7 +26,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.k8s.doctor import Snapshot, collect, diagnose
 from devops_cli.models.k8s import Finding
-from tests.k8s_fakes import (
+from tests.support.fakes.kubernetes import (
     NOW,
     FakeCoreV1,
     crashlooping_pod,

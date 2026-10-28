@@ -12,7 +12,7 @@ from devops_cli.commands.k8s import app
 from devops_cli.k8s.chaos import execute_chaos_experiment
 from devops_cli.k8s.diff import diff_helm_release
 from devops_cli.k8s.logs import stream_multi_pod_logs
-from tests.k8s_fakes import healthy_pod
+from tests.support.fakes.kubernetes import healthy_pod
 
 runner = CliRunner()
 

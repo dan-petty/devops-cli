@@ -19,7 +19,7 @@ from devops_cli.commands.k8s.diagnostics import _build_pods_table
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo, node_is_ready
 from devops_cli.output import Text
 from devops_cli.ui.projections import k8s_rows
-from tests.k8s_fakes import (
+from tests.support.fakes.kubernetes import (
     NOW,
     FakeCoreV1,
     client,

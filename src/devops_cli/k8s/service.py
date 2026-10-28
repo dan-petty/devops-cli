@@ -5,10 +5,8 @@ from __future__ import annotations
 import codecs
 import contextlib
 import logging
-import os
 import time
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 from devops_cli.config.defaults import (
@@ -18,6 +16,13 @@ from devops_cli.config.defaults import (
     DEFAULT_LOG_TAIL_LINES,
 )
 from devops_cli.exceptions.k8s import KubernetesContextError
+from devops_cli.k8s.api import (
+    CoreApi,
+    CustomObjectsApi,
+    KubernetesApis,
+    KubernetesApiSource,
+    KubernetesClientSource,
+)
 from devops_cli.k8s.context import resolve_context
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -87,22 +92,19 @@ class PodLogStream:
 
 
 class KubernetesService:
-    """Consolidated, high-performance in-process Kubernetes API service.
+    """The process's one way to the Kubernetes API, without kubectl subprocesses.
 
-    Eliminates kubectl subprocess invocations by interfacing directly with the
-    official Python kubernetes SDK and caching API client instances and responses.
+    It takes its API objects from a `KubernetesApiSource` (`k8s/api.py`): the official client in
+    production, a test's fake cluster through `install`. It connects once for each resolved
+    context and caches the API objects and some answers.
     """
 
     _instance: KubernetesService | None = None
 
-    def __init__(self) -> None:
-        self._config_loaded: bool = False
+    def __init__(self, source: KubernetesApiSource | None = None) -> None:
+        self._source: KubernetesApiSource = source or KubernetesClientSource()
+        self._apis: KubernetesApis | None = None
         self._active_context: str | None = None
-        self._api_client: Any = None
-        self._core_v1: Any = None
-        self._apps_v1: Any = None
-        self._version_api: Any = None
-        self._custom_objects: Any = None
         self._cache: dict[str, tuple[float, Any]] = {}
         self._cache_ttl: float = DEFAULT_K8S_CACHE_TTL_SECONDS
 
@@ -114,62 +116,54 @@ class KubernetesService:
         return cls._instance
 
     @classmethod
+    def install(cls, source: KubernetesApiSource) -> KubernetesService:
+        """Make the process's service one that takes its API objects from `source`.
+
+        It stays until `reset_instance`, after which `get_instance` builds a service over the
+        official client again.
+        """
+        cls._instance = cls(source)
+        return cls._instance
+
+    @classmethod
     def reset_instance(cls) -> None:
-        """Reset the singleton instance for clean test fixture isolation."""
+        """Drop the process's service, and with it a source that `install` gave it."""
         cls._instance = None
 
-    def _get_kubeconfig_path(self) -> Path:
-        """Resolve the effective kubeconfig path."""
-        env_path = os.environ.get("KUBECONFIG")
-        if env_path:
-            first_path = env_path.split(os.pathsep)[0].strip()
-            if first_path:
-                return Path(first_path).expanduser().resolve()
-        return (Path.home() / ".kube" / "config").resolve()
-
     def load_config(self, context: str | None = None) -> bool:
-        """Load Kubernetes configuration into memory, handling in-cluster and local config."""
-        from kubernetes import client as k8s_client  # type: ignore[import-untyped]
-        from kubernetes import config as k8s_config
-
+        """Connect to the resolved context, once, and report whether a connection exists."""
         # Resolved before the cache is consulted: an explicit argument and the configured
         # context must not be treated as different cache keys when they name the same
         # cluster, and a caller passing None must not be served a client built for
         # whatever context happened to be current earlier in the process.
         resolved = resolve_context(context)
 
-        if self._config_loaded and self._active_context == resolved and self._core_v1 is not None:
+        if self._apis is not None and self._active_context == resolved:
             return True
 
         try:
-            try:
-                k8s_config.load_incluster_config()
-                logger.debug("Loaded in-cluster Kubernetes configuration")
-            except Exception:
-                k8s_config.load_kube_config(context=resolved)
-                logger.debug("Loaded kubeconfig with context: %s", resolved)
-
-            self._active_context = resolved
-            self._api_client = k8s_client.ApiClient()
-            self._core_v1 = k8s_client.CoreV1Api(self._api_client)
-            self._apps_v1 = k8s_client.AppsV1Api(self._api_client)
-            self._version_api = k8s_client.VersionApi(self._api_client)
-            self._custom_objects = k8s_client.CustomObjectsApi(self._api_client)
-            self._config_loaded = True
-            return True
+            self._apis = self._source.connect(resolved)
         except Exception as exc:
             logger.debug("Failed to initialize Kubernetes API client: %s", exc)
-            self._config_loaded = False
+            self._apis = None
             return False
+        self._active_context = resolved
+        return True
 
-    def custom_objects_api(self, context: str | None = None) -> Any:
+    def _connected(self, context: str | None, failure: str) -> KubernetesApis:
+        if not self.load_config(context=context) or self._apis is None:
+            raise KubernetesContextError(failure, context=context)
+        return self._apis
+
+    def core_api(self, context: str | None = None) -> CoreApi:
+        """Return the core API object of the resolved context, connecting first."""
+        return self._connected(context, "Kubernetes client configuration is not available.").core
+
+    def custom_objects_api(self, context: str | None = None) -> CustomObjectsApi:
         """Return the CustomObjectsApi client used to manipulate CRDs in-process."""
-        if not self.load_config(context=context) or self._custom_objects is None:
-            raise KubernetesContextError(
-                "Cannot reach the Kubernetes API server to manipulate custom resources",
-                context=context,
-            )
-        return self._custom_objects
+        return self._connected(
+            context, "Cannot reach the Kubernetes API server to manipulate custom resources"
+        ).custom_objects
 
     def is_cluster_reachable(
         self,
@@ -182,26 +176,25 @@ class KubernetesService:
         if cached is not None:
             return bool(cached)
 
-        if not self.load_config(context=context):
+        if not self.load_config(context=context) or self._apis is None:
             self._set_cached(cache_key, False, ttl=2.0)
             return False
 
         try:
-            if self._version_api:
-                info = self._version_api.get_code(_request_timeout=timeout)
-                version_str = (
-                    getattr(info, "git_version", "")
-                    or (info.get("git_version") if isinstance(info, dict) else "")
-                    or ""
+            info = self._apis.version.get_code(_request_timeout=timeout)
+            version_str = (
+                getattr(info, "git_version", "")
+                or (info.get("git_version") if isinstance(info, dict) else "")
+                or ""
+            )
+            self._set_cached(cache_key, True, ttl=self._cache_ttl)
+            if version_str:
+                self._set_cached(
+                    f"server_version:{context or 'default'}",
+                    version_str,
+                    ttl=self._cache_ttl,
                 )
-                self._set_cached(cache_key, True, ttl=self._cache_ttl)
-                if version_str:
-                    self._set_cached(
-                        f"server_version:{context or 'default'}",
-                        version_str,
-                        ttl=self._cache_ttl,
-                    )
-                return True
+            return True
         except Exception as exc:
             logger.debug("Cluster reachability probe failed: %s", exc)
 
@@ -226,64 +219,25 @@ class KubernetesService:
 
     def list_contexts(self) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """List available contexts and identify the active one without spawning kubectl."""
-        from kubernetes import config as k8s_config
-
-        try:
-            contexts_raw, active_raw = k8s_config.list_kube_config_contexts()
-            return list(contexts_raw or []), active_raw
-        except Exception as exc:
-            raise KubernetesContextError(
-                f"Failed to inspect kubeconfig contexts: {mask_secrets(str(exc))}"
-            ) from exc
+        return self._source.contexts()
 
     def switch_context(self, name: str) -> None:
-        """Switch current kubeconfig context natively without spawning kubectl."""
-        import yaml
+        """Point the in-process clients at the kubeconfig context `name`.
 
-        kubeconfig_path = self._get_kubeconfig_path()
-        if not kubeconfig_path.exists():
-            raise KubernetesContextError(f"Kubeconfig file not found at '{kubeconfig_path}'.")
-
-        try:
-            raw_text = kubeconfig_path.read_text(encoding="utf-8")
-            data = yaml.safe_load(raw_text) or {}
-            contexts = [c.get("name") for c in data.get("contexts", []) if isinstance(c, dict)]
-            if name not in contexts:
-                raise KubernetesContextError(
-                    f"Context '{name}' does not exist in '{kubeconfig_path}'."
-                )
-
-            data["current-context"] = name
-            import os
-            import tempfile
-
-            parent_dir = kubeconfig_path.parent
-            dumped_yaml = yaml.safe_dump(data, sort_keys=False)
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                dir=parent_dir,
-                delete=False,
-                encoding="utf-8",
-                prefix=".kubeconfig-",
-                suffix=".tmp",
-            ) as tf:
-                os.chmod(tf.name, 0o600)
-                tf.write(dumped_yaml)
-                temp_file_path = Path(tf.name)
-            try:
-                temp_file_path.replace(kubeconfig_path)
-            except Exception:
-                temp_file_path.unlink(missing_ok=True)
-                raise
-
-            self.reset_instance()
-            self.load_config(context=name)
-        except KubernetesContextError:
-            raise
-        except Exception as exc:
+        `kubectl config use-context` owns the kubeconfig, so this writes no file: it checks that
+        the kubeconfig names the context, drops the clients and the cached answers, and connects
+        to the context.
+        """
+        contexts, _ = self.list_contexts()
+        if name not in {ctx.get("name") for ctx in contexts}:
             raise KubernetesContextError(
-                f"Failed to switch context to '{name}': {mask_secrets(str(exc))}"
-            ) from exc
+                f"Context '{name}' does not exist in the kubeconfig.", context=name
+            )
+        self._apis = None
+        self._active_context = None
+        self._cache.clear()
+        if not self.load_config(context=name):
+            raise KubernetesContextError(f"Failed to connect to context '{name}'.", context=name)
 
     def list_nodes(self, context: str | None = None) -> list[Any]:
         """Fetch cluster node objects using native API client with caching."""
@@ -292,11 +246,9 @@ class KubernetesService:
         if cached is not None:
             return list(cached)
 
-        if not self.load_config(context=context):
-            raise KubernetesContextError("Kubernetes client configuration is not available.")
-
+        core = self.core_api(context)
         try:
-            node_list = self._core_v1.list_node()
+            node_list = core.list_node()
             items = list(node_list.items)
             self._set_cached(cache_key, items, ttl=self._cache_ttl)
             return items
@@ -313,19 +265,17 @@ class KubernetesService:
         context: str | None = None,
     ) -> list[Any]:
         """Fetch pod objects using in-process API client without spawning kubectl."""
-        if not self.load_config(context=context):
-            raise KubernetesContextError("Kubernetes client configuration is not available.")
-
+        core = self.core_api(context)
         kwargs: dict[str, Any] = {}
         if label_selector:
             kwargs["label_selector"] = label_selector
 
         try:
             if all_namespaces:
-                pod_list = self._core_v1.list_pod_for_all_namespaces(**kwargs)
+                pod_list = core.list_pod_for_all_namespaces(**kwargs)
             else:
                 ns = namespace or "default"
-                pod_list = self._core_v1.list_namespaced_pod(namespace=ns, **kwargs)
+                pod_list = core.list_namespaced_pod(namespace=ns, **kwargs)
             return list(pod_list.items)
         except Exception as exc:
             raise KubernetesContextError(f"Failed to query pods: {mask_secrets(str(exc))}") from exc
@@ -340,9 +290,7 @@ class KubernetesService:
         context: str | None = None,
     ) -> PodLogStream:
         """Read pod logs natively via CoreV1Api without spawning kubectl logs."""
-        if not self.load_config(context=context):
-            raise KubernetesContextError("Kubernetes client configuration is not available.")
-
+        core = self.core_api(context)
         bounded_tail = max(1, min(tail_lines, 10000))
         kwargs: dict[str, Any] = {
             "name": pod,
@@ -355,7 +303,7 @@ class KubernetesService:
             kwargs["container"] = container
 
         try:
-            resp = self._core_v1.read_namespaced_pod_log(**kwargs)
+            resp = core.read_namespaced_pod_log(**kwargs)
             return PodLogStream(resp)
         except Exception as exc:
             raise KubernetesContextError(
@@ -369,11 +317,11 @@ class KubernetesService:
         context: str | None = None,
     ) -> str | None:
         """Resolve a service reachable endpoint natively from V1Service and node IPs."""
-        if not self.load_config(context=context):
+        if not self.load_config(context=context) or self._apis is None:
             return None
 
         try:
-            svc = self._core_v1.read_namespaced_service(name=service, namespace=namespace)
+            svc = self._apis.core.read_namespaced_service(name=service, namespace=namespace)
             ingress = (
                 svc.status.load_balancer.ingress
                 if svc.status and svc.status.load_balancer

@@ -49,6 +49,7 @@ In `devops-cli`:
 1. **Config Loading**:
    - `config.load_kube_config(context=...)`: Loads local workstation `~/.kube/config`.
    - `config.load_incluster_config()`: Automatically detected when running inside a Pod.
+   - devops-cli connects only through `KubernetesService`, which takes its API objects from `KubernetesClientSource` (`k8s/api.py`). It uses `config.new_client_from_config(context=...)` when the kubeconfig names the context, else the pod's service account loaded into a new `Configuration`. It reads every `KUBECONFIG` entry when it connects and never writes the global default `Configuration`.
 2. **API Client Hierarchy**:
    - `CoreV1Api`: Pods, Services, Namespaces, Secrets, Nodes, ConfigMaps.
    - `AppsV1Api`: Deployments, StatefulSets, DaemonSets.

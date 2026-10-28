@@ -429,11 +429,12 @@ def discover_service(
     from devops_cli.k8s.service import KubernetesService
 
     service_api = KubernetesService.get_instance()
-    if not service_api.load_config(context=resolve_context(context)):
+    resolved = resolve_context(context)
+    if not service_api.load_config(context=resolved):
         return None
 
     try:
-        listing = service_api._core_v1.list_namespaced_service(namespace=namespace)
+        listing = service_api.core_api(resolved).list_namespaced_service(namespace=namespace)
     except Exception as exc:
         logger.debug("Could not list services in namespace '%s': %s", namespace, exc)
         return None

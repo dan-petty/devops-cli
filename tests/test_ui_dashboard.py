@@ -31,8 +31,8 @@ from devops_cli.ui.data_providers import (
     fetch_valkey_status,
 )
 from devops_cli.ui.projections import k8s_banner
-from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
 from tests.support.certificates import LocalCa
+from tests.support.fakes.kubernetes import FakeCoreV1, crashlooping_pod, healthy_pod, node
 from tests.support.fakes.valkey import bulk_reply, serving_valkey
 from tests.web_fakes import scripted_resolver
 

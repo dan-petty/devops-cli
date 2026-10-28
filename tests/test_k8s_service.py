@@ -1,4 +1,9 @@
-"""Tests for native KubernetesService and ResourceInformer subsystems."""
+"""Tests for native KubernetesService and ResourceInformer subsystems.
+
+The service reaches the Kubernetes API only through its source: the `cluster` fixture's fake,
+or the real client over a kubeconfig and a service account under `tmp_path`, which loads a
+configuration and connects to nothing.
+"""
 
 from __future__ import annotations
 
@@ -17,195 +22,371 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_LOG_MAX_LINE_CHARS
 from devops_cli.exceptions.k8s import KubernetesContextError
+from devops_cli.k8s.api import KubernetesClientSource
 from devops_cli.k8s.informer import ResourceInformer
 from devops_cli.k8s.service import KubernetesService, PodLogStream
+from tests.support.fakes.kubernetes import (
+    FAKE_CONTEXT,
+    FakeCluster,
+    FakeCoreV1,
+    node,
+    pod,
+    service,
+)
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
-@pytest.fixture(autouse=True)
-def reset_k8s_service() -> None:
-    """Ensure clean KubernetesService singleton state for every test."""
-    KubernetesService.reset_instance()
-
-
-def test_k8s_service_singleton() -> None:
-    """Verify singleton pattern consistency."""
-    svc1 = KubernetesService.get_instance()
-    svc2 = KubernetesService.get_instance()
-    assert (svc1 is svc2, svc1._config_loaded) == (True, False)
-
-
-def test_k8s_service_load_config_success() -> None:
-    """Verify load_config initializes core client interfaces."""
-    svc = KubernetesService.get_instance()
-    with (
-        patch("kubernetes.config.load_incluster_config", side_effect=Exception("not in cluster")),
-        patch("kubernetes.config.load_kube_config") as mock_kube_config,
-        patch("kubernetes.client.ApiClient"),
-        patch("kubernetes.client.CoreV1Api"),
-        patch("kubernetes.client.AppsV1Api"),
-        patch("kubernetes.client.VersionApi"),
-    ):
-        result = svc.load_config(context="dev-cluster")
-        assert (result, svc._config_loaded, svc._active_context) == (True, True, "dev-cluster")
-        mock_kube_config.assert_called_once_with(context="dev-cluster")
-
-
-def test_k8s_service_load_config_failure() -> None:
-    """Verify load_config failure handling returns False."""
-    svc = KubernetesService.get_instance()
-    with (
-        patch("kubernetes.config.load_incluster_config", side_effect=Exception("fail")),
-        patch("kubernetes.config.load_kube_config", side_effect=Exception("fail")),
-    ):
-        result = svc.load_config()
-        assert (result, svc._config_loaded) == (False, False)
-
-
-def test_k8s_service_reachability() -> None:
-    """Verify in-process cluster reachability probing and caching."""
-    svc = KubernetesService.get_instance()
-    with patch.object(svc, "load_config", return_value=True):
-        mock_version_api = MagicMock()
-        mock_version_api.get_code.return_value = SimpleNamespace(git_version="v1.30.0")
-        svc._version_api = mock_version_api
-
-        reachable = svc.is_cluster_reachable(context="test-ctx")
-        cached_probe = svc.is_cluster_reachable(context="test-ctx")
-        assert (reachable, cached_probe, mock_version_api.get_code.call_count) == (True, True, 1)
-
-
-def test_k8s_service_reachability_failure() -> None:
-    """Verify reachability returns False on probe exception."""
-    svc = KubernetesService.get_instance()
-    with patch.object(svc, "load_config", return_value=True):
-        mock_version_api = MagicMock()
-        mock_version_api.get_code.side_effect = Exception("connection refused")
-        svc._version_api = mock_version_api
-
-        assert (svc.is_cluster_reachable(context="fail-ctx"),) == (False,)
-
-
-def test_k8s_service_list_contexts() -> None:
-    """Verify list_contexts extraction from kubeconfig."""
-    svc = KubernetesService.get_instance()
-    mock_contexts = ([{"name": "ctx1"}, {"name": "ctx2"}], {"name": "ctx1"})
-    with patch("kubernetes.config.list_kube_config_contexts", return_value=mock_contexts):
-        ctx_list, active = svc.list_contexts()
-        active_name = active["name"] if active else ""
-        assert (len(ctx_list), active_name) == (2, "ctx1")
-
-
-def test_k8s_service_switch_context(tmp_path: Path) -> None:
-    """Verify switch_context updates kubeconfig file atomically."""
-    kubeconfig_file = tmp_path / "config"
-    kubeconfig_file.write_text(
-        "apiVersion: v1\ncurrent-context: default\ncontexts:\n  - name: default\n  - name: prod\n",
+def _kubeconfig(path: Path, servers: dict[str, str], current: str) -> Path:
+    """A kubeconfig with one context, cluster and user for each name in `servers`."""
+    clusters = "".join(f"- name: {n}\n  cluster:\n    server: {s}\n" for n, s in servers.items())
+    contexts = "".join(
+        f"- name: {n}\n  context:\n    cluster: {n}\n    user: {n}\n" for n in servers
+    )
+    users = "".join(f"- name: {n}\n  user:\n    token: placeholder-{n}\n" for n in servers)
+    path.write_text(
+        "apiVersion: v1\nkind: Config\n"
+        f"clusters:\n{clusters}contexts:\n{contexts}current-context: {current}\nusers:\n{users}",
         encoding="utf-8",
     )
-    svc = KubernetesService.get_instance()
-    with (
-        patch.object(svc, "_get_kubeconfig_path", return_value=kubeconfig_file),
-        patch.object(svc, "load_config", return_value=True),
-    ):
-        svc.switch_context("prod")
-        updated_content = kubeconfig_file.read_text(encoding="utf-8")
-        mode = kubeconfig_file.stat().st_mode & 0o777
-        assert ("current-context: prod" in updated_content, mode) == (True, 0o600)
+    return path
 
 
-def test_k8s_service_switch_context_not_found(tmp_path: Path) -> None:
-    """Verify switch_context raises KubernetesContextError for unknown context."""
-    kubeconfig_file = tmp_path / "config"
-    kubeconfig_file.write_text("apiVersion: v1\ncontexts:\n  - name: default\n", encoding="utf-8")
-    svc = KubernetesService.get_instance()
-    with patch.object(svc, "_get_kubeconfig_path", return_value=kubeconfig_file):
-        with pytest.raises(KubernetesContextError, match="does not exist"):
-            svc.switch_context("nonexistent")
+@pytest.fixture
+def service_account(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A pod's service account under `tmp_path`, with the API server's address in the env."""
+    directory = tmp_path / "serviceaccount"
+    directory.mkdir()
+    (directory / "token").write_text("sa-token", encoding="utf-8")
+    (directory / "ca.crt").write_text("placeholder certificate", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "192.0.2.1")
+    monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "6443")
+    return directory
 
 
-def test_k8s_service_list_nodes() -> None:
-    """Verify list_nodes queries API and caches results."""
-    svc = KubernetesService.get_instance()
-    mock_node = SimpleNamespace(metadata=SimpleNamespace(name="node-1"))
-    mock_core = MagicMock()
-    mock_core.list_node.return_value = SimpleNamespace(items=[mock_node])
-
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        nodes_first = svc.list_nodes()
-        nodes_cached = svc.list_nodes()
-        assert (len(nodes_first), len(nodes_cached), mock_core.list_node.call_count) == (1, 1, 1)
+def _host(apis: Any) -> str:
+    return str(apis.core.api_client.configuration.host)
 
 
-def test_k8s_service_list_pods() -> None:
-    """Verify list_pods supports namespaced and all-namespace queries."""
-    svc = KubernetesService.get_instance()
-    mock_pod = SimpleNamespace(metadata=SimpleNamespace(name="pod-1"))
-    mock_core = MagicMock()
-    mock_core.list_namespaced_pod.return_value = SimpleNamespace(items=[mock_pod])
-    mock_core.list_pod_for_all_namespaces.return_value = SimpleNamespace(items=[mock_pod, mock_pod])
+def test_the_process_service_is_one_instance_until_install_and_reset() -> None:
+    """`install` replaces the process's service, and `reset_instance` removes what it gave."""
+    first = KubernetesService.get_instance()
+    fake = FakeCluster()
+    installed = KubernetesService.install(fake)
+    while_installed = KubernetesService.get_instance()
+    KubernetesService.reset_instance()
+    after_reset = KubernetesService.get_instance()
+    after_reset.load_config(FAKE_CONTEXT)
 
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        ns_pods = svc.list_pods(namespace="custom")
-        all_pods = svc.list_pods(all_namespaces=True)
-        assert (len(ns_pods), len(all_pods)) == (1, 2)
-
-
-def test_k8s_service_read_pod_logs() -> None:
-    """Verify read_pod_logs invokes CoreV1Api with bounded tail and returns framed stream."""
-    svc = KubernetesService.get_instance()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b"log-line-1\nlog-line-2\n"]
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = mock_resp
-
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        output = svc.read_pod_logs("pod-1", namespace="default", tail_lines=50)
-        lines = list(output)
-        kwargs = mock_core.read_namespaced_pod_log.call_args.kwargs
-        assert (
-            lines,
-            mock_core.read_namespaced_pod_log.call_count,
-            kwargs.get("tail_lines"),
-            kwargs.get("_preload_content"),
-            kwargs.get("follow"),
-        ) == (["log-line-1", "log-line-2"], 1, 50, False, False)
+    assert (
+        first is KubernetesService.get_instance(),
+        while_installed is installed,
+        after_reset is installed,
+        fake.connects,
+    ) == (False, True, False, [])
 
 
-def test_k8s_service_resolve_service_endpoint_load_balancer() -> None:
-    """Verify resolve_service_endpoint returns LoadBalancer endpoint when present."""
-    svc = KubernetesService.get_instance()
-    mock_svc = SimpleNamespace(
-        status=SimpleNamespace(
-            load_balancer=SimpleNamespace(
-                ingress=[SimpleNamespace(ip="203.0.113.10", hostname=None)]
-            )
-        ),
-        spec=SimpleNamespace(ports=[SimpleNamespace(port=8080, node_port=None)]),
+def test_the_cluster_fixture_serves_the_process_service(cluster: FakeCluster) -> None:
+    cluster.core.answers["list_node"] = [node("node-a")]
+
+    nodes = KubernetesService.get_instance().list_nodes()
+
+    assert ([n.metadata.name for n in nodes], cluster.core.calls, cluster.connects) == (
+        ["node-a"],
+        [("list_node", {})],
+        [FAKE_CONTEXT],
     )
-    mock_core = MagicMock()
-    mock_core.read_namespaced_service.return_value = mock_svc
-
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        url = svc.resolve_service_endpoint("web-svc", namespace="default")
-        assert (url,) == ("http://203.0.113.10:8080",)
 
 
-def test_resource_informer_event_normalization() -> None:
+def test_a_kubeconfig_context_wins_over_a_service_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_account: Path
+) -> None:
+    servers = {"dev": "https://dev.example.com:6443"}
+    monkeypatch.setenv("KUBECONFIG", str(_kubeconfig(tmp_path / "config", servers, "dev")))
+
+    apis = KubernetesClientSource(service_account_dir=service_account).connect("dev")
+
+    assert _host(apis) == "https://dev.example.com:6443"
+
+
+def test_without_a_kubeconfig_context_the_service_account_connects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_account: Path
+) -> None:
+    servers = {"dev": "https://dev.example.com:6443"}
+    monkeypatch.setenv("KUBECONFIG", str(_kubeconfig(tmp_path / "config", servers, "dev")))
+
+    apis = KubernetesClientSource(service_account_dir=service_account).connect("other")
+
+    assert (
+        _host(apis),
+        apis.core.api_client.configuration.api_key["BearerToken"],
+    ) == ("https://192.0.2.1:6443", "bearer sa-token")
+
+
+def test_without_a_kubeconfig_context_or_service_account_the_connection_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    servers = {"dev": "https://dev.example.com:6443"}
+    monkeypatch.setenv("KUBECONFIG", str(_kubeconfig(tmp_path / "config", servers, "dev")))
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+
+    with pytest.raises(KubernetesContextError, match="No kubeconfig context named 'other'"):
+        KubernetesClientSource(service_account_dir=tmp_path / "none").connect("other")
+
+
+def test_a_connection_leaves_the_global_default_configuration_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_account: Path
+) -> None:
+    from kubernetes import client
+
+    servers = {"dev": "https://dev.example.com:6443"}
+    monkeypatch.setenv("KUBECONFIG", str(_kubeconfig(tmp_path / "config", servers, "dev")))
+    before = client.Configuration.get_default_copy().host
+    source = KubernetesClientSource(service_account_dir=service_account)
+
+    source.connect("dev")
+    source.connect("other")
+
+    assert client.Configuration.get_default_copy().host == before
+
+
+def test_every_kubeconfig_entry_is_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    first = _kubeconfig(tmp_path / "first", {"dev": "https://dev.example.com:6443"}, "dev")
+    second = _kubeconfig(tmp_path / "second", {"prod": "https://prod.example.com:6443"}, "prod")
+    monkeypatch.setenv("KUBECONFIG", f"{first}:{second}")
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    source = KubernetesClientSource()
+
+    contexts, _ = source.contexts()
+
+    assert ([ctx["name"] for ctx in contexts], _host(source.connect("prod"))) == (
+        ["dev", "prod"],
+        "https://prod.example.com:6443",
+    )
+
+
+def test_a_switch_points_the_clients_at_the_context_and_leaves_the_kubeconfig_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    servers = {"dev": "https://dev.example.com:6443", "prod": "https://prod.example.com:6443"}
+    kubeconfig = _kubeconfig(tmp_path / "config", servers, "dev")
+    kubeconfig.write_text("# kept by the switch\n" + kubeconfig.read_text("utf-8"), "utf-8")
+    monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
+    before = kubeconfig.read_bytes()
+    svc = KubernetesService(KubernetesClientSource())
+
+    svc.switch_context("prod")
+
+    assert (
+        kubeconfig.read_bytes() == before,
+        svc.core_api("prod").api_client.configuration.host,
+    ) == (
+        True,
+        "https://prod.example.com:6443",
+    )
+
+
+def test_a_switch_connects_to_the_context_and_drops_cached_answers() -> None:
+    fake = FakeCluster(contexts=("dev", "prod"), current="dev")
+    svc = KubernetesService(fake)
+    fake.core.answers["list_node"] = [node("node-a")]
+    svc.list_nodes("prod")
+
+    svc.switch_context("prod")
+    svc.list_nodes("prod")
+
+    assert (fake.connects, [call for call, _ in fake.core.calls]) == (
+        ["prod", "prod"],
+        ["list_node", "list_node"],
+    )
+
+
+def test_a_switch_to_a_context_the_kubeconfig_does_not_name_fails() -> None:
+    svc = KubernetesService(FakeCluster(contexts=("dev",), current="dev"))
+
+    with pytest.raises(KubernetesContextError, match="does not exist"):
+        svc.switch_context("nonexistent")
+
+
+def test_load_config_connects_once_for_each_context(cluster: FakeCluster) -> None:
+    svc = KubernetesService.get_instance()
+
+    results = (
+        svc.load_config(FAKE_CONTEXT),
+        svc.load_config(FAKE_CONTEXT),
+        svc.load_config("other"),
+    )
+
+    assert (results, cluster.connects) == ((True, True, False), [FAKE_CONTEXT, "other"])
+
+
+def test_k8s_service_reachability_is_probed_once_and_cached(cluster: FakeCluster) -> None:
+    svc = KubernetesService.get_instance()
+
+    reachable = svc.is_cluster_reachable()
+    cached_probe = svc.is_cluster_reachable()
+
+    assert (reachable, cached_probe, svc.server_version(), len(cluster.version.calls)) == (
+        True,
+        True,
+        "v1.34.1",
+        1,
+    )
+
+
+def test_k8s_service_reachability_failure(cluster: FakeCluster) -> None:
+    cluster.unreachable()
+
+    assert KubernetesService.get_instance().is_cluster_reachable() is False
+
+
+def test_k8s_service_list_contexts(cluster: FakeCluster) -> None:
+    ctx_list, active = KubernetesService.get_instance().list_contexts()
+
+    assert ([ctx["name"] for ctx in ctx_list], (active or {}).get("name")) == (
+        [FAKE_CONTEXT],
+        FAKE_CONTEXT,
+    )
+
+
+def test_k8s_service_list_nodes_caches_the_answer(cluster: FakeCluster) -> None:
+    cluster.core.answers["list_node"] = [node("node-1")]
+    svc = KubernetesService.get_instance()
+
+    nodes_first = svc.list_nodes()
+    nodes_cached = svc.list_nodes()
+
+    assert (len(nodes_first), len(nodes_cached), len(cluster.core.calls)) == (1, 1, 1)
+
+
+def test_k8s_service_list_pods(cluster: FakeCluster) -> None:
+    pods = [pod("pod-1", "custom"), pod("pod-2", "other")]
+    cluster.core.answers["list_namespaced_pod"] = pods
+    cluster.core.answers["list_pod_for_all_namespaces"] = pods
+    svc = KubernetesService.get_instance()
+
+    ns_pods = svc.list_pods(namespace="custom", label_selector="app=web")
+    all_pods = svc.list_pods(all_namespaces=True)
+
+    assert ([p.metadata.name for p in ns_pods], len(all_pods), cluster.core.calls) == (
+        ["pod-1"],
+        2,
+        [
+            ("list_namespaced_pod", {"namespace": "custom", "label_selector": "app=web"}),
+            ("list_pod_for_all_namespaces", {}),
+        ],
+    )
+
+
+def test_k8s_service_read_pod_logs(cluster: FakeCluster) -> None:
+    """read_pod_logs asks for a bounded tail as a stream and frames it into lines."""
+    cluster.core.answers["read_namespaced_pod_log"] = {
+        ("default", "pod-1"): "log-line-1\nlog-line-2\n"
+    }
+
+    lines = list(KubernetesService.get_instance().read_pod_logs("pod-1", tail_lines=50))
+
+    assert (lines, cluster.core.calls) == (
+        ["log-line-1", "log-line-2"],
+        [
+            (
+                "read_namespaced_pod_log",
+                {
+                    "name": "pod-1",
+                    "namespace": "default",
+                    "tail_lines": 50,
+                    "follow": False,
+                    "_preload_content": False,
+                },
+            )
+        ],
+    )
+
+
+def test_k8s_service_read_pod_logs_follow(cluster: FakeCluster) -> None:
+    cluster.core.answers["read_namespaced_pod_log"] = "stream-1\nstream-2\n"
+
+    lines = list(KubernetesService.get_instance().read_pod_logs("pod-1", follow=True))
+
+    assert (lines, cluster.core.calls[0][1]["follow"]) == (["stream-1", "stream-2"], True)
+
+
+def test_k8s_service_read_pod_logs_failure(cluster: FakeCluster) -> None:
+    cluster.core.answers["read_namespaced_pod_log"] = RuntimeError("not found")
+
+    with pytest.raises(KubernetesContextError, match="Failed to read pod logs"):
+        KubernetesService.get_instance().read_pod_logs("missing-pod")
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("web-svc", "http://203.0.113.10:8080"),
+        ("internal-svc", "http://192.0.2.10:30080"),
+        ("bad-svc", None),
+    ],
+)
+def test_k8s_service_resolve_service_endpoint(
+    cluster: FakeCluster, name: str, expected: str | None
+) -> None:
+    """The endpoint is the load balancer's address, else a node's address at the node port."""
+    cluster.core.answers["list_namespaced_service"] = [
+        service("web-svc", port=8080, load_balancer="203.0.113.10"),
+        service("internal-svc", port=80, node_port=30080),
+    ]
+    cluster.core.answers["list_node"] = [node("node-a", addresses={"InternalIP": "192.0.2.10"})]
+
+    assert KubernetesService.get_instance().resolve_service_endpoint(name) == expected
+
+
+def test_k8s_service_list_exceptions(cluster: FakeCluster) -> None:
+    cluster.core.answers["list_node"] = RuntimeError("api down")
+    cluster.core.answers["list_namespaced_pod"] = RuntimeError("api down")
+    svc = KubernetesService.get_instance()
+
+    with pytest.raises(KubernetesContextError, match="Failed to query cluster nodes"):
+        svc.list_nodes()
+    with pytest.raises(KubernetesContextError, match="Failed to query pods"):
+        svc.list_pods()
+
+
+def test_k8s_service_cache_expiration() -> None:
+    """Verify _get_cached invalidates entries after TTL."""
+    svc = KubernetesService(FakeCluster())
+    svc._cache_ttl = 0.01
+    svc._set_cached("test-key", "test-val")
+    val_immediate = svc._get_cached("test-key")
+
+    import time
+
+    time.sleep(0.02)
+    val_expired = svc._get_cached("test-key")
+    assert (val_immediate, val_expired) == ("test-val", None)
+
+
+def test_cache_honours_per_entry_ttl() -> None:
+    """A short negative-result TTL expires independently of the default cache TTL.
+
+    Reachability probes cache failures for ~2s so they retry promptly; previously the
+    ttl argument was accepted and silently ignored, pinning failures for the full TTL.
+    """
+    svc = KubernetesService(FakeCluster())
+    svc._cache_ttl = 300.0
+
+    svc._set_cached("short", "negative", ttl=0.0)
+    svc._set_cached("long", "positive")
+
+    assert (svc._get_cached("short"), svc._get_cached("long")) == (None, "positive")
+
+
+def test_resource_informer_event_normalization(cluster: FakeCluster) -> None:
     """Verify ResourceInformer normalizes Watch event dictionaries."""
-    mock_svc = MagicMock()
-    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
 
-    mock_obj = SimpleNamespace(
+    obj = SimpleNamespace(
         metadata=SimpleNamespace(name="agent-pod", namespace="default"),
         status=SimpleNamespace(phase="Running"),
     )
-    raw_event = {"type": CONST_K8S_EVENT_ADDED, "object": mock_obj}
-    event = informer._normalize_event(raw_event)
+    event = informer._normalize_event({"type": CONST_K8S_EVENT_ADDED, "object": obj})
 
     assert (event.event_type, event.name, event.namespace, event.status) == (
         CONST_K8S_EVENT_ADDED,
@@ -215,16 +396,14 @@ def test_resource_informer_event_normalization() -> None:
     )
 
 
-def test_resource_informer_dict_normalization() -> None:
+def test_resource_informer_dict_normalization(cluster: FakeCluster) -> None:
     """Verify ResourceInformer normalizes raw dictionary event objects."""
-    mock_svc = MagicMock()
-    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
     raw_dict = {
         "metadata": {"name": "dict-pod", "namespace": "custom-ns"},
         "status": {"phase": "Running"},
     }
-    raw_event = {"type": CONST_K8S_EVENT_ADDED, "object": raw_dict}
-    event = informer._normalize_event(raw_event)
+    event = informer._normalize_event({"type": CONST_K8S_EVENT_ADDED, "object": raw_dict})
 
     assert (event.event_type, event.name, event.namespace, event.status) == (
         CONST_K8S_EVENT_ADDED,
@@ -234,23 +413,22 @@ def test_resource_informer_dict_normalization() -> None:
     )
 
 
-def test_resource_informer_cache_lifecycle() -> None:
+def test_resource_informer_cache_lifecycle(cluster: FakeCluster) -> None:
     """Verify ResourceInformer in-memory state updates on event stream."""
-    mock_svc = MagicMock()
-    informer = ResourceInformer(resource_kind="Pod", namespace="test-ns", service=mock_svc)
+    informer = ResourceInformer(resource_kind="Pod", namespace="test-ns")
 
-    mock_obj = SimpleNamespace(
+    obj = SimpleNamespace(
         metadata=SimpleNamespace(name="worker", namespace="test-ns"),
         status=SimpleNamespace(phase="Running"),
     )
-    ev_add = informer._normalize_event({"type": CONST_K8S_EVENT_ADDED, "object": mock_obj})
-    informer._update_cache(ev_add, mock_obj)
+    ev_add = informer._normalize_event({"type": CONST_K8S_EVENT_ADDED, "object": obj})
+    informer._update_cache(ev_add, obj)
 
     state_after_add = informer.get_state()
     cached = informer.get_cached_resources()
 
-    ev_del = informer._normalize_event({"type": CONST_K8S_EVENT_DELETED, "object": mock_obj})
-    informer._update_cache(ev_del, mock_obj)
+    ev_del = informer._normalize_event({"type": CONST_K8S_EVENT_DELETED, "object": obj})
+    informer._update_cache(ev_del, obj)
     state_after_del = informer.get_state()
 
     assert (
@@ -261,83 +439,91 @@ def test_resource_informer_cache_lifecycle() -> None:
     ) == (1, True, True, 0)
 
 
-def test_resource_informer_stream_events() -> None:
-    """Verify stream_events yields events using mock Watch."""
-    mock_svc = MagicMock()
-    mock_svc.load_config.return_value = True
-    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+def _raw_pod(name: str, namespace: str = "default", phase: str = "Running") -> dict[str, Any]:
+    return {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {"name": name, "namespace": namespace, "resourceVersion": "7"},
+        "status": {"phase": phase},
+    }
 
-    mock_obj = SimpleNamespace(
-        metadata=SimpleNamespace(name="streamed-pod", namespace="default"),
-        status=SimpleNamespace(phase="Running"),
-    )
-    mock_watch = MagicMock()
-    mock_watch.stream.return_value = [
-        {"type": CONST_K8S_EVENT_ADDED, "object": mock_obj},
-        {"type": CONST_K8S_EVENT_DELETED, "object": mock_obj},
+
+def test_resource_informer_stream_events(cluster: FakeCluster) -> None:
+    """stream_events yields each event of the watch, through the SDK's own Watch."""
+    cluster.core.watch_events = [
+        {"type": CONST_K8S_EVENT_ADDED, "object": _raw_pod("streamed-pod")},
+        {"type": CONST_K8S_EVENT_DELETED, "object": _raw_pod("streamed-pod")},
+    ]
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
+
+    events = list(informer.stream_events(timeout_seconds=5.0))
+
+    assert [(e.event_type, e.name) for e in events] == [
+        (CONST_K8S_EVENT_ADDED, "streamed-pod"),
+        (CONST_K8S_EVENT_DELETED, "streamed-pod"),
     ]
 
-    with patch("kubernetes.watch.Watch", return_value=mock_watch):
-        events = list(informer.stream_events(timeout_seconds=5.0))
-        assert (len(events), events[0].name, events[1].event_type) == (
-            2,
-            "streamed-pod",
-            CONST_K8S_EVENT_DELETED,
-        )
+
+def test_resource_informer_stream_events_all_namespaces(cluster: FakeCluster) -> None:
+    """An all-namespace informer watches every namespace."""
+    informer = ResourceInformer(resource_kind="Pod", namespace="")
+
+    events = list(informer.stream_events(timeout_seconds=2.0))
+
+    assert (events, [call for call, _ in cluster.core.calls]) == (
+        [],
+        ["list_pod_for_all_namespaces"],
+    )
 
 
-def test_resource_informer_stream_events_all_namespaces() -> None:
-    """Verify stream_events handles all-namespace selector."""
-    mock_svc = MagicMock()
-    mock_svc.load_config.return_value = True
-    informer = ResourceInformer(resource_kind="Pod", namespace="", service=mock_svc)
-
-    mock_watch = MagicMock()
-    mock_watch.stream.return_value = []
-    with patch("kubernetes.watch.Watch", return_value=mock_watch):
-        events = list(informer.stream_events(timeout_seconds=2.0))
-        assert (len(events),) == (0,)
-
-
-def test_watch_streams_yield_typed_v1_pods_from_fake_cluster() -> None:
+def test_watch_streams_yield_typed_v1_pods_from_fake_cluster(cluster: FakeCluster) -> None:
     """Namespaced and all-namespace watches yield typed V1Pod objects from the fake cluster."""
     from kubernetes.client import V1Pod
 
-    from tests.k8s_fakes import FakeCoreV1, pod
+    cluster.core.answers["list_namespaced_pod"] = [pod(name="worker-0", namespace="prod")]
+    cluster.core.answers["list_pod_for_all_namespaces"] = [pod(name="worker-0", namespace="prod")]
 
-    fake_pod = pod(name="worker-0", namespace="prod")
-    fake_cluster = FakeCoreV1(pods=[fake_pod])
-    mock_svc = MagicMock()
-    mock_svc.load_config.return_value = True
-    mock_svc._core_v1 = fake_cluster
-
-    # 1. Namespaced watch
-    informer_ns = ResourceInformer(resource_kind="Pod", namespace="prod", service=mock_svc)
+    informer_ns = ResourceInformer(resource_kind="Pod", namespace="prod")
     events_ns = list(informer_ns.stream_events(timeout_seconds=1.0))
     cached_ns = informer_ns.get_cached_resources()
 
-    # 2. All-namespaces watch
-    informer_all = ResourceInformer(resource_kind="Pod", namespace="*", service=mock_svc)
+    informer_all = ResourceInformer(resource_kind="Pod", namespace="*")
     events_all = list(informer_all.stream_events(timeout_seconds=1.0))
     cached_all = informer_all.get_cached_resources()
 
-    assert isinstance(cached_ns["prod/worker-0"], V1Pod)
-    assert isinstance(cached_all["prod/worker-0"], V1Pod)
     assert (
-        len(events_ns),
-        events_ns[0].name,
-        len(events_all),
-        events_all[0].name,
-    ) == (1, "worker-0", 1, "worker-0")
+        type(cached_ns["prod/worker-0"]),
+        type(cached_all["prod/worker-0"]),
+        [e.name for e in events_ns],
+        [e.name for e in events_all],
+    ) == (V1Pod, V1Pod, ["worker-0"], ["worker-0"])
 
 
-def test_resource_informer_start_and_stop() -> None:
+def test_stream_events_publishes_watcher_for_interruption(cluster: FakeCluster) -> None:
+    """The active Watch is published so stop() can interrupt the blocking stream.
+
+    Previously the Watch stayed local to stream_events, leaving `_watcher` as None so
+    stop() could not interrupt the stream and the worker thread ran until the next
+    server-side resync timeout.
+    """
+    from kubernetes import watch
+
+    cluster.core.watch_events = [{"type": CONST_K8S_EVENT_ADDED, "object": _raw_pod("p")}]
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
+
+    stream = informer.stream_events(timeout_seconds=1.0)
+    next(stream)
+    while_streaming = informer._watcher
+    list(stream)
+
+    assert (type(while_streaming), informer._watcher) == (watch.Watch, None)
+
+
+def test_resource_informer_start_and_stop(cluster: FakeCluster) -> None:
     """Verify start initiates background thread and stop terminates it."""
-    mock_svc = MagicMock()
-    mock_svc.load_config.return_value = True
-    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
 
-    received: list[any] = []
+    received: list[Any] = []
     with patch.object(informer, "stream_events", return_value=[]):
         informer.start(on_event=received.append)
         is_running_init = informer._running
@@ -346,11 +532,11 @@ def test_resource_informer_start_and_stop() -> None:
         assert (is_running_init, informer._running) == (True, False)
 
 
-def test_informer_reconnect_loop_passes_last_resource_version_and_backs_off() -> None:
+def test_informer_reconnect_loop_passes_last_resource_version_and_backs_off(
+    cluster: FakeCluster,
+) -> None:
     """A persistent watch error backs off instead of looping, and reconnect passes last resourceVersion."""
-    mock_svc = MagicMock()
-    mock_svc.load_config.return_value = True
-    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
     informer._resource_version = "42"
     informer._running = True
 
@@ -378,22 +564,12 @@ def test_informer_reconnect_loop_passes_last_resource_version_and_backs_off() ->
     assert (calls, len(waits) > 0) == (["42", "42"], True)
 
 
-def test_informer_reconnect_loop_relists_on_410_gone() -> None:
+def test_informer_reconnect_loop_relists_on_410_gone(cluster: FakeCluster) -> None:
     """Encountering 410 Gone triggers relisting to acquire fresh resourceVersion."""
-    from kubernetes.client import V1ObjectMeta, V1Pod
     from kubernetes.client.rest import ApiException
 
-    mock_svc = MagicMock()
-    mock_svc.load_config.return_value = True
-    relisted_pod = V1Pod(
-        metadata=V1ObjectMeta(name="relisted-pod", namespace="default", resource_version="99")
-    )
-    mock_list_resp = SimpleNamespace(
-        items=[relisted_pod], metadata=SimpleNamespace(resource_version="99")
-    )
-    mock_svc._core_v1.list_namespaced_pod.return_value = mock_list_resp
-
-    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    cluster.core.answers["list_namespaced_pod"] = [pod("relisted-pod", "default")]
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
     informer._resource_version = "10"
     informer._running = True
 
@@ -415,29 +591,64 @@ def test_informer_reconnect_loop_relists_on_410_gone() -> None:
         informer._run_watch_loop(on_event=None)
 
     cached = informer.get_cached_resources()
-    assert (
-        calls,
-        informer._resource_version,
-        "default/relisted-pod" in cached,
-    ) == (["10", "99"], "99", True)
+    assert (calls, informer._resource_version, "default/relisted-pod" in cached) == (
+        ["10", "100"],
+        "100",
+        True,
+    )
 
 
-def test_k8s_service_read_pod_logs_follow() -> None:
-    """Verify read_pod_logs returns stream iterator when follow=True."""
-    svc = KubernetesService.get_instance()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b"stream-1\n", b"stream-2\n"]
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = mock_resp
+def test_stop_interrupts_watcher_and_joins_thread(cluster: FakeCluster) -> None:
+    """stop() interrupts the active watch and joins the background worker thread."""
+    informer = ResourceInformer()
 
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        stream_iter = svc.read_pod_logs("pod-1", follow=True)
-        lines = list(stream_iter)
-        assert (lines, mock_core.read_namespaced_pod_log.call_count) == (
-            ["stream-1", "stream-2"],
-            1,
+    mock_watch = MagicMock()
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = False
+    informer._watcher = mock_watch
+    informer._watch_thread = mock_thread
+
+    informer.stop(timeout=0.5)
+
+    assert (informer._running, informer._watch_thread, mock_watch.stop.call_count) == (
+        False,
+        None,
+        1,
+    )
+
+
+def test_stop_survives_watcher_failure(cluster: FakeCluster) -> None:
+    """A watcher that refuses to stop does not prevent the informer from shutting down."""
+    informer = ResourceInformer()
+    mock_watch = MagicMock()
+    mock_watch.stop.side_effect = RuntimeError("stream already closed")
+    informer._watcher = mock_watch
+
+    informer.stop(timeout=0.1)
+    assert informer._running is False
+
+
+def test_informer_cache_is_bounded(cluster: FakeCluster) -> None:
+    """The resource cache evicts oldest entries instead of growing without bound."""
+    from devops_cli.config.defaults import DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES
+
+    informer = ResourceInformer(namespace="default")
+    overflow = DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES + 25
+
+    for index in range(overflow):
+        obj = SimpleNamespace(
+            metadata=SimpleNamespace(name=f"pod-{index}", namespace="default"),
+            status=SimpleNamespace(phase="Running"),
         )
+        event = informer._normalize_event({"type": CONST_K8S_EVENT_ADDED, "object": obj})
+        informer._update_cache(event, obj)
+
+    cached = informer.get_cached_resources()
+    assert (
+        len(cached),
+        "default/pod-0" in cached,
+        f"default/pod-{overflow - 1}" in cached,
+    ) == (DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES, False, True)
 
 
 class _QuietResponse:
@@ -473,13 +684,8 @@ def test_closing_a_followed_log_ends_a_read_blocked_on_a_quiet_container() -> No
     Closing shuts the socket for reading, which ends the blocked read from any thread;
     the reader then closes the response and returns its connection.
     """
-    svc = KubernetesService.get_instance()
     response = _QuietResponse()
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = response
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        stream = svc.read_pod_logs("pod-1", follow=True)
+    stream = PodLogStream(response)
     lines: list[str] = []
     reader = threading.Thread(target=lambda: lines.extend(stream), daemon=True)
     reader.start()
@@ -495,15 +701,10 @@ def test_closing_a_followed_log_ends_a_read_blocked_on_a_quiet_container() -> No
 
 def test_closing_a_followed_log_that_already_ended_is_harmless() -> None:
     """urllib3 refuses to shut a socket it has closed; there is nothing left to stop."""
-    svc = KubernetesService.get_instance()
     response = MagicMock()
     response.stream.return_value = [b"only\n"]
     response.shutdown.side_effect = ValueError("Cannot shutdown socket")
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = response
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        stream = svc.read_pod_logs("pod-1", follow=True)
+    stream = PodLogStream(response)
     lines = list(stream)
     stream.close()
     assert (lines, response.close.call_count, response.release_conn.call_count) == (
@@ -540,214 +741,19 @@ def test_pod_log_stream_framing_scenarios(
     )
 
 
-def test_k8s_service_read_pod_logs_non_follow_json() -> None:
-    """Verify non-follow mode passes follow=False and _preload_content=False, returning raw json."""
-    svc = KubernetesService.get_instance()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b'{"level": "info"}\n']
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = mock_resp
+def test_a_fake_core_api_object_records_and_refuses_like_the_real_one() -> None:
+    """The fake answers a missing read with 404, records each call, and refuses when down."""
+    from kubernetes.client.rest import ApiException
+    from urllib3.exceptions import MaxRetryError
 
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        stream = svc.read_pod_logs("pod-json", namespace="default", follow=False)
-        lines = list(stream)
-        kwargs = mock_core.read_namespaced_pod_log.call_args.kwargs
-        assert (
-            lines,
-            kwargs.get("follow"),
-            kwargs.get("_preload_content"),
-        ) == (['{"level": "info"}'], False, False)
+    core = FakeCoreV1()
+    with pytest.raises(ApiException) as missing:
+        core.read_persistent_volume(name="pv-gone")
+    FakeCluster(core=core).unreachable()
+    with pytest.raises(MaxRetryError):
+        core.list_node()
 
-
-def test_k8s_service_read_pod_logs_failure() -> None:
-    """Verify read_pod_logs raises KubernetesContextError on API failure."""
-    svc = KubernetesService.get_instance()
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.side_effect = Exception("not found")
-
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        with pytest.raises(KubernetesContextError, match="Failed to read pod logs"):
-            svc.read_pod_logs("missing-pod")
-
-
-def test_k8s_service_resolve_service_endpoint_node_port() -> None:
-    """Verify resolve_service_endpoint falls back to NodePort and node IP."""
-    svc = KubernetesService.get_instance()
-    mock_svc = SimpleNamespace(
-        status=SimpleNamespace(load_balancer=None),
-        spec=SimpleNamespace(ports=[SimpleNamespace(port=80, node_port=30080)]),
+    assert (missing.value.status, core.calls) == (
+        404,
+        [("read_persistent_volume", {"name": "pv-gone"}), ("list_node", {})],
     )
-    mock_node = SimpleNamespace(
-        status=SimpleNamespace(
-            addresses=[
-                SimpleNamespace(type="InternalIP", address="192.0.2.10"),
-            ]
-        )
-    )
-    mock_core = MagicMock()
-    mock_core.read_namespaced_service.return_value = mock_svc
-
-    with (
-        patch.object(svc, "load_config", return_value=True),
-        patch.object(svc, "list_nodes", return_value=[mock_node]),
-    ):
-        svc._core_v1 = mock_core
-        url = svc.resolve_service_endpoint("internal-svc", namespace="default")
-        assert (url,) == ("http://192.0.2.10:30080",)
-
-
-def test_k8s_service_resolve_service_endpoint_not_found() -> None:
-    """Verify resolve_service_endpoint returns None on lookup error."""
-    svc = KubernetesService.get_instance()
-    mock_core = MagicMock()
-    mock_core.read_namespaced_service.side_effect = Exception("no such service")
-
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        assert (svc.resolve_service_endpoint("bad-svc"),) == (None,)
-
-
-def test_k8s_service_kubeconfig_env_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify _get_kubeconfig_path respects KUBECONFIG environment variable."""
-    override = tmp_path / "custom_kubeconfig"
-    override.write_text("apiVersion: v1\n", encoding="utf-8")
-    monkeypatch.setenv("KUBECONFIG", str(override))
-
-    svc = KubernetesService.get_instance()
-    resolved = svc._get_kubeconfig_path()
-    assert (resolved,) == (override.resolve(),)
-
-
-def test_k8s_service_cache_expiration() -> None:
-    """Verify _get_cached invalidates entries after TTL."""
-    svc = KubernetesService.get_instance()
-    svc._cache_ttl = 0.01
-    svc._set_cached("test-key", "test-val")
-    val_immediate = svc._get_cached("test-key")
-
-    import time
-
-    time.sleep(0.02)
-    val_expired = svc._get_cached("test-key")
-    assert (val_immediate, val_expired) == ("test-val", None)
-
-
-def test_k8s_service_list_exceptions() -> None:
-    """Verify list_nodes and list_pods raise KubernetesContextError on exception."""
-    svc = KubernetesService.get_instance()
-    mock_core = MagicMock()
-    mock_core.list_node.side_effect = Exception("api down")
-    mock_core.list_namespaced_pod.side_effect = Exception("api down")
-
-    with patch.object(svc, "load_config", return_value=True):
-        svc._core_v1 = mock_core
-        with pytest.raises(KubernetesContextError, match="Failed to query cluster nodes"):
-            svc.list_nodes()
-        with pytest.raises(KubernetesContextError, match="Failed to query pods"):
-            svc.list_pods()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Informer shutdown & cache bounding regressions
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_stream_events_publishes_watcher_for_interruption() -> None:
-    """The active Watch is published so stop() can interrupt the blocking stream.
-
-    Previously the Watch stayed local to stream_events, leaving `_watcher` as None so
-    stop() could not interrupt the stream and the worker thread ran until the next
-    server-side resync timeout.
-    """
-    mock_svc = MagicMock()
-    mock_svc.load_config.return_value = True
-    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
-
-    mock_obj = SimpleNamespace(
-        metadata=SimpleNamespace(name="p", namespace="default"),
-        status=SimpleNamespace(phase="Running"),
-    )
-    mock_watch = MagicMock()
-    observed: list[object] = []
-
-    def _stream(*_args: object, **_kwargs: object):
-        # The watcher must be reachable from stop() while the stream is being consumed.
-        observed.append(informer._watcher)
-        yield {"type": CONST_K8S_EVENT_ADDED, "object": mock_obj}
-
-    mock_watch.stream.side_effect = _stream
-
-    with patch("kubernetes.watch.Watch", return_value=mock_watch):
-        list(informer.stream_events(timeout_seconds=1.0))
-
-    # Published during streaming, and cleared once the stream is exhausted.
-    assert (observed, informer._watcher) == ([mock_watch], None)
-
-
-def test_stop_interrupts_watcher_and_joins_thread() -> None:
-    """stop() interrupts the active watch and joins the background worker thread."""
-    mock_svc = MagicMock()
-    informer = ResourceInformer(service=mock_svc)
-
-    mock_watch = MagicMock()
-    mock_thread = MagicMock()
-    mock_thread.is_alive.return_value = False
-    informer._watcher = mock_watch
-    informer._watch_thread = mock_thread
-
-    informer.stop(timeout=0.5)
-
-    assert (informer._running, informer._watch_thread) == (False, None)
-    mock_watch.stop.assert_called_once()
-
-
-def test_stop_survives_watcher_failure() -> None:
-    """A watcher that refuses to stop does not prevent the informer from shutting down."""
-    informer = ResourceInformer(service=MagicMock())
-    mock_watch = MagicMock()
-    mock_watch.stop.side_effect = RuntimeError("stream already closed")
-    informer._watcher = mock_watch
-
-    informer.stop(timeout=0.1)
-    assert informer._running is False
-
-
-def test_informer_cache_is_bounded() -> None:
-    """The resource cache evicts oldest entries instead of growing without bound."""
-    from devops_cli.config.defaults import DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES
-
-    informer = ResourceInformer(namespace="default", service=MagicMock())
-    overflow = DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES + 25
-
-    for index in range(overflow):
-        obj = SimpleNamespace(
-            metadata=SimpleNamespace(name=f"pod-{index}", namespace="default"),
-            status=SimpleNamespace(phase="Running"),
-        )
-        event = informer._normalize_event({"type": CONST_K8S_EVENT_ADDED, "object": obj})
-        informer._update_cache(event, obj)
-
-    cached = informer.get_cached_resources()
-    assert len(cached) == DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES
-    # Oldest evicted, newest retained.
-    assert "default/pod-0" not in cached
-    assert f"default/pod-{overflow - 1}" in cached
-
-
-def test_cache_honours_per_entry_ttl() -> None:
-    """A short negative-result TTL expires independently of the default cache TTL.
-
-    Reachability probes cache failures for ~2s so they retry promptly; previously the
-    ttl argument was accepted and silently ignored, pinning failures for the full TTL.
-    """
-    service = KubernetesService()
-    service._cache_ttl = 300.0
-
-    service._set_cached("short", "negative", ttl=0.0)
-    service._set_cached("long", "positive")
-
-    assert (service._get_cached("short"), service._get_cached("long")) == (None, "positive")

@@ -70,8 +70,17 @@ from devops_cli.ui.refresh import (
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
 from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane
-from tests.k8s_fakes import NOW, FakeCoreV1, crashlooping_pod, event, pod, running, terminated
-from tests.k8s_fakes import status as container_status
+from tests.support.fakes.kubernetes import (
+    NOW,
+    FakeCluster,
+    FakeCoreV1,
+    crashlooping_pod,
+    event,
+    pod,
+    running,
+    terminated,
+)
+from tests.support.fakes.kubernetes import status as container_status
 from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
 
 # =============================================================================
@@ -1625,23 +1634,13 @@ def test_a_pod_log_source_opens_the_stream_only_when_it_is_consumed(
 
 @pytest.mark.asyncio
 async def test_log_pane_streams_framed_pod_logs(
-    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+    patched_fetchers: Callable[..., None], cluster: FakeCluster
 ) -> None:
     """A LogPane streaming pod_log_source frames chunks incrementally without split lines."""
-    from unittest.mock import MagicMock
-
-    from devops_cli.k8s.service import KubernetesService
     from devops_cli.ui.dashboard import DashboardApp
 
     patched_fetchers()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b"a\nb", b"c\nd\n"]
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = mock_resp
-
-    svc = KubernetesService.get_instance()
-    monkeypatch.setattr(svc, "load_config", lambda context=None: True)
-    svc._core_v1 = mock_core
+    cluster.core.answers["read_namespaced_pod_log"] = {("shop", "web-0"): [b"a\nb", b"c\nd\n"]}
 
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:

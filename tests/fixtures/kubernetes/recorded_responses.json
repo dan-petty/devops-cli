@@ -1,0 +1,1017 @@
+{
+  "_source": "Written on 2026-10-28 in the wire format of the Kubernetes API reference (v1.34) for #1315, with example.com names and RFC 5737 addresses. tests/k8s/test_kubernetes_contract.py replays each answer for its method, path and watch flag. A capture from a disposable local cluster replaces it; that step is for a person.",
+  "responses": [
+    {
+      "method": "GET",
+      "path": "/api/v1/nodes",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "kind": "NodeList",
+        "apiVersion": "v1",
+        "metadata": {
+          "resourceVersion": "200"
+        },
+        "items": [
+          {
+            "metadata": {
+              "name": "node-a",
+              "resourceVersion": "100",
+              "uid": "uid-cluster-node-a",
+              "creationTimestamp": "2026-10-01T12:00:00Z"
+            },
+            "spec": {},
+            "status": {
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "True",
+                  "lastHeartbeatTime": "2026-10-01T12:00:00Z",
+                  "lastTransitionTime": "2026-10-01T12:00:00Z",
+                  "reason": "KubeletReady",
+                  "message": "kubelet is posting ready status"
+                }
+              ],
+              "addresses": [
+                {
+                  "type": "InternalIP",
+                  "address": "192.0.2.10"
+                },
+                {
+                  "type": "Hostname",
+                  "address": "node-a"
+                }
+              ]
+            }
+          },
+          {
+            "metadata": {
+              "name": "node-b",
+              "resourceVersion": "100",
+              "uid": "uid-cluster-node-b",
+              "creationTimestamp": "2026-10-01T12:00:00Z"
+            },
+            "spec": {},
+            "status": {
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "False",
+                  "lastHeartbeatTime": "2026-10-01T12:00:00Z",
+                  "lastTransitionTime": "2026-10-01T12:00:00Z",
+                  "reason": "KubeletNotReady",
+                  "message": "container runtime is down"
+                }
+              ],
+              "addresses": [
+                {
+                  "type": "InternalIP",
+                  "address": "192.0.2.11"
+                },
+                {
+                  "type": "Hostname",
+                  "address": "node-b"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/pods",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "kind": "PodList",
+        "apiVersion": "v1",
+        "metadata": {
+          "resourceVersion": "200"
+        },
+        "items": [
+          {
+            "metadata": {
+              "name": "web-0",
+              "resourceVersion": "100",
+              "uid": "uid-default-web-0",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1"
+                }
+              ],
+              "nodeName": "node-a"
+            },
+            "status": {
+              "phase": "Running",
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "True"
+                }
+              ],
+              "containerStatuses": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1",
+                  "imageID": "",
+                  "ready": true,
+                  "restartCount": 0,
+                  "started": true,
+                  "state": {
+                    "running": {
+                      "startedAt": "2026-10-01T12:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "metadata": {
+              "name": "web-1",
+              "resourceVersion": "100",
+              "uid": "uid-default-web-1",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1"
+                }
+              ],
+              "nodeName": "node-a"
+            },
+            "status": {
+              "phase": "Pending",
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "False"
+                }
+              ],
+              "containerStatuses": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1",
+                  "imageID": "",
+                  "ready": false,
+                  "restartCount": 0,
+                  "started": false,
+                  "state": {
+                    "waiting": {
+                      "reason": "ContainerCreating"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/pods",
+      "watch": true,
+      "status": 200,
+      "lines": [
+        {
+          "type": "ADDED",
+          "object": {
+            "metadata": {
+              "name": "web-0",
+              "resourceVersion": "100",
+              "uid": "uid-default-web-0",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1"
+                }
+              ],
+              "nodeName": "node-a"
+            },
+            "status": {
+              "phase": "Running",
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "True"
+                }
+              ],
+              "containerStatuses": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1",
+                  "imageID": "",
+                  "ready": true,
+                  "restartCount": 0,
+                  "started": true,
+                  "state": {
+                    "running": {
+                      "startedAt": "2026-10-01T12:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "MODIFIED",
+          "object": {
+            "metadata": {
+              "name": "web-1",
+              "resourceVersion": "100",
+              "uid": "uid-default-web-1",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1"
+                }
+              ],
+              "nodeName": "node-a"
+            },
+            "status": {
+              "phase": "Pending",
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "False"
+                }
+              ],
+              "containerStatuses": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1",
+                  "imageID": "",
+                  "ready": false,
+                  "restartCount": 0,
+                  "started": false,
+                  "state": {
+                    "waiting": {
+                      "reason": "ContainerCreating"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pods",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "kind": "PodList",
+        "apiVersion": "v1",
+        "metadata": {
+          "resourceVersion": "200"
+        },
+        "items": [
+          {
+            "metadata": {
+              "name": "web-0",
+              "resourceVersion": "100",
+              "uid": "uid-default-web-0",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1"
+                }
+              ],
+              "nodeName": "node-a"
+            },
+            "status": {
+              "phase": "Running",
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "True"
+                }
+              ],
+              "containerStatuses": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1",
+                  "imageID": "",
+                  "ready": true,
+                  "restartCount": 0,
+                  "started": true,
+                  "state": {
+                    "running": {
+                      "startedAt": "2026-10-01T12:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "metadata": {
+              "name": "web-1",
+              "resourceVersion": "100",
+              "uid": "uid-default-web-1",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1"
+                }
+              ],
+              "nodeName": "node-a"
+            },
+            "status": {
+              "phase": "Pending",
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "False"
+                }
+              ],
+              "containerStatuses": [
+                {
+                  "name": "app",
+                  "image": "example.com/web:1",
+                  "imageID": "",
+                  "ready": false,
+                  "restartCount": 0,
+                  "started": false,
+                  "state": {
+                    "waiting": {
+                      "reason": "ContainerCreating"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "metadata": {
+              "name": "db-0",
+              "resourceVersion": "100",
+              "uid": "uid-data-db-0",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "data"
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "example.com/db:1"
+                }
+              ],
+              "nodeName": "node-a"
+            },
+            "status": {
+              "phase": "Running",
+              "conditions": [
+                {
+                  "type": "Ready",
+                  "status": "True"
+                }
+              ],
+              "containerStatuses": [
+                {
+                  "name": "app",
+                  "image": "example.com/db:1",
+                  "imageID": "",
+                  "ready": true,
+                  "restartCount": 0,
+                  "started": true,
+                  "state": {
+                    "running": {
+                      "startedAt": "2026-10-01T12:00:00Z"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/pods/web-0/log",
+      "watch": false,
+      "status": 200,
+      "text": "line one\nline two\n"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/services",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "kind": "ServiceList",
+        "apiVersion": "v1",
+        "metadata": {
+          "resourceVersion": "200"
+        },
+        "items": [
+          {
+            "metadata": {
+              "name": "web",
+              "resourceVersion": "100",
+              "uid": "uid-default-web",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "type": "LoadBalancer",
+              "ports": [
+                {
+                  "name": "http",
+                  "port": 80,
+                  "protocol": "TCP",
+                  "targetPort": 80
+                }
+              ],
+              "selector": {
+                "app": "web"
+              }
+            },
+            "status": {
+              "loadBalancer": {
+                "ingress": [
+                  {
+                    "ip": "192.0.2.50"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "metadata": {
+              "name": "api",
+              "resourceVersion": "100",
+              "uid": "uid-default-api",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "spec": {
+              "type": "NodePort",
+              "ports": [
+                {
+                  "name": "http",
+                  "port": 8080,
+                  "protocol": "TCP",
+                  "targetPort": 8080,
+                  "nodePort": 30080
+                }
+              ],
+              "selector": {
+                "app": "api"
+              }
+            },
+            "status": {
+              "loadBalancer": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/services/web",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "metadata": {
+          "name": "web",
+          "resourceVersion": "100",
+          "uid": "uid-default-web",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "namespace": "default"
+        },
+        "spec": {
+          "type": "LoadBalancer",
+          "ports": [
+            {
+              "name": "http",
+              "port": 80,
+              "protocol": "TCP",
+              "targetPort": 80
+            }
+          ],
+          "selector": {
+            "app": "web"
+          }
+        },
+        "status": {
+          "loadBalancer": {
+            "ingress": [
+              {
+                "ip": "192.0.2.50"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/services/api",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "metadata": {
+          "name": "api",
+          "resourceVersion": "100",
+          "uid": "uid-default-api",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "namespace": "default"
+        },
+        "spec": {
+          "type": "NodePort",
+          "ports": [
+            {
+              "name": "http",
+              "port": 8080,
+              "protocol": "TCP",
+              "targetPort": 8080,
+              "nodePort": 30080
+            }
+          ],
+          "selector": {
+            "app": "api"
+          }
+        },
+        "status": {
+          "loadBalancer": {}
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/services/missing",
+      "watch": false,
+      "status": 404,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "services \"missing\" not found",
+        "reason": "NotFound",
+        "code": 404,
+        "details": {
+          "name": "missing",
+          "kind": "services"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/default/events",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "kind": "EventList",
+        "apiVersion": "v1",
+        "metadata": {
+          "resourceVersion": "200"
+        },
+        "items": [
+          {
+            "metadata": {
+              "name": "web-0.pulled",
+              "resourceVersion": "100",
+              "uid": "uid-default-web-0.pulled",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "default"
+            },
+            "involvedObject": {
+              "kind": "Pod",
+              "name": "web-0",
+              "namespace": "default"
+            },
+            "reason": "Pulled",
+            "message": "Container image \"example.com/web:1\" already present on machine",
+            "type": "Normal",
+            "count": 1,
+            "firstTimestamp": "2026-10-01T12:00:00Z",
+            "lastTimestamp": "2026-10-01T12:00:00Z",
+            "source": {
+              "component": "kubelet",
+              "host": "node-a"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events",
+      "watch": false,
+      "status": 403,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "events is forbidden: User \"system:serviceaccount:default:reader\" cannot list resource \"events\" in API group \"\" at the cluster scope",
+        "reason": "Forbidden",
+        "code": 403,
+        "details": {
+          "kind": "events"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/persistentvolumes/pv-a",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "metadata": {
+          "name": "pv-a",
+          "resourceVersion": "100",
+          "uid": "uid-cluster-pv-a",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "finalizers": [
+            "kubernetes.io/pv-protection"
+          ]
+        },
+        "spec": {
+          "capacity": {
+            "storage": "10Gi"
+          },
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "persistentVolumeReclaimPolicy": "Retain",
+          "claimRef": {
+            "kind": "PersistentVolumeClaim",
+            "namespace": "data",
+            "name": "db-data"
+          }
+        },
+        "status": {
+          "phase": "Released"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/persistentvolumes/pv-gone",
+      "watch": false,
+      "status": 404,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "persistentvolumes \"pv-gone\" not found",
+        "reason": "NotFound",
+        "code": 404,
+        "details": {
+          "name": "pv-gone",
+          "kind": "persistentvolumes"
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/persistentvolumes/pv-a",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "metadata": {
+          "name": "pv-a",
+          "resourceVersion": "101",
+          "uid": "uid-cluster-pv-a",
+          "creationTimestamp": "2026-10-01T12:00:00Z"
+        },
+        "spec": {
+          "capacity": {
+            "storage": "10Gi"
+          },
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "persistentVolumeReclaimPolicy": "Retain",
+          "claimRef": {
+            "kind": "PersistentVolumeClaim",
+            "namespace": "data",
+            "name": "db-data"
+          }
+        },
+        "status": {
+          "phase": "Released"
+        }
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/persistentvolumes/pv-a",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "metadata": {
+          "name": "pv-a",
+          "resourceVersion": "101",
+          "uid": "uid-cluster-pv-a",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "deletionTimestamp": "2026-10-01T12:00:00Z"
+        },
+        "spec": {
+          "capacity": {
+            "storage": "10Gi"
+          },
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "persistentVolumeReclaimPolicy": "Retain",
+          "claimRef": {
+            "kind": "PersistentVolumeClaim",
+            "namespace": "data",
+            "name": "db-data"
+          }
+        },
+        "status": {
+          "phase": "Released"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/namespaces/data/persistentvolumeclaims/db-data",
+      "watch": false,
+      "status": 404,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "persistentvolumeclaims \"db-data\" not found",
+        "reason": "NotFound",
+        "code": 404,
+        "details": {
+          "name": "db-data",
+          "kind": "persistentvolumeclaims"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "kind": "ApplicationList",
+        "apiVersion": "argoproj.io/v1alpha1",
+        "metadata": {
+          "resourceVersion": "200"
+        },
+        "items": [
+          {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "kind": "Application",
+            "metadata": {
+              "name": "web",
+              "resourceVersion": "100",
+              "uid": "uid-argocd-web",
+              "creationTimestamp": "2026-10-01T12:00:00Z",
+              "namespace": "argocd"
+            },
+            "spec": {
+              "project": "default",
+              "source": {
+                "repoURL": "https://example.com/example/manifests.git",
+                "path": "web",
+                "targetRevision": "main"
+              },
+              "destination": {
+                "server": "https://kubernetes.default.svc",
+                "namespace": "web"
+              }
+            },
+            "status": {
+              "sync": {
+                "status": "Synced"
+              },
+              "health": {
+                "status": "Healthy"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/web",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {
+          "name": "web",
+          "resourceVersion": "100",
+          "uid": "uid-argocd-web",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "namespace": "argocd"
+        },
+        "spec": {
+          "project": "default",
+          "source": {
+            "repoURL": "https://example.com/example/manifests.git",
+            "path": "web",
+            "targetRevision": "main"
+          },
+          "destination": {
+            "server": "https://kubernetes.default.svc",
+            "namespace": "web"
+          }
+        },
+        "status": {
+          "sync": {
+            "status": "Synced"
+          },
+          "health": {
+            "status": "Healthy"
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/missing",
+      "watch": false,
+      "status": 404,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "applications.argoproj.io \"missing\" not found",
+        "reason": "NotFound",
+        "code": 404,
+        "details": {
+          "name": "missing",
+          "group": "argoproj.io",
+          "kind": "applications"
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/web",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {
+          "name": "web",
+          "resourceVersion": "101",
+          "uid": "uid-argocd-web",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "namespace": "argocd",
+          "annotations": {
+            "argocd.argoproj.io/refresh": "normal"
+          }
+        },
+        "spec": {
+          "project": "default",
+          "source": {
+            "repoURL": "https://example.com/example/manifests.git",
+            "path": "web",
+            "targetRevision": "main"
+          },
+          "destination": {
+            "server": "https://kubernetes.default.svc",
+            "namespace": "web"
+          }
+        },
+        "status": {
+          "sync": {
+            "status": "Synced"
+          },
+          "health": {
+            "status": "Healthy"
+          }
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/web/status",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {
+          "name": "web",
+          "resourceVersion": "102",
+          "uid": "uid-argocd-web",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "namespace": "argocd"
+        },
+        "spec": {
+          "project": "default",
+          "source": {
+            "repoURL": "https://example.com/example/manifests.git",
+            "path": "web",
+            "targetRevision": "main"
+          },
+          "destination": {
+            "server": "https://kubernetes.default.svc",
+            "namespace": "web"
+          }
+        },
+        "status": {
+          "sync": {
+            "status": "OutOfSync"
+          },
+          "health": {
+            "status": "Healthy"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications",
+      "watch": false,
+      "status": 201,
+      "body": {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {
+          "name": "api",
+          "resourceVersion": "103",
+          "uid": "uid-argocd-api",
+          "creationTimestamp": "2026-10-01T12:00:00Z",
+          "namespace": "argocd"
+        },
+        "spec": {
+          "project": "default",
+          "source": {
+            "repoURL": "https://example.com/example/manifests.git",
+            "path": "api",
+            "targetRevision": "main"
+          },
+          "destination": {
+            "server": "https://kubernetes.default.svc",
+            "namespace": "api"
+          }
+        },
+        "status": {
+          "sync": {
+            "status": "Unknown"
+          },
+          "health": {
+            "status": "Healthy"
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/version/",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "major": "1",
+        "minor": "34",
+        "gitVersion": "v1.34.1",
+        "gitCommit": "0000000000000000000000000000000000000000",
+        "gitTreeState": "clean",
+        "buildDate": "2026-10-01T12:00:00Z",
+        "goVersion": "go1.25.1",
+        "compiler": "gc",
+        "platform": "linux/amd64"
+      }
+    }
+  ]
+}
