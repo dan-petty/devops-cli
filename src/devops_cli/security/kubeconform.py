@@ -19,6 +19,8 @@ from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
+from devops_cli.core.repo import list_repo_files
+from devops_cli.lang import MESSAGES
 from devops_cli.review.manifests import manifest_object_key
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.kubelinter import manifest_location
@@ -71,6 +73,17 @@ def is_kubernetes_manifest(path: Path | str) -> bool:
         return bool(documents and any(_is_manifest_document(doc) for doc in documents))
     except Exception:
         return False
+
+
+def kubernetes_manifests(target: Path) -> list[Path]:
+    """The Kubernetes manifests of `target` that kubeconform validates: the target when it is a
+    manifest, else each manifest below it that git lists and does not ignore.
+
+    kubeconform reads each YAML and JSON file of a directory that it is given, and reports each
+    file that is not a manifest as a resource that it could not validate. A Helm values file, a
+    Helm template, a workflow and a dashboard are such files (#2214).
+    """
+    return [path for path in list_repo_files(target) if is_kubernetes_manifest(path)]
 
 
 def _kubeconform_finding(resource: dict[str, Any]) -> Finding:
@@ -130,6 +143,12 @@ class KubeconformScanner(BaseSecurityScanner):
     binary_name: str = "kubeconform"
     gating: ClassVar[bool] = True
 
+    def is_applicable(self, target_path: Any, **kwargs: Any) -> tuple[bool, str]:
+        """Applicable where the target holds a Kubernetes manifest."""
+        if any(is_kubernetes_manifest(path) for path in list_repo_files(Path(target_path))):
+            return True, ""
+        return False, MESSAGES.scan.kubeconform_not_applicable
+
     def build_command(
         self,
         target_path: Path,
@@ -137,11 +156,11 @@ class KubeconformScanner(BaseSecurityScanner):
         strict: bool = True,
         **kwargs: Any,
     ) -> list[str]:
-        """Build argument command list for invoking Kubeconform."""
+        """The kubeconform command that validates the manifests of the target, each by its path."""
         cmd = [self.binary_name, "-output", "json", "-kubernetes-version", k8s_version]
         if strict:
             cmd.append("-strict")
-        cmd.append(str(target_path))
+        cmd.extend(str(path) for path in kubernetes_manifests(Path(target_path)))
         return cmd
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
@@ -164,6 +183,7 @@ def run_kubeconform_validation(
 __all__ = [
     "KubeconformScanner",
     "is_kubernetes_manifest",
+    "kubernetes_manifests",
     "parse_kubeconform_json",
     "run_kubeconform_validation",
 ]

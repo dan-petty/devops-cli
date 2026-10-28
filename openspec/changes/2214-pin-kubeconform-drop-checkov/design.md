@@ -19,6 +19,17 @@ Rejected: `-ignore-missing-schemas`. A custom resource with no schema was not va
 
 Rejected: `-verbose` in the command. It adds the valid and skipped resources to the report, and the parser drops them. The `-verbose` recording proves that the parser drops them.
 
+## kubeconform gets the manifests alone
+
+kubeconform reads each `.yaml`, `.yml` and `.json` file of a directory that it gets. It reports each file that is not a manifest as `statusError`, with `missing 'kind' key`, `missing 'apiVersion' key` or a YAML error. Over `k8s/` of this repository, it gave 33 such resources: the Helm values files, `k8s/llm/gateway/config.yaml` and the Grafana dashboards. The parser makes each of them a HIGH finding.
+
+- The adapter gives kubeconform the path of each manifest of the target, and not the target.
+- A manifest is a file that `is_kubernetes_manifest` accepts: a YAML or JSON file with a document that has `apiVersion`. The review chooses the manifests for kube-linter and Pluto with the same function.
+- The adapter reads only the files that git lists and does not ignore (`list_repo_files`), as the deleted fallback did. Thus kubeconform reads no virtual environment and no data directory.
+- A target with no manifest is `not_applicable`, and kubeconform does not start. `devops k8s validate` then says why, and exits 1.
+
+Rejected: `-ignore-filename-pattern`. A file name does not tell a Helm values file from a manifest.
+
 ## No schema fetch step
 
 kubeconform reads each schema from `raw.githubusercontent.com` unless `-schema-location` names another place. A review runs its tools in a sandbox with no network (#2096), but no review runs kubeconform: the review scans manifests with kube-linter and Pluto. `devops k8s validate`, `devops scan report` and the agent tool start kubeconform on `DirectToolExecutor`, which has the network. So the change adds no fetch step and no data directory. A change that makes a review run kubeconform adds them, as osv-scanner and Trivy have them.

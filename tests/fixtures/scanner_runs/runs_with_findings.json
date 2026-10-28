@@ -73,7 +73,7 @@
       "-kubernetes-version",
       "master",
       "-strict",
-      "{tree}/k8s"
+      "{tree}/k8s/app.yaml"
     ],
     "cwd": "{tree}/k8s",
     "returncode": 1,

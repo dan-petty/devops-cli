@@ -272,15 +272,26 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
         assert instance.binary_name != ""
 
 
+def _sample_target(scanner_name: str, tmp_path: Path) -> Path:
+    """The file that a scanner scans in a contract test: a manifest for kubeconform, which starts
+    only for a target that holds one (#2214), else a Python file."""
+    name, text = (
+        ("pod.yaml", "apiVersion: v1\nkind: Pod\nmetadata:\n  name: web\n")
+        if scanner_name == "kubeconform"
+        else ("test_target.py", "content = True\n")
+    )
+    target = tmp_path / name
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 def test_all_11_scanners_dry_run_simulation(tmp_path: Path) -> None:
     """Verify all 11 scanners handle dry-run execution by returning simulated findings."""
-    test_file = tmp_path / "app.py"
-    test_file.write_text("import os\n", encoding="utf-8")
-
     with patch("devops_cli.dry_run.state.is_dry_run", return_value=True):
         for name in ALL_EXPECTED_SCANNER_NAMES:
             scanner = global_scanner_registry.get(name)
             assert scanner is not None
+            test_file = _sample_target(name, tmp_path)
             findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
             assert isinstance(findings, list)
             assert len(findings) >= 1
@@ -466,8 +477,7 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
     scanner = global_scanner_registry.get(scanner_name)
     assert scanner is not None
 
-    test_file = tmp_path / "test_target.py"
-    test_file.write_text("content = True\n", encoding="utf-8")
+    test_file = _sample_target(scanner_name, tmp_path)
 
     sample_stdout = _SAMPLE_STDOUTS.get(scanner_name, "[]")
     mock_proc = MagicMock(returncode=0, stdout=sample_stdout, stderr="")

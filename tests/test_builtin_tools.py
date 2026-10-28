@@ -741,6 +741,9 @@ def test_the_agent_semgrep_tool_without_the_cached_ruleset_runs_the_rule_pack_an
     )
 
 
+# A Kubernetes manifest. kubeconform starts only for a target that holds one (#2214).
+_MANIFEST = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n"
+
 # Each agent scan tool that runs a scanner adapter over a workspace path (#1435): the tool, the
 # name its reply gives the scanner, and the program the adapter starts.
 _ADAPTER_SCAN_TOOLS = [
@@ -765,11 +768,12 @@ def test_an_agent_scan_tool_whose_scanner_is_not_installed_says_so_and_not_clean
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A scanner that no directory of PATH holds gives no result, and the reply says so first
-    (#1435)."""
+    (#1435). The target holds a manifest, which kubeconform needs before it starts."""
     no_scanners = tmp_path / "no-scanners"
     no_scanners.mkdir()
     monkeypatch.setenv("PATH", str(no_scanners))
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.yaml").write_text(_MANIFEST, encoding="utf-8")
 
     reply = scan_tool(str(tmp_path))
 
@@ -790,9 +794,11 @@ def test_an_agent_scan_tool_whose_scanner_fails_with_no_output_says_failed_and_n
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A scanner that exits non-zero and writes nothing on stdout gives no result, and the reply
-    says that the scan failed, with what the scanner wrote on stderr (#1435)."""
+    says that the scan failed, with what the scanner wrote on stderr (#1435). The target holds a
+    manifest, which kubeconform needs before it starts."""
     scanner_fake.script(program, ToolAnswer(exit_code=2, stderr="fatal: the target cannot be read"))
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.yaml").write_text(_MANIFEST, encoding="utf-8")
 
     reply = scan_tool(str(tmp_path))
 

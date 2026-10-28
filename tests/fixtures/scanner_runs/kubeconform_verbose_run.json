@@ -10,7 +10,7 @@
     "-verbose",
     "-skip",
     "ConfigMap",
-    "{tree}/k8s"
+    "{tree}/k8s/app.yaml"
   ],
   "cwd": "{tree}/k8s",
   "returncode": 1,

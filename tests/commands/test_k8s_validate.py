@@ -44,7 +44,27 @@ def test_a_clean_validation_passes(
 ) -> None:
     """kubeconform writes an empty `resources` list and exits 0, so the command passes."""
     scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
+    (tmp_path / "deploy.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
 
     result = cli("k8s", "validate", str(tmp_path))
 
     assert (result.exit_code, _VALID in result.output) == (0, True)
+
+
+def test_a_target_with_no_manifest_says_so_and_fails(
+    cli: Callable[..., Any], scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """kubeconform starts only for a target that holds a manifest. With no manifest, such as a
+    directory with a Helm values file alone, the command says why kubeconform did not run, says no
+    pass, and exits 1."""
+    scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
+    (tmp_path / "values.yaml").write_text("replicaCount: 2\n", encoding="utf-8")
+
+    result = cli("k8s", "validate", str(tmp_path))
+
+    assert (
+        result.exit_code,
+        _VALID in result.output,
+        "No Kubernetes manifest in the target" in " ".join(result.output.split()),
+        scanner_fake.runs,
+    ) == (1, False, True, [])

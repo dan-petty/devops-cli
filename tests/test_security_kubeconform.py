@@ -3,7 +3,8 @@
 The runs are kubeconform 0.8.0's, recorded on 2026-10-28 over `_MANIFESTS`: the run with the command
 of the adapter in `tests/fixtures/scanner_runs/runs_with_findings.json`, and a run with `-verbose
 -skip ConfigMap` in `tests/fixtures/scanner_runs/kubeconform_verbose_run.json`. Without `-verbose`,
-kubeconform lists only the resources that are invalid or that it could not validate.
+kubeconform lists only the resources that are invalid or that it could not validate. kubeconform
+validates with parallel workers, so the order of a report can change from one run to the next.
 """
 
 from __future__ import annotations
@@ -184,14 +185,81 @@ def test_a_resource_that_kubeconform_cannot_read_is_named_by_its_manifest(
 
 
 def test_kubeconform_that_finds_nothing_is_a_clean_scan(
-    scanner_fake: ScannerFake, tmp_path: Path
+    scanner_fake: ScannerFake, tmp_path: Path, git: Callable[..., None]
 ) -> None:
     """With no invalid resource, kubeconform writes an empty `resources` list and exits 0."""
+    manifests = _manifests(tmp_path, git)
+    scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
+
+    outcome = run_kubeconform_validation(manifests)
+
+    assert outcome == ScanOutcome("ran", [])
+
+
+# Files that kubeconform reads in a directory and that are not manifests. kubeconform 0.8.0
+# reported each of them as `statusError`, with `missing 'kind' key`, `missing 'apiVersion' key`
+# or a YAML error, when it was given their directory.
+_NOT_MANIFESTS = {
+    "k8s/chart/values.yaml": "replicaCount: 2\nkind: web\nimage:\n  tag: 1.27.0\n",
+    "k8s/chart/templates/deploy.yaml": (
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Release.Name }}\n"
+    ),
+    "k8s/dashboards/board.json": '{"title": "board", "panels": []}\n',
+    ".github/workflows/ci.yml": "name: ci\non: push\njobs: {}\n",
+    "package.json": '{"name": "web"}\n',
+}
+
+
+def test_kubeconform_reads_only_the_manifests_that_git_lists(
+    scanner_fake: ScannerFake, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """kubeconform reads each YAML and JSON file of a directory that it is given, and reports
+    each file that is not a manifest as a resource that it could not validate. So the adapter
+    gives kubeconform the manifests below the target, and no Helm values file, Helm template,
+    dashboard, workflow, package file or file that git ignores."""
+    manifests = _manifests(tmp_path, git)
+    tree = manifests.parent
+    ignored = {".gitignore": ".venv/\n", ".venv/lib/pod.yaml": "apiVersion: v1\nkind: Pod\n"}
+    for name, text in {**_NOT_MANIFESTS, **ignored}.items():
+        (tree / name).parent.mkdir(parents=True, exist_ok=True)
+        (tree / name).write_text(text, encoding="utf-8")
+    scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
+
+    outcome = run_kubeconform_validation(tree)
+
+    assert (outcome, [run.argv for run in scanner_fake.runs]) == (
+        ScanOutcome("ran", []),
+        [
+            [
+                "kubeconform",
+                "-output",
+                "json",
+                "-kubernetes-version",
+                "master",
+                "-strict",
+                str(manifests / "app.yaml"),
+            ]
+        ],
+    )
+
+
+def test_a_target_with_no_manifest_is_not_applicable_and_starts_no_kubeconform(
+    scanner_fake: ScannerFake, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A target with no manifest gives kubeconform nothing to validate. The scan is not
+    applicable, and kubeconform does not start, so no file of the target becomes a finding."""
+    git(tmp_path, "init", "-q")
+    for name, text in _NOT_MANIFESTS.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
     scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
 
     outcome = run_kubeconform_validation(tmp_path)
 
-    assert outcome == ScanOutcome("ran", [])
+    assert (outcome, scanner_fake.runs) == (
+        ScanOutcome("not_applicable", [], "No Kubernetes manifest in the target"),
+        [],
+    )
 
 
 def test_a_missing_kubeconform_is_unavailable_and_runs_no_fallback(

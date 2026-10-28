@@ -19,6 +19,8 @@ In `devops-cli`, Kubeconform is integrated via `devops k8s validate` and `run_ku
 
 `kubeconform -output json` writes one JSON object, `{"resources": [...]}`. Each resource has `filename`, `kind`, `name`, `version`, `status` and `msg`, and an invalid resource also has `validationErrors`. The adapter gives one HIGH finding at `<manifest>:<Kind>/<name>` for each resource with `statusInvalid` or `statusError`. A resource with `statusValid` or `statusSkipped`, which only `-verbose` lists, is no finding. When kubeconform is not on PATH, the scan is `unavailable` and `devops k8s validate` exits 1: no hand-written check replaces the tool.
 
+kubeconform reads each YAML and JSON file of a directory that it gets. It reports each file that is not a manifest, such as a Helm values file, as `statusError`. Thus the adapter gives kubeconform the path of each manifest of the target that git lists and does not ignore, and no other file. A manifest is a YAML or JSON file with a document that has `apiVersion`. A target with no manifest is `not_applicable`, kubeconform does not start, and `devops k8s validate` exits 1.
+
 Kubeconform reads each schema from `raw.githubusercontent.com` unless `-schema-location` names another place, so a validation needs the network.
 
 ## 2. Key Capabilities

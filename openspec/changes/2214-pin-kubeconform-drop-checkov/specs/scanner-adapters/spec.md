@@ -15,6 +15,17 @@ The kubeconform adapter SHALL run the kubeconform that `tools.lock` pins with `-
 - **WHEN** kubeconform writes `{"resources": []}` and exits 0
 - **THEN** the scan ran and has no finding
 
+### Requirement: kubeconform validates only the manifests of the target
+The kubeconform adapter SHALL give kubeconform the path of each Kubernetes manifest of the target that git lists and does not ignore, and SHALL give it no other file. When the target holds no manifest, the scan SHALL be `not_applicable`, and kubeconform SHALL NOT start.
+
+#### Scenario: A directory holds manifests and other YAML and JSON files
+- **WHEN** the adapter validates a directory that holds a manifest, a Helm values file, a Helm template, a dashboard, a workflow, a package file, and a manifest in a directory that git ignores
+- **THEN** kubeconform starts once, and its command names only the manifest
+
+#### Scenario: A directory holds no manifest
+- **WHEN** the adapter validates a directory that holds no manifest
+- **THEN** the outcome status is `not_applicable`, the reason is `No Kubernetes manifest in the target`, and kubeconform does not start
+
 ### Requirement: A pinned tool has no hand-written fallback
 The kubeconform adapter SHALL keep no built-in patterns. When no directory of PATH holds kubeconform, the scan SHALL be `unavailable` with the reason `Binary 'kubeconform' not found on PATH`, and SHALL have no finding.
 

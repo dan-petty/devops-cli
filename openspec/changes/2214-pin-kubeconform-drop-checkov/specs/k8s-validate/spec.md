@@ -11,6 +11,10 @@ The `devops k8s validate` command SHALL exit 1 and say that the validation did n
 - **WHEN** `devops k8s validate <manifest>` runs and no directory of PATH holds kubeconform
 - **THEN** the command says that the kubeconform validation is `unavailable` because `Binary 'kubeconform' not found on PATH`, says no pass, and exits 1
 
+#### Scenario: The target holds no manifest
+- **WHEN** `devops k8s validate <directory>` runs over a directory that holds no Kubernetes manifest
+- **THEN** the command says that the kubeconform validation is `not_applicable` because `No Kubernetes manifest in the target`, says no pass, and exits 1
+
 ### Requirement: A clean validation passes
 The `devops k8s validate` command SHALL say that the manifests are valid only when kubeconform ran and reported no invalid resource, and SHALL then exit 0.
 
