@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import socket
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -16,6 +17,8 @@ from typer.testing import CliRunner
 from devops_cli.commands.docker import app as docker_app
 from devops_cli.commands.sandbox import app as sandbox_app
 from devops_cli.config.constants import (
+    CONST_ERROR_CODE_SANDBOX_VALIDATION,
+    CONST_EXIT_FAILURE,
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_NETWORK_BRIDGE,
     CONST_SANDBOX_NETWORK_ISOLATED,
@@ -24,7 +27,7 @@ from devops_cli.config.constants import (
     CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
 )
 from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
-from devops_cli.exceptions import SandboxValidationError
+from devops_cli.exceptions import SandboxValidationError, SSRFBlockedError
 from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxNetworkConfig,
@@ -35,6 +38,7 @@ from devops_cli.sandbox.models import (
     _resolve_local_host,
     _resolve_public_host,
 )
+from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
 runner = CliRunner()
 
@@ -380,12 +384,14 @@ def test_a_loopback_entry_opens_no_egress_rule(
 def test_a_loopback_host_or_network_resolves_to_no_address() -> None:
     """`localhost`, a loopback address and a loopback network leave nothing to allow (#1174)."""
     hosts = ("localhost", "LOCALHOST.", "127.0.0.1", "::1", "127.0.0.0/8", "::1/128")
-    assert [_resolve_local_host(host) for host in hosts] == [[] for _host in hosts]
+    assert [_resolve_local_host(host, 443) for host in hosts] == [[] for _host in hosts]
 
 
 def test_an_entry_that_resolves_to_no_address_adds_no_rule() -> None:
     """A rule with an empty `to` allows every destination on its port, so none is built (#1174)."""
-    assert _build_whitelist_egress(["example.com"], lambda _host: []) == [_build_dns_egress_rule()]
+    assert _build_whitelist_egress(["example.com"], lambda _host, _port: []) == [
+        _build_dns_egress_rule()
+    ]
 
 
 @pytest.mark.usefixtures("public_dns")
@@ -677,9 +683,9 @@ def test_a_whitelist_entry_that_cannot_name_one_port_is_refused(entry: str) -> N
 def test_resolve_public_host_ipv6_emits_full_prefix() -> None:
     """Verify _resolve_public_host emits /128 for IPv6 and /32 for IPv4 instead of truncating prefixes."""
     assert (
-        _resolve_public_host("2606:4700::1"),
-        _resolve_public_host("2606:4700::/48"),
-        _resolve_public_host("93.184.216.34"),
+        _resolve_public_host("2606:4700::1", 443),
+        _resolve_public_host("2606:4700::/48", 443),
+        _resolve_public_host("93.184.216.34", 443),
     ) == (
         ["2606:4700::1/128"],
         ["2606:4700::/48"],
@@ -692,22 +698,22 @@ def test_resolve_public_host_ipv6_emits_full_prefix() -> None:
         (10, 1, 6, "", ("2606:4700::1", 0, 0, 0)),
     ]
     with patch("socket.getaddrinfo", return_value=mock_addrs):
-        resolved = _resolve_public_host("example.com")
+        resolved = _resolve_public_host("example.com", 443)
         assert resolved == ["2606:4700::1/128", "93.184.216.34/32"]
 
     # Non-public IPv6 must be rejected
     with pytest.raises(ValueError, match="non-public network"):
-        _resolve_public_host("fd00::1")
+        _resolve_public_host("fd00::1", 443)
     with pytest.raises(ValueError, match="non-public network"):
-        _resolve_public_host("::1")
+        _resolve_public_host("::1", 443)
 
 
 def test_resolve_local_host_ipv6_emits_full_prefix() -> None:
     """Verify _resolve_local_host emits /128 for private IPv6 and /32 for IPv4."""
     assert (
-        _resolve_local_host("fd00::1"),
-        _resolve_local_host("fd00::/8"),
-        _resolve_local_host("192.168.1.50"),
+        _resolve_local_host("fd00::1", 443),
+        _resolve_local_host("fd00::/8", 443),
+        _resolve_local_host("192.168.1.50", 443),
     ) == (
         ["fd00::1/128"],
         ["fd00::/8"],
@@ -716,13 +722,13 @@ def test_resolve_local_host_ipv6_emits_full_prefix() -> None:
 
     # Link-local IPv6 and metadata forbidden
     with pytest.raises(ValueError, match="forbidden"):
-        _resolve_local_host("fe80::1")
+        _resolve_local_host("fe80::1", 443)
     with pytest.raises(ValueError, match="forbidden"):
-        _resolve_local_host("169.254.169.254")
+        _resolve_local_host("169.254.169.254", 443)
 
     # Public IPv6 forbidden in local whitelist
     with pytest.raises(ValueError, match="must be a private or loopback"):
-        _resolve_local_host("2606:4700::1")
+        _resolve_local_host("2606:4700::1", 443)
 
 
 def test_sandbox_network_config_ipv6_whitelists() -> None:
@@ -754,6 +760,189 @@ def test_sandbox_network_config_ipv6_whitelists() -> None:
         "192.168.1.50/32" in local_blocks,
         "fd00::1/32" not in local_blocks,
     ) == (True, True, True)
+
+
+# =============================================================================
+# One lookup for each whitelist name, checked by the egress policy (#2431)
+# =============================================================================
+
+_LOCAL_NAME = "node1.example.internal"
+_LOCAL_ANSWER = "192.0.2.10"
+_METADATA_NAME = "metadata.google.internal"
+_METADATA_ADDRESS = "169.254.169.254"
+
+
+@pytest.mark.parametrize(
+    ("config", "script"),
+    [
+        (
+            {
+                "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+                "public_whitelist": ["example.com", "example.org:8443"],
+            },
+            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
+        ),
+        (
+            {"mode": SandboxNetworkMode.LOCAL_WHITELIST, "local_whitelist": [_LOCAL_NAME]},
+            {_LOCAL_NAME: [[_LOCAL_ANSWER]]},
+        ),
+    ],
+    ids=["public", "local"],
+)
+def test_the_whitelist_policy_looks_up_each_name_once(
+    monkeypatch: pytest.MonkeyPatch, config: dict[str, Any], script: dict[str, list[list[str]]]
+) -> None:
+    """The whitelist validators look up no name, and the policy looks up each name one time."""
+    resolver = scripted_resolver(monkeypatch, script)
+
+    SandboxNetworkConfig(**config).to_k8s_network_policy()
+
+    assert resolver.lookups == dict.fromkeys(script, 1)
+
+
+# Each row: the whitelist, its one host, what the host answers, the lookups made, and the type of
+# the refusal's cause: SSRFBlockedError when the egress policy refuses, None when the builder does.
+_BUILDER_REFUSALS: dict[str, tuple[str, str, str, int, type[BaseException] | None]] = {
+    "public, a cloud metadata name": (
+        "public_whitelist",
+        _METADATA_NAME,
+        _METADATA_ADDRESS,
+        0,
+        SSRFBlockedError,
+    ),
+    "public, a cloud metadata answer": (
+        "public_whitelist",
+        "example.com",
+        _METADATA_ADDRESS,
+        1,
+        SSRFBlockedError,
+    ),
+    "public, a private answer": (
+        "public_whitelist",
+        "example.com",
+        _LOCAL_ANSWER,
+        1,
+        SSRFBlockedError,
+    ),
+    "public, a loopback answer": (
+        "public_whitelist",
+        "example.com",
+        "127.0.0.1",
+        1,
+        SSRFBlockedError,
+    ),
+    "public, a scoped ipv6 answer": (
+        "public_whitelist",
+        "example.com",
+        "2606:4700::1%2",
+        1,
+        SSRFBlockedError,
+    ),
+    "local, a cloud metadata name": ("local_whitelist", _METADATA_NAME, _METADATA_ADDRESS, 0, None),
+    "local, a cloud metadata answer": (
+        "local_whitelist",
+        _LOCAL_NAME,
+        _METADATA_ADDRESS,
+        1,
+        SSRFBlockedError,
+    ),
+    "local, a scoped ipv6 answer": (
+        "local_whitelist",
+        _LOCAL_NAME,
+        "fe80::1%2",
+        1,
+        SSRFBlockedError,
+    ),
+    "local, a link-local answer": ("local_whitelist", _LOCAL_NAME, "169.254.1.2", 1, None),
+    "local, a public answer": ("local_whitelist", _LOCAL_NAME, PUBLIC_ADDRESS, 1, None),
+}
+
+
+@pytest.mark.parametrize("case", list(_BUILDER_REFUSALS))
+def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
+    monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    """Each builder refuses a cloud metadata name, a cloud metadata answer and an answer outside
+    its level, and the local builder also refuses a public answer.
+
+    `model_construct` skips the whitelist validators, so the refusal comes from the builder. The
+    public builder checks at the public egress level. The local builder checks at the private
+    level, then admits only a private or loopback address. The refusal names the host, and also
+    the answer when the builder refuses an answer.
+    """
+    field, host, answer, lookups, cause = _BUILDER_REFUSALS[case]
+    resolver = scripted_resolver(monkeypatch, {host: [[answer]]})
+    config = SandboxNetworkConfig.model_construct(mode=SandboxNetworkMode(field), **{field: [host]})
+
+    with pytest.raises(SandboxValidationError) as refusal:
+        config.to_k8s_network_policy()
+
+    assert (
+        refusal.value.exit_code,
+        refusal.value.error_code,
+        f"'{host}'" in str(refusal.value),
+        answer in str(refusal.value),
+        type(refusal.value.__cause__) if refusal.value.__cause__ else None,
+        resolver.lookups,
+    ) == (
+        CONST_EXIT_FAILURE,
+        CONST_ERROR_CODE_SANDBOX_VALIDATION,
+        True,
+        lookups == 1,
+        cause,
+        {host: lookups},
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "field", "host"),
+    [
+        (SandboxNetworkMode.PUBLIC_WHITELIST, "public_whitelist", "example.com"),
+        (SandboxNetworkMode.LOCAL_WHITELIST, "local_whitelist", _LOCAL_NAME),
+    ],
+    ids=["public", "local"],
+)
+def test_a_whitelist_name_that_does_not_resolve_is_refused(
+    mode: SandboxNetworkMode, field: str, host: str, failed_lookups: list[tuple[str, int]]
+) -> None:
+    """A name with no answer opens no rule: the builder refuses it, and names it."""
+    config = SandboxNetworkConfig(mode=mode, **{field: [host]})
+
+    with pytest.raises(SandboxValidationError) as refusal:
+        config.to_k8s_network_policy()
+
+    assert (
+        refusal.value.exit_code,
+        refusal.value.error_code,
+        f"'{host}'" in str(refusal.value),
+        [name for name, flags in failed_lookups if not flags & socket.AI_NUMERICHOST],
+    ) == (CONST_EXIT_FAILURE, CONST_ERROR_CODE_SANDBOX_VALIDATION, True, [host])
+
+
+def test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A public whitelist name that answers a private address gets no policy, and the error names
+    the name and its answer. Only the one lookup of the policy builder gives the answer: the
+    whitelist validators look up no name."""
+    resolver = scripted_resolver(monkeypatch, {"example.com": [[_LOCAL_ANSWER]]})
+
+    res = cli(
+        "sandbox",
+        "network-policy",
+        "--network-mode",
+        "public_whitelist",
+        "--public-whitelist",
+        "example.com",
+    )
+
+    assert (
+        res.exit_code,
+        "'example.com'" in res.output,
+        _LOCAL_ANSWER in res.output,
+        "NetworkPolicy" in res.stdout,
+        resolver.lookups,
+    ) == (CONST_EXIT_FAILURE, True, True, False, {"example.com": 1})
 
 
 # =============================================================================

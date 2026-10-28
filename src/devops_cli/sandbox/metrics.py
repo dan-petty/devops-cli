@@ -13,7 +13,6 @@ import httpx2
 from prometheus_client.parser import text_string_to_metric_families
 
 from devops_cli.core.paths import validate_no_path_traversal
-from devops_cli.core.validation import is_loopback_host, validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.http import EgressLevel, new_http_client
 from devops_cli.models.docker import ContainerStatEntry
@@ -336,46 +335,39 @@ class PrometheusScrapeResult(list[PrometheusMetric]):
         self.error = error
 
 
-def _validate_scrape_url(metrics_url: str) -> str:
-    """Validate scrape URL ensuring scheme is http/https and blocking SSRF targets."""
+def _validate_scrape_url(metrics_url: str) -> None:
+    """Refuse a scrape URL whose scheme is not http or https, or that names no host.
+
+    This check reads only the URL. The client of the scrape checks the address at the connect.
+    """
     parsed = urlparse(metrics_url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"Invalid scrape URL scheme '{parsed.scheme}': must be http or https")
-    host = parsed.hostname or ""
-    if not host:
+    if not parsed.hostname:
         raise ValueError(f"Invalid scrape URL: missing valid hostname in '{metrics_url}'")
-
-    if is_loopback_host(host):
-        return metrics_url
-
-    return validate_url_egress(
-        metrics_url,
-        purpose="Prometheus metrics scrape",
-        allow_private=False,
-    )
 
 
 def scrape_prometheus_metrics(
     metrics_url: str,
     timeout: float = 5.0,
 ) -> PrometheusScrapeResult:
-    """Scrape Prometheus metrics endpoint over HTTP and parse exposition text."""
+    """Scrape a Prometheus metrics endpoint over HTTP and parse the exposition text.
+
+    The client resolves the host one time, at the connect, and dials only the loopback and public
+    addresses that the loopback egress level admits.
+    """
     safe_url = mask_uri_credentials(metrics_url)
     try:
-        validated_url = _validate_scrape_url(metrics_url)
-    except Exception as exc:
-        err_msg = redact_text(str(exc))
-        return PrometheusScrapeResult(
-            [],
-            error=_truncate(f"SSRF validation blocked scrape URL: {err_msg}"),
-        )
+        _validate_scrape_url(metrics_url)
+    except ValueError as exc:
+        return PrometheusScrapeResult([], error=_truncate(redact_text(str(exc))))
 
     try:
         with new_http_client(
             level=EgressLevel.LOOPBACK,
             timeout=timeout,
         ) as client:
-            resp = client.get(validated_url, headers={"User-Agent": "devops-cli-metrics"})
+            resp = client.get(metrics_url, headers={"User-Agent": "devops-cli-metrics"})
             if resp.status_code != 200:
                 return PrometheusScrapeResult(
                     [],

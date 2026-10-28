@@ -204,16 +204,16 @@ def test_property_resolve_hosts_emit_correct_prefix_lengths(
     is_public = not is_non_public_ip(net)
 
     if ip.is_loopback:
-        assert _resolve_local_host(ip_str) == []
+        assert _resolve_local_host(ip_str, 443) == []
         return
     with patch("socket.getaddrinfo", return_value=mock_addr):
         if is_public:
-            blocks_direct = _resolve_public_host(ip_str)
-            blocks_dns = _resolve_public_host("example.com")
+            blocks_direct = _resolve_public_host(ip_str, 443)
+            blocks_dns = _resolve_public_host("example.com", 443)
             assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])
         elif ip.is_private and not is_cloud_metadata_host(ip, resolve_dns=False):
-            blocks_direct = _resolve_local_host(ip_str)
-            blocks_dns = _resolve_local_host("service.internal")
+            blocks_direct = _resolve_local_host(ip_str, 443)
+            blocks_dns = _resolve_local_host("service.internal", 443)
             assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])
 
 
@@ -362,7 +362,7 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
         f"http://{url_target}:80",
         expected_exc=ValueError,
     )
-    models_host_blocked = _check_raises(_resolve_local_host, target, expected_exc=ValueError)
+    models_host_blocked = _check_raises(_resolve_local_host, target, 443, expected_exc=ValueError)
 
     assert (
         pred_meta,

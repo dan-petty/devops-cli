@@ -647,7 +647,9 @@ def test_widened_metadata_denials_models_and_the_connect() -> None:
         1 for ep in endpoints if _is_target_blocked(_validate_local_whitelist_item, ep, ValueError)
     )
     hosts = ("metadata", "metadata.", "fd00:ec2::254")
-    hosts_blocked = sum(1 for h in hosts if _is_target_blocked(_resolve_local_host, h, ValueError))
+    hosts_blocked = sum(
+        1 for h in hosts if _is_target_blocked(_resolve_local_host, h, ValueError, port=443)
+    )
     assert (items_blocked, hosts_blocked) == (len(endpoints), len(hosts))
 
     tempo_level_blocked = sum(

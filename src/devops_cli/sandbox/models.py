@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import ipaddress
-import socket
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -12,6 +12,7 @@ from typing import Any, Final
 
 import dns.exception
 import dns.name
+import httpcore2
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from devops_cli.config.constants import (
@@ -49,7 +50,8 @@ from devops_cli.core.validation import (
     is_loopback_or_private_host,
     is_non_public_ip,
 )
-from devops_cli.exceptions import SandboxValidationError
+from devops_cli.exceptions import SandboxValidationError, SSRFBlockedError
+from devops_cli.http.egress import EgressLevel, vet_addresses
 
 _DOCKER_HOST_GATEWAY_DNS_NAME: Final[dns.name.Name] = dns.name.from_text(
     CONST_DOCKER_HOST_GATEWAY_HOSTNAME
@@ -154,9 +156,13 @@ def _is_private_or_loopback(
 
 
 def _validate_public_whitelist_item(item: str) -> None:
-    """Ensure public whitelist entry does not resolve to private IP, loopback, or metadata."""
+    """Refuse a public whitelist entry whose host is private, loopback or metadata, with no lookup.
+
+    The policy builder makes the one lookup of a name, and refuses a name that answers an address
+    that is not public.
+    """
     host, _port = _parse_whitelist_entry(item)
-    if is_loopback_or_private_host(host, resolve_dns=True):
+    if is_loopback_or_private_host(host, resolve_dns=False):
         raise ValueError(
             f"Public whitelist entry '{item}' (host '{host}') cannot be private, loopback, or metadata."
         )
@@ -231,62 +237,75 @@ def _build_collector_egress_rule() -> dict[str, Any]:
     }
 
 
-def _resolve_public_dns(host: str) -> list[str]:
-    """Resolve public domain name via DNS to validated public CIDRs."""
+@contextmanager
+def _whitelist_lookup_refusals(whitelist: str, host: str) -> Iterator[None]:
+    """Change a refusal or a failed lookup of `vet_addresses` into a SandboxValidationError.
+
+    The error names the host, which the message of SSRFBlockedError masks, so the person sees
+    which entry is refused. The refusal or the failed lookup is its cause.
+    """
     try:
-        addr_info = socket.getaddrinfo(host, None)
-        resolved_ips = {str(info[4][0]) for info in addr_info if len(info) >= 5}
-    except OSError as exc:
-        raise ValueError(f"Public whitelist domain '{host}' DNS resolution failed: {exc}") from exc
-    if not resolved_ips:
-        raise ValueError(f"Public whitelist domain '{host}' yielded no address records.")
-    cidrs: list[str] = []
-    for ip_str in sorted(resolved_ips):
-        ip_obj = ipaddress.ip_address(ip_str)
-        if is_cloud_metadata_host(ip_obj, resolve_dns=False):
-            raise ValueError(
-                f"Public whitelist domain '{host}' resolves to cloud metadata address '{ip_str}'."
-            )
-        if is_non_public_ip(ip_obj):
-            raise ValueError(
-                f"Public whitelist domain '{host}' resolves to non-public address '{ip_str}'."
-            )
-        cidrs.append(ipaddress.ip_network(ip_obj).with_prefixlen)
-    return cidrs
+        yield
+    except SSRFBlockedError as exc:
+        answer = f" ({exc.details['address']})" if "address" in exc.details else ""
+        raise SandboxValidationError(
+            f"{whitelist} whitelist host '{host}' is refused{answer}: {exc.details['reason']}."
+        ) from exc
+    except httpcore2.ConnectError as exc:
+        raise SandboxValidationError(
+            f"{whitelist} whitelist host '{host}' DNS resolution failed: {exc}"
+        ) from exc
 
 
-def _resolve_public_host(host: str) -> list[str]:
-    """Resolve public host/domain to validated public IPv4/IPv6 address strings."""
+def _resolve_public_dns(host: str, port: int) -> list[str]:
+    """The address blocks of a public whitelist name, from one lookup at the public egress level.
+
+    `vet_addresses` refuses a cloud metadata name before the lookup, and a name with an answer
+    that is not public. Time of check: the NetworkPolicy holds the addresses of this one lookup.
+    A later lookup in the pod can give a different address. The policy does not allow that
+    address, so the gap fails closed.
+    """
+    with _whitelist_lookup_refusals("Public", host):
+        addresses = vet_addresses(host, port, EgressLevel.PUBLIC)
+    return [ipaddress.ip_network(address).with_prefixlen for address in sorted(addresses)]
+
+
+def _resolve_public_host(host: str, port: int) -> list[str]:
+    """The address blocks of a public whitelist host: an IP address or CIDR as it is, or a name's."""
     try:
         ip_net = ipaddress.ip_network(host, strict=False)
     except ValueError:
-        return _resolve_public_dns(host)
+        return _resolve_public_dns(host, port)
     if is_cloud_metadata_host(ip_net, resolve_dns=False):
-        raise ValueError(f"Public whitelist entry resolves to cloud metadata: {ip_net}")
+        raise SandboxValidationError(f"Public whitelist entry resolves to cloud metadata: {ip_net}")
     if is_non_public_ip(ip_net):
-        raise ValueError(f"Public whitelist entry resolves to non-public network: {ip_net}")
+        raise SandboxValidationError(
+            f"Public whitelist entry resolves to non-public network: {ip_net}"
+        )
     return [ip_net.with_prefixlen]
 
 
-def _resolve_local_dns(host: str) -> list[str]:
-    """Resolve local domain name via DNS to validated private/loopback CIDRs."""
-    try:
-        addr_info = socket.getaddrinfo(host, None)
-        resolved_ips = {str(info[4][0]) for info in addr_info if len(info) >= 5}
-    except OSError as exc:
-        raise ValueError(f"Local whitelist hostname '{host}' DNS resolution failed: {exc}") from exc
-    if not resolved_ips:
-        raise ValueError(f"Local whitelist hostname '{host}' yielded no address records.")
+def _resolve_local_dns(host: str, port: int) -> list[str]:
+    """The address blocks of a local whitelist name, from one lookup at the private egress level.
+
+    `vet_addresses` refuses a cloud metadata name before the lookup, and a cloud metadata or
+    scoped IPv6 answer. Then each address must be private or loopback and not link-local, as an
+    IP address in the local whitelist must be. Time of check: the NetworkPolicy holds the
+    addresses of this one lookup. A later lookup in the pod can give a different address. The
+    policy does not allow that address, so the gap fails closed.
+    """
+    with _whitelist_lookup_refusals("Local", host):
+        addresses = vet_addresses(host, port, EgressLevel.PRIVATE)
     cidrs: list[str] = []
-    for ip_str in sorted(resolved_ips):
-        ip_obj = ipaddress.ip_address(ip_str)
+    for address in sorted(addresses):
+        ip_obj = ipaddress.ip_address(address)
         if _is_forbidden_local_ip(ip_obj):
-            raise ValueError(
-                f"Local whitelist hostname '{host}' resolves to forbidden link-local '{ip_str}'."
+            raise SandboxValidationError(
+                f"Local whitelist hostname '{host}' resolves to forbidden link-local '{address}'."
             )
         if not _is_private_or_loopback(ip_obj):
-            raise ValueError(
-                f"Local whitelist hostname '{host}' resolves to non-private address '{ip_str}'."
+            raise SandboxValidationError(
+                f"Local whitelist hostname '{host}' resolves to non-private address '{address}'."
             )
         cidrs.append(ipaddress.ip_network(ip_obj).with_prefixlen)
     return cidrs
@@ -302,29 +321,36 @@ def _is_loopback_entry(host: str) -> bool:
         return False
 
 
-def _resolve_local_host(host: str) -> list[str]:
-    """Resolve local host/domain to validated private/loopback IPv4/IPv6 address strings.
+def _resolve_local_host(host: str, port: int) -> list[str]:
+    """The address blocks of a local whitelist host: an IP address or CIDR as it is, or a name's.
 
     A loopback entry resolves to no address, without a lookup: NetworkPolicy never polices a
-    pod's loopback, so there is nothing to allow.
+    pod's loopback, so there is nothing to allow. A cloud metadata name, or a numeric form of a
+    metadata address that is not an IP literal, is refused without a lookup.
     """
     if _is_loopback_entry(host):
         return []
     if is_cloud_metadata_host(host, resolve_dns=False):
-        raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
+        raise SandboxValidationError(
+            f"Link-local cloud metadata '{host}' is forbidden in local whitelist."
+        )
     try:
         ip_net = ipaddress.ip_network(host, strict=False)
     except ValueError:
-        return _resolve_local_dns(host)
+        return _resolve_local_dns(host, port)
     if _is_forbidden_local_ip(ip_net):
-        raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
+        raise SandboxValidationError(
+            f"Link-local cloud metadata '{host}' is forbidden in local whitelist."
+        )
     if not _is_private_or_loopback(ip_net):
-        raise ValueError(f"Local whitelist entry '{host}' must be a private or loopback IP.")
+        raise SandboxValidationError(
+            f"Local whitelist entry '{host}' must be a private or loopback IP."
+        )
     return [ip_net.with_prefixlen]
 
 
 def _build_whitelist_egress(
-    entries: list[str], resolve_host: Callable[[str], list[str]]
+    entries: list[str], resolve_host: Callable[[str, int], list[str]]
 ) -> list[dict[str, Any]]:
     """Build the kube-dns rule, then one rule per entry: its resolved addresses on its own port.
 
@@ -335,7 +361,7 @@ def _build_whitelist_egress(
     rules = [_build_dns_egress_rule()]
     for entry in entries:
         host, port = _parse_whitelist_entry(entry)
-        cidrs = resolve_host(host)
+        cidrs = resolve_host(host, port)
         if cidrs:
             rules.append(
                 {
