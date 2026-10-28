@@ -282,8 +282,8 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
     """review.md lists drifted manuals under 'Reference coverage: drift' (#1149)."""
     drift = [
         DriftManual(
-            path="it_domains/tools/checkov.md",
-            reason="tool:checkov not found in tools.lock or environment",
+            path="it_domains/tools/grafana.md",
+            reason="tool:grafana not found in tools.lock or environment",
         ),
         DriftManual(
             path="devops_cli/libraries/example.md",
@@ -310,7 +310,7 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
     assert "- `kb:it_domains/tools/bandit.md@1234`" in md
     assert "### Reference coverage: drift" in md
     assert (
-        "- `it_domains/tools/checkov.md`: tool:checkov not found in tools.lock or environment" in md
+        "- `it_domains/tools/grafana.md`: tool:grafana not found in tools.lock or environment" in md
     )
     assert (
         "- `devops_cli/libraries/example.md`: mismatched python: requires python>=3.16, found 3.14"
@@ -325,7 +325,7 @@ def test_run_group_analysis_populates_kb_drift_and_injected() -> None:
 
     assert len(report.drift_manuals) > 0
     drift_paths = {d.path for d in report.drift_manuals}
-    assert "it_domains/tools/checkov.md" in drift_paths
+    assert "it_domains/tools/grafana.md" in drift_paths
     md = "\n".join(render_model_analysis_markdown(report))
     assert "Reference coverage: drift" in md
 

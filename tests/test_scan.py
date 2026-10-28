@@ -48,7 +48,6 @@ def _patched_scanners() -> ExitStack:
     stack.enter_context(patch("devops_cli.commands.scan.run_trivy_scan", return_value=[finding]))
     stack.enter_context(patch("devops_cli.commands.scan.run_gitleaks_scan", return_value=[finding]))
     stack.enter_context(patch("devops_cli.commands.scan.run_semgrep_scan", return_value=[finding]))
-    stack.enter_context(patch("devops_cli.commands.scan.run_checkov_scan", return_value=[finding]))
     stack.enter_context(
         patch("devops_cli.commands.scan.run_complexity_scan", return_value=[finding])
     )
@@ -86,7 +85,7 @@ def test_scan_dry_run() -> None:
 
 @pytest.mark.usefixtures("cached_default_ruleset")
 def test_scan_individual_tools(tmp_path: Path) -> None:
-    """Verify scan tool dispatching for trivy, secrets, semgrep, and checkov."""
+    """Verify scan tool dispatching for trivy, secrets, and semgrep."""
     mock_finding = Finding(
         severity="HIGH",
         location="src/main.py:10",
@@ -99,7 +98,6 @@ def test_scan_individual_tools(tmp_path: Path) -> None:
         patch("devops_cli.commands.scan.run_trivy_scan", return_value=[mock_finding]),
         patch("devops_cli.commands.scan.run_gitleaks_scan", return_value=[mock_finding]),
         patch("devops_cli.commands.scan.run_semgrep_scan", return_value=[mock_finding]),
-        patch("devops_cli.commands.scan.run_checkov_scan", return_value=[mock_finding]),
     ):
         res_trivy = runner.invoke(scan_app, ["trivy", str(tmp_path), "--json"])
         assert res_trivy.exit_code == 0
@@ -110,16 +108,8 @@ def test_scan_individual_tools(tmp_path: Path) -> None:
         res_sast = runner.invoke(scan_app, ["sast", str(tmp_path), "--json"])
         assert res_sast.exit_code == 0
 
-        res_iac = runner.invoke(scan_app, ["iac", str(tmp_path), "--json"])
-        assert res_iac.exit_code == 0
-
         res_secrets_dry = runner.invoke(scan_app, ["secrets", str(tmp_path), "--dry-run"])
         assert res_secrets_dry.exit_code == 0
-
-        res_iac_framework = runner.invoke(
-            scan_app, ["iac", str(tmp_path), "--framework", "terraform", "--dry-run"]
-        )
-        assert res_iac_framework.exit_code == 0
 
 
 def test_scan_clean_and_dry_run(tmp_path: Path) -> None:
@@ -128,7 +118,6 @@ def test_scan_clean_and_dry_run(tmp_path: Path) -> None:
         patch("devops_cli.commands.scan.run_trivy_scan", return_value=[]),
         patch("devops_cli.commands.scan.run_gitleaks_scan", return_value=[]),
         patch("devops_cli.commands.scan.run_semgrep_scan", return_value=[]),
-        patch("devops_cli.commands.scan.run_checkov_scan", return_value=[]),
     ):
         res_trivy_clean = runner.invoke(scan_app, ["trivy", str(tmp_path), "--dry-run"])
         assert res_trivy_clean.exit_code == 0
@@ -138,9 +127,6 @@ def test_scan_clean_and_dry_run(tmp_path: Path) -> None:
 
         res_sast_clean = runner.invoke(scan_app, ["sast", str(tmp_path), "--dry-run"])
         assert res_sast_clean.exit_code == 0
-
-        res_iac_clean = runner.invoke(scan_app, ["iac", str(tmp_path), "--dry-run"])
-        assert res_iac_clean.exit_code == 0
 
         res_trivy_json_dry = runner.invoke(
             scan_app, ["trivy", str(tmp_path), "--json", "--dry-run"]
@@ -155,13 +141,10 @@ def test_scan_clean_and_dry_run(tmp_path: Path) -> None:
         res_sast_json_dry = runner.invoke(scan_app, ["sast", str(tmp_path), "--json", "--dry-run"])
         assert res_sast_json_dry.exit_code == 0
 
-        res_iac_json_dry = runner.invoke(scan_app, ["iac", str(tmp_path), "--json", "--dry-run"])
-        assert res_iac_json_dry.exit_code == 0
-
 
 @pytest.mark.usefixtures("cached_default_ruleset")
 @pytest.mark.parametrize(
-    "sub", ["trivy", "secrets", "sast", "iac", "complexity", "workflows", "injection"]
+    "sub", ["trivy", "secrets", "sast", "complexity", "workflows", "injection"]
 )
 @pytest.mark.parametrize("flags", [["--json"], ["--format", "json"]])
 def test_scan_json_stdout_is_valid_json(tmp_path: Path, sub: str, flags: list[str]) -> None:
@@ -170,6 +153,14 @@ def test_scan_json_stdout_is_valid_json(tmp_path: Path, sub: str, flags: list[st
         res = runner.invoke(scan_app, [sub, str(tmp_path), *flags])
     assert res.exit_code == 0, res.output
     json.loads(res.stdout)
+
+
+def test_scan_has_no_iac_command(tmp_path: Path) -> None:
+    """`devops scan iac` ran Checkov, which `tools.lock` does not pin. Trivy's misconfiguration
+    scan, `devops scan trivy --type config`, scans the IaC files in its place (#2214)."""
+    result = runner.invoke(scan_app, ["iac", str(tmp_path)])
+
+    assert (result.exit_code, "No such command 'iac'" in result.output) == (2, True)
 
 
 @pytest.mark.parametrize("flags", [["--format", "json"]])
@@ -188,7 +179,6 @@ def test_aibom_json_stdout_is_valid_json(tmp_path: Path, flags: list[str]) -> No
         ("trivy", "devops_cli.commands.scan.run_trivy_scan"),
         ("secrets", "devops_cli.commands.scan.run_gitleaks_scan"),
         ("sast", "devops_cli.commands.scan.run_semgrep_scan"),
-        ("iac", "devops_cli.commands.scan.run_checkov_scan"),
     ],
 )
 @pytest.mark.parametrize(

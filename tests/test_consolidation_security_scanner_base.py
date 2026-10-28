@@ -211,7 +211,6 @@ def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
 
 ALL_EXPECTED_SCANNER_NAMES = [
     "bandit",
-    "checkov",
     "dive",
     "gitleaks",
     "kubeconform",
@@ -221,6 +220,7 @@ ALL_EXPECTED_SCANNER_NAMES = [
     "semgrep",
     "tflint",
     "trivy",
+    "trivy-config",
 ]
 
 
@@ -240,7 +240,6 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
     """Verify each of the 11 scanner classes subclasses BaseSecurityScanner."""
     from devops_cli.security import (
         BanditScanner,
-        CheckovScanner,
         DiveScanner,
         GitleaksScanner,
         KubeconformScanner,
@@ -249,12 +248,12 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
         PopeyeScanner,
         SemgrepScanner,
         TflintScanner,
+        TrivyConfigScanner,
         TrivyScanner,
     )
 
     classes = [
         BanditScanner,
-        CheckovScanner,
         DiveScanner,
         GitleaksScanner,
         KubeconformScanner,
@@ -263,6 +262,7 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
         PopeyeScanner,
         SemgrepScanner,
         TflintScanner,
+        TrivyConfigScanner,
         TrivyScanner,
     ]
     for cls in classes:
@@ -316,22 +316,6 @@ _SAMPLE_STDOUTS: dict[str, str] = {
                     "more_info": "",
                 }
             ]
-        }
-    ),
-    "checkov": json.dumps(
-        {
-            "results": {
-                "failed_checks": [
-                    {
-                        "check_id": "CKV_DOCKER_1",
-                        "file_path": "/Dockerfile",
-                        "file_line_range": [1, 2],
-                        "check_name": "Root user",
-                        "severity": "HIGH",
-                        "guideline": "Use non-root",
-                    }
-                ]
-            }
         }
     ),
     "gitleaks": json.dumps(
@@ -451,6 +435,22 @@ _SAMPLE_STDOUTS: dict[str, str] = {
                             "InstalledVersion": "7.68.0",
                             "Severity": "CRITICAL",
                             "Title": "Curl buffer overflow",
+                        }
+                    ],
+                }
+            ]
+        }
+    ),
+    "trivy-config": json.dumps(
+        {
+            "Results": [
+                {
+                    "Target": "Dockerfile",
+                    "Misconfigurations": [
+                        {
+                            "ID": "DS-0002",
+                            "Title": "Image user should not be 'root'",
+                            "Severity": "HIGH",
                         }
                     ],
                 }
