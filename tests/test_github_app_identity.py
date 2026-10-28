@@ -32,6 +32,7 @@ from tests.support.fakes.github import API, GitHubApiFake, github_json, quota_he
 
 APP_SETTINGS = {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}
 BOT_LOGIN = "devops-roadmap[bot]"
+APP_LOGGER = "devops_cli.github.app_installation"
 MINT = "/app/installations/42/access_tokens"
 REPO = "/repos/example-org/app"
 # The permissions the roadmap jobs use (ADR 0015), which each token asks for.
@@ -139,15 +140,17 @@ def test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_n
     app_identity.route(
         "POST", MINT, _installation_token("ghs_first", timedelta(hours=1), permissions=granted)
     )
-    with caplog.at_level(logging.INFO, logger="devops_cli.github.app_installation"):
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER):
         token = github_token()
-    names = "actions, administration, checks, contents, issues, metadata, pull_requests"
-    logged = [r.getMessage() for r in caplog.records if r.name.endswith("app_installation")]
-    assert (
-        token,
-        [message.endswith(names) for message in logged],
-        [any(word in message for word in ("ghs_first", "write", "read")) for message in logged],
-    ) == ("ghs_first", [True], [False])
+    assert token == "ghs_first"
+    assert [record for record in caplog.record_tuples if record[0] == APP_LOGGER] == [
+        (
+            APP_LOGGER,
+            logging.INFO,
+            "GitHub App devops-roadmap[bot] has a new installation token with these permissions: "
+            "actions, administration, checks, contents, issues, metadata, pull_requests",
+        )
+    ]
 
 
 def test_an_installation_without_a_requested_permission_fails_naming_the_permissions(
@@ -165,12 +168,17 @@ def test_an_installation_without_a_requested_permission_fails_naming_the_permiss
     )
     with pytest.raises(GitHubUnauthenticatedError) as raised:
         github_token()
-    assert (
-        BOT_LOGIN in raised.value.message,
-        "HTTP 422" in raised.value.message,
-        "actions (read), checks (read), contents (write), issues (write), metadata (read), "
-        "pull_requests (write)" in raised.value.message,
-    ) == (True, True, True)
+    assert raised.value.to_dict() == {
+        "error_code": "GITHUB_UNAUTHENTICATED",
+        "message": "GitHub App devops-roadmap[bot] has no installation token: GitHub refused "
+        "POST /app/installations/42/access_tokens (HTTP 422): The permissions requested are not "
+        "granted to this installation. The installation must grant each permission that the "
+        "token asks for: actions (read), checks (read), contents (write), issues (write), "
+        "metadata (read), pull_requests (write). Check the App ID, the installation ID and the "
+        "private key in DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY.",
+        "exit_code": 1,
+        "details": {"operation": "gh_auth_token"},
+    }
 
 
 def test_the_apps_login_is_its_bot_and_no_get_user_is_sent(app_identity: GitHubApiFake) -> None:
@@ -238,10 +246,14 @@ def test_the_key_without_the_apps_settings_fails_naming_them(
     reset_github_session()
     with pytest.raises(ConfigurationError) as raised:
         github_token()
-    assert (
-        "service.github_app.app_id, service.github_app.installation_id" in raised.value.message,
-        raised.value.details.get("key"),
-    ) == (True, "service.github_app.app_id")
+    assert raised.value.to_dict() == {
+        "error_code": "CONFIGURATION_ERROR",
+        "message": "The environment holds DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, so this "
+        "process acts as a GitHub App, but these settings are not set: service.github_app.app_id, "
+        "service.github_app.installation_id. Set them with 'devops config set'.",
+        "exit_code": 1,
+        "details": {"key": "service.github_app.app_id"},
+    }
 
 
 def test_a_refused_exchange_raises_the_unauthenticated_error_with_githubs_status(
@@ -265,8 +277,12 @@ def test_a_key_that_is_no_rsa_key_fails_before_any_request(
     monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "not-a-pem-key")
     with pytest.raises(GitHubUnauthenticatedError) as raised:
         github_token()
-    assert (
-        "not an RSA private key in PEM form" in raised.value.message,
-        "not-a-pem-key" in raised.value.message,
-        app_identity.requested,
-    ) == (True, False, [])
+    assert raised.value.to_dict() == {
+        "error_code": "GITHUB_UNAUTHENTICATED",
+        "message": "GitHub App devops-roadmap[bot] has no installation token: the private key is "
+        "not an RSA private key in PEM form. Check the App ID, the installation ID and the "
+        "private key in DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY.",
+        "exit_code": 1,
+        "details": {"operation": "gh_auth_token"},
+    }
+    assert app_identity.requested == []
