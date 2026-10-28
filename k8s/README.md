@@ -352,6 +352,21 @@ When a move stops after the point of no return, the old claim is gone, the new v
 2. Scale the workloads back to their replicas, and make sure that their pods run on the target node.
 3. Turn on automated sync again: the Application, then `bootstrap`, which restores `cluster`, which restores the others from git.
 
+## Service Account Tokens
+
+Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process in the pod can then call the Kubernetes API as that ServiceAccount. The pod field `automountServiceAccountToken: false` stops the mount. When the pod does not set the field, the field of the ServiceAccount applies. A pod that does not call the API mounts no token (#1652):
+
+- The manifests set the field to `false` on the pod template of each workload that does not call the API, for example `cloudflared`, `gpu-feature-discovery`, `llm-gateway`, `portkey`, `valkey`, `valkey-runs` and the Ollama tiers.
+- The chart values turn the token off for Loki (`defaults` and `serviceAccount`), Tempo and the OpenTelemetry collector (`serviceAccount`), Alertmanager (`alertmanager`), and the Argo CD repo server and Redis (`repoServer` and `redis`). Gitea gets its own ServiceAccount (`serviceAccount.create: true`), which has no token.
+- A pod that calls the API keeps its token, and a Role or ClusterRole binds its ServiceAccount. Examples are Argo CD, Argo Workflows, Grafana, the k8s-monitoring collectors, the Prometheus server, Pyroscope and Traefik.
+
+`tests/invariants/test_k8s_manifests.py` fails when a pod mounts a token and no Role or ClusterRole binds its ServiceAccount. It reads the manifests under `k8s/` and the values of each chart that an Argo CD Application installs. It also fails when an Application installs a chart that the test does not know, because each chart keeps the field at different values. A pod that keeps a token with no binding is in `CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS` (`src/devops_cli/config/constants.py`), with its reason:
+
+- Qdrant: chart 1.19.1 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
+- The CoreDNS patch (`coredns/deployment-patch.yaml`): k3s makes the CoreDNS Deployment, its ServiceAccount and its binding, and CoreDNS reads Services and EndpointSlices through the API.
+
+`kubectl get pods -A -o json` shows a `kube-api-access-*` volume only on the pods that keep a token.
+
 ## Host Journals and Health Metrics
 
 Each node sends its journal to Loki and its health series to Prometheus through the k8s-monitoring chart (`monitoring/k8s-monitoring-values.yaml`), with no agent installed on the host:
