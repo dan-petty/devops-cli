@@ -5,14 +5,18 @@ They read only committed files, so they need no network, no image build and no s
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
+import re
+from pathlib import Path
 
 from packaging.version import Version
 
 from tests.support.paths import REPO_ROOT
 
-GH_RELEASE_DOWNLOAD_URL = "https://github.com/cli/cli/releases/download/"
+# A gh release URL, wherever it stands in the Dockerfile text: bare, in quotes or after `=`. The tag
+# and the asset name stop at white space, a quote or a backslash.
+GH_RELEASE_DOWNLOAD_URL = re.compile(
+    r"github\.com/cli/cli/releases/download/(?P<tag>[^/\s\"'\\]+)/(?P<asset>[^\s\"'\\]+)"
+)
 
 # gh v2.102.1 is the first GitHub CLI release that cli/cli builds with Go 1.27.2 or later
 # (`toolchain go1.27.3` in its go.mod) and with golang.org/x/net v0.60.0 (#1492).
@@ -60,12 +64,9 @@ def test_service_dockerfile_base_images_pinned_by_digest() -> None:
 
 def _gh_release_downloads(dockerfile: str) -> list[tuple[str, str]]:
     """Return the release tag and the asset name of each gh release URL in the Dockerfile text."""
-    downloads: list[tuple[str, str]] = []
-    for token in dockerfile.split():
-        if token.startswith(GH_RELEASE_DOWNLOAD_URL):
-            tag, asset = PurePosixPath(urlsplit(token).path).parts[-2:]
-            downloads.append((tag, asset))
-    return downloads
+    return [
+        (match["tag"], match["asset"]) for match in GH_RELEASE_DOWNLOAD_URL.finditer(dockerfile)
+    ]
 
 
 def test_the_gh_release_finder_sees_a_url_in_quotes_or_after_another_character() -> None:
