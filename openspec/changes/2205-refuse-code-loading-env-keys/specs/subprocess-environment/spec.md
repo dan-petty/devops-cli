@@ -31,4 +31,4 @@ Which caller overrides of the environment of a child process devops-cli refuses,
 
 #### Scenario: An exported bash function and a token in the environment of the person
 - **WHEN** the environment holds `BASH_FUNC_which%%` and `GITHUB_TOKEN`, and `run_rule_pack_tests` runs on a copy of the rule pack
-- **THEN** Semgrep runs, its environment holds `SEMGREP_ENABLE_VERSION_CHECK=0`, and its environment holds neither `BASH_FUNC_which%%` nor `GITHUB_TOKEN`
+- **THEN** `semgrep --version` and `semgrep --test` each start with the caller override `{"SEMGREP_ENABLE_VERSION_CHECK": "0"}` and no other key

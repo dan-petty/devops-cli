@@ -9,9 +9,9 @@
 
 ## 2. The rule pack test gives Semgrep only its own setting
 
-- [ ] Add a failing test: with `BASH_FUNC_which%%` and `GITHUB_TOKEN` in the environment, `run_rule_pack_tests` runs Semgrep, and the environment of Semgrep holds `SEMGREP_ENABLE_VERSION_CHECK=0` and neither key
+- [x] Add a failing test: with `BASH_FUNC_which%%` and `GITHUB_TOKEN` in the environment, `run_rule_pack_tests` starts `semgrep --version` and `semgrep --test` with the caller override `SEMGREP_ENABLE_VERSION_CHECK=0` and no other key
   - Verification: `uv run devops ci test tests/test_review_rules_pack.py`
-- [ ] Give `semgrep --version` and `semgrep --test` only the override `SEMGREP_ENABLE_VERSION_CHECK=0`, and delete the full copy of the environment
+- [x] Give `semgrep --version` and `semgrep --test` only the override `SEMGREP_ENABLE_VERSION_CHECK=0`, and delete the full copy of the environment
   - Verification: `uv run devops ci test tests/test_review_rules_pack.py`
 
 ## 3. Documentation
