@@ -32,7 +32,7 @@
 
 ## 7. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2424-k8s-clients-egress-factory`
 
 ## Workflow follow-up
