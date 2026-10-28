@@ -32,9 +32,11 @@ from devops_cli.config.env import (
 )
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
+    _YAML_LOAD_ERRORS,
     SecretStorageError,
     Settings,
     _keyring_has,
+    _yaml_error_location,
     config_layer_paths,
     dotted_get,
     dotted_set,
@@ -610,24 +612,24 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
     secret_options = secret_keys()
     try:
         raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
-        if not isinstance(raw_cfg, dict):
-            return []
-        leaks: list[str] = []
-        for section_name, section_dict in raw_cfg.items():
-            if not isinstance(section_dict, dict):
-                continue
-            for opt_name, value in section_dict.items():
-                composite = f"{section_name}.{opt_name}"
-                # A secret-named key that is no longer an option is still a plaintext secret.
-                if value and is_secret_field(str(opt_name), composite, secret_options):
-                    leaks.append(f"{cfg_file.name}:{composite}")
-        return leaks
-    except (yaml.YAMLError, OSError, ValueError) as err:
-        # The error's message and mark quote the file's content, which may hold the value.
-        mark = err.problem_mark if isinstance(err, yaml.MarkedYAMLError) else None
-        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+    except (*_YAML_LOAD_ERRORS, OSError) as err:
+        # The audit refuses the errors that the settings load refuses (#1468). Their message and
+        # the mark of a YAML error quote the file's content, which may hold the value.
+        where = _yaml_error_location(err)
         logger.warning("Could not audit config file %s: %s%s", cfg_file, type(err).__name__, where)
         return None
+    if not isinstance(raw_cfg, dict):
+        return []
+    leaks: list[str] = []
+    for section_name, section_dict in raw_cfg.items():
+        if not isinstance(section_dict, dict):
+            continue
+        for opt_name, value in section_dict.items():
+            composite = f"{section_name}.{opt_name}"
+            # A secret-named key that is no longer an option is still a plaintext secret.
+            if value and is_secret_field(str(opt_name), composite, secret_options):
+                leaks.append(f"{cfg_file.name}:{composite}")
+    return leaks
 
 
 def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> tuple[list[str], list[Path]]:
