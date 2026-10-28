@@ -11,6 +11,6 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2473-app-token-permissions`
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
