@@ -2,9 +2,9 @@
 
 ## 1. The metrics scrape
 
-- [ ] Add the row of the metrics scrape (loopback) to `test_each_caller_dials_at_its_level`, with and without `ai.allow_private_network`, and add `test_a_scrape_looks_up_its_host_once`
+- [x] Add the row of the metrics scrape (loopback) to `test_each_caller_dials_at_its_level`, with and without `ai.allow_private_network`, and add `test_a_scrape_looks_up_its_host_once`
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_sandbox_metrics.py`
-- [ ] Delete the pre-flight `validate_url_egress` call of `_validate_scrape_url` and its loopback shortcut, and keep the scheme and host check
+- [x] Delete the pre-flight `validate_url_egress` call of `_validate_scrape_url` and its loopback shortcut, and keep the scheme and host check
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_sandbox_metrics.py`
 
 ## 2. The whitelist NetworkPolicy

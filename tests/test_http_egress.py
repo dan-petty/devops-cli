@@ -63,6 +63,7 @@ from devops_cli.k8s.credentials import (
 )
 from devops_cli.k8s.logql import execute_loki_query, parse_logql_query
 from devops_cli.k8s.service_proxy import ProxyTarget
+from devops_cli.sandbox.metrics import scrape_prometheus_metrics
 from devops_cli.sandbox.probe import probe_http, probe_tcp
 from devops_cli.security.vault_broker import VaultSecretBroker
 from devops_cli.security.vault_lease import _post
@@ -893,7 +894,7 @@ def _k8s_service_calls() -> dict[str, Callable[[], Any]]:
 
 
 def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
-    """Each caller #898, #2422 and #2424 move, invoked against example.com or its fixed API host."""
+    """Each caller #898, #2422, #2424 and #2431 move, invoked against example.com or an API host."""
     return {
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
@@ -901,6 +902,7 @@ def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
         "tempo": lambda: query_tempo_trace(_TRACE_ID, tempo_url="http://example.com:3200"),
         "probe http": lambda: probe_http("http://example.com/healthz"),
         "probe tcp": lambda: probe_tcp("example.com", 80),
+        "metrics scrape": lambda: scrape_prometheus_metrics("http://example.com:9100/metrics"),
         "k8s direct": lambda: service_http.get_json("http://example.com:9090", "api/v1/query"),
         "k8s proxy": _k8s_proxy_call,
         "ai shared client": _ai_shared_call(flag),
@@ -952,7 +954,7 @@ def _k8s_service_levels(flag: bool) -> dict[str, EgressLevel]:
 
 
 def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
-    """The level tables of #898, #2422 and #2424, for the callers those changes move."""
+    """The level tables of #898, #2422, #2424 and #2431, for the callers those changes move."""
     return {
         "tool download": PUBLIC,
         "vault": PRIVATE,
@@ -960,6 +962,7 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "tempo": LOOPBACK,
         "probe http": PRIVATE,
         "probe tcp": PRIVATE,
+        "metrics scrape": LOOPBACK,
         "k8s direct": PRIVATE,
         "k8s proxy": PRIVATE,
         "ai shared client": PRIVATE if flag else LOOPBACK,

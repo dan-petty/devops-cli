@@ -33,6 +33,7 @@ from devops_cli.sandbox.models import (
     SandboxMetricsSnapshot,
     SandboxStatus,
 )
+from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 runner = CliRunner()
 
@@ -786,6 +787,25 @@ def test_scrape_prometheus_metrics_ssrf_protection() -> None:
     assert len(res_rfc1918) == 0
     assert res_rfc1918.error is not None
     assert "SSRF" in res_rfc1918.error or "private" in res_rfc1918.error.lower()
+
+
+def test_a_scrape_looks_up_its_host_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scrape resolves its host one time, at the connect, and dials the address it checked.
+
+    No check before the request resolves the name again, so a rebinding DNS server gets no second
+    question (#2431).
+    """
+    resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    recorder = record_connects(monkeypatch, [http_response(200, "up 1\n")])
+
+    result = scrape_prometheus_metrics("http://example.com:9100/metrics", timeout=1.0)
+
+    assert (
+        result.error,
+        [metric.name for metric in result],
+        resolver.lookups,
+        [dial for dial in recorder.dialled if dial[0] == PUBLIC_ADDRESS],
+    ) == (None, ["up"], {"example.com": 1}, [(PUBLIC_ADDRESS, 9100)])
 
 
 def test_preserve_scrape_error_state_and_unhealthy() -> None:
