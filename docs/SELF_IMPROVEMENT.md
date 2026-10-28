@@ -59,6 +59,11 @@ through four stages:
    - `candidates.json`, every finding the review raised with its verdict;
    - `review.md` and `profile.json`.
 
+   `findings.json` and `candidates.json` also record the session's `checkout`: the commit of the
+   checkout that holds the target, and whether its working tree was clean when the review
+   started. A clean path review at a commit that `origin/main` holds is on merged code
+   (`devops_cli.review.checkout`, #2415).
+
    The table of skipped and errored files in `review.md` gives each coverage gap of the review:
    a file that pre-analysis, the admission of a finding or the threat-intelligence lookup could
    not read, or whose payload could not be built. Each row gives the stage and the reason.

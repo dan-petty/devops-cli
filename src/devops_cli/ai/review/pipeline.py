@@ -58,6 +58,7 @@ from devops_cli.ai.review.verdicts import (
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
     Finding,
+    ReviewCheckout,
     ReviewSessionPayload,
     SavedFinding,
     compute_verdict_distributions,
@@ -2422,6 +2423,7 @@ class ReviewPipelineOrchestrator:
         concurrency: int | None = None,
         parallel: bool = True,
         subject: dict[str, str] | None = None,
+        checkout: ReviewCheckout | None = None,
         full_output: bool = False,
         secret_scan_files: Sequence[str] = (),
         base_revision: BaseRevision | None = None,
@@ -2463,6 +2465,8 @@ class ReviewPipelineOrchestrator:
         self.full_output = full_output
         # What this session reviews (`history.review_subject`), written with its findings.
         self.subject = subject or {}
+        # The checkout that holds the target, as git read it when the review started (#2415).
+        self.checkout = checkout
         self.concurrency = concurrency
         self.parallel = parallel
         self.session = (
@@ -4338,6 +4342,7 @@ class ReviewPipelineOrchestrator:
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
             subject=self.subject,
+            checkout=self.checkout,
             findings=all_findings,
             external_dependencies=all_deps,
             network_references=all_nets,
@@ -4349,6 +4354,7 @@ class ReviewPipelineOrchestrator:
         candidates = ReviewSessionPayload(
             generated_at=payload_out.generated_at,
             subject=self.subject,
+            checkout=self.checkout,
             findings=candidate_findings,
         )
 
