@@ -953,6 +953,34 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
     )
 
 
+def test_a_worker_sets_its_lanes_job_start_to_its_own_start_before_its_first_job() -> None:
+    """A worker sets the job start of its lane to the time that it starts. A lane of a new pod
+    then has a series before its first job, so `RoadmapServiceLaneStalled` fires when the lane
+    starts no job for 2 hours (#2505)."""
+    started = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
+    worker = RepoWorker(
+        repo="example-org/repo1",
+        lane=CONST_SERVICE_LANE_MODEL,
+        job_func=lambda batch: None,
+        clock=lambda: started,
+    )
+    worker.start()
+    worker.stop()
+    families = {
+        family.name: family
+        for family in text_string_to_metric_families(GLOBAL_METRICS.export_prometheus_text())
+    }
+    family = families.get(CONST_SERVICE_METRIC_JOB_START_TIMESTAMP)
+
+    assert (
+        worker.join(THREAD_HANDOFF_BOUND_SECONDS),
+        [(sample.labels, sample.value) for sample in family.samples] if family else [],
+    ) == (
+        True,
+        [({"lane": CONST_SERVICE_LANE_MODEL, "repo": "example-org/repo1"}, started.timestamp())],
+    )
+
+
 def test_each_batch_exports_its_ai_requests_before_the_workers_next_batch_starts(
     tracer: OTelTelemetryClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
