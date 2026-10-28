@@ -1,0 +1,65 @@
+# Spec Delta
+
+## Purpose
+
+Ensures that the workload sandbox resolves each host name one time: the Prometheus metrics scrape at the connect, and the NetworkPolicy of the whitelist modes with the resolve-and-check function of the egress policy.
+
+## ADDED Requirements
+
+### Requirement: The sandbox metrics scrape dials at the loopback level
+The Prometheus scrape of the workload sandbox SHALL dial loopback and public addresses. It SHALL NOT dial a private address, whatever `ai.allow_private_network` says.
+
+#### Scenario: A scrape host that answers loopback and then a private address
+- **WHEN** the scrape host answers `127.0.0.1` and then a private address, with or without `ai.allow_private_network`
+- **THEN** the scrape dials `127.0.0.1` and refuses the private address with no dial
+
+### Requirement: The sandbox metrics scrape resolves its host one time
+The Prometheus scrape SHALL resolve its host one time for each scrape, at the connect, and SHALL give the socket the address that it checked.
+
+#### Scenario: A scrape of a named host
+- **WHEN** the scrape reads `http://example.com:9100/metrics`, and `example.com` answers a public address
+- **THEN** `example.com` is looked up one time, and the socket gets the public address on port 9100
+
+### Requirement: The whitelist NetworkPolicy resolves each name one time
+The NetworkPolicy of the `public_whitelist` and `local_whitelist` modes SHALL resolve each whitelist host name one time, when the policy is built, at the port of the entry. The whitelist validators SHALL NOT resolve a name.
+
+#### Scenario: A public whitelist of two names
+- **WHEN** the policy is built for the public whitelist `example.com` and `example.org:8443`
+- **THEN** each name is looked up one time
+
+#### Scenario: A local whitelist name
+- **WHEN** the policy is built for the local whitelist `node1.example.internal`, which answers `192.0.2.10`
+- **THEN** the name is looked up one time
+
+### Requirement: The public whitelist admits only public answers
+The NetworkPolicy builder SHALL refuse a public whitelist name that is a cloud metadata name, before any lookup. It SHALL refuse a public whitelist name that answers a cloud metadata address, a scoped IPv6 address or an address that is not public. The refusal SHALL be a `SandboxValidationError` that names the host, and `devops sandbox network-policy` SHALL exit 1 and print no policy.
+
+#### Scenario: A cloud metadata name
+- **WHEN** the policy is built for the public whitelist `metadata.google.internal`
+- **THEN** the builder refuses the name with no lookup
+
+#### Scenario: A non-public answer
+- **WHEN** the public whitelist name `example.com` answers `169.254.169.254`, `127.0.0.1` or `192.0.2.10`
+- **THEN** the builder refuses the name with a `SandboxValidationError` that names `example.com`
+
+#### Scenario: The command with a refused name
+- **WHEN** `devops sandbox network-policy --network-mode public_whitelist --public-whitelist example.com` runs, and `example.com` answers `192.0.2.10`
+- **THEN** the command exits 1, names `example.com`, and prints no policy
+
+### Requirement: The local whitelist admits only private or loopback answers
+The NetworkPolicy builder SHALL refuse a local whitelist name that is a cloud metadata name, before any lookup. It SHALL refuse a local whitelist name that answers a cloud metadata address, a scoped IPv6 address, a link-local address or a public address. The refusal SHALL be a `SandboxValidationError` that names the host.
+
+#### Scenario: A cloud metadata name
+- **WHEN** the policy is built for the local whitelist `metadata.google.internal`
+- **THEN** the builder refuses the name with no lookup
+
+#### Scenario: An answer outside the local whitelist
+- **WHEN** the local whitelist name `node1.example.internal` answers `169.254.169.254`, `fe80::1%2` or a public address
+- **THEN** the builder refuses the name with a `SandboxValidationError` that names `node1.example.internal`
+
+### Requirement: A whitelist name with no answer is refused
+The NetworkPolicy builder SHALL refuse a whitelist name whose lookup fails, with a `SandboxValidationError` that names the host.
+
+#### Scenario: A name that does not resolve
+- **WHEN** the lookup of the whitelist name `example.com` fails
+- **THEN** the builder refuses the name with a `SandboxValidationError` that names `example.com`
