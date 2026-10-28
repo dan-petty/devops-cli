@@ -1121,25 +1121,36 @@ def _stamps_are_settled(stamps: tuple[_FileStamp, _FileStamp]) -> bool:
     return all(mtime_ns < cutoff_ns for _, mtime_ns, _ in stamps)
 
 
+# The errors of `yaml.safe_load` and of the UTF-8 decode, from the constructors of PyYAML's
+# SafeConstructor: `UnicodeDecodeError` is a `ValueError`, and `KeyError` and `IndexError` are
+# `LookupError`s. `tests/config/test_config_file_that_is_not_yaml.py` holds a file for each.
+_YAML_LOAD_ERRORS: tuple[type[Exception], ...] = (
+    yaml.YAMLError,
+    ValueError,
+    LookupError,
+    AttributeError,
+    RecursionError,
+)
+
+
 def _read_config_file(path: Path) -> Any:
     """The YAML document of the config file `path`, or `{}` for an empty file.
 
     A file that is not valid YAML raises ConfigurationError that names the file, the type of the
     error, and its line and column when the error has a mark. The error of PyYAML quotes the line
     where the parser stopped, and the `buffer` of its mark holds the full text of the file, which
-    can hold a credential. The safe loader also raises `ValueError`, `KeyError` or
+    can hold a credential. The safe loader also raises `ValueError`, `KeyError`, `IndexError` or
     `AttributeError` with the value in the message for a tagged value that it cannot build, such
-    as `!!int <text>`, and the decode of a file that is not UTF-8 raises `UnicodeDecodeError`,
-    whose `object` holds the bytes of the file. So each error but `OSError` gives the same
-    message, which holds no text of the file, and the error is raised after the `except` block:
-    it has no cause and no context that holds the first error (#1468). An `OSError` names only
-    the file and is not a YAML problem, so it goes up as it is.
+    as `!!int <text>`, and `RecursionError` for a document that nests too deep. The decode of a
+    file that is not UTF-8 raises `UnicodeDecodeError`, whose `object` holds the bytes of the
+    file. Each of these errors gives the same message, which holds no text of the file, and the
+    error is raised after the `except` block: it has no cause and no context that holds the
+    first error (#1468). An `OSError` names only the file and is not a YAML problem, so it goes
+    up as it is.
     """
     try:
         return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except OSError:
-        raise
-    except Exception as exc:
+    except _YAML_LOAD_ERRORS as exc:
         error_type, location = type(exc).__name__, _yaml_error_location(exc)
     raise ConfigurationError(
         ERRORS.config.not_yaml.format(path=path, error_type=error_type, location=location)
