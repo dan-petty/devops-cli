@@ -38,7 +38,7 @@ from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
 from devops_cli.lang.en.errors import ERRORS
 from devops_cli.output.file_writer import write_json_file
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -981,9 +981,6 @@ class WorkspaceIndexer:
             )
             self._save_cache(cache)
             self._save_project_counts(scanned_projects)
-
-            record_metric("rag.indexed_files", len(files) - len(files_to_reindex))
-            record_metric("rag.total_chunks", len(all_chunks))
 
             root_span.set_attribute("rag.indexed_files", len(files_to_reindex))
             root_span.set_attribute("rag.total_chunks", len(all_chunks))

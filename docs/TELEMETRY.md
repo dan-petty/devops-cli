@@ -37,12 +37,21 @@ Prometheus 3 stores each histogram as a
 native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 `_count` series; query it with `histogram_quantile`, `histogram_avg` and
 `histogram_count`.
+Each metric is an entry of `INSTRUMENTS` in
+`src/devops_cli/telemetry/instruments.py`, which gives its kind, and is sent with
+`emit()`. `tests/test_telemetry_instruments.py` fails on a metric that a module
+writes by name.
 `devops telemetry connect` points devops-cli at the cluster's collector.
 
 | Metric Name | Type | Unit | Description |
 |---|---|---|---|
 | `devops_cli_command_total` | Counter | `1` | Commands run, by command and status. |
 | `devops_cli_command_duration_seconds` | Histogram | `s` | Command wall time, by command. |
+| `devops_cli_subcommand_duration_seconds` | Histogram | `s` | Subcommand wall time, by subcommand and status: ok or error. |
+| `devops_cli_subprocess_duration_seconds` | Histogram | `s` | Wall time of a program that devops-cli ran, by program and status: ok or error. |
+| `devops_cli_telemetry_tests_total` | Counter | `1` | Test points that devops telemetry test sent, to show that metrics reach the collector. |
+| `devops_cli_ci_checks_total` | Counter | `1` | Checks that devops ci ran, by step and outcome: pass or fail. |
+| `devops_cli_ci_gate_slot_wait_seconds` | Histogram | `s` | Time a devops ci run waited for a free gate slot before its checks started. |
 | `devops_cli_review_duration_seconds` | Histogram | `s` | Review wall time, by target type. |
 | `devops_cli_findings_total` | Counter | `1` | Review findings, by producer, severity and status. |
 | `devops_cli_ai_requests_total` | Counter | `1` | LLM calls and embedding requests, by operation (chat or embeddings), provider, model, server, serving backend and whether the cache answered. |
@@ -51,12 +60,29 @@ native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 | `devops_cli_ai_json_repairs_total` | Counter | `1` | LLM JSON replies repaired after strict parsing failed, by entry point source. |
 | `devops_cli_ai_gateway_slot_wait_seconds` | Histogram | `s` | Time a chat call to the LLM gateway waited in this process for one of the gateway's backend slots, by outcome: ok once it held one, or timeout. |
 | `devops_cli_ai_ollama_slot_wait_seconds` | Histogram | `s` | Time a call to Ollama waited in this process for a slot on one of its nodes, by priority (high, normal or as_available) and outcome: ok once it held one, or timeout. |
+| `devops_cli_ai_chat_duration_seconds` | Histogram | `s` | LLM chat call wall time, by provider and model, from the request to the reply. A gateway call's time includes its wait for a backend slot. |
+| `devops_cli_ai_structured_attempts_total` | Counter | `1` | Structured-output attempts, by model and outcome: valid when the reply matched its schema, else invalid. Each invalid attempt but the last is retried. |
+| `devops_cli_ai_prewarms_total` | Counter | `1` | devops ai prewarm runs, by model, evict (true when the run unloaded the model) and outcome: ok or failed. |
+| `devops_cli_ai_gateway_probe_duration_seconds` | Histogram | `s` | Time a health probe of the LLM gateway took. |
+| `devops_cli_ai_gateway_healthy` | Gauge | `1` | Whether the last health probe of the LLM gateway passed: 1, or 0. |
+| `devops_cli_ai_gateway_failovers_total` | Counter | `1` | Failovers of a gateway model alias to its fallback, by virtual model and simulate: true for a simulated failover. |
+| `devops_cli_ai_capability_gate_total` | Counter | `1` | Failovers to a model below the capability tier of their role, by role, model and decision: rejection when the gate refused it, or override when --force let it through. |
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_rag_points` | Gauge | `1` | Points stored in RAG vector collections, by collection. |
 | `devops_cli_github_requests_total` | Counter | `1` | GitHub requests the rate limiter paced, each attempt and retry once, by resource: the rate limit resource the request spends, such as core, graphql or search. A gh command and a request of the GitHub session both count. |
 | `devops_cli_github_throttle_wait_seconds` | Histogram | `s` | Time devops-cli waited before it sent a refused GitHub request again, by resource: one observation for each throttle. GitHub refused the request with a rate limit, or the GitHub session got a 5xx for a read. |
 | `devops_cli_github_graphql_points_total` | Counter | `1` | GraphQL points that GitHub reported each answer cost in its rateLimit field. |
+| `devops_cli_embedding_cache_lookups_total` | Counter | `1` | Embedding cache lookups, one for each text that an embedding request gets, by result: hit or miss. A hit names its tier: memory for the cache of the process, or valkey. |
+| `devops_cli_embedding_cache_size` | Gauge | `1` | Embeddings that the memory cache of the process held after its last embedding request. |
+| `devops_cli_rag_embedding_batch_size` | Gauge | `1` | Texts in each embedding request after the last change of the adaptive batch size. |
+| `devops_cli_rag_embedding_batch_resizes_total` | Counter | `1` | Changes of the adaptive embedding batch size, by action: additive_increase after enough fast batches, or multiplicative_decrease after a slow or failed batch. |
+| `devops_cli_rag_drift_score` | Gauge | `1` | Share of a project's files that changed, were added or were deleted since its last index, from its last drift check, by project. A drifted knowledge base scores 1. |
+| `devops_cli_rag_drift_detected` | Gauge | `1` | Whether the last drift check of a project found drift in its files, its git head or its knowledge base: 1, or 0, by project. |
+| `devops_cli_rag_investigations_total` | Counter | `1` | RAG context retrievals that finished, by outcome: found when they returned context, or empty. |
+| `devops_cli_rag_stops_total` | Counter | `1` | Processes that turned RAG off for the rest of their run after an embedding failure. |
+| `devops_cli_vulnerability_lookups_total` | Counter | `1` | Packages looked up in a vulnerability database, by source, status and batch: true when one batch request looked them up. |
+| `devops_cli_threat_intel_lookups_total` | Counter | `1` | Domains that a threat-intelligence source was asked about, by source and status: ok, unavailable or failed. A domain that the cache answered is not counted. |
 | `devops_cli_project_releases` | Gauge | `1` | Total project releases tracked. |
 | `devops_cli_project_commits` | Gauge | `1` | Project commits count by release. |
 | `devops_cli_project_prs` | Gauge | `1` | Project pull requests merged by release. |

@@ -23,11 +23,11 @@ Prometheus is an open-source systems monitoring and alerting toolkit. It collect
 
 - **Pull Model Scraper**: Periodically scrapes configured HTTP endpoints (`/metrics`) formatted according to the OpenMetrics / Prometheus exposition format.
 - **PromQL Query Engine**: Flexible query language for computing percentiles, rates of change (`rate()`, `irate()`), aggregations (`sum()`, `avg()`), and histogram distributions.
-- **Client SDK**: `devops_cli` exposes native metrics via `devops serve` on `GET /metrics` including:
+- **Client SDK**: `devops_cli` sends its metrics over OTLP to the OpenTelemetry Collector, which writes them to Prometheus. `INSTRUMENTS` in `src/devops_cli/telemetry/instruments.py` declares each one, and `docs/TELEMETRY.md` lists them, including:
   - `devops_cli_command_total`: Total count of executed CLI commands.
   - `devops_cli_command_duration_seconds`: Histogram of command execution latencies.
-  - `devops_cli_subprocess_seconds`: Subprocess execution duration by binary.
-  - `devops_cli_subcommand_seconds`: Subcommand runtime duration and exit statuses.
+  - `devops_cli_subprocess_duration_seconds`: Histogram of subprocess execution durations by binary and status.
+  - `devops_cli_subcommand_duration_seconds`: Histogram of subcommand durations by subcommand and status.
 - **CLI Subcommand**: `devops prometheus` provides PromQL querying, target health inspection, and query execution.
 
 ---

@@ -42,7 +42,7 @@ from devops_cli.telemetry.memory_profiler import (
     MemoryProfilerError,
     run_memory_profiler,
 )
-from devops_cli.telemetry.tracer import record_metric, trace_span
+from devops_cli.telemetry.tracer import trace_span
 
 app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
@@ -521,20 +521,6 @@ def test_profile_memory(
         except (MemoryProfilerError, ValueError) as exc:
             print_error(str(exc)[:256], prefix=False)
             raise typer.Exit(1) from exc
-
-        record_metric("test.profile_memory.invocations", 1.0, attributes={"target": target})
-        record_metric(
-            "test.profile_memory.duration_seconds",
-            report.duration_seconds,
-            unit="s",
-            attributes={"target": target},
-        )
-        record_metric(
-            "test.profile_memory.peak_kb",
-            report.peak_kb,
-            unit="By",
-            attributes={"target": target},
-        )
 
         resolved = resolve_format(output_format, json_output=json_output)
         if output:

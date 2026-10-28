@@ -69,7 +69,7 @@ uv run pre-commit install
    ```
    Validates every check `devops ci` runs concurrently: Python runtime, tests, the coverage floor, linting, formatting, strict typing, dependency audit, security scanning, the wheel and sdist build, workflow actionlint and zizmor, and documentation freshness.
 
-   Several agents share one host, and the full test suite starts one pytest worker for each CPU, so gates that run at once make each other several times slower (11189 tests took 247 s alone and 440 s each beside a second gate). A run that selects `test`, `security` or `typecheck`, and the full-suite `devops ci test` and `devops ci coverage`, therefore wait for a free gate slot first and say which process and worktree hold the slots. One slot exists for each 16 CPUs, and at least one; `ci.gate_slots` (or `DEVOPS_CLI_CI_GATE_SLOTS`) sets the number. The pre-push hook, a test run narrowed by paths or by `-n`, a dry run and a cached verdict never wait. The operating system frees a slot when its holder ends, also when it is killed. The wait is not part of the gate time and is recorded as the metric `ci.gate_slot_wait_seconds`.
+   Several agents share one host, and the full test suite starts one pytest worker for each CPU, so gates that run at once make each other several times slower (11189 tests took 247 s alone and 440 s each beside a second gate). A run that selects `test`, `security` or `typecheck`, and the full-suite `devops ci test` and `devops ci coverage`, therefore wait for a free gate slot first and say which process and worktree hold the slots. One slot exists for each 16 CPUs, and at least one; `ci.gate_slots` (or `DEVOPS_CLI_CI_GATE_SLOTS`) sets the number. The pre-push hook, a test run narrowed by paths or by `-n`, a dry run and a cached verdict never wait. The operating system frees a slot when its holder ends, also when it is killed. The wait is not part of the gate time and is recorded as the histogram `devops_cli_ci_gate_slot_wait_seconds`.
 
 ---
 
@@ -125,7 +125,7 @@ This table holds the naming rules of the project. Each rule names the check that
 | Test file and test function | The behavior it checks, in the terms of [CONTEXT.md](CONTEXT.md) ([docs/TESTING.md](docs/TESTING.md#names-and-assertions)) | None. |
 | `devops` command and option | Lowercase words joined by hyphens | None. |
 | Environment variable | `DEVOPS_CLI_<SECTION>_<NAME>` | The settings model sets the prefix, and `docs/ENV_VARS.md` is generated from it. |
-| Metric | `devops_cli_<name>`; a counter ends in `_total` and no other metric does | `tests/test_telemetry_instruments.py` checks the `_total` suffix. |
+| Metric | `devops_cli_<name>`; a counter ends in `_total` and no other metric does. Each metric is an entry of `INSTRUMENTS` in `src/devops_cli/telemetry/instruments.py`, sent with `emit()` | `tests/test_telemetry_instruments.py` checks the `_total` suffix, and fails on a metric that a module writes by name or on an `emit()` of an instrument that `INSTRUMENTS` does not hold. |
 | Issue label | `<category>/<value>`, from `.github/labels.yml` | `devops gh labels sync`. |
 | Decision record | `docs/adr/<NNNN>-<slug>.md` | None. |
 | Release tag | `v<major>.<minor>.<patch>` | release-please writes it. Nobody tags by hand. |

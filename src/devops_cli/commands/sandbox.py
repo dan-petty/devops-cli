@@ -52,7 +52,7 @@ from devops_cli.sandbox.models import (
     SandboxStatus,
 )
 from devops_cli.security.sanitizer import mask_dict_secrets, mask_secrets
-from devops_cli.telemetry.tracer import record_metric, trace_span
+from devops_cli.telemetry.tracer import trace_span
 
 app = new_typer(help=HELP.sandbox.app, no_args_is_help=True)
 
@@ -644,12 +644,6 @@ def metrics(
             "sandbox.dry_run": is_dry_run(),
         },
     ):
-        record_metric(
-            "devops_cli.sandbox.metrics_invoked",
-            1.0,
-            unit="1",
-            attributes={"dry_run": is_dry_run()},
-        )
         if is_dry_run():
             render_dry_run_result(
                 command="devops sandbox metrics",

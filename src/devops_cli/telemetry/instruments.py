@@ -43,6 +43,36 @@ COMMAND_DURATION = Instrument(
     "s",
     "Command wall time, by command",
 )
+SUBCOMMAND_DURATION = Instrument(
+    "devops_cli_subcommand_duration_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Subcommand wall time, by subcommand and status: ok or error",
+)
+SUBPROCESS_DURATION = Instrument(
+    "devops_cli_subprocess_duration_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Wall time of a program that devops-cli ran, by program and status: ok or error",
+)
+TELEMETRY_TESTS_TOTAL = Instrument(
+    "devops_cli_telemetry_tests_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Test points that devops telemetry test sent, to show that metrics reach the collector",
+)
+CI_CHECKS_TOTAL = Instrument(
+    "devops_cli_ci_checks_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Checks that devops ci ran, by step and outcome: pass or fail",
+)
+CI_GATE_SLOT_WAIT = Instrument(
+    "devops_cli_ci_gate_slot_wait_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Time a devops ci run waited for a free gate slot before its checks started",
+)
 REVIEW_DURATION = Instrument(
     "devops_cli_review_duration_seconds",
     InstrumentKind.HISTOGRAM,
@@ -100,6 +130,53 @@ AI_OLLAMA_SLOT_WAIT = Instrument(
     "Time a call to Ollama waited in this process for a slot on one of its nodes, by priority "
     "(high, normal or as_available) and outcome: ok once it held one, or timeout",
 )
+AI_CHAT_DURATION = Instrument(
+    "devops_cli_ai_chat_duration_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "LLM chat call wall time, by provider and model, from the request to the reply. A gateway "
+    "call's time includes its wait for a backend slot",
+)
+AI_STRUCTURED_ATTEMPTS_TOTAL = Instrument(
+    "devops_cli_ai_structured_attempts_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Structured-output attempts, by model and outcome: valid when the reply matched its schema, "
+    "else invalid. Each invalid attempt but the last is retried",
+)
+AI_PREWARMS_TOTAL = Instrument(
+    "devops_cli_ai_prewarms_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "devops ai prewarm runs, by model, evict (true when the run unloaded the model) and outcome: "
+    "ok or failed",
+)
+AI_GATEWAY_PROBE_DURATION = Instrument(
+    "devops_cli_ai_gateway_probe_duration_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Time a health probe of the LLM gateway took",
+)
+AI_GATEWAY_HEALTHY = Instrument(
+    "devops_cli_ai_gateway_healthy",
+    InstrumentKind.GAUGE,
+    "1",
+    "Whether the last health probe of the LLM gateway passed: 1, or 0",
+)
+AI_GATEWAY_FAILOVERS_TOTAL = Instrument(
+    "devops_cli_ai_gateway_failovers_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Failovers of a gateway model alias to its fallback, by virtual model and simulate: true "
+    "for a simulated failover",
+)
+AI_CAPABILITY_GATE_TOTAL = Instrument(
+    "devops_cli_ai_capability_gate_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Failovers to a model below the capability tier of their role, by role, model and decision: "
+    "rejection when the gate refused it, or override when --force let it through",
+)
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
@@ -139,6 +216,72 @@ GITHUB_GRAPHQL_POINTS_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "GraphQL points that GitHub reported each answer cost in its rateLimit field",
+)
+EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
+    "devops_cli_embedding_cache_lookups_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Embedding cache lookups, one for each text that an embedding request gets, by result: hit "
+    "or miss. A hit names its tier: memory for the cache of the process, or valkey",
+)
+EMBEDDING_CACHE_SIZE = Instrument(
+    "devops_cli_embedding_cache_size",
+    InstrumentKind.GAUGE,
+    "1",
+    "Embeddings that the memory cache of the process held after its last embedding request",
+)
+RAG_EMBEDDING_BATCH_SIZE = Instrument(
+    "devops_cli_rag_embedding_batch_size",
+    InstrumentKind.GAUGE,
+    "1",
+    "Texts in each embedding request after the last change of the adaptive batch size",
+)
+RAG_EMBEDDING_BATCH_RESIZES_TOTAL = Instrument(
+    "devops_cli_rag_embedding_batch_resizes_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Changes of the adaptive embedding batch size, by action: additive_increase after enough "
+    "fast batches, or multiplicative_decrease after a slow or failed batch",
+)
+RAG_DRIFT_SCORE = Instrument(
+    "devops_cli_rag_drift_score",
+    InstrumentKind.GAUGE,
+    "1",
+    "Share of a project's files that changed, were added or were deleted since its last index, "
+    "from its last drift check, by project. A drifted knowledge base scores 1",
+)
+RAG_DRIFT_DETECTED = Instrument(
+    "devops_cli_rag_drift_detected",
+    InstrumentKind.GAUGE,
+    "1",
+    "Whether the last drift check of a project found drift in its files, its git head or its "
+    "knowledge base: 1, or 0, by project",
+)
+RAG_INVESTIGATIONS_TOTAL = Instrument(
+    "devops_cli_rag_investigations_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "RAG context retrievals that finished, by outcome: found when they returned context, or empty",
+)
+RAG_STOPS_TOTAL = Instrument(
+    "devops_cli_rag_stops_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Processes that turned RAG off for the rest of their run after an embedding failure",
+)
+VULNERABILITY_LOOKUPS_TOTAL = Instrument(
+    "devops_cli_vulnerability_lookups_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Packages looked up in a vulnerability database, by source, status and batch: true when one "
+    "batch request looked them up",
+)
+THREAT_INTEL_LOOKUPS_TOTAL = Instrument(
+    "devops_cli_threat_intel_lookups_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Domains that a threat-intelligence source was asked about, by source and status: ok, "
+    "unavailable or failed. A domain that the cache answered is not counted",
 )
 
 PROJECT_RELEASES = Instrument(
@@ -244,6 +387,11 @@ UPSTREAM_COMPONENT_STATUS = Instrument(
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
     COMMAND_DURATION,
+    SUBCOMMAND_DURATION,
+    SUBPROCESS_DURATION,
+    TELEMETRY_TESTS_TOTAL,
+    CI_CHECKS_TOTAL,
+    CI_GATE_SLOT_WAIT,
     REVIEW_DURATION,
     FINDINGS_TOTAL,
     AI_REQUESTS_TOTAL,
@@ -252,12 +400,29 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_JSON_REPAIRS_TOTAL,
     AI_GATEWAY_SLOT_WAIT,
     AI_OLLAMA_SLOT_WAIT,
+    AI_CHAT_DURATION,
+    AI_STRUCTURED_ATTEMPTS_TOTAL,
+    AI_PREWARMS_TOTAL,
+    AI_GATEWAY_PROBE_DURATION,
+    AI_GATEWAY_HEALTHY,
+    AI_GATEWAY_FAILOVERS_TOTAL,
+    AI_CAPABILITY_GATE_TOTAL,
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
     GITHUB_GRAPHQL_POINTS_TOTAL,
+    EMBEDDING_CACHE_LOOKUPS_TOTAL,
+    EMBEDDING_CACHE_SIZE,
+    RAG_EMBEDDING_BATCH_SIZE,
+    RAG_EMBEDDING_BATCH_RESIZES_TOTAL,
+    RAG_DRIFT_SCORE,
+    RAG_DRIFT_DETECTED,
+    RAG_INVESTIGATIONS_TOTAL,
+    RAG_STOPS_TOTAL,
+    VULNERABILITY_LOOKUPS_TOTAL,
+    THREAT_INTEL_LOOKUPS_TOTAL,
     PROJECT_RELEASES,
     PROJECT_COMMITS,
     PROJECT_PRS,
@@ -308,14 +473,25 @@ def backend_name(served_by: str | None) -> str:
 
 
 __all__ = [
+    "AI_CAPABILITY_GATE_TOTAL",
+    "AI_CHAT_DURATION",
+    "AI_GATEWAY_FAILOVERS_TOTAL",
+    "AI_GATEWAY_HEALTHY",
+    "AI_GATEWAY_PROBE_DURATION",
     "AI_GATEWAY_SLOT_WAIT",
     "AI_JSON_REPAIRS_TOTAL",
     "AI_OLLAMA_SLOT_WAIT",
+    "AI_PREWARMS_TOTAL",
     "AI_REQUESTS_TOTAL",
     "AI_SPEND_USD_TOTAL",
+    "AI_STRUCTURED_ATTEMPTS_TOTAL",
     "AI_TOKENS_TOTAL",
+    "CI_CHECKS_TOTAL",
+    "CI_GATE_SLOT_WAIT",
     "COMMAND_DURATION",
     "COMMAND_TOTAL",
+    "EMBEDDING_CACHE_LOOKUPS_TOTAL",
+    "EMBEDDING_CACHE_SIZE",
     "FINDINGS_TOTAL",
     "GITHUB_GRAPHQL_POINTS_TOTAL",
     "GITHUB_REQUESTS_TOTAL",
@@ -337,11 +513,22 @@ __all__ = [
     "PROJECT_TRAFFIC_VIEWS",
     "PROJECT_TRAFFIC_VIEWS_UNIQUES",
     "QDRANT_RETRIES_TOTAL",
+    "RAG_DRIFT_DETECTED",
+    "RAG_DRIFT_SCORE",
+    "RAG_EMBEDDING_BATCH_RESIZES_TOTAL",
+    "RAG_EMBEDDING_BATCH_SIZE",
+    "RAG_INVESTIGATIONS_TOTAL",
     "RAG_POINTS",
     "RAG_QUERY_DURATION",
+    "RAG_STOPS_TOTAL",
     "REVIEW_DURATION",
+    "SUBCOMMAND_DURATION",
+    "SUBPROCESS_DURATION",
+    "TELEMETRY_TESTS_TOTAL",
+    "THREAT_INTEL_LOOKUPS_TOTAL",
     "UPSTREAM_COMPONENT_STATUS",
     "UPSTREAM_SERVICE_STATUS",
+    "VULNERABILITY_LOOKUPS_TOTAL",
     "Instrument",
     "InstrumentKind",
     "backend_name",

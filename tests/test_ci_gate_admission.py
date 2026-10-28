@@ -17,6 +17,7 @@ from devops_cli.core import clock as clock_seam
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
+from devops_cli.telemetry.instruments import CI_GATE_SLOT_WAIT
 from tests.support.fakes.process import ProcessFake
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 
@@ -25,7 +26,7 @@ pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 runner = CliRunner()
 
 HOLDER = "4321 /work/w-1111"
-WAIT_METRIC = "ci.gate_slot_wait_seconds"
+WAIT_METRIC = CI_GATE_SLOT_WAIT.name
 
 Started = Callable[[], list[tuple[str, ...]]]
 """The argv of every process the command under test has started so far."""

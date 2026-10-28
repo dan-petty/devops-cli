@@ -22,7 +22,7 @@ from devops_cli.output import (
     print_info,
     print_panel,
 )
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -197,18 +197,16 @@ def _build_stream_result(
     alerts: list[FalcoAlert],
     start_time: float,
     span: Any,
-    namespace: str,
 ) -> SecurityStreamResult:
-    """Construct SecurityStreamResult and record telemetry metrics."""
+    """Construct SecurityStreamResult and record its counts on the stream span.
+
+    The stream reads the last lines of the Falco log, so a second read finds the same alerts
+    again: a counter of them would count each alert once for each read.
+    """
     crit, warn, note = _tally_severity_counts(alerts)
     elapsed = time.monotonic() - start_time
     span.set_attribute("alerts.count", len(alerts))
     span.set_attribute("alerts.critical", crit)
-    record_metric(
-        "devops_cli_k8s_security_alerts_total",
-        float(len(alerts)),
-        attributes={"namespace": namespace, "critical": str(crit > 0)},
-    )
     return SecurityStreamResult(
         alerts=alerts,
         total_alerts=len(alerts),
@@ -240,7 +238,7 @@ def stream_security_events(
             filtered = [
                 a for a in simulated if matches_severity_filter(a.priority, request.severity)
             ]
-            return _build_stream_result(filtered, start_time, span, request.namespace)
+            return _build_stream_result(filtered, start_time, span)
 
         cmd = _build_kubectl_command(request)
         timeout_sec = (
@@ -259,7 +257,7 @@ def stream_security_events(
             )
             alerts = _process_stream_output(stdout_str, request.severity)
             span.set_attribute("stream.timed_out_gracefully", True)
-            return _build_stream_result(alerts, start_time, span, request.namespace)
+            return _build_stream_result(alerts, start_time, span)
 
         if proc.returncode != 0:
             logger.debug("kubectl logs failed with exit code %s", proc.returncode)
@@ -274,7 +272,7 @@ def stream_security_events(
             )
 
         alerts = _process_stream_output(proc.stdout, request.severity)
-        return _build_stream_result(alerts, start_time, span, request.namespace)
+        return _build_stream_result(alerts, start_time, span)
 
 
 def _get_severity_color(priority: str) -> str:

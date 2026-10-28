@@ -25,7 +25,6 @@ from devops_cli.config.commands import build_npm_audit_cmd
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
-    CONST_CI_GATE_SLOT_WAIT_METRIC,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
@@ -64,7 +63,8 @@ from devops_cli.output import (
     write_stderr,
     write_stdout,
 )
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import CI_CHECKS_TOTAL, CI_GATE_SLOT_WAIT, emit
 
 if TYPE_CHECKING:
     from devops_cli.ci.mutate import MutationTarget
@@ -512,6 +512,11 @@ async def _run_check_commands(
     return functools.reduce(_merged_run, rest, first)
 
 
+def _count_check(step: str, *, passed: bool) -> None:
+    """Count one check that the gate ran, by its step and outcome."""
+    emit(CI_CHECKS_TOTAL, 1.0, {"step": step, "outcome": "pass" if passed else "fail"})
+
+
 async def _execute_check_async(
     spec: CheckSpec | str,
     display_title: str | None = None,
@@ -554,9 +559,7 @@ async def _execute_check_async(
             proc = await _run_check_commands(check_spec, root, timeout, capture_output)
             passed = proc.returncode == 0
             dur = time.perf_counter() - start_time
-            record_metric(
-                "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": check_spec.metric_step}
-            )
+            _count_check(check_spec.metric_step, passed=passed)
             from devops_cli.output import format_duration
 
             badge = _format_check_badge(passed)
@@ -574,7 +577,7 @@ async def _execute_check_async(
             )
         except subprocess.TimeoutExpired as exc:
             dur = time.perf_counter() - start_time
-            record_metric("ci.step_pass", 0.0, attributes={"step": check_spec.metric_step})
+            _count_check(check_spec.metric_step, passed=False)
             badge = _format_check_badge(False)
             timeout_val = exc.timeout or timeout
             timeout_str = f"{timeout_val:g}s"
@@ -622,7 +625,7 @@ def _gate_slot(needed: bool) -> Iterator[None]:
         holder=f"{os.getpid()} {root}",
         notify=lambda message: print_info(message, safe=True),
     ) as waited:
-        record_metric(CONST_CI_GATE_SLOT_WAIT_METRIC, waited, unit="s")
+        emit(CI_GATE_SLOT_WAIT, waited)
         yield
 
 
@@ -944,7 +947,7 @@ def _run_python_version_step() -> tuple[bool, CheckResult]:
     py_t0 = time.perf_counter()
     py_ok = _verify_python_314_environment()
     py_dur = time.perf_counter() - py_t0
-    record_metric("ci.step_pass", 1.0 if py_ok else 0.0, attributes={"step": "python_version"})
+    _count_check("python_version", passed=py_ok)
     py_result = CheckResult(
         name="python_version",
         display_title=MESSAGES.ci.python_version_check,

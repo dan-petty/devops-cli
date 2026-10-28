@@ -42,7 +42,8 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.exceptions.tools import SubprocessError
-from devops_cli.telemetry.tracer import get_tracer, record_metric, trace_span
+from devops_cli.telemetry.instruments import SUBPROCESS_DURATION, emit
+from devops_cli.telemetry.tracer import get_tracer, trace_span
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
     {
@@ -641,14 +642,10 @@ class DefaultProcessRunner:
                     {"exit_code": ret_code, "duration_seconds": dur},
                 )
 
-            record_metric(
-                "devops_cli_subprocess_seconds",
+            emit(
+                SUBPROCESS_DURATION,
                 dur,
-                unit="s",
-                attributes={
-                    "bin": bin_name,
-                    "status": "ok" if ret_code == 0 else "error",
-                },
+                {"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
             )
             return proc
 
@@ -793,14 +790,10 @@ class DefaultProcessRunner:
                 {"exit_code": ret_code, "duration_seconds": dur},
             )
 
-            record_metric(
-                "devops_cli_subprocess_seconds",
+            emit(
+                SUBPROCESS_DURATION,
                 dur,
-                unit="s",
-                attributes={
-                    "bin": bin_name,
-                    "status": "ok" if ret_code == 0 else "error",
-                },
+                {"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
             )
             return subprocess.CompletedProcess(
                 full_cmd,
@@ -1192,11 +1185,10 @@ async def run_subprocess_async(
             {"exit_code": ret_code, "duration_seconds": dur},
         )
 
-        record_metric(
-            "devops_cli_subprocess_seconds",
+        emit(
+            SUBPROCESS_DURATION,
             dur,
-            unit="s",
-            attributes={"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
+            {"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
         )
         return subprocess.CompletedProcess(
             cmd,

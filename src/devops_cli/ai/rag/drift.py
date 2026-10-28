@@ -23,7 +23,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_CACHE_DIR,
 )
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import RAG_DRIFT_DETECTED, RAG_DRIFT_SCORE, emit
 
 logger = logging.getLogger(__name__)
 
@@ -346,17 +347,9 @@ class RAGDriftDetector:
             if kb_drift and self.project == CONST_RAG_KB_PROJECT:
                 drift_score = max(drift_score, 1.0)
 
-            record_metric(
-                "devops_cli_rag_drift_detected_total",
-                1.0 if (drift_score > 0 or git_drift or kb_drift) else 0.0,
-                attributes={"project": self.project},
-            )
-            record_metric(
-                "devops_cli_rag_drift_score",
-                drift_score,
-                unit="ratio",
-                attributes={"project": self.project},
-            )
+            drifted = drift_score > 0 or git_drift or kb_drift
+            emit(RAG_DRIFT_DETECTED, 1.0 if drifted else 0.0, {"project": self.project})
+            emit(RAG_DRIFT_SCORE, drift_score, {"project": self.project})
 
             return RAGDriftReport(
                 root_dir=str(self.root_dir),

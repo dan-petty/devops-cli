@@ -259,6 +259,100 @@ def test_a_check_fails_when_two_paths_send_the_same_gauge_name(tmp_path: Path) -
     assert PROJECT_ITEMS.name in shared
 
 
+_METRIC_METHODS = frozenset(
+    {"increment_counter", "record_gauge", "record_histogram", "record_metric"}
+)
+"""The telemetry client's methods that write a metric by its name."""
+_SERVICE_REGISTRY = "GLOBAL_METRICS"
+"""The Prometheus registry that the Service serves on `/metrics`: no OTLP metric."""
+SRC = REPO_ROOT / "src" / "devops_cli"
+
+
+def _declared_instrument_imports(tree: ast.AST) -> tuple[set[str], set[str]]:
+    """The local names of `emit`, and of the declared instruments, that a module imports from
+    the instruments module."""
+    import devops_cli.telemetry.instruments as instruments
+
+    emit_names: set[str] = set()
+    declared: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module != instruments.__name__:
+            continue
+        for alias in node.names:
+            local = alias.asname or alias.name
+            if alias.name == "emit":
+                emit_names.add(local)
+            elif getattr(instruments, alias.name, None) in INSTRUMENTS:
+                declared.add(local)
+    return emit_names, declared
+
+
+def _writes_outside_emit(call: ast.Call, emit_names: set[str], declared: set[str]) -> bool:
+    """Whether a call writes a metric by its name, or emits an instrument that `INSTRUMENTS`
+    does not hold."""
+    func = call.func
+    if isinstance(func, ast.Attribute) and func.attr in _METRIC_METHODS:
+        return not (isinstance(func.value, ast.Name) and func.value.id == _SERVICE_REGISTRY)
+    if isinstance(func, ast.Name) and func.id in _METRIC_METHODS:
+        return True
+    if isinstance(func, ast.Name) and func.id in emit_names:
+        first = call.args[0] if call.args else None
+        return not (isinstance(first, ast.Name) and first.id in declared)
+    return False
+
+
+def _metric_writes_outside_emit(tree: ast.AST, label: str) -> list[str]:
+    """Each call of a module, as `<label>:<line>`, that writes a metric by its name or emits an
+    instrument that `INSTRUMENTS` does not hold."""
+    emit_names, declared = _declared_instrument_imports(tree)
+    lines = sorted(
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _writes_outside_emit(node, emit_names, declared)
+    )
+    return [f"{label}:{line}" for line in lines]
+
+
+def test_every_metric_is_a_declared_instrument_sent_through_emit() -> None:
+    """Verify no module but the instruments module writes a metric by its name, and every
+    `emit()` sends a declared instrument (#817).
+
+    A metric sent by name skips the kind that `INSTRUMENTS` gives it: a count sent as a gauge
+    keeps only the last process's value.
+    """
+    instruments_module = SRC / "telemetry" / "instruments.py"
+    found = [
+        call
+        for path in sorted(SRC.rglob("*.py"))
+        if path != instruments_module
+        for call in _metric_writes_outside_emit(
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
+            str(path.relative_to(SRC)),
+        )
+    ]
+    assert found == []
+
+
+def test_the_instrument_check_names_a_metric_sent_by_name_and_an_undeclared_instrument() -> None:
+    """Verify the check names a metric written by its name and an `emit()` of an instrument that
+    `INSTRUMENTS` does not hold, and lets the Service's registry and a declared instrument by
+    (#817)."""
+    module = (
+        "from devops_cli.telemetry import get_tracer\n"
+        "from devops_cli.telemetry.instruments import COMMAND_TOTAL, Instrument, InstrumentKind, emit\n"
+        "from devops_cli.telemetry.metrics import GLOBAL_METRICS\n"
+        'get_tracer().record_gauge("devops_cli_example", 1.0)\n'
+        'emit(Instrument("devops_cli_example_total", InstrumentKind.COUNTER, "1", "x"), 1.0)\n'
+        'GLOBAL_METRICS.increment_counter("service_rounds_total")\n'
+        "emit(COMMAND_TOTAL, 1.0)\n"
+    )
+
+    assert _metric_writes_outside_emit(ast.parse(module), "example.py") == [
+        "example.py:4",
+        "example.py:5",
+    ]
+
+
 def test_the_items_panels_group_only_by_labels_the_gauge_sends() -> None:
     """A panel that groups `devops_cli_project_items` by a label that the gauge does not send
     shows one series for all items (#2263)."""
@@ -406,6 +500,18 @@ def test_the_hit_share_panel_divides_cached_requests_by_all_requests_over_an_hou
         f'(sum(increase(devops_cli_ai_requests_total{{cached="true"}}[1h])) or {requests} * 0)',
         'sum(increase(devops_cli_ai_requests_total{operation!="embeddings"}[1h]))',
         True,
+    )
+
+
+def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_an_hour() -> None:
+    """Verify the embedding cache hit share is the hits of the last hour over its lookups, and
+    shows 0 for an hour with lookups and no hits (#817)."""
+    panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-cli.json")}
+
+    assert _panel_queries(panels["Embedding Cache Hit Share"]) == (
+        '(sum(increase(devops_cli_embedding_cache_lookups_total{result="hit"}[1h])) '
+        "or sum(increase(devops_cli_embedding_cache_lookups_total[1h])) * 0) "
+        "/ sum(increase(devops_cli_embedding_cache_lookups_total[1h]))"
     )
 
 

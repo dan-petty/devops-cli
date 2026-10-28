@@ -585,12 +585,60 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Share of the last hour's embedding cache lookups that a cache answered, from the memory cache of the process or from Valkey; an hour with lookups and no hits shows 0. Each text that an embedding request gets is one lookup. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "id": 26,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Embedding Cache Hit Share",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(increase(devops_cli_embedding_cache_lookups_total{result=\"hit\"}[1h])) or sum(increase(devops_cli_embedding_cache_lookups_total[1h])) * 0) / sum(increase(devops_cli_embedding_cache_lookups_total[1h]))",
+          "legendFormat": "hit share",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 52
       },
       "id": 5,
       "title": "AI Review Findings Breakdown",
@@ -618,7 +666,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 45
+        "y": 53
       },
       "id": 13,
       "options": {
@@ -668,7 +716,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 45
+        "y": 53
       },
       "id": 14,
       "options": {
@@ -713,7 +761,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 53
+        "y": 61
       },
       "id": 6,
       "options": {
@@ -758,7 +806,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 53
+        "y": 61
       },
       "id": 7,
       "options": {
@@ -787,7 +835,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 61
+        "y": 69
       },
       "id": 8,
       "title": "AI Spend & Economics",
@@ -828,7 +876,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 62
+        "y": 70
       },
       "id": 9,
       "options": {
@@ -881,7 +929,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 62
+        "y": 70
       },
       "id": 10,
       "options": {
@@ -910,7 +958,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 76
       },
       "id": 21,
       "title": "GitHub API",
@@ -938,7 +986,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "id": 22,
       "options": {
@@ -983,7 +1031,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 69
+        "y": 77
       },
       "id": 23,
       "options": {
@@ -1028,7 +1076,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 69
+        "y": 77
       },
       "id": 24,
       "options": {
@@ -1073,7 +1121,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 69
+        "y": 77
       },
       "id": 25,
       "options": {

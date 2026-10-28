@@ -26,6 +26,11 @@ class Captured:
         if "resourceMetrics" in payload:
             self.payloads.append(payload)
 
+    def clear(self) -> None:
+        """Send what the client holds now, and forget every payload captured so far."""
+        tracer_module.get_tracer().flush()
+        self.payloads.clear()
+
     @property
     def metrics(self) -> list[dict[str, Any]]:
         tracer_module.get_tracer().flush()

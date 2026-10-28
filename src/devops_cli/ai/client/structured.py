@@ -29,9 +29,6 @@ from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_JSON_REPAIR_SOURCE_CHAT_STRUCTURED,
     CONST_MAX_ERROR_DETAIL_LENGTH,
-    CONST_METRIC_AI_STRUCTURED_RETRY_COUNT,
-    CONST_METRIC_AI_STRUCTURED_SUCCESS,
-    CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES,
@@ -40,7 +37,8 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import StructuredOutputSchemaError
 from devops_cli.models.ai import ChatMessage
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import AI_STRUCTURED_ATTEMPTS_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
@@ -255,14 +253,8 @@ class StructuredOutputMixin:
         failure: SchemaFailure,
         attempt: int,
         backoff_seconds: float,
-        model_name: str,
     ) -> None:
-        """Record retry telemetry, backoff, and append reflection messages."""
-        record_metric(
-            CONST_METRIC_AI_STRUCTURED_RETRY_COUNT,
-            1.0,
-            attributes={"model": model_name},
-        )
+        """Back off, and append the reply and the reflection on its failure to the messages."""
         time.sleep(backoff_seconds * (2 ** (attempt - 1)))
         messages.append(ChatMessage(role="assistant", content=raw_text))
         messages.append(_build_reflection_message(failure))
@@ -322,24 +314,24 @@ class StructuredOutputMixin:
                     context_tag=context_tag,
                 )
                 if model_inst is not None:
-                    record_metric(
-                        CONST_METRIC_AI_STRUCTURED_SUCCESS,
+                    emit(
+                        AI_STRUCTURED_ATTEMPTS_TOTAL,
                         1.0,
-                        attributes={"model": model_name},
+                        {"model": model_name, "outcome": "valid"},
                     )
                     span_h.set_attribute("structured.attempts", attempt)
                     span_h.set_attribute("structured.was_repaired", was_repaired)
                     return model_inst
 
                 last_error = failure or "Failed to validate schema."
-                record_metric(
-                    CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE,
+                emit(
+                    AI_STRUCTURED_ATTEMPTS_TOTAL,
                     1.0,
-                    attributes={"model": model_name, "attempt": str(attempt)},
+                    {"model": model_name, "outcome": "invalid"},
                 )
                 if attempt < max_attempts:
                     self._handle_structured_retry(
-                        messages, raw_text, last_error, attempt, backoff_seconds, model_name
+                        messages, raw_text, last_error, attempt, backoff_seconds
                     )
 
             exc = _validation_failure(model_name, max_attempts, last_error)

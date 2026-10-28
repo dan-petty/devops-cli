@@ -14,7 +14,7 @@ from devops_cli.config.constants import (
     CONST_MIN_REASONING_MODEL_TIER_B,
 )
 from devops_cli.exceptions.ai import CapabilityDegradationError
-from devops_cli.telemetry.tracer import record_metric
+from devops_cli.telemetry.instruments import AI_CAPABILITY_GATE_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
@@ -133,10 +133,10 @@ def validate_failover_capability(
     candidate_b = evaluate_model_capability(fallback_model, fallback_provider)
 
     if force:
-        record_metric(
-            "ai.failover.capability_override",
-            1,
-            attributes={"role": role_or_virtual_model, "model": fallback_model},
+        emit(
+            AI_CAPABILITY_GATE_TOTAL,
+            1.0,
+            {"role": role_or_virtual_model, "model": fallback_model, "decision": "override"},
         )
         logger.warning(
             "Capability gate bypassed (--force) for role '%s': routing to '%s' (%sB vs required %sB)",
@@ -148,10 +148,10 @@ def validate_failover_capability(
         return
 
     if candidate_b is not None and candidate_b < required_b:
-        record_metric(
-            "ai.failover.capability_rejection",
-            1,
-            attributes={"role": role_or_virtual_model, "model": fallback_model},
+        emit(
+            AI_CAPABILITY_GATE_TOTAL,
+            1.0,
+            {"role": role_or_virtual_model, "model": fallback_model, "decision": "rejection"},
         )
         raise CapabilityDegradationError(
             f"Failover to '{fallback_model}' ({candidate_b}B) breaches minimum capability tier "

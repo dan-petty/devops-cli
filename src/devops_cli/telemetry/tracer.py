@@ -1077,22 +1077,6 @@ class OTelTelemetryClient:
         payload = self._build_logs_payload([log_record])
         self._send_payload("/v1/logs", payload)
 
-    def record_metric(
-        self,
-        name: str,
-        value: float,
-        *,
-        unit: str = CONST_OTEL_METRIC_UNIT_ONE,
-        attributes: dict[str, Any] | None = None,
-    ) -> None:
-        """Record a gauge data point in the in-process OTel SDK meter."""
-        from devops_cli.dry_run.state import in_dry_run_invocation
-
-        if not self.enabled or in_dry_run_invocation():
-            return
-        gauge = self._get_sdk_instrument("gauge", name, unit)
-        gauge.set(float(value), _sdk_metric_attributes(attributes))
-
     def record_gauge(
         self,
         name: str,
@@ -1101,8 +1085,16 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Record a gauge data point in the in-process OTel SDK meter."""
-        self.record_metric(name, value, unit=unit, attributes=attributes)
+        """Record a gauge data point in the in-process OTel SDK meter.
+
+        `telemetry.instruments.emit()` is the one caller of the metric methods.
+        """
+        from devops_cli.dry_run.state import in_dry_run_invocation
+
+        if not self.enabled or in_dry_run_invocation():
+            return
+        gauge = self._get_sdk_instrument("gauge", name, unit)
+        gauge.set(float(value), _sdk_metric_attributes(attributes))
 
     def increment_counter(
         self,
@@ -1575,26 +1567,6 @@ def trace_span(
         parent_span_id=parent_span_id,
     ) as handle:
         yield handle
-
-
-def record_metric(
-    name: str,
-    value: float,
-    unit: str = CONST_OTEL_METRIC_UNIT_ONE,
-    attributes: dict[str, Any] | None = None,
-) -> None:
-    """Convenience function to record a metric data point."""
-    get_tracer().record_metric(name, value, unit=unit, attributes=attributes)
-
-
-def record_gauge(
-    name: str,
-    value: float,
-    unit: str = CONST_OTEL_METRIC_UNIT_ONE,
-    attributes: dict[str, Any] | None = None,
-) -> None:
-    """Convenience function to record a gauge metric data point."""
-    get_tracer().record_gauge(name, value, unit=unit, attributes=attributes)
 
 
 def inject_trace_context(headers: dict[str, str] | None = None) -> dict[str, str]:

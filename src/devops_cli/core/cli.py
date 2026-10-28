@@ -17,7 +17,7 @@ from devops_cli.exceptions.base import DevOpsCLIError
 
 def _record_cli_success(span_h: Any, cmd_name: str, dur: float) -> None:
     """Record telemetry attributes, events, and metrics for successful CLI command execution."""
-    from devops_cli.telemetry import record_metric
+    from devops_cli.telemetry.instruments import SUBCOMMAND_DURATION, emit
 
     span_h.set_attribute("cli.duration_seconds", dur)
     span_h.set_attribute("cli.status", "ok")
@@ -25,12 +25,7 @@ def _record_cli_success(span_h: Any, cmd_name: str, dur: float) -> None:
         "subcommand_completed",
         {"command": cmd_name, "duration_seconds": dur},
     )
-    record_metric(
-        "devops_cli_subcommand_seconds",
-        dur,
-        unit="s",
-        attributes={"command": cmd_name, "status": "ok"},
-    )
+    emit(SUBCOMMAND_DURATION, dur, {"command": cmd_name, "status": "ok"})
 
 
 def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) -> None:
@@ -43,19 +38,14 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
     if exit_code is not None:
         span_h.set_attribute("cli.exit_code", exit_code)
 
-    from devops_cli.telemetry import record_metric
+    from devops_cli.telemetry.instruments import SUBCOMMAND_DURATION, emit
 
     if is_clean_exit:
         span_h.add_event(
             "subcommand_completed",
             {"command": cmd_name, "duration_seconds": dur, "exit_code": 0},
         )
-        record_metric(
-            "devops_cli_subcommand_seconds",
-            dur,
-            unit="s",
-            attributes={"command": cmd_name, "status": "ok"},
-        )
+        emit(SUBCOMMAND_DURATION, dur, {"command": cmd_name, "status": "ok"})
     else:
         if isinstance(exc, typer.TyperException):
             # A usage error of Typer, such as `typer.BadParameter`, quotes what the person typed,
@@ -68,12 +58,7 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
             detail = {"error": mask_secrets(str(exc))}
             span_h.set_attribute("cli.error", detail["error"])
         span_h.add_event("subcommand_failed", {"command": cmd_name, **detail})
-        record_metric(
-            "devops_cli_subcommand_seconds",
-            dur,
-            unit="s",
-            attributes={"command": cmd_name, "status": "error"},
-        )
+        emit(SUBCOMMAND_DURATION, dur, {"command": cmd_name, "status": "error"})
 
 
 def _execute_traced_cli_command(

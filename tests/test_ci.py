@@ -212,7 +212,6 @@ async def test_a_check_with_two_commands_runs_both_and_fails_when_either_fails()
     with (
         patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
         patch("devops_cli.core.process.run_subprocess_async", side_effect=run),
-        patch("devops_cli.commands.ci.record_metric"),
         patch("devops_cli.commands.ci.print_muted"),
     ):
         result = await ci_module._execute_check_async(
@@ -1575,7 +1574,6 @@ async def test_execute_check_async_success_and_failure() -> None:
         patch(
             "devops_cli.core.process.run_subprocess_async", new=AsyncMock(return_value=mock_proc_ok)
         ),
-        patch("devops_cli.commands.ci.record_metric"),
         patch("devops_cli.commands.ci.print_muted"),
     ):
         res_ok = await _execute_check_async(
@@ -1588,7 +1586,6 @@ async def test_execute_check_async_success_and_failure() -> None:
             "devops_cli.core.process.run_subprocess_async",
             new=AsyncMock(return_value=mock_proc_fail),
         ),
-        patch("devops_cli.commands.ci.record_metric"),
         patch("devops_cli.commands.ci.print_muted"),
     ):
         res_fail = await _execute_check_async(
@@ -2444,7 +2441,6 @@ async def test_execute_check_async_timeout_expired() -> None:
     with (
         patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
         patch("devops_cli.core.process.run_subprocess_async", side_effect=mock_subprocess_async),
-        patch("devops_cli.commands.ci.record_metric"),
         patch("devops_cli.commands.ci.print_muted"),
     ):
         spec = CheckSpec(

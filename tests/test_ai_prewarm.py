@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
+    from tests.support.telemetry_capture import Captured
 
 import httpx2
 import pytest
@@ -17,6 +18,7 @@ from devops_cli.ai.client.ollama import OllamaProviderMixin
 from devops_cli.commands.ai import _render_prewarm_results, _resolve_prewarm_urls
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
+from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL
 
 runner = CliRunner()
 
@@ -330,28 +332,27 @@ class TestCLIPrewarmCommand:
         assert result.exit_code == 0
         assert model_fake.preload_calls[-1]["urls"] == ["http://localhost:11434"]
 
-    def test_cli_prewarm_telemetry_recording(self, app: Any, model_fake: ModelFake) -> None:
-        """Verify devops ai prewarm records OpenTelemetry span and execution metric."""
-        with (
-            patch("devops_cli.commands.ai.record_metric") as mock_metric,
-            patch("devops_cli.commands.ai.trace_span") as mock_span,
-        ):
-            result = runner.invoke(app, ["ai", "prewarm"])
+    @pytest.mark.parametrize(
+        ("node_ok", "exit_code", "outcome"), [(True, 0, "ok"), (False, 1, "failed")]
+    )
+    def test_a_prewarm_run_counts_once_by_model_evict_and_outcome(
+        self,
+        app: Any,
+        model_fake: ModelFake,
+        captured: Captured,
+        node_ok: bool,
+        exit_code: int,
+        outcome: str,
+    ) -> None:
+        """Verify devops ai prewarm counts its run one time, by model, evict and outcome."""
+        model_fake.set_preload_results({"http://localhost:11434": node_ok})
 
-            assert result.exit_code == 0
-            assert (mock_span.called, mock_metric.called) == (True, True)
+        result = runner.invoke(app, ["ai", "prewarm", "--model", "gemma4:26b", "--single-node"])
 
-    def test_cli_prewarm_telemetry_recording_failure(self, app: Any, model_fake: ModelFake) -> None:
-        """Verify devops ai prewarm records failure metric when node prewarm fails."""
-        model_fake.set_preload_results({"http://localhost:11434": False})
-        with (
-            patch("devops_cli.commands.ai.record_metric") as mock_metric,
-            patch("devops_cli.commands.ai.trace_span") as mock_span,
-        ):
-            result = runner.invoke(app, ["ai", "prewarm"])
-
-            assert result.exit_code == 1
-            assert (mock_span.called, mock_metric.called) == (True, True)
+        assert (result.exit_code, captured.points(AI_PREWARMS_TOTAL.name)) == (
+            exit_code,
+            [({"model": "gemma4:26b", "evict": "false", "outcome": outcome}, 1.0)],
+        )
 
 
 class TestFastMCPPrewarmTool:

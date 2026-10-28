@@ -71,9 +71,13 @@ from devops_cli.lang import ERRORS
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
 )
-from devops_cli.telemetry import (
-    record_metric,
-    trace_span,
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import (
+    EMBEDDING_CACHE_LOOKUPS_TOTAL,
+    EMBEDDING_CACHE_SIZE,
+    RAG_EMBEDDING_BATCH_RESIZES_TOTAL,
+    RAG_EMBEDDING_BATCH_SIZE,
+    emit,
 )
 from devops_cli.valkey.cache import ValkeyCacheTier, configured_cache_tier
 
@@ -368,6 +372,23 @@ def _apply_model_prefix(text: str, model: str, *, is_query: bool = False) -> str
     return text
 
 
+def _count_batch_resize(batch_size: int, action: str) -> None:
+    """Record the batch size after a change of it, and count the change by its action."""
+    emit(RAG_EMBEDDING_BATCH_SIZE, float(batch_size))
+    emit(RAG_EMBEDDING_BATCH_RESIZES_TOTAL, 1.0, {"action": action})
+
+
+def _count_cache_lookups(*, memory: int, valkey: int, misses: int) -> None:
+    """Add each lookup result that has texts to the embedding cache lookup counter."""
+    for count, attributes in (
+        (memory, {"result": "hit", "tier": "memory"}),
+        (valkey, {"result": "hit", "tier": "valkey"}),
+        (misses, {"result": "miss"}),
+    ):
+        if count:
+            emit(EMBEDDING_CACHE_LOOKUPS_TOTAL, count, attributes)
+
+
 class EmbeddingsEngine:
     """Generates dense vector embeddings using Ollama or OpenAI endpoints."""
 
@@ -494,12 +515,7 @@ class EmbeddingsEngine:
                 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
                 int(self._current_batch_size * CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR),
             )
-            record_metric("rag.embedding.batch_size", self._current_batch_size)
-            record_metric(
-                "rag.embedding.aimd_action",
-                1,
-                attributes={"action": "multiplicative_decrease"},
-            )
+            _count_batch_resize(self._current_batch_size, "multiplicative_decrease")
             logger.debug(
                 "AIMD multiplicative decrease applied: batch_size=%d (configured=%d)",
                 self._current_batch_size,
@@ -528,12 +544,7 @@ class EmbeddingsEngine:
                 self._configured_batch_size,
                 self._current_batch_size + CONST_AIMD_ADDITIVE_INCREASE_STEP,
             )
-            record_metric("rag.embedding.batch_size", self._current_batch_size)
-            record_metric(
-                "rag.embedding.aimd_action",
-                1,
-                attributes={"action": "additive_increase"},
-            )
+            _count_batch_resize(self._current_batch_size, "additive_increase")
             logger.debug(
                 "AIMD additive increase applied: batch_size=%d (configured=%d)",
                 self._current_batch_size,
@@ -592,31 +603,29 @@ class EmbeddingsEngine:
     def _partition_with_valkey_l2(
         self, texts: list[str], *, is_query: bool = False
     ) -> tuple[dict[int, list[float]], list[int], list[str]]:
-        """Partition texts through L1 in-memory cache and L2 Valkey chunk cache."""
-        cached, l1_miss_indices, l1_miss_texts = self._partition_cache(texts, is_query=is_query)
-        if not l1_miss_texts or self._l2 is None:
-            return cached, l1_miss_indices, l1_miss_texts
+        """Partition texts through L1 in-memory cache and L2 Valkey chunk cache.
 
-        final_miss_indices: list[int] = []
-        final_miss_texts: list[str] = []
-        valkey_hits = 0
+        Each text counts once on `devops_cli_embedding_cache_lookups_total`: as a hit of the tier
+        that held it, or as a miss.
+        """
+        cached, miss_indices, miss_texts = self._partition_cache(texts, is_query=is_query)
+        memory_hits = len(cached)
+        if miss_texts and self._l2 is not None:
+            l1_miss_indices, l1_miss_texts = miss_indices, miss_texts
+            miss_indices, miss_texts = [], []
+            for idx, text in zip(l1_miss_indices, l1_miss_texts, strict=True):
+                v_hit = self._get_valkey_embedding(text, self.model, is_query=is_query)
+                if v_hit is not None:
+                    cached[idx] = v_hit
+                    self._cache.put(text, self.model, v_hit, is_query=is_query)
+                else:
+                    miss_indices.append(idx)
+                    miss_texts.append(text)
 
-        for idx, text in zip(l1_miss_indices, l1_miss_texts, strict=True):
-            v_hit = self._get_valkey_embedding(text, self.model, is_query=is_query)
-            if v_hit is not None:
-                cached[idx] = v_hit
-                self._cache.put(text, self.model, v_hit, is_query=is_query)
-                valkey_hits += 1
-            else:
-                final_miss_indices.append(idx)
-                final_miss_texts.append(text)
-
-        if valkey_hits > 0:
-            from devops_cli.telemetry import record_metric
-
-            record_metric("devops_cli_embedding_valkey_hits_total", valkey_hits, unit="1")
-
-        return cached, final_miss_indices, final_miss_texts
+        _count_cache_lookups(
+            memory=memory_hits, valkey=len(cached) - memory_hits, misses=len(miss_texts)
+        )
+        return cached, miss_indices, miss_texts
 
     @property
     def dimension(self) -> int:
@@ -848,15 +857,11 @@ class EmbeddingsEngine:
                 "rag.is_query": is_query,
             },
         ):
-            from devops_cli.telemetry import record_metric
-
             prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
             cached, miss_indices, miss_texts = self._partition_with_valkey_l2(
                 prefixed_texts, is_query=is_query
             )
-            record_metric("devops_cli_embedding_cache_hits_total", len(cached), unit="1")
-            record_metric("devops_cli_embedding_cache_misses_total", len(miss_texts), unit="1")
-            record_metric("devops_cli_embedding_cache_size", self._cache.size, unit="1")
+            emit(EMBEDDING_CACHE_SIZE, self._cache.size)
 
             if miss_texts:
                 fresh = self._dispatch_embed(miss_texts)
