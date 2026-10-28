@@ -33,10 +33,6 @@ from typing import Any
 import httpx2
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_GITHUB_NOT_FOUND_ERROR_CODE,
-    CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
-)
 from devops_cli.exceptions.git import (
     GitHubNotFoundError,
     GitHubOperationError,
@@ -281,7 +277,7 @@ def test_a_read_of_nothing_raises_the_not_found_error_and_charges_the_quota_gith
         (
             GitHubNotFoundError,
             {
-                "error_code": CONST_GITHUB_NOT_FOUND_ERROR_CODE,
+                "error_code": "GITHUB_NOT_FOUND",
                 "message": f"GitHub has nothing at GET {_MISSING_LABEL} (HTTP 404)",
                 "exit_code": 1,
                 "details": {"operation": "github_request", "path": _MISSING_LABEL, "status": 404},
@@ -343,7 +339,7 @@ def test_a_refused_token_raises_the_unauthenticated_error(
         (
             GitHubUnauthenticatedError,
             {
-                "error_code": CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
+                "error_code": "GITHUB_UNAUTHENTICATED",
                 "message": (
                     "GitHub refused the session's token for GET /user (HTTP 401); log in again "
                     "with `gh auth login`, or set GH_TOKEN to a valid token"

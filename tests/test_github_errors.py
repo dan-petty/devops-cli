@@ -16,12 +16,6 @@ from collections.abc import Callable
 import httpx2
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_GITHUB_NOT_FOUND_ERROR_CODE,
-    CONST_GITHUB_SCOPE_ERROR_CODE,
-    CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
-    CONST_GITHUB_UNREAD_ERROR_CODE,
-)
 from devops_cli.exceptions import (
     GitHubFileNotFoundError,
     GitHubNotFoundError,
@@ -265,10 +259,10 @@ def test_the_session_errors_are_github_operation_errors_with_their_own_codes() -
     ) == (
         True,
         [
-            CONST_GITHUB_SCOPE_ERROR_CODE,
-            CONST_GITHUB_NOT_FOUND_ERROR_CODE,
-            CONST_GITHUB_UNREAD_ERROR_CODE,
-            CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
+            "GITHUB_SCOPE_MISSING",
+            "GITHUB_NOT_FOUND",
+            "GITHUB_UNREAD",
+            "GITHUB_UNAUTHENTICATED",
         ],
         "github_request",
         True,

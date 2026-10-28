@@ -17,7 +17,6 @@ from typer.testing import CliRunner
 from devops_cli.commands.docker import app as docker_app
 from devops_cli.commands.sandbox import app as sandbox_app
 from devops_cli.config.constants import (
-    CONST_ERROR_CODE_SANDBOX_VALIDATION,
     CONST_EXIT_FAILURE,
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_NETWORK_BRIDGE,
@@ -886,7 +885,7 @@ def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
         resolver.lookups,
     ) == (
         CONST_EXIT_FAILURE,
-        CONST_ERROR_CODE_SANDBOX_VALIDATION,
+        "SANDBOX_VALIDATION_ERROR",
         True,
         lookups == 1,
         cause,
@@ -916,7 +915,7 @@ def test_a_whitelist_name_that_does_not_resolve_is_refused(
         refusal.value.error_code,
         f"'{host}'" in str(refusal.value),
         [name for name, flags in failed_lookups if not flags & socket.AI_NUMERICHOST],
-    ) == (CONST_EXIT_FAILURE, CONST_ERROR_CODE_SANDBOX_VALIDATION, True, [host])
+    ) == (CONST_EXIT_FAILURE, "SANDBOX_VALIDATION_ERROR", True, [host])
 
 
 def test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses(

@@ -24,7 +24,6 @@ from devops_cli.ai.run_store import (
     save_run,
 )
 from devops_cli.commands.valkey import app
-from devops_cli.config.constants import CONST_ERROR_CODE_CONFIG
 from devops_cli.config.defaults import DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS
 from devops_cli.config.settings import ValkeyConfig, load_settings, save_settings
 from devops_cli.exceptions import ConfigurationError
@@ -327,7 +326,7 @@ class TestValkeyUrl:
             _ = settings.valkey.endpoint
         assert (raised.value.exit_code, raised.value.error_code, raised.value.details) == (
             1,
-            CONST_ERROR_CODE_CONFIG,
+            "CONFIGURATION_ERROR",
             {"key": "valkey.url"},
         )
 

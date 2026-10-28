@@ -6,20 +6,13 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Any
 
-from devops_cli.config.constants import CONST_EXIT_FAILURE
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
 class ReviewStateError(DevOpsCLIError, ValueError):
     """Exception raised for invalid review finding state or state transition."""
 
-    def __init__(self, message: str, **kwargs: Any) -> None:
-        super().__init__(
-            message,
-            exit_code=CONST_EXIT_FAILURE,
-            error_code="REVIEW_STATE_ERROR",
-            **kwargs,
-        )
+    error_code = "REVIEW_STATE_ERROR"
 
 
 class FindingState(StrEnum):

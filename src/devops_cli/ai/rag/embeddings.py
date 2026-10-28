@@ -37,8 +37,6 @@ from devops_cli.config.constants import (
     CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR,
     CONST_AIMD_SUCCESS_THRESHOLD,
     CONST_EMBEDDING_REPLY_EXCERPT_CHARS,
-    CONST_ERROR_CODE_EMBEDDINGS,
-    CONST_EXIT_FAILURE,
     CONST_KNOWN_EMBEDDING_DIMENSIONS,
     CONST_QWEN3_EMBEDDING_QUERY_PREFIX,
     CONST_RAG_MAX_CHUNK_TOKENS,
@@ -176,13 +174,14 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
     code could not predict which it would get.
     """
 
+    error_code = "EMBEDDINGS_ERROR"
+
     def __init__(
         self,
         message: str,
         *,
         is_transient: bool = False,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_EMBEDDINGS,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         self.is_transient = is_transient
@@ -190,7 +189,6 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
             self,
             message,
             exit_code=exit_code,
-            error_code=error_code,
             details=details,
         )
 

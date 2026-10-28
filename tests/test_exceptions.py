@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
+import re
+import textwrap
+
+from devops_cli.docs.generator import DocGenerator
 from devops_cli.exceptions import (
     BranchAlreadyExistsError,
     ChecksumMismatchError,
@@ -10,32 +16,36 @@ from devops_cli.exceptions import (
     GitOperationError,
     InvalidBranchNameError,
     InvalidURLError,
-    InvalidVersionError,
     KeyringUnavailableError,
-    SecretExposureError,
     SSRFBlockedError,
     ToolDownloadError,
     ToolExecutionError,
     ValidationError,
 )
+from tests.support.paths import REPO_ROOT
 
 
 def test_base_devops_cli_error() -> None:
-    err = DevOpsCLIError(
+    """An error takes its class's codes, and `exit_code=` overrides the exit status of one instance."""
+
+    class CustomError(DevOpsCLIError):
+        error_code = "CUSTOM_CODE"
+        exit_code = 5
+
+    err = CustomError("Generic error message", details={"k": "v"})
+    overridden = CustomError("Subprocess failed", exit_code=7)
+
+    assert (str(err), err.to_dict(), overridden.exit_code, CustomError.exit_code) == (
         "Generic error message",
-        exit_code=5,
-        error_code="CUSTOM_CODE",
-        details={"k": "v"},
+        {
+            "error_code": "CUSTOM_CODE",
+            "message": "Generic error message",
+            "exit_code": 5,
+            "details": {"k": "v"},
+        },
+        7,
+        5,
     )
-    assert str(err) == "Generic error message"
-    assert err.exit_code == 5
-    assert err.error_code == "CUSTOM_CODE"
-    assert err.to_dict() == {
-        "error_code": "CUSTOM_CODE",
-        "message": "Generic error message",
-        "exit_code": 5,
-        "details": {"k": "v"},
-    }
 
 
 def test_ssrf_blocked_error() -> None:
@@ -63,14 +73,6 @@ def test_keyring_unavailable_error() -> None:
     assert "Keyring" in str(err)
 
 
-def test_secret_exposure_error() -> None:
-    err = SecretExposureError("aws_key", "src/main.py:12")
-    assert err.exit_code == 4
-    assert err.error_code == "SECRET_EXPOSURE_DETECTED"
-    assert "aws_key" in str(err)
-    assert "src/main.py:12" in str(err)
-
-
 def test_validation_exceptions() -> None:
     val_err = ValidationError("Invalid value", field="endpoint")
     assert isinstance(val_err, DevOpsCLIError)
@@ -83,12 +85,6 @@ def test_validation_exceptions() -> None:
     assert isinstance(url_err, ValidationError)
     assert url_err.error_code == "INVALID_URL"
     assert "ftp://example.com" in str(url_err)
-
-    ver_err = InvalidVersionError("bad-version", tool_name="terraform")
-    assert isinstance(ver_err, ValidationError)
-    assert ver_err.error_code == "INVALID_VERSION"
-    assert "bad-version" in str(ver_err)
-    assert ver_err.details["tool_name"] == "terraform"
 
 
 def test_git_exceptions() -> None:
@@ -142,25 +138,117 @@ def test_one_error_code_maps_to_one_exit_status() -> None:
     `EmbeddingsError` reused `LLM_INFERENCE_ERROR` while exiting 1 rather than 10, so the
     generated catalog listed the same code against both.
     """
-    import devops_cli.ai.client.models
-    import devops_cli.ai.rag.embeddings
-    import devops_cli.exceptions.ai  # noqa: F401
-
-    def descendants(cls: type[DevOpsCLIError]) -> list[type[DevOpsCLIError]]:
-        found: list[type[DevOpsCLIError]] = []
-        for sub in cls.__subclasses__():
-            found.append(sub)
-            found.extend(descendants(sub))
-        return found
-
     statuses: dict[str, set[int]] = {}
-    for cls in descendants(DevOpsCLIError):
-        try:
-            error = cls("message")
-        except Exception:
-            continue
-        code, status = getattr(error, "error_code", None), getattr(error, "exit_code", None)
-        if isinstance(code, str) and isinstance(status, int):
-            statuses.setdefault(code, set()).add(status)
+    for cls in _error_classes():
+        statuses.setdefault(cls.error_code, set()).add(cls.exit_code)
 
     assert {code: sorted(v) for code, v in statuses.items() if len(v) > 1} == {}
+
+
+def _error_classes() -> list[type[DevOpsCLIError]]:
+    """Every `DevOpsCLIError` subclass of devops-cli's modules that the error catalog imports.
+
+    A test may define a subclass of its own; it is not one of devops-cli's errors.
+    """
+    DocGenerator._import_all_exception_modules()
+    found: list[type[DevOpsCLIError]] = []
+    pending: list[type[DevOpsCLIError]] = [DevOpsCLIError]
+    while pending:
+        for sub in pending.pop().__subclasses__():
+            pending.append(sub)
+            if sub.__module__.startswith("devops_cli."):
+                found.append(sub)
+    return found
+
+
+def _declared_codes(cls: type[DevOpsCLIError]) -> tuple[object, object]:
+    return getattr(cls, "error_code", None), getattr(cls, "exit_code", None)
+
+
+def _built(cls: type[DevOpsCLIError]) -> DevOpsCLIError:
+    """An instance of `cls` with a placeholder for each required argument and no override."""
+    params = inspect.signature(cls).parameters.values()
+    positional = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    args = [
+        "error" for p in params if p.default is inspect.Parameter.empty and p.kind in positional
+    ]
+    kwargs = {
+        p.name: "error"
+        for p in params
+        if p.default is inspect.Parameter.empty and p.kind is inspect.Parameter.KEYWORD_ONLY
+    }
+    return cls(*args, **kwargs)
+
+
+def test_each_error_class_declares_the_codes_of_its_catalog_row() -> None:
+    """The class data of each error is the error code and exit status of its row in docs/ERRORS.md (#2490)."""
+    catalog = REPO_ROOT / "docs" / "ERRORS.md"
+    rows = {
+        match[1]: (match[2], int(match[3]))
+        for line in catalog.read_text(encoding="utf-8").splitlines()
+        if (match := re.match(r"\| `(\w+)` \| `(\w+)` \| `(\d+)` \|", line))
+    }
+
+    assert {cls.__name__: _declared_codes(cls) for cls in _error_classes()} == rows
+
+
+def test_an_error_built_without_an_override_carries_its_class_codes() -> None:
+    """No `__init__` changes the error code or exit status that its class declares (#2490)."""
+    differ = {
+        cls.__name__
+        for cls in _error_classes()
+        if ((error := _built(cls)).error_code, error.exit_code) != _declared_codes(cls)
+    }
+
+    assert differ == set()
+
+
+def test_no_error_class_has_an_init_that_only_forwards_to_its_base() -> None:
+    """An `__init__` that passes its own arguments to its base unchanged, with its base's defaults, repeats the base (#2490).
+
+    An `__init__` that builds a message or details, or that gives an argument a default of its
+    own (a default message, a default GitHub operation), carries data and stays.
+    """
+
+    def only_forwards(cls: type[DevOpsCLIError]) -> bool:
+        init = vars(cls)["__init__"]
+        function = ast.parse(textwrap.dedent(inspect.getsource(init))).body[0]
+        assert isinstance(function, ast.FunctionDef)
+        body = [
+            statement
+            for statement in function.body
+            if not (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant))
+        ]
+        if len(body) != 1 or not isinstance(body[0], ast.Expr):
+            return False
+        call = body[0].value
+        if not (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "__init__"
+            and isinstance(call.func.value, ast.Call)
+            and getattr(call.func.value.func, "id", None) == "super"
+        ):
+            return False
+        own = list(inspect.signature(init).parameters.values())[1:]
+        names = {param.name for param in own}
+        passes_through = all(
+            isinstance(arg, ast.Name) and arg.id in names for arg in call.args
+        ) and all(
+            isinstance(keyword.value, ast.Name)
+            and keyword.value.id == (keyword.arg or keyword.value.id)
+            for keyword in call.keywords
+        )
+        base = inspect.signature(super(cls, cls).__init__).parameters
+        same_defaults = all(
+            param.kind is inspect.Parameter.VAR_KEYWORD
+            or (param.name in base and base[param.name].default == param.default)
+            for param in own
+        )
+        return passes_through and same_defaults
+
+    forwarding = {
+        cls.__name__ for cls in _error_classes() if "__init__" in vars(cls) and only_forwards(cls)
+    }
+
+    assert forwarding == set()

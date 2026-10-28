@@ -22,22 +22,13 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.constants import CONST_EXIT_FAILURE
 from devops_cli.exceptions import DevOpsCLIError
 
 
 class MemoryProfilerError(DevOpsCLIError, ValueError):
     """Domain exception raised when memory profiling target resolution or execution fails."""
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "PROFILER_ERROR",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "PROFILER_ERROR"
 
 
 class MemoryAllocationItem(BaseModel):

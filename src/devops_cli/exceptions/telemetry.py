@@ -2,36 +2,33 @@
 
 from __future__ import annotations
 
-from devops_cli.config.constants import (
-    CONST_ERROR_CODE_LOGFIRE,
-    CONST_ERROR_CODE_SERVICE_STATUS,
-    CONST_ERROR_CODE_TELEMETRY,
-)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
 class TelemetryError(DevOpsCLIError):
     """Base exception for telemetry, tracing, and metric collection errors."""
 
+    error_code = "TELEMETRY_ERROR"
+
     def __init__(
         self,
         message: str = "Telemetry error encountered",
-        error_code: str = CONST_ERROR_CODE_TELEMETRY,
-        exit_code: int = 1,
+        exit_code: int | None = None,
     ) -> None:
-        super().__init__(message=message, error_code=error_code, exit_code=exit_code)
+        super().__init__(message=message, exit_code=exit_code)
 
 
 class LogfireConfigurationError(TelemetryError):
     """Raised when Logfire configuration fails or credentials cannot be retrieved."""
 
+    error_code = "LOGFIRE_CONFIG_ERROR"
+
     def __init__(
         self,
         message: str = "Logfire configuration failed",
-        error_code: str = CONST_ERROR_CODE_LOGFIRE,
-        exit_code: int = 1,
+        exit_code: int | None = None,
     ) -> None:
-        super().__init__(message=message, error_code=error_code, exit_code=exit_code)
+        super().__init__(message=message, exit_code=exit_code)
 
 
 class OtlpExportError(TelemetryError):
@@ -40,10 +37,9 @@ class OtlpExportError(TelemetryError):
     def __init__(
         self,
         message: str = "The collector did not take the export",
-        error_code: str = CONST_ERROR_CODE_TELEMETRY,
-        exit_code: int = 1,
+        exit_code: int | None = None,
     ) -> None:
-        super().__init__(message=message, error_code=error_code, exit_code=exit_code)
+        super().__init__(message=message, exit_code=exit_code)
 
 
 class OtlpProtocolError(TelemetryError, ValueError):
@@ -52,19 +48,19 @@ class OtlpProtocolError(TelemetryError, ValueError):
     def __init__(
         self,
         message: str = "devops-cli sends OTLP over HTTP only",
-        error_code: str = CONST_ERROR_CODE_TELEMETRY,
-        exit_code: int = 1,
+        exit_code: int | None = None,
     ) -> None:
-        super().__init__(message=message, error_code=error_code, exit_code=exit_code)
+        super().__init__(message=message, exit_code=exit_code)
 
 
 class ServiceStatusError(TelemetryError):
     """Raised when querying upstream published service status fails."""
 
+    error_code = "SERVICE_STATUS_ERROR"
+
     def __init__(
         self,
         message: str = "Failed to query upstream service status",
-        error_code: str = CONST_ERROR_CODE_SERVICE_STATUS,
-        exit_code: int = 1,
+        exit_code: int | None = None,
     ) -> None:
-        super().__init__(message=message, error_code=error_code, exit_code=exit_code)
+        super().__init__(message=message, exit_code=exit_code)

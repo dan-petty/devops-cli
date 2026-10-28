@@ -770,11 +770,10 @@ def test_configuration_and_error_catalog_docs_describe_real_surface(
             for field in Settings.model_fields
         ),
         "| `ChecksumMismatchError` | `CHECKSUM_MISMATCH` | `1` |" in errors_md,
-        "| `SecretExposureError` | `SECRET_EXPOSURE_DETECTED` | `4` |" in errors_md,
+        "| `KeyringUnavailableError` | `KEYRING_UNAVAILABLE` | `3` |" in errors_md,
         "| `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` |" in errors_md,
         "| `SSHRegistrationError` | `GITHUB_OPERATION_FAILED` | `1` |" in errors_md,
-        "Only `devops cloudflare`, `devops valkey` and `devops sandbox` exit with it today"
-        in errors_md,
+        "prints one error line and exits with the exception's `exit_code`" in errors_md,
     ) == (2, 130, True, True, True, True, True, True, True, True, True)
 
 

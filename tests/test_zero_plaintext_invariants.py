@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from devops_cli.commands.config import _detect_keyring_secret_leaks
-from devops_cli.exceptions.security import InsecureConfigError
 
 
 def test_find_plaintext_config_leaks_detects_secrets(tmp_path: Path) -> None:
@@ -39,16 +38,3 @@ def test_zero_plaintext_in_workspace_configs() -> None:
     assert (leaks, unaudited) == ([], []), (
         f"Found plaintext secrets in {leaks}, or could not audit {unaudited}"
     )
-
-
-def test_exception_sanitization_masks_sensitive_tokens() -> None:
-    """Verify security exceptions sanitize credentials and paths."""
-    err = InsecureConfigError(
-        option_key="grafana.token",
-        reason="Plaintext token detected",
-        path=Path("/home/user/.devops/config.yaml"),
-    )
-    msg = str(err)
-    assert "grafana.token" in msg
-    assert err.error_code == "E_INSECURE_CONFIG"
-    assert err.exit_code == 126

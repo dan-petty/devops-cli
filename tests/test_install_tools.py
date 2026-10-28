@@ -27,7 +27,6 @@ from devops_cli.commands.install_tools import (
     install_python_tool,
 )
 from devops_cli.commands.install_tools import app as install_tools_app
-from devops_cli.config.constants import CONST_ERROR_CODE_TOOL
 from devops_cli.exceptions import (
     ChecksumMismatchError,
     DependencyError,
@@ -515,7 +514,7 @@ def test_a_failed_npm_ci_leaves_no_stage_no_link_and_an_earlier_install_as_it_wa
     ) == (
         f"npm could not install openspec: {_NPM_INTEGRITY_FAILURE[:256]}",
         1,
-        CONST_ERROR_CODE_TOOL,
+        "TOOL_EXECUTION_ERROR",
         [openspec.version],
         EXECUTABLE,
         (earlier / "node_modules" / ".bin" / "openspec").resolve(),
