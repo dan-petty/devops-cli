@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.3](https://github.com/dan-petty/devops-cli/compare/v0.11.2...v0.11.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **roadmap:** refine wraps no link in the model's code, and wraps each reference and link that GitHub makes from its text ([#2540](https://github.com/dan-petty/devops-cli/issues/2540)) ([2d38f8d](https://github.com/dan-petty/devops-cli/commit/2d38f8d8ca27cf38f798310d7d40f2869372b16b)), closes [#2525](https://github.com/dan-petty/devops-cli/issues/2525)
+
+
+### Code Refactoring
+
+* **docker:** DockerEngineService is the Docker engine seam, with an in-memory engine fake and its contract suite ([#2534](https://github.com/dan-petty/devops-cli/issues/2534)) ([1244cbf](https://github.com/dan-petty/devops-cli/commit/1244cbfd5fa0f082c18e6e8cf8a0d0769e3d738e)), closes [#1316](https://github.com/dan-petty/devops-cli/issues/1316)
+* **security:** one keyring seam owns the keyring and the Secret Service, with a shared fake and its contract suite ([#2532](https://github.com/dan-petty/devops-cli/issues/2532)) ([866d2cb](https://github.com/dan-petty/devops-cli/commit/866d2cb0cb770057e07bd99fcf8ffbe411383e34)), closes [#1318](https://github.com/dan-petty/devops-cli/issues/1318)
+* **telemetry:** OTLP export goes through one exporter seam, and tests read exported spans and metrics from a shared fake ([#2541](https://github.com/dan-petty/devops-cli/issues/2541)) ([8da35e6](https://github.com/dan-petty/devops-cli/commit/8da35e602c43b56a82d0a5b5d7904794a719d4de)), closes [#1319](https://github.com/dan-petty/devops-cli/issues/1319)
+
 ## [0.11.2](https://github.com/dan-petty/devops-cli/compare/v0.11.1...v0.11.2) (2026-10-28)
 
 
