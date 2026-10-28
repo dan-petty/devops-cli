@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2](https://github.com/dan-petty/devops-cli/compare/v0.8.1...v0.8.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **github:** a failed milestone patch leaves the created issue without a milestone, the board-less triage audit reports no missing priority, and review threads read every comment page ([#2158](https://github.com/dan-petty/devops-cli/issues/2158)) ([#2394](https://github.com/dan-petty/devops-cli/issues/2394)) ([d509dba](https://github.com/dan-petty/devops-cli/commit/d509dba7bf6f37dffe17fe482592946a5310fd32))
+* **k8s:** bound prompt cache and set memory limit on ollama-64gib tier ([#2391](https://github.com/dan-petty/devops-cli/issues/2391)) ([69636b6](https://github.com/dan-petty/devops-cli/commit/69636b6c7b754c7d8aa222c2d2d7d4cf55901772))
+* **k8s:** remove IQ3_S gateway deployment from qwen3.8 and chat groups ([#2393](https://github.com/dan-petty/devops-cli/issues/2393)) ([0b76871](https://github.com/dan-petty/devops-cli/commit/0b76871b859a0fb20ac41d297253b41bc7890f30))
+
 ## [0.8.1](https://github.com/dan-petty/devops-cli/compare/v0.8.0...v0.8.1) (2026-10-27)
 
 
