@@ -36,11 +36,11 @@
 - Alternative considered: `raise ConfigurationError(...) from None`, as the issue proposes.
   - Rejected: PyYAML 6.0.3 keeps the full text of the document in `Mark.buffer`, and `from None` keeps the error in `__context__`.
 
-### 4. The helper catches each error of the read and the parse but `OSError`
-- Decision: The `except` block catches `Exception`, after an `except OSError: raise` block. Each error that it catches gives the same message. An error with no mark gives the message with no position.
-- Rationale: The safe loader of PyYAML raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value that it cannot build, such as `!!int <text>` or `!!bool <text>`. These errors are not `yaml.YAMLError`, and their messages quote the value. The decode of a file that is not UTF-8 raises `UnicodeDecodeError`, whose `object` attribute holds the bytes of the file. An `OSError` names only the file and is not a YAML problem, so it goes up as it did before.
-- Alternative considered: Catch `(yaml.YAMLError, ValueError, LookupError, AttributeError)`.
-  - Rejected: That list comes from the code of the constructors of PyYAML, and it is a list to keep current with PyYAML. An error that is not on the list quotes the value again.
+### 4. The helper catches the errors of the read and the parse by name
+- Decision: The `except` block catches `(yaml.YAMLError, ValueError, LookupError, AttributeError, RecursionError)`. Each error that it catches gives the same message. An error with no mark gives the message with no position. An `OSError` goes up as it did before.
+- Rationale: The safe loader of PyYAML raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value that it cannot build, such as `!!int <text>`, `!!bool <text>` or `!!int ''`. These errors are not `yaml.YAMLError`, and the messages of some quote the value. The composer of PyYAML calls itself for each level of a nested document, so a document that nests too deep raises `RecursionError`. The decode of a file that is not UTF-8 raises `UnicodeDecodeError`, a `ValueError` whose `object` attribute holds the bytes of the file. The list comes from the constructors of `SafeConstructor` in PyYAML 6.0.3 and from a run of `yaml.safe_load` on each kind of bad value. `tests/config/test_config_file_that_is_not_yaml.py` holds a file for each type, so a type that leaves the list fails a test. An `OSError` names only the file and is not a YAML problem.
+- Alternative considered: Catch `Exception`, after an `except OSError: raise` block.
+  - Rejected: A blind `except Exception` is a swallowed failure (BLE001), and `tests/test_swallowed_failures_ratchet.py` refuses a new one in `src/`. The ceiling of `config/settings.py` does not go up.
 
 ### 5. `devops config get` uses the existing exit seam
 - Decision: `devops config get` loads the settings inside `exit_on_error(ConfigurationError)`.
