@@ -604,7 +604,12 @@ def audit_stream(
 
 
 def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
-    """Return the secret-named keys holding a value in ``cfg_file``, or None if it is unreadable."""
+    """Return each secret-named key that holds a value in ``cfg_file``, as ``<path>:<section>.<key>``,
+    or None if the file is unreadable.
+
+    A leak names the full path: the global config file and a project config file can both have the
+    name ``config.yaml`` (#2426).
+    """
     import yaml
 
     from devops_cli.security.sanitizer import is_secret_field
@@ -628,7 +633,7 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
             composite = f"{section_name}.{opt_name}"
             # A secret-named key that is no longer an option is still a plaintext secret.
             if value and is_secret_field(str(opt_name), composite, secret_options):
-                leaks.append(f"{cfg_file.name}:{composite}")
+                leaks.append(f"{cfg_file}:{composite}")
     return leaks
 
 
