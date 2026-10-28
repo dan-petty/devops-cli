@@ -29,7 +29,6 @@ from urllib.request import parse_http_list, parse_keqv_list
 import httpx2
 from pydantic import ValidationError as SettingsValidationError
 
-from devops_cli.config import options as opt
 from devops_cli.config.commands import build_kubectl_cmd
 from devops_cli.config.constants import (
     CONST_ARGOCD_HEALTH_STATUS_HEALTHY,
@@ -76,6 +75,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_DOCTOR_HTTP_TIMEOUT_SECONDS,
     DEFAULT_K8S_DOCTOR_KUBECTL_TIMEOUT_SECONDS,
 )
+from devops_cli.config.env import credential
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.exceptions import ConfigurationError, SSRFBlockedError
@@ -88,7 +88,7 @@ from devops_cli.security.sanitizer import mask_secrets
 _INGRESS_REF = f"{CONST_K8S_GITEA_NAMESPACE}/{CONST_K8S_GITEA_INGRESS}"
 _PLANNED_HOST = f"<host of Ingress {_INGRESS_REF}>"
 """How a dry run names the host of the HTTP requests, which only a real run reads."""
-_KEYRING_KEY = opt.KEYRING_KEYS[opt.GITEA_ADMIN_PASSWORD]
+_KEYRING_KEY = credential("gitea.admin_password").keyring_name
 _CREATE_RESOURCE = f"POST {CONST_GITEA_CREATE_REPO_PATH}"
 
 
@@ -480,8 +480,8 @@ def _admin_auth() -> httpx2.BasicAuth:
     password = get_gitea_admin_password(settings)
     if not password:
         raise DoctorCheckError(
-            f"{opt.GITEA_ADMIN_PASSWORD} has no value: store it with "
-            f"`devops config set {opt.GITEA_ADMIN_PASSWORD}`"
+            "gitea.admin_password has no value: store it with "
+            "`devops config set gitea.admin_password`"
         )
     return httpx2.BasicAuth(CONST_K8S_GITEA_ADMIN_USER, password)
 

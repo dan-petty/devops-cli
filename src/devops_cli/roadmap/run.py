@@ -50,7 +50,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
-from devops_cli.config.env import ENV_DATA_DIR
+from devops_cli.config.env import env_var_for_option
 from devops_cli.core.paths import (
     is_forbidden_system_path,
     safe_resolve_subpath,
@@ -131,7 +131,9 @@ class JobRow:
 def _resolve_data_dir(data_dir: Path | str | None = None) -> Path:
     """Resolve data directory path defensively."""
     raw: Path | str = (
-        data_dir if data_dir is not None else (os.environ.get(ENV_DATA_DIR) or DEFAULT_DATA_DIR)
+        data_dir
+        if data_dir is not None
+        else (os.environ.get(env_var_for_option("data.dir") or "") or DEFAULT_DATA_DIR)
     )
     path = Path(raw).resolve()
     try:

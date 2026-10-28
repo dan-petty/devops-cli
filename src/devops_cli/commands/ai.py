@@ -54,7 +54,6 @@ from devops_cli.config.defaults import (
     DEFAULT_TIKTOKEN_MODEL,
 )
 from devops_cli.config.env import env_var_for_option
-from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import (
     SecretStorageError,
     dotted_set,
@@ -400,14 +399,14 @@ def config(
             return
         import os
 
-        from devops_cli.config.options import KEYRING_KEYS
+        from devops_cli.config.env import credential
         from devops_cli.config.settings import _keyring_has
 
         ai = settings.ai
         has_key = bool(
-            os.environ.get("DEVOPS_CLI_AI_API_KEY")
+            os.environ.get(credential("ai.api_key").env_vars[0])
             or os.environ.get("OPENAI_API_KEY")
-            or _keyring_has(KEYRING_KEYS.get("ai.api_key", "ai_api_key"))
+            or _keyring_has(credential("ai.api_key").keyring_name)
         )
         key_display = "[green]***set***[/green]" if has_key else "[dim](not set)[/dim]"
         rows = [
@@ -448,11 +447,11 @@ def config(
         raise typer.Exit(1) from exc
     if api_key:
         try:
-            dotted_set(settings, AI_API_KEY, api_key)
+            dotted_set(settings, "ai.api_key", api_key)
             print_success("API key saved to keyring")
         except SecretStorageError as exc:
             print_error(f"Could not store ai.api_key: {exc}", prefix=False)
-            env_var = env_var_for_option(AI_API_KEY)
+            env_var = env_var_for_option("ai.api_key")
             if env_var:
                 print_warning(
                     f"Use environment variable fallback: export {env_var}=<value>",

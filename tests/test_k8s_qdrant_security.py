@@ -29,7 +29,6 @@ from click.testing import CliRunner
 
 from devops_cli.commands.k8s.stack_lifecycle import deploy_stack
 from devops_cli.config import env as env_mod
-from devops_cli.config import options as opt
 from devops_cli.config.settings import (
     QdrantConfig,
     Settings,
@@ -195,27 +194,21 @@ def test_qdrant_helm_values_security() -> None:
     )
 
 
-def test_qdrant_config_options_and_secret_registry() -> None:
-    """Verify Qdrant config options and secret registry mappings."""
-    assert opt.QDRANT_API_KEY in opt.CONFIG_OPTIONS
-    assert opt.QDRANT_URL in opt.CONFIG_OPTIONS
-    assert opt.QDRANT_COLLECTION_PREFIX in opt.CONFIG_OPTIONS
-
-    assert opt.QDRANT_API_KEY in opt.SECRET_CONFIG_OPTIONS
-    assert opt.KEYRING_KEYS[opt.QDRANT_API_KEY] == "qdrant_api_key"
-
-
-def test_qdrant_env_variable_mappings() -> None:
-    """Verify Qdrant environment variable mappings and secret specs."""
-    assert env_mod.ENV_QDRANT_API_KEY == "DEVOPS_CLI_QDRANT_API_KEY"
-    assert env_mod.OPTION_TO_ENV_VAR[opt.QDRANT_API_KEY] == env_mod.ENV_QDRANT_API_KEY
-    assert env_mod.ENV_VAR_TO_OPTION[env_mod.ENV_QDRANT_API_KEY] == opt.QDRANT_API_KEY
-
+def test_qdrant_settings_variables_and_its_api_key_credential() -> None:
+    """The Qdrant URL and prefix are settings that a variable sets; its API key is a credential."""
     specs = {s.env_var: s for s in env_mod.get_all_env_var_specs()}
-    spec = specs.get(env_mod.ENV_QDRANT_API_KEY)
-    assert spec is not None
-    assert spec.is_secret is True
-    assert spec.option_key == opt.QDRANT_API_KEY
+    key_spec = specs["DEVOPS_CLI_QDRANT_API_KEY"]
+    assert (
+        env_mod.env_var_for_option("qdrant.url"),
+        env_mod.env_var_for_option("qdrant.collection_prefix"),
+        env_mod.credential("qdrant.api_key").keyring_name,
+        (key_spec.is_secret, key_spec.option_key),
+    ) == (
+        "DEVOPS_CLI_QDRANT_URL",
+        "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX",
+        "qdrant_api_key",
+        (True, "qdrant.api_key"),
+    )
 
 
 def test_get_qdrant_api_key_precedence() -> None:

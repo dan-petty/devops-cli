@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app as config_app
-from devops_cli.config.env import OPTION_TO_ENV_VAR
+from devops_cli.config.env import setting_variables
 from devops_cli.config.settings import (
     Settings,
     dotted_get,
@@ -66,7 +66,7 @@ def test_numeric_setting_environment_override_valid(
     invalid_values: list[str],
 ) -> None:
     """A valid numeric environment override loads as its declared type."""
-    env_var = OPTION_TO_ENV_VAR[option_key]
+    env_var = setting_variables()[option_key]
     monkeypatch.setenv(env_var, valid_str)
     settings = load_settings()
     actual = dotted_get(settings, option_key)
@@ -87,7 +87,7 @@ def test_numeric_setting_environment_override_invalid(
     invalid_values: list[str],
 ) -> None:
     """An invalid numeric environment override is refused and names the environment variable."""
-    env_var = OPTION_TO_ENV_VAR[option_key]
+    env_var = setting_variables()[option_key]
     for bad in invalid_values:
         monkeypatch.setenv(env_var, bad)
         with pytest.raises(ConfigurationError) as exc_info:

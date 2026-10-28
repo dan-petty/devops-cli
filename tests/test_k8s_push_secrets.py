@@ -24,8 +24,12 @@ from keyring.backends.fail import Keyring as FailKeyring
 
 from devops_cli.commands.k8s.cluster_secret_push import push_secrets
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
-from devops_cli.config import options as opt
-from devops_cli.config.env import ENV_VAR_TO_OPTION, OPTION_TO_ENV_VAR, get_all_env_var_specs
+from devops_cli.config.env import (
+    get_all_env_var_specs,
+    keyring_names,
+    option_env_vars,
+    secret_keys,
+)
 from devops_cli.config.settings import TelemetryConfig
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
@@ -307,9 +311,9 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
         for entry in secret.entries
         if isinstance(entry.source, KeyringSource)
     ]
-    managed = set(opt.KEYRING_KEYS.values())
+    managed = set(keyring_names().values())
     assert (
-        all(opt.KEYRING_KEYS[s.option] == s.key for s in sources if s.option),
+        all(keyring_names()[s.option] == s.key for s in sources if s.option),
         {s.key for s in sources if not s.option} == keyring_only_keys(),
         keyring_only_keys() & managed,
         keyring_only_keys(),
@@ -319,24 +323,13 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
 def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
     devops_cli = next(s for s in CLUSTER_SECRETS if s.ref == "devops/devops-cli")
     option_keys = [e.key for e in devops_cli.entries if e.key.startswith("DEVOPS_CLI_")]
-    assert (
-        {key: ENV_VAR_TO_OPTION.get(key) for key in option_keys},
-        OPTION_TO_ENV_VAR[opt.SERVICE_GITHUB_APP_PRIVATE_KEY],
-        OPTION_TO_ENV_VAR[opt.AI_API_KEY],
-        OPTION_TO_ENV_VAR[opt.SERVICE_WEBHOOK_SECRETS],
-        OPTION_TO_ENV_VAR[opt.FIRECRAWL_API_KEY],
-    ) == (
-        {
-            "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY": opt.SERVICE_GITHUB_APP_PRIVATE_KEY,
-            "DEVOPS_CLI_AI_API_KEY": opt.AI_API_KEY,
-            "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": opt.SERVICE_WEBHOOK_SECRETS,
-            "DEVOPS_CLI_FIRECRAWL_API_KEY": opt.FIRECRAWL_API_KEY,
-        },
-        "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
-        "DEVOPS_CLI_AI_API_KEY",
-        "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",
-        "DEVOPS_CLI_FIRECRAWL_API_KEY",
-    )
+    option_of = {variable: key for key, variable in option_env_vars().items()}
+    assert {key: option_of.get(key) for key in option_keys} == {
+        "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY": "service.github_app.private_key",
+        "DEVOPS_CLI_AI_API_KEY": "ai.api_key",
+        "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": "service.webhook_secrets",
+        "DEVOPS_CLI_FIRECRAWL_API_KEY": "firecrawl.api_key",
+    }
 
 
 def _manifest_workloads() -> set[str]:
@@ -356,12 +349,12 @@ def test_every_restart_target_is_a_manifest_workload_or_helm_release() -> None:
 
 def test_tunnel_token_is_a_managed_credential() -> None:
     specs = {spec.option_key for spec in get_all_env_var_specs() if spec.is_secret}
-    registry = build_secret_registry(opt.KEYRING_KEYS)
+    registry = build_secret_registry()
     assert (
-        opt.CLOUDFLARE_TUNNEL_TOKEN in opt.SECRET_CONFIG_OPTIONS,
-        opt.KEYRING_KEYS[opt.CLOUDFLARE_TUNNEL_TOKEN],
-        opt.CLOUDFLARE_TUNNEL_TOKEN in specs,
-        registry[opt.CLOUDFLARE_TUNNEL_TOKEN].env_vars,
+        "cloudflare.tunnel_token" in secret_keys(),
+        keyring_names()["cloudflare.tunnel_token"],
+        "cloudflare.tunnel_token" in specs,
+        registry["cloudflare.tunnel_token"].env_vars,
     ) == (True, "cloudflare_tunnel_token", True, ("DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN",))
 
 
@@ -374,14 +367,14 @@ def test_the_gitea_admin_password_is_a_typed_managed_credential_and_its_user_a_l
     gitea = next(s for s in CLUSTER_SECRETS if s.ref == "gitea/gitea-admin")
     username, password = gitea.entries
     specs = {spec.option_key for spec in get_all_env_var_specs() if spec.is_secret}
-    registry = build_secret_registry(opt.KEYRING_KEYS)
+    registry = build_secret_registry()
     assert (
         (username.key, username.source),
         (password.key, password.source, password.required, password.generator),
-        opt.GITEA_ADMIN_PASSWORD in opt.SECRET_CONFIG_OPTIONS,
-        OPTION_TO_ENV_VAR[opt.GITEA_ADMIN_PASSWORD],
-        opt.GITEA_ADMIN_PASSWORD in specs,
-        registry[opt.GITEA_ADMIN_PASSWORD].env_vars,
+        "gitea.admin_password" in secret_keys(),
+        option_env_vars()["gitea.admin_password"],
+        "gitea.admin_password" in specs,
+        registry["gitea.admin_password"].env_vars,
     ) == (
         ("username", LiteralSource("gitea_admin")),
         ("password", KeyringSource("gitea_admin_password", "gitea.admin_password"), True, None),
@@ -1032,8 +1025,8 @@ def test_setting_and_literal_sources_feed_rows_later_items_add(
         "devops",
         (
             SecretEntry("url", LiteralSource("https://example.com/repo.git")),
-            SecretEntry("domain", SettingSource(opt.K8S_DOMAIN)),
-            SecretEntry("slug", SettingSource(opt.SERVICE_GITHUB_APP_SLUG), required=False),
+            SecretEntry("domain", SettingSource("k8s.domain")),
+            SecretEntry("slug", SettingSource("service.github_app.slug"), required=False),
         ),
     )
     plan = plan_push([row], PushOptions(context="test-ctx"))

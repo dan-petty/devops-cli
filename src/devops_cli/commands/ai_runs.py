@@ -29,7 +29,6 @@ from devops_cli.ai.run_store import (
     runs_dir,
     set_baseline,
 )
-from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_RUNS_INDEX_NAMESPACE,
@@ -166,7 +165,7 @@ def connect_cmd(
         print_error(f"The run index at {host}:{port} does not answer: {mask_secrets(exc.message)}")
         raise typer.Exit(code=1) from exc
     settings = load_settings()
-    dotted_set(settings, opt.RUNS_INDEX_PASSWORD, password)
+    dotted_set(settings, "runs.index_password", password)
     settings.runs.index_url = url
     save_settings(settings)
     print_success(

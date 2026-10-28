@@ -21,7 +21,6 @@ from devops_cli.ai.spend.models import (
     SpendRecord,
     StageSpendSummary,
 )
-from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_PRICING_SOURCE_LOCAL,
     CONST_RESPONSE_CACHE_SERVER,
@@ -286,7 +285,7 @@ def resolve_reference_pricing(reference_model: str | None = None) -> ReferencePr
     from devops_cli.ai.spend.pricing import get_pricing_registry
 
     given = reference_model.strip() if reference_model else ""
-    chat_setting = _REFERENCE_MODEL_OPTION if given else opt.AI_REFERENCE_MODEL
+    chat_setting = _REFERENCE_MODEL_OPTION if given else "ai.reference_model"
     chat_model = given or _ai_setting("reference_model", DEFAULT_AI_REFERENCE_MODEL)
     embedding_model = _ai_setting("reference_embedding_model", DEFAULT_AI_REFERENCE_EMBEDDING_MODEL)
     provider = _ai_setting("reference_provider", DEFAULT_AI_REFERENCE_PROVIDER)
@@ -299,7 +298,7 @@ def resolve_reference_pricing(reference_model: str | None = None) -> ReferencePr
         ),
         embedding=registry.price_reference(
             embedding_model,
-            setting=opt.AI_REFERENCE_EMBEDDING_MODEL,
+            setting="ai.reference_embedding_model",
             kind="embedding",
             provider=provider,
         ),

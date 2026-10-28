@@ -62,15 +62,14 @@ def test_github_token_is_not_a_config_option() -> None:
     """A person's GitHub identity comes only from `gh auth token`: no option, keyring key or
     variable holds a gh token. The one GitHub credential devops-cli keeps is the private key of
     the roadmap's GitHub App, a managed secret under `service.github_app` (ADR 0015)."""
-    from devops_cli.config import options as opt
-    from devops_cli.config.env import get_all_env_var_specs
+    from devops_cli.config.env import get_all_env_var_specs, secret_keys, setting_variables
 
     def github_section(keys: Iterable[str]) -> list[str]:
         return sorted(key for key in keys if key.partition(".")[0] == "github")
 
     assert (
-        github_section(opt.CONFIG_OPTIONS),
-        github_section(opt.SECRET_CONFIG_OPTIONS | opt.KEYRING_KEYS.keys()),
+        github_section(setting_variables().keys() | secret_keys()),
+        github_section(secret_keys()),
         [(s.env_var, s.is_secret) for s in get_all_env_var_specs() if "GITHUB" in s.env_var],
     ) == (
         ["github.default_org"],
@@ -79,20 +78,19 @@ def test_github_token_is_not_a_config_option() -> None:
             ("DEVOPS_CLI_GITHUB_DEFAULT_ORG", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID", False),
-            ("DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY", True),
+            ("DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG", False),
         ],
     )
 
 
 def test_the_ai_cache_backend_is_not_a_config_option() -> None:
     """The AI cache has no backend choice: no option, variable, field or key reads one."""
-    from devops_cli.config import options as opt
-    from devops_cli.config.env import get_all_env_var_specs
+    from devops_cli.config.env import get_all_env_var_specs, option_env_vars
     from devops_cli.config.settings import Settings
 
     assert (
-        "ai.cache.backend" in opt.CONFIG_OPTIONS,
+        "ai.cache.backend" in option_env_vars(),
         any(spec.env_var == "DEVOPS_CLI_AI_CACHE_BACKEND" for spec in get_all_env_var_specs()),
         "backend" in Settings().ai.cache.model_dump(),
         runner.invoke(app, ["get", "ai.cache.backend"]).exit_code,
@@ -101,12 +99,11 @@ def test_the_ai_cache_backend_is_not_a_config_option() -> None:
 
 def test_valkey_url_is_the_one_option_that_names_the_valkey_address() -> None:
     """No option, variable or field holds a Valkey host, port or database beside `valkey.url`."""
-    from devops_cli.config import options as opt
-    from devops_cli.config.env import get_all_env_var_specs
+    from devops_cli.config.env import get_all_env_var_specs, option_env_vars
     from devops_cli.config.settings import ValkeyConfig
 
     assert (
-        sorted(key for key in opt.CONFIG_OPTIONS if key.startswith("valkey.")),
+        sorted(key for key in option_env_vars() if key.startswith("valkey.")),
         sorted(
             spec.env_var
             for spec in get_all_env_var_specs()

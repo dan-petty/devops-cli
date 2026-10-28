@@ -32,7 +32,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_STAGING_DIRNAME,
     CONST_REVIEWS_DIR_NAME,
 )
-from devops_cli.config.env import ENV_DATA_DIR
+from devops_cli.config.env import env_var_for_option
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.core.repo import resolve_review_data_path
@@ -171,7 +171,7 @@ class ReviewSessionStore:
         Raises:
             SecurityError: The path holds a traversal sequence or is a host system directory.
         """
-        data_dir = os.environ.get(ENV_DATA_DIR)
+        data_dir = os.environ.get(env_var_for_option("data.dir") or "")
         configured = (
             Path(data_dir) / CONST_REVIEWS_DIR_NAME
             if data_dir

@@ -13,11 +13,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_K8S_GITEA_ADMIN_USER,
 )
+from devops_cli.config.env import credential
 
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "devops-cli"
@@ -40,6 +40,11 @@ class KeyringSource:
 
     key: str
     option: str | None = None
+
+    @classmethod
+    def for_credential(cls, option: str) -> KeyringSource:
+        """The keyring entry of the managed credential `option`, as `CREDENTIALS` names it."""
+        return cls(credential(option).keyring_name, option)
 
     @property
     def label(self) -> str:
@@ -180,7 +185,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         entries=(
             SecretEntry(
                 "api-key",
-                KeyringSource("qdrant_api_key", opt.QDRANT_API_KEY),
+                KeyringSource.for_credential("qdrant.api_key"),
                 generator=SecretGenerator("urlsafe", 32),
             ),
         ),
@@ -194,7 +199,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         entries=(
             SecretEntry(
                 "password",
-                KeyringSource("runs_index_password", opt.RUNS_INDEX_PASSWORD),
+                KeyringSource.for_credential("runs.index_password"),
                 generator=SecretGenerator("hex", 32),
             ),
         ),
@@ -210,7 +215,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         entries=(
             SecretEntry(
                 "VALKEY_PASSWORD",
-                KeyringSource("valkey_password", opt.VALKEY_PASSWORD),
+                KeyringSource.for_credential("valkey.password"),
                 generator=SecretGenerator("hex", 32),
             ),
         ),
@@ -224,7 +229,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         entries=(
             SecretEntry(
                 "token",
-                KeyringSource("cloudflare_tunnel_token", opt.CLOUDFLARE_TUNNEL_TOKEN),
+                KeyringSource.for_credential("cloudflare.tunnel_token"),
                 required=False,
             ),
         ),
@@ -240,7 +245,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             # (ADR 0015). A person stores it with `devops config set --from-file`.
             SecretEntry(
                 CONST_GITHUB_APP_PRIVATE_KEY_ENV,
-                KeyringSource("service_github_app_private_key", opt.SERVICE_GITHUB_APP_PRIVATE_KEY),
+                KeyringSource.for_credential("service.github_app.private_key"),
             ),
             SecretEntry(
                 "DEVOPS_CLI_AI_API_KEY",
@@ -250,12 +255,12 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             ),
             SecretEntry(
                 "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",
-                KeyringSource("service_webhook_secrets", opt.SERVICE_WEBHOOK_SECRETS),
+                KeyringSource.for_credential("service.webhook_secrets"),
                 required=False,
             ),
             SecretEntry(
                 "DEVOPS_CLI_FIRECRAWL_API_KEY",
-                KeyringSource("firecrawl_api_key", opt.FIRECRAWL_API_KEY),
+                KeyringSource.for_credential("firecrawl.api_key"),
                 required=False,
             ),
         ),
@@ -270,7 +275,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             SecretEntry("admin-user", LiteralSource("admin")),
             SecretEntry(
                 "admin-password",
-                KeyringSource("grafana_password", opt.GRAFANA_PASSWORD),
+                KeyringSource.for_credential("grafana.password"),
                 generator=SecretGenerator("urlsafe", 32),
                 adopt_from=SecretKeyRef("monitoring", "grafana", "admin-password"),
             ),
@@ -287,9 +292,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         stack="gitea",
         entries=(
             SecretEntry("username", LiteralSource(CONST_K8S_GITEA_ADMIN_USER)),
-            SecretEntry(
-                "password", KeyringSource("gitea_admin_password", opt.GITEA_ADMIN_PASSWORD)
-            ),
+            SecretEntry("password", KeyringSource.for_credential("gitea.admin_password")),
         ),
         restarts=(Workload("deployment", "gitea"),),
         labels={"app.kubernetes.io/name": "gitea"},

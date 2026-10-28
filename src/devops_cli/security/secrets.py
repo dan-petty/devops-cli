@@ -19,7 +19,6 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from devops_cli.config.constants import (
-    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_SECRET_AUDIT_MAX_ENTRIES,
     CONST_SECRET_PROVIDER_ENVIRONMENT,
     CONST_SECRET_PROVIDER_KEYRING,
@@ -390,81 +389,23 @@ def _vault_path_for(name: str) -> str:
     return f"{CONST_VAULT_SECRET_MOUNT}/{name}"
 
 
-def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
-    """Describe every managed credential and where it may be found.
+def build_secret_registry() -> dict[str, SecretRef]:
+    """Describe every managed credential and where it may be found, from `CREDENTIALS`.
 
-    Declaring the sources in one table is what replaced the per-credential fallback
-    ladders: precedence is now a property of the resolver, identical for every secret,
-    rather than something each getter re-decided for itself.
+    Declaring the sources once is what replaced the per-credential fallback ladders: precedence
+    is a property of the resolver, identical for every secret, rather than something each getter
+    re-decided for itself. A credential's Vault entry has the name of its keyring entry.
     """
-    from devops_cli.config import options as opt
-
-    definitions: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
-        (opt.GRAFANA_TOKEN, "grafana_token", ("DEVOPS_CLI_GRAFANA_TOKEN",), None),
-        (opt.GRAFANA_PASSWORD, "grafana_password", ("DEVOPS_CLI_GRAFANA_PASSWORD",), None),
-        (opt.ARGOCD_TOKEN, "argocd_token", ("DEVOPS_CLI_ARGOCD_TOKEN",), None),
-        (opt.ARGOCD_PASSWORD, "argocd_password", ("DEVOPS_CLI_ARGOCD_PASSWORD",), None),
-        (opt.AI_API_KEY, "ai_api_key", ("DEVOPS_CLI_AI_API_KEY",), None),
-        (opt.QDRANT_API_KEY, "qdrant_api_key", ("DEVOPS_CLI_QDRANT_API_KEY",), "qdrant.api_key"),
-        (
-            opt.VALKEY_PASSWORD,
-            "valkey_password",
-            ("DEVOPS_CLI_VALKEY_PASSWORD",),
-            "valkey.password",
-        ),
-        (opt.RUNS_INDEX_PASSWORD, "runs_index_password", ("DEVOPS_CLI_RUNS_INDEX_PASSWORD",), None),
-        (
-            opt.GITEA_ADMIN_PASSWORD,
-            "gitea_admin_password",
-            ("DEVOPS_CLI_GITEA_ADMIN_PASSWORD",),
-            None,
-        ),
-        (
-            opt.TELEMETRY_LOGFIRE_TOKEN,
-            "logfire_token",
-            ("DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN", "LOGFIRE_TOKEN"),
-            "telemetry.logfire_token",
-        ),
-        (
-            opt.CLOUDFLARE_API_TOKEN,
-            "cloudflare_api_token",
-            ("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN"),
-            None,
-        ),
-        (
-            opt.CLOUDFLARE_TUNNEL_TOKEN,
-            "cloudflare_tunnel_token",
-            ("DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN",),
-            None,
-        ),
-        (
-            opt.SERVICE_WEBHOOK_SECRETS,
-            "service_webhook_secrets",
-            ("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",),
-            None,
-        ),
-        (
-            opt.SERVICE_GITHUB_APP_PRIVATE_KEY,
-            "service_github_app_private_key",
-            (CONST_GITHUB_APP_PRIVATE_KEY_ENV,),
-            None,
-        ),
-        (
-            opt.FIRECRAWL_API_KEY,
-            "firecrawl_api_key",
-            ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"),
-            "firecrawl.api_key",
-        ),
-    )
+    from devops_cli.config.env import CREDENTIALS
 
     return {
-        option: SecretRef(
-            name=option,
-            keyring_key=keyring_keys.get(option),
-            env_vars=env_vars,
-            settings_path=settings_path,
-            vault_path=_vault_path_for(vault_name),
-            vault_key=vault_name,
+        entry.key: SecretRef(
+            name=entry.key,
+            keyring_key=entry.keyring_name,
+            env_vars=entry.env_vars,
+            settings_path=entry.key if entry.in_file else None,
+            vault_path=_vault_path_for(entry.keyring_name),
+            vault_key=entry.keyring_name,
         )
-        for option, vault_name, env_vars, settings_path in definitions
+        for entry in CREDENTIALS
     }

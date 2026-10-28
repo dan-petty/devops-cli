@@ -1,211 +1,208 @@
-"""Environment variable names mapped to config option keys."""
+"""The environment variables that set devops-cli, as views of the settings that declare them.
+
+A settings field declares that a variable sets it with a `Variable` marker, and its description
+with `Field(description=...)`. A credential is declared once in `CREDENTIALS`. Every list of
+settings, variables and keyring entries that a command, the docs or the secret resolver reads is
+derived here from those two declarations (#2444).
+"""
 
 from __future__ import annotations
 
-from typing import Any
+import functools
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
-import devops_cli.config.options as opt
-from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
-from devops_cli.config.defaults import (
-    DEFAULT_OTEL_ENDPOINT,
-    DEFAULT_VALKEY_TIMEOUT_SECONDS,
-    DEFAULT_VALKEY_URL,
-)
+from devops_cli.config.constants import CONST_PROJECT_CONFIG_ENV
+from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
 
-ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
+
 ENV_AGENT_GRANT = "DEVOPS_CLI_AGENT_GRANT"
 # OpenTelemetry's own name for the collector. devops-cli reads it only when its configuration
 # names no `telemetry.endpoint`.
 ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
-ENV_GITHUB_DEFAULT_ORG = "DEVOPS_CLI_GITHUB_DEFAULT_ORG"
-ENV_SSH_KEY_DIR = "DEVOPS_CLI_SSH_KEY_DIR"
-ENV_SSH_KEY_PREFIX = "DEVOPS_CLI_SSH_KEY_PREFIX"
-ENV_SSH_ROTATION_DAYS = "DEVOPS_CLI_SSH_ROTATION_DAYS"
-ENV_REPOS_BASE_DIR = "DEVOPS_CLI_REPOS_BASE_DIR"
-ENV_WORKSPACE_FILE = "DEVOPS_CLI_WORKSPACE_FILE"
-ENV_GRAFANA_URL = "DEVOPS_CLI_GRAFANA_URL"
-ENV_GRAFANA_TOKEN = "DEVOPS_CLI_GRAFANA_TOKEN"
-ENV_PROMETHEUS_URL = "DEVOPS_CLI_PROMETHEUS_URL"
-ENV_ARGOCD_URL = "DEVOPS_CLI_ARGOCD_URL"
-ENV_ARGOCD_TOKEN = "DEVOPS_CLI_ARGOCD_TOKEN"
-ENV_AI_PROVIDER = "DEVOPS_CLI_AI_PROVIDER"
-ENV_AI_MODEL = "DEVOPS_CLI_AI_MODEL"
-ENV_AI_OLLAMA_URLS = "DEVOPS_CLI_AI_OLLAMA_URLS"
-ENV_AI_OLLAMA_MAX_PARALLEL = "DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL"
-ENV_AI_API_BASE_URL = "DEVOPS_CLI_AI_API_BASE_URL"
-ENV_AI_GATEWAY_URL = "DEVOPS_CLI_AI_GATEWAY_URL"
-ENV_AI_API_KEY = "DEVOPS_CLI_AI_API_KEY"
-ENV_AI_REASONING_EFFORT = "DEVOPS_CLI_AI_REASONING_EFFORT"
-ENV_AI_ALLOW_PRIVATE_NETWORK = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
-ENV_AI_MAX_RETRIES = "DEVOPS_CLI_AI_MAX_RETRIES"
-ENV_AI_APPEND_CACHE = "DEVOPS_CLI_AI_APPEND_CACHE"
-
-ENV_AI_TASK_CHAT_PROVIDER = "DEVOPS_CLI_AI_TASK_CHAT_PROVIDER"
-ENV_AI_TASK_CHAT_MODEL = "DEVOPS_CLI_AI_TASK_CHAT_MODEL"
-ENV_AI_TASK_CHAT_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_CHAT_REASONING_EFFORT"
-ENV_AI_TASK_CHAT_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_CHAT_OLLAMA_URLS"
-ENV_AI_TASK_METADATA_PROVIDER = "DEVOPS_CLI_AI_TASK_METADATA_PROVIDER"
-ENV_AI_TASK_METADATA_MODEL = "DEVOPS_CLI_AI_TASK_METADATA_MODEL"
-ENV_AI_TASK_METADATA_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT"
-ENV_AI_TASK_METADATA_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS"
-ENV_AI_TASK_ANALYSIS_PROVIDER = "DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER"
-ENV_AI_TASK_ANALYSIS_MODEL = "DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL"
-ENV_AI_TASK_ANALYSIS_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_ANALYSIS_REASONING_EFFORT"
-ENV_AI_TASK_ANALYSIS_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URLS"
-ENV_AI_TASK_EMBEDDING_PROVIDER = "DEVOPS_CLI_AI_TASK_EMBEDDING_PROVIDER"
-ENV_AI_TASK_EMBEDDING_MODEL = "DEVOPS_CLI_AI_TASK_EMBEDDING_MODEL"
-ENV_AI_TASK_EMBEDDING_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_EMBEDDING_REASONING_EFFORT"
-ENV_AI_TASK_EMBEDDING_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_EMBEDDING_OLLAMA_URLS"
-ENV_AI_TASK_EMBEDDING_TIMEOUT = "DEVOPS_CLI_AI_TASK_EMBEDDING_TIMEOUT"
-
-ENV_AI_RAG_ENABLED = "DEVOPS_CLI_AI_RAG_ENABLED"
-ENV_AI_RAG_TOP_K = "DEVOPS_CLI_AI_RAG_TOP_K"
-ENV_AI_RAG_SCORE_THRESHOLD = "DEVOPS_CLI_AI_RAG_SCORE_THRESHOLD"
-
-ENV_QDRANT_URL = "DEVOPS_CLI_QDRANT_URL"
-ENV_QDRANT_API_KEY = "DEVOPS_CLI_QDRANT_API_KEY"
-ENV_QDRANT_COLLECTION_PREFIX = "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX"
-ENV_QDRANT_TIMEOUT = "DEVOPS_CLI_QDRANT_TIMEOUT"
-
-ENV_VALKEY_URL = "DEVOPS_CLI_VALKEY_URL"
-ENV_VALKEY_PASSWORD = "DEVOPS_CLI_VALKEY_PASSWORD"
-ENV_VALKEY_TIMEOUT = "DEVOPS_CLI_VALKEY_TIMEOUT"
-ENV_RUNS_INDEX_URL = "DEVOPS_CLI_RUNS_INDEX_URL"
-ENV_RUNS_INDEX_PASSWORD = "DEVOPS_CLI_RUNS_INDEX_PASSWORD"
-ENV_GITEA_ADMIN_PASSWORD = "DEVOPS_CLI_GITEA_ADMIN_PASSWORD"
-ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
-ENV_K8S_DOMAIN = "DEVOPS_CLI_K8S_DOMAIN"
-ENV_CLOUDFLARE_DOMAIN = "DEVOPS_CLI_CLOUDFLARE_DOMAIN"
-ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
-ENV_CLOUDFLARE_ACCOUNT_ID = "DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID"
-ENV_CLOUDFLARE_ZONE_ID = "DEVOPS_CLI_CLOUDFLARE_ZONE_ID"
-ENV_CLOUDFLARE_API_TOKEN = "DEVOPS_CLI_CLOUDFLARE_API_TOKEN"
-ENV_CLOUDFLARE_TUNNEL_TOKEN = "DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN"
-ENV_TELEMETRY_ENABLED = "DEVOPS_CLI_TELEMETRY_ENABLED"
-ENV_TELEMETRY_ENDPOINT = "DEVOPS_CLI_TELEMETRY_ENDPOINT"
+_VARIABLE_PREFIX = "DEVOPS_CLI"
 
 
-# Data Storage & Artifact Path environment variables
-ENV_DATA_DIR = "DEVOPS_CLI_DATA_DIR"
-ENV_DATA_ANALYSIS_DIR = "DEVOPS_CLI_DATA_ANALYSIS_DIR"
-ENV_DATA_REVIEWS_DIR = "DEVOPS_CLI_DATA_REVIEWS_DIR"
-ENV_DATA_LOGS_DIR = "DEVOPS_CLI_DATA_LOGS_DIR"
-ENV_DATA_MODELS_DIR = "DEVOPS_CLI_DATA_MODELS_DIR"
-ENV_DATA_CACHE_DIR = "DEVOPS_CLI_DATA_CACHE_DIR"
-ENV_DATA_BENCHMARKS_DIR = "DEVOPS_CLI_DATA_BENCHMARKS_DIR"
-ENV_DATA_RAG_DIR = "DEVOPS_CLI_DATA_RAG_DIR"
-ENV_DATA_SAMPLES_DIR = "DEVOPS_CLI_DATA_SAMPLES_DIR"
-ENV_DATA_RUNS_DIR = "DEVOPS_CLI_DATA_RUNS_DIR"
-ENV_DATA_TLS_DIR = "DEVOPS_CLI_DATA_TLS_DIR"
-ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
-ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
+@dataclass(frozen=True)
+class Variable:
+    """Marks a settings field that an environment variable sets.
 
-ENV_SERVICE_REPOS = "DEVOPS_CLI_SERVICE_REPOS"
-ENV_SERVICE_GITHUB_APP_APP_ID = "DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID"
-ENV_SERVICE_GITHUB_APP_INSTALLATION_ID = "DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID"
-ENV_SERVICE_GITHUB_APP_SLUG = "DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG"
-ENV_SERVICE_GITHUB_APP_PRIVATE_KEY = CONST_GITHUB_APP_PRIVATE_KEY_ENV
-ENV_SERVICE_POLL_INTERVAL_SECONDS = "DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS"
-ENV_SERVICE_DRAIN_TIMEOUT_SECONDS = "DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS"
-ENV_SERVICE_WEBHOOK_SECRETS = "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS"
-ENV_FIRECRAWL_API_KEY = "DEVOPS_CLI_FIRECRAWL_API_KEY"
-ENV_CI_GATE_SLOTS = "DEVOPS_CLI_CI_GATE_SLOTS"
+    The variable is `DEVOPS_CLI_` and the field's dotted key in upper case, with `_` for `.`. On a
+    field that holds a section, `fields` names the section's fields that a variable sets, for a
+    section model that several fields share, and `segment` takes the place of the field's name in
+    the variables of the fields under it.
+    """
 
-OPTION_TO_ENV_VAR: dict[str, str] = {
-    opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
-    opt.SSH_KEY_DIR: ENV_SSH_KEY_DIR,
-    opt.SSH_KEY_PREFIX: ENV_SSH_KEY_PREFIX,
-    opt.SSH_ROTATION_DAYS: ENV_SSH_ROTATION_DAYS,
-    opt.REPOS_BASE_DIR: ENV_REPOS_BASE_DIR,
-    opt.WORKSPACE_FILE: ENV_WORKSPACE_FILE,
-    opt.GRAFANA_URL: ENV_GRAFANA_URL,
-    opt.GRAFANA_TOKEN: ENV_GRAFANA_TOKEN,
-    opt.PROMETHEUS_URL: ENV_PROMETHEUS_URL,
-    opt.ARGOCD_URL: ENV_ARGOCD_URL,
-    opt.ARGOCD_TOKEN: ENV_ARGOCD_TOKEN,
-    opt.AI_PROVIDER: ENV_AI_PROVIDER,
-    opt.AI_MODEL: ENV_AI_MODEL,
-    opt.AI_OLLAMA_URLS: ENV_AI_OLLAMA_URLS,
-    opt.AI_OLLAMA_MAX_PARALLEL: ENV_AI_OLLAMA_MAX_PARALLEL,
-    opt.AI_API_BASE_URL: ENV_AI_API_BASE_URL,
-    opt.AI_GATEWAY_URL: ENV_AI_GATEWAY_URL,
-    opt.AI_API_KEY: ENV_AI_API_KEY,
-    opt.AI_REASONING_EFFORT: ENV_AI_REASONING_EFFORT,
-    opt.AI_ALLOW_PRIVATE_NETWORK: ENV_AI_ALLOW_PRIVATE_NETWORK,
-    opt.AI_MAX_RETRIES: ENV_AI_MAX_RETRIES,
-    opt.AI_TASK_CHAT_PROVIDER: ENV_AI_TASK_CHAT_PROVIDER,
-    opt.AI_TASK_CHAT_MODEL: ENV_AI_TASK_CHAT_MODEL,
-    opt.AI_TASK_CHAT_REASONING_EFFORT: ENV_AI_TASK_CHAT_REASONING_EFFORT,
-    opt.AI_TASK_CHAT_OLLAMA_URLS: ENV_AI_TASK_CHAT_OLLAMA_URLS,
-    opt.AI_TASK_METADATA_PROVIDER: ENV_AI_TASK_METADATA_PROVIDER,
-    opt.AI_TASK_METADATA_MODEL: ENV_AI_TASK_METADATA_MODEL,
-    opt.AI_TASK_METADATA_REASONING_EFFORT: ENV_AI_TASK_METADATA_REASONING_EFFORT,
-    opt.AI_TASK_METADATA_OLLAMA_URLS: ENV_AI_TASK_METADATA_OLLAMA_URLS,
-    opt.AI_TASK_ANALYSIS_PROVIDER: ENV_AI_TASK_ANALYSIS_PROVIDER,
-    opt.AI_TASK_ANALYSIS_MODEL: ENV_AI_TASK_ANALYSIS_MODEL,
-    opt.AI_TASK_ANALYSIS_REASONING_EFFORT: ENV_AI_TASK_ANALYSIS_REASONING_EFFORT,
-    opt.AI_TASK_ANALYSIS_OLLAMA_URLS: ENV_AI_TASK_ANALYSIS_OLLAMA_URLS,
-    opt.AI_TASK_EMBEDDING_PROVIDER: ENV_AI_TASK_EMBEDDING_PROVIDER,
-    opt.AI_TASK_EMBEDDING_MODEL: ENV_AI_TASK_EMBEDDING_MODEL,
-    opt.AI_TASK_EMBEDDING_REASONING_EFFORT: ENV_AI_TASK_EMBEDDING_REASONING_EFFORT,
-    opt.AI_TASK_EMBEDDING_OLLAMA_URLS: ENV_AI_TASK_EMBEDDING_OLLAMA_URLS,
-    opt.AI_TASK_EMBEDDING_TIMEOUT: ENV_AI_TASK_EMBEDDING_TIMEOUT,
-    opt.AI_RAG_ENABLED: ENV_AI_RAG_ENABLED,
-    opt.AI_RAG_TOP_K: ENV_AI_RAG_TOP_K,
-    opt.AI_RAG_SCORE_THRESHOLD: ENV_AI_RAG_SCORE_THRESHOLD,
-    opt.QDRANT_URL: ENV_QDRANT_URL,
-    opt.QDRANT_API_KEY: ENV_QDRANT_API_KEY,
-    opt.QDRANT_COLLECTION_PREFIX: ENV_QDRANT_COLLECTION_PREFIX,
-    opt.QDRANT_TIMEOUT: ENV_QDRANT_TIMEOUT,
-    opt.VALKEY_URL: ENV_VALKEY_URL,
-    opt.VALKEY_PASSWORD: ENV_VALKEY_PASSWORD,
-    opt.VALKEY_TIMEOUT: ENV_VALKEY_TIMEOUT,
-    opt.RUNS_INDEX_URL: ENV_RUNS_INDEX_URL,
-    opt.RUNS_INDEX_PASSWORD: ENV_RUNS_INDEX_PASSWORD,
-    opt.GITEA_ADMIN_PASSWORD: ENV_GITEA_ADMIN_PASSWORD,
-    opt.K8S_CONTEXT: ENV_K8S_CONTEXT,
-    opt.K8S_DOMAIN: ENV_K8S_DOMAIN,
-    opt.CLOUDFLARE_DOMAIN: ENV_CLOUDFLARE_DOMAIN,
-    opt.CLOUDFLARE_TUNNEL: ENV_CLOUDFLARE_TUNNEL,
-    opt.CLOUDFLARE_ACCOUNT_ID: ENV_CLOUDFLARE_ACCOUNT_ID,
-    opt.CLOUDFLARE_ZONE_ID: ENV_CLOUDFLARE_ZONE_ID,
-    opt.CLOUDFLARE_API_TOKEN: ENV_CLOUDFLARE_API_TOKEN,
-    opt.CLOUDFLARE_TUNNEL_TOKEN: ENV_CLOUDFLARE_TUNNEL_TOKEN,
-    opt.TELEMETRY_ENABLED: ENV_TELEMETRY_ENABLED,
-    opt.TELEMETRY_ENDPOINT: ENV_TELEMETRY_ENDPOINT,
-    opt.DATA_DIR: ENV_DATA_DIR,
-    opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
-    opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
-    opt.DATA_LOGS_DIR: ENV_DATA_LOGS_DIR,
-    opt.DATA_MODELS_DIR: ENV_DATA_MODELS_DIR,
-    opt.DATA_CACHE_DIR: ENV_DATA_CACHE_DIR,
-    opt.DATA_BENCHMARKS_DIR: ENV_DATA_BENCHMARKS_DIR,
-    opt.DATA_RAG_DIR: ENV_DATA_RAG_DIR,
-    opt.DATA_SAMPLES_DIR: ENV_DATA_SAMPLES_DIR,
-    opt.DATA_RUNS_DIR: ENV_DATA_RUNS_DIR,
-    opt.DATA_TLS_DIR: ENV_DATA_TLS_DIR,
-    opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
-    opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
-    opt.SERVICE_REPOS: ENV_SERVICE_REPOS,
-    opt.SERVICE_GITHUB_APP_APP_ID: ENV_SERVICE_GITHUB_APP_APP_ID,
-    opt.SERVICE_GITHUB_APP_INSTALLATION_ID: ENV_SERVICE_GITHUB_APP_INSTALLATION_ID,
-    opt.SERVICE_GITHUB_APP_SLUG: ENV_SERVICE_GITHUB_APP_SLUG,
-    opt.SERVICE_GITHUB_APP_PRIVATE_KEY: ENV_SERVICE_GITHUB_APP_PRIVATE_KEY,
-    opt.SERVICE_POLL_INTERVAL_SECONDS: ENV_SERVICE_POLL_INTERVAL_SECONDS,
-    opt.SERVICE_DRAIN_TIMEOUT_SECONDS: ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
-    opt.SERVICE_WEBHOOK_SECRETS: ENV_SERVICE_WEBHOOK_SECRETS,
-    opt.FIRECRAWL_API_KEY: ENV_FIRECRAWL_API_KEY,
-    opt.CI_GATE_SLOTS: ENV_CI_GATE_SLOTS,
-}
+    fields: tuple[str, ...] = ()
+    segment: str | None = None
 
-ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
+
+@dataclass(frozen=True)
+class Credential:
+    """A secret setting: the OS keyring holds it, and a variable or Vault can give it.
+
+    `aliases` are other variables that hold it, such as the name its own tool reads. `in_file`
+    lets the config file hold it, in the settings field of the same key. `keyring` names the
+    keyring entry when it is not the key with `_` for `.`.
+    """
+
+    key: str
+    description: str
+    aliases: tuple[str, ...] = ()
+    in_file: bool = False
+    keyring: str | None = None
+
+    @property
+    def keyring_name(self) -> str:
+        return self.keyring or self.key.replace(".", "_")
+
+    @property
+    def env_vars(self) -> tuple[str, ...]:
+        """The variables that hold the credential, in the order the resolver reads them."""
+        return (_variable_name(self.key.split(".")), *self.aliases)
+
+
+CREDENTIALS: tuple[Credential, ...] = (
+    Credential("grafana.token", "Grafana API token (stored in OS keyring)"),
+    Credential("grafana.password", "Grafana admin password (stored in OS keyring)"),
+    Credential("argocd.token", "ArgoCD API token (stored in OS keyring)"),
+    Credential("argocd.password", "ArgoCD admin password (stored in OS keyring)"),
+    Credential("ai.api_key", "AI API key (stored in OS keyring)"),
+    Credential("qdrant.api_key", "Qdrant API key (stored in OS keyring)", in_file=True),
+    Credential(
+        "valkey.password", "Valkey authentication password (stored in OS keyring)", in_file=True
+    ),
+    Credential("runs.index_password", "Run index Valkey password (stored in OS keyring)"),
+    Credential(
+        "gitea.admin_password",
+        "Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret "
+        "gitea/gitea-admin (stored in OS keyring)",
+    ),
+    Credential(
+        "telemetry.logfire_token",
+        "Logfire write token (stored in OS keyring)",
+        aliases=("LOGFIRE_TOKEN",),
+        in_file=True,
+        keyring="logfire_token",
+    ),
+    Credential(
+        "cloudflare.api_token",
+        "Cloudflare API Token (stored in OS keyring)",
+        aliases=("CLOUDFLARE_API_TOKEN",),
+    ),
+    Credential(
+        "cloudflare.tunnel_token",
+        "Cloudflare Tunnel token that `devops k8s push-secrets` writes to the cluster (stored in "
+        "OS keyring)",
+    ),
+    Credential(
+        "service.webhook_secrets",
+        "JSON map of repo to webhook HMAC secret for incoming GitHub webhooks",
+    ),
+    Credential(
+        "service.github_app.private_key",
+        "PEM private key of the GitHub App (stored in OS keyring). A process whose environment "
+        "holds it acts as the App",
+    ),
+    Credential(
+        "firecrawl.api_key",
+        "API key for the Firecrawl web search API",
+        aliases=("FIRECRAWL_API_KEY",),
+        in_file=True,
+    ),
+)
+
+_CREDENTIALS_BY_KEY: dict[str, Credential] = {c.key: c for c in CREDENTIALS}
+
+
+def credential(key: str) -> Credential:
+    """The credential declared for `key`; a key that names no credential raises `KeyError`."""
+    return _CREDENTIALS_BY_KEY[key]
+
+
+def secret_keys() -> frozenset[str]:
+    """The dotted keys of every credential."""
+    return frozenset(_CREDENTIALS_BY_KEY)
+
+
+def keyring_names() -> dict[str, str]:
+    """The OS keyring entry of each credential, by dotted key."""
+    return {c.key: c.keyring_name for c in CREDENTIALS}
+
+
+def _variable_name(parts: list[str] | tuple[str, ...]) -> str:
+    return "_".join((_VARIABLE_PREFIX, *(part.upper() for part in parts)))
+
+
+def _marker(info: FieldInfo) -> Variable | None:
+    return next((m for m in info.metadata if isinstance(m, Variable)), None)
+
+
+def _section(info: FieldInfo) -> type[BaseModel] | None:
+    annotation = info.annotation
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    return None
+
+
+def _declared(
+    model: type[BaseModel],
+    key: tuple[str, ...],
+    names: tuple[str, ...],
+    only: tuple[str, ...] | None,
+) -> Iterator[tuple[str, str, FieldInfo]]:
+    for name, info in model.model_fields.items():
+        marker = _marker(info)
+        field_key = (*key, name)
+        field_names = (*names, marker.segment if marker and marker.segment else name)
+        section = _section(info)
+        if section is not None:
+            yield from _declared(
+                section, field_key, field_names, marker.fields if marker and marker.fields else None
+            )
+        elif (name in only) if only is not None else marker is not None:
+            yield ".".join(field_key), _variable_name(field_names), info
+
+
+@functools.cache
+def _settings_declarations() -> tuple[tuple[str, str, str], ...]:
+    # Imported here: the settings module reads the markers and the credentials from this one.
+    from devops_cli.config.settings import Settings
+
+    return tuple(
+        (key, variable, info.description or "")
+        for key, variable, info in _declared(Settings, (), (), None)
+    )
+
+
+def reset_declarations_cache() -> None:
+    """Forget the declarations read from the settings model, so the next read walks it again."""
+    _settings_declarations.cache_clear()
+
+
+def setting_variables() -> dict[str, str]:
+    """The variable of each setting that one sets, by dotted key, credentials apart."""
+    return {key: variable for key, variable, _ in _settings_declarations()}
+
+
+def option_env_vars() -> dict[str, str]:
+    """The variable of each setting and of each credential, by dotted key."""
+    return {**setting_variables(), **{c.key: c.env_vars[0] for c in CREDENTIALS}}
+
+
+def env_var_for_option(option_key: str) -> str | None:
+    """The variable of a setting or a credential, or None for a key that no variable sets."""
+    return option_env_vars().get(option_key)
 
 
 class EnvVarSpec(BaseModel):
-    """Metadata specification for a devops-cli environment variable."""
+    """One environment variable that devops-cli reads, as `devops config env` and the docs list it."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -231,497 +228,32 @@ class EnvVarSpec(BaseModel):
         )
 
 
-def env_var_for_option(option_key: str) -> str | None:
-    """Return the mapped environment variable name for a config option key."""
-    return OPTION_TO_ENV_VAR.get(option_key)
+def _credential_spec(entry: Credential) -> EnvVarSpec:
+    also = "".join(f" Also read from `{alias}`." for alias in entry.aliases)
+    return EnvVarSpec(entry.env_vars[0], entry.key, True, f"{entry.description}{also}")
 
 
 def get_all_env_var_specs() -> list[EnvVarSpec]:
-    """Return all environment variable specifications available for configuration."""
+    """Every variable that devops-cli reads for its configuration, settings and credentials by key."""
+    settings = [
+        EnvVarSpec(variable, key, False, description)
+        for key, variable, description in _settings_declarations()
+    ]
+    credentials = [_credential_spec(entry) for entry in CREDENTIALS]
     return [
         EnvVarSpec(
-            ENV_DEVOPS_CLI_CONFIG,
+            CONST_PROJECT_CONFIG_ENV,
             None,
             False,
             "Absolute path to project configuration file; outside devops-cli's own "
             "repository, the only one a `devops review` command reads",
         ),
         EnvVarSpec(
-            ENV_GITHUB_DEFAULT_ORG,
-            opt.GITHUB_DEFAULT_ORG,
-            False,
-            "Default GitHub organization",
-        ),
-        EnvVarSpec(
-            ENV_SSH_KEY_DIR,
-            opt.SSH_KEY_DIR,
-            False,
-            "Directory for SSH key pairs",
-        ),
-        EnvVarSpec(
-            ENV_SSH_KEY_PREFIX,
-            opt.SSH_KEY_PREFIX,
-            False,
-            "Prefix for generated SSH keys (defaults to devcontainer name or basename pwd)",
-        ),
-        EnvVarSpec(
-            ENV_SSH_ROTATION_DAYS,
-            opt.SSH_ROTATION_DAYS,
-            False,
-            "SSH key rotation interval in days",
-        ),
-        EnvVarSpec(
-            ENV_REPOS_BASE_DIR,
-            opt.REPOS_BASE_DIR,
-            False,
-            "Base directory for cloned repositories",
-        ),
-        EnvVarSpec(
-            ENV_WORKSPACE_FILE,
-            opt.WORKSPACE_FILE,
-            False,
-            "Path to VS Code workspace file",
-        ),
-        EnvVarSpec(
-            ENV_GRAFANA_URL,
-            opt.GRAFANA_URL,
-            False,
-            "Grafana service URL",
-        ),
-        EnvVarSpec(
-            ENV_GRAFANA_TOKEN,
-            opt.GRAFANA_TOKEN,
-            True,
-            "Grafana API token (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_PROMETHEUS_URL,
-            opt.PROMETHEUS_URL,
-            False,
-            "Prometheus service URL",
-        ),
-        EnvVarSpec(
-            ENV_ARGOCD_URL,
-            opt.ARGOCD_URL,
-            False,
-            "ArgoCD service URL",
-        ),
-        EnvVarSpec(
-            ENV_ARGOCD_TOKEN,
-            opt.ARGOCD_TOKEN,
-            True,
-            "ArgoCD API token (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_AI_PROVIDER,
-            opt.AI_PROVIDER,
-            False,
-            "AI provider (ollama | claude | copilot | openai)",
-        ),
-        EnvVarSpec(
-            ENV_AI_MODEL,
-            opt.AI_MODEL,
-            False,
-            "Default AI model name",
-        ),
-        EnvVarSpec(
-            ENV_AI_OLLAMA_URLS,
-            opt.AI_OLLAMA_URLS,
-            False,
-            "Ollama service URLs (comma-separated)",
-        ),
-        EnvVarSpec(
-            ENV_AI_OLLAMA_MAX_PARALLEL,
-            opt.AI_OLLAMA_MAX_PARALLEL,
-            False,
-            "Maximum parallel requests per Ollama host",
-        ),
-        EnvVarSpec(
-            ENV_AI_API_BASE_URL,
-            opt.AI_API_BASE_URL,
-            False,
-            "AI API base URL",
-        ),
-        EnvVarSpec(
-            ENV_AI_GATEWAY_URL,
-            opt.AI_GATEWAY_URL,
-            False,
-            "AI gateway URL",
-        ),
-        EnvVarSpec(
-            ENV_AI_API_KEY,
-            opt.AI_API_KEY,
-            True,
-            "AI API key (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_AI_REASONING_EFFORT,
-            opt.AI_REASONING_EFFORT,
-            False,
-            "AI reasoning effort level (low | medium | high)",
-        ),
-        EnvVarSpec(
-            ENV_AI_ALLOW_PRIVATE_NETWORK,
-            opt.AI_ALLOW_PRIVATE_NETWORK,
-            False,
-            "Permit private-IP network targets",
-        ),
-        EnvVarSpec(
-            ENV_AI_MAX_RETRIES,
-            opt.AI_MAX_RETRIES,
-            False,
-            "Maximum retry count for AI requests upon response validation failure",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_CHAT_PROVIDER,
-            opt.AI_TASK_CHAT_PROVIDER,
-            False,
-            "AI provider override for chat task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_CHAT_MODEL,
-            opt.AI_TASK_CHAT_MODEL,
-            False,
-            "AI model override for chat task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_CHAT_OLLAMA_URLS,
-            opt.AI_TASK_CHAT_OLLAMA_URLS,
-            False,
-            "Ollama URLs override for chat task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_METADATA_PROVIDER,
-            opt.AI_TASK_METADATA_PROVIDER,
-            False,
-            "AI provider override for metadata task, for `analyze --enhanced` and `ai agents`",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_METADATA_MODEL,
-            opt.AI_TASK_METADATA_MODEL,
-            False,
-            "AI model override for metadata task, for `analyze --enhanced` and `ai agents`",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_METADATA_OLLAMA_URLS,
-            opt.AI_TASK_METADATA_OLLAMA_URLS,
-            False,
-            "Ollama URLs override for metadata task, for `analyze --enhanced` and `ai agents`",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_ANALYSIS_PROVIDER,
-            opt.AI_TASK_ANALYSIS_PROVIDER,
-            False,
-            "AI provider override for analysis task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_ANALYSIS_MODEL,
-            opt.AI_TASK_ANALYSIS_MODEL,
-            False,
-            "AI model override for analysis task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_ANALYSIS_OLLAMA_URLS,
-            opt.AI_TASK_ANALYSIS_OLLAMA_URLS,
-            False,
-            "Ollama URLs override for analysis task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_EMBEDDING_PROVIDER,
-            opt.AI_TASK_EMBEDDING_PROVIDER,
-            False,
-            "AI provider override for embedding generation task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_EMBEDDING_MODEL,
-            opt.AI_TASK_EMBEDDING_MODEL,
-            False,
-            "AI model override for embedding generation task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_EMBEDDING_OLLAMA_URLS,
-            opt.AI_TASK_EMBEDDING_OLLAMA_URLS,
-            False,
-            "Ollama URLs override for embedding generation task",
-        ),
-        EnvVarSpec(
-            ENV_AI_TASK_EMBEDDING_TIMEOUT,
-            opt.AI_TASK_EMBEDDING_TIMEOUT,
-            False,
-            "Timeout in seconds for embedding generation task",
-        ),
-        EnvVarSpec(
-            ENV_QDRANT_URL,
-            opt.QDRANT_URL,
-            False,
-            "Qdrant vector database server URL",
-        ),
-        EnvVarSpec(
-            ENV_QDRANT_API_KEY,
-            opt.QDRANT_API_KEY,
-            True,
-            "Qdrant API key (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_QDRANT_COLLECTION_PREFIX,
-            opt.QDRANT_COLLECTION_PREFIX,
-            False,
-            "Prefix for Qdrant collection names",
-        ),
-        EnvVarSpec(
-            ENV_QDRANT_TIMEOUT,
-            opt.QDRANT_TIMEOUT,
-            False,
-            "Seconds each Qdrant request, a RAG search or an indexing upsert or delete, waits "
-            "per attempt (default: 300)",
-        ),
-        EnvVarSpec(
-            ENV_VALKEY_URL,
-            opt.VALKEY_URL,
-            False,
-            "Valkey URL of the workstation cache: the scheme valkey or valkeys, the host, the port "
-            f"and the database (default: {DEFAULT_VALKEY_URL})",
-        ),
-        EnvVarSpec(
-            ENV_VALKEY_PASSWORD,
-            opt.VALKEY_PASSWORD,
-            True,
-            "Valkey authentication password (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_VALKEY_TIMEOUT,
-            opt.VALKEY_TIMEOUT,
-            False,
-            "Valkey network socket connection/read timeout in seconds "
-            f"(default: {DEFAULT_VALKEY_TIMEOUT_SECONDS})",
-        ),
-        EnvVarSpec(
-            ENV_RUNS_INDEX_URL,
-            opt.RUNS_INDEX_URL,
-            False,
-            "Valkey holding the run index shared by workstations (set by `devops ai runs connect`)",
-        ),
-        EnvVarSpec(
-            ENV_RUNS_INDEX_PASSWORD,
-            opt.RUNS_INDEX_PASSWORD,
-            True,
-            "Run index Valkey password (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_GITEA_ADMIN_PASSWORD,
-            opt.GITEA_ADMIN_PASSWORD,
-            True,
-            "Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret "
-            "gitea/gitea-admin (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_K8S_CONTEXT,
-            opt.K8S_CONTEXT,
-            False,
-            "Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster)",
-        ),
-        EnvVarSpec(
-            ENV_K8S_DOMAIN,
-            opt.K8S_DOMAIN,
-            False,
-            "Base or root domain name for homelab ingress routes and tunnel services",
-        ),
-        EnvVarSpec(
-            ENV_CLOUDFLARE_DOMAIN,
-            opt.CLOUDFLARE_DOMAIN,
-            False,
-            "Root or zone domain name managed in Cloudflare",
-        ),
-        EnvVarSpec(
-            ENV_CLOUDFLARE_TUNNEL,
-            opt.CLOUDFLARE_TUNNEL,
-            False,
-            "Cloudflare tunnel name or identifier",
-        ),
-        EnvVarSpec(
-            ENV_CLOUDFLARE_ACCOUNT_ID,
-            opt.CLOUDFLARE_ACCOUNT_ID,
-            False,
-            "Cloudflare Account ID",
-        ),
-        EnvVarSpec(
-            ENV_CLOUDFLARE_ZONE_ID,
-            opt.CLOUDFLARE_ZONE_ID,
-            False,
-            "Cloudflare Zone ID",
-        ),
-        EnvVarSpec(
-            ENV_CLOUDFLARE_API_TOKEN,
-            opt.CLOUDFLARE_API_TOKEN,
-            True,
-            "Cloudflare API Token (stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_CLOUDFLARE_TUNNEL_TOKEN,
-            opt.CLOUDFLARE_TUNNEL_TOKEN,
-            True,
-            "Cloudflare Tunnel token that `devops k8s push-secrets` writes to the cluster "
-            "(stored in OS keyring)",
-        ),
-        EnvVarSpec(
-            ENV_TELEMETRY_ENABLED,
-            opt.TELEMETRY_ENABLED,
-            False,
-            "Export OpenTelemetry traces and metrics: true or false (default: true)",
-        ),
-        EnvVarSpec(
-            ENV_TELEMETRY_ENDPOINT,
-            opt.TELEMETRY_ENDPOINT,
-            False,
-            "OpenTelemetry collector that traces and metrics are exported to "
-            f"(default: {ENV_OTEL_EXPORTER_OTLP_ENDPOINT}, else {DEFAULT_OTEL_ENDPOINT})",
-        ),
-        EnvVarSpec(
             ENV_OTEL_EXPORTER_OTLP_ENDPOINT,
             None,
             False,
             "OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` "
-            "is unset",
+            f"is unset (default: {DEFAULT_OTEL_ENDPOINT})",
         ),
-        EnvVarSpec(
-            ENV_DATA_DIR,
-            opt.DATA_DIR,
-            False,
-            "Root data directory for local reviews, cache, logs, and artifacts (default: ./.data; "
-            "outside devops-cli's own repository, ~/.local/share/devops-cli/.data for review data "
-            "and a `devops review` command)",
-        ),
-        EnvVarSpec(
-            ENV_DATA_ANALYSIS_DIR,
-            opt.DATA_ANALYSIS_DIR,
-            False,
-            "Storage directory for pre-analysis metadata JSON files",
-        ),
-        EnvVarSpec(
-            ENV_DATA_REVIEWS_DIR,
-            opt.DATA_REVIEWS_DIR,
-            False,
-            "Storage directory for review session finding reports and artifacts",
-        ),
-        EnvVarSpec(
-            ENV_DATA_LOGS_DIR,
-            opt.DATA_LOGS_DIR,
-            False,
-            "Storage directory for CLI execution and SIEM audit logs",
-        ),
-        EnvVarSpec(
-            ENV_DATA_MODELS_DIR,
-            opt.DATA_MODELS_DIR,
-            False,
-            "Storage directory for local model checkpoints and weights",
-        ),
-        EnvVarSpec(
-            ENV_DATA_CACHE_DIR,
-            opt.DATA_CACHE_DIR,
-            False,
-            "Storage directory for local response and retrieval cache",
-        ),
-        EnvVarSpec(
-            ENV_DATA_BENCHMARKS_DIR,
-            opt.DATA_BENCHMARKS_DIR,
-            False,
-            "Storage directory for benchmark test runs and embedding leaderboard reports",
-        ),
-        EnvVarSpec(
-            ENV_DATA_RAG_DIR,
-            opt.DATA_RAG_DIR,
-            False,
-            "Storage directory for local vector embedding index cache and retrieval data",
-        ),
-        EnvVarSpec(
-            ENV_DATA_SAMPLES_DIR,
-            opt.DATA_SAMPLES_DIR,
-            False,
-            "Storage directory for open-source sample repositories fetched at their pinned commits",
-        ),
-        EnvVarSpec(
-            ENV_DATA_RUNS_DIR,
-            opt.DATA_RUNS_DIR,
-            False,
-            "Storage directory for benchmark and evaluation run records, the run store's source of truth",
-        ),
-        EnvVarSpec(
-            ENV_DATA_TLS_DIR,
-            opt.DATA_TLS_DIR,
-            False,
-            "Storage directory for generated local CA and TLS certificates",
-        ),
-        EnvVarSpec(
-            ENV_DATA_AUDIT_LOG_PATH,
-            opt.DATA_AUDIT_LOG_PATH,
-            False,
-            "Path to structured audit JSONL log file",
-        ),
-        EnvVarSpec(
-            ENV_DATA_FEEDBACK_DATASET_PATH,
-            opt.DATA_FEEDBACK_DATASET_PATH,
-            False,
-            "Path to feedback fine-tuning dataset JSONL file",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_REPOS,
-            opt.SERVICE_REPOS,
-            False,
-            "Target repository list for service mode",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_GITHUB_APP_APP_ID,
-            opt.SERVICE_GITHUB_APP_APP_ID,
-            False,
-            "ID of the GitHub App that the roadmap Service and the cluster jobs act as",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_GITHUB_APP_INSTALLATION_ID,
-            opt.SERVICE_GITHUB_APP_INSTALLATION_ID,
-            False,
-            "ID of the GitHub App's installation on the account that owns the managed repositories",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_GITHUB_APP_SLUG,
-            opt.SERVICE_GITHUB_APP_SLUG,
-            False,
-            "Slug of the GitHub App; its bot's login is `<slug>[bot]`",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_GITHUB_APP_PRIVATE_KEY,
-            opt.SERVICE_GITHUB_APP_PRIVATE_KEY,
-            True,
-            "PEM private key of the GitHub App (stored in OS keyring). A process whose "
-            "environment holds it acts as the App",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_POLL_INTERVAL_SECONDS,
-            opt.SERVICE_POLL_INTERVAL_SECONDS,
-            False,
-            "Periodic polling interval for service mode in seconds",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
-            opt.SERVICE_DRAIN_TIMEOUT_SECONDS,
-            False,
-            "Shutdown drain timeout for running service jobs in seconds",
-        ),
-        EnvVarSpec(
-            ENV_SERVICE_WEBHOOK_SECRETS,
-            opt.SERVICE_WEBHOOK_SECRETS,
-            True,
-            "JSON map of repo to webhook HMAC secret for incoming GitHub webhooks",
-        ),
-        EnvVarSpec(
-            ENV_FIRECRAWL_API_KEY,
-            opt.FIRECRAWL_API_KEY,
-            True,
-            "API key for the Firecrawl web search API",
-        ),
-        EnvVarSpec(
-            ENV_CI_GATE_SLOTS,
-            opt.CI_GATE_SLOTS,
-            False,
-            "Number of CPU-heavy devops ci gates that run at once on this host (default: one for each 16 CPUs)",
-        ),
+        *sorted([*settings, *credentials], key=lambda spec: spec.option_key or ""),
     ]

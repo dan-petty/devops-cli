@@ -110,11 +110,11 @@ def _redact_config_dict(
 @router.get("/config", response_model=ConfigResponse, summary="Get sanitized configuration")
 async def get_configuration() -> ConfigResponse:
     """Retrieve active non-secret configuration parameters."""
-    from devops_cli.config.options import SECRET_CONFIG_OPTIONS
+    from devops_cli.config.env import secret_keys
 
     settings = Settings()
     config_dict = settings.model_dump(mode="json")
-    sanitized_config = _redact_config_dict(config_dict, SECRET_CONFIG_OPTIONS)
+    sanitized_config = _redact_config_dict(config_dict, secret_keys())
 
     return ConfigResponse(
         status="ok",

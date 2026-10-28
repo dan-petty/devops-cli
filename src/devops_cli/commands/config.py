@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Annotated, Any, BinaryIO
 
 import typer
+from pydantic import TypeAdapter
 
-from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_CONFIG_UNSET_COMMAND,
     CONST_GH_CLI,
@@ -21,8 +21,15 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.config.env import EnvVarSpec, env_var_for_option, get_all_env_var_specs
-from devops_cli.config.options import KEYRING_KEYS as _KEYRING_MAP
+from devops_cli.config.env import (
+    EnvVarSpec,
+    credential,
+    env_var_for_option,
+    get_all_env_var_specs,
+    keyring_names,
+    secret_keys,
+    setting_variables,
+)
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
     SecretStorageError,
@@ -53,6 +60,9 @@ from devops_cli.output import (
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
 logger = logging.getLogger(__name__)
+
+# Turns a settings value, such as a path or a list of them, into its JSON form for `config show`.
+_JSON_VALUE: TypeAdapter[Any] = TypeAdapter(Any)
 
 app = typer.Typer(help=HELP.config.app, no_args_is_help=True)
 
@@ -105,53 +115,39 @@ def _gh_auth_status() -> bool:
 
 
 @app.command()
-def show() -> None:
-    """Print all configuration values, masking secrets."""
+def show(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """Print every setting that a variable sets and every credential. A credential shows as set or not set, never its value."""
     settings = load_settings()
+    values = [
+        (key, _shown_value(settings, key))
+        for key in sorted(setting_variables().keys() | secret_keys())
+    ]
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([{"key": key, "value": value} for key, value in values], resolved)
+        return
 
-    rows: list[list[str]] = []
     not_set_str = f"[dim]{MESSAGES.config.not_set}[/dim]"
-
-    def _row(key: str, value: object) -> None:
-        if isinstance(value, list):
-            display = ", ".join(str(v) for v in value) if value else not_set_str
+    rows: list[list[str]] = []
+    for key, value in values:
+        if value is None or value == []:
+            display = not_set_str
+        elif key in _SECRET_FIELDS:
+            display = "[green]set (****)[/green]"
+        elif isinstance(value, list):
+            display = ", ".join(str(v) for v in value)
         else:
-            display = str(value) if value is not None else not_set_str
+            display = str(value)
         rows.append([key, display])
-
-    def _secret_row(key: str, is_configured: bool) -> None:
-        display = "[green]set (****)[/green]" if is_configured else not_set_str
-        rows.append([key, display])
-
-    _row(opt.GITHUB_DEFAULT_ORG, settings.github.default_org)
-    _row(opt.SSH_KEY_DIR, settings.ssh.key_dir)
-    _row(opt.SSH_ROTATION_DAYS, settings.ssh.rotation_days)
-    _row(opt.REPOS_BASE_DIR, settings.repos.base_dir)
-    _row(opt.WORKSPACE_FILE, settings.workspace.file)
-    _row(opt.GRAFANA_URL, settings.grafana.url)
-    _secret_row(opt.GRAFANA_TOKEN, _is_secret_configured(opt.GRAFANA_TOKEN))
-    _row(opt.PROMETHEUS_URL, settings.prometheus.url)
-    _row(opt.ARGOCD_URL, settings.argocd.url)
-    _secret_row(opt.ARGOCD_TOKEN, _is_secret_configured(opt.ARGOCD_TOKEN))
-    _row(opt.AI_PROVIDER, settings.ai.provider)
-    _row(opt.AI_MODEL, settings.ai.model)
-    _row(opt.AI_REFERENCE_MODEL, settings.ai.reference_model)
-    _row(opt.AI_REFERENCE_EMBEDDING_MODEL, settings.ai.reference_embedding_model)
-    _row(opt.AI_REFERENCE_PROVIDER, settings.ai.reference_provider)
-    _row(opt.AI_HARDWARE_COST_USD, settings.ai.hardware_cost_usd)
-    _row(opt.AI_REASONING_EFFORT, settings.ai.reasoning_effort)
-    _row(opt.AI_OLLAMA_URLS, settings.ai.ollama_urls)
-    _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
-    _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
-    _secret_row(opt.AI_API_KEY, _is_secret_configured(opt.AI_API_KEY))
-    _row(opt.K8S_CONTEXT, settings.k8s.context)
-    _row(opt.K8S_DOMAIN, settings.k8s.domain)
-    _row(opt.CLOUDFLARE_DOMAIN, settings.cloudflare.domain)
-    _row(opt.CLOUDFLARE_TUNNEL, settings.cloudflare.tunnel)
-    _row(opt.CLOUDFLARE_ACCOUNT_ID, settings.cloudflare.account_id)
-    _row(opt.CLOUDFLARE_ZONE_ID, settings.cloudflare.zone_id)
-    _secret_row(opt.CLOUDFLARE_API_TOKEN, _is_secret_configured(opt.CLOUDFLARE_API_TOKEN))
-    _secret_row(opt.CLOUDFLARE_TUNNEL_TOKEN, _is_secret_configured(opt.CLOUDFLARE_TUNNEL_TOKEN))
 
     print_table(
         title=MESSAGES.config.header,
@@ -383,9 +379,9 @@ def init() -> None:  # noqa: C901
         g_token = typer.prompt("Grafana API token", hide_input=True, default="")
         if g_token:
             try:
-                dotted_set(settings, opt.GRAFANA_TOKEN, g_token)
+                dotted_set(settings, "grafana.token", g_token)
             except SecretStorageError as exc:
-                _render_secret_store_error(opt.GRAFANA_TOKEN, exc)
+                _render_secret_store_error("grafana.token", exc)
 
     # ── Prometheus ─────────────────────────────────────────────────────────
     print_info("\n[cyan]Prometheus[/cyan]", prefix=False)
@@ -409,9 +405,9 @@ def init() -> None:  # noqa: C901
         a_token = typer.prompt("ArgoCD API token", hide_input=True, default="")
         if a_token:
             try:
-                dotted_set(settings, opt.ARGOCD_TOKEN, a_token)
+                dotted_set(settings, "argocd.token", a_token)
             except SecretStorageError as exc:
-                _render_secret_store_error(opt.ARGOCD_TOKEN, exc)
+                _render_secret_store_error("argocd.token", exc)
 
     # The write and the message use one resolved path, so the message names the written file.
     config_path = get_active_config_path()
@@ -421,15 +417,19 @@ def init() -> None:  # noqa: C901
 
 
 # =============================================================================
+def _shown_value(settings: Settings, key: str) -> Any:
+    """The value `config show` prints for `key`: `****` for a credential that has one."""
+    if key in _SECRET_FIELDS:
+        return "****" if _is_secret_configured(key) else None
+    return _JSON_VALUE.dump_python(dotted_get(settings, key), mode="json")
+
+
 def _is_secret_configured(key: str) -> bool:
     """Check whether a secret key is configured without retrieving the secret value."""
-    keyring_name = _KEYRING_MAP.get(key)
-    if keyring_name and _keyring_has(keyring_name):
+    entry = credential(key)
+    if _keyring_has(entry.keyring_name):
         return True
-    env_var = env_var_for_option(key)
-    if env_var and bool(os.environ.get(env_var)):
-        return True
-    return False
+    return any(os.environ.get(variable) for variable in entry.env_vars)
 
 
 def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[object, bool]:
@@ -567,17 +567,17 @@ def auth_headless(
     token: Annotated[str, typer.Argument(help=HELP.config.secret_token)],
 ) -> None:
     """Load secret tokens into ephemeral memory for headless CI environments lacking DBus."""
-    from devops_cli.config.options import KEYRING_KEYS
     from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
 
-    if key not in KEYRING_KEYS:
+    names = keyring_names()
+    if key not in names:
         print_error(
-            f"Invalid secret key '{key}'. Must be one of: {list(KEYRING_KEYS.keys())}",
+            f"Invalid secret key '{key}'. Must be one of: {list(names)}",
             prefix=False,
         )
         raise typer.Exit(1)
 
-    keyring_field = KEYRING_KEYS[key]
+    keyring_field = names[key]
     _EPHEMERAL_CI_SECRETS[keyring_field] = token
     print_success(f"Ephemeral secret loaded into memory: {key}")
 
@@ -607,10 +607,9 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
     """Return the secret-named keys holding a value in ``cfg_file``, or None if it is unreadable."""
     import yaml
 
-    from devops_cli.config.options import KEYRING_KEYS
     from devops_cli.security.sanitizer import is_secret_field
 
-    secret_options = frozenset(KEYRING_KEYS)
+    secret_options = secret_keys()
     try:
         raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
         if not isinstance(raw_cfg, dict):
@@ -681,9 +680,6 @@ def audit_keys_cmd(
 
     import keyring
 
-    from devops_cli.config.options import KEYRING_KEYS
-    from devops_cli.config.settings import _keyring_has
-
     active_backend = keyring.get_keyring()
     backend_name = active_backend.__class__.__name__
     backend_priority = getattr(active_backend, "priority", 0)
@@ -699,7 +695,7 @@ def audit_keys_cmd(
     rows: list[list[str]] = []
     key_audit_records: list[dict[str, Any]] = []
 
-    for option_key, keyring_name in KEYRING_KEYS.items():
+    for option_key, keyring_name in keyring_names().items():
         has_keyring = _keyring_has(keyring_name)
 
         env_var = env_var_for_option(option_key)

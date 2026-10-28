@@ -32,7 +32,6 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-import devops_cli.config.options as opt
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_KEYRING_UNLOCK_PROBE_KEY,
@@ -104,7 +103,13 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
 )
-from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT, OPTION_TO_ENV_VAR
+from devops_cli.config.env import (
+    ENV_OTEL_EXPORTER_OTLP_ENDPOINT,
+    Variable,
+    keyring_names,
+    secret_keys,
+    setting_variables,
+)
 from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
@@ -116,10 +121,10 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SECRET_FIELDS: frozenset[str] = opt.SECRET_CONFIG_OPTIONS
-_KEYRING_KEYS: dict[str, str] = opt.KEYRING_KEYS
+_SECRET_FIELDS: frozenset[str] = secret_keys()
+_KEYRING_KEYS: dict[str, str] = keyring_names()
 # The options that still decide telemetry when the rest of the settings cannot load (#956).
-_TELEMETRY_ENV_OPTIONS: tuple[str, ...] = (opt.TELEMETRY_ENABLED, opt.TELEMETRY_ENDPOINT)
+_TELEMETRY_ENV_OPTIONS: tuple[str, ...] = ("telemetry.enabled", "telemetry.endpoint")
 
 
 class SecretStorageError(RuntimeError):
@@ -239,47 +244,70 @@ def _format_validation_error(exc: ValidationError, prefix: tuple[str, ...] = ())
 
 class GitHubConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    default_org: str | None = None
+    default_org: Annotated[str | None, Variable()] = Field(
+        default=None, description="Default GitHub organization"
+    )
 
 
 class SSHConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    key_dir: Path = DEFAULT_SSH_KEY_DIR
-    key_prefix: str | None = DEFAULT_SSH_KEY_PREFIX
-    rotation_days: int = Field(default=DEFAULT_SSH_ROTATION_DAYS, gt=0)
+    key_dir: Annotated[Path, Variable()] = Field(
+        default=DEFAULT_SSH_KEY_DIR, description="Directory for SSH key pairs"
+    )
+    key_prefix: Annotated[str | None, Variable()] = Field(
+        default=DEFAULT_SSH_KEY_PREFIX,
+        description="Prefix for generated SSH keys (defaults to devcontainer name or basename pwd)",
+    )
+    rotation_days: Annotated[int, Variable()] = Field(
+        description="SSH key rotation interval in days", default=DEFAULT_SSH_ROTATION_DAYS, gt=0
+    )
 
 
 class ReposConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    base_dir: Path = DEFAULT_REPOS_BASE_DIR
+    base_dir: Annotated[Path, Variable()] = Field(
+        default=DEFAULT_REPOS_BASE_DIR, description="Base directory for cloned repositories"
+    )
 
 
 class WorkspaceConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    file: Path = DEFAULT_WORKSPACE_FILE
+    file: Annotated[Path, Variable()] = Field(
+        default=DEFAULT_WORKSPACE_FILE, description="Path to VS Code workspace file"
+    )
 
 
 class GrafanaConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: ServiceUrlStr | None = None
+    url: Annotated[ServiceUrlStr | None, Variable()] = Field(
+        default=None, description="Grafana service URL"
+    )
 
 
 class PrometheusConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: ServiceUrlStr | None = None
+    url: Annotated[ServiceUrlStr | None, Variable()] = Field(
+        default=None, description="Prometheus service URL"
+    )
 
 
 class ArgoCDConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: ServiceUrlStr | None = None
+    url: Annotated[ServiceUrlStr | None, Variable()] = Field(
+        default=None, description="ArgoCD service URL"
+    )
 
 
 class QdrantConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: ServiceUrlStr | None = None
-    collection_prefix: str = "devops"
+    url: Annotated[ServiceUrlStr | None, Variable()] = Field(
+        default=None, description="Qdrant vector database server URL"
+    )
+    collection_prefix: Annotated[str, Variable()] = Field(
+        default="devops", description="Prefix for Qdrant collection names"
+    )
     api_key: str | None = None
-    timeout: float = Field(
+    timeout: Annotated[float, Variable()] = Field(
         default=DEFAULT_QDRANT_TIMEOUT_SECONDS,
         gt=0,
         allow_inf_nan=False,
@@ -302,7 +330,10 @@ class RunsConfig(BaseModel):
 
     # A Valkey URL such as `valkey://<host>:<port>/<db>`, checked as `valkey.url` is when the index
     # connects; unset keeps runs on this workstation only.
-    index_url: str | None = None
+    index_url: Annotated[str | None, Variable()] = Field(
+        default=None,
+        description="Valkey holding the run index shared by workstations (set by `devops ai runs connect`)",
+    )
 
 
 class ValkeyConfig(BaseModel):
@@ -314,7 +345,7 @@ class ValkeyConfig(BaseModel):
     """
 
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    url: str | None = Field(
+    url: Annotated[str | None, Variable()] = Field(
         default=DEFAULT_VALKEY_URL,
         description=(
             "The Valkey endpoint, such as `valkeys://example.com:6380/0`: the scheme, the host, the "
@@ -324,7 +355,12 @@ class ValkeyConfig(BaseModel):
         ),
     )
     password: str | None = None
-    timeout: float = Field(default=DEFAULT_VALKEY_TIMEOUT_SECONDS, gt=0, allow_inf_nan=False)
+    timeout: Annotated[float, Variable()] = Field(
+        description=f"Valkey network socket connection/read timeout in seconds (default: {DEFAULT_VALKEY_TIMEOUT_SECONDS})",
+        default=DEFAULT_VALKEY_TIMEOUT_SECONDS,
+        gt=0,
+        allow_inf_nan=False,
+    )
     threat_intel_ttl: int = Field(default=DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS, gt=0)
 
     @property
@@ -335,8 +371,8 @@ class ValkeyConfig(BaseModel):
         """
         return parse_valkey_url(
             self.url or DEFAULT_VALKEY_URL,
-            setting=opt.VALKEY_URL,
-            written_by=f"`devops k8s configure-urls` or `devops config set {opt.VALKEY_URL}`",
+            setting="valkey.url",
+            written_by="`devops k8s configure-urls` or `devops config set valkey.url`",
         )
 
 
@@ -352,10 +388,12 @@ class PyroscopeConfig(BaseModel):
 
 class TelemetryConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    enabled: bool = Field(default=True, description="Export OpenTelemetry traces and metrics")
+    enabled: Annotated[bool, Variable()] = Field(
+        default=True, description="Export OpenTelemetry traces and metrics"
+    )
     # Unset rather than the built-in endpoint, so OpenTelemetry's own variable can name the
     # collector when devops-cli's configuration does not.
-    endpoint: HttpUrlStr | None = Field(
+    endpoint: Annotated[HttpUrlStr | None, Variable()] = Field(
         default=None,
         description="OpenTelemetry collector that traces and metrics go to; unset, "
         f"`{ENV_OTEL_EXPORTER_OTLP_ENDPOINT}` names it, else `{DEFAULT_OTEL_ENDPOINT}`",
@@ -368,7 +406,7 @@ class TelemetryConfig(BaseModel):
         "`process.command_args` on its subprocess span, each argument through the secret mask. "
         "Off by default: an argument can be a credential that the mask does not find",
     )
-    capture_llm_content: bool = Field(
+    capture_llm_content: Annotated[bool, Variable()] = Field(
         default=False,
         description="Record LLM prompt and reply text in OpenTelemetry and Logfire telemetry spans. "
         "Off by default to prevent exposure of sensitive data",
@@ -380,7 +418,7 @@ class TelemetryConfig(BaseModel):
 
 class CIConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    gate_slots: int | None = Field(
+    gate_slots: Annotated[int | None, Variable()] = Field(
         default=None,
         gt=0,
         description=(
@@ -392,7 +430,7 @@ class CIConfig(BaseModel):
 
 class SandboxConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    exclude_home_dir: bool = Field(
+    exclude_home_dir: Annotated[bool, Variable()] = Field(
         default=DEFAULT_SANDBOX_EXCLUDE_HOME,
         description="Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*)",
     )
@@ -400,11 +438,11 @@ class SandboxConfig(BaseModel):
 
 class KubernetesConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    context: str = Field(
+    context: Annotated[str, Variable()] = Field(
         default="minikube",
         description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
     )
-    domain: OptionalConfiguredDomain = Field(
+    domain: Annotated[OptionalConfiguredDomain, Variable()] = Field(
         default=None,
         description="Base domain name for homelab ingress routes and tunnel services (e.g. example.com)",
     )
@@ -420,7 +458,7 @@ class CloudflareAccessConfig(BaseModel):
         default=False,
         description="Whether Cloudflare Zero Trust Access protection is enabled",
     )
-    allowed_emails: list[str] = Field(
+    allowed_emails: Annotated[list[str], Variable()] = Field(
         default_factory=list,
         description="List of email addresses permitted to authenticate through Cloudflare Access",
     )
@@ -428,11 +466,11 @@ class CloudflareAccessConfig(BaseModel):
         default="google",
         description="Identity provider name (e.g. google, one_time_pin)",
     )
-    bypass_ips: list[str] = Field(
+    bypass_ips: Annotated[list[str], Variable()] = Field(
         default_factory=list,
         description="List of public IP addresses or CIDR blocks permitted to bypass Cloudflare Access authentication",
     )
-    public_ip_bypass: str | None = Field(
+    public_ip_bypass: Annotated[str | None, Variable()] = Field(
         default=None,
         description="Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication",
     )
@@ -440,23 +478,23 @@ class CloudflareAccessConfig(BaseModel):
 
 class CloudflareConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
-    domain: OptionalConfiguredDomain = Field(
+    domain: Annotated[OptionalConfiguredDomain, Variable()] = Field(
         default=None,
         description="Root or zone domain name managed in Cloudflare (e.g. example.com)",
     )
-    tunnel: str | None = Field(
+    tunnel: Annotated[str | None, Variable()] = Field(
         default=None,
         description="Cloudflare tunnel name or identifier (e.g. homelab)",
     )
-    account_id: str | None = Field(
+    account_id: Annotated[str | None, Variable()] = Field(
         default=None,
         description="Cloudflare Account ID",
     )
-    zone_id: str | None = Field(
+    zone_id: Annotated[str | None, Variable()] = Field(
         default=None,
         description="Cloudflare Zone ID",
     )
-    public_ip_bypass: str | None = Field(
+    public_ip_bypass: Annotated[str | None, Variable()] = Field(
         default=None,
         description="Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication",
     )
@@ -468,10 +506,21 @@ class CloudflareConfig(BaseModel):
 
 class AIRAGConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
-    enabled: bool = True
-    top_k: int = Field(default=DEFAULT_RAG_TOP_K, gt=0)
-    score_threshold: float = Field(
-        default=DEFAULT_RAG_SCORE_THRESHOLD, ge=0.0, le=1.0, allow_inf_nan=False
+    enabled: Annotated[bool, Variable()] = Field(
+        default=True,
+        description="Retrieve related code and documents from the Qdrant index for AI tasks",
+    )
+    top_k: Annotated[int, Variable()] = Field(
+        description="Number of results that a RAG retrieval returns",
+        default=DEFAULT_RAG_TOP_K,
+        gt=0,
+    )
+    score_threshold: Annotated[float, Variable()] = Field(
+        description="Lowest score, from 0 to 1, of a result that a RAG retrieval keeps",
+        default=DEFAULT_RAG_SCORE_THRESHOLD,
+        ge=0.0,
+        le=1.0,
+        allow_inf_nan=False,
     )
     chunk_size: int = Field(default=DEFAULT_RAG_CHUNK_SIZE, gt=0)
     chunk_overlap: int = Field(default=DEFAULT_RAG_CHUNK_OVERLAP, ge=0)
@@ -491,9 +540,15 @@ class AITaskOverride(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
     )
-    provider: str | None = None
-    model: str | None = None
-    reasoning_effort: str | None = None
+    provider: str | None = Field(
+        default=None, description="AI provider of this task, in place of `ai.provider`"
+    )
+    model: str | None = Field(
+        default=None, description="AI model of this task, in place of `ai.model`"
+    )
+    reasoning_effort: str | None = Field(
+        default=None, description="Reasoning effort of this task, in place of `ai.reasoning_effort`"
+    )
     supports_reasoning: bool | None = None
     use_model_sampling: bool | None = Field(
         default=None,
@@ -504,7 +559,9 @@ class AITaskOverride(BaseModel):
     context_window: int | None = Field(default=None, gt=0)
     num_ctx: int | None = Field(default=None, gt=0)
     max_tokens: int | None = Field(default=None, gt=0)
-    ollama_urls: list[HttpUrlStr] | None = None
+    ollama_urls: list[HttpUrlStr] | None = Field(
+        default=None, description="Ollama service URLs of this task, in place of `ai.ollama_urls`"
+    )
     ollama_max_parallel: int | None = Field(default=None, gt=0)
     api_base_url: HttpUrlStr | None = None
     max_retries: int | None = Field(default=None, ge=0)
@@ -519,16 +576,23 @@ class AITaskOverride(BaseModel):
     )
 
 
+# The fields of a task that a variable sets, such as `DEVOPS_CLI_AI_TASK_CHAT_MODEL`.
+_TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
+
+
 class AITasksConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
     )
-    chat: AITaskOverride = AITaskOverride()
-    metadata: AITaskOverride = AITaskOverride()
-    analysis: AITaskOverride = AITaskOverride()
+    chat: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = AITaskOverride()
+    metadata: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = Field(
+        default_factory=AITaskOverride,
+        description="The task of `analyze --enhanced` and `ai agents`",
+    )
+    analysis: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = AITaskOverride()
     verification: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
-    embedding: AITaskOverride = Field(
+    embedding: Annotated[AITaskOverride, Variable(fields=(*_TASK_VARIABLES, "timeout"))] = Field(
         default_factory=lambda: AITaskOverride(model=DEFAULT_RAG_EMBEDDING_MODEL)
     )
 
@@ -537,16 +601,35 @@ class AIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
     )
-    provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
-    model: str = DEFAULT_AI_MODEL
-    api_key: str | None = Field(default=None, repr=False)
-    reference_model: str = DEFAULT_AI_REFERENCE_MODEL
-    reference_embedding_model: str = DEFAULT_AI_REFERENCE_EMBEDDING_MODEL
-    reference_provider: str = DEFAULT_AI_REFERENCE_PROVIDER
-    hardware_cost_usd: float = Field(
-        default=DEFAULT_AI_HARDWARE_COST_USD, ge=0.0, allow_inf_nan=False
+    provider: Annotated[str, Variable()] = Field(
+        default=DEFAULT_AI_PROVIDER, description="AI provider (ollama | claude | copilot | openai)"
     )
-    reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
+    model: Annotated[str, Variable()] = Field(
+        default=DEFAULT_AI_MODEL, description="Default AI model name"
+    )
+    api_key: str | None = Field(default=None, repr=False)
+    reference_model: Annotated[str, Variable()] = Field(
+        default=DEFAULT_AI_REFERENCE_MODEL,
+        description="Hosted chat model whose genai-prices price values the local chat tokens in the AI spend reports",
+    )
+    reference_embedding_model: Annotated[str, Variable()] = Field(
+        default=DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
+        description="Hosted embedding model whose genai-prices price values the local embedding tokens in the AI spend reports",
+    )
+    reference_provider: Annotated[str, Variable()] = Field(
+        default=DEFAULT_AI_REFERENCE_PROVIDER,
+        description="Provider in genai-prices of the two reference models",
+    )
+    hardware_cost_usd: Annotated[float, Variable()] = Field(
+        description="Cost in USD of the local AI hardware, which `devops ai cost` compares with the savings",
+        default=DEFAULT_AI_HARDWARE_COST_USD,
+        ge=0.0,
+        allow_inf_nan=False,
+    )
+    reasoning_effort: Annotated[str | None, Variable()] = Field(
+        default=DEFAULT_AI_REASONING_EFFORT,
+        description="AI reasoning effort level (low | medium | high)",
+    )
     supports_reasoning: bool = DEFAULT_AI_SUPPORTS_REASONING
     use_model_sampling: bool = Field(
         default=False,
@@ -557,17 +640,33 @@ class AIConfig(BaseModel):
     context_window: int = Field(default=DEFAULT_AI_CONTEXT_WINDOW, gt=0)
     num_ctx: int | None = Field(default=None, gt=0)
     max_tokens: int | None = Field(default=None, gt=0)
-    ollama_urls: list[HttpUrlStr] = Field(default_factory=list)
-    ollama_max_parallel: int = Field(default=DEFAULT_OLLAMA_MAX_PARALLEL, gt=0)
+    ollama_urls: Annotated[list[HttpUrlStr], Variable()] = Field(
+        description="Ollama service URLs (comma-separated)", default_factory=list
+    )
+    ollama_max_parallel: Annotated[int, Variable()] = Field(
+        description="Maximum parallel requests per Ollama host",
+        default=DEFAULT_OLLAMA_MAX_PARALLEL,
+        gt=0,
+    )
     gateway_provider: str = DEFAULT_AI_GATEWAY_PROVIDER
-    gateway_url: HttpUrlStr | None = None
+    gateway_url: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None, description="AI gateway URL"
+    )
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
     gateway_weights: dict[str, int] = Field(default_factory=dict)
     gateway_concurrency: dict[str, int] = Field(default_factory=dict)
     portkey_url: HttpUrlStr | None = None
-    api_base_url: HttpUrlStr | None = None
-    allow_private_network: bool = False
-    max_retries: int = Field(default=DEFAULT_AI_MAX_RETRIES, ge=0)
+    api_base_url: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None, description="AI API base URL"
+    )
+    allow_private_network: Annotated[bool, Variable()] = Field(
+        default=False, description="Permit private-IP network targets"
+    )
+    max_retries: Annotated[int, Variable()] = Field(
+        description="Maximum retry count for AI requests upon response validation failure",
+        default=DEFAULT_AI_MAX_RETRIES,
+        ge=0,
+    )
     timeout: float | None = Field(
         default=None,
         gt=0,
@@ -580,7 +679,7 @@ class AIConfig(BaseModel):
             f"{DEFAULT_REVIEW_TIMEOUT_SECONDS:g} s"
         ),
     )
-    tasks: AITasksConfig = AITasksConfig()
+    tasks: Annotated[AITasksConfig, Variable(segment="TASK")] = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
     task_name: str | None = None
@@ -701,20 +800,6 @@ _DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
     ("feedback_dataset_path", DEFAULT_FEEDBACK_DATASET_PATH, Path("feedback_dataset.jsonl")),
 )
 
-_CHILD_DATA_ENV_MAP: dict[str, str] = {
-    "analysis_dir": "DEVOPS_CLI_DATA_ANALYSIS_DIR",
-    "reviews_dir": "DEVOPS_CLI_DATA_REVIEWS_DIR",
-    "logs_dir": "DEVOPS_CLI_DATA_LOGS_DIR",
-    "models_dir": "DEVOPS_CLI_DATA_MODELS_DIR",
-    "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
-    "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
-    "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
-    "samples_dir": "DEVOPS_CLI_DATA_SAMPLES_DIR",
-    "runs_dir": "DEVOPS_CLI_DATA_RUNS_DIR",
-    "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
-    "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
-    "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
-}
 
 _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
     "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
@@ -742,19 +827,19 @@ class GitHubAppConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
-    app_id: int | None = Field(
+    app_id: Annotated[int | None, Variable()] = Field(
         default=None,
         gt=0,
         description="ID of the GitHub App that the roadmap Service and the cluster jobs act as",
     )
-    installation_id: int | None = Field(
+    installation_id: Annotated[int | None, Variable()] = Field(
         default=None,
         gt=0,
         description=(
             "ID of the App's installation on the account that owns the managed repositories"
         ),
     )
-    slug: str | None = Field(
+    slug: Annotated[str | None, Variable()] = Field(
         default=None,
         min_length=1,
         description="Slug of the GitHub App; its bot's login is `<slug>[bot]`",
@@ -769,10 +854,20 @@ class GitHubAppConfig(BaseModel):
 class ServiceConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
-    repos: list[str] = Field(default_factory=list)
+    repos: Annotated[list[str], Variable()] = Field(
+        description="Target repository list for service mode", default_factory=list
+    )
     github_app: GitHubAppConfig = Field(default_factory=GitHubAppConfig)
-    poll_interval_seconds: int = Field(default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS, ge=60)
-    drain_timeout_seconds: int = Field(default=DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS, gt=0)
+    poll_interval_seconds: Annotated[int, Variable()] = Field(
+        description="Periodic polling interval for service mode in seconds",
+        default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
+        ge=60,
+    )
+    drain_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="Shutdown drain timeout for running service jobs in seconds",
+        default=DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
+        gt=0,
+    )
     github_requests_per_hour: int = Field(default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR, gt=0)
 
     @field_validator("repos", mode="before")
@@ -810,19 +905,58 @@ class ServiceConfig(BaseModel):
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
-    dir: Path = Field(default_factory=lambda: DEFAULT_DATA_DIR)
-    analysis_dir: Path = Field(default_factory=lambda: DEFAULT_ANALYSIS_DATA_DIR)
-    reviews_dir: Path = Field(default_factory=lambda: DEFAULT_REVIEWS_DATA_DIR)
-    logs_dir: Path = Field(default_factory=lambda: DEFAULT_LOGS_DATA_DIR)
-    models_dir: Path = Field(default_factory=lambda: DEFAULT_MODELS_DATA_DIR)
-    cache_dir: Path = Field(default_factory=lambda: DEFAULT_CACHE_DATA_DIR)
-    benchmarks_dir: Path = Field(default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR)
-    rag_dir: Path = Field(default_factory=lambda: DEFAULT_RAG_DATA_DIR)
-    samples_dir: Path = Field(default_factory=lambda: DEFAULT_SAMPLES_DATA_DIR)
-    runs_dir: Path = Field(default_factory=lambda: DEFAULT_RUNS_DATA_DIR)
-    tls_dir: Path = Field(default_factory=lambda: DEFAULT_TLS_DATA_DIR)
-    audit_log_path: Path = Field(default_factory=lambda: DEFAULT_AUDIT_LOG_PATH)
-    feedback_dataset_path: Path = Field(default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH)
+    dir: Annotated[Path, Variable()] = Field(
+        description="Root data directory for local reviews, cache, logs, and artifacts (default: ./.data; outside devops-cli's own repository, ~/.local/share/devops-cli/.data for review data and a `devops review` command)",
+        default_factory=lambda: DEFAULT_DATA_DIR,
+    )
+    analysis_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for pre-analysis metadata JSON files",
+        default_factory=lambda: DEFAULT_ANALYSIS_DATA_DIR,
+    )
+    reviews_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for review session finding reports and artifacts",
+        default_factory=lambda: DEFAULT_REVIEWS_DATA_DIR,
+    )
+    logs_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for CLI execution and SIEM audit logs",
+        default_factory=lambda: DEFAULT_LOGS_DATA_DIR,
+    )
+    models_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for local model checkpoints and weights",
+        default_factory=lambda: DEFAULT_MODELS_DATA_DIR,
+    )
+    cache_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for local response and retrieval cache",
+        default_factory=lambda: DEFAULT_CACHE_DATA_DIR,
+    )
+    benchmarks_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for benchmark test runs and embedding leaderboard reports",
+        default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR,
+    )
+    rag_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for local vector embedding index cache and retrieval data",
+        default_factory=lambda: DEFAULT_RAG_DATA_DIR,
+    )
+    samples_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for open-source sample repositories fetched at their pinned commits",
+        default_factory=lambda: DEFAULT_SAMPLES_DATA_DIR,
+    )
+    runs_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for benchmark and evaluation run records, the run store's source of truth",
+        default_factory=lambda: DEFAULT_RUNS_DATA_DIR,
+    )
+    tls_dir: Annotated[Path, Variable()] = Field(
+        description="Storage directory for generated local CA and TLS certificates",
+        default_factory=lambda: DEFAULT_TLS_DATA_DIR,
+    )
+    audit_log_path: Annotated[Path, Variable()] = Field(
+        description="Path to structured audit JSONL log file",
+        default_factory=lambda: DEFAULT_AUDIT_LOG_PATH,
+    )
+    feedback_dataset_path: Annotated[Path, Variable()] = Field(
+        description="Path to feedback fine-tuning dataset JSONL file",
+        default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH,
+    )
 
     @model_validator(mode="after")
     def _rebase_child_paths_if_custom_dir(self) -> DataConfig:
@@ -1044,18 +1178,15 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
             base[key] = value
 
 
-def _apply_env_overrides(
-    settings: Settings, option_keys: Iterable[str] = OPTION_TO_ENV_VAR
-) -> None:
+def _apply_env_overrides(settings: Settings, option_keys: Iterable[str] | None = None) -> None:
     """Allow devcontainer and shell environment variables to override file config."""
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    variables = setting_variables()
+    env_data_dir = os.environ.get(variables["data.dir"])
     if env_data_dir:
         settings.data.dir = Path(env_data_dir)
 
-    for option_key in option_keys:
-        if option_key in _SECRET_FIELDS:
-            continue
-        env_var = OPTION_TO_ENV_VAR[option_key]
+    for option_key in variables if option_keys is None else option_keys:
+        env_var = variables[option_key]
         env_value = os.environ.get(env_var)
         if env_value in (None, ""):
             continue
@@ -1070,11 +1201,12 @@ def _apply_env_overrides(
 
 def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> DataConfig:
     """Resolve DataConfig with environment variable and explicit YAML overrides."""
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    variables = setting_variables()
+    env_data_dir = os.environ.get(variables["data.dir"])
     explicit_data: dict[str, Any] = {"dir": current_data_dir}
 
-    for field_name, env_v in _CHILD_DATA_ENV_MAP.items():
-        env_val = os.environ.get(env_v)
+    for field_name in _DEFAULT_CHILD_DATA_MAP:
+        env_val = os.environ.get(variables[f"data.{field_name}"])
         if env_val:
             explicit_data[field_name] = Path(env_val)
         elif field_name in raw_data and not env_data_dir:
@@ -1457,9 +1589,7 @@ def _resolve(option: str, settings: Settings) -> str | None:
     """Resolve one managed credential through the unified provider chain."""
     from devops_cli.security.secrets import build_secret_registry, get_resolver
 
-    ref = build_secret_registry(_KEYRING_KEYS).get(option)
-    if ref is None:
-        return _keyring_get(_KEYRING_KEYS[option])
+    ref = build_secret_registry()[option]
     # Bind the caller's settings so configuration-sourced values reflect this call, not a
     # snapshot captured when the process-wide resolver was first constructed.
     return get_resolver().resolve(ref, settings_source=lambda: settings)
@@ -1467,71 +1597,71 @@ def _resolve(option: str, settings: Settings) -> str | None:
 
 def get_grafana_token(settings: Settings) -> str | None:
     """Resolve the Grafana API token, rejecting masked placeholder values."""
-    token = _resolve(opt.GRAFANA_TOKEN, settings)
+    token = _resolve("grafana.token", settings)
     return token if token and not token.startswith("*") else None
 
 
 def get_grafana_password(settings: Settings) -> str | None:
     """Resolve the Grafana account password."""
-    return _resolve(opt.GRAFANA_PASSWORD, settings)
+    return _resolve("grafana.password", settings)
 
 
 def get_argocd_token(settings: Settings) -> str | None:
     """Resolve the ArgoCD API token, rejecting masked placeholder values."""
-    token = _resolve(opt.ARGOCD_TOKEN, settings)
+    token = _resolve("argocd.token", settings)
     # A masked value indicates a redacted export was re-imported, not a usable token.
     return token if token and not token.startswith("*") else None
 
 
 def get_argocd_password(settings: Settings) -> str | None:
     """Resolve the ArgoCD account password."""
-    return _resolve(opt.ARGOCD_PASSWORD, settings)
+    return _resolve("argocd.password", settings)
 
 
 def get_ai_api_key(settings: Settings) -> str | None:
     """Resolve the AI provider API key."""
-    return _resolve(opt.AI_API_KEY, settings)
+    return _resolve("ai.api_key", settings)
 
 
 def get_qdrant_api_key(settings: Settings) -> str | None:
     """Resolve the Qdrant API key."""
-    return _resolve(opt.QDRANT_API_KEY, settings)
+    return _resolve("qdrant.api_key", settings)
 
 
 def get_valkey_password(settings: Settings) -> str | None:
     """Resolve the Valkey password."""
-    return _resolve(opt.VALKEY_PASSWORD, settings)
+    return _resolve("valkey.password", settings)
 
 
 def get_runs_index_password(settings: Settings) -> str | None:
     """Resolve the password of the Valkey holding the shared run index."""
-    return _resolve(opt.RUNS_INDEX_PASSWORD, settings)
+    return _resolve("runs.index_password", settings)
 
 
 def get_gitea_admin_password(settings: Settings) -> str | None:
     """Resolve the password of Gitea's admin user."""
-    return _resolve(opt.GITEA_ADMIN_PASSWORD, settings)
+    return _resolve("gitea.admin_password", settings)
 
 
 def get_logfire_token(settings: Settings) -> str | None:
     """Resolve the Logfire telemetry write token."""
-    return _resolve(opt.TELEMETRY_LOGFIRE_TOKEN, settings)
+    return _resolve("telemetry.logfire_token", settings)
 
 
 def get_cloudflare_api_token(settings: Settings) -> str | None:
     """Resolve the Cloudflare API token."""
-    return _resolve(opt.CLOUDFLARE_API_TOKEN, settings)
+    return _resolve("cloudflare.api_token", settings)
 
 
 def get_service_webhook_secrets(settings: Settings) -> str | None:
     """Resolve the JSON mapping of repo to webhook secret."""
-    return _resolve(opt.SERVICE_WEBHOOK_SECRETS, settings)
+    return _resolve("service.webhook_secrets", settings)
 
 
 def get_firecrawl_api_key(settings: Settings | None = None) -> str | None:
     """Resolve the Firecrawl web search API key."""
     active_settings = settings or load_settings()
-    return _resolve(opt.FIRECRAWL_API_KEY, active_settings)
+    return _resolve("firecrawl.api_key", active_settings)
 
 
 def _canonical_key(key: str) -> str:
