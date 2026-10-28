@@ -44,7 +44,6 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_URL,
 )
 from devops_cli.config.settings import load_settings, save_settings
-from devops_cli.core.cli import exit_on_error
 from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ConfigurationError
@@ -1275,15 +1274,14 @@ def service_url(
     )
 
     request_path, _, request_query = path.partition("?")
-    with exit_on_error(ServiceAddressError):
-        ref = ServiceRef(
-            namespace=namespace,
-            service=service,
-            port=port,
-            tls=tls,
-            path=request_path,
-            query=request_query,
-        )
+    ref = ServiceRef(
+        namespace=namespace,
+        service=service,
+        port=port,
+        tls=tls,
+        path=request_path,
+        query=request_query,
+    )
 
     resolved_format = resolve_format(output_format, json_output=json_output)
     if not fetch:

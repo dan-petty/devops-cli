@@ -19,7 +19,6 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
 from devops_cli.http.urls import service_base_url
@@ -34,7 +33,7 @@ from devops_cli.output import (
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
 # A refusal at the connect ends each command with its message and no traceback.
-app = new_typer(help=HELP.prometheus.app, no_args_is_help=True, exit_on=SSRFBlockedError)
+app = new_typer(help=HELP.prometheus.app, no_args_is_help=True)
 
 _MAX_PROMQL_LEN = 4096
 

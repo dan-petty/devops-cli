@@ -10,7 +10,6 @@ from devops_cli.config.commands import build_openspec_cmd
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.dry_run import dry_run_command, format_command, is_dry_run, render_dry_run_result
-from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.openspec.archive import archive_change, archive_commands
 from devops_cli.openspec.gate import check_openspec
@@ -19,7 +18,7 @@ from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.output import print_error, print_success
 from devops_cli.telemetry import trace_span
 
-app = new_typer(help=HELP.openspec.app, no_args_is_help=True, exit_on=ToolExecutionError)
+app = new_typer(help=HELP.openspec.app, no_args_is_help=True)
 
 
 @app.command("check", help=HELP.openspec.check)

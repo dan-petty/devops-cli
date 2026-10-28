@@ -23,7 +23,7 @@ from devops_cli.config.settings import (
     keyring_write,
     require_persistent_keyring,
 )
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
@@ -175,8 +175,7 @@ def vault_get(
         )
         return None
 
-    with exit_on_error(VaultError):
-        lookup = broker.get_secret(path, key=key)
+    lookup = broker.get_secret(path, key=key)
     if lookup.value is None:
         print_error(
             f"Secret not found at '{path}' (checked: {', '.join(lookup.checked)}; "
@@ -249,8 +248,7 @@ def vault_set(
         )
         return None
 
-    with exit_on_error(VaultError):
-        broker.set_secret(path, payload)
+    broker.set_secret(path, payload)
     print_success(f"Successfully stored {len(payload)} secret(s) at '{path}'")
     return None
 
@@ -296,8 +294,7 @@ def vault_sync(
         )
         return None
 
-    with exit_on_error(VaultError):
-        report = broker.sync_to_keyring(path, keys=keys)
+    report = broker.sync_to_keyring(path, keys=keys)
     _report_sync(path, report)
     return None
 
@@ -388,8 +385,7 @@ def vault_login(
 
     if store:
         _require_keyring_for_login()
-    with exit_on_error(VaultError):
-        result = _login(method, broker, role=role, role_id=role_id, secret_id=secret_id)
+    result = _login(method, broker, role=role, role_id=role_id, secret_id=secret_id)
     if store:
         _store_login(result.client_token, broker)
 
@@ -570,15 +566,14 @@ def vault_leases(
         )
         return
 
-    with exit_on_error(VaultError):
-        registry = get_lease_registry(
-            LeaseRegistry(
-                vault_addr=broker.vault_addr,
-                token=broker.require_token(),
-                namespace=broker.vault_namespace,
-            )
+    registry = get_lease_registry(
+        LeaseRegistry(
+            vault_addr=broker.vault_addr,
+            token=broker.require_token(),
+            namespace=broker.vault_namespace,
         )
-        _revoke_lease(registry, revoke, broker)
+    )
+    _revoke_lease(registry, revoke, broker)
 
 
 def _revoke_lease(registry: LeaseRegistry, lease_id: str, broker: VaultSecretBroker) -> None:

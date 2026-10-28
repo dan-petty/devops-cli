@@ -12,7 +12,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DASHBOARD_REFRESH_SECONDS,
     DEFAULT_DASHBOARD_SUMMARY_POD_ROWS,
 )
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import ERRORS, HELP
 from devops_cli.output import (
@@ -225,8 +225,7 @@ def _run_dashboard_or_summary(
     tab: str,
     dry_run: bool = False,
 ) -> None:
-    with exit_on_error(ValidationError):
-        resolved_tab = _resolve_initial_tab(tab)
+    resolved_tab = _resolve_initial_tab(tab)
 
     if summary or dry_run or not sys.stdout.isatty():
         _render_summary()

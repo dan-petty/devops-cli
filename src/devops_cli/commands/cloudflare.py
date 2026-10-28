@@ -19,7 +19,7 @@ from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import Settings, get_cloudflare_api_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, mark_dry_run_invocation
-from devops_cli.exceptions.cloudflare import CloudflareAuthError, CloudflareError
+from devops_cli.exceptions.cloudflare import CloudflareAuthError
 from devops_cli.lang import HELP
 from devops_cli.models.cloudflare import CloudflareDNSRecord, CloudflareTunnelIngressRule
 from devops_cli.output import (
@@ -32,7 +32,6 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
-from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
 app = new_typer(help=HELP.cloudflare.app, no_args_is_help=True)
@@ -43,12 +42,6 @@ access_app = new_typer(help="Cloudflare Zero Trust Access management", no_args_i
 app.add_typer(dns_app, name="dns")
 app.add_typer(tunnel_app, name="tunnel")
 app.add_typer(access_app, name="access")
-
-
-def _print_cloudflare_error(action: str, exc: CloudflareError) -> None:
-    """Print sanitized Cloudflare error message masking any tokens or keys."""
-    safe_msg = mask_secrets(exc.message)
-    print_error(f"{action}: {safe_msg}")
 
 
 def _resolve_client(settings: Settings | None = None) -> CloudflareClient:
@@ -113,31 +106,27 @@ def cloudflare_status(
 ) -> None:
     """Verify Cloudflare API token authentication and inspect zone status."""
     settings = load_settings()
-    try:
-        client = _resolve_client(settings)
-        token_status = client.verify_token()
-        zone = client.get_zone() if client.zone_id else None
+    client = _resolve_client(settings)
+    token_status = client.verify_token()
+    zone = client.get_zone() if client.zone_id else None
 
-        resolved = resolve_format(output_format, json_output=json_output)
-        if resolved != CONST_OUTPUT_FORMAT_TABLE:
-            payload: dict[str, Any] = {
-                "token": {"id": token_status.id, "status": token_status.status},
-                "account_id": client.account_id,
-                "zone": zone.model_dump() if zone else None,
-                "tunnel_id": settings.cloudflare.tunnel,
-            }
-            emit_serialized(payload, resolved)
-            return
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        payload: dict[str, Any] = {
+            "token": {"id": token_status.id, "status": token_status.status},
+            "account_id": client.account_id,
+            "zone": zone.model_dump() if zone else None,
+            "tunnel_id": settings.cloudflare.tunnel,
+        }
+        emit_serialized(payload, resolved)
+        return
 
-        _render_status_table(
-            token_status=token_status,
-            account_id=client.account_id,
-            zone=zone,
-            tunnel_id=settings.cloudflare.tunnel,
-        )
-    except CloudflareError as exc:
-        _print_cloudflare_error("Cloudflare status check failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+    _render_status_table(
+        token_status=token_status,
+        account_id=client.account_id,
+        zone=zone,
+        tunnel_id=settings.cloudflare.tunnel,
+    )
 
 
 @app.command("service-status")
@@ -212,31 +201,27 @@ def dns_list(
     ] = False,
 ) -> None:
     """List DNS records in the designated Cloudflare zone."""
-    try:
-        client = _resolve_client()
-        records = client.list_dns_records(zone_id=zone_id, record_type=record_type, name=name)
+    client = _resolve_client()
+    records = client.list_dns_records(zone_id=zone_id, record_type=record_type, name=name)
 
-        resolved = resolve_format(output_format, json_output=json_output)
-        if resolved != CONST_OUTPUT_FORMAT_TABLE:
-            emit_serialized([r.model_dump() for r in records], resolved)
-            return
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([r.model_dump() for r in records], resolved)
+        return
 
-        columns = [("Type", "bold yellow"), ("Name", "bold cyan"), "Content", "Proxied", "TTL"]
-        rows = [
-            [
-                r.type,
-                r.name,
-                r.content,
-                "[green]Yes[/green]" if r.proxied else "[dim]No[/dim]",
-                str(r.ttl),
-            ]
-            for r in records
+    columns = [("Type", "bold yellow"), ("Name", "bold cyan"), "Content", "Proxied", "TTL"]
+    rows = [
+        [
+            r.type,
+            r.name,
+            r.content,
+            "[green]Yes[/green]" if r.proxied else "[dim]No[/dim]",
+            str(r.ttl),
         ]
-        zid = zone_id or client.zone_id or ""
-        print_table(f"DNS Records (Zone: {zid})", columns=columns, rows=rows)
-    except CloudflareError as exc:
-        _print_cloudflare_error("Listing DNS records failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+        for r in records
+    ]
+    zid = zone_id or client.zone_id or ""
+    print_table(f"DNS Records (Zone: {zid})", columns=columns, rows=rows)
 
 
 def _parse_subdomains_arg(subdomains: str | None) -> tuple[str, ...]:
@@ -346,18 +331,14 @@ def dns_sync(
         _preview_dns_sync(eff_domain, eff_tunnel, subs)
         return
 
-    try:
-        client = _resolve_client(settings)
-        summary = client.sync_dns_records(
-            domain=eff_domain,
-            tunnel_id_or_cname=eff_tunnel,
-            subdomains=subs,
-            zone_id=zone_id,
-        )
-        _render_dns_sync_results(eff_domain, eff_tunnel, summary, output_format, json_output)
-    except CloudflareError as exc:
-        _print_cloudflare_error("DNS synchronization failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+    client = _resolve_client(settings)
+    summary = client.sync_dns_records(
+        domain=eff_domain,
+        tunnel_id_or_cname=eff_tunnel,
+        subdomains=subs,
+        zone_id=zone_id,
+    )
+    _render_dns_sync_results(eff_domain, eff_tunnel, summary, output_format, json_output)
 
 
 def _resolve_dns_target_names(target: str, domain: str) -> tuple[str, str]:
@@ -504,21 +485,17 @@ def dns_delete(
     eff_domain = settings.cloudflare.domain or ""
     is_dry = dry_run or is_dry_run()
 
-    try:
-        client = _resolve_client(settings)
-        deleted, not_found = _execute_dns_deletions(
-            client=client,
-            targets=targets,
-            domain=eff_domain,
-            zone_id=zone_id,
-            dry_run=is_dry,
-            record_type=record_type,
-            force=force,
-        )
-        _render_dns_delete_results(deleted, not_found, is_dry, output_format, json_output)
-    except CloudflareError as exc:
-        _print_cloudflare_error("DNS deletion failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+    client = _resolve_client(settings)
+    deleted, not_found = _execute_dns_deletions(
+        client=client,
+        targets=targets,
+        domain=eff_domain,
+        zone_id=zone_id,
+        dry_run=is_dry,
+        record_type=record_type,
+        force=force,
+    )
+    _render_dns_delete_results(deleted, not_found, is_dry, output_format, json_output)
 
 
 @tunnel_app.command("routes")
@@ -550,31 +527,25 @@ def tunnel_routes(
         )
         raise typer.Exit(1)
 
-    try:
-        client = _resolve_client(settings)
-        cfg = client.get_tunnel_configuration(tunnel_id=eff_tunnel, account_id=account_id)
+    client = _resolve_client(settings)
+    cfg = client.get_tunnel_configuration(tunnel_id=eff_tunnel, account_id=account_id)
 
-        resolved = resolve_format(output_format, json_output=json_output)
-        if resolved != CONST_OUTPUT_FORMAT_TABLE:
-            emit_serialized(cfg.model_dump(), resolved)
-            return
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(cfg.model_dump(), resolved)
+        return
 
-        columns = [("#", "dim"), ("Hostname", "bold cyan"), "Path", ("Service", "bold yellow")]
-        rows = [
-            [
-                str(i + 1),
-                r.hostname or "[dim](catch-all)[/dim]",
-                r.path or "[dim]-[/dim]",
-                r.service,
-            ]
-            for i, r in enumerate(cfg.ingress)
+    columns = [("#", "dim"), ("Hostname", "bold cyan"), "Path", ("Service", "bold yellow")]
+    rows = [
+        [
+            str(i + 1),
+            r.hostname or "[dim](catch-all)[/dim]",
+            r.path or "[dim]-[/dim]",
+            r.service,
         ]
-        print_table(
-            f"Tunnel Ingress Configuration (Tunnel: {eff_tunnel})", columns=columns, rows=rows
-        )
-    except CloudflareError as exc:
-        _print_cloudflare_error("Fetching tunnel routes failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+        for i, r in enumerate(cfg.ingress)
+    ]
+    print_table(f"Tunnel Ingress Configuration (Tunnel: {eff_tunnel})", columns=columns, rows=rows)
 
 
 def _preview_tunnel_sync(
@@ -708,19 +679,15 @@ def tunnel_sync(
         write_stdout(f"PUT: {format_json(put_payload)}\n")
         return
 
-    try:
-        client = _resolve_client(settings)
-        updated_cfg = client.sync_tunnel_routes(
-            tunnel_id=eff_tunnel,
-            domain=eff_domain,
-            service=service,
-            subdomains=subs,
-            account_id=account_id,
-        )
-        _render_tunnel_sync_results(eff_tunnel, updated_cfg, output_format, json_output)
-    except CloudflareError as exc:
-        _print_cloudflare_error("Tunnel route synchronization failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+    client = _resolve_client(settings)
+    updated_cfg = client.sync_tunnel_routes(
+        tunnel_id=eff_tunnel,
+        domain=eff_domain,
+        service=service,
+        subdomains=subs,
+        account_id=account_id,
+    )
+    _render_tunnel_sync_results(eff_tunnel, updated_cfg, output_format, json_output)
 
 
 @access_app.command("status")
@@ -741,22 +708,18 @@ def access_status(
 ) -> None:
     """Inspect Cloudflare Zero Trust Access applications and protected domains."""
     settings = load_settings()
-    try:
-        client = _resolve_client(settings)
-        apps = client.list_access_applications(account_id=account_id)
-        resolved = resolve_format(output_format, json_output=json_output)
-        if resolved != CONST_OUTPUT_FORMAT_TABLE:
-            emit_serialized([a.model_dump() for a in apps], resolved)
-            return
-        if not apps:
-            print_info("No Cloudflare Zero Trust Access applications configured.")
-            return
-        columns = [("App Name", "bold cyan"), "Domain", "Type", "Session Duration"]
-        rows = [[a.name, a.domain, a.type, a.session_duration] for a in apps]
-        print_table("Cloudflare Zero Trust Access Applications", columns=columns, rows=rows)
-    except CloudflareError as exc:
-        _print_cloudflare_error("Access status check failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+    client = _resolve_client(settings)
+    apps = client.list_access_applications(account_id=account_id)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([a.model_dump() for a in apps], resolved)
+        return
+    if not apps:
+        print_info("No Cloudflare Zero Trust Access applications configured.")
+        return
+    columns = [("App Name", "bold cyan"), "Domain", "Type", "Session Duration"]
+    rows = [[a.name, a.domain, a.type, a.session_duration] for a in apps]
+    print_table("Cloudflare Zero Trust Access Applications", columns=columns, rows=rows)
 
 
 def _resolve_bypass_ips(
@@ -870,18 +833,14 @@ def access_sync(
         _preview_access_sync(eff_domain, emails, eff_bypass_ips)
         return
 
-    try:
-        client = _resolve_client(settings)
-        summary = client.sync_access_application(
-            domain=eff_domain,
-            allowed_emails=emails,
-            bypass_ips=eff_bypass_ips,
-            account_id=account_id,
-        )
-        _render_access_sync_results(summary, output_format, json_output)
-    except CloudflareError as exc:
-        _print_cloudflare_error("Access synchronization failed", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+    client = _resolve_client(settings)
+    summary = client.sync_access_application(
+        domain=eff_domain,
+        allowed_emails=emails,
+        bypass_ips=eff_bypass_ips,
+        account_id=account_id,
+    )
+    _render_access_sync_results(summary, output_format, json_output)
 
 
 @access_app.command("policies")
@@ -903,27 +862,23 @@ def access_policies(
 ) -> None:
     """List Cloudflare Zero Trust Access policies for an application."""
     settings = load_settings()
-    try:
-        client = _resolve_client(settings)
-        policies = client.get_access_policies(app_id, account_id=account_id)
-        resolved = resolve_format(output_format, json_output=json_output)
-        if resolved != CONST_OUTPUT_FORMAT_TABLE:
-            emit_serialized([p.model_dump() for p in policies], resolved)
-            return
-        if not policies:
-            print_info(f"No Access policies configured for application {app_id}.")
-            return
-        columns = [("Policy ID", "dim"), ("Name", "bold cyan"), "Decision", "Rules"]
-        rows = [
-            [
-                p.id or "-",
-                p.name,
-                p.decision,
-                str(len(p.include)),
-            ]
-            for p in policies
+    client = _resolve_client(settings)
+    policies = client.get_access_policies(app_id, account_id=account_id)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([p.model_dump() for p in policies], resolved)
+        return
+    if not policies:
+        print_info(f"No Access policies configured for application {app_id}.")
+        return
+    columns = [("Policy ID", "dim"), ("Name", "bold cyan"), "Decision", "Rules"]
+    rows = [
+        [
+            p.id or "-",
+            p.name,
+            p.decision,
+            str(len(p.include)),
         ]
-        print_table(f"Access Policies for App {app_id}", columns=columns, rows=rows)
-    except CloudflareError as exc:
-        _print_cloudflare_error("Failed listing Access policies", exc)
-        raise typer.Exit(code=exc.exit_code) from exc
+        for p in policies
+    ]
+    print_table(f"Access Policies for App {app_id}", columns=columns, rows=rows)

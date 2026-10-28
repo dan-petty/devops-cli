@@ -46,7 +46,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core import clock
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
@@ -2252,10 +2252,8 @@ def mutate(
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     from devops_cli.ci.mutate import select_targets
-    from devops_cli.exceptions import GitOperationError
 
-    with exit_on_error(GitOperationError):
-        targets = select_targets(_get_project_root(), paths or [], changed=changed, base=base)
+    targets = select_targets(_get_project_root(), paths or [], changed=changed, base=base)
     if not targets:
         print_muted(MESSAGES.ci.mutate_nothing)
         return
@@ -2309,20 +2307,18 @@ def fail_to_pass(
         parse_pr_labels,
         run_fail_to_pass,
     )
-    from devops_cli.exceptions import GitOperationError
 
     resolved_title = title if title is not None else os.environ.get("PR_TITLE")
     resolved_labels = parse_pr_labels(labels if labels is not None else os.environ.get("PR_LABELS"))
     resolved_body = body if body is not None else os.environ.get("PR_BODY")
-    with exit_on_error(GitOperationError):
-        report = run_fail_to_pass(
-            _get_project_root(),
-            base=base,
-            head=head,
-            title=resolved_title,
-            labels=resolved_labels,
-            body=resolved_body,
-        )
+    report = run_fail_to_pass(
+        _get_project_root(),
+        base=base,
+        head=head,
+        title=resolved_title,
+        labels=resolved_labels,
+        body=resolved_body,
+    )
     output = format_fail_to_pass_report(report)
     _append_step_summary(output)
     if not report.satisfied:

@@ -1002,20 +1002,16 @@ def logs(
         raise typer.Exit(1)
 
     callback = _render_single_log_line if follow and not json_output else None
-    try:
-        report = engine.logs(
-            identifier=target_id,
-            follow=follow,
-            tail=tail,
-            timestamps=timestamps,
-            detect_panics_flag=detect_panics,
-            archive_incidents=archive_incidents,
-            incident_dir=incident_dir,
-            line_callback=callback,
-        )
-    except SandboxError as exc:
-        print_error(f"Failed to fetch logs: {exc.message}")
-        raise typer.Exit(exc.exit_code) from exc
+    report = engine.logs(
+        identifier=target_id,
+        follow=follow,
+        tail=tail,
+        timestamps=timestamps,
+        detect_panics_flag=detect_panics,
+        archive_incidents=archive_incidents,
+        incident_dir=incident_dir,
+        line_callback=callback,
+    )
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

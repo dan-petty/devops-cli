@@ -12,7 +12,7 @@ import typer
 from devops_cli.ai.rag.library_store import library_contracts_dir, load_local_contracts
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
@@ -274,7 +274,6 @@ def index_libraries(
 ) -> None:
     """Index exported library API contracts into Qdrant vector collection and Valkey cache."""
 
-    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.output import print_warning
 
     contracts_dir = contracts_dir or library_contracts_dir()
@@ -285,9 +284,8 @@ def index_libraries(
 
     if not dry_run:
         store = _build_runtime_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
-        with exit_on_error(EmbeddingsError):
-            for contract in contracts:
-                store.index_contract(contract)
+        for contract in contracts:
+            store.index_contract(contract)
 
     resolved = resolve_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
@@ -316,7 +314,6 @@ def query_library(
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
     """Search library contracts and documentation via semantic search or exact symbol lookup."""
-    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.output import print_error
 
     store = _build_runtime_vector_store(
@@ -337,8 +334,7 @@ def query_library(
         _render_query_exact_table(sig)
         return
 
-    with exit_on_error(EmbeddingsError):
-        results = store.search(query, package=package, top_k=top_k)
+    results = store.search(query, package=package, top_k=top_k)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized([r.model_dump() for r in results], resolved)
         return
