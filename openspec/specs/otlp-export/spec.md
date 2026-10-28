@@ -47,3 +47,10 @@ When the configured protocol or endpoint is refused, the process tracer SHALL ha
 #### Scenario: A command with a gRPC protocol
 - **WHEN** telemetry is on and `OTEL_EXPORTER_OTLP_PROTOCOL` is `grpc`
 - **THEN** the process tracer has export off, one warning is logged, and its probe reports the message that names `OTEL_EXPORTER_OTLP_PROTOCOL`
+
+### Requirement: The devops perimeter opens only OTLP/HTTP to the collector
+The NetworkPolicy of the `devops` namespace SHALL allow egress to the `otel` namespace on TCP 4318 only, and not on the OTLP gRPC port, 4317.
+
+#### Scenario: The devops egress rule to otel
+- **WHEN** `k8s/devops/networkpolicy.yaml` is read
+- **THEN** the egress rule whose peer is the `otel` namespace names the one port TCP 4318
