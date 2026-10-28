@@ -21,7 +21,7 @@ Settings are resolved in the following priority order (highest to lowest):
 4. **Global User Config File** (`~/.config/devops-cli/config.yaml`)
 5. **Default Settings** (`devops_cli.config.defaults` and Pydantic field defaults)
 
-A config file that is not valid YAML stops the settings from loading. The error names the file, the type of the YAML error, and the line and the column where the parser stopped, such as `Cannot load the settings: <file> is not valid YAML (ScannerError) at line 2, column 22.` The error quotes no text of the file, because that line can hold a credential.
+A config file that is not valid YAML stops the settings from loading. The error names the file, the type of the YAML error, and the line and the column where the parser stopped, such as `Cannot load the settings: <file> is not valid YAML (ScannerError) at line 2, column 22.` The error quotes no text of the file, because that line can hold a credential. A file that is not UTF-8, or a tagged value that PyYAML cannot build, such as `!!int <text>`, gives the same error with no line and no column, such as `(ValueError).`
 
 ---
 

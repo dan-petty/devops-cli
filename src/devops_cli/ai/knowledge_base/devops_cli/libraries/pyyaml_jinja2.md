@@ -60,22 +60,30 @@ In `devops-cli`:
 
 ### Safe YAML Parsing
 
-The message of a PyYAML error quotes the line where the parser stopped, and the `buffer` of its `problem_mark` holds the full text of the document. A file can hold a credential, so the error that you raise names the type of the PyYAML error and its position, and quotes no text. Raise it after the `except` block: then it has no cause and no context that holds the PyYAML error. `config/settings.py::_read_config_file` reads the config files this way.
+The message of a PyYAML error quotes the line where the parser stopped, and the `buffer` of its `problem_mark` holds the full text of the document. The safe loader also raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value that it cannot build, such as `!!int <text>`, and the message quotes the value. A file can hold a credential, so the error that you raise names the type of the error and its position, and quotes no text. Catch each error but `OSError`, which names only the file. Read the position in a helper function, so that no frame of the traceback holds the mark. Raise the error after the `except` block: then it has no cause and no context that holds the first error. `config/settings.py::_read_config_file` reads the config files this way.
 
 ```python
 from pathlib import Path
+from typing import Any
 
 import yaml
 
+from devops_cli.exceptions import ConfigurationError
 
-def load_yaml_file(path: Path) -> dict:
+
+def load_yaml_file(path: Path) -> Any:
     try:
         return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
-        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
-        error_type = type(exc).__name__
-    raise ValueError(f"{path} is not valid YAML ({error_type}){where}.")
+    except OSError:
+        raise
+    except Exception as exc:
+        error_type, where = type(exc).__name__, _error_location(exc)
+    raise ConfigurationError(f"{path} is not valid YAML ({error_type}){where}.")
+
+
+def _error_location(exc: Exception) -> str:
+    mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
+    return f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
 ```
 
 ### Rendering a Dynamic DevContainer Configuration
