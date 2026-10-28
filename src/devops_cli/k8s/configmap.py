@@ -8,7 +8,6 @@ from typing import Any
 
 import yaml
 
-from devops_cli.config import options as opt
 from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from devops_cli.config.settings import GitHubAppConfig, Settings, load_settings
 from devops_cli.exceptions.k8s import KubernetesContextError
@@ -96,9 +95,9 @@ def _configured_repos(settings: Settings) -> list[str]:
 def _missing_app_settings(github_app: GitHubAppConfig) -> list[str]:
     """The App settings that are not set."""
     wanted = (
-        (opt.SERVICE_GITHUB_APP_APP_ID, github_app.app_id),
-        (opt.SERVICE_GITHUB_APP_INSTALLATION_ID, github_app.installation_id),
-        (opt.SERVICE_GITHUB_APP_SLUG, github_app.slug),
+        ("service.github_app.app_id", github_app.app_id),
+        ("service.github_app.installation_id", github_app.installation_id),
+        ("service.github_app.slug", github_app.slug),
     )
     return [option for option, value in wanted if not value]
 

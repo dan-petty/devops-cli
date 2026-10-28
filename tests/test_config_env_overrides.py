@@ -325,7 +325,6 @@ def test_ai_gateway_url_environment_variable_override_and_spec(
 ) -> None:
     """Verify DEVOPS_CLI_AI_GATEWAY_URL overrides ai.gateway_url and is registered as non-secret."""
     from devops_cli.config import env as env_mod
-    from devops_cli.config import options as opt
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text("ai:\n  gateway_url: http://localhost:4000/v1\n", encoding="utf-8")
@@ -336,6 +335,6 @@ def test_ai_gateway_url_environment_variable_override_and_spec(
     assert loaded.ai.gateway_url == "https://example.com/v1"
 
     specs = {s.env_var: s for s in env_mod.get_all_env_var_specs()}
-    spec = specs.get(env_mod.ENV_AI_GATEWAY_URL)
+    spec = specs.get("DEVOPS_CLI_AI_GATEWAY_URL")
     assert spec is not None
-    assert (spec.is_secret, spec.option_key) == (False, opt.AI_GATEWAY_URL)
+    assert (spec.is_secret, spec.option_key) == (False, "ai.gateway_url")

@@ -19,7 +19,6 @@ def clean_data_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_default_data_constants_and_settings() -> None:
     """Verify DEFAULT data constants, DataConfig model, and Settings defaults."""
     from devops_cli.config import env as env_mod
-    from devops_cli.config import options as opt
     from devops_cli.config.defaults import (
         DEFAULT_ANALYSIS_DATA_DIR,
         DEFAULT_AUDIT_LOG_PATH,
@@ -65,11 +64,16 @@ def test_default_data_constants_and_settings() -> None:
     assert settings.data.tls_dir == DEFAULT_TLS_DATA_DIR
     assert settings.data.rag_dir == DEFAULT_RAG_DATA_DIR
 
-    assert env_mod.OPTION_TO_ENV_VAR[opt.DATA_DIR] == env_mod.ENV_DATA_DIR
-    assert env_mod.OPTION_TO_ENV_VAR[opt.DATA_REVIEWS_DIR] == env_mod.ENV_DATA_REVIEWS_DIR
-    assert env_mod.OPTION_TO_ENV_VAR[opt.DATA_LOGS_DIR] == env_mod.ENV_DATA_LOGS_DIR
-    assert env_mod.OPTION_TO_ENV_VAR[opt.DATA_RAG_DIR] == env_mod.ENV_DATA_RAG_DIR
-    assert env_mod.OPTION_TO_ENV_VAR[opt.DATA_TLS_DIR] == env_mod.ENV_DATA_TLS_DIR
+    assert [
+        env_mod.env_var_for_option(key)
+        for key in ("data.dir", "data.reviews_dir", "data.logs_dir", "data.rag_dir", "data.tls_dir")
+    ] == [
+        "DEVOPS_CLI_DATA_DIR",
+        "DEVOPS_CLI_DATA_REVIEWS_DIR",
+        "DEVOPS_CLI_DATA_LOGS_DIR",
+        "DEVOPS_CLI_DATA_RAG_DIR",
+        "DEVOPS_CLI_DATA_TLS_DIR",
+    ]
 
 
 def test_data_config_cascades_custom_base_dir() -> None:

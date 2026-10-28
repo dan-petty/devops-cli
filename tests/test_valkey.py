@@ -24,7 +24,6 @@ from devops_cli.ai.run_store import (
     save_run,
 )
 from devops_cli.commands.valkey import app
-from devops_cli.config import options as opt
 from devops_cli.config.constants import CONST_ERROR_CODE_CONFIG
 from devops_cli.config.defaults import DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS
 from devops_cli.config.settings import ValkeyConfig, load_settings, save_settings
@@ -255,7 +254,7 @@ class TestValkeyUrl:
             ),
         ],
     )
-    @pytest.mark.parametrize("setting", [opt.VALKEY_URL, opt.RUNS_INDEX_URL, "--url"])
+    @pytest.mark.parametrize("setting", ["valkey.url", "runs.index_url", "--url"])
     def test_a_valid_url_names_the_scheme_host_port_and_database(
         self, url: str, endpoint: ValkeyEndpoint, setting: str
     ) -> None:
@@ -277,8 +276,8 @@ class TestValkeyUrl:
         with pytest.raises(ConfigurationError) as option:
             parse_valkey_url(url, setting="--url")
         messages = {
-            opt.VALKEY_URL: valkey_url.value.message,
-            opt.RUNS_INDEX_URL: index_url.value.message,
+            "valkey.url": valkey_url.value.message,
+            "runs.index_url": index_url.value.message,
             "--url": option.value.message,
         }
         assert {
@@ -301,7 +300,7 @@ class TestValkeyUrl:
         config(valkey={"url": f"tcp://:{_URL_PASSWORD}@example.com"})
         result = cli(argv)
         output = " ".join(result.output.split())
-        setting = "--url" if "--url" in argv else opt.VALKEY_URL
+        setting = "--url" if "--url" in argv else "valkey.url"
         assert (
             result.exit_code,
             f"{setting} has the scheme 'tcp'" in output,

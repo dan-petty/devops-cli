@@ -260,7 +260,7 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 |  | `devops argo rollouts COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo fleet COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo gitops COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
-| [**config**](docs/commands/config.md) | `devops config show` | Print all configuration values, masking secrets. |
+| [**config**](docs/commands/config.md) | `devops config show [OPTIONS]` | Print every setting that a variable sets and every credential. A credential shows as set or not set, never its value. |
 |  | `devops config get <key>` | Print a single configuration value. |
 |  | `devops config set [OPTIONS] <key> <value>` | Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden. |
 |  | `devops config unset [OPTIONS] <key>` | Remove a key from the config file, also a key that stops the settings from loading. |

@@ -13,8 +13,7 @@ from typing import Any
 
 import yaml
 
-from devops_cli.config import options as opt
-from devops_cli.config.env import OPTION_TO_ENV_VAR
+from devops_cli.config.env import env_var_for_option
 from devops_cli.tools_lock import load_tools_lock
 from tests.k8s_manifests import kustomize
 from tests.support.paths import REPO_ROOT
@@ -185,8 +184,8 @@ def test_the_version_template_runs_the_service_image_with_only_version_and_no_se
         ["devops"],
         ["--version"],
         [
-            {"name": OPTION_TO_ENV_VAR[opt.TELEMETRY_ENABLED], "value": "false"},
-            {"name": OPTION_TO_ENV_VAR[opt.DATA_DIR], "value": "/home/devops/.data"},
+            {"name": env_var_for_option("telemetry.enabled"), "value": "false"},
+            {"name": env_var_for_option("data.dir"), "value": "/home/devops/.data"},
         ],
         [m for m in cronjob_container["volumeMounts"] if not m.get("readOnly")],
         [v for v in cronjob_pod["volumes"] if "emptyDir" in v],

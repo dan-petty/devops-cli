@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel, Field, computed_field
 
-from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_CACHE_NAMESPACE_ROOT,
@@ -269,7 +268,7 @@ class RunIndex:
         from devops_cli.valkey.endpoint import parse_valkey_url
 
         endpoint = parse_valkey_url(
-            url, setting=opt.RUNS_INDEX_URL, written_by="`devops ai runs connect`"
+            url, setting="runs.index_url", written_by="`devops ai runs connect`"
         )
         return cls(
             ValkeyClient(endpoint, password=password, timeout=DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS)

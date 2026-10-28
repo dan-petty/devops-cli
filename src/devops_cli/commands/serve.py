@@ -35,7 +35,6 @@ app = new_typer(
 def _require_github_app(settings: Settings) -> None:
     """Exit 1 unless the Service can act as its GitHub App: the App's settings are set and the
     environment holds the App's private key (ADR 0015)."""
-    from devops_cli.config import options as opt
     from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
     from devops_cli.core.process import acts_as_github_app
 
@@ -43,9 +42,9 @@ def _require_github_app(settings: Settings) -> None:
     missing = [
         option
         for option, value in (
-            (opt.SERVICE_GITHUB_APP_APP_ID, app_config.app_id),
-            (opt.SERVICE_GITHUB_APP_INSTALLATION_ID, app_config.installation_id),
-            (opt.SERVICE_GITHUB_APP_SLUG, app_config.slug),
+            ("service.github_app.app_id", app_config.app_id),
+            ("service.github_app.installation_id", app_config.installation_id),
+            ("service.github_app.slug", app_config.slug),
         )
         if not value
     ]

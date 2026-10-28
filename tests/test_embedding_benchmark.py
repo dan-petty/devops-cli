@@ -913,7 +913,6 @@ def test_a_code_run_is_recorded_with_the_files_it_ranked(
     subject, beside the document it does not use, so a baseline from before a source change is
     not compared with a run after it (#481)."""
     from devops_cli.ai.run_store import Mechanism, load_runs
-    from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
 
     tree = _source_tree(tmp_path)
 
@@ -928,7 +927,7 @@ def test_a_code_run_is_recorded_with_the_files_it_ranked(
         "http://localhost:11434",
         "--code",
         tree,
-        env={ENV_AI_ALLOW_PRIVATE_NETWORK: "true"},
+        env={"DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true"},
     )
     (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
 

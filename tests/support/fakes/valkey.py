@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING
 import pytest
 from fakeredis import FakeServer, FakeValkey
 
-from devops_cli.config import options as opt
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
@@ -46,7 +45,7 @@ def valkey_endpoint(url: str) -> ValkeyEndpoint:
     """
     from devops_cli.valkey.endpoint import parse_valkey_url
 
-    return parse_valkey_url(url, setting=opt.VALKEY_URL)
+    return parse_valkey_url(url, setting="valkey.url")
 
 
 def valkey_client_on(server: FakeServer, *, password: str | None = None) -> ValkeyClient:

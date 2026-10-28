@@ -27,10 +27,10 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
 from devops_cli.config.env import (
     ENV_OTEL_EXPORTER_OTLP_ENDPOINT,
-    ENV_TELEMETRY_ENABLED,
-    ENV_TELEMETRY_ENDPOINT,
     EnvVarSpec,
+    env_var_for_option,
     get_all_env_var_specs,
+    option_env_vars,
 )
 from devops_cli.core.command_resolver import module_click_command
 from devops_cli.output import write_text_file
@@ -839,8 +839,9 @@ class DocGenerator:
 
     def generate_configuration_docs(self) -> str:
         """Programmatically generate Markdown configuration reference from Settings schema."""
-        from devops_cli.config.env import OPTION_TO_ENV_VAR
         from devops_cli.config.settings import Settings
+
+        variables = option_env_vars()
 
         candidates_str = (
             ", ".join(f"`{c}`" for c in CONST_PROJECT_CONFIG_CANDIDATES[:-1])
@@ -913,7 +914,7 @@ class DocGenerator:
             if not isinstance(section_val, BaseModel):
                 scalar_rows.append(
                     self._format_settings_field_row(
-                        section_key, top_info, section_val, section_key, OPTION_TO_ENV_VAR
+                        section_key, top_info, section_val, section_key, variables
                     )
                 )
                 continue
@@ -939,7 +940,7 @@ class DocGenerator:
                             field_info,
                             getattr(section_val, field_name, None),
                             f"{section_key}.{field_name}",
-                            OPTION_TO_ENV_VAR,
+                            variables,
                         )
                         for field_name, field_info in section_val.__class__.model_fields.items()
                     ),
@@ -1077,6 +1078,8 @@ class DocGenerator:
         """Programmatically generate OpenTelemetry and Prometheus telemetry reference."""
         from devops_cli.telemetry.instruments import INSTRUMENTS
 
+        telemetry_endpoint = env_var_for_option("telemetry.endpoint")
+        telemetry_enabled = env_var_for_option("telemetry.enabled")
         lines: list[str] = [
             "# DevOps CLI Telemetry & Distributed Tracing Reference",
             "",
@@ -1195,11 +1198,11 @@ class DocGenerator:
             "`docker.workload_sandbox.run` span, and each exec's is its own `sandbox.exec` span. "
             "With telemetry disabled, nothing is added.",
             "- **OTLP Exporter**: Spans and metrics go to the OpenTelemetry Collector at "
-            f"`telemetry.endpoint` (`{ENV_TELEMETRY_ENDPOINT}`). When devops-cli's configuration "
+            f"`telemetry.endpoint` (`{telemetry_endpoint}`). When devops-cli's configuration "
             f"names none, OpenTelemetry's own `{ENV_OTEL_EXPORTER_OTLP_ENDPOINT}` names it, else "
-            f"`{DEFAULT_OTEL_ENDPOINT}`. `telemetry.enabled` (`{ENV_TELEMETRY_ENABLED}`) turns "
+            f"`{DEFAULT_OTEL_ENDPOINT}`. `telemetry.enabled` (`{telemetry_enabled}`) turns "
             "export off. When the configuration cannot load, those two variables alone decide, "
-            f"and export stays off unless `{ENV_TELEMETRY_ENABLED}` turns it on.",
+            f"and export stays off unless `{telemetry_enabled}` turns it on.",
             "",
             *self._llm_span_attribute_lines(),
         ]

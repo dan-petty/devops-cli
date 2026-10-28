@@ -402,13 +402,11 @@ def test_describe_reports_availability_without_returning_values() -> None:
 
 def test_registry_describes_every_managed_credential() -> None:
     """The registry is the single declaration of where each credential may be found."""
-    from devops_cli.config import options as opt
-
-    registry = build_secret_registry(opt.KEYRING_KEYS)
-    grafana = registry[opt.GRAFANA_TOKEN]
+    registry = build_secret_registry()
+    grafana = registry["grafana.token"]
 
     assert (
-        grafana.keyring_key == opt.KEYRING_KEYS[opt.GRAFANA_TOKEN],
+        grafana.keyring_key == "grafana_token",
         "DEVOPS_CLI_GRAFANA_TOKEN" in grafana.env_vars,
         grafana.vault_path.startswith("secret/data/"),
     ) == (True, True, True)
@@ -416,21 +414,17 @@ def test_registry_describes_every_managed_credential() -> None:
 
 def test_every_registry_entry_declares_a_keyring_key() -> None:
     """The canonical store must be reachable for every managed credential."""
-    from devops_cli.config import options as opt
-
-    registry = build_secret_registry(opt.KEYRING_KEYS)
+    registry = build_secret_registry()
     assert all(ref.keyring_key for ref in registry.values())
 
 
-def test_firecrawl_api_key_is_in_secrets_registry_and_secret_options() -> None:
-    from devops_cli.config import options as opt
-
-    registry = build_secret_registry(opt.KEYRING_KEYS)
-    assert (
-        opt.FIRECRAWL_API_KEY in opt.SECRET_CONFIG_OPTIONS,
-        opt.FIRECRAWL_API_KEY in registry,
-        registry[opt.FIRECRAWL_API_KEY].keyring_key,
-    ) == (True, True, "firecrawl_api_key")
+def test_firecrawl_api_key_is_read_from_its_own_variable_and_from_the_config_file() -> None:
+    firecrawl = build_secret_registry()["firecrawl.api_key"]
+    assert (firecrawl.keyring_key, firecrawl.env_vars, firecrawl.settings_path) == (
+        "firecrawl_api_key",
+        ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"),
+        "firecrawl.api_key",
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

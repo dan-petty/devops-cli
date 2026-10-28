@@ -11,8 +11,7 @@ from typing import TYPE_CHECKING, Any
 from devops_cli.config.constants import (
     CONST_GENAI_PROVIDER_NAMES,
 )
-from devops_cli.config.env import ENV_AGENT_GRANT, ENV_AI_API_KEY
-from devops_cli.config.options import AI_API_KEY
+from devops_cli.config.env import ENV_AGENT_GRANT, env_var_for_option
 from devops_cli.exceptions.ai import LLMInferenceError
 
 if TYPE_CHECKING:
@@ -109,7 +108,7 @@ def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredenti
     )
     return AICredentialsError(
         f"{subject} {problem} (HTTP {status}). "
-        f"Set {ENV_AI_API_KEY} or run `devops config set {AI_API_KEY}`."
+        f"Set {env_var_for_option('ai.api_key')} or run `devops config set ai.api_key`."
     )
 
 

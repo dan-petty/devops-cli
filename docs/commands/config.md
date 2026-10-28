@@ -6,11 +6,18 @@ Show, set, get, or initialize CLI configuration.
 
 ## `devops config show`
 
-**Print all configuration values, masking secrets.**
+**Print every setting that a variable sets and every credential. A credential shows as set or not set, never its value.**
 
 ```bash
-devops config show
+devops config show [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 

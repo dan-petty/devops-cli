@@ -10,9 +10,8 @@ from typing import Any
 
 import yaml
 
-from devops_cli.config import options as opt
 from devops_cli.config.constants import CONST_OTEL_SERVICE_NAME
-from devops_cli.config.env import OPTION_TO_ENV_VAR
+from devops_cli.config.env import CREDENTIALS
 from devops_cli.config.settings import Settings
 from tests.support.paths import REPO_ROOT
 
@@ -123,7 +122,7 @@ def test_security_context_is_restricted() -> None:
 def test_credentials_arrive_only_through_the_devops_cli_secret() -> None:
     container = _container()
     secret_env = {"GH_TOKEN", "GITHUB_TOKEN"} | {
-        OPTION_TO_ENV_VAR[o] for o in opt.SECRET_CONFIG_OPTIONS if o in OPTION_TO_ENV_VAR
+        variable for credential in CREDENTIALS for variable in credential.env_vars
     }
     literal = [
         e["name"] for e in container.get("env", []) if e["name"] in secret_env and "value" in e
@@ -154,7 +153,7 @@ def test_writable_paths_are_empty_dirs_and_the_data_dir_is_under_home() -> None:
 def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None:
     raw = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
     settings = Settings.model_validate(raw)
-    leaked = [key for key in sorted(opt.SECRET_CONFIG_OPTIONS) if _dotted(raw, key) is not None]
+    leaked = [c.key for c in CREDENTIALS if _dotted(raw, c.key) is not None]
     assert (
         settings.ai.provider,
         settings.ai.gateway_url,

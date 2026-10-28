@@ -22,7 +22,6 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import Any
 
-from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_LEDGER_KEY,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
@@ -65,9 +64,9 @@ def configured_app() -> GitHubApp:
 
     config = load_settings().service.github_app
     wanted = (
-        (opt.SERVICE_GITHUB_APP_APP_ID, config.app_id),
-        (opt.SERVICE_GITHUB_APP_INSTALLATION_ID, config.installation_id),
-        (opt.SERVICE_GITHUB_APP_SLUG, config.slug),
+        ("service.github_app.app_id", config.app_id),
+        ("service.github_app.installation_id", config.installation_id),
+        ("service.github_app.slug", config.slug),
     )
     missing = [option for option, value in wanted if not value]
     if config.app_id is None or config.installation_id is None or config.slug is None:

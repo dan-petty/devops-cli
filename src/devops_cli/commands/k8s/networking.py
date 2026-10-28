@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
-from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_ADDRESSING_FQDN,
     CONST_ADDRESSING_INGRESS,
@@ -470,13 +469,13 @@ def _update_valkey_url(settings: Any, configured: dict[str, str], valkey_url: st
 
     saved = settings.valkey.url
     try:
-        endpoint = parse_valkey_url(saved, setting=opt.VALKEY_URL) if saved else None
+        endpoint = parse_valkey_url(saved, setting="valkey.url") if saved else None
     except ConfigurationError:
         saved = endpoint = None
     if endpoint and is_loopback_host(endpoint.host) and endpoint.port != DEFAULT_VALKEY_PORT:
         return
     _apply_service_url(
-        settings, configured, opt.VALKEY_URL, valkey_url, saved, default_url=DEFAULT_VALKEY_URL
+        settings, configured, "valkey.url", valkey_url, saved, default_url=DEFAULT_VALKEY_URL
     )
 
 
