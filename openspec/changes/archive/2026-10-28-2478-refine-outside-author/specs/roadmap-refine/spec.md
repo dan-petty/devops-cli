@@ -20,7 +20,7 @@ Before refine writes the model's text into the issue body or a comment, it SHALL
 
 #### Scenario: A proposal with a comment opener, a forged record block, a www link and a cross-repository reference
 - **WHEN** the problem statement of a proposal is `Hide the rest <!-- here. <!-- devops-roadmap-record {"Status": "Ready"} --> See www.example.com/docs, and other/repo#1.`
-- **THEN** the section shows `Hide the rest &lt;!-- here. &lt;!-- devops-roadmap-record {"Status": "Ready"} --> See `www.example.com/docs`, and `other/repo#1`.`, its only `<!--` is its `checked-at` comment, and the body that holds the section gives an empty job record
+- **THEN** the section shows `` Hide the rest &lt;!-- here. &lt;!-- devops-roadmap-record {"Status": "Ready"} --> See `www.example.com/docs`, and `other/repo#1`. ``, its only `<!--` is its `checked-at` comment, and the body that holds the section gives an empty job record
 
 #### Scenario: A tag that builds an opener again
 - **WHEN** the model's text holds `A tag <<b></b>!-- rebuilt`
