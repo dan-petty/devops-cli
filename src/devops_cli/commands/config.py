@@ -31,9 +31,11 @@ from devops_cli.config.settings import (
     dotted_get,
     dotted_set,
     get_active_config_path,
+    is_config_key,
     load_settings,
     remove_config_key,
     save_settings,
+    similar_config_keys,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import exit_on_error
@@ -68,6 +70,19 @@ def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
     print_warning(f"Could not store secret for {key}: {masked_err}", prefix=False)
     if env_var:
         print_warning(f"Use environment variable fallback: export {env_var}=<value>", prefix=False)
+
+
+def _unknown_key(key: str) -> typer.Exit:
+    """Print that the settings do not know `key`, and the known keys with a similar name.
+
+    Return the exit 1 that the command raises.
+    """
+    print_error(MESSAGES.config.unknown_key.format(key=key), prefix=False, safe=True)
+    similar = similar_config_keys(key)
+    if similar:
+        keys = ", ".join(similar)
+        print_info(MESSAGES.config.similar_keys.format(keys=keys), prefix=False, safe=True)
+    return typer.Exit(1)
 
 
 def _gh_auth_status() -> bool:
@@ -171,8 +186,7 @@ def get_value(
         value = dotted_get(settings, key)
         print_info(str(value) if value is not None else "[dim](not set)[/dim]", prefix=False)
     except AttributeError as exc:
-        print_error(f"Unknown config key: {key!r}", prefix=False)
-        raise typer.Exit(1) from exc
+        raise _unknown_key(key) from exc
 
 
 # =============================================================================
@@ -249,6 +263,9 @@ def set_value(
     A multi-line credential, such as a PEM private key, comes from a file or stdin:
     `devops config set <key> --from-file key.pem`, or `--from-file -` to read stdin.
     """
+    # An unknown key exits before the prompt, the read of the file and the load of the settings.
+    if not is_config_key(key):
+        raise _unknown_key(key)
     value = (
         _value_or_prompt(key, value)
         if from_file is None

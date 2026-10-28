@@ -244,6 +244,8 @@ class ConfigMessages:
     not_set: str = "not set"
     set_success: str = "✓ Set {key} = {value}"
     set_secret_success: str = "✓ Set {key} in OS keyring"
+    unknown_key: str = "Unknown config key: '{key}'"
+    similar_keys: str = "Known keys with a similar name: {keys}"
     value_required: str = "{key} needs a VALUE; only a credential may be typed at a hidden prompt."
     secret_prompt: str = "{key} (typing hidden)"
     from_file_not_secret: str = (
