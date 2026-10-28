@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.1](https://github.com/dan-petty/devops-cli/compare/v0.11.0...v0.11.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **config:** devops config audit-keys scans each config file that the settings merge ([#2516](https://github.com/dan-petty/devops-cli/issues/2516)) ([57541df](https://github.com/dan-petty/devops-cli/commit/57541df1e04933e0ce6fa5161d1cdaa4280175a4))
+* **security:** the osv, internetdb, radar and cloudflare api clients dial through the egress-checked factory at the public level ([#2509](https://github.com/dan-petty/devops-cli/issues/2509)) ([0379f21](https://github.com/dan-petty/devops-cli/commit/0379f21e489bf5204c03e336d17992dbedbe2707))
+
+
+### Code Refactoring
+
+* **k8s:** KubernetesService is the Kubernetes API seam, with a shared fake cluster and its contract suite ([#2527](https://github.com/dan-petty/devops-cli/issues/2527)) ([0f6b9af](https://github.com/dan-petty/devops-cli/commit/0f6b9af47acb7cd6324a7718fc89580bf66bf12b)), closes [#1315](https://github.com/dan-petty/devops-cli/issues/1315)
+
 ## [0.11.0](https://github.com/dan-petty/devops-cli/compare/v0.10.1...v0.11.0) (2026-10-28)
 
 
