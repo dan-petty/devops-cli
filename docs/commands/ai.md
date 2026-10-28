@@ -782,6 +782,12 @@ verdict the dataset does not hold yet are appended. An export that finds none le
 dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
 changes no prompt and no later review.
 
+A subject reviewed more than once is exported once: its sessions share their findings by
+fingerprint v2. Each finding has the newest verdict a person gave it in any of those
+sessions, or else the verdict of the session that review history counts. --status selects
+by that verdict. A session that records no subject, and a finding with no fingerprint v2,
+are exported on their own.
+
 ```bash
 devops ai review export-feedback [OPTIONS]
 ```

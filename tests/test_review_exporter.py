@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.review.exporter import export_invalidated_feedback
+from devops_cli.ai.review.history import subject_key
 from devops_cli.exceptions import SecurityError
 from tests.support.paths import REPO_ROOT
 
@@ -320,3 +321,257 @@ def test_the_documentation_names_one_dataset_path() -> None:
     }
 
     assert named == {DEFAULT_FEEDBACK_DATASET_PATH.as_posix()}
+
+
+# =============================================================================
+# The export counts each subject once and keeps every human verdict (#877)
+# =============================================================================
+
+
+def _subject_session(
+    reviews_dir: Path,
+    name: str,
+    findings: list[dict[str, Any]],
+    *,
+    subject: dict[str, str] | None = _SUBJECT,
+    target: str | None = None,
+) -> Path:
+    """A review session of `subject` (none when None) with one findings.json, and a profile.json
+    naming `target` when one is given."""
+    session_dir = reviews_dir / name
+    session_dir.mkdir(parents=True)
+    payload: dict[str, Any] = {"generated_at": "2026-10-02T22:01:34+00:00", "findings": findings}
+    if subject is not None:
+        payload["subject"] = subject
+    (session_dir / "findings.json").write_text(json.dumps(payload), encoding="utf-8")
+    if target is not None:
+        profile = {"session_id": name, "target": target}
+        (session_dir / "profile.json").write_text(json.dumps(profile), encoding="utf-8")
+    return session_dir
+
+
+def _tool_finding(fingerprint: str, status: str = "UNVERIFIED", **verdict: Any) -> dict[str, Any]:
+    """An admitted tool finding as a session saves it, with its fingerprint v2."""
+    return {
+        "title": f"[B102] Use of exec detected ({fingerprint}).",
+        "status": status,
+        "producer": "bandit",
+        "severity": "MEDIUM",
+        "location": f"src/devops_cli/{fingerprint}.py:12",
+        "description": "exec runs a snippet.",
+        "fingerprint": fingerprint,
+        **verdict,
+    }
+
+
+def _person(status: str, at: str) -> dict[str, Any]:
+    """The fields `devops review verify` writes for a person's verdict."""
+    return {"status": status, "verified_by": "human", "verified_at": at}
+
+
+def _export_all(reviews_dir: Path, output_file: Path) -> int:
+    count, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir,
+        output_file=output_file,
+        status_filter=None,
+        workspace_root=reviews_dir.parent,
+    )
+    return count
+
+
+def test_a_subject_reviewed_three_times_exports_each_finding_once(tmp_path: Path) -> None:
+    """Verify three sessions of one subject that hold the same two findings export two records,
+    each with its subject key and fingerprint v2."""
+    reviews_dir = tmp_path / "reviews"
+    for name in ("20261002-210000", "20261002-220000", "20261002-230000"):
+        _subject_session(reviews_dir, name, [_tool_finding("fp-a"), _tool_finding("fp-b")])
+    output_file = tmp_path / "dataset.jsonl"
+
+    count = _export_all(reviews_dir, output_file)
+    records = _lines(output_file)
+
+    assert (
+        count,
+        sorted(r["fingerprint_v2"] for r in records),
+        {r["subject_key"] for r in records},
+    ) == (2, ["fp-a", "fp-b"], {subject_key(_SUBJECT)})
+
+
+def test_the_human_verdicts_of_every_session_of_a_subject_are_exported(tmp_path: Path) -> None:
+    """Verify a person's verdict on a finding is exported when another session of its subject
+    holds a person's verdict on a different finding."""
+    reviews_dir = tmp_path / "reviews"
+    _subject_session(
+        reviews_dir,
+        "20261002-210000",
+        [
+            _tool_finding("fp-a", **_person("INVALIDATED", "2026-10-02T21:30:00+00:00")),
+            _tool_finding("fp-b"),
+        ],
+    )
+    _subject_session(
+        reviews_dir,
+        "20261002-220000",
+        [
+            _tool_finding("fp-a"),
+            _tool_finding("fp-b", **_person("VERIFIED", "2026-10-02T22:30:00+00:00")),
+        ],
+    )
+    output_file = tmp_path / "dataset.jsonl"
+
+    count = _export_all(reviews_dir, output_file)
+
+    assert (
+        count,
+        sorted((r["fingerprint_v2"], r["status"], r["verified_by"]) for r in _lines(output_file)),
+    ) == (2, [("fp-a", "INVALIDATED", "human"), ("fp-b", "VERIFIED", "human")])
+
+
+def test_the_newer_of_two_human_verdicts_on_one_finding_is_exported(tmp_path: Path) -> None:
+    """Verify two sessions of one subject with different human verdicts on one finding export one
+    record, the verdict with the newer verified_at, whichever session is newer."""
+    reviews_dir = tmp_path / "reviews"
+    newer_verdict = _person("INVALIDATED", "2026-10-03T09:00:00+00:00")
+    older_verdict = _person("VERIFIED", "2026-10-02T23:00:00+00:00")
+    _subject_session(reviews_dir, "20261002-210000", [_tool_finding("fp-a", **newer_verdict)])
+    _subject_session(reviews_dir, "20261002-220000", [_tool_finding("fp-a", **older_verdict)])
+    output_file = tmp_path / "dataset.jsonl"
+
+    count = _export_all(reviews_dir, output_file)
+
+    assert (
+        count,
+        [(r["status"], r["verified_at"], r["session_id"]) for r in _lines(output_file)],
+    ) == (1, [("INVALIDATED", "2026-10-03T09:00:00+00:00", "20261002-210000")])
+
+
+def test_the_status_filter_reads_the_finding_s_newest_human_verdict(tmp_path: Path) -> None:
+    """Verify an export of INVALIDATED verdicts skips a finding whose newer human verdict is
+    VERIFIED, so a verdict a person overturned is not exported."""
+    reviews_dir = tmp_path / "reviews"
+    _subject_session(
+        reviews_dir,
+        "20261002-210000",
+        [_tool_finding("fp-a", **_person("INVALIDATED", "2026-10-02T21:30:00+00:00"))],
+    )
+    _subject_session(
+        reviews_dir,
+        "20261002-220000",
+        [_tool_finding("fp-a", **_person("VERIFIED", "2026-10-02T22:30:00+00:00"))],
+    )
+    output_file = tmp_path / "dataset.jsonl"
+
+    count, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output_file, workspace_root=tmp_path
+    )
+
+    assert (count, output_file.exists()) == (0, False)
+
+
+def test_sessions_without_a_subject_each_export_all_their_findings(tmp_path: Path) -> None:
+    """Verify a target-only session and an unkeyed session each export their findings, also a
+    finding with the fingerprint v2 of a finding the other one holds."""
+    reviews_dir = tmp_path / "reviews"
+    _subject_session(
+        reviews_dir,
+        "20261001-210000",
+        [_tool_finding("fp-a"), _tool_finding("fp-b")],
+        subject=None,
+        target="src/devops_cli",
+    )
+    _subject_session(reviews_dir, "20261001-220000", [_tool_finding("fp-a")], subject=None)
+    output_file = tmp_path / "dataset.jsonl"
+
+    count = _export_all(reviews_dir, output_file)
+
+    assert (
+        count,
+        sorted(
+            (r["session_id"], r["fingerprint_v2"], r["subject_key"]) for r in _lines(output_file)
+        ),
+    ) == (
+        3,
+        [
+            ("20261001-210000", "fp-a", None),
+            ("20261001-210000", "fp-b", None),
+            ("20261001-220000", "fp-a", None),
+        ],
+    )
+
+
+def test_findings_without_a_fingerprint_are_not_matched_across_sessions(tmp_path: Path) -> None:
+    """Verify two sessions of one subject that hold a finding with no fingerprint v2 under the
+    same title and location export it once for each session: no title or location match."""
+    reviews_dir = tmp_path / "reviews"
+    for name in ("20261002-210000", "20261002-220000"):
+        _subject_session(reviews_dir, name, [_judged("[B102] Use of exec detected.")])
+    output_file = tmp_path / "dataset.jsonl"
+
+    count = _export_all(reviews_dir, output_file)
+
+    assert (count, sorted(r["session_id"] for r in _lines(output_file))) == (
+        2,
+        ["20261002-210000", "20261002-220000"],
+    )
+
+
+def test_a_later_session_of_an_exported_subject_appends_nothing(tmp_path: Path) -> None:
+    """Verify a session that repeats an exported subject with the same verdicts adds no record,
+    and a person's later verdict on one of its findings adds one."""
+    reviews_dir = tmp_path / "reviews"
+    _subject_session(reviews_dir, "20261002-210000", [_tool_finding("fp-a")])
+    output_file = tmp_path / "dataset.jsonl"
+    first = _export_all(reviews_dir, output_file)
+
+    _subject_session(reviews_dir, "20261002-220000", [_tool_finding("fp-a")])
+    repeat = _export_all(reviews_dir, output_file)
+
+    _subject_session(
+        reviews_dir,
+        "20261002-230000",
+        [_tool_finding("fp-a", **_person("VERIFIED", "2026-10-02T23:30:00+00:00"))],
+    )
+    judged = _export_all(reviews_dir, output_file)
+
+    assert (
+        first,
+        repeat,
+        judged,
+        [(r["status"], r["verified_by"]) for r in _lines(output_file)],
+    ) == (1, 0, 1, [("UNVERIFIED", "unknown"), ("VERIFIED", "human")])
+
+
+def test_export_feedback_prints_the_count_of_each_subject_s_findings(tmp_path: Path) -> None:
+    """Verify `devops review export-feedback` reports one record for a finding that three
+    sessions of one subject hold."""
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.review import app as review_app
+
+    reviews_dir = tmp_path / "reviews"
+    for name in ("20261002-210000", "20261002-220000", "20261002-230000"):
+        _subject_session(reviews_dir, name, [_tool_finding("fp-a")])
+    output_file = tmp_path / "dataset.jsonl"
+
+    result = CliRunner().invoke(
+        review_app,
+        [
+            "export-feedback",
+            "--reviews-dir",
+            str(reviews_dir),
+            "--output",
+            str(output_file),
+            "--status",
+            "ALL",
+        ],
+    )
+
+    assert (
+        result.exit_code,
+        "Appended 1 ALL finding(s)" in result.output,
+        len(_lines(output_file)),
+    ) == (
+        0,
+        True,
+        1,
+    )

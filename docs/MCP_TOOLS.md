@@ -104,7 +104,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`repos_list`](#repos-list) | `true` | List all cloned repositories. |
 | [`repos_sync`](#repos-sync) | `false` | Fetch (and optionally pull) all tracking branches across repos. |
 | [`review_branch`](#review-branch) | `true` | Review a git branch diff. |
-| [`review_export_feedback`](#review-export-feedback) | `false` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.  Each session's findings.json and candidates.json are read, and only the findings whose verdict the dataset does not hold yet are appended. An export that finds none leaves the dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset changes no prompt and no later review. |
+| [`review_export_feedback`](#review-export-feedback) | `false` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.  Each session's findings.json and candidates.json are read, and only the findings whose verdict the dataset does not hold yet are appended. An export that finds none leaves the dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset changes no prompt and no later review.  A subject reviewed more than once is exported once: its sessions share their findings by fingerprint v2. Each finding has the newest verdict a person gave it in any of those sessions, or else the verdict of the session that review history counts. --status selects by that verdict. A session that records no subject, and a finding with no fingerprint v2, are exported on their own. |
 | [`review_findings`](#review-findings) | `true` | Inspect structured findings for a review session.  Each finding keeps its number, its place in findings.json, whatever filter the list applies, and `devops review verify --index` takes that number. With `--candidates` the list is candidates.json: every finding the review raised, the ones verification invalidated included, numbered for `devops review verify --candidate`. |
 | [`review_path`](#review-path) | `true` | Review source files directly (no git required). |
 | [`review_pr`](#review-pr) | `false` | Review a GitHub pull request. |
@@ -1680,6 +1680,12 @@ Each session's findings.json and candidates.json are read, and only the findings
 verdict the dataset does not hold yet are appended. An export that finds none leaves the
 dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
 changes no prompt and no later review.
+
+A subject reviewed more than once is exported once: its sessions share their findings by
+fingerprint v2. Each finding has the newest verdict a person gave it in any of those
+sessions, or else the verdict of the session that review history counts. --status selects
+by that verdict. A session that records no subject, and a finding with no fingerprint v2,
+are exported on their own.
 
 **Annotations:** `readOnlyHint: false`
 

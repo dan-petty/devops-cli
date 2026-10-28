@@ -4,6 +4,13 @@ The dataset is appended to, never replaced: an export adds each finding's verdic
 does not already hold, read from findings.json and candidates.json, where the verdicts on the
 findings a review kept out of its report live (#950). An export that finds nothing new leaves
 the file as it was.
+
+A subject reviewed more than once is exported once (#877). The sessions of one subject
+(`history.subject_key`) share their findings by fingerprint v2, and each finding is exported
+with one verdict: a person's, the one with the newest `verified_at`, when any session of the
+subject holds one; otherwise the one of the session that review history counts for the subject
+(#607). A session that records no subject is a subject of its own, and a finding without a
+fingerprint v2 is matched only within its own session: no title or location match.
 """
 
 from __future__ import annotations
@@ -12,15 +19,18 @@ import hashlib
 import json
 import logging
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from devops_cli.ai.review.history import load_review_history, subject_key
 from devops_cli.config.constants import (
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
     CONST_STATUS_INVALIDATED,
+    CONST_VERIFIED_BY_HUMAN,
     CONST_VERIFIED_BY_UNKNOWN,
 )
 from devops_cli.exceptions import SecurityError
@@ -34,6 +44,15 @@ _MAX_SESSION_FILE_BYTES = 50 * 1024 * 1024
 # and the copy candidates.json holds of it adds nothing.
 _SESSION_FILES = (CONST_REVIEW_FINDINGS_FILENAME, CONST_REVIEW_CANDIDATES_FILENAME)
 
+# A session's rank among its subject's sessions (`ReviewSessionRecord.rank`), and the order of
+# the copies of one finding (`_precedence`).
+type _Rank = tuple[int, int, datetime, str]
+type _Order = tuple[bool, datetime, _Rank]
+
+# Ranks a verdict without a readable time, and a session review history does not hold, lowest.
+_EARLIEST = datetime.min.replace(tzinfo=UTC)
+_UNRANKED: _Rank = (-1, -1, _EARLIEST, "")
+
 
 class FeedbackRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -41,6 +60,10 @@ class FeedbackRecord(BaseModel):
     session_id: str
     # What the session reviewed: its target and a digest of the pages its personas read.
     subject: dict[str, str] = Field(default_factory=dict)
+    # Equal for the sessions of one subject; None for a session that records no subject (#877).
+    subject_key: str | None = None
+    # The admitted finding's fingerprint v2 (#1141); None for a finding admission did not build.
+    fingerprint_v2: str | None = None
     producer: str = Field(default="", validation_alias=AliasChoices("producer", "persona"))
 
     @property
@@ -70,21 +93,37 @@ class FeedbackRecord(BaseModel):
     mitigating_mechanism: str | None = None
 
 
-def feedback_fingerprint(record: dict[str, Any]) -> str:
-    """What makes two dataset records one: the same session's finding with the same verdict.
+def _finding_identity(record: dict[str, Any]) -> list[str]:
+    """What makes two copies of a finding one finding.
 
-    A finding is its session, producer, location and title, and a finding judged again is
-    a new record, so a person's later verdict is appended rather than dropped. Every record the
-    dataset holds has these fields, so the records of earlier exports are fingerprinted too.
+    A finding with a fingerprint v2 is its subject's finding of that fingerprint, or its session's
+    when the session records no subject. A finding without one is its session, producer, location
+    and title.
     """
+    fingerprint = record.get("fingerprint_v2")
+    if fingerprint:
+        owner = record.get("subject_key") or record.get("session_id") or ""
+        return [str(owner), str(fingerprint)]
     producer = (
         str(record.get("producer") or record.get("persona") or "").split(",")[0].strip().lower()
     )
-    identity = [
+    return [
         str(record.get("session_id") or ""),
         producer,
         str(record.get("location") or "").strip().lower(),
         str(record.get("title") or "").strip().lower(),
+    ]
+
+
+def feedback_fingerprint(record: dict[str, Any]) -> str:
+    """What makes two dataset records one: the same finding with the same verdict.
+
+    A finding judged again is a new record, so a person's later verdict is appended rather than
+    dropped. A record of an earlier export that holds no fingerprint v2 is identified by its
+    session, producer, location and title, as every finding without one is.
+    """
+    identity = [
+        *_finding_identity(record),
         str(record.get("status") or "").upper(),
         str(record.get("verified_by") or CONST_VERIFIED_BY_UNKNOWN),
     ]
@@ -98,6 +137,8 @@ def _build_feedback_record(
     return FeedbackRecord(
         session_id=session_id,
         subject=subject,
+        subject_key=subject_key(subject),
+        fingerprint_v2=str(f.get("fingerprint") or "") or None,
         producer=str(f.get("producer") or f.get("persona") or "unknown"),
         title=str(f.get("title") or ""),
         severity=str(f.get("severity") or "medium"),
@@ -134,20 +175,47 @@ def _read_session_file(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _extract_session_feedback_records(
-    s_dir: Path, status_filter: str | None
-) -> Iterator[FeedbackRecord]:
-    """Yield the session's findings and candidates whose status the filter accepts."""
-    filter_upper = status_filter.upper() if status_filter else None
+def _extract_session_feedback_records(s_dir: Path) -> Iterator[FeedbackRecord]:
+    """Yield the session's findings, then its candidates, each with its verdict."""
     for file_name in _SESSION_FILES:
         data = _read_session_file(s_dir / file_name)
         session_id = str(data.get("session_id") or s_dir.name)
         subject = {str(k): str(v) for k, v in (data.get("subject") or {}).items()}
         for f in data.get("findings", []):
-            f_status = str(f.get("status", "")).upper()
-            if filter_upper is not None and filter_upper != "ALL" and f_status != filter_upper:
-                continue
-            yield _build_feedback_record(f, session_id, subject, f_status)
+            yield _build_feedback_record(f, session_id, subject, str(f.get("status", "")).upper())
+
+
+def _verdict_time(record: FeedbackRecord) -> datetime:
+    """When the record's verdict was given; the earliest time when it records none it can read."""
+    try:
+        given = datetime.fromisoformat(record.verified_at or "")
+    except ValueError:
+        return _EARLIEST
+    return given if given.tzinfo is not None else given.replace(tzinfo=UTC)
+
+
+def _precedence(record: FeedbackRecord, session_rank: _Rank) -> _Order:
+    """Orders the copies of one finding; the highest is the one exported.
+
+    A person's verdict comes first, the newest first. Then the copy of the session that review
+    history ranks highest among its subject's sessions, which is the session it counts.
+    """
+    human = record.verified_by == CONST_VERIFIED_BY_HUMAN
+    return human, _verdict_time(record) if human else _EARLIEST, session_rank
+
+
+def _subject_findings(r_dir: Path) -> list[FeedbackRecord]:
+    """One copy of each finding of each subject under `r_dir`, in the order they were read."""
+    ranks = {s.path.name: s.rank for s in load_review_history(r_dir).sessions}
+    chosen: dict[str, tuple[_Order, FeedbackRecord]] = {}
+    for s_dir in sorted(d for d in r_dir.iterdir() if d.is_dir()):
+        session_rank = ranks.get(s_dir.name, _UNRANKED)
+        for rec in _extract_session_feedback_records(s_dir):
+            key = json.dumps(_finding_identity(rec.model_dump(mode="json")))
+            order = _precedence(rec, session_rank)
+            if key not in chosen or order > chosen[key][0]:
+                chosen[key] = (order, rec)
+    return [rec for _, rec in chosen.values()]
 
 
 def _recorded_fingerprints(path: Path) -> set[str]:
@@ -216,6 +284,9 @@ def export_invalidated_feedback(
 ) -> tuple[int, Path]:
     """Append the findings matching status_filter (all when None) the dataset does not hold yet.
 
+    Each finding of a subject is exported once, with the verdict the module docstring names; the
+    filter reads that verdict, so a verdict a person overturned is not exported.
+
     Returns (records appended, output_path). With nothing to append, the dataset is left as it
     was, and an absent one is not created.
 
@@ -229,15 +300,17 @@ def export_invalidated_feedback(
     if not r_dir.exists():
         return 0, out_path
 
+    filter_upper = status_filter.upper() if status_filter else "ALL"
     seen = _recorded_fingerprints(out_path)
     lines: list[str] = []
-    for s_dir in sorted(d for d in r_dir.iterdir() if d.is_dir()):
-        for rec in _extract_session_feedback_records(s_dir, status_filter):
-            payload = rec.model_dump(mode="json")
-            fingerprint = feedback_fingerprint(payload)
-            if fingerprint not in seen:
-                seen.add(fingerprint)
-                lines.append(json.dumps(payload, ensure_ascii=False) + "\n")
+    for rec in _subject_findings(r_dir):
+        if filter_upper != "ALL" and rec.status != filter_upper:
+            continue
+        payload = rec.model_dump(mode="json")
+        fingerprint = feedback_fingerprint(payload)
+        if fingerprint not in seen:
+            seen.add(fingerprint)
+            lines.append(json.dumps(payload, ensure_ascii=False) + "\n")
 
     if lines:
         out_path.parent.mkdir(parents=True, exist_ok=True)
