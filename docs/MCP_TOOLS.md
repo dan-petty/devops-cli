@@ -38,7 +38,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_rollouts_analyze`](#argo-rollouts-analyze) | `false` | Evaluate metric rollback gates and trigger automated rollback on threshold violation. |
 | [`branches_list`](#branches-list) | `true` | List branches across all repos. |
 | [`ci`](#ci) | `true` | Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once. |
-| [`config_audit_keys`](#config-audit-keys) | `true` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit. |
+| [`config_audit_keys`](#config-audit-keys) | `true` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. The audit scans each config file that the settings merge: the global config file and the project config file. It also scans config.yaml and .devops/config.yaml in the current directory. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit. |
 | [`config_output`](#config-output) | `true` | Output environment variables available for devops-cli configuration. |
 | [`config_show`](#config-show) | `true` | Print every setting that a variable sets and every credential. A credential shows as set or not set, never its value. |
 | [`docker_images`](#docker-images) | `true` | List local Docker images. |
@@ -668,7 +668,7 @@ Run tests, linting, formatting, and type-checks. A run that selects test, securi
 
 ### `config_audit_keys`
 
-Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit.
+Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. The audit scans each config file that the settings merge: the global config file and the project config file. It also scans config.yaml and .devops/config.yaml in the current directory. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit.
 
 **Annotations:** `readOnlyHint: true`
 
