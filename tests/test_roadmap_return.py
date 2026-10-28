@@ -1,15 +1,18 @@
-"""Unit tests for `devops roadmap return`."""
+"""`devops roadmap return`: an item goes back to New, through its `status/*` label, with an
+evidence comment."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
 
-from typer.testing import CliRunner
+import pytest
 
-from devops_cli.commands.roadmap import app as roadmap_app
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.return_item import (
+    ReturnPlan,
     apply_return,
     dry_run_return,
     plan_return,
@@ -18,113 +21,120 @@ from devops_cli.roadmap.return_item import (
 from devops_cli.roadmap.store import ItemField
 
 REPO = "owner/repo"
-BOARD_OPTIONS = {
-    ItemField.STATUS: ("New", "Ready", "In Progress", "Blocked", "Done"),
-    ItemField.PRIORITY: ("P0-Critical", "P1-High", "P2-Medium", "P3-Low"),
-}
 
 
-def test_plan_return_and_apply_return_in_memory_store() -> None:
-    """plan_return validates item exists and apply_return comments and moves card to New."""
-    store = InMemoryRoadmapStore(repo=REPO, board_options=BOARD_OPTIONS)
-    num = store.seed_issue("Unworkable item", body="Premise is flawed", on_board=True)
-    item = store.item(num)
-    assert item is not None
-    store.set_field(item, ItemField.STATUS, "Ready")
-
-    plan = plan_return(store, num, "Upstream library removed this API.", REPO)
-    assert (plan.item_number, plan.title, plan.target_status) == (
-        num,
-        "Unworkable item",
-        "New",
+def _item(store: InMemoryRoadmapStore, title: str, status: str) -> int:
+    """An Item with Priority P2-Medium and `status`, both set as a person sets them."""
+    return store.seed_issue(
+        title,
+        body="Cannot work",
+        fields={ItemField.PRIORITY: "P2-Medium", ItemField.STATUS: status},
+        labels=("type/bug",),
     )
-    rendered = render_return_plan(plan)
-    assert f"Item #{num}: Unworkable item" in rendered
-    assert "Target Status: New" in rendered
-    assert "Upstream library removed this API." in rendered
 
+
+def test_a_returned_item_is_new_with_the_evidence_comment() -> None:
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = _item(store, "Unworkable item", "Ready")
+
+    plan = plan_return(store, number, "  Upstream library removed this API.  ", REPO)
     apply_return(store, plan)
-    updated_item = store.item(num)
-    assert updated_item is not None
-    comments = [comment.body for comment in store.comments_on(num)]
-    assert (updated_item.status, comments) == (
+
+    returned = store.item(number)
+    assert returned is not None
+    assert plan == ReturnPlan(number, "Unworkable item", "Upstream library removed this API.", REPO)
+    assert (returned.status, returned.labels, returned.job_record) == (
         "New",
-        ["Upstream library removed this API."],
+        ("type/bug", "priority/p2-medium", "status/new"),
+        {ItemField.STATUS: "New"},
+    )
+    assert [comment.body for comment in store.comments_on(number)] == [
+        "Upstream library removed this API."
+    ]
+
+
+def test_the_plan_names_the_item_the_status_and_the_evidence() -> None:
+    plan = ReturnPlan(7, "Flawed feature", "Evidence.", REPO)
+    assert render_return_plan(plan) == (
+        "Item #7: Flawed feature\nTarget Status: New\nEvidence Comment:\nEvidence."
     )
 
 
-def test_dry_run_return_produces_requests() -> None:
-    """dry_run_return produces planned read and write requests without network."""
+def test_an_issue_with_no_priority_is_no_item_to_return() -> None:
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = store.seed_issue("Candidate", labels=("status/ready",))
+    with pytest.raises(DevOpsCLIError, match=f"#{number} is not an item of the roadmap"):
+        plan_return(store, number, "Evidence.", REPO)
+
+
+def test_a_dry_run_lists_the_issue_reads_and_the_label_write() -> None:
     reads, writes = dry_run_return(REPO, 42)
-    assert (len(reads) > 0, len(writes) >= 2) == (True, True)
+    assert [request.argv for request in reads] == [("gh", "api", f"repos/{REPO}/issues/42")]
+    assert [request.argv for request in writes] == [
+        ("gh", "api", f"repos/{REPO}/issues/42"),
+        ("gh", "api", "-X", "POST", f"repos/{REPO}/issues/42/comments", "-f", "body=<comment>"),
+        ("gh", "api", f"repos/{REPO}/issues/42"),
+        ("gh", "api", "-X", "PATCH", f"repos/{REPO}/issues/42", "--input", "-"),
+    ]
+    assert not any("project" in " ".join(request.argv) for request in [*reads, *writes])
 
 
-def test_roadmap_return_cli_dry_run() -> None:
-    """CLI return --dry-run prints request plan without modifying state."""
-    runner = CliRunner()
-    res = runner.invoke(
-        roadmap_app,
-        ["return", "42", "--repo", REPO, "--comment", "Flawed premise", "--dry-run"],
+def test_the_dry_run_command_makes_no_request(
+    cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore
+) -> None:
+    result = cli(
+        "roadmap", "return", "42", "--repo", REPO, "--comment", "Flawed premise", "--dry-run"
     )
-    assert (res.exit_code, "Dry run: no request was made." in res.stdout) == (0, True)
+    assert (result.exit_code, "Dry run: no request was made." in result.stdout) == (0, True)
+    assert roadmap_store.job_writes() == []
 
 
-def test_roadmap_return_cli_plan_mode() -> None:
-    """CLI return without --confirm prints preview plan only."""
-    store = InMemoryRoadmapStore(repo=REPO, board_options=BOARD_OPTIONS)
-    num = store.seed_issue("Flawed feature", body="Cannot work", on_board=True)
-    item = store.item(num)
+def test_return_without_confirm_only_shows_the_plan(
+    cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore
+) -> None:
+    number = _item(roadmap_store, "Flawed feature", "In Progress")
+    result = cli("roadmap", "return", str(number), "--repo", REPO, "--comment", "Flawed premise")
+    item = roadmap_store.item(number)
     assert item is not None
-    store.set_field(item, ItemField.STATUS, "In Progress")
-
-    runner = CliRunner()
-    with patch("devops_cli.commands.roadmap._open_roadmap", return_value=(REPO, None, store)):
-        res = runner.invoke(
-            roadmap_app,
-            ["return", str(num), "--repo", REPO, "--comment", "Flawed premise"],
-        )
-        assert (
-            res.exit_code,
-            "Plan only: pass --confirm to apply." in res.stdout,
-            store.item(num).status if store.item(num) else None,
-        ) == (0, True, "In Progress")
+    assert (result.exit_code, "Plan only: pass --confirm to apply." in result.stdout) == (0, True)
+    assert (item.status, roadmap_store.job_writes()) == ("In Progress", [])
 
 
-def test_roadmap_return_cli_confirm(tmp_path: Path) -> None:
-    """CLI return --confirm posts comment and moves item to New."""
-    store = InMemoryRoadmapStore(repo=REPO, board_options=BOARD_OPTIONS)
-    num = store.seed_issue("Flawed feature", body="Cannot work", on_board=True)
-    item = store.item(num)
-    assert item is not None
-    store.set_field(item, ItemField.STATUS, "In Progress")
-
+def test_return_with_confirm_sets_new_and_posts_the_comment_file(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+    tmp_path: Path,
+) -> None:
+    number = _item(roadmap_store, "Flawed feature", "In Progress")
     comment_file = tmp_path / "evidence.txt"
     comment_file.write_text("Detailed evidence from upstream docs.", encoding="utf-8")
 
-    runner = CliRunner()
-    with patch("devops_cli.commands.roadmap._open_roadmap", return_value=(REPO, None, store)):
-        res = runner.invoke(
-            roadmap_app,
-            [
-                "return",
-                str(num),
-                "--repo",
-                REPO,
-                "--comment-file",
-                str(comment_file),
-                "--confirm",
-            ],
-        )
-        updated = store.item(num)
-        assert (
-            res.exit_code,
-            updated.status if updated else None,
-            [comment.body for comment in store.comments_on(num)],
-        ) == (0, "New", ["Detailed evidence from upstream docs."])
+    result = cli(
+        "roadmap",
+        "return",
+        str(number),
+        "--repo",
+        REPO,
+        "--comment-file",
+        str(comment_file),
+        "--confirm",
+    )
+
+    item = roadmap_store.item(number)
+    assert item is not None
+    assert (result.exit_code, item.status, roadmap_store_repos) == (0, "New", [REPO])
+    assert [comment.body for comment in roadmap_store.comments_on(number)] == [
+        "Detailed evidence from upstream docs."
+    ]
 
 
-def test_roadmap_return_cli_missing_comment() -> None:
-    """CLI return fails if neither --comment nor --comment-file is provided."""
-    runner = CliRunner()
-    res = runner.invoke(roadmap_app, ["return", "42", "--repo", REPO])
-    assert res.exit_code != 0
+def test_return_needs_an_evidence_comment(cli: Callable[..., Any]) -> None:
+    result = cli("roadmap", "return", "42", "--repo", REPO)
+    assert result.exit_code == 1
+
+
+def test_return_takes_no_ref(cli: Callable[..., Any]) -> None:
+    """Return reads no repository file, so it has no ref to read one at."""
+    result = cli("roadmap", "return", "42", "--repo", REPO, "--comment", "x", "--ref", "main")
+    assert result.exit_code == 2

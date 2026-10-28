@@ -30,7 +30,7 @@ from devops_cli.github.issues import (
     render_issue,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.store import GitHubState, ItemField
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
@@ -223,264 +223,124 @@ def test_gh_issues_create_says_the_milestone_was_not_set_when_the_patch_fails(
 
 
 def test_audit_issues_triage() -> None:
-    """audit_issues_triage categorizes missing taxonomy labels and board Priority."""
-    store = InMemoryRoadmapStore(
-        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
-    )
+    """The audit checks each open Item for its type/* and scope/* labels; an Item always holds a
+    Priority, so no Priority is missing."""
+    store = InMemoryRoadmapStore()
     store.seed_milestone("2026-11")
     i1 = store.seed_issue(
-        "Properly labeled and prioritized issue",
-        on_board=True,
+        "Properly labeled issue",
         milestone="2026-11",
         labels=["type/feature", "scope/ai"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
     )
-    store.set_field(store.item(i1), ItemField.PRIORITY, "P2-Medium")
-
     i2 = store.seed_issue(
-        "Missing scope and priority",
-        on_board=True,
+        "Missing scope",
         milestone="2026-11",
         labels=["type/bug"],
+        fields={ItemField.PRIORITY: "P1-High"},
     )
-    i3 = store.seed_issue(
-        "Missing all taxonomy labels and priority",
-        on_board=True,
-        milestone=None,
-        labels=[],
-    )
+    i3 = store.seed_issue("Missing all taxonomy labels", fields={ItemField.PRIORITY: "P3-Low"})
 
     audit = audit_issues_triage("dan-petty/devops-cli", store=store)
-    assert audit.total_open == 3
-    assert audit.valid_count == 1
-    assert i3 in audit.issues_missing_type
-    assert i2 in audit.issues_missing_scope
-    assert i3 in audit.issues_missing_scope
-    assert i2 in audit.issues_missing_priority
-    assert i3 in audit.issues_missing_priority
-    assert i1 not in audit.issues_missing_priority
-
-
-def test_triage_reports_an_issue_off_the_board_once_as_awaiting_intake() -> None:
-    """A backlog item has no milestone, and an issue off the board has no Priority until intake
-    gives it one, so neither is a triage finding (#742)."""
-    store = InMemoryRoadmapStore(
-        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    assert audit == IssueTriageAudit(
+        total_open=3,
+        valid_count=1,
+        issues_missing_type=[i3],
+        issues_missing_scope=[i2, i3],
+        issues_awaiting_intake=[],
     )
-    i1 = store.seed_issue(
+    assert i1 not in audit.issues_missing_scope
+
+
+def test_triage_reports_an_issue_with_no_priority_once_as_awaiting_intake() -> None:
+    """A backlog item has no milestone, and an issue with no priority/* label is a Candidate
+    until intake gives it one, so neither is a taxonomy finding (#742, #2399). A closed issue is
+    not counted."""
+    store = InMemoryRoadmapStore()
+    store.seed_issue(
         "Backlog item",
-        on_board=True,
-        milestone=None,
         labels=["type/feature", "scope/cli"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
     )
-    store.set_field(store.item(i1), ItemField.PRIORITY, "P2-Medium")
-    i2 = store.seed_issue("Not on the board yet", on_board=False, labels=[])
+    i2 = store.seed_issue("Not placed yet", labels=[])
+    store.seed_issue("Closed item", state=GitHubState.CLOSED, fields={ItemField.PRIORITY: "P3-Low"})
 
     audit = audit_issues_triage("dan-petty/devops-cli", store=store)
-    assert (
-        audit.valid_count,
-        audit.issues_awaiting_intake,
-        audit.issues_missing_type,
-        audit.issues_missing_scope,
-        audit.issues_missing_priority,
-    ) == (1, [i2], [], [], [])
+    assert audit == IssueTriageAudit(total_open=2, valid_count=1, issues_awaiting_intake=[i2])
 
 
-def test_triage_flags_open_item_with_priority_label_but_no_board_priority() -> None:
-    """Criterion 2: An issue with a priority/* label but no Priority field value on the board
-    counts as unprioritized in triage."""
-    store = InMemoryRoadmapStore(
-        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
-    )
-    i1 = store.seed_issue(
-        "Stray label item",
-        on_board=True,
-        milestone=None,
-        labels=["type/feature", "scope/cli", "priority/stray-label"],
-    )
+def test_triage_counts_an_issue_with_an_unknown_priority_label_as_awaiting_intake() -> None:
+    """A priority/* label that names no Priority value gives no Priority, so the issue is a
+    Candidate."""
+    store = InMemoryRoadmapStore()
+    i1 = store.seed_issue("Stray label item", labels=["type/feature", "scope/cli", "priority/high"])
     audit = audit_issues_triage("dan-petty/devops-cli", store=store)
-    assert audit.total_open == 1
-    assert audit.valid_count == 0
-    assert i1 in audit.issues_missing_priority
+    assert audit == IssueTriageAudit(total_open=1, valid_count=0, issues_awaiting_intake=[i1])
 
 
 def test_triage_and_status_count_over_100_open_issues() -> None:
-    """Criterion 3: With more than 100 open issues, every one is counted."""
-    store = InMemoryRoadmapStore(
-        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
-    )
+    """With more than 100 open issues, every one is counted."""
+    store = InMemoryRoadmapStore()
     for i in range(120):
-        store.seed_issue(f"Open item {i}", on_board=True, labels=["type/feature", "scope/cli"])
+        store.seed_issue(
+            f"Open item {i}",
+            labels=["type/feature", "scope/cli"],
+            fields={ItemField.PRIORITY: "P2-Medium"},
+        )
     for i in range(15):
-        store.seed_issue(f"Candidate {i}", on_board=False, labels=["type/bug", "scope/cli"])
+        store.seed_issue(f"Candidate {i}", labels=["type/bug", "scope/cli"])
 
     audit = audit_issues_triage("dan-petty/devops-cli", store=store)
     summary = get_issues_summary("dan-petty/devops-cli", store=store)
-    assert audit.total_open == 135
-    assert summary["total_open"] == 135
-    assert len(audit.issues_awaiting_intake) == 15
-
-
-def test_triage_backlog_item_without_milestone_is_not_flagged() -> None:
-    """Criterion 4: A backlog item without a milestone is not flagged."""
-    store = InMemoryRoadmapStore(
-        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
+    assert (audit.total_open, summary["total_open"], len(audit.issues_awaiting_intake)) == (
+        135,
+        135,
+        15,
     )
-    i1 = store.seed_issue(
-        "Backlog feature",
-        on_board=True,
-        milestone=None,
-        labels=["type/feature", "scope/cli"],
-    )
-    store.set_field(store.item(i1), ItemField.PRIORITY, "P3-Low")
-
-    audit = audit_issues_triage("dan-petty/devops-cli", store=store)
-    assert audit.total_open == 1
-    assert audit.valid_count == 1
-    assert audit.issues_missing_type == []
-    assert audit.issues_missing_scope == []
-    assert audit.issues_missing_priority == []
 
 
-def test_audit_reports_no_missing_priority_when_there_is_no_board(
-    process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+def test_the_audit_opens_the_roadmap_store_of_the_repository(
+    roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
 ) -> None:
-    """With no board, an issue has no Priority until intake gives it one, so the audit checks type
-    and scope only, and says Priority was not checked rather than flagging every issue (#2158)."""
-    process_fake.answer(
-        ["gh", "issue", "list"],
-        ProcessAnswer(
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "number": 1,
-                        "title": "Typed and scoped",
-                        "state": "open",
-                        "labels": [{"name": "type/bug"}, {"name": "scope/cli"}],
-                    },
-                    {
-                        "number": 2,
-                        "title": "Typed only",
-                        "state": "open",
-                        "labels": [{"name": "type/bug"}],
-                    },
-                ]
-            ),
-        ),
+    """With no store given, the audit and the summary read the roadmap store of the repository,
+    and read no roadmap file."""
+    roadmap_store.seed_issue(
+        "Typed only", labels=["type/bug"], fields={ItemField.PRIORITY: "P1-High"}
     )
-    process_fake.answer(
-        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    audit = audit_issues_triage("octo/repo")
+    summary = get_issues_summary("octo/repo")
+    assert (audit.issues_missing_scope, summary["by_priority"], roadmap_store_repos) == (
+        [1],
+        {"P1-High": 1},
+        ["octo/repo", "octo/repo"],
     )
-    audit = audit_issues_triage("octo/repo", awaiting_intake=())
-    assert audit.priority_not_checked is True
-    assert audit.issues_missing_priority == []
-    assert audit.issues_missing_scope == [2]
-    assert audit.issues_missing_type == []
-    assert audit.valid_count == 1
-
-
-def test_gh_issues_triage_says_priority_was_not_checked_with_no_board(
-    process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
-) -> None:
-    """With no board the triage says Priority was not checked, rather than flagging every issue (#2158)."""
-    process_fake.answer(
-        ["gh", "issue", "list"],
-        ProcessAnswer(
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "number": 1,
-                        "title": "Typed and scoped",
-                        "state": "open",
-                        "labels": [{"name": "type/bug"}, {"name": "scope/cli"}],
-                    },
-                    {
-                        "number": 2,
-                        "title": "Typed only",
-                        "state": "open",
-                        "labels": [{"name": "type/bug"}],
-                    },
-                ]
-            ),
-        ),
-    )
-    process_fake.answer(
-        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
-    )
-    result = runner.invoke(app, ["issues", "triage", "--repo", "octo/repo"])
-    assert result.exit_code == 0
-    assert "Not checked" in result.output
-    assert "no board" in result.output
 
 
 def test_get_issues_summary() -> None:
-    """get_issues_summary produces breakdown aggregates using board Priority."""
-    store = InMemoryRoadmapStore(
-        board_options={ItemField.PRIORITY: ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"]}
-    )
+    """The summary counts the open Items by Priority, and every open issue by type and
+    milestone, a Candidate too."""
+    store = InMemoryRoadmapStore()
     store.seed_milestone("2026-11")
-    i1 = store.seed_issue(
+    store.seed_issue(
         "Bug 1",
-        on_board=True,
         milestone="2026-11",
         labels=["type/bug", "scope/ai"],
+        fields={ItemField.PRIORITY: "P0-Critical"},
     )
-    store.set_field(store.item(i1), ItemField.PRIORITY, "P0-Critical")
-
-    i2 = store.seed_issue(
+    store.seed_issue(
         "Feature 1",
-        on_board=True,
         milestone="2026-11",
         labels=["type/feature", "scope/k8s"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
     )
-    store.set_field(store.item(i2), ItemField.PRIORITY, "P2-Medium")
+    store.seed_issue("Candidate", labels=["type/bug"])
 
     summary = get_issues_summary("dan-petty/devops-cli", store=store)
-    assert summary["total_open"] == 2
-    assert summary["by_priority"]["P0-Critical"] == 1
-    assert summary["by_priority"]["P2-Medium"] == 1
-    assert summary["by_type"]["type/bug"] == 1
-    assert summary["by_type"]["type/feature"] == 1
-    assert summary["by_milestone"]["2026-11"] == 2
-
-
-def test_get_issues_summary_no_board_is_the_whole_dictionary(
-    process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
-) -> None:
-    """With no board, get_issues_summary reports the whole aggregate: no Priority, and the type
-    and milestone counts of the open issues (#2158)."""
-    process_fake.answer(
-        ["gh", "issue", "list"],
-        ProcessAnswer(
-            returncode=0,
-            stdout=json.dumps(
-                [
-                    {
-                        "number": 1,
-                        "title": "A",
-                        "labels": [{"name": "type/bug"}],
-                        "milestone": {"title": "2026-12"},
-                    },
-                    {"number": 2, "title": "B", "labels": [{"name": "type/bug"}]},
-                    {
-                        "number": 3,
-                        "title": "C",
-                        "labels": [{"name": "type/feature"}],
-                        "milestone": {"title": "2026-12"},
-                    },
-                ]
-            ),
-        ),
-    )
-    process_fake.answer(
-        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
-    )
-    assert get_issues_summary("octo/repo") == {
+    assert summary == {
         "total_open": 3,
-        "by_priority": {},
+        "by_priority": {"P0-Critical": 1, "P2-Medium": 1},
         "by_type": {"type/bug": 2, "type/feature": 1},
-        "by_milestone": {"2026-12": 2, "no-milestone": 1},
+        "by_milestone": {"2026-11": 2, "no-milestone": 1},
     }
 
 

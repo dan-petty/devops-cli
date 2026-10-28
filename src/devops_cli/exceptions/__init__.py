@@ -42,8 +42,8 @@ from devops_cli.exceptions.k8s import (
     KubernetesLoggingError,
 )
 from devops_cli.exceptions.roadmap import (
-    RoadmapCardChangedError,
     RoadmapIntakeError,
+    RoadmapItemChangedError,
     RoadmapRefineError,
     RoadmapRunError,
 )
@@ -133,8 +133,8 @@ __all__ = [
     "KubernetesError",
     "KubernetesLoggingError",
     "LogfireConfigurationError",
-    "RoadmapCardChangedError",
     "RoadmapIntakeError",
+    "RoadmapItemChangedError",
     "RoadmapRefineError",
     "RoadmapRunError",
     "SSRFBlockedError",

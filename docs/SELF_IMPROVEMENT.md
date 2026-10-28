@@ -1081,7 +1081,7 @@ un-joined thread, the delayed stream teardown, and the leaked resource.
   file even when the cited line ranges differ (personas routinely cite different, and often
   both wrong, ranges for the same defect).
 - **Deliberately conservative**: findings that merely share an enclosing function are never
-  merged. Losing a real defect is far costlier than leaving a duplicate on the board.
+  merged. Losing a real defect is far costlier than leaving a duplicate on the roadmap.
 
 ### 5.2 Segment-Boundary False Positives (Asserting Absence Of Unseen Code)
 

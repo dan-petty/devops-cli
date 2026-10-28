@@ -4,7 +4,8 @@ All tests run in-memory without network or cluster access, testing due evaluatio
 schedule persistence, clone management, service wiring, and MCP integration. The clone cases run
 real `git` against bare remotes in `tmp_path`, with the session's `gh api user` login answered
 at the process edge (#1366). The last cases run the GitHub store over `GitHubFake`, a fake at
-the `gh` process edge, to count a round's board reads (#1361). The table holds the status lane's
+the `gh` process edge, to count a round's reads and show that no round reads a project board
+(#1361, ADR 0016). The table holds the status lane's
 metrics row and the model lane's intake and refine rows; every clone tracks origin's default
 branch.
 """
@@ -34,7 +35,6 @@ from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
     CONST_GH_CLI,
-    CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
@@ -47,20 +47,9 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.config.settings import ServiceConfig
 from devops_cli.exceptions import ConfigurationError, GitOperationError, RoadmapRunError
-from devops_cli.exceptions.git import (
-    GitHubFileNotFoundError,
-    GitHubOperationError,
-    GitHubRateLimitError,
-    GitHubUnauthenticatedError,
-)
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import store as roadmap_store_module
-from devops_cli.roadmap.board_read import (
-    BOARD_BUDGET_OPERATION,
-    BOARD_ITEMS_OPERATION,
-    GRAPHQL_BUDGET_OPERATION,
-    refusal_reset,
-)
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake_model import (
     ModelEvidence,
@@ -81,11 +70,9 @@ from devops_cli.roadmap.run import (
     _run_refine_adapter,
     build_stub_table,
     ensure_checkout,
-    log_round_spend,
     read_intake_record,
     run_due_jobs,
     service_job,
-    service_pause_until,
 )
 from devops_cli.roadmap.store import (
     CloseReason,
@@ -95,10 +82,10 @@ from devops_cli.roadmap.store import (
     ItemField,
     RoadmapStore,
 )
-from devops_cli.server.service import ServiceManager, TriggerBatch
+from devops_cli.server.service import ServiceManager, TriggerBatch, no_round_pause
 from devops_cli.telemetry.instruments import PROJECT_ITEMS, PROJECT_RELEASES
-from tests.roadmap_board_fake import GitHubFake
 from tests.roadmap_faults import Fault, StoppingStore
+from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
@@ -112,6 +99,8 @@ COMMIT_IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.com")
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
 OPENED = CONST_ROADMAP_INTAKE_BATCH_KEYS[0]
 POLL_KEY = ("poll", "", "")
+# The Priority that makes an issue an Item, as a person sets it.
+PLACED = {ItemField.PRIORITY: "P2-Medium"}
 runner = CliRunner()
 
 
@@ -119,7 +108,6 @@ runner = CliRunner()
 def seeded_store(roadmap_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
     """The roadmap every command opens, with a closed and an open milestone."""
     roadmap_store._roadmap.clock = lambda: NOW - timedelta(minutes=10)
-    roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
     roadmap_store.seed_milestone("Docs pass", state=GitHubState.CLOSED)
     roadmap_store.seed_milestone(PLANNED)
     return roadmap_store
@@ -299,8 +287,8 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
     reads; a close, a label and the store's own write make nothing due. Intake placing a
     critical fix or a P0 item makes refine due in the same round."""
     person = seeded_store.as_actor("alice")
-    planned_item = person.seed_issue("Planned bug", milestone=PLANNED, on_board=True)
-    other_item = person.seed_issue("Backlog item", on_board=True)
+    planned_item = person.seed_issue("Planned bug", milestone=PLANNED, fields=PLACED)
+    other_item = person.seed_issue("Backlog item", fields=PLACED)
     t59, t61 = NOW - timedelta(minutes=59), NOW - timedelta(minutes=61)
 
     def due(
@@ -357,7 +345,7 @@ def test_webhook_or_poll_identical_and_oldest_cutoff(
 ) -> None:
     """Webhook and poll batches identify same REOPENED trigger with 1 changes_since call."""
     person = seeded_store.as_actor("alice")
-    num = person.seed_issue("Item 1", on_board=True, state=GitHubState.CLOSED)
+    num = person.seed_issue("Item 1", fields=PLACED, state=GitHubState.CLOSED)
     person.reopen_issue(num)
     sched = {"intake": NOW - timedelta(minutes=30)}
 
@@ -398,7 +386,7 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
     cascaded = _poll_round(seeded_store, tmp_path, table=critical, batch={OPENED: 1})
     _stamp(tmp_path, metrics=NOW - timedelta(minutes=5), intake=t59, refine=t59)
     seeded_store.close_by_hand(
-        seeded_store.seed_issue("Closed by the job", on_board=True), CloseReason.COMPLETED
+        seeded_store.seed_issue("Closed by the job", fields=PLACED), CloseReason.COMPLETED
     )
     own = _poll_round(seeded_store, tmp_path, table=build_stub_table(stubs))
     assert (first, calls[:3], cascaded, own) == (
@@ -576,9 +564,9 @@ def test_service_wiring(
     roadmap_store_repos: list[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`devops serve --service` passes the two lanes' jobs, and the reader of the time a refused
-    round names (#1400), to create_service_app. Each lane's job opens the store and runs its own
-    rows in its own clone (#1532)."""
+    """`devops serve --service` passes the two lanes' jobs to create_service_app, with no
+    reader of a round pause: no roadmap read has a budget refusal that names one (ADR 0016).
+    Each lane's job opens the store and runs its own rows in its own clone (#1532)."""
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", f'["{REPO}"]')
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID", "1001")
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID", "42")
@@ -603,7 +591,7 @@ def test_service_wiring(
         res.exit_code,
         fastapi_app.state.jobs is SERVICE_JOBS,
         list(SERVICE_JOBS),
-        fastapi_app.state.pause_until is service_pause_until,
+        fastapi_app.state.pause_until is no_round_pause,
         REPO in roadmap_store_repos,
         lanes,
         [[row.name for row in rows] for rows in (STATUS_LANE_ROWS, MODEL_LANE_ROWS)],
@@ -625,7 +613,7 @@ def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
     """FastMCP roadmap_run returns due tuple, mutates nothing, and calls no stub."""
     from devops_cli.ai.mcp import server as mcp_server
 
-    seeded_store.seed_issue("An item", on_board=True)
+    seeded_store.seed_issue("An item", fields=PLACED)
     items_before = [it.model_dump() for it in seeded_store.items()]
     writes_before = seeded_store.job_writes()
 
@@ -970,7 +958,8 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         json.dumps({"id": 4242, "login": "test-bot"}),
         headers={"content-type": "application/json"},
     )
-    seeded_store.seed_issue("feat: export", labels=("type/feature",), on_board=True)
+    seeded_store.seed_issue("feat: export", labels=("type/feature",), fields=PLACED)
+    seeded_store.seed_issue("A candidate", labels=("type/feature",))
     data_dir = tmp_path / "data"
     with caplog.at_level(logging.WARNING):
         ran = run_due_jobs(
@@ -989,7 +978,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         ("metrics",),
         True,
         [({}, 2.0)],
-        [({"milestone": "", "state": "open", "type": "feature", "priority": ""}, 1.0)],
+        [({"milestone": "", "state": "open", "type": "feature", "priority": "P2-Medium"}, 1.0)],
         [],
     )
 
@@ -1079,15 +1068,6 @@ class _IntakeModel:
         )
 
 
-BOARD_OPTIONS = {
-    ItemField.STATUS: ("New", "Ready", "In Progress", "In Review", "Done", "Blocked"),
-    ItemField.PRIORITY: ("P0-Critical", "P1-High", "P2-Medium", "P3-Low"),
-    ItemField.VALUE: ("High", "Medium", "Low"),
-    ItemField.EFFORT: ("Low", "Medium", "High"),
-}
-"""The single-select fields of the board and their options."""
-
-
 @dataclass
 class _Clock:
     now: datetime = NOW - timedelta(minutes=10)
@@ -1097,10 +1077,10 @@ class _Clock:
 
 
 def _candidates(count: int) -> tuple[InMemoryRoadmapStore, _Clock, list[str]]:
-    """A roadmap with an open milestone and `count` open issues off the board, titled
+    """A roadmap with an open milestone and `count` open issues with no Priority, titled
     `candidate 1` up: each one intake's candidate."""
     clock = _Clock()
-    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store = InMemoryRoadmapStore(clock=clock)
     store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
     store.seed_milestone(PLANNED)
     titles = [f"candidate {n}" for n in range(1, count + 1)]
@@ -1160,10 +1140,10 @@ def test_a_failed_placement_is_decided_again_after_the_fresh_candidates_and_its_
     stopping = StoppingStore(store, Fault(at=1, write="label_issue"))
     with pytest.raises(RoadmapRunError):
         _poll_round(stopping.as_store(), tmp_path, table=table)
-    on_board = tuple(store.item(number) is not None for number in range(1, 6))
+    placed = tuple(store.item(number) is not None for number in range(1, 6))
     asked = len(model.asked)
     _poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table)
-    assert (stopping.writes[:1], on_board, tuple(model.asked[asked:])) == (
+    assert (stopping.writes[:1], placed, tuple(model.asked[asked:])) == (
         ["label_issue"],
         (False, True, True, True, True),
         (*titles[5:], titles[0]),
@@ -1177,7 +1157,7 @@ def test_intake_placing_p0_item_makes_no_refine_call_and_refine_is_due_through_c
     """An intake run that places a P0 item makes no refine call directly; the same round's refine
     row is due through the cross-job rule (#1540)."""
     clock = _Clock()
-    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store = InMemoryRoadmapStore(clock=clock)
     store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
     store.seed_milestone(PLANNED)
     store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
@@ -1234,7 +1214,7 @@ def test_intake_placing_p0_critical_issue_already_labelled_type_bug_makes_refine
     """An intake that places a P0-Critical issue already labelled type/bug, so intake adds no
     type label, makes refine due in the same round (#1540)."""
     clock = _Clock()
-    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store = InMemoryRoadmapStore(clock=clock)
     store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
     store.seed_milestone(PLANNED)
     store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
@@ -1285,7 +1265,7 @@ def test_intake_placing_p2_medium_issue_labelled_type_bug_does_not_make_refine_d
     """An intake that places a P2-Medium issue labelled type/bug does not make refine due in
     the same round, whether it goes to the backlog or keeps a milestone a person set (#1540)."""
     clock = _Clock()
-    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    store = InMemoryRoadmapStore(clock=clock)
     store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
     store.seed_milestone(PLANNED)
     # 1. Backlog placement
@@ -1361,50 +1341,6 @@ def test_intake_placing_p2_medium_issue_labelled_type_bug_does_not_make_refine_d
     ) == (("intake",), ["intake"], ("P2-Medium", PLANNED))
 
 
-def test_intake_whose_only_p0_placement_is_finished_card_does_not_make_refine_due(
-    tmp_path: Path,
-) -> None:
-    """An intake whose only P0 placement is a card reported in IntakeApplied.finished does not
-    make refine due (#1540)."""
-    clock = _Clock()
-    store = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
-    store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text(encoding="utf-8"))
-    store.seed_milestone(PLANNED)
-    num = store.seed_issue("Archived finished P0 card", on_board=True)
-    item = store.item(num)
-    assert item is not None
-    store.set_field(item, ItemField.PRIORITY, "P0-Critical")
-    store.as_actor("alice").archive_card(num)
-
-    proposal = ModelProposal(
-        type="type/bug",
-        type_reason="defect.",
-        priority="P0-Critical",
-        priority_reason="critical.",
-        value="High",
-        value_reason="high.",
-        effort="Low",
-        effort_reason="low.",
-    )
-    model = _IntakeModel(proposals={"Archived finished P0 card": proposal})
-    ran: list[str] = []
-    intake = partial(_run_intake_adapter, model=model)
-    table = build_stub_table(
-        {
-            "intake": _recorded(ran, "intake", intake),
-            "refine": _recorded(ran, "refine"),
-        }
-    )
-    _stamp(
-        tmp_path,
-        metrics=NOW,
-        intake=NOW - timedelta(minutes=61),
-        refine=NOW - timedelta(minutes=5),
-    )
-    jobs = _poll_round(store, tmp_path, table=table)
-    assert (jobs, ran) == (("intake",), ["intake"])
-
-
 # ── On the GitHub store, at the `gh` process edge (#1361) ─────────────────────
 
 
@@ -1425,159 +1361,43 @@ def _labeled(count: int, actor: str) -> list[dict[str, Any]]:
 def _github_round(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, events: list[dict[str, Any]]
 ) -> tuple[GitHubFake, GitHubRoadmapStore]:
-    """A repository with 60 cards and an open milestone, its intake run five minutes ago, the
+    """A repository with 60 Items and an open milestone, its intake run five minutes ago, the
     Service logged in as `roadmap-bot`, and the store a round opens over it."""
     github = GitHubFake(
         REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}], events=events
     )
     for number in range(1, 61):
-        github.seed_issue(number, card={"status": "Ready"})
+        github.seed_issue(number, labels=("priority/p2-medium", "status/ready"))
     _stamp(tmp_path, intake=NOW - timedelta(minutes=5))
     monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
-    store = GitHubRoadmapStore(
-        REPO, board_owner="example", board_number=1, runner=github, session=RunnerSession(github)
-    )
+    store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
     return github, store
 
 
-def test_a_round_judging_50_foreign_label_changes_reads_the_board_once(
+def test_a_round_judging_50_foreign_label_changes_reads_only_the_issue_events(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The job records the changes carry come from the one listing the round's store reads, and
-    no rule reads an Item or an issue for them (#1360)."""
+    """A label change makes no job due, and no rule reads an Item or an issue for it, so the
+    round reads the issue events and nothing else (#1360)."""
     github, store = _github_round(tmp_path, monkeypatch, _labeled(50, "alice"))
     ran = _poll_round(store, tmp_path)
-    sent = [" ".join(args) for args in github.graphql_calls()]
-    assert (
-        ran,
-        sum(BOARD_BUDGET_OPERATION in args for args in sent),
-        sum(BOARD_ITEMS_OPERATION in args for args in sent),
-        sum(
-            "issues/" in " ".join(args) and "events" not in " ".join(args) for args in github.calls
-        ),
-    ) == ((), 1, 1, 0)
+    assert (ran, [args[-1].split("?")[0] for args in github.calls]) == (
+        (),
+        [f"{API}/repos/{REPO}/issues/events"],
+    )
 
 
 def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The Service's own events are dropped before any job record is read, so a poll with no
-    interval due and nothing else since the cutoff reads only the issue events (#1360)."""
+    """The Service's own events are dropped, so a poll with no interval due and nothing else
+    since the cutoff reads only the issue events (#1360)."""
     github, store = _github_round(tmp_path, monkeypatch, _labeled(12, "roadmap-bot"))
     ran = _poll_round(store, tmp_path)
-    assert (ran, github.graphql_calls(), [args[-1].split("?")[0] for args in github.calls]) == (
+    assert (ran, [args[-1].split("?")[0] for args in github.calls]) == (
         (),
-        [],
         [f"{API}/repos/{REPO}/issues/events"],
     )
-
-
-# ── A refused round's reset, and each round's spend line (#1400) ──────────────
-
-RESET = datetime(2099, 1, 1, tzinfo=UTC)
-"""The reset `GitHubFake` reports in every `rateLimit`."""
-
-
-def test_a_refused_read_of_the_changes_leaves_the_round_with_the_reset(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The changes' job records come from a board read, refused before it starts while the points
-    left cannot cover it. The refusal leaves the round outside any job, unchanged, naming the
-    reset; the Service waits until the clock-skew bound after it."""
-    github, store = _github_round(tmp_path, monkeypatch, _labeled(3, "alice"))
-    github.board.remaining = 100
-    with pytest.raises(GitHubRateLimitError) as raised:
-        _poll_round(store, tmp_path)
-    assert (refusal_reset(raised.value), service_pause_until(raised.value)) == (
-        RESET,
-        RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS),
-    )
-
-
-def test_a_jobs_refused_write_fails_the_round_with_the_reset_and_the_next_job_still_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Intake's card write is refused below the reserve: its read leaves 249 points. The round's
-    `RoadmapRunError` names intake and carries the reset, and refine after it still runs. A
-    round whose job fails for another reason carries none, and the Service does not wait."""
-    github, store = _github_round(tmp_path, monkeypatch, [])
-    github.board.remaining = 252
-
-    def write_value(*, store: GitHubRoadmapStore, **_: Any) -> JobOutcome:
-        item = store.item(1)
-        assert item is not None
-        store.set_field(item, ItemField.VALUE, "High")
-        return JobOutcome()
-
-    def crash(**_: Any) -> JobOutcome:
-        raise RuntimeError("model down")
-
-    ran: list[str] = []
-    refusing = build_stub_table({"intake": write_value, "refine": _recorded(ran, "refine")})
-    with pytest.raises(RoadmapRunError) as refused:
-        _poll_round(store, tmp_path, table=refusing, batch={OPENED: 1})
-    with pytest.raises(RoadmapRunError) as crashed:
-        _poll_round(store, tmp_path, table=build_stub_table({"intake": crash}), batch={OPENED: 1})
-    assert not hasattr(refused.value, "reset_at")
-    assert (
-        refused.value.failed_jobs,
-        "reset_at" in refused.value.details,
-        refused.value.__cause__ is not None,
-        refusal_reset(refused.value.__cause__.exceptions[0]),
-        ran,
-        github.board.remaining,
-        service_pause_until(refused.value),
-        service_pause_until(crashed.value),
-    ) == (
-        ("intake",),
-        False,
-        True,
-        RESET,
-        ["refine"],
-        249,
-        RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS),
-        None,
-    )
-
-
-def _spend_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """The INFO lines the round logged about GraphQL."""
-    return [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == "devops_cli.roadmap.run"
-        and record.levelno == logging.INFO
-        and "GraphQL" in record.getMessage()
-    ]
-
-
-def test_a_round_that_sends_graphql_ends_with_one_spend_line_naming_its_repository(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The round reads the board for its changes' job records: a budget probe and a page, so the
-    closing budget read reports 2 of the account's points spent."""
-    github, store = _github_round(tmp_path, monkeypatch, _labeled(3, "alice"))
-    _poll_round(store, tmp_path)
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
-        log_round_spend(REPO, store)
-    assert (_spend_lines(caplog), len(github.graphql_calls(GRAPHQL_BUDGET_OPERATION))) == (
-        [
-            f"{REPO}: GraphQL, 2 of the account's points spent during the round, 4998 left "
-            "until 00:00 UTC."
-        ],
-        1,
-    )
-
-
-def test_a_round_that_sends_no_graphql_logs_no_spend_line_and_reads_no_budget(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Every change is the Service's own, so the round reads only the issue events over REST."""
-    github, store = _github_round(tmp_path, monkeypatch, _labeled(12, "roadmap-bot"))
-    _poll_round(store, tmp_path)
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
-        log_round_spend(REPO, store)
-    assert (_spend_lines(caplog), github.graphql_calls()) == ([], [])
 
 
 DEFAULT_JOB_NAMES = ("metrics", "intake", "refine")
@@ -1585,18 +1405,18 @@ POLL = TriggerBatch(repo=REPO, counts={POLL_KEY: 1}, first_at=NOW, last_at=NOW)
 model_lane_round = SERVICE_JOBS[CONST_SERVICE_LANE_MODEL]
 
 
-def _service_github(events: list[dict[str, Any]], *, remaining: int = 5000) -> GitHubFake:
-    """The repository `service_job` opens, with `events` dated now and `remaining` points."""
+def _service_github(events: list[dict[str, Any]]) -> GitHubFake:
+    """The repository `service_job` opens, with three Items, the labels file intake reads, and
+    `events` dated now."""
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     github = GitHubFake(
         REPO,
         milestones=[{"number": 26, "title": PLANNED, "state": "open"}],
-        files={".github/roadmap.toml": "board = 1\n"},
+        files={".github/labels.yml": Path(".github/labels.yml").read_text(encoding="utf-8")},
         events=[event | {"created_at": now} for event in events],
     )
     for number in range(1, 4):
-        github.seed_issue(number, card={"status": "Ready"})
-    github.board.remaining = remaining
+        github.seed_issue(number, labels=("priority/p2-medium", "status/ready"))
     return github
 
 
@@ -1610,70 +1430,32 @@ def _serve_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[..
     monkeypatch.setattr(
         roadmap_store_module,
         "get_roadmap_store",
-        lambda repo, runner=None, **options: GitHubRoadmapStore(
-            repo, runner=gh, **options, session=RunnerSession(gh)
-        ),
+        lambda repo, runner=None: GitHubRoadmapStore(repo, runner=gh, session=RunnerSession(gh)),
     )
 
 
-def test_a_service_round_ends_with_its_spend_line_however_it_ends(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_a_service_round_that_places_a_candidate_sends_no_projects_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A model-lane round whose board read is refused raises the refusal unchanged and still ends with the
-    line, built from the budget the refused probe reported, with no closing budget read, so the
-    pause starts at once; a round that reads only REST ends with none and reads no budget."""
-    refused = _service_github(_labeled(2, "alice"), remaining=100)
-    quiet = _service_github([])
-    lines: list[list[str]] = []
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
-        _serve_over(tmp_path, monkeypatch, refused)
-        with pytest.raises(GitHubRateLimitError, match="stopped before reading"):
-            model_lane_round(POLL)
-        lines.append(_spend_lines(caplog))
-        caplog.clear()
-        _serve_over(tmp_path, monkeypatch, quiet)
-        model_lane_round(POLL)
-        lines.append(_spend_lines(caplog))
-    assert (lines, refused.graphql_calls(GRAPHQL_BUDGET_OPERATION), quiet.graphql_calls()) == (
-        [
-            [
-                f"{REPO}: GraphQL, 1 of the account's points spent during the round, 99 left "
-                "until 00:00 UTC."
-            ],
-            [],
-        ],
-        [],
-        [],
+    """A reopened issue makes intake due in a model-lane round. The round places the candidate
+    with labels alone: it sends no request to a project board and reads no
+    `.github/roadmap.toml` (ADR 0016)."""
+    reopened = {"event": "reopened", "actor": {"login": "alice"}, "issue": {"number": 4}}
+    github = _service_github([reopened])
+    github.seed_issue(4, "A candidate", body="Export the report as CSV.")
+    _serve_over(tmp_path, monkeypatch, github)
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    model, ran = _IntakeModel(), []
+    lane = partial(
+        service_job,
+        table=_intake_table(model, ran),
+        clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     )
-
-
-def test_a_budget_the_round_cant_read_is_a_warning_and_the_rounds_own_error_stands(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The round fails on a board page GitHub cannot serve, and its closing budget read fails
-    too, with an error of any class: the round's own error is what the Service sees, and the
-    line is a warning naming the repository and the class."""
-    github = _service_github(_labeled(2, "alice"))
-
-    def pages_and_budget_down(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        sent = " ".join(args)
-        if GRAPHQL_BUDGET_OPERATION in sent:
-            raise OSError("gh vanished")
-        if BOARD_ITEMS_OPERATION in sent:
-            return subprocess.CompletedProcess(args, 1, "", "HTTP 502: Bad Gateway")
-        return github(args, **kwargs)
-
-    _serve_over(tmp_path, monkeypatch, pages_and_budget_down)
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
-        with pytest.raises(GitHubOperationError, match="HTTP 502"):
-            model_lane_round(POLL)
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert (warnings, _spend_lines(caplog)) == (
-        [
-            f"{REPO}: could not read the GraphQL budget after the round, so it has no spend "
-            "line: OSError: gh vanished"
-        ],
+    lane(POLL)
+    assert (ran, github.project_calls(), sorted(github.labels(4))) == (
+        ["intake"],
         [],
+        ["effort/low", "priority/p2-medium", "status/new", "type/feature", "value/medium"],
     )
 
 
@@ -1699,13 +1481,11 @@ def test_a_status_lane_poll_reads_no_change_and_sends_no_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No status-lane row has a due rule, so its poll reads no change: with nothing due by its
-    interval, the round reads only `.github/roadmap.toml` as it opens the roadmap."""
+    interval, the round sends no request, and reads no roadmap file as it opens the store."""
     github = _service_github(_labeled(2, "alice"))
     _serve_over(tmp_path, monkeypatch, github)
     SERVICE_JOBS[CONST_SERVICE_LANE_STATUS](POLL)
-    assert [args[-1] for args in github.calls if "rate_limit" not in " ".join(args)] == [
-        f"repos/{REPO}/contents/.github/roadmap.toml"
-    ]
+    assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
 
 
 def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
@@ -1847,8 +1627,8 @@ def test_each_lane_updates_only_its_own_clone(
 
 def test_roadmap_run_error_is_configuration_only() -> None:
     """RoadmapRunError.is_configuration_only checks if all cause group exceptions are ConfigurationError (#1365)."""
-    cfg1 = ConfigurationError("bad toml 1", key="service.repos")
-    cfg2 = ConfigurationError("bad toml 2", key="board")
+    cfg1 = ConfigurationError("bad labels 1", key="service.repos")
+    cfg2 = ConfigurationError("bad labels 2", key="labels")
     unexpected = RuntimeError("unexpected crash")
 
     # Group of configuration errors only
@@ -1893,7 +1673,7 @@ def test_failed_run_keeps_every_job_error_and_clone_error(
     ran: list[str] = []
 
     def fail_intake(**_: Any) -> JobOutcome:
-        raise ConfigurationError("invalid roadmap.toml key", key="board")
+        raise ConfigurationError("invalid labels.yml", key="labels")
 
     def stub(name: str) -> Callable[..., JobOutcome]:
         return _recorded(ran, name)
@@ -1917,7 +1697,7 @@ def test_failed_run_keeps_every_job_error_and_clone_error(
 
     err = exc_info.value
     assert err.failed_jobs == ("metrics", "intake", "refine")
-    assert "intake: invalid roadmap.toml key" in str(err)
+    assert "intake: invalid labels.yml" in str(err)
     assert "metrics, refine: git clone " in str(err)
     assert err.is_configuration_only is False
 
@@ -1944,7 +1724,7 @@ def test_failed_run_configuration_only(seeded_store: InMemoryRoadmapStore, tmp_p
     data_dir = tmp_path / "data"
 
     def fail_intake(**_: Any) -> JobOutcome:
-        raise ConfigurationError("missing board", key="board")
+        raise ConfigurationError("missing labels", key="labels")
 
     table = build_stub_table({"intake": fail_intake})
 
@@ -1960,7 +1740,7 @@ def test_failed_run_configuration_only(seeded_store: InMemoryRoadmapStore, tmp_p
 
     err = exc_info.value
     assert err.failed_jobs == ("intake",)
-    assert "intake: missing board" in str(err)
+    assert "intake: missing labels" in str(err)
     assert err.is_configuration_only is True
     assert isinstance(err.__cause__, ExceptionGroup)
     assert len(err.__cause__.exceptions) == 1
@@ -2008,40 +1788,35 @@ def test_clone_fails_with_missing_git_binary(
     assert str(cause.exceptions[0]).splitlines()[0] in str(err)
 
 
-def test_service_job_missing_roadmap_config_raises_configuration_error(
-    roadmap_store: Any,
+def test_a_service_round_needs_no_roadmap_file(
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """service_job converts missing .github/roadmap.toml to ConfigurationError, and leaves
-    GitHubOperationError unchanged (#1365)."""
+    """A repository with no roadmap file runs its round: service_job opens the store of the
+    batch's repository and reads no file (ADR 0016)."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     batch = TriggerBatch(repo="example/repo", counts={OPENED: 1}, first_at=NOW, last_at=NOW)
-
-    with pytest.raises(ConfigurationError) as exc_info:
-        service_job(
-            batch,
-            table=STATUS_LANE_ROWS,
-            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
-        )
-
-    err = exc_info.value
-    assert err.key == "service.repos"
-    assert err.details["path"] == ".github/roadmap.toml"
-    assert "example/repo" in str(err)
-    assert ".github/roadmap.toml" in str(err)
-    assert "service.repos" in str(err)
+    ran: list[str] = []
+    service_job(
+        batch,
+        table=_lane(STATUS_LANE_ROWS, metrics=_recorded(ran, "metrics")),
+        clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+    )
+    assert (ran, roadmap_store_repos) == (["metrics"], ["example/repo"])
 
 
 def test_service_job_unreadable_github_roadmap_propagates_unchanged(
-    unreadable_github_roadmap: Any,
+    unreadable_github_roadmap: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """service_job propagates GitHubOperationError (e.g. HTTP 503) unchanged (#1365)."""
+    """A model-lane round whose read of the changes GitHub cannot answer (HTTP 503) raises
+    GitHubOperationError unchanged (#1365)."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
     batch = TriggerBatch(repo="example/repo", counts={OPENED: 1}, first_at=NOW, last_at=NOW)
 
     with pytest.raises(GitHubOperationError) as exc_info:
-        service_job(
-            batch,
-            table=STATUS_LANE_ROWS,
-            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
-        )
+        service_job(batch, table=MODEL_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME)
 
     assert not isinstance(exc_info.value, ConfigurationError)
-    assert not isinstance(exc_info.value, GitHubFileNotFoundError)

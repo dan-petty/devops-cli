@@ -1389,7 +1389,7 @@ def test_the_roadmap_tools_are_registered_and_the_planner_tools_are_gone() -> No
         asyncio.run(mcp_server.mcp.get_tool(name))
         for name in ("roadmap_render", "roadmap_migrate", "roadmap_reprioritize", "roadmap_close")
     ]
-    assert (sorted(run), gone) == (["confirm", "dry_run", "ref", "repo"], [None] * 4)
+    assert (sorted(run), gone) == (["confirm", "dry_run", "repo"], [None] * 4)
 
 
 def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
@@ -1436,7 +1436,6 @@ def test_roadmap_refine_contract_and_argv() -> None:
         roadmap_refine(dry_run=True)
         roadmap_refine(
             repo="dan-petty/devops-cli",
-            ref="feat/topic",
             item=744,
             limit=1,
             source=".",
@@ -1456,8 +1455,6 @@ def test_roadmap_refine_contract_and_argv() -> None:
             *head,
             "--repo",
             "dan-petty/devops-cli",
-            "--ref",
-            "feat/topic",
             "--source",
             ".",
             "--item",

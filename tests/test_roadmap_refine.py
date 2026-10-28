@@ -93,12 +93,8 @@ REPO = "example/roadmap"
 # The open milestones, planning buckets in due-date order: the first, then the second.
 FIRST, SECOND, THIRD = "2026-10-29", "2026-11-05", "2026-11-12"
 
-BOARD_OPTIONS = {
-    ItemField.STATUS: ("New", "Ready", "In Progress", "Blocked", "Done"),
-    ItemField.PRIORITY: ("P0-Critical", "P1-High", "P2-Medium", "P3-Low"),
-    ItemField.VALUE: ("High", "Medium", "Low"),
-    ItemField.EFFORT: ("Low", "Medium", "High"),
-}
+# The Priority that makes an issue an Item, as a person sets it.
+PLACED = {ItemField.PRIORITY: "P2-Medium"}
 
 
 def _git_run(cwd: Path, *args: str) -> str:
@@ -151,8 +147,7 @@ class BodyReadCountingStore(InMemoryRoadmapStore):
 
 @pytest.fixture
 def store() -> BodyReadCountingStore:
-    s = BodyReadCountingStore(repo=REPO, board_options=BOARD_OPTIONS)
-    s.seed_file(".github/roadmap.toml", "board = 1\n")
+    s = BodyReadCountingStore(repo=REPO)
     s.seed_milestone(FIRST, due_on=date(2026, 10, 29), state=GitHubState.OPEN)
     s.seed_milestone(SECOND, due_on=date(2026, 11, 5), state=GitHubState.OPEN)
     return s
@@ -450,7 +445,7 @@ def test_refining_twice_with_a_body_edit_between_leaves_only_the_second_section(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
     """A person's edit between two refines gets the section replaced, not a second one (#1470)."""
-    num = store.seed_issue("Item", body="## Problem\nNeeds a design.", on_board=True)
+    num = store.seed_issue("Item", body="## Problem\nNeeds a design.", fields=PLACED)
     store.set_field(_require_item(store, num), ItemField.STATUS, "New")
 
     def _refine(statement: str) -> None:
@@ -492,17 +487,17 @@ def _comment_bodies(store: InMemoryRoadmapStore, number: int) -> list[str]:
 
 def test_selection_second_milestone_backlog_priorities_and_cap(store: InMemoryRoadmapStore) -> None:
     # The second open milestone
-    n1 = store.seed_issue("Next critical", milestone=SECOND, on_board=True)
-    n2 = store.seed_issue("Next low", milestone=SECOND, on_board=True)
+    n1 = store.seed_issue("Next critical", milestone=SECOND, fields=PLACED)
+    n2 = store.seed_issue("Next low", milestone=SECOND, fields=PLACED)
     store.set_field(_require_item(store, n1), ItemField.STATUS, "New")
     store.set_field(_require_item(store, n1), ItemField.PRIORITY, CONST_ROADMAP_CRITICAL_PRIORITY)
     store.set_field(_require_item(store, n2), ItemField.STATUS, "New")
     store.set_field(_require_item(store, n2), ItemField.PRIORITY, "P3-Low")
 
     # Backlog items
-    b1 = store.seed_issue("Backlog critical", on_board=True)
-    b2 = store.seed_issue("Backlog ready", on_board=True)
-    b3 = store.seed_issue("Backlog blocked", on_board=True)
+    b1 = store.seed_issue("Backlog critical", fields=PLACED)
+    b2 = store.seed_issue("Backlog ready", fields=PLACED)
+    b3 = store.seed_issue("Backlog blocked", fields=PLACED)
     store.set_field(_require_item(store, b1), ItemField.STATUS, "New")
     store.set_field(_require_item(store, b1), ItemField.PRIORITY, CONST_ROADMAP_CRITICAL_PRIORITY)
     store.set_field(_require_item(store, b2), ItemField.STATUS, CONST_ROADMAP_STATUS_READY)
@@ -522,7 +517,7 @@ def test_an_unchanged_item_that_waits_on_a_body_edit_is_selected_once_its_body_c
 ) -> None:
     """An item refine could not write a design for waits on a body edit alone: selection leaves
     it out, with that next step, until a person edits the body (#1758)."""
-    num = store.seed_issue("Item", body="Initial content", on_board=True)
+    num = store.seed_issue("Item", body="Initial content", fields=PLACED)
     item = _require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
     outside, _ = extract_section_and_outside("Initial content")
@@ -561,7 +556,7 @@ def _seed_item(
         body=f"Body {priority}",
         milestone=milestone,
         labels=labels,
-        on_board=True,
+        fields=PLACED,
     )
     store.set_field(_require_item(store, number), ItemField.STATUS, status)
     store.set_field(_require_item(store, number), ItemField.PRIORITY, priority)
@@ -681,7 +676,7 @@ def test_an_item_refine_would_skip_for_a_person_edit_takes_no_place(
 
 
 def test_person_edits_guards(store: InMemoryRoadmapStore) -> None:
-    num = store.seed_issue("Item", body="Body text", on_board=True)
+    num = store.seed_issue("Item", body="Body text", fields=PLACED)
     item = _require_item(store, num)
 
     # 1. Section exists but no recorded hash
@@ -702,7 +697,7 @@ def test_person_edits_guards(store: InMemoryRoadmapStore) -> None:
 def test_too_big_needs_split(git_repo: Path, store: InMemoryRoadmapStore) -> None:
     """A proposal that does not fit one pull request leaves the item New and records it as
     needing a split; no job moves it out of its milestone."""
-    num = store.seed_issue("Heavy task", body="Big work", milestone=FIRST, on_board=True)
+    num = store.seed_issue("Heavy task", body="Big work", milestone=FIRST, fields=PLACED)
     item = _require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
     store.set_field(item, ItemField.PRIORITY, "P1-High")
@@ -729,7 +724,7 @@ def test_too_big_needs_split(git_repo: Path, store: InMemoryRoadmapStore) -> Non
 
 
 def test_size_limit_guard(git_repo: Path, store: InMemoryRoadmapStore) -> None:
-    num = store.seed_issue("Item", body="Initial", on_board=True)
+    num = store.seed_issue("Item", body="Initial", fields=PLACED)
     item = _require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
 
@@ -753,14 +748,14 @@ def test_size_limit_guard(git_repo: Path, store: InMemoryRoadmapStore) -> None:
 def test_cli_refine_dry_run_and_confirm(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    num = store.seed_issue("Feature to refine", body="Need refinement", on_board=True)
+    num = store.seed_issue("Feature to refine", body="Need refinement", fields=PLACED)
     item = _require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
 
     mock_llm = MockLLMClient()
     model_fake.answer(mock_llm.proposal)
     runner = CliRunner()
-    with patch("devops_cli.commands.roadmap._open_roadmap", return_value=(REPO, None, store)):
+    with patch("devops_cli.commands.roadmap._open_store", return_value=(REPO, store)):
         # Dry run
         res_dry = runner.invoke(
             roadmap_app,
@@ -868,7 +863,7 @@ def _seed_new_items(
     person = store.as_actor("alice")
     numbers: list[int] = []
     for priority in priorities:
-        number = person.seed_issue(f"Item {priority}", body=f"Body {priority}", on_board=True)
+        number = person.seed_issue(f"Item {priority}", body=f"Body {priority}", fields=PLACED)
         person.set_field(_require_item(person, number), ItemField.STATUS, "New")
         person.set_field(_require_item(person, number), ItemField.PRIORITY, priority)
         numbers.append(number)
@@ -1239,7 +1234,7 @@ def _refine_round(store: InMemoryRoadmapStore, source: Path) -> RefinePlan:
 
 
 def _writes_to(store: InMemoryRoadmapStore, number: int) -> list[JobWrite]:
-    """What jobs wrote to issue `number` and its card, oldest first."""
+    """What jobs wrote to issue `number`, oldest first."""
     return [write for write in store.job_writes() if write.number == number]
 
 
@@ -1527,7 +1522,7 @@ def test_only_a_failure_the_items_own_text_caused_is_recorded(
     """A reply the model gave about the item that never validated or was refused is recorded; a
     failure that says nothing about the item, such as a timeout, is not (#1539)."""
     person = store.as_actor("alice")
-    number = person.seed_issue("Item", body="Body", on_board=True)
+    number = person.seed_issue("Item", body="Body", fields=PLACED)
     person.set_field(_require_item(store, number), ItemField.STATUS, "New")
 
     plan = plan_refine(
@@ -1853,11 +1848,11 @@ def test_an_item_named_with_item_is_refined_though_nothing_changed_since_its_las
     ) == ([number], 2, status)
 
 
-@pytest.mark.parametrize("status", ["In Progress", "Done", "Blocked"])
+@pytest.mark.parametrize("status", ["In Progress", "Blocked"])
 def test_an_item_named_with_item_that_refine_never_changes_has_nothing_to_do(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, status: str
 ) -> None:
-    """`--item` on an item In Progress, Done or Blocked reports it with nothing to do and why,
+    """`--item` on an item In Progress or Blocked reports it with nothing to do and why,
     and calls no model (#1758)."""
     number = _seed_item(store, status, "P1-High")
 

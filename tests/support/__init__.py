@@ -3,7 +3,7 @@
 `paths` names the repository root and its test data directories, `fakes` holds one fake per
 external edge, `waits` holds the bound a test waits with for another thread or process (#1664),
 `builders` builds the objects tests make most often, `refused_programs` names the programs no
-test starts for real (#1666), and `review_replies`, `telemetry_capture`, `roadmap_board_replies`,
+test starts for real (#1666), and `review_replies`, `telemetry_capture`,
 `markdown_examples`, `hung_children` and `session_spawns` hold the test data and helpers more
 than one test module reads. A module here is shared code, not a test: no
 test module or conftest lives under this package, which the registration enforces.

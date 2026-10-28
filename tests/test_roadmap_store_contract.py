@@ -1,46 +1,390 @@
-"""Contract suite for the roadmap store, run against the in-memory adapter.
+"""Contract suite for the roadmap store (ADR 0016).
 
-Each case pins one promise `RoadmapStore` makes. The GitHub adapter, built with the GitHub
-session it reads its REST listings through, keeps the same promises in
-`tests/test_roadmap_github_store.py`, over recorded `gh` output, but one: of the changes a poll
-reads, it reports the issue events' four kinds (#1360), and not a board field set, a comment or
-an edit, which only the in-memory adapter records (`ChangeKind`). A milestone is a planning
-bucket: any title, identified by its number and ordered by its due date.
+Each case pins one promise `RoadmapStore` makes. The cases of the label families and the job
+record run against both adapters: the in-memory one, and the GitHub one over `GitHubFake`, the
+`gh` process edge, its REST listings read through `RunnerSession`. A person acts on GitHub
+through the world's own helpers, never through the job's store. The GitHub store keeps the
+listing of every issue for its life, so a case reads an Item after a person's change with
+`item`, which reads the issue again, as the next store would. The other cases run against the
+in-memory adapter; `tests/test_roadmap_github_store.py` pins the GitHub adapter's own requests.
+A milestone is a planning bucket: any title, identified by its number and ordered by its due
+date.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from typing import Protocol
 
 import pytest
 
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
-from devops_cli.exceptions.roadmap import RoadmapCardChangedError
+from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import (
-    BoardField,
     ChangeKind,
     CloseReason,
     Evidence,
     EvidenceKind,
-    FieldOption,
     GitHubState,
     IssueComment,
+    Item,
     ItemField,
     RefineRecordKey,
     RoadmapStore,
 )
-from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.roadmap_github_fake import GitHubFake
+from tests.support.fakes.github import GitHubApiFake, RunnerSession, github_json
 
-BOARD_OPTIONS = {
-    ItemField.STATUS: ("Backlog", "Ready", "In Progress", "Done"),
-    ItemField.PRIORITY: ("P0-Critical", "P1-High", "P2-Medium", "P3-Low"),
-    ItemField.VALUE: ("High", "Medium", "Low"),
-    ItemField.EFFORT: ("Low", "Medium", "High"),
-}
+REPO = "example/roadmap"
+RECORD = "<!-- devops-roadmap-record"
+
+
+class World(Protocol):
+    """One repository, the job's store on it, and what a person does on GitHub."""
+
+    store: RoadmapStore
+
+    def seed(
+        self,
+        title: str,
+        *,
+        labels: tuple[str, ...] = (),
+        body: str = "",
+        state: GitHubState = GitHubState.OPEN,
+        pull_request: bool = False,
+    ) -> int: ...
+
+    def person_adds(self, number: int, label: str) -> None: ...
+
+    def labels(self, number: int) -> list[str]: ...
+
+    def raw_body(self, number: int) -> str: ...
+
+    def writes(self) -> int: ...
+
+
+class MemoryWorld:
+    """The in-memory adapter: a person writes through `as_actor`."""
+
+    def __init__(self) -> None:
+        self._roadmap = InMemoryRoadmapStore(repo=REPO)
+        self.store: RoadmapStore = self._roadmap
+
+    def seed(
+        self,
+        title: str,
+        *,
+        labels: tuple[str, ...] = (),
+        body: str = "",
+        state: GitHubState = GitHubState.OPEN,
+        pull_request: bool = False,
+    ) -> int:
+        return self._roadmap.seed_issue(
+            title, labels=labels, body=body, state=state, pull_request=pull_request
+        )
+
+    def person_adds(self, number: int, label: str) -> None:
+        self._roadmap.as_actor("alice").add_label(number, label)
+
+    def labels(self, number: int) -> list[str]:
+        return next(list(i.labels) for i in self._roadmap.issues() if i.number == number)
+
+    def raw_body(self, number: int) -> str:
+        return self._roadmap.raw_body(number)
+
+    def writes(self) -> int:
+        return len(self._roadmap.job_writes())
+
+
+class GitHubWorld:
+    """The GitHub adapter over `GitHubFake`: a person changes the fake's issues."""
+
+    def __init__(self) -> None:
+        self.github = GitHubFake(REPO)
+        self.store: RoadmapStore = GitHubRoadmapStore(
+            REPO, runner=self.github, session=RunnerSession(self.github)
+        )
+
+    def seed(
+        self,
+        title: str,
+        *,
+        labels: tuple[str, ...] = (),
+        body: str = "",
+        state: GitHubState = GitHubState.OPEN,
+        pull_request: bool = False,
+    ) -> int:
+        number = len(self.github.issues) + 1
+        self.github.seed_issue(
+            number,
+            title,
+            labels=labels,
+            body=body,
+            state=state.value,
+            pull_request=pull_request,
+        )
+        return number
+
+    def person_adds(self, number: int, label: str) -> None:
+        self.github.issues[number]["labels"].append({"name": label})
+
+    def labels(self, number: int) -> list[str]:
+        return self.github.labels(number)
+
+    def raw_body(self, number: int) -> str:
+        return self.github.body(number)
+
+    def writes(self) -> int:
+        return len(self.github.writes())
+
+
+@pytest.fixture(params=["memory", "github"])
+def world(request: pytest.FixtureRequest) -> Iterator[World]:
+    built: World = MemoryWorld() if request.param == "memory" else GitHubWorld()
+    yield built
+    if isinstance(built, GitHubWorld):
+        assert built.github.project_calls() == []
+
+
+def read(world: World, number: int) -> Item:
+    """The Item `number` as a read gives it now."""
+    found = world.store.item(number)
+    assert found is not None
+    return found
+
+
+# ── Label families (ADR 0016) ─────────────────────────────────────────────────
+
+
+def test_each_field_is_read_from_its_label_family(world: World) -> None:
+    number = world.seed(
+        "triaged",
+        labels=("priority/p1-high", "status/in-progress", "value/high", "effort/low", "type/bug"),
+    )
+    item = read(world, number)
+    assert (item.priority, item.status, item.value, item.effort, item.job_record) == (
+        "P1-High",
+        "In Progress",
+        "High",
+        "Low",
+        {},
+    )
+
+
+def test_a_label_a_person_adds_beside_the_jobs_is_the_fields_value(world: World) -> None:
+    """The job record names the job's `New`, so the person's `Blocked` is the newer value."""
+    number = world.seed("blocked by hardware", labels=("priority/p2-medium",))
+    world.store.set_field(read(world, number), ItemField.STATUS, "New")
+    world.person_adds(number, "status/blocked")
+    item = read(world, number)
+    assert (item.status, world.labels(number)) == (
+        "Blocked",
+        ["priority/p2-medium", "status/new", "status/blocked"],
+    )
+
+
+def test_two_labels_no_job_set_read_as_the_first_in_the_familys_order(world: World) -> None:
+    number = world.seed("set twice by hand", labels=("priority/p3-low", "priority/p1-high"))
+    assert read(world, number).priority == "P1-High"
+
+
+def test_items_are_the_issues_with_a_priority_label_and_candidates_the_open_issues_without(
+    world: World,
+) -> None:
+    placed = world.seed("placed", labels=("priority/p2-medium",))
+    done = world.seed("done", labels=("priority/p3-low",), state=GitHubState.CLOSED)
+    candidate = world.seed("intake me", labels=("type/bug", "status/new"))
+    world.seed("closed off the roadmap", state=GitHubState.CLOSED)
+    pull = world.seed("a pull request", labels=("priority/p1-high",), pull_request=True)
+    assert (
+        [item.number for item in world.store.items()],
+        [(c.number, c.labels) for c in world.store.candidates()],
+        world.store.item(candidate),
+        world.store.item(pull),
+        world.store.item(99),
+    ) == ([placed, done], [(candidate, ("type/bug", "status/new"))], None, None, None)
+
+
+def test_a_job_sets_a_field_by_replacing_the_familys_labels(world: World) -> None:
+    """Every label of the family goes, an unknown one too, and the value's label is added."""
+    number = world.seed(
+        "readied", labels=("priority/p2-medium", "status/new", "status/triage", "type/bug")
+    )
+    world.store.set_field(read(world, number), ItemField.STATUS, "Ready")
+    item = read(world, number)
+    assert (world.labels(number), item.status, item.job_record) == (
+        ["priority/p2-medium", "type/bug", "status/ready"],
+        "Ready",
+        {ItemField.STATUS: "Ready"},
+    )
+
+
+def test_clearing_a_field_removes_its_label_and_records_none(world: World) -> None:
+    number = world.seed("unsized", labels=("priority/p2-medium", "effort/high"))
+    world.store.set_field(read(world, number), ItemField.EFFORT, None)
+    item = read(world, number)
+    assert (world.labels(number), item.effort, item.job_record) == (
+        ["priority/p2-medium"],
+        None,
+        {ItemField.EFFORT: None},
+    )
+
+
+def test_a_value_that_is_not_a_fields_value_raises_and_changes_nothing(world: World) -> None:
+    """A closed issue is done, so no label holds Done."""
+    number = world.seed("finished", labels=("priority/p2-medium",), body="Text")
+    item = read(world, number)
+    with pytest.raises(GitHubOperationError, match="'Done' is not a Status value"):
+        world.store.set_field(item, ItemField.STATUS, "Done")
+    assert (world.labels(number), world.raw_body(number)) == (["priority/p2-medium"], "Text")
+
+
+def test_a_job_never_reverts_a_persons_change(world: World) -> None:
+    """The job set Status New and read the Item; a person then set Blocked (ADR 0002)."""
+    number = world.seed("blocked meanwhile", labels=("priority/p2-medium",))
+    world.store.set_field(read(world, number), ItemField.STATUS, "New")
+    item = read(world, number)
+    world.person_adds(number, "status/blocked")
+    with pytest.raises(RoadmapItemChangedError) as raised:
+        world.store.set_field(item, ItemField.STATUS, "Ready")
+    assert (
+        world.labels(number),
+        {key: raised.value.details[key] for key in ("item", "field", "read", "now")},
+    ) == (
+        ["priority/p2-medium", "status/new", "status/blocked"],
+        {"item": f"#{number}", "field": "Status", "read": "New", "now": "Blocked"},
+    )
+
+
+def test_a_persons_change_stays_caught_after_the_job_wrote_another_field(world: World) -> None:
+    number = world.seed("sized meanwhile", labels=("priority/p2-medium",))
+    item = read(world, number)
+    world.person_adds(number, "priority/p1-high")
+    world.store.set_field(item, ItemField.EFFORT, "Low")
+    with pytest.raises(RoadmapItemChangedError):
+        world.store.set_field(item, ItemField.PRIORITY, "P3-Low")
+    kept = read(world, number)
+    assert (kept.effort, kept.priority) == ("Low", "P1-High")
+
+
+def test_a_write_of_the_value_the_issue_holds_now_goes_ahead(world: World) -> None:
+    """A person set the value the job writes, so the write reverts nothing."""
+    number = world.seed("agreed", labels=("priority/p2-medium",))
+    item = read(world, number)
+    world.person_adds(number, "status/ready")
+    world.store.set_field(item, ItemField.STATUS, "Ready")
+    assert read(world, number).job_record == {ItemField.STATUS: "Ready"}
+
+
+def test_the_jobs_own_write_is_the_value_its_next_write_of_that_field_compares(
+    world: World,
+) -> None:
+    number = world.seed("raised twice", labels=("priority/p2-medium",))
+    item = read(world, number)
+    world.store.set_field(item, ItemField.PRIORITY, "P1-High")
+    world.store.set_field(item, ItemField.PRIORITY, "P0-Critical")
+    assert world.labels(number) == ["priority/p0-critical"]
+
+
+def test_two_writes_from_one_read_keep_both_fields_in_the_job_record(world: World) -> None:
+    number = world.seed("triage me", labels=("priority/p3-low",))
+    item = read(world, number)
+    world.store.set_field(item, ItemField.PRIORITY, "P2-Medium")
+    world.store.set_field(item, ItemField.STATUS, "Ready")
+    assert read(world, number).job_record == {
+        ItemField.PRIORITY: "P2-Medium",
+        ItemField.STATUS: "Ready",
+    }
+
+
+def test_marks_are_kept_in_the_job_record_and_change_no_field(world: World) -> None:
+    number = world.seed("refined", labels=("priority/p2-medium",), body="Problem")
+    item = read(world, number)
+    world.store.set_marks(
+        item, {RefineRecordKey.BODY_HASH: "abc", RefineRecordKey.NEEDS_SPLIT: "1"}
+    )
+    world.store.set_field(
+        item, ItemField.STATUS, "Ready", marks={RefineRecordKey.SECTION_HASH: "def"}
+    )
+    world.store.set_marks(item, {RefineRecordKey.NEEDS_SPLIT: None})
+    marked = read(world, number)
+    assert (world.labels(number), marked.body, marked.job_record) == (
+        ["priority/p2-medium", "status/ready"],
+        "Problem",
+        {
+            RefineRecordKey.BODY_HASH: "abc",
+            RefineRecordKey.NEEDS_SPLIT: None,
+            RefineRecordKey.SECTION_HASH: "def",
+            ItemField.STATUS: "Ready",
+        },
+    )
+
+
+def test_a_body_write_keeps_the_job_record(world: World) -> None:
+    """The body the store returns holds no record block, and a body write puts the issue's
+    block back at its end."""
+    number = world.seed("refined", labels=("priority/p2-medium",), body="Old text")
+    world.store.set_marks(read(world, number), {RefineRecordKey.BODY_HASH: "abc"})
+    world.store.write_issue_body(number, "New text")
+    item = read(world, number)
+    assert (
+        world.store.read_issue_body(number),
+        item.body,
+        item.job_record,
+        world.raw_body(number).startswith(f"New text\n\n{RECORD} "),
+    ) == ("New text", "New text", {RefineRecordKey.BODY_HASH: "abc"}, True)
+
+
+def test_a_body_with_no_record_is_written_as_given(world: World) -> None:
+    number = world.seed("plain", labels=("priority/p2-medium",), body="Old text")
+    world.store.write_issue_body(number, "New text")
+    assert world.raw_body(number) == "New text"
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        f"{RECORD} not json -->",
+        f'{RECORD} ["Priority", "P1-High"] -->',
+        f'{RECORD} {{"Priority": 25}} -->',
+    ],
+    ids=["not-json", "not-an-object", "a-known-key-without-text"],
+)
+def test_a_broken_record_block_reads_as_an_empty_record(
+    world: World, block: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A person's edit of the block stops no job: the Item reads with an empty record, a
+    warning names the issue, and the next write replaces the block."""
+    number = world.seed("edited by hand", labels=("priority/p2-medium",), body=f"Text\n\n{block}")
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.store"):
+        item = read(world, number)
+    world.store.set_marks(item, {RefineRecordKey.BODY_HASH: "abc"})
+    assert (
+        (item.body, item.job_record),
+        any(f"#{number}" in message for message in caplog.messages),
+        read(world, number).job_record,
+    ) == (("Text", {}), True, {RefineRecordKey.BODY_HASH: "abc"})
+
+
+def test_a_write_to_a_pull_request_or_an_issue_that_does_not_exist_raises(world: World) -> None:
+    pull = world.seed("a pull request", labels=("priority/p1-high",), pull_request=True)
+    probe = Item(number=pull, title="a pull request", url="https://example.com/pull")
+    for number in (pull, 99):
+        with pytest.raises(GitHubOperationError, match="is not an issue"):
+            world.store.set_field(
+                probe.model_copy(update={"number": number}), ItemField.STATUS, "New"
+            )
+        with pytest.raises(GitHubOperationError, match="is not an issue"):
+            world.store.write_issue_body(number, "no")
+    assert world.writes() == 0
+
+
+# ── The in-memory adapter: milestones, issues and changes ─────────────────────
 
 
 class SteppedClock:
@@ -58,9 +402,12 @@ def clock() -> SteppedClock:
     return SteppedClock()
 
 
+PLACED = {ItemField.PRIORITY: "P2-Medium"}
+
+
 @pytest.fixture
 def store(clock: SteppedClock) -> InMemoryRoadmapStore:
-    roadmap = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, clock=clock)
+    roadmap = InMemoryRoadmapStore(clock=clock)
     roadmap.seed_milestone("Docs pass", state=GitHubState.CLOSED, due_on=date(2026, 9, 1))
     roadmap.seed_milestone("Q4 hardening", description="Multi-IDE MCP Scaffolding")
     return roadmap
@@ -153,7 +500,7 @@ def test_renaming_a_milestone_onto_another_title_raises(store: InMemoryRoadmapSt
 
 def test_a_renamed_milestone_keeps_its_number_and_issues(store: InMemoryRoadmapStore) -> None:
     """GitHub keeps a milestone by its number, so a rename moves no issue out of it."""
-    item = store.seed_issue("planned", milestone="Q4 hardening", on_board=True)
+    item = store.seed_issue("planned", milestone="Q4 hardening", fields=PLACED)
     before = store.milestone("Q4 hardening")
     renamed = store.as_actor("alice").edit_milestone("Q4 hardening", title="2026-12-01")
     found = store.item(item)
@@ -165,18 +512,18 @@ def test_a_renamed_milestone_keeps_its_number_and_issues(store: InMemoryRoadmapS
 
 
 def test_items_in_a_milestone_are_its_open_and_closed_items(store: InMemoryRoadmapStore) -> None:
-    open_item = store.seed_issue("open", milestone="Q4 hardening", on_board=True)
+    open_item = store.seed_issue("open", milestone="Q4 hardening", fields=PLACED)
     closed_item = store.seed_issue(
         "closed",
         state=GitHubState.CLOSED,
         state_reason="completed",
         milestone="Q4 hardening",
-        on_board=True,
+        fields=PLACED,
     )
-    store.seed_issue("off the board", milestone="Q4 hardening")
-    store.seed_issue("a pull request", milestone="Q4 hardening", pull_request=True, on_board=True)
-    store.seed_issue("another milestone", milestone="Docs pass", on_board=True)
-    store.seed_issue("no milestone", on_board=True)
+    store.seed_issue("no priority", milestone="Q4 hardening")
+    store.seed_issue("a pull request", milestone="Q4 hardening", pull_request=True, fields=PLACED)
+    store.seed_issue("another milestone", milestone="Docs pass", fields=PLACED)
+    store.seed_issue("no milestone", fields=PLACED)
 
     counted = store.milestone("Q4 hardening")
     assert counted is not None
@@ -201,10 +548,10 @@ def test_seeding_an_issue_in_a_milestone_that_does_not_exist_raises(
 
 
 def test_backlog_is_the_open_items_in_no_milestone(store: InMemoryRoadmapStore) -> None:
-    backlog_item = store.seed_issue("backlog", on_board=True)
-    store.seed_issue("closed", state=GitHubState.CLOSED, on_board=True)
-    store.seed_issue("planned", milestone="Q4 hardening", on_board=True)
-    store.seed_issue("not on the board")
+    backlog_item = store.seed_issue("backlog", fields=PLACED)
+    store.seed_issue("closed", state=GitHubState.CLOSED, fields=PLACED)
+    store.seed_issue("planned", milestone="Q4 hardening", fields=PLACED)
+    store.seed_issue("a candidate")
     assert [item.number for item in store.backlog()] == [backlog_item]
 
 
@@ -214,9 +561,9 @@ def test_an_item_carries_the_body_of_the_issue_listing_it_was_read_from(
     """A job judges an Item by its text without a read per Item (#1539): every read of Items
     returns each issue's body, and a body written since is the next read's."""
     planned = store.seed_issue(
-        "planned", body="Planned text", milestone="Q4 hardening", on_board=True
+        "planned", body="Planned text", milestone="Q4 hardening", fields=PLACED
     )
-    unplanned = store.seed_issue("backlog", body="Backlog text", on_board=True)
+    unplanned = store.seed_issue("backlog", body="Backlog text", fields=PLACED)
     store.write_issue_body(unplanned, "Backlog text, edited")
     bucket = store.milestone("Q4 hardening")
     assert bucket is not None
@@ -235,78 +582,17 @@ def test_an_item_carries_the_body_of_the_issue_listing_it_was_read_from(
     )
 
 
-def test_candidates_are_open_issues_not_on_the_board(store: InMemoryRoadmapStore) -> None:
-    candidate = store.seed_issue("intake me", labels=("type/bug",))
-    store.seed_issue("closed", state=GitHubState.CLOSED)
-    store.seed_issue("on the board", on_board=True)
-    store.seed_issue("a pull request", pull_request=True)
-    assert [(c.number, c.labels) for c in store.candidates()] == [(candidate, ("type/bug",))]
-
-
-def test_adding_an_item_puts_an_issue_on_the_board(store: InMemoryRoadmapStore) -> None:
-    number = store.seed_issue("intake me")
-    store.add_item(number)
-    assert ([c.number for c in store.candidates()], store.item(number) is not None) == ([], True)
-
-
-def test_adding_an_item_returns_it_with_its_card_and_adding_it_again_keeps_that_card(
+def test_a_priority_a_person_takes_off_makes_the_item_a_candidate_again(
     store: InMemoryRoadmapStore,
 ) -> None:
-    """The writes that place it go to the card the add returns (#1361)."""
-    number = store.seed_issue("intake me")
-    added = store.add_item(number)
-    store.set_field(added, ItemField.STATUS, "Ready")
-    again = store.add_item(number)
-    assert (
-        added.number,
-        added.card_id is not None,
-        again.card_id == added.card_id,
-        again.status,
-        [item.card_id for item in store.items()] == [added.card_id],
-    ) == (number, True, True, "Ready", True)
-
-
-def test_an_archived_card_leaves_the_board_and_adding_its_issue_restores_it_with_its_fields(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """A person archives a card: the issue is a candidate again and no read holds the card.
-    The add restores that card, marked `restored`, with its fields and job record (#1403)."""
-    number = store.seed_issue("archived by a person")
-    added = store.add_item(number)
-    store.set_field(added, ItemField.STATUS, "Ready")
-    store.as_actor("alice").archive_card(number)
-    archived = ([c.number for c in store.candidates()], store.item(number), store.items())
-    restored = store.add_item(number)
-    assert (
-        added.restored,
-        archived,
-        (restored.restored, restored.card_id, restored.status, restored.job_record),
-        [c.number for c in store.candidates()],
-        store.add_item(number).restored,
-    ) == (
-        False,
-        ([number], None, []),
-        (True, added.card_id, "Ready", {ItemField.STATUS: "Ready"}),
+    number = store.seed_issue("unplaced", fields=PLACED)
+    placed = [c.number for c in store.candidates()]
+    store.as_actor("alice").remove_label(number, "priority/p2-medium")
+    assert (placed, [c.number for c in store.candidates()], store.item(number)) == (
         [],
-        False,
+        [number],
+        None,
     )
-
-
-def test_archiving_a_card_that_is_not_on_the_board_raises(store: InMemoryRoadmapStore) -> None:
-    with pytest.raises(GitHubOperationError, match="not on the board"):
-        store.archive_card(store.seed_issue("never added"))
-
-
-def test_an_item_whose_card_is_not_its_own_is_not_on_the_board(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """A write goes to the Item's card: one built without the card it has raises, and writes
-    nothing."""
-    item = store.add_item(store.seed_issue("intake me"))
-    before = len(store.job_writes())
-    with pytest.raises(GitHubOperationError, match="not on the board"):
-        store.set_field(item.model_copy(update={"card_id": None}), ItemField.STATUS, "Ready")
-    assert store.job_writes()[before:] == []
 
 
 def test_every_write_to_an_issue_a_comment_included_moves_its_updated_at(
@@ -331,6 +617,21 @@ def test_every_write_to_an_issue_a_comment_included_moves_its_updated_at(
     assert moved == [created, *(created + timedelta(minutes=n) for n in (2, 3, 4))]
 
 
+def test_a_field_write_is_a_labeled_and_an_unlabeled_change_as_a_poll_reads_them(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    """GitHub reports a label set or taken off as an issue event (ADR 0003), so a field write
+    is one change for each label it adds or removes, under the actor who wrote it."""
+    number = store.seed_issue("readied", fields={**PLACED, ItemField.STATUS: "New"})
+    item = store.item(number)
+    assert item is not None
+    store.set_field(item, ItemField.STATUS, "Ready")
+    assert [(c.kind, c.number, c.actor, c.label) for c in store.changes_since(clock.now)] == [
+        (ChangeKind.LABELED, number, "devops-cli", "status/ready"),
+        (ChangeKind.UNLABELED, number, "devops-cli", "status/new"),
+    ]
+
+
 def test_changes_since_with_an_empty_actor_leaves_out_nothing(
     store: InMemoryRoadmapStore, clock: SteppedClock
 ) -> None:
@@ -341,149 +642,20 @@ def test_changes_since_with_an_empty_actor_leaves_out_nothing(
     assert [(change.actor, change.label) for change in changes] == [("", "type/bug")]
 
 
-def test_adding_a_pull_request_raises(store: InMemoryRoadmapStore) -> None:
-    number = store.seed_issue("a pull request", pull_request=True)
-    with pytest.raises(GitHubOperationError, match="not an issue"):
-        store.add_item(number)
-
-
-def test_a_value_that_is_not_a_board_option_raises_and_changes_nothing(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("prioritize me", on_board=True))
-    assert item is not None
-    with pytest.raises(GitHubOperationError, match="not a Priority option"):
-        store.set_field(item, ItemField.PRIORITY, "P9-Someday")
-    assert (store.item(item.number), store.changes_since(datetime.min)) == (item, [])
-
-
-def test_the_store_records_the_value_it_sets(store: InMemoryRoadmapStore) -> None:
-    item = store.item(store.seed_issue("prioritize me", on_board=True))
-    assert item is not None
-    store.set_field(item, ItemField.PRIORITY, "P2-Medium")
-    written = store.item(item.number)
-    assert written is not None
-    assert (written.priority, written.job_record) == (
-        "P2-Medium",
-        {ItemField.PRIORITY: "P2-Medium"},
-    )
-
-
-def test_two_writes_from_one_read_keep_both_fields_in_the_job_record(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("triage me", on_board=True))
-    assert item is not None
-    store.set_field(item, ItemField.PRIORITY, "P2-Medium")
-    store.set_field(item, ItemField.STATUS, "Ready")
-    written = store.item(item.number)
-    assert (written.job_record if written else None) == {
-        ItemField.PRIORITY: "P2-Medium",
-        ItemField.STATUS: "Ready",
-    }
-
-
-def test_a_persons_change_differs_from_the_job_record(store: InMemoryRoadmapStore) -> None:
-    item = store.item(store.seed_issue("prioritize me", on_board=True))
+def test_a_persons_value_differs_from_the_job_record(store: InMemoryRoadmapStore) -> None:
+    """A person's write sets the label and records nothing, so the record keeps the job's."""
+    number = store.seed_issue("prioritize me", fields={ItemField.PRIORITY: "P3-Low"})
+    item = store.item(number)
     assert item is not None
     store.set_field(item, ItemField.PRIORITY, "P2-Medium")
     store.as_actor("alice").set_field(item, ItemField.PRIORITY, "P1-High")
-    changed = store.item(item.number)
+    changed = store.item(number)
     assert changed is not None
-    assert (
-        changed.field_value(ItemField.PRIORITY),
-        changed.job_record.get(ItemField.PRIORITY),
-    ) == ("P1-High", "P2-Medium")
-
-
-# ── A job never reverts a change it did not read (ADR 0002, #1361) ────────────
-
-
-def test_a_persons_change_stays_caught_after_the_job_wrote_another_field_of_the_card(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("size and prioritize me", on_board=True))
-    assert item is not None
-    store.as_actor("alice").set_field(item, ItemField.PRIORITY, "P1-High")
-    store.set_field(item, ItemField.EFFORT, "Low")
-    with pytest.raises(RoadmapCardChangedError):
-        store.set_field(item, ItemField.PRIORITY, "P3-Low")
-    kept = store.item(item.number)
-    assert ((kept.effort, kept.priority) if kept else None) == ("Low", "P1-High")
-
-
-def test_a_field_the_board_does_not_have_raises() -> None:
-    store = InMemoryRoadmapStore(board_options={ItemField.STATUS: ("Backlog",)})
-    item = store.item(store.seed_issue("sized", on_board=True))
-    assert item is not None
-    assert item.title == "sized"
-    with pytest.raises(GitHubOperationError, match="no 'Value' field"):
-        store.set_field(item, ItemField.VALUE, "High")
-
-
-def test_writing_an_item_that_left_the_board_raises(store: InMemoryRoadmapStore) -> None:
-    item = store.item(store.seed_issue("on the board", on_board=True))
-    assert item is not None
-    assert item.title == "on the board"
-    stale = item.model_copy(update={"number": store.seed_issue("never on the board")})
-    with pytest.raises(GitHubOperationError, match="not on the board"):
-        store.set_field(stale, ItemField.STATUS, "Ready")
-
-
-# ── Board fields, issues and files (#739) ─────────────────────────────────────
-
-
-@pytest.fixture
-def board(clock: SteppedClock) -> InMemoryRoadmapStore:
-    """A board whose Status has Todo, Backlog and Ready, with one card on each."""
-    roadmap = InMemoryRoadmapStore(clock=clock)
-    roadmap.seed_field("Status", options=("Todo", "Backlog", "Ready"))
-    person = roadmap.as_actor("alice")
-    for status in ("Todo", "Backlog", "Ready"):
-        item = roadmap.item(roadmap.seed_issue(f"holds {status}", on_board=True))
-        assert item is not None
-        person.set_field(item, ItemField.STATUS, status)
-    return roadmap
-
-
-def _status(store: InMemoryRoadmapStore) -> BoardField:
-    return next(board_field for board_field in store.board_fields() if board_field.name == "Status")
-
-
-def test_board_fields_carry_each_options_id(board: InMemoryRoadmapStore) -> None:
-    status = _status(board)
-    assert (
-        status.single_select,
-        [(bool(o.id), o.name) for o in status.options],
-        len({o.id for o in status.options}),
-    ) == (True, [(True, "Todo"), (True, "Backlog"), (True, "Ready")], 3)
-
-
-def test_an_option_renamed_by_hand_keeps_its_id_and_its_cards_value(
-    board: InMemoryRoadmapStore,
-) -> None:
-    """The in-memory model of the board's field settings, the only place an option keeps its id.
-
-    No store operation edits options: GitHub's option input takes no id (#739).
-    """
-    _todo, backlog, ready = _status(board).options
-    edited = board.edit_options_by_hand(
-        "Status",
-        [
-            backlog.model_copy(update={"name": "New"}),
-            ready,
-            FieldOption(name="Blocked", color="RED"),
-        ],
-    )
-    assert (
-        [(o.id, o.name) for o in edited.options[:2]],
-        bool(edited.options[2].id),
-        [item.status for item in board.items()],
-    ) == ([(backlog.id, "New"), (ready.id, "Ready")], True, [None, "New", "Ready"])
+    assert (changed.priority, changed.job_record) == ("P1-High", {ItemField.PRIORITY: "P2-Medium"})
 
 
 def test_a_person_reopens_a_closed_issue_in_its_milestone(store: InMemoryRoadmapStore) -> None:
-    number = store.seed_issue("done", milestone="Q4 hardening", on_board=True)
+    number = store.seed_issue("done", milestone="Q4 hardening", fields=PLACED)
     store.as_actor("alice").close_by_hand(number, CloseReason.COMPLETED)
     since = store.changes_since(datetime.min)
     store.as_actor("alice").reopen_issue(number)
@@ -498,7 +670,7 @@ def test_a_person_moves_an_issue_into_a_milestone_and_out_of_it(
     store: InMemoryRoadmapStore,
 ) -> None:
     """No job sets a milestone: a person plans the buckets, and the store reads where they put it."""
-    number = store.seed_issue("planned by a person", on_board=True)
+    number = store.seed_issue("planned by a person", fields=PLACED)
     person = store.as_actor("alice")
     person.move_by_hand(number, "Q4 hardening")
     moved = store.item(number)
@@ -515,68 +687,31 @@ def test_a_person_moves_an_issue_into_a_milestone_and_out_of_it(
 def test_issues_are_every_issue_open_or_closed_and_never_a_pull_request(
     store: InMemoryRoadmapStore,
 ) -> None:
-    store.seed_issue("open, off the board")
-    store.seed_issue("closed, on the board", state=GitHubState.CLOSED, on_board=True)
+    store.seed_issue("open, no priority")
+    store.seed_issue("closed, placed", state=GitHubState.CLOSED, fields=PLACED)
     store.seed_issue("a pull request", pull_request=True)
-    assert [issue.title for issue in store.issues()] == [
-        "open, off the board",
-        "closed, on the board",
-    ]
+    assert [issue.title for issue in store.issues()] == ["open, no priority", "closed, placed"]
 
 
 def test_a_repository_file_is_read_at_its_ref_and_a_missing_one_raises(
     store: InMemoryRoadmapStore,
 ) -> None:
-    store.seed_file(".github/roadmap.toml", "board = 2\n", ref="feat/topic")
-    store.seed_file(".github/roadmap.toml", "board = 1\n")
-    read = (
-        store.repository_file(".github/roadmap.toml", ref="feat/topic"),
-        store.repository_file(".github/roadmap.toml"),
+    store.seed_file(".github/labels.yml", "- name: type/bug\n", ref="feat/topic")
+    store.seed_file(".github/labels.yml", "- name: type/feature\n")
+    read_back = (
+        store.repository_file(".github/labels.yml", ref="feat/topic"),
+        store.repository_file(".github/labels.yml"),
     )
-    with pytest.raises(GitHubFileNotFoundError, match=r"no \.github/labels\.yml"):
-        store.repository_file(".github/labels.yml")
-    assert read == ("board = 2\n", "board = 1\n")
-
-
-def test_a_board_number_that_names_no_board_refuses_item_reads() -> None:
-    store = InMemoryRoadmapStore(board_exists=False)
-    with pytest.raises(GitHubOperationError, match="names no board"):
-        store.items()
-    with pytest.raises(GitHubOperationError, match="names no board"):
-        store.candidates()
-
-
-# ── What refine and intake mark (#744) ────────────────────────────────────────
-
-
-def test_marks_are_kept_in_the_job_record_and_change_no_field(store: InMemoryRoadmapStore) -> None:
-    item = store.item(store.seed_issue("refined", milestone="Q4 hardening", on_board=True))
-    assert item is not None
-    store.set_marks(item, {RefineRecordKey.BODY_HASH: "abc", RefineRecordKey.NEEDS_SPLIT: "true"})
-    store.set_field(item, ItemField.STATUS, "Ready")
-    store.set_marks(item, {RefineRecordKey.BODY_HASH: None, RefineRecordKey.NEEDS_SPLIT: None})
-    written = store.item(item.number)
-    assert (
-        (written.milestone, written.status, written.job_record) if written else None,
-        [change.kind for change in store.changes_since(datetime.min)],
-    ) == (
-        (
-            "Q4 hardening",
-            "Ready",
-            {
-                RefineRecordKey.BODY_HASH: None,
-                RefineRecordKey.NEEDS_SPLIT: None,
-                ItemField.STATUS: "Ready",
-            },
-        ),
-        [ChangeKind.FIELD_CHANGED],
-    )
+    with pytest.raises(GitHubFileNotFoundError, match=r"no CONTEXT\.md"):
+        store.repository_file("CONTEXT.md")
+    assert read_back == ("- name: type/bug\n", "- name: type/feature\n")
 
 
 def test_a_field_write_records_marks_with_its_value_and_a_persons_records_neither(
     store: InMemoryRoadmapStore,
 ) -> None:
-    item = store.item(store.seed_issue("refined", on_board=True))
+    number = store.seed_issue("refined", fields=PLACED)
+    item = store.item(number)
     assert item is not None
     store.set_field(
         item, ItemField.STATUS, "Ready", marks={RefineRecordKey.SECTION_HASH: "section"}
@@ -584,7 +719,7 @@ def test_a_field_write_records_marks_with_its_value_and_a_persons_records_neithe
     store.as_actor("alice").set_field(
         item, ItemField.PRIORITY, "P1-High", marks={RefineRecordKey.SECTION_HASH: None}
     )
-    written = store.item(item.number)
+    written = store.item(number)
     assert ((written.status, written.priority, written.job_record) if written else None) == (
         "Ready",
         "P1-High",
@@ -592,40 +727,26 @@ def test_a_field_write_records_marks_with_its_value_and_a_persons_records_neithe
     )
 
 
-def test_marks_refuse_an_item_off_the_board_and_a_board_without_a_job_record_field(
-    store: InMemoryRoadmapStore,
-) -> None:
-    item = store.item(store.seed_issue("on the board", on_board=True))
+def test_a_persons_marks_are_not_recorded(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("refinable", fields=PLACED)
+    item = store.item(number)
     assert item is not None
-    gone = item.model_copy(update={"number": store.seed_issue("never on the board")})
-    writes = store.job_writes()
-    unrecorded = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, job_record_field=False)
-    unrecorded_item = unrecorded.item(unrecorded.seed_issue("unrecorded", on_board=True))
-    assert unrecorded_item is not None
-    with pytest.raises(GitHubOperationError, match="not on the board"):
-        store.set_marks(gone, {RefineRecordKey.BODY_HASH: "abc"})
-    with pytest.raises(GitHubOperationError, match="Job record"):
-        unrecorded.set_marks(unrecorded_item, {RefineRecordKey.BODY_HASH: "abc"})
-    assert (store.job_writes(), unrecorded.item(unrecorded_item.number)) == (
-        writes,
-        unrecorded_item,
-    )
+    store.set_marks(item, {RefineRecordKey.NEEDS_SPLIT: "true"})
+    store.as_actor("alice").set_marks(item, {RefineRecordKey.NEEDS_SPLIT: "false"})
+    marked = store.item(number)
+    assert (marked.job_record if marked else None) == {RefineRecordKey.NEEDS_SPLIT: "true"}
 
 
 def test_a_comment_is_kept_on_its_issue_with_the_time_it_was_made(
     store: InMemoryRoadmapStore, clock: SteppedClock
 ) -> None:
-    number = store.seed_issue("commented", milestone="Q4 hardening", on_board=True)
+    number = store.seed_issue("commented", milestone="Q4 hardening", fields=PLACED)
     store.comment(number, "Moved to the backlog.")
     with pytest.raises(GitHubOperationError, match="not an issue"):
         store.comment(store.seed_issue("a pull request", pull_request=True), "no")
-    assert (
-        store.comments_on(number),
-        [(c.kind, c.number) for c in store.changes_since(datetime.min)],
-    ) == (
-        [IssueComment(body="Moved to the backlog.", created_at=clock.now)],
-        [(ChangeKind.COMMENTED, number)],
-    )
+    assert store.comments_on(number) == [
+        IssueComment(body="Moved to the backlog.", created_at=clock.now)
+    ]
 
 
 def test_a_path_changed_when_the_newest_commit_that_changed_it_was_made(
@@ -640,23 +761,6 @@ def test_a_path_changed_when_the_newest_commit_that_changed_it_was_made(
         later,
         None,
     )
-
-
-def test_a_change_reads_the_value_and_job_record_as_they_are_now(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """A job set the Status, then a person changed it: the job's change now reads as no longer
-    matching the record, which is what tells it from the job's own."""
-    item = store.item(store.seed_issue("readied", on_board=True))
-    assert item is not None
-    store.set_field(item, ItemField.STATUS, "Ready")
-    store.as_actor("alice").set_field(item, ItemField.STATUS, "In Progress")
-    assert [
-        (c.kind, c.field, c.value, c.job_record) for c in store.changes_since(datetime.min)
-    ] == [
-        (ChangeKind.FIELD_CHANGED, ItemField.STATUS, "In Progress", {ItemField.STATUS: "Ready"}),
-        (ChangeKind.FIELD_CHANGED, ItemField.STATUS, "In Progress", {ItemField.STATUS: "Ready"}),
-    ]
 
 
 # ── What intake reads and writes (#742) ───────────────────────────────────────
@@ -702,18 +806,12 @@ def test_read_and_write_issue_body(store: InMemoryRoadmapStore) -> None:
     pr_num = store.seed_issue("pr", pull_request=True)
     initial_read = store.read_issue_body(num)
     store.write_issue_body(num, "Updated body")
-    updated_read = store.read_issue_body(num)
-    changes = [
-        c.kind for c in store.changes_since(datetime.min.replace(tzinfo=UTC)) if c.number == num
-    ]
     writes = [w.operation for w in store.job_writes() if w.number == num]
-
-    assert (
-        initial_read,
-        updated_read,
-        ChangeKind.EDITED in changes,
-        "write_issue_body" in writes,
-    ) == ("Initial body", "Updated body", True, True)
+    assert (initial_read, store.read_issue_body(num), writes) == (
+        "Initial body",
+        "Updated body",
+        ["write_issue_body"],
+    )
     with pytest.raises(GitHubOperationError, match="not an issue"):
         store.read_issue_body(pr_num)
     with pytest.raises(GitHubOperationError, match="not an issue"):
@@ -730,32 +828,3 @@ def test_repository_visibility_contract(store: InMemoryRoadmapStore) -> None:
         seeded_private,
         fresh_private_store.repository_is_private(),
     ) == (False, True, True)
-
-
-def test_refine_marks_in_job_record(store: InMemoryRoadmapStore) -> None:
-    num = store.seed_issue("refinable")
-    store.add_item(num)
-    item = store.item(num)
-    assert item is not None
-    store.set_marks(
-        item,
-        {
-            RefineRecordKey.BODY_HASH: "abc",
-            RefineRecordKey.SECTION_HASH: "def",
-            RefineRecordKey.NEEDS_SPLIT: "true",
-        },
-    )
-    marked = store.item(num)
-    assert marked is not None
-    assert (
-        marked.job_record.get(RefineRecordKey.BODY_HASH),
-        marked.job_record.get(RefineRecordKey.SECTION_HASH),
-        marked.job_record.get(RefineRecordKey.NEEDS_SPLIT),
-    ) == ("abc", "def", "true")
-
-    # as_actor does not write job record
-    person = store.as_actor("alice")
-    person.set_marks(marked, {RefineRecordKey.NEEDS_SPLIT: "false"})
-    after_person = store.item(num)
-    assert after_person is not None
-    assert after_person.job_record.get(RefineRecordKey.NEEDS_SPLIT) == "true"

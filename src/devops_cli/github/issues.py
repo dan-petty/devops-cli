@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 from typing import Any
 from urllib.parse import urlencode
 
@@ -14,13 +14,13 @@ from pydantic import BaseModel, Field
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import (
-    GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubUnreadError,
 )
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap import store as roadmap_store
+from devops_cli.roadmap.store import GitHubState, RoadmapStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,7 @@ class IssueTriageAudit(BaseModel):
     valid_count: int = 0
     issues_missing_type: list[int] = Field(default_factory=list)
     issues_missing_scope: list[int] = Field(default_factory=list)
-    issues_missing_priority: list[int] = Field(default_factory=list)
     issues_awaiting_intake: list[int] = Field(default_factory=list)
-    priority_not_checked: bool = False
 
     @property
     def compliance_rate(self) -> float:
@@ -345,182 +343,70 @@ def create_repository_issue(
     return _parse_created_issue(res.stdout, title, body, assigned_milestone, labels)
 
 
-def _resolve_store(repo: str, store: RoadmapStore | None) -> RoadmapStore | None:
-    """Return the given RoadmapStore or attempt to open it from repository configuration."""
-    if store is not None:
-        return store
-    try:
-        from devops_cli.roadmap.config import open_roadmap
-
-        _, opened = open_roadmap(repo, ref=None)
-        return opened
-    except GitHubFileNotFoundError:
-        return None
+def _open_store(repo: str, store: RoadmapStore | None) -> RoadmapStore:
+    """The given roadmap store, else the roadmap store of `repo`."""
+    return store if store is not None else roadmap_store.get_roadmap_store(repo)
 
 
-def _audit_board_store(
-    store: RoadmapStore, awaiting_intake: Collection[int] | None
-) -> IssueTriageAudit:
-    """Evaluate open board items and candidates against repository taxonomy rules."""
-    board_items = store.items()
-    open_board_items = [it for it in board_items if str(it.state).lower() == "open"]
-    candidates = store.candidates()
-    audit = IssueTriageAudit(total_open=len(open_board_items) + len(candidates))
-    awaiting_set = (
-        set(awaiting_intake) if awaiting_intake is not None else {c.number for c in candidates}
+def _has_prefix(labels: Iterable[str], prefix: str) -> bool:
+    return any(label.startswith(prefix) for label in labels)
+
+
+def audit_issues_triage(repo: str, *, store: RoadmapStore | None = None) -> IssueTriageAudit:
+    """Audit open issues against the mandatory taxonomy labels.
+
+    An open issue with no Priority is a Candidate, reported once, as awaiting intake: `devops
+    roadmap intake` gives it its type and Priority (#742). Every other open issue is an Item,
+    which holds a Priority, and must hold a `type/*` and a `scope/*` label. A backlog item has
+    no milestone, so a missing milestone is no finding.
+    """
+    roadmap = _open_store(repo, store)
+    open_items = [item for item in roadmap.items() if item.state is GitHubState.OPEN]
+    candidates = roadmap.candidates()
+    audit = IssueTriageAudit(
+        total_open=len(open_items) + len(candidates),
+        issues_awaiting_intake=sorted(candidate.number for candidate in candidates),
     )
-
-    for candidate in candidates:
-        audit.issues_awaiting_intake.append(candidate.number)
-
-    for item in open_board_items:
-        if item.number in awaiting_set:
-            audit.issues_awaiting_intake.append(item.number)
-            continue
-        has_type = any(lbl.startswith("type/") for lbl in item.labels)
-        has_scope = any(lbl.startswith("scope/") for lbl in item.labels)
-        has_priority = bool(item.priority and item.priority.strip())
-
-        is_valid = True
+    for item in open_items:
+        has_type = _has_prefix(item.labels, "type/")
+        has_scope = _has_prefix(item.labels, "scope/")
         if not has_type:
             audit.issues_missing_type.append(item.number)
-            is_valid = False
         if not has_scope:
             audit.issues_missing_scope.append(item.number)
-            is_valid = False
-        if not has_priority:
-            audit.issues_missing_priority.append(item.number)
-            is_valid = False
-
-        if is_valid:
+        if has_type and has_scope:
             audit.valid_count += 1
-
     audit.issues_missing_type.sort()
     audit.issues_missing_scope.sort()
-    audit.issues_missing_priority.sort()
-    audit.issues_awaiting_intake.sort()
     return audit
-
-
-def _audit_rest_issues(
-    open_issues: list[GitHubIssue], awaiting_intake: Collection[int] | None
-) -> IssueTriageAudit:
-    """Evaluate REST queried open issues when no roadmap board is present."""
-    audit = IssueTriageAudit(total_open=len(open_issues), priority_not_checked=True)
-    awaiting_set = set(awaiting_intake or ())
-
-    for issue in open_issues:
-        if issue.number in awaiting_set:
-            audit.issues_awaiting_intake.append(issue.number)
-            continue
-        has_type = any(lbl.startswith("type/") for lbl in issue.labels)
-        has_scope = any(lbl.startswith("scope/") for lbl in issue.labels)
-
-        is_valid = True
-        if not has_type:
-            audit.issues_missing_type.append(issue.number)
-            is_valid = False
-        if not has_scope:
-            audit.issues_missing_scope.append(issue.number)
-            is_valid = False
-
-        if is_valid:
-            audit.valid_count += 1
-
-    audit.issues_missing_type.sort()
-    audit.issues_missing_scope.sort()
-    audit.issues_missing_priority.sort()
-    audit.issues_awaiting_intake.sort()
-    return audit
-
-
-def audit_issues_triage(
-    repo: str,
-    *,
-    awaiting_intake: Collection[int] | None = None,
-    store: RoadmapStore | None = None,
-) -> IssueTriageAudit:
-    """Audit open issues against mandatory taxonomy labeling rules and board Priority.
-
-    An issue in `awaiting_intake`, open and not on the roadmap board, is reported once, as
-    awaiting intake: `devops roadmap intake` gives it its type and Priority (#742). A backlog
-    item has no milestone, so a missing milestone is no finding.
-    """
-    resolved_store = _resolve_store(repo, store)
-    if resolved_store is not None:
-        return _audit_board_store(resolved_store, awaiting_intake)
-    open_issues = get_repository_issues(repo, state="open", limit=None)
-    return _audit_rest_issues(open_issues, awaiting_intake)
-
-
-def _summarize_board_store(store: RoadmapStore) -> dict[str, Any]:
-    """Aggregate open issues from board items and candidates by priority, type, and milestone."""
-    board_items = store.items()
-    open_board_items = [it for it in board_items if str(it.state).lower() == "open"]
-    candidates = store.candidates()
-    total_open = len(open_board_items) + len(candidates)
-    priority_counter: Counter[str] = Counter()
-    type_counter: Counter[str] = Counter()
-    milestone_counter: Counter[str] = Counter()
-
-    for item in open_board_items:
-        if item.priority:
-            priority_counter[item.priority] += 1
-        for lbl in item.labels:
-            if lbl.startswith("type/"):
-                type_counter[lbl] += 1
-        if item.milestone:
-            milestone_counter[item.milestone] += 1
-        else:
-            milestone_counter["no-milestone"] += 1
-
-    for candidate in candidates:
-        for lbl in candidate.labels:
-            if lbl.startswith("type/"):
-                type_counter[lbl] += 1
-        if candidate.milestone:
-            milestone_counter[candidate.milestone] += 1
-        else:
-            milestone_counter["no-milestone"] += 1
-
-    return {
-        "total_open": total_open,
-        "by_priority": dict(priority_counter),
-        "by_type": dict(type_counter),
-        "by_milestone": dict(milestone_counter),
-    }
-
-
-def _summarize_rest_issues(open_issues: list[GitHubIssue]) -> dict[str, Any]:
-    """Aggregate REST queried open issues by priority, type, and milestone."""
-    priority_counter: Counter[str] = Counter()
-    type_counter: Counter[str] = Counter()
-    milestone_counter: Counter[str] = Counter()
-
-    for issue in open_issues:
-        for lbl in issue.labels:
-            if lbl.startswith("type/"):
-                type_counter[lbl] += 1
-        if issue.milestone:
-            milestone_counter[issue.milestone] += 1
-        else:
-            milestone_counter["no-milestone"] += 1
-
-    return {
-        "total_open": len(open_issues),
-        "by_priority": dict(priority_counter),
-        "by_type": dict(type_counter),
-        "by_milestone": dict(milestone_counter),
-    }
 
 
 def get_issues_summary(repo: str, *, store: RoadmapStore | None = None) -> dict[str, Any]:
-    """Calculate aggregate issue counts by priority, type, and milestone."""
-    resolved_store = _resolve_store(repo, store)
-    if resolved_store is not None:
-        return _summarize_board_store(resolved_store)
-    open_issues = get_repository_issues(repo, state="open", limit=None)
-    return _summarize_rest_issues(open_issues)
+    """Count the open issues by Priority, type and milestone: the open Items and the
+    Candidates, which hold no Priority."""
+    roadmap = _open_store(repo, store)
+    open_items = [item for item in roadmap.items() if item.state is GitHubState.OPEN]
+    candidates = roadmap.candidates()
+    priority_counter: Counter[str] = Counter()
+    type_counter: Counter[str] = Counter()
+    milestone_counter: Counter[str] = Counter()
+    for item in open_items:
+        if item.priority:
+            priority_counter[item.priority] += 1
+    for labels, milestone in [
+        *((item.labels, item.milestone) for item in open_items),
+        *((candidate.labels, candidate.milestone) for candidate in candidates),
+    ]:
+        for label in labels:
+            if label.startswith("type/"):
+                type_counter[label] += 1
+        milestone_counter[milestone or "no-milestone"] += 1
+    return {
+        "total_open": len(open_items) + len(candidates),
+        "by_priority": dict(priority_counter),
+        "by_type": dict(type_counter),
+        "by_milestone": dict(milestone_counter),
+    }
 
 
 def _is_trivial_milestone(milestone: str | int | None) -> bool:

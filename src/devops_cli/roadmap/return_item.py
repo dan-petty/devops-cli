@@ -2,7 +2,7 @@
 
 When an item cannot be built as specified, or requires an architectural refactor beyond its scope,
 the agent writes no compensating code, comments on the issue with the evidence and proposed
-re-scope/refactor, returns the item to New on the board, and stops.
+re-scope/refactor, sets its Status to New (the `status/new` label), and stops.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from devops_cli.config.constants import CONST_ROADMAP_REFINE_BOARD_FILTER
+from devops_cli.config.constants import CONST_ROADMAP_STATUS_NEW
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.roadmap.request_plan import StoreRequests
@@ -28,7 +28,7 @@ class ReturnPlan:
     title: str
     comment: str
     repo: str
-    target_status: str = "New"
+    target_status: str = CONST_ROADMAP_STATUS_NEW
 
 
 def plan_return(
@@ -37,10 +37,10 @@ def plan_return(
     comment: str,
     repo: str,
 ) -> ReturnPlan:
-    """Validate item exists on the board and return the ReturnPlan."""
+    """Validate that the issue is an item of the roadmap and return the ReturnPlan."""
     item = store.item(item_number)
     if item is None:
-        raise DevOpsCLIError(f"Item #{item_number} is not on the roadmap board.")
+        raise DevOpsCLIError(f"#{item_number} is not an item of the roadmap.")
     clean_comment = comment.strip()
     if not clean_comment:
         raise DevOpsCLIError("An evidence comment is required when returning an item to New.")
@@ -53,10 +53,10 @@ def plan_return(
 
 
 def apply_return(store: RoadmapStore, plan: ReturnPlan) -> None:
-    """Comment on the issue and move the board card to New."""
+    """Comment on the issue and set its Status to New."""
     item = store.item(plan.item_number)
     if item is None:
-        raise DevOpsCLIError(f"Item #{plan.item_number} is not on the roadmap board.")
+        raise DevOpsCLIError(f"#{plan.item_number} is not an item of the roadmap.")
     store.comment(plan.item_number, plan.comment)
     store.set_field(item, ItemField.STATUS, plan.target_status)
 
@@ -66,11 +66,13 @@ def dry_run_return(
     item_number: int,
 ) -> tuple[list[PlannedRequest], list[PlannedRequest]]:
     """Generate dry-run read and write requests for returning an item to New."""
-    store_req = StoreRequests(repo, CONST_ROADMAP_REFINE_BOARD_FILTER)
-    reads = [*store_req.card(f"item #{item_number}")]
+    store_req = StoreRequests(repo)
+    subject = f"#{item_number}"
+    reads = [*store_req.issue(subject)]
     writes = [
-        *store_req.comment(f"item #{item_number}"),
-        *store_req.set_field(f"item #{item_number}", field_name="Status"),
+        *store_req.issue(subject),
+        *store_req.comment(subject),
+        *store_req.set_field(subject, field_name=ItemField.STATUS.value),
     ]
     return reads, writes
 

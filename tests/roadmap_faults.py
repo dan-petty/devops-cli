@@ -19,7 +19,6 @@ from devops_cli.roadmap.store import Item, RoadmapStore
 # intake's first write (#1360).
 WRITES = frozenset(
     {
-        "add_item",
         "comment",
         "create_issue",
         "label_issue",

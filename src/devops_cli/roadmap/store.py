@@ -1,43 +1,60 @@
-"""The roadmap store: the one interface roadmap jobs read and write Items, milestones and board fields through.
+"""The roadmap store: the one interface roadmap jobs read and write Items, milestones and their
+fields through (ADR 0001, ADR 0016).
 
-An Item is an issue of this repository that is on the board. A Milestone is a GitHub milestone:
-a planning bucket with any title. Its number identifies it, so a rename keeps it, and its due
-date orders it. A Candidate is an open issue of this repository that is not on the board yet.
-Both adapters keep the same promises: reads page through every result, and a read that cannot
-complete raises instead of returning an empty or partial result.
+An Item is an issue of this repository, never a pull request, that holds a `priority/*` label:
+intake placed it, or a person did. A Candidate is an open issue that holds none. A Milestone is
+a GitHub milestone: a planning bucket with any title. Its number identifies it, so a rename
+keeps it, and its due date orders it. Both adapters keep the same promises: reads page through
+every result, and a read that cannot complete raises instead of returning an empty or partial
+result. No store reads or writes a project board.
 
-A store lives for one command or one Service round (#1361). It reads the board's fields once,
-and the board listing once for each Projects filter, when first needed. Its own writes keep that
-listing current with the values they sent and the cards they add. A change someone else makes
-meanwhile is seen by the next store (ADR 0003). A write never trusts the listing: it reads the
-one card it writes, by the card's node id, so it joins the job record the card holds then. A
-job's write of a field someone changed since the store read it raises `RoadmapCardChangedError`
-before it changes anything, unless the card already holds the value it writes, so a job never
-reverts a change it did not see (ADR 0002).
+**Fields.** Each of an Item's Status, Priority, Value and Effort is one label family: the label
+is the field's name and the value, lower case, with a hyphen for each space (`status/in-progress`
+for In Progress). A field has the value of the family's label, or none when the issue holds no
+label of the family. A family that holds more than one label has the value the job record does
+not name, as the job wrote the other; with more than one such, the first in the family's order.
+A job sets a field by replacing every label of the family with the value's label.
 
-Every board field write also records the value it set in the card's job record, so a job can
-tell a person's change from its own by comparing a field with its record (ADR 0002). The record
-also holds refine's own marks on an Item, which change no field.
+**The job record.** Every field write also records the value it set, so a job can tell a person's
+change from its own (ADR 0002). The record also holds refine's own marks on an Item, which
+change no field. It is a JSON object in a hidden block at the end of the issue body
+(`<!-- devops-roadmap-record {...} -->`): the body every read returns holds no block, and a body
+write keeps the issue's block. A block that is not a JSON object reads as an empty record, and
+the next record write replaces it.
+
+**Changes.** A write never trusts what the store read: it reads the issue first, and a job's
+write of a field someone changed since the store read it raises `RoadmapItemChangedError` before
+it changes anything, unless the issue already holds the value it writes, so a job never reverts
+a change it did not see (ADR 0002).
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Container, Iterable, Mapping, Sequence
+import json
+import logging
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import ValidationError as MalformedRecordError
 
-from devops_cli.config.constants import CONST_GH_PROJECT_JOB_RECORD_FIELD
-from devops_cli.config.defaults import DEFAULT_GH_PROJECT_OPTION_COLOR
+from devops_cli.config.constants import (
+    CONST_ROADMAP_PRIORITY_VALUES,
+    CONST_ROADMAP_RECORD_MARKER,
+    CONST_ROADMAP_SIZE_OPTIONS,
+    CONST_ROADMAP_STATUS_VALUES,
+)
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.exceptions.roadmap import RoadmapCardChangedError
+from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.board_read import GraphQLSpend
     from devops_cli.roadmap.github_store import GhRunner
+
+logger = logging.getLogger(__name__)
 
 # ── Vocabulary ────────────────────────────────────────────────────────────────
 
@@ -50,15 +67,26 @@ class GitHubState(StrEnum):
 
 
 class ItemField(StrEnum):
-    """A single-select board field on an Item that a job sets and the job record remembers.
+    """A field of an Item that a job sets and the job record remembers, held by one label
+    family.
 
-    Each member's lower-cased name is the attribute that holds it on `Item`.
+    Each member's lower-cased name is the attribute that holds it on `Item`, and the prefix of
+    its labels.
     """
 
     STATUS = "Status"
     PRIORITY = "Priority"
     VALUE = "Value"
     EFFORT = "Effort"
+
+
+FIELD_VALUES: Mapping[ItemField, tuple[str, ...]] = {
+    ItemField.STATUS: CONST_ROADMAP_STATUS_VALUES,
+    ItemField.PRIORITY: CONST_ROADMAP_PRIORITY_VALUES,
+    ItemField.VALUE: CONST_ROADMAP_SIZE_OPTIONS,
+    ItemField.EFFORT: CONST_ROADMAP_SIZE_OPTIONS,
+}
+"""Each field's values, in the order of its label family."""
 
 
 class CloseReason(StrEnum):
@@ -79,21 +107,13 @@ class EvidenceKind(StrEnum):
 
 
 class ChangeKind(StrEnum):
-    """What happened to an Item.
-
-    Both adapters report the first four, which the repository's issue events report. The
-    in-memory adapter also records the rest as they happen: a board field set, a comment and an
-    edit. GitHub reports none of those as an event, and the GitHub adapter does not report them.
-    A poll finds them only by a comparison of what it reads with what it read before (ADR 0003).
-    """
+    """What happened to an issue, as the repository's issue events report it. A field change
+    is a `labeled` or `unlabeled` event of its family's label (ADR 0003)."""
 
     LABELED = "labeled"
     UNLABELED = "unlabeled"
     CLOSED = "closed"
     REOPENED = "reopened"
-    FIELD_CHANGED = "field_changed"
-    COMMENTED = "commented"
-    EDITED = "edited"
 
 
 class RefineRecordKey(StrEnum):
@@ -134,7 +154,7 @@ class Milestone(BaseModel):
 
 
 class Candidate(BaseModel):
-    """An open issue of this repository that is not on the board yet."""
+    """An open issue of this repository that holds no `priority/*` label."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -146,14 +166,13 @@ class Candidate(BaseModel):
 
 
 class Item(BaseModel):
-    """An issue of this repository that is on the board, with its board fields and job record.
+    """An issue of this repository with its fields and job record.
 
     State, labels and the milestone title come from the issue; Status, Priority, Value and
-    Effort from the board. The job record holds the last value the store set for each field; a
-    field missing from it was never set by a job. `card_id` is the node id of the Item's card,
-    which every Item a store reads or adds carries and a store writes it by; an Item built as a
-    probe has none, and a write to it raises. `body` is the issue's body as the listing the Item
-    came from read it, so a job can judge an Item by its text without a read of each issue.
+    Effort from its label families (`field_values`). The job record holds the last value the
+    store set for each field; a field missing from it was never set by a job. `body` is the
+    issue's body, with no record block, as the read the Item came from gave it, so a job can
+    judge an Item by its text without a read of each issue.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -162,7 +181,6 @@ class Item(BaseModel):
     title: str
     url: str
     body: str = ""
-    card_id: str | None = None
     state: GitHubState = GitHubState.OPEN
     state_reason: str | None = None
     labels: tuple[str, ...] = ()
@@ -178,20 +196,9 @@ class Item(BaseModel):
         return cast(str | None, getattr(self, field.name.lower()))
 
 
-class AddedItem(Item):
-    """The Item `add_item` returns: `restored` when the card the add named was one a person
-    archived, which the add brought back with the fields and job record it holds (#1403)."""
-
-    restored: bool = False
-
-
 class Change(BaseModel):
-    """One change to an Item, with who made it and when.
-
-    `field` names the board field a change set, and `value` that field's value when the change
-    is read. `job_record` is the Item's job record when the change is read, so a change whose
-    value matches it is a job's own (ADR 0002).
-    """
+    """One change to an issue, with who made it and when; `label` names the label a `labeled`
+    or `unlabeled` change added or removed."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -200,19 +207,17 @@ class Change(BaseModel):
     actor: str | None
     at: datetime
     label: str | None = None
-    field: ItemField | None = None
-    value: str | None = None
-    job_record: JobRecord = Field(default_factory=dict)
 
 
 class IssueRecord(BaseModel):
     """What the repository's issue listing says about one issue or pull request.
 
-    `milestone` is the title of the issue's milestone. `author_association` is GitHub's word for
-    the author's relation to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`.
-    `updated_at` is when the issue last changed: any write to it, a comment included, moves it.
-    `sub_issues` is how many sub-issues GitHub records for the issue, open or closed. `parent` is
-    the number of the issue of the same repository that has the issue as a sub-issue.
+    `body` holds no record block: `job_record` is what the block held. `milestone` is the title
+    of the issue's milestone. `author_association` is GitHub's word for the author's relation
+    to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`. `updated_at` is when the issue
+    last changed: any write to it, a comment included, moves it. `sub_issues` is how many
+    sub-issues GitHub records for the issue, open or closed. `parent` is the number of the issue
+    of the same repository that has the issue as a sub-issue.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -232,6 +237,7 @@ class IssueRecord(BaseModel):
     closed_at: datetime | None = None
     sub_issues: int = 0
     parent: int | None = None
+    job_record: JobRecord = Field(default_factory=dict)
 
 
 class IssueComment(BaseModel):
@@ -264,41 +270,126 @@ class Evidence(BaseModel):
     value: str = Field(min_length=1, max_length=128)
 
 
-class BoardEntry(BaseModel):
-    """What the board holds for one issue of this repository: its card's node id, its fields
-    and its job record."""
-
-    model_config = ConfigDict(frozen=True)
-
-    number: int
-    card_id: str
-    status: str | None = None
-    priority: str | None = None
-    value: str | None = None
-    effort: str | None = None
-    job_record: JobRecord = Field(default_factory=dict)
+# ── Label families ────────────────────────────────────────────────────────────
 
 
-class FieldOption(BaseModel):
-    """One option of a single-select board field. A new option has no id until the board gives it one."""
-
-    model_config = ConfigDict(frozen=True)
-
-    id: str | None = None
-    name: str
-    color: str = DEFAULT_GH_PROJECT_OPTION_COLOR
-    description: str = ""
+def family_prefix(field: ItemField) -> str:
+    """The prefix every label of `field`'s family starts with, such as `status/`."""
+    return f"{field.value.lower()}/"
 
 
-class BoardField(BaseModel):
-    """A field the board has, with its node id, and its options when it is single-select."""
+def field_label(field: ItemField, value: str) -> str:
+    """The label that holds `value` of `field`: `priority/p1-high` for P1-High."""
+    return family_prefix(field) + value.lower().replace(" ", "-")
 
-    model_config = ConfigDict(frozen=True)
 
-    id: str
-    name: str
-    single_select: bool = False
-    options: tuple[FieldOption, ...] = ()
+def _held_values(labels: Iterable[str], field: ItemField) -> list[str]:
+    """The values of `field` whose labels `labels` holds, in the family's order."""
+    held = {label.lower() for label in labels}
+    return [value for value in FIELD_VALUES[field] if field_label(field, value) in held]
+
+
+def field_values(labels: Iterable[str], record: Mapping[Any, str | None]) -> dict[str, str | None]:
+    """Each field's value that `labels` give, keyed as `Item` holds it. A family with more than
+    one label has the value the job record does not name: the job wrote the other, so a person
+    added it; with more than one such, the first in the family's order."""
+    listed = tuple(labels)
+    values: dict[str, str | None] = {}
+    for field in ItemField:
+        held = _held_values(listed, field)
+        newer = [value for value in held if value != record.get(field)] or held
+        values[field.name.lower()] = newer[0] if newer else None
+    return values
+
+
+def relabeled(labels: Iterable[str], field: ItemField, value: str | None) -> tuple[str, ...]:
+    """`labels` with every label of `field`'s family replaced by the label of `value`, or by none
+    when `value` is None; the other labels keep their order."""
+    prefix = family_prefix(field)
+    kept = tuple(label for label in labels if not label.lower().startswith(prefix))
+    return kept if value is None else (*kept, field_label(field, value))
+
+
+def require_value(field: ItemField, value: str | None, operation: str) -> None:
+    """Refuse a value that is not one of the field's values. Clearing is always allowed."""
+    choices = FIELD_VALUES[field]
+    if value is not None and value not in choices:
+        raise GitHubOperationError(
+            MESSAGES.roadmap.field_value_unknown.format(
+                field=field.value, value=value[:256], values=", ".join(choices)
+            ),
+            operation=operation,
+            details={"field": field.value, "value": value[:256]},
+        )
+
+
+# ── The record block ──────────────────────────────────────────────────────────
+
+_RECORD_BLOCK = re.compile(
+    rf"<!-- {re.escape(CONST_ROADMAP_RECORD_MARKER)} (?P<record>.*?) -->", re.DOTALL
+)
+_RECORD_SEPARATORS = ("\r\n\r\n", "\n\n")
+_JOB_RECORD = TypeAdapter(JobRecord)
+# The job record keys this version reads; the others are another version's, kept as they are.
+_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *RefineRecordKey))
+
+
+def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, Any]]:
+    """The body with its record block taken out, and the JSON object the block holds: empty
+    when the body has no block, or when the block holds no JSON object, which a warning names.
+
+    The writer's separator before a block at the end of the body goes with it, so a body read
+    back after `with_record` is the body written.
+    """
+    found = _RECORD_BLOCK.search(body)
+    if found is None:
+        return body, {}
+    before, after = body[: found.start()], body[found.end() :]
+    if not after.strip():
+        after = ""
+        before = next(
+            (before.removesuffix(sep) for sep in _RECORD_SEPARATORS if before.endswith(sep)),
+            before,
+        )
+    rest = _RECORD_BLOCK.sub("", before + after)
+    try:
+        held = json.loads(found.group("record"))
+    except json.JSONDecodeError:
+        held = None
+    if not isinstance(held, dict):
+        logger.warning(MESSAGES.roadmap.record_unreadable.format(issue=issue))
+        return rest, {}
+    return rest, held
+
+
+def decode_job_record(held: Mapping[str, Any], *, issue: str = "an issue") -> JobRecord:
+    """The keys of a record block this version knows. A key another version writes is left out
+    here and kept by every write (`encode_job_record`); a known key whose value is not text or
+    null is left out, with a warning."""
+    known = {key: value for key, value in held.items() if key in _JOB_RECORD_KEYS}
+    try:
+        return _JOB_RECORD.validate_python(known)
+    except MalformedRecordError:
+        logger.warning(MESSAGES.roadmap.record_unreadable.format(issue=issue))
+        return _JOB_RECORD.validate_python(
+            {key: value for key, value in known.items() if value is None or isinstance(value, str)}
+        )
+
+
+def encode_job_record(held: Mapping[str, Any], changes: Mapping[Any, str | None]) -> str:
+    """The record block for `held`, the JSON object the issue's block holds now, with `changes`
+    made. Each `>` is escaped, so no value ends the comment."""
+    merged = dict(held) | {str(key): value for key, value in changes.items()}
+    text = json.dumps(merged, sort_keys=True).replace(">", "\\u003e")
+    return f"<!-- {CONST_ROADMAP_RECORD_MARKER} {text} -->"
+
+
+def with_record(body: str, block: str | None) -> str:
+    """`body`, which holds no record block, with `block` at its end; `body` itself when there
+    is no block."""
+    if block is None:
+        return body
+    return f"{body}\n\n{block}" if body else block
 
 
 # ── Rules both adapters apply ─────────────────────────────────────────────────
@@ -374,111 +465,60 @@ def with_marks(record: JobRecord, marks: Mapping[Any, str | None]) -> JobRecord:
     return merged
 
 
-def require_option(
-    options: Mapping[str, Sequence[str]], field: ItemField, value: str | None
-) -> None:
-    """Refuse a value that is not one of the board field's options. Clearing is always allowed."""
-    if field.value not in options:
-        raise GitHubOperationError(
-            f"The board has no {field.value!r} field.",
-            operation="roadmap.item.set_field",
-            details={"field": field.value},
-        )
-    if value is not None and value not in options[field.value]:
-        raise GitHubOperationError(
-            f"{value!r} is not a {field.value} option on the board; "
-            f"the options are {', '.join(options[field.value])}.",
-            operation="roadmap.item.set_field",
-            details={"field": field.value, "value": value[:256]},
-        )
-
-
 def require_unchanged(
-    card: str,
+    name: str,
     field: ItemField,
-    read: Collection[str | None],
+    read: str | None,
     now: str | None,
     value: str | None,
     operation: str,
 ) -> None:
-    """Refuse a job's write of `value` to `field` on `card` when the card holds `now` but the
-    store read another value (`read` holds each value it read, its own writes included): the
-    job planned without that change, so the write would revert it (ADR 0002). Writing the value
-    the card holds now reverts nothing, such as the Status the board sets on a card just added.
-    """
-    if set(read) == {now} or value == now:
+    """Refuse a job's write of `value` to `field` of issue `name` when the issue holds `now` but
+    the store read `read`: the job planned without that change, so the write would revert it
+    (ADR 0002). Writing the value the issue holds now reverts nothing."""
+    if read == now or value == now:
         return
     texts = MESSAGES.roadmap
-    before = min(set(read) - {now}, key=str)
-    raise RoadmapCardChangedError(
-        texts.card_changed.format(
-            card=card,
+    raise RoadmapItemChangedError(
+        texts.item_changed.format(
+            item=name,
             field=field.value,
-            now=now or texts.card_value_unset,
-            read=before or texts.card_value_unset,
+            now=now or texts.item_value_unset,
+            read=read or texts.item_value_unset,
         ),
         operation=operation,
         details={
-            "card": card[:256],
+            "item": name[:256],
             "field": field.value,
-            "read": before and before[:256],
+            "read": read and read[:256],
             "now": now and now[:256],
         },
     )
 
 
-def field_options(fields: Iterable[BoardField]) -> dict[str, tuple[str, ...]]:
-    """Each board field's option names by field name; a field that is not single-select has none."""
-    return {field.name: tuple(option.name for option in field.options) for field in fields}
+def item_of(issue: IssueRecord) -> Item:
+    """The issue as an Item, its fields read from its labels and its job record, whether or not
+    it holds a Priority: intake writes to a Candidate through it."""
+    held = issue.model_dump(exclude={"pull_request", "author_association", "created_at"})
+    held = {key: value for key, value in held.items() if key in Item.model_fields}
+    return Item.model_validate(held | field_values(issue.labels, issue.job_record))
 
 
-def require_field(fields: Iterable[BoardField], name: str, operation: str) -> BoardField:
-    """The board field named `name`, raising when the board has none."""
-    found = next((field for field in fields if field.name == name), None)
-    if found is None:
-        raise GitHubOperationError(
-            f"The board has no {name!r} field.", operation=operation, details={"field": name[:256]}
-        )
-    return found
+def select_items(issues: Iterable[IssueRecord]) -> list[Item]:
+    """The Items among `issues`: the issues, never pull requests, that hold a Priority."""
+    items = (item_of(issue) for issue in issues if not issue.pull_request)
+    return sorted((item for item in items if item.priority is not None), key=lambda i: i.number)
 
 
-def require_job_record_field(fields: Container[str]) -> None:
-    """Refuse an Item write when the board has no field to record it in."""
-    if CONST_GH_PROJECT_JOB_RECORD_FIELD not in fields:
-        raise GitHubOperationError(
-            f"The board has no {CONST_GH_PROJECT_JOB_RECORD_FIELD!r} field, so the store cannot "
-            "record what it sets. Create it as a TEXT field before writing Items.",
-            operation="roadmap.item.set_field",
-            details={"field": CONST_GH_PROJECT_JOB_RECORD_FIELD},
-        )
-
-
-def join_items(issues: Iterable[IssueRecord], board: Mapping[int, BoardEntry]) -> list[Item]:
-    """The Items among `issues`: the issues, never pull requests, that are on the board."""
-    return sorted(
-        (
-            Item.model_validate(
-                issue.model_dump(exclude={"pull_request"})
-                | board[issue.number].model_dump(exclude={"number"})
-            )
-            for issue in issues
-            if not issue.pull_request and issue.number in board
-        ),
-        key=lambda item: item.number,
-    )
-
-
-def select_candidates(
-    issues: Iterable[IssueRecord], board: Mapping[int, BoardEntry]
-) -> list[Candidate]:
-    """The Candidates among `issues`: open issues, never pull requests, that are not on the board."""
+def select_candidates(issues: Iterable[IssueRecord]) -> list[Candidate]:
+    """The Candidates among `issues`: open issues, never pull requests, with no Priority."""
     return sorted(
         (
             Candidate.model_validate(issue.model_dump(include=set(Candidate.model_fields)))
             for issue in issues
             if issue.state is GitHubState.OPEN
             and not issue.pull_request
-            and issue.number not in board
+            and item_of(issue).priority is None
         ),
         key=lambda candidate: candidate.number,
     )
@@ -489,7 +529,7 @@ def select_candidates(
 
 @runtime_checkable
 class RoadmapStore(Protocol):
-    """Reads and writes the roadmap: its milestones, its Items and their board fields."""
+    """Reads and writes the roadmap: its milestones, its Items and their fields."""
 
     def milestones(self) -> list[Milestone]:
         """Every milestone, open and closed, by due date and then by number (`milestone_order`)."""
@@ -512,7 +552,8 @@ class RoadmapStore(Protocol):
         """Close the milestone `name` names, raising if there is none."""
 
     def item(self, number: int) -> Item | None:
-        """The Item numbered `number`, or None when that issue is not on the board."""
+        """The Item numbered `number`, or None when that issue is no Item: it holds no
+        Priority, is a pull request or does not exist."""
 
     def items(self, *, milestone: int | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the milestone numbered `milestone`."""
@@ -521,18 +562,11 @@ class RoadmapStore(Protocol):
         """The open Items in no milestone."""
 
     def candidates(self) -> list[Candidate]:
-        """The open issues of the repository that are not on the board."""
+        """The open issues of the repository that hold no Priority."""
 
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
-        """The Item changes made at or after `since`, oldest first, without those
+        """The issue changes made at or after `since`, oldest first, without those
         `except_actor` made."""
-
-    def add_item(self, number: int) -> AddedItem:
-        """Put issue `number` on the board and return it as the Item its card makes it, raising
-        if it is not an issue of this repository. An issue already on the board keeps its card,
-        which is returned. A card a person archived is restored and returned, marked
-        `restored`, with the fields and job record it holds: the board keeps one card for each
-        issue, so an add cannot make another (#1403)."""
 
     def set_field(
         self,
@@ -542,33 +576,33 @@ class RoadmapStore(Protocol):
         *,
         marks: Mapping[Any, str | None] | None = None,
     ) -> None:
-        """Record the value in the Item's job record, with `marks` set or cleared in the same
-        write, then set or clear the board field.
+        """Set or clear the field's label family on the Item's issue, and record the value, with
+        `marks` set or cleared, in its job record, in one write.
 
-        The record comes first, so a field a write may have changed is never left without the
-        record of the job's value. A value that is not one of the field's board options, an
-        Item no longer on the board, or a field someone changed since the store read the card,
-        unless the card already holds `value`, raises before the store changes anything. The
-        record keeps what the store set for the Item's other fields, even when `item` was read
-        before an earlier write.
+        A value that is not one of the field's values, an issue that is not this repository's,
+        or a field someone changed since the store read the Item, unless the issue already
+        holds `value`, raises before the store changes anything. The record keeps what the
+        store set for the Item's other fields, even when `item` was read before an earlier
+        write.
         """
 
     def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
         """Set or clear a job's marks in the Item's job record in one write, changing none of
-        its fields. It raises like `set_field` before the store changes anything: for an Item
-        no longer on the board, or a board with no job record field."""
+        its fields. It raises like `set_field` before the store changes anything."""
 
     def issues(self) -> list[IssueRecord]:
-        """Every issue of the repository, open and closed, on the board or not; never pull requests."""
+        """Every issue of the repository, open and closed, Item or not; never pull requests."""
 
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""
 
     def read_issue_body(self, number: int) -> str:
-        """The body of issue `number`, raising if it is not an issue of this repository."""
+        """The body of issue `number`, with no record block, raising if it is not an issue of
+        this repository."""
 
     def write_issue_body(self, number: int, body: str) -> None:
-        """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
+        """Write `body` as the body of issue `number`, keeping its record block, raising if it is
+        not an issue of this repository."""
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The text of the repository file at `path` on `ref` (the default branch when None),
@@ -599,46 +633,22 @@ class RoadmapStore(Protocol):
         """Whether GitHub confirms the evidence: the advisory exists, the run of this repository
         failed, or the commit exists in this repository."""
 
-    def graphql_spend(self, *, read: bool = True) -> GraphQLSpend | None:
-        """The GraphQL points the run spent and the points left, read from GraphQL itself, or
-        with `read` False from the last budget a response of the run reported, sending nothing;
-        None, with no request sent, for a store that has sent no GraphQL request."""
-        return None
 
-
-def get_roadmap_store(
-    repo: str,
-    *,
-    board_owner: str | None = None,
-    board_number: int | None = None,
-    runner: GhRunner | None = None,
-    board_filter: str = "",
-) -> RoadmapStore:
+def get_roadmap_store(repo: str, *, runner: GhRunner | None = None) -> RoadmapStore:
     """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given.
 
     Every caller builds its store here, so a test replaces this one function with a fixture
-    that returns the in-memory adapter. Without a board, milestone operations work, and Item
-    reads and writes raise. Board reads pass `board_filter`, the job's Projects filter.
+    that returns the in-memory adapter.
     """
     from devops_cli.roadmap.github_store import GitHubRoadmapStore
 
     if runner is None:
-        return GitHubRoadmapStore(
-            repo, board_owner=board_owner, board_number=board_number, board_filter=board_filter
-        )
-    return GitHubRoadmapStore(
-        repo,
-        board_owner=board_owner,
-        board_number=board_number,
-        runner=runner,
-        board_filter=board_filter,
-    )
+        return GitHubRoadmapStore(repo)
+    return GitHubRoadmapStore(repo, runner=runner)
 
 
 __all__ = [
-    "AddedItem",
-    "BoardEntry",
-    "BoardField",
+    "FIELD_VALUES",
     "Candidate",
     "Change",
     "ChangeKind",
@@ -646,7 +656,6 @@ __all__ = [
     "Closure",
     "Evidence",
     "EvidenceKind",
-    "FieldOption",
     "GitHubState",
     "IssueComment",
     "IssueRecord",
@@ -657,17 +666,23 @@ __all__ = [
     "RefineRecordKey",
     "RoadmapStore",
     "as_utc",
-    "field_options",
+    "decode_job_record",
+    "encode_job_record",
+    "family_prefix",
+    "field_label",
+    "field_values",
     "find_milestone",
     "get_roadmap_store",
-    "join_items",
+    "item_of",
     "milestone_edits",
     "milestone_order",
-    "require_field",
-    "require_job_record_field",
+    "relabeled",
     "require_milestone",
-    "require_option",
     "require_unchanged",
+    "require_value",
     "select_candidates",
+    "select_items",
+    "split_record",
     "with_marks",
+    "with_record",
 ]

@@ -1,8 +1,8 @@
 """GitHub Projects v2: the board template, its views, and reconciling Status on its cards.
 
-Neither `devops gh project sync` nor `devops gh project reconcile` adds a card: intake
-(`devops roadmap intake`) is the one way an issue reaches the board, and a pull request gets no
-card, its progress showing on its issue's (#892).
+Neither `devops gh project sync` nor `devops gh project reconcile` adds a card: a person, or the
+board's own workflows, add them, and a pull request gets no card, its progress showing on its
+issue's (#892). No roadmap job reads or writes a board: labels hold an Item's fields (ADR 0016).
 """
 
 from __future__ import annotations
@@ -46,6 +46,20 @@ from devops_cli.github.error_classifier import (
     unlisted_entry,
 )
 from devops_cli.github.owner_lookup import owner_lookup_failure
+from devops_cli.github.project_read import (
+    BoardBudgetPayload,
+    BoardItemsPage,
+    FieldListingPayload,
+    GraphQLBudget,
+    board_budget_args,
+    board_items_args,
+    field_list_args,
+    item_edit_args,
+    read_cost,
+    require_budget,
+    require_floor,
+    utc_clock,
+)
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
     get_github_rate_limiter,
@@ -53,18 +67,7 @@ from devops_cli.github.rate_limiter import (
 )
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.board_read import (
-    BoardBudgetPayload,
-    BoardItemsPage,
-    GraphQLBudget,
-    board_budget_args,
-    board_items_args,
-    read_cost,
-    require_budget,
-    require_floor,
-    utc_clock,
-)
-from devops_cli.roadmap.store import ItemField, require_option
+from devops_cli.roadmap.store import ItemField
 
 logger = logging.getLogger(__name__)
 
@@ -665,7 +668,6 @@ def _provision_single_field(owner: str, project_number: int, field: ProjectField
 
 def _fetch_existing_fields_by_name(owner: str, project_number: int) -> dict[str, Any]:
     """Retrieve existing fields indexed by lowercase name through fail-closed FieldListingPayload."""
-    from devops_cli.roadmap.github_store import FieldListingPayload, field_list_args
 
     login = _project_login(owner)
     what = f"project #{project_number} fields"
@@ -825,7 +827,6 @@ def _read_field_options(login: str, project_number: int) -> dict[str, tuple[str,
     Raises when the fields can't be read whole or the board has no Status options, so an unread
     field never lets every unset card default to New over its `status/*` label.
     """
-    from devops_cli.roadmap.github_store import FieldListingPayload, field_list_args
 
     what = f"project #{project_number} fields"
     listing = _gh_read(
@@ -996,7 +997,6 @@ class ReconcileResult(BaseModel):
     planned: list[FieldChange] = Field(default_factory=list)
     applied: list[FieldChange] = Field(default_factory=list)
     stop: str | None = None
-    awaiting_intake: int | None = None
     requests: tuple[PlannedRequest, ...] = ()
 
     @property
@@ -1029,29 +1029,9 @@ class ReconcileResult(BaseModel):
         remaining = texts.remaining[count != 1].format(count=count)
         return texts.stopped.format(reason=self.stop, remaining=remaining)
 
-    def intake_line(self) -> str | None:
-        """How many open issues wait for intake, when the run listed open issues and found any."""
-        count = self.awaiting_intake
-        if not count:
-            return None
-        return MESSAGES.project.awaiting_intake[count != 1].format(count=count)
-
 
 def _item_url(item: Mapping[str, Any]) -> str:
     return str(item.get("html_url") or item.get("url") or "")
-
-
-def _awaiting_intake(
-    issues: list[dict[str, Any]], board: Collection[str], state: str
-) -> int | None:
-    """The open issues not on the board; None when the run listed no open issue."""
-    if state == "closed":
-        return None
-    return sum(
-        1
-        for issue in issues
-        if str(issue.get("state", "")).lower() == "open" and _item_url(issue) not in board
-    )
 
 
 def _stop_before_write(budget: MutationBudget) -> str | None:
@@ -1072,9 +1052,26 @@ def _stop_before_write(budget: MutationBudget) -> str | None:
     return None
 
 
-def _item_edit_args(login: str, project_number: int | str, change: FieldChange) -> list[str]:
-    from devops_cli.roadmap.github_store import item_edit_args
+def _require_option(
+    options: Mapping[str, Sequence[str]], field: ItemField, value: str | None
+) -> None:
+    """Refuse a value that is not one of the board field's options."""
+    if field.value not in options:
+        raise GitHubOperationError(
+            f"The board has no {field.value!r} field.",
+            operation="project.reconcile",
+            details={"field": field.value},
+        )
+    if value is not None and value not in options[field.value]:
+        raise GitHubOperationError(
+            f"{value!r} is not a {field.value} option on the board; "
+            f"the options are {', '.join(options[field.value])}.",
+            operation="project.reconcile",
+            details={"field": field.value, "value": value[:256]},
+        )
 
+
+def _item_edit_args(login: str, project_number: int | str, change: FieldChange) -> list[str]:
     return item_edit_args(login, project_number, change.url, change.field, ["--value", change.new])
 
 
@@ -1134,8 +1131,7 @@ def reconcile_project_custom_fields(
 ) -> ReconcileResult:
     """Reconcile Status on the cards already on the board, listing every change.
 
-    Reconcile adds no card: an issue off the board waits for intake, and a pull request gets no
-    card. It reads the board (refusing to start when GraphQL's budget can't cover the read), the
+    Reconcile adds no card, and a pull request gets no card. It reads the board (refusing to start when GraphQL's budget can't cover the read), the
     board's field options and the repository's issues and pull requests in `state`, then plans
     every change before making any, so `plan` and `write` evaluate the same cards and plan the
     same changes. A planned value the board's field has no option for refuses the run before
@@ -1151,13 +1147,12 @@ def reconcile_project_custom_fields(
     on_board = [item for item in issues + prs if _item_url(item) in board]
     planned = _plan_changes(on_board, board, options[ItemField.STATUS])
     for change in planned:
-        require_option(options, ItemField(change.field), change.new)
+        _require_option(options, ItemField(change.field), change.new)
     result = ReconcileResult(
         project_number=project_number,
         mode=mode,
         items_evaluated=len(on_board),
         planned=planned,
-        awaiting_intake=_awaiting_intake(issues, board, state),
     )
     if mode == "plan":
         return result
@@ -1179,7 +1174,6 @@ def reconcile_dry_run(
     Without a board number the run first finds the board `template` names. `writes` False
     lists a `plan` run, which stops before the writes.
     """
-    from devops_cli.roadmap.github_store import field_list_args
     from devops_cli.roadmap.request_plan import planned_gh
 
     texts = MESSAGES.project
@@ -1198,7 +1192,7 @@ def reconcile_dry_run(
             planned_gh(
                 board_items_args(login, board, "", after=placeholders["cursor"]),
                 targets["page"].format(board=board),
-                repeat=MESSAGES.roadmap.plan_repeat_board_page,
+                repeat=texts.request_repeat_page,
             ),
             planned_gh(field_list_args(login, board), targets["fields"].format(board=board)),
             _planned_listing(repo, "issues", state),

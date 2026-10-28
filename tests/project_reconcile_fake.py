@@ -20,7 +20,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from devops_cli.dry_run.requests import PlannedRequest
-from tests.roadmap_board_fake import BoardServer
+from tests.project_board_fake import BoardServer
 
 REPO = "o/r"
 BOARD_TITLE = "Roadmap"

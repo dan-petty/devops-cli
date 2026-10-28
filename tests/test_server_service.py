@@ -13,7 +13,6 @@ import threading
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -27,8 +26,8 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_DELIVERY_HEADER,
     CONST_GH_WEBHOOK_EVENT_HEADER,
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
+    CONST_GRAPHQL_REFUSAL_RESET_KEY,
     CONST_MAX_ERROR_DETAIL_LENGTH,
-    CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
@@ -43,9 +42,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions import ConfigurationError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubRateLimitError
-from devops_cli.roadmap.board_read import GraphQLBudget, require_budget, require_write_floor
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.run import JobOutcome, build_stub_table, run_due_jobs, service_pause_until
+from devops_cli.github.project_read import GraphQLBudget, require_budget
 from devops_cli.server.json_logs import JsonLogFormatter
 from devops_cli.server.routes.webhooks import (
     HmacSha256,
@@ -999,19 +996,19 @@ def test_repo_worker_logs_configuration_errors_without_traceback(
     test_lane = "status"
     counter_labels = {"repo": test_repo, "lane": test_lane}
 
-    cfg1 = ConfigurationError("missing .github/roadmap.toml", key="service.repos")
+    cfg1 = ConfigurationError("missing .github/labels.yml", key="service.repos")
     cfg2 = ConfigurationError("invalid yaml", key="service.repos")
 
-    g_cfg1 = ConfigurationError("toml error 1", key="board")
+    g_cfg1 = ConfigurationError("labels error 1", key="labels")
     g_cfg1.add_note("intake")
-    g_cfg2 = ConfigurationError("toml error 2", key="board")
+    g_cfg2 = ConfigurationError("labels error 2", key="labels")
     g_cfg2.add_note("metrics")
     cfg_group_err = RoadmapRunError(
         "Roadmap jobs failed: intake, metrics", failed_jobs=("intake", "metrics")
     )
     cfg_group_err.__cause__ = ExceptionGroup("jobs", [g_cfg1, g_cfg2])
 
-    g_mixed1 = ConfigurationError("toml error", key="board")
+    g_mixed1 = ConfigurationError("labels error", key="labels")
     g_mixed1.add_note("intake")
     g_mixed2 = RuntimeError("transient db crash")
     g_mixed2.add_note("metrics")
@@ -1102,6 +1099,9 @@ def test_repo_worker_logs_configuration_errors_without_traceback(
 
 
 # ── A GraphQL budget refusal holds every repository's rounds (#1400) ──────────
+# The Service takes the reader of the time a failed round names. No roadmap job reads a board
+# any more, so no product reader names one (ADR 0016); these cases give the Service the reader
+# of a GraphQL budget refusal's reset, and test the pause itself.
 
 REPO_A, REPO_B = "example-org/repo1", "example-org/repo2"
 RESET = datetime(2026, 10, 8, 13, tzinfo=UTC)
@@ -1130,25 +1130,23 @@ def _low_budget(reset: datetime = RESET) -> GraphQLBudget:
 
 
 def _refuse_read(reset: datetime = RESET) -> None:
-    """What a refused board read raises, as `changes_since` does outside any job."""
+    """What a refused GraphQL read raises: the refusal names the budget's reset."""
     require_budget(_low_budget(reset), 12, "board #1 items")
 
 
-def _refuse_jobs_write(store: InMemoryRoadmapStore, data_dir: Path) -> None:
-    """A round whose intake job's card write is refused: `run_due_jobs` raises the
-    `RoadmapRunError` that carries the reset."""
-
-    def write(**_: Any) -> JobOutcome:
-        require_write_floor(_low_budget(), "#7")
-        return JobOutcome()
-
-    run_due_jobs(
-        REPO_A,
-        store,
-        batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        table=build_stub_table({"intake": write}),
-        data_dir=data_dir,
-        now=RESET - timedelta(minutes=20),
+def _budget_pause_until(exc: Exception) -> datetime | None:
+    """The time before which no round starts after `exc`: the reset a budget refusal names,
+    plus the bound on how late GitHub still reports the window that ended; None for any other
+    error."""
+    reset = (
+        exc.details.get(CONST_GRAPHQL_REFUSAL_RESET_KEY)
+        if isinstance(exc, GitHubRateLimitError)
+        else None
+    )
+    if reset is None:
+        return None
+    return datetime.fromisoformat(reset) + timedelta(
+        seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS
     )
 
 
@@ -1194,7 +1192,7 @@ class _Rounds:
 def _service(
     jobs: Mapping[str, Callable[[TriggerBatch], None]],
     clock: _Clock,
-    reader: PauseReader = service_pause_until,
+    reader: PauseReader = _budget_pause_until,
     *,
     drain_timeout: int = 120,
 ) -> ServiceManager:
@@ -1226,22 +1224,14 @@ def _wait_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize("source", ["changes_since", "job"])
 def test_a_budget_refusal_holds_every_repositorys_rounds_until_the_reset(
-    source: str,
-    tmp_path: Path,
-    roadmap_store: InMemoryRoadmapStore,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Repository A's round is refused, by a board read outside any job or by a job's write.
-    Until 5 s after the reset no round starts, B's included, though triggers arrive for both
-    10 minutes before the reset and 4 s after it, past the 0.72-2.07 s GitHub took to report the
-    new window (#1364). Then each runs one round holding all of them. The wait is logged once."""
-    refusal = {
-        "changes_since": _refuse_read,
-        "job": lambda: _refuse_jobs_write(roadmap_store, tmp_path),
-    }[source]
-    rounds, clock = _Rounds(refusal, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
+    """Repository A's round is refused by a GraphQL read. Until 5 s after the reset no round
+    starts, B's included, though triggers arrive for both 10 minutes before the reset and 4 s
+    after it, past the 0.72-2.07 s GitHub took to report the new window (#1364). Then each runs
+    one round holding all of them. The wait is logged once."""
+    rounds, clock = _Rounds(_refuse_read, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
     with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
         manager = _service({LANE: rounds}, clock)
         _trigger(manager, REPO_A)

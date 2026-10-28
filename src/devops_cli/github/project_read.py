@@ -1,35 +1,29 @@
-"""Paged, filtered GraphQL reads of a roadmap board, and the GraphQL points they spend (#1125).
+"""Paged GraphQL reads of a GitHub project board, and the GraphQL points they spend (#1125).
 
-`gh project item-list` pages the board itself with queries that ask for every field of every
-item, filters nothing, and reports no cost, so one read spent about 2,000 of GraphQL's 5,000
-hourly points while the rate limiter counted one call. The store reads the board with its own
-query instead, a page of `DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE` items at a time, each page asking
-for the item fields the store keeps and for `rateLimit`, so `run_gh` charges the points GitHub
-reports. Every read passes the reading job's Projects filter as `items(query:)` and leaves
-archived items out (`archivedStates: [NOT_ARCHIVED]`); the total it checks the read against is
-the same connection's `totalCount`, so it counts the same items.
+`devops gh project reconcile` reads a board with these. `gh project item-list` pages the board
+itself with queries that ask for every field of every item and report no cost, so one read spent
+about 2,000 of GraphQL's 5,000 hourly points while the rate limiter counted one call. The board
+is read with its own query instead, a page of `DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE` items at a
+time, each page asking for the item fields kept and for `rateLimit`, so `run_gh` charges the
+points GitHub reports. Every read passes a Projects filter as `items(query:)` and leaves archived
+items out (`archivedStates: [NOT_ARCHIVED]`); the total it checks the read against is the same
+connection's `totalCount`, so it counts the same items.
 
 Before the pages, one small query (`RoadmapBoardBudget`) reads the points left and the filter's
 total; a read that would leave fewer than `DEFAULT_GH_GRAPHQL_BUDGET_FLOOR` points refuses there,
 having spent nothing on pages, and a read stops before any page while fewer than the floor are
-left.
+left. Each refusal carries the budget's reset in its details (`CONST_GRAPHQL_REFUSAL_RESET_KEY`).
 
-A write reads only the card it writes (#1361): `RoadmapBoardCard` reads one item by its node id,
-archived or not, with the same item fields a page holds and `rateLimit`, for about one point
-whatever the board's size, and a write refuses before it starts while fewer than the floor are
-left. A write leaves an archived card alone; the add that names an issue's archived card restores
-it (#1403). The documents are fixed templates, validated against GitHub's public schema in a test.
-
-Each refusal carries the budget's reset in its details (`CONST_GRAPHQL_REFUSAL_RESET_KEY`),
-which the Service reads to hold every repository's rounds until then (#1400).
-
-This module only builds `gh` arguments and reads payloads; the store runs them, so a request plan
-can list the same argv the store sends.
+The `gh project` argument builders that reconcile sends (`field_list_args`, `item_edit_args`)
+are here too. This module only builds `gh` arguments and reads payloads; the caller runs them,
+so a request plan can list the same argv. The documents are fixed templates, validated against
+GitHub's public schema in a test. No roadmap job reads a board (ADR 0016).
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -46,7 +40,6 @@ from devops_cli.lang import MESSAGES
 
 BOARD_ITEMS_OPERATION = "RoadmapBoardItems"
 BOARD_BUDGET_OPERATION = "RoadmapBoardBudget"
-BOARD_CARD_OPERATION = "RoadmapBoardCard"
 GRAPHQL_BUDGET_OPERATION = "RoadmapGraphQLBudget"
 
 _RATE_LIMIT = "rateLimit { cost limit remaining used resetAt }"
@@ -57,7 +50,7 @@ _OWNED_BOARD = (
 )
 _FIELD_NAME = "field { ... on ProjectV2FieldCommon { name } }"
 _REPOSITORY_CONTENT = "number title url repository { nameWithOwner }"
-# The item fields the store keeps, the same in a page and in a one-card read.
+# The item fields a page keeps.
 _ITEM_SELECTION = (
     "id content { __typename ... on DraftIssue { title } "
     f"... on Issue {{ {_REPOSITORY_CONTENT} }} "
@@ -79,12 +72,6 @@ BOARD_ITEMS_QUERY = (
     + " }"
 )
 """One page of the board's items that `$filter` selects, archived ones left out."""
-
-BOARD_CARD_QUERY = (
-    f"query {BOARD_CARD_OPERATION}($id: ID!, $fieldValues: Int!) {{ {_RATE_LIMIT} "
-    f"node(id: $id) {{ ... on ProjectV2Item {{ isArchived {_ITEM_SELECTION} }} }} }}"
-)
-"""One board item by its node id, archived or not, with the fields a page holds."""
 
 BOARD_BUDGET_QUERY = (
     f"query {BOARD_BUDGET_OPERATION}($owner: String!, $number: Int!, $filter: String!) {{ "
@@ -141,18 +128,67 @@ def board_budget_args(owner: str, number: int | str, board_filter: str) -> list[
     )
 
 
-def board_card_args(card_id: str) -> list[str]:
-    """The `gh` arguments of the read of one board item by its node id."""
-    return _graphql_args(
-        BOARD_CARD_QUERY,
-        ("id", card_id),
-        typed=("-F", f"fieldValues={DEFAULT_GH_PROJECT_FIELD_LIMIT}"),
-    )
-
-
 def graphql_budget_args() -> list[str]:
     """The `gh` arguments of the query that reads the GraphQL points left."""
     return _graphql_args(GRAPHQL_BUDGET_QUERY)
+
+
+def field_list_args(owner: str, number: int | str) -> list[str]:
+    """`gh project field-list`: every board field's options by name. gh also reads the board's
+    first 100 items with every field value (about 101 points); project reconcile sends it
+    (#892)."""
+    limit = str(DEFAULT_GH_PROJECT_FIELD_LIMIT)
+    return [
+        "project",
+        "field-list",
+        str(number),
+        "--owner",
+        owner,
+        "--format",
+        "json",
+        "--limit",
+        limit,
+    ]
+
+
+def item_edit_args(
+    owner: str, number: int | str, url: str, field_name: str, change: Sequence[str]
+) -> list[str]:
+    """`gh project item-edit` on the issue at `url`, by the field's name. gh resolves both names
+    with a read of the board's first 100 items with every field value (about 101 points);
+    project reconcile sends this (#892)."""
+    return [
+        "project",
+        "item-edit",
+        str(number),
+        "--owner",
+        owner,
+        "--url",
+        url,
+        "--field",
+        field_name,
+        *change,
+    ]
+
+
+class _NamedPayload(BaseModel):
+    name: str
+
+
+class _BoardFieldPayload(BaseModel):
+    name: str
+    options: list[_NamedPayload] = Field(default_factory=list)
+
+
+class FieldListingPayload(BaseModel):
+    """The reply to `field_list_args`: every board field, with its options by name (#892)."""
+
+    fields: list[_BoardFieldPayload]
+    total_count: int = Field(alias="totalCount")
+
+    def options(self) -> dict[str, tuple[str, ...]]:
+        """Each field's option names by field name; a field that is not single-select has none."""
+        return {field.name: tuple(option.name for option in field.options) for field in self.fields}
 
 
 class GraphQLBudget(BaseModel):
@@ -165,49 +201,6 @@ class GraphQLBudget(BaseModel):
     remaining: int
     used: int
     reset_at: datetime = Field(alias="resetAt")
-
-
-class GraphQLSpend(BaseModel):
-    """The GraphQL points a run spent and the points left, as GraphQL reported them."""
-
-    model_config = ConfigDict(frozen=True)
-
-    spent: int
-    remaining: int
-    reset_at: datetime
-    reset_during_run: bool = False
-
-    def line(self) -> str:
-        """The one line a run ends with."""
-        texts = MESSAGES.roadmap
-        template = texts.graphql_spend_since_reset if self.reset_during_run else texts.graphql_spend
-        return template.format(
-            spent=self.spent, remaining=self.remaining, reset=utc_clock(self.reset_at)
-        )
-
-    def round_line(self, repo: str) -> str:
-        """The one line a Service round of `repo` ends with: the points are the account's, which
-        every repository's rounds and other tools share (#1400)."""
-        texts = MESSAGES.roadmap
-        template = (
-            texts.graphql_round_spend_since_reset
-            if self.reset_during_run
-            else texts.graphql_round_spend
-        )
-        return template.format(
-            repo=repo, spent=self.spent, remaining=self.remaining, reset=utc_clock(self.reset_at)
-        )
-
-
-def spend_between(first: GraphQLBudget, last: GraphQLBudget) -> GraphQLSpend:
-    """What a run spent from the first response that reported the budget to the last: the
-    points used between them and the first query's own cost. A run the hourly reset crossed
-    counts what it spent since the reset."""
-    reset = last.reset_at != first.reset_at
-    spent = last.used if reset else last.used - first.used + first.cost
-    return GraphQLSpend(
-        spent=spent, remaining=last.remaining, reset_at=last.reset_at, reset_during_run=reset
-    )
 
 
 class _PageInfo(BaseModel):
@@ -251,39 +244,6 @@ class GraphQLBudgetPayload(BaseModel):
     """The answer to `RoadmapGraphQLBudget`."""
 
     rate_limit: GraphQLBudget = Field(validation_alias=AliasPath("data", "rateLimit"))
-
-
-class _GraphQLError(BaseModel):
-    type: str | None = None
-
-
-class BoardCardPayload(BaseModel):
-    """The answer to `RoadmapBoardCard`. A node id that resolves to nothing comes back as a null
-    node with a `NOT_FOUND` error, which `gh` reports by exiting 1 with the answer on stdout."""
-
-    rate_limit: GraphQLBudget = Field(validation_alias=AliasPath("data", "rateLimit"))
-    node: dict[str, Any] | None = Field(default=None, validation_alias=AliasPath("data", "node"))
-    errors: list[_GraphQLError] = Field(default_factory=list)
-
-    def is_gone(self) -> bool:
-        """Whether GitHub says the node does not exist, and says nothing else went wrong."""
-        return (
-            self.node is None
-            and bool(self.errors)
-            and all(error.type == "NOT_FOUND" for error in self.errors)
-        )
-
-    def is_archived(self) -> bool:
-        """Whether the item is on the board but archived."""
-        return bool((self.node or {}).get("isArchived"))
-
-    def listed(self, *, archived: bool = False) -> dict[str, Any] | None:
-        """The item shaped as `gh project item-list` lists it, or None when it is gone or not a
-        board item, or archived unless `archived`."""
-        node = self.node or {}
-        if "id" not in node or (self.is_archived() and not archived):
-            return None
-        return listing_item(node)
 
 
 def listing_item(node: dict[str, Any]) -> dict[str, Any]:
@@ -344,30 +304,14 @@ def require_budget(budget: GraphQLBudget, cost: int, what: str) -> None:
     """Refuse a read, before it spends anything, when it would leave less than the floor."""
     if budget.remaining - cost < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
         template = MESSAGES.roadmap.graphql_budget_refused
-        raise _refusal(template, budget, "roadmap.read", what, cost=cost)
-
-
-def require_write_floor(budget: GraphQLBudget, what: str) -> None:
-    """Refuse a write, before it starts, while fewer points than the floor are left."""
-    if budget.remaining < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
-        template = MESSAGES.roadmap.graphql_budget_write_floor
-        raise _refusal(template, budget, "roadmap.write", what)
+        raise _refusal(template, budget, "project.read", what, cost=cost)
 
 
 def require_floor(budget: GraphQLBudget, what: str, page: int) -> None:
     """Stop a read before page `page` while fewer points than the floor are left."""
     if budget.remaining < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
         template = MESSAGES.roadmap.graphql_budget_floor
-        raise _refusal(template, budget, "roadmap.read", what, page=page)
-
-
-def refusal_reset(exc: BaseException) -> datetime | None:
-    """The reset a GraphQL budget refusal names, or None for any other error, a rate limiter
-    error included."""
-    if not isinstance(exc, GitHubRateLimitError):
-        return None
-    reset = exc.details.get(CONST_GRAPHQL_REFUSAL_RESET_KEY)
-    return None if reset is None else datetime.fromisoformat(reset)
+        raise _refusal(template, budget, "project.read", what, page=page)
 
 
 def utc_clock(moment: datetime) -> str:
@@ -378,29 +322,24 @@ def utc_clock(moment: datetime) -> str:
 __all__ = [
     "BOARD_BUDGET_OPERATION",
     "BOARD_BUDGET_QUERY",
-    "BOARD_CARD_OPERATION",
-    "BOARD_CARD_QUERY",
     "BOARD_ITEMS_OPERATION",
     "BOARD_ITEMS_QUERY",
     "GRAPHQL_BUDGET_OPERATION",
     "GRAPHQL_BUDGET_QUERY",
     "BoardBudgetPayload",
-    "BoardCardPayload",
     "BoardItemsPage",
+    "FieldListingPayload",
     "GraphQLBudget",
     "GraphQLBudgetPayload",
-    "GraphQLSpend",
     "board_budget_args",
-    "board_card_args",
     "board_items_args",
+    "field_list_args",
     "graphql_budget_args",
+    "item_edit_args",
     "item_list_key",
     "listing_item",
     "read_cost",
-    "refusal_reset",
     "require_budget",
     "require_floor",
-    "require_write_floor",
-    "spend_between",
     "utc_clock",
 ]

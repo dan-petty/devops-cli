@@ -43,11 +43,6 @@
         {"name": "Medium", "color": "YELLOW"},
         {"name": "High", "color": "RED"}
       ]
-    },
-    {
-      "name": "Job record",
-      "type": "text",
-      "description": "JSON the roadmap jobs write: the last value they set for each field (Status, Priority, Value, Effort). No view shows it."
     }
   ],
   "views": [
@@ -70,7 +65,7 @@
     {
       "name": "Triage & Quality Table",
       "layout": "table",
-      "filter": "is:open label:status/triage,status/blocked,type/bug",
+      "filter": "is:open label:status/new,status/blocked,type/bug",
       "sort_by": [{"field": "Priority", "direction": "asc"}],
       "visible_fields": ["Title", "Status", "Priority", "Labels", "Assignees", "Updated"],
       "description": "Incoming issue and PR triage table prioritizing bugs and blockers."

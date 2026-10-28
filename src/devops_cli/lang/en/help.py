@@ -1001,8 +1001,9 @@ class GHCommandHelp:
     project_sync: str = (
         "Find or create the project board from its template, link it, create the fields it "
         "lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue "
-        "or pull request to the board: devops roadmap intake places issues, and a pull request's "
-        "progress shows on its issue's card. Exits 1 when reconcile stops early."
+        "or pull request to the board, and a pull request's progress shows on its issue's card. "
+        "No roadmap job reads the board: labels hold an item's fields. Exits 1 when reconcile "
+        "stops early."
     )
     project_sync_dry_run: str = "Make no request and describe what a sync does."
     project_reconcile: str = (
@@ -1054,8 +1055,8 @@ class GHCommandHelp:
     )
     issues_create: str = "Create a new issue linking milestone and taxonomy labels."
     issues_triage: str = (
-        "Audit open issues for mandatory taxonomy labels, and report those not on the roadmap "
-        "board as awaiting intake."
+        "Audit open issues for mandatory taxonomy labels, and report those with no priority/* "
+        "label as awaiting intake."
     )
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
@@ -1086,26 +1087,24 @@ class GHCommandHelp:
 @dataclass(frozen=True)
 class RoadmapCommandHelp:
     app: str = (
-        "Read and write the roadmap on GitHub, its source of truth: issues, milestones and the "
-        "project board."
+        "Read and write the roadmap on GitHub, its source of truth: issues, their labels and "
+        "milestones."
     )
     repo: str = "Repository as owner/name (default: this checkout's origin)."
     ref: str = (
-        "Branch, tag or commit to read .github/roadmap.toml at (default: the repository's "
+        "Branch, tag or commit to read .github/labels.yml at (default: the repository's "
         "default branch)."
     )
     intake: str = (
-        "Turn candidates into items: every open issue not on the board, and every board item "
-        "intake left without a Priority. The model compares each with the board's items and the "
-        "issues closed as not planned, but not with an issue that has sub-issues, because its "
-        "sub-issues deliver it. It names a possible duplicate for a person to close: intake "
-        "never closes an issue and never drops a candidate. Each gets a type, a priority, Value "
-        "and Effort from the model with a reason comment, and goes to the backlog. Intake sets "
-        "no milestone: a person plans the milestones on the board, and a milestone an issue "
-        "has stays. An "
-        "open issue whose board card a person archived is a candidate too: intake restores the "
-        "card, which keeps its values and milestone; close the issue as not planned to keep it "
-        "off the roadmap. A candidate an agent files with --title and --body-file is labeled "
+        "Turn candidates into items: every open issue with no priority/* label. The model "
+        "compares each with the items and the issues closed as not planned, but not with an "
+        "issue that has sub-issues, because its sub-issues deliver it. It names a possible "
+        "duplicate for a person to close: intake never closes an issue and never drops a "
+        "candidate. Each gets a type, a status/new label, Value and Effort labels and a reason "
+        "comment, then its priority label last, and goes to the backlog. A label a person set "
+        "stays. Intake sets no milestone: a person plans the milestones, and a milestone an "
+        "issue has stays. Close an issue as not planned to keep it off the roadmap. A candidate "
+        "an agent files with --title and --body-file is labeled "
         "source/agent, and intake files it, a possible duplicate too, unless a run that stopped "
         "after filing left an open issue with its title and body, which intake then places; a "
         "text that looks like it holds a secret is refused. --dry-run makes no request and prints "
@@ -1178,13 +1177,16 @@ class RoadmapCommandHelp:
     refine_confirm: str = "Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only."
     refine_dry_run: str = "Make no request and change no git ref: print what refine would plan and run, with placeholders."
     return_item: str = (
-        "Return an item to New on the roadmap board with an evidence comment, handing it back to "
-        "refinement when it cannot be built as specified or needs a refactor beyond its scope."
+        "Return an item to New with an evidence comment, handing it back to refinement when it "
+        "cannot be built as specified or needs a refactor beyond its scope. The item gets the "
+        "label status/new in place of its other status/* label."
     )
     return_item_arg: str = "The issue or item number to return to New."
     return_comment: str = "Evidence comment explaining why the item cannot be built as specified."
     return_comment_file: str = "Path to file containing the evidence comment."
-    return_confirm: str = "Make the writes to GitHub (post comment and set Status to New)."
+    return_confirm: str = (
+        "Make the writes to GitHub: post the comment and set the Status to New (status/new)."
+    )
     return_dry_run: str = (
         "Make no request: print the requests a run makes, in order, with placeholders for "
         "values a read gives."

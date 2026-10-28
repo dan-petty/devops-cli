@@ -6,7 +6,7 @@ import logging
 
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_info, print_success
-from devops_cli.roadmap.config import open_roadmap
+from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.intake import CandidateOutcome, Filer, NewCandidate, intake_candidate
 from devops_cli.roadmap.intake_model import IntakeModel, build_intake_model
 from devops_cli.roadmap.store import RoadmapStore
@@ -65,7 +65,7 @@ def emit_all_gaps_to_intake(
 
     target_store = store
     if target_store is None:
-        _cfg, target_store = open_roadmap(repo, ref=None)
+        target_store = roadmap_store.get_roadmap_store(repo)
 
     target_model = model if model is not None else build_intake_model()
     outcomes: list[CandidateOutcome] = []

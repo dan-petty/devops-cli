@@ -15,9 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import app
-from devops_cli.config.constants import CONST_ROADMAP_CONFIG_PATH
 from devops_cli.github.client import PullRequestFile
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 
 
@@ -39,8 +37,7 @@ _SERVER_ERROR = _gh_reply("", 1, "gh: Server Error (HTTP 500)")
 def _readiness_gh(
     pr_payload: str = "{}", routes: dict[str, MagicMock] | None = None
 ) -> Callable[..., MagicMock]:
-    """Answer `run_gh` by the longest route its arguments name, so the roadmap config's
-    `/contents/.github/roadmap.toml` is not the change directory's `/contents/`.
+    """Answer `run_gh` by the longest route its arguments name.
 
     Unless `routes` says otherwise the repository keeps no change folders and the PR changes no
     files; anything unrouted gets the PR payload.
@@ -2064,7 +2061,6 @@ def _file(filename: str, status: str = "modified") -> dict[str, str]:
 _OWN_REPO = "dan-petty/devops-cli"
 _REPO = {"full_name": _OWN_REPO, "default_branch": "main"}
 _ARCHIVE_704 = _file("openspec/changes/archive/2026-10-23-704-x/proposal.md", "added")
-_BOARD = 2
 
 
 def _closing_issue(
@@ -2072,15 +2068,15 @@ def _closing_issue(
     *,
     state: str = "OPEN",
     repo: str = _OWN_REPO,
-    boards: tuple[tuple[str, int], ...] = (("dan-petty", _BOARD),),
+    labels: tuple[str, ...] = ("type/feature", "priority/p2-medium"),
 ) -> dict[str, object]:
-    """One `closingIssuesReferences` node, on the boards `(owner, number)` names."""
-    cards = [{"project": {"number": board, "owner": {"login": owner}}} for owner, board in boards]
+    """One `closingIssuesReferences` node with `labels`; by default a roadmap Item, which holds
+    a `priority/*` label."""
     return {
         "number": number,
         "state": state,
         "repository": {"nameWithOwner": repo},
-        "projectItems": {"nodes": cards},
+        "labels": {"nodes": [{"name": label} for label in labels]},
     }
 
 
@@ -2092,20 +2088,12 @@ def _closing(*issues: dict[str, object], total: int | None = None) -> MagicMock:
 
 
 _CLOSING_ROUTE = "closingIssuesReferences"
-# The base keeps change folders, the PR archives #704's, and #704 is open and on the board.
+# The base keeps change folders, the PR archives #704's, and #704 is an open roadmap Item.
 _GROUNDED = {
     "/contents/": _gh_reply(),
     "/files?": _gh_reply([_ARCHIVE_704]),
     _CLOSING_ROUTE: _closing(_closing_issue()),
 }
-
-
-@pytest.fixture(autouse=True)
-def roadmap_board(roadmap_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
-    """The roadmap whose `.github/roadmap.toml` names board 2, which readiness reads the board
-    from through the roadmap store."""
-    roadmap_store.seed_file(CONST_ROADMAP_CONFIG_PATH, f"board = {_BOARD}\n")
-    return roadmap_store
 
 
 def _ready_pr(**overrides: object) -> dict:
@@ -2188,7 +2176,7 @@ def test_a_clean_pull_request_reports_ready() -> None:
 
 
 # =============================================================================
-# Grounding: one open issue on the board, closed into the default branch, and its archived change
+# Grounding: one open roadmap Item, closed into the default branch, and its archived change
 # =============================================================================
 
 _ARCHIVE = "openspec/changes/archive"
@@ -2198,7 +2186,7 @@ def _grounding_gh(
     files: object, *, changes_dir: MagicMock | None = None, closing: MagicMock | None = None
 ) -> MagicMock:
     """A recording `run_gh` stub for a base with change folders, this list of changed files, and
-    the issues the PR closes, open #704 on the board unless `closing` says otherwise."""
+    the issues the PR closes, open Item #704 unless `closing` says otherwise."""
     files_reply = files if isinstance(files, MagicMock) else _gh_reply(files)
     routes = {
         "/contents/": changes_dir or _gh_reply(),
@@ -2230,7 +2218,7 @@ def _grounding_gh(
 def test_grounding_passes_a_pr_that_archives_the_change_of_its_issue(
     issue: int, files: list[dict[str, str]]
 ) -> None:
-    """A PR into the default branch that closes one open issue on the board and adds that
+    """A PR into the default branch that closes one open roadmap Item and adds that
     issue's archived change folder is grounded, with the living specs its archive wrote."""
     gh = _grounding_gh(files, closing=_closing(_closing_issue(issue)))
     assert _blockers(_ready_pr(), gh=gh) == []
@@ -2332,14 +2320,14 @@ def test_grounding_blocks_a_pr_that_does_not_archive_its_change_naming_the_folde
             "it closes #704, which is not open.",
         ),
         (
-            _closing(_closing_issue(boards=(("dan-petty", 9),))),
+            _closing(_closing_issue(labels=("type/feature",))),
             [_ARCHIVE_704],
-            "#704 is not on the roadmap board, project 2.",
+            "#704 is not a roadmap item: it holds no priority label. Run devops roadmap intake",
         ),
         (
-            _closing(_closing_issue(boards=(("someone-else", _BOARD),))),
+            _closing(_closing_issue(labels=("priority/high",))),
             [_ARCHIVE_704],
-            "#704 is not on the roadmap board, project 2.",
+            "#704 is not a roadmap item: it holds no priority label.",
         ),
         (
             _closing(_closing_issue()),
@@ -2369,8 +2357,8 @@ def test_grounding_blocks_a_pr_that_does_not_archive_its_change_naming_the_folde
         "more-issues-than-one-page",
         "issue-of-another-repository",
         "closed-issue",
-        "issue-on-another-board",
-        "issue-on-another-owners-board",
+        "issue-with-no-priority-label",
+        "issue-with-an-unknown-priority-label",
         "files-unreadable",
         "closing-issues-unreadable",
         "closing-issues-graphql-error",
@@ -2386,22 +2374,10 @@ def test_grounding_blocks_once_and_names_the_cause(
     assert [cause in blocker for blocker in blockers] == [True], blockers
 
 
-def test_an_invalid_roadmap_config_is_one_blocker(roadmap_board: InMemoryRoadmapStore) -> None:
-    roadmap_board.seed_file(CONST_ROADMAP_CONFIG_PATH, "board = 0\n")
-    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704]))
-    assert blockers == [
-        "PR #335 is not grounded: the roadmap board in .github/roadmap.toml could not be read "
-        "(.github/roadmap.toml: board: Input should be greater than or equal to 1)."
-    ]
-
-
-@pytest.mark.usefixtures("unreadable_github_roadmap")
-def test_a_roadmap_config_github_cannot_read_is_one_blocker() -> None:
-    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704]))
-    assert [
-        "the roadmap board in .github/roadmap.toml could not be read (" in blocker
-        for blocker in blockers
-    ] == [True], blockers
+def test_a_priority_label_in_another_case_is_an_item() -> None:
+    """GitHub matches a label name in any case, so `Priority/P1-High` is a Priority."""
+    closing = _closing(_closing_issue(labels=("Priority/P1-High",)))
+    assert _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704], closing=closing)) == []
 
 
 def test_a_pr_into_another_branch_is_one_blocker_naming_the_default_branch() -> None:
@@ -2453,13 +2429,14 @@ def test_grounding_blocks_when_the_change_directory_lookup_fails() -> None:
     ]
 
 
-def test_grounding_reads_the_files_the_base_the_closing_issues_and_the_board_once_each(
+@pytest.mark.usefixtures("roadmap_store")
+def test_grounding_reads_the_files_the_base_and_the_closing_issues_once_each(
     routed_session: _RoutedSession, roadmap_store_repos: list[str]
 ) -> None:
     """The files are one session listing at `per_page=100` (GitHub's default page is 30), then
-    gh reads the base's change directory and the issues the PR closes in one GraphQL request, and
-    the roadmap store reads the board. A files read sent through `gh api` instead shows here as
-    a gh call."""
+    gh reads the base's change directory and the issues the PR closes, with their labels, in one
+    GraphQL request. No roadmap store opens, and no project board is read. A files read sent
+    through `gh api` instead shows here as a gh call."""
     from devops_cli.commands.pr import closing_issues_args
 
     gh = _grounding_gh([_ARCHIVE_704])
@@ -2480,7 +2457,7 @@ def test_grounding_reads_the_files_the_base_the_closing_issues_and_the_board_onc
             ],
             closing_issues_args("dan-petty", "devops-cli", 335),
         ],
-        ["dan-petty/devops-cli"],
+        [],
     )
 
 
@@ -2500,21 +2477,10 @@ def test_the_closing_issues_read_asks_for_the_pr_and_both_page_sizes() -> None:
             "-F",
             "issues=10",
             "-F",
-            "cards=100",
+            "labels=100",
         ],
     )
-
-
-@pytest.mark.parametrize(
-    "closing",
-    [_closing(), _closing(_closing_issue(1), _closing_issue(2)), _SERVER_ERROR],
-    ids=["none", "several", "unread"],
-)
-def test_the_board_is_read_only_for_a_pr_that_closes_one_issue(
-    closing: MagicMock, roadmap_store_repos: list[str]
-) -> None:
-    _blockers(_ready_pr(), gh=_grounding_gh([_ARCHIVE_704], closing=closing))
-    assert roadmap_store_repos == []
+    assert "projectItems" not in " ".join(argv)
 
 
 _FILES_READ = "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"
