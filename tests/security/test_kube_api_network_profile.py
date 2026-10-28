@@ -10,6 +10,7 @@ fake finds each program that a run looks for at `/usr/local/bin/<name>`. The exe
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -304,19 +305,56 @@ def test_a_relay_runs_only_with_a_request_that_selects_the_kube_api_profile(
     assert [_is_config_view(call) for call in process_fake.calls] == [True]
 
 
-def test_the_proxy_refuses_every_method_that_writes_and_every_path_past_the_api_server() -> None:
-    """The proxy refuses the methods that change a resource, and the paths that reach a process,
-    a port or a server behind the API server."""
-    assert (CONST_KUBE_API_REJECTED_METHODS, CONST_KUBE_API_REJECTED_PATHS) == (
-        "(?i)^(POST|PUT|PATCH|DELETE)$",
-        (
-            "^/api/.*/pods/.*/exec",
-            "^/api/.*/pods/.*/attach",
-            "^/api/.*/pods/.*/portforward",
-            "^/api/.*/pods/.*/proxy",
-            "^/api/.*/services/.*/proxy",
-            "^/api/.*/nodes/.*/proxy",
-        ),
+# Requests through the proxy. Popeye reads the first paths. The others reach a process, a port or a
+# server behind the API server. `kubectl proxy` v1.37.1 with the filters of a kube-api run sent each
+# read path to the API server and answered `403 Forbidden` for each other path, and for POST, PUT,
+# PATCH, DELETE and `post` (2026-10-28).
+_READ_PATHS = (
+    "/version",
+    "/api/v1/pods",
+    "/api/v1/namespaces/apps/pods/web-0",
+    "/api/v1/nodes/node-1",
+    "/apis/apps/v1/namespaces/apps/deployments",
+    "/apis/metrics.k8s.io/v1beta1/pods",
+)
+_PATHS_PAST_THE_API_SERVER = (
+    "/api/v1/namespaces/apps/pods/web-0/exec",
+    "/api/v1/namespaces/apps/pods/web-0/attach",
+    "/api/v1/namespaces/apps/pods/web-0/portforward",
+    "/api/v1/namespaces/apps/pods/web-0:8080/proxy/metrics",
+    "/api/v1/namespaces/apps/services/web:http/proxy/",
+    "/api/v1/nodes/node-1/proxy/stats/summary",
+)
+_READ_METHODS = ("GET", "HEAD")
+_WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE", "post")
+
+
+def _refused(flag: str, value: str) -> bool:
+    """Whether `kubectl proxy` refuses `value` for the value `flag` of `--reject-methods` or
+    `--reject-paths`. kubectl splits the flag at each comma and refuses a value that one of the
+    expressions matches anywhere (`regexp.MatchString` of Go). These expressions read the same in
+    Go and in Python."""
+    return any(re.search(expression, value) for expression in flag.split(","))
+
+
+def test_the_proxy_refuses_every_method_that_writes_and_every_path_past_the_api_server(
+    tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
+) -> None:
+    """The filters that the run gives `kubectl proxy` refuse each method that changes a resource
+    and each path that reaches a process, a port or a server behind the API server. They let
+    through each method and path that Popeye reads with."""
+    SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap)).run(
+        _request(tree, network=KubeApiNetwork())
+    )
+
+    host, _sandbox = _split(_kube_api_run(process_fake), bwrap)
+    methods, paths = host[8], host[9]
+    assert (
+        {method: _refused(methods, method) for method in (*_READ_METHODS, *_WRITE_METHODS)},
+        {path: _refused(paths, path) for path in (*_READ_PATHS, *_PATHS_PAST_THE_API_SERVER)},
+    ) == (
+        {**dict.fromkeys(_READ_METHODS, False), **dict.fromkeys(_WRITE_METHODS, True)},
+        {**dict.fromkeys(_READ_PATHS, False), **dict.fromkeys(_PATHS_PAST_THE_API_SERVER, True)},
     )
 
 
