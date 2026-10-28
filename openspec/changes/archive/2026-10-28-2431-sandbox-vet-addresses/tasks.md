@@ -23,7 +23,7 @@
 
 ## 4. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2431-sandbox-vet-addresses`
 
 ## Workflow follow-up
