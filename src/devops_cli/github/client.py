@@ -14,6 +14,7 @@ from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError
 from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_GITHUB_DIFF_MEDIA_TYPE,
+    CONST_GITHUB_SEARCH_MAX_RESULTS,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.config.defaults import (
@@ -82,6 +83,25 @@ class CommitPull(BaseModel):
     head_sha: str = Field(validation_alias=AliasPath("head", "sha"))
 
 
+class IssueSearchHit(BaseModel):
+    """One issue that an issue search found: its number, its state, why it was closed (None while
+    it is open), and its body, which GitHub gives as null when it is empty."""
+
+    number: int
+    state: str
+    state_reason: str | None = None
+    body: str | None = None
+
+
+class _IssueSearchPage(BaseModel):
+    """A page of GitHub's issue search: the results of the whole search, whether the search timed
+    out before it found them all, and this page's issues."""
+
+    total_count: int
+    incomplete_results: bool
+    items: list[IssueSearchHit]
+
+
 class _FileContents(BaseModel):
     """What the contents endpoint says of a path that is not a directory: GitHub gives a file its
     content in base64, and one over 1 MB an empty content with the encoding `none`."""
@@ -108,6 +128,32 @@ def _read_as[M: BaseModel](model: type[M], answer: Any, *, path: str) -> M:
             f"{exc.error_count()} invalid field(s)",
             details={"path": bounded},
         ) from exc
+
+
+def _short_search_reason(page: _IssueSearchPage) -> str | None:
+    """Why the search's pages cannot hold all of its results, or None when they can: GitHub
+    marked the page incomplete, or the search has more results than GitHub returns."""
+    if page.incomplete_results:
+        return "GitHub marked the search incomplete"
+    if page.total_count > CONST_GITHUB_SEARCH_MAX_RESULTS:
+        return (
+            f"the search has {page.total_count} results, and GitHub returns "
+            f"{CONST_GITHUB_SEARCH_MAX_RESULTS} at most"
+        )
+    return None
+
+
+def _refuse_a_short_search(page: _IssueSearchPage, *, path: str) -> None:
+    """Raise `GitHubUnreadError` naming `path` when the search's pages cannot hold all of its
+    results."""
+    reason = _short_search_reason(page)
+    if reason is None:
+        return
+    bounded = path[:CONST_MAX_ERROR_DETAIL_LENGTH]
+    raise GitHubUnreadError(
+        f"GitHub's answer to GET {bounded} is not every result: {reason}",
+        details={"path": bounded, "total_count": page.total_count},
+    )
 
 
 def _repo_path(repo: str, tail: str) -> str:
@@ -224,6 +270,27 @@ class GitHubClient:
                 return []
             raise
         return [_read_as(CommitPull, item, path=path) for item in listing]
+
+    def search_issue_bodies(self, repo: str, phrase: str) -> list[IssueSearchHit]:
+        """Every issue of `repo`, open or closed, whose body holds `phrase`, from GitHub's issue
+        search. Search finds text inside an HTML comment of a body too (#2419).
+
+        The pages are read by number, 100 issues a page, while the search has more results. A page
+        that GitHub marks `incomplete_results`, or a search with more results than search returns
+        (`CONST_GITHUB_SEARCH_MAX_RESULTS`), raises `GitHubUnreadError`: a short answer never
+        reads as all of them. `GitHubSession.paginate` gives only the items, so it cannot tell.
+        """
+        query = f'"{phrase}" in:body is:issue repo:{repo}'
+        per_page = DEFAULT_GH_REST_PER_PAGE
+        hits: list[IssueSearchHit] = []
+        for number in range(1, CONST_GITHUB_SEARCH_MAX_RESULTS // per_page + 1):
+            path = f"/search/issues?{urlencode({'q': query, 'per_page': per_page, 'page': number})}"
+            page = _read_as(_IssueSearchPage, self._session.rest("GET", path), path=path)
+            _refuse_a_short_search(page, path=path)
+            hits.extend(page.items)
+            if len(hits) >= page.total_count or len(page.items) < per_page:
+                break
+        return hits
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""

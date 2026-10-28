@@ -168,6 +168,8 @@ class ReviewMessages:
         "Run `devops review rules fetch --ruleset {ruleset}` to refresh them."
     )
     files_not_scanned: str = "Files not scanned: {count}. The Coverage section lists them."
+    filed_findings_search_target: str = "issues that carry a review finding marker"
+    filed_findings_search_repeat: str = "per page of 100 issues, while the search has more results"
 
 
 @dataclass(frozen=True)

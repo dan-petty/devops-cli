@@ -1223,6 +1223,15 @@ CONST_REVIEW_PAGES_DIRNAME = "files"
 # A review session's Markdown report, and where its time went (#771).
 CONST_REVIEW_REPORT_FILENAME = "review.md"
 CONST_REVIEW_PROFILE_FILENAME = "profile.json"
+# The phrase of the marker that an issue filed from a review finding carries in its body, with
+# the finding's fingerprint_v2; the issue search for it finds the findings already filed (#2419).
+CONST_REVIEW_FILED_FINDING_MARKER: Final[str] = "devops-review-finding"
+# GitHub's `state_reason` of a closed issue that still settles the review finding it carries, so
+# the review does not file the finding again: a person rejected it, or another issue tracks it. A
+# finding whose issue was closed as completed is filed again, because the defect came back.
+CONST_REVIEW_FILED_FINDING_SETTLING_CLOSE_REASONS: Final[frozenset[str]] = frozenset(
+    {"not_planned", "duplicate"}
+)
 # Where a review writes its session until it is whole: inside the sessions directory, so that
 # publishing it is one rename, and a dot-directory, so that it is not a session (#771).
 CONST_REVIEW_STAGING_DIRNAME = ".staging"
@@ -2561,6 +2570,8 @@ CONST_GH_REST_REPOS_PREFIX: Final[str] = "repos"
 CONST_GH_REST_CODE_SCANNING_SEGMENT: Final[str] = "code-scanning"
 CONST_GH_REST_AUTOFIX_SEGMENT: Final[str] = "autofix"
 CONST_GH_REST_SBOM_SEGMENTS: Final[tuple[str, str]] = ("dependency-graph", "sbom")
+# GitHub's issue search returns at most this many results for one query, 100 a page (#2419).
+CONST_GITHUB_SEARCH_MAX_RESULTS: Final[int] = 1000
 
 # ── AI Gateway & Distributed Router Constants ─────────────────────────────────
 CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
