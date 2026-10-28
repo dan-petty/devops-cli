@@ -20,7 +20,7 @@ The public level admits only public addresses. `ai.allow_private_network` does n
 - The `transport` argument of `CloudflareRadarClient` is deleted. No caller in `src` or `tests` gives it, and the factory takes no transport.
 - The levels are narrower. A client now refuses a loopback, private or link-local answer for its API host, which it dialled before. A refused lookup of OSV, InternetDB or Radar gives a failed result, as a failed connect does. A refused request of the Cloudflare API client raises `SSRFBlockedError` to the `devops cloudflare` command.
 - `classify_network_target` in `ShodanInternetDBClient.check_ip` stays. It decides which addresses the client asks about, not the address that the client dials.
-- `README.md` and the httpx2 page of the knowledge base name the moved clients. The general statement that every HTTP client is checked at the connect waits for part 5 (#2437).
+- `README.md` names the moved clients. The other documents that describe the factory make general statements that stay true. The general statement that every HTTP client is checked at the connect waits for part 5 (#2437).
 - A consumer sees the refusals, so the change carries a spec delta. It creates the capability `public-api-egress` with two requirements.
 - This change fits one pull request.
 
@@ -38,7 +38,7 @@ None.
 
 - `src/devops_cli/security/vulnerability_lookup.py`, `src/devops_cli/cloudflare/client.py`.
 - `tests/test_http_egress.py`.
-- `README.md`, `src/devops_cli/ai/knowledge_base/devops_cli/libraries/httpx2.md`.
+- `README.md`.
 - The callers of these clients do not change: `ai/review/pipeline.py`, `ai/tools/builtin_tools.py`, `security/dependency_remediator.py` and `commands/cloudflare.py`.
 
 ## Feasibility

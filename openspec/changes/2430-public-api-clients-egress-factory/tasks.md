@@ -17,7 +17,7 @@
 
 ## 4. Documentation
 
-- [ ] Name the moved clients in `README.md` and in the httpx2 page of the knowledge base
+- [x] Name the moved clients in `README.md`
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 5. Archive
