@@ -554,7 +554,7 @@ kubectl -n devops logs -f job/<name>
 
 The Ingress `devops/roadmap-service` publishes `POST /webhooks/github` at `https://hooks.<domain>`.
 
-Traefik limits the requests to the route before they get to the Service. The Ingress names the Middleware `devops/roadmap-service-rate-limit` (`roadmap-service/middleware.yaml`), which lets 60 requests a minute through, with a burst of 60, in one bucket for the host. Traefik answers a request above the limit with HTTP 429. GitHub does not send a failed delivery again, but the next poll starts the round that the delivery would have started. To see the answers of Traefik, use `sum by (code) (increase(traefik_service_requests_total{service="devops-roadmap-service-8000@kubernetes"}[15m]))`.
+Traefik limits the requests to the route before they get to the Service. The Ingress names the Middleware `devops/roadmap-service-rate-limit` (`roadmap-service/middleware.yaml`), which lets 60 requests a minute through, with a burst of 60, in one bucket for the host. Traefik answers a request above the limit with HTTP 429. GitHub does not send a failed delivery again, but the next poll starts the round that the delivery would have started. To see the answers of the route, the 429 of the rate limit included, use `sum by (code) (increase(traefik_router_requests_total{service="devops-roadmap-service-8000@kubernetes"}[15m]))`. Traefik counts `traefik_service_requests_total` only for the requests that get to the Service, so that series does not show a 429 of the rate limit.
 
 The route refuses a delivery before it reads the body when:
 
@@ -1071,6 +1071,7 @@ k8s/
 │       ├── kustomization.yaml
 │       ├── deployment.yaml
 │       ├── ingress.yaml
+│       ├── middleware.yaml
 │       ├── networkpolicy.yaml
 │       ├── pvc.yaml
 │       └── service.yaml

@@ -11,12 +11,15 @@
 - [x] 2.1 Write the failing test `test_each_webhook_ingress_names_the_rate_limit_that_the_devops_stack_renders` in `tests/test_k8s_roadmap_service.py`, count six manifests in `test_kustomizations_list_manifests_and_directory`, count eleven native manifests with `middleware.yaml` before `ingress.yaml` in `tests/test_k8s_devops_stack.py`, and see them fail with `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_stack.py`
 - [x] 2.2 Add `k8s/devops/roadmap-service/middleware.yaml`, list it in the kustomization of `roadmap-service` and in the native `devops` stack before `ingress.yaml` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), and name the Middleware in the Ingress `devops/roadmap-service` of `k8s/devops/roadmap-service/ingress.yaml` and `k8s/ingress/ingress-routes.yaml`; verify with `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_stack.py tests/test_k8s_argocd_apps.py tests/test_k8s_networking.py`
 - [x] 2.3 Give the rate limit in the subsection Webhook route and the Middleware in the folder tree of `k8s/README.md`; verify with `uv run devops docs check`
+- [x] 2.4 Write the failing tests `test_the_folder_tree_of_the_readme_lists_each_file_of_the_roadmap_service` and `test_the_webhook_route_section_counts_the_429_answers_of_the_rate_limit` in `tests/test_k8s_roadmap_service.py`, and see them fail with `uv run devops ci test tests/test_k8s_roadmap_service.py`
+- [x] 2.5 List `middleware.yaml` in the folder tree of `k8s/README.md`, and count the answers of the route in the subsection Webhook route with `traefik_router_requests_total`, which includes each 429 of the rate limit; verify with `uv run devops ci test tests/test_k8s_roadmap_service.py`
 
 ## 3. A burst of rejected webhook deliveries warns
 
 - [x] 3.1 Write the failing tests `test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes` and the promtool unit tests in `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`, run the selector, README and promtool tests over both groups, add the deliveries counter to `SERVED_SERIES` and the alert to the baseline, and see them fail with `uv run devops ci test tests/test_k8s_monitoring_alerting.py`
 - [x] 3.2 Add the rule group `roadmap-service-webhooks` with `RoadmapServiceWebhooksRejected` to `k8s/monitoring/prometheus-values.yaml`; verify with `uv run devops ci test tests/test_k8s_monitoring_alerting.py` with the pinned promtool on `PATH`
 - [x] 3.3 Name the alert in Alerts of Roadmap service and in the alert table of `k8s/README.md`, and say in step 8 how to check the hooks and that each hook sends the Issues event only; verify with `uv run devops ci test tests/test_k8s_monitoring_alerting.py` and `uv run devops docs check`
+- [x] 3.4 Add a promtool case in which a label set that counted before is quiet for 40 minutes and then rejects one delivery, and say in the comment of the group that the scrape reads the counter each minute; verify with `uv run devops ci test tests/test_k8s_monitoring_alerting.py` with the pinned promtool on `PATH`
 
 ## Workflow follow-up
 

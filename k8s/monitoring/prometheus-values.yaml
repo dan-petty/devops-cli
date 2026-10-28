@@ -738,7 +738,10 @@ serverFiles:
       # delivery ID. A forged delivery counts under the event that it names, or under "other", so a
       # flood can start a new label set. A new label set has no zero sample, so the count of the 15
       # minutes reads a series with no sample in the 15 minutes before as new, and gives its last
-      # value (#2505). Each other series gives its increase().
+      # value (#2505). Each other series gives its increase(). The Service serves this counter only
+      # on its /metrics, not through OTLP, and the scrape reads it each minute. So a label set that
+      # counted before has a sample in each minute while its pod runs, and only a new label set, or
+      # the label set of a new pod, has no sample in the 15 minutes before.
       - name: roadmap-service-webhooks
         rules:
           - alert: RoadmapServiceWebhooksRejected
