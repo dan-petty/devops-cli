@@ -8,13 +8,13 @@ Measured on origin/main 1244cbfd:
 
 - `security/base.py` imported `unittest.mock.NonCallableMock`. `_is_mocked` and `_patched_run_subprocess` searched `sys.modules` for a patched `is_dry_run`, `check_binary` or `run_subprocess`. `BaseSecurityScanner._is_dry_run`, `_check_binary` and `_run_tool` then called the patched function in place of the real one, and `_check_binary` said a program was installed whenever a test had patched `run_subprocess`.
 - Seven scanner modules re-imported `run_subprocess` or `is_dry_run` with `# noqa: F401` only to be patch targets, and `tflint.py` re-imported `shutil` the same way: `bandit`, `gitleaks`, `kubelinter`, `pluto`, `popeye`, `semgrep` and `tflint`.
-- 63 patch sites in 12 test files relied on that: 62 patched `run_subprocess`, `is_dry_run`, `check_binary` or `shutil` on `security.base` or on one of the seven modules, and one patched `zizmor.run_subprocess`, which `_patched_run_subprocess` also found.
+- 64 patch sites in 12 test files relied on that: 62 patched `run_subprocess`, `is_dry_run`, `check_binary` or `shutil` on `security.base` or on one of the seven modules. One patched `zizmor.run_subprocess`, which `_patched_run_subprocess` also found, and one patched `golangci_lint.check_binary`, which `_is_mocked` found in the scanner's own module.
 
 ## What Changes
 
 - `security/base.py` loses the `NonCallableMock` import, `_is_mocked`, `_patched_run_subprocess` and the mock-aware branches. `_is_dry_run` asks `dry_run.state.is_dry_run()`, `_check_binary` asks `check_binary()`, and `_run_tool` always starts the tool through the scanner's tool executor.
 - The `# noqa: F401` re-imports in the seven scanner modules are deleted.
-- The 63 patch sites move onto the merged fakes:
+- The 64 patch sites move onto the merged fakes:
   - `scanner_fake` (#1666) answers each tool run and puts the program on PATH. A test that ran a scanner with a patched `run_subprocess` scripts the tool's answer instead.
   - A missing program is a PATH that does not hold it.
   - Dry-run mode is set through `set_dry_run`, which the suite resets after each test.
