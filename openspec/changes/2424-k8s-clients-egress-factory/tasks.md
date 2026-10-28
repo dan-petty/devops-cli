@@ -27,7 +27,7 @@
 
 ## 6. Documentation
 
-- [x] Name the moved clients in `README.md`, `SECURITY.md` and `docs/KNOWN_ISSUES.md`
+- [x] Name the moved clients in `README.md`, `SECURITY.md` and `docs/KNOWN_ISSUES.md`, and name the `devops config init` wizard, which part 5 changes, as the exception to their loopback rule
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 7. Archive
