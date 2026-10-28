@@ -1,11 +1,12 @@
-# NVIDIA DCGM exporter Helm values: utilisation, memory, power and temperature of every GPU (#546).
+# NVIDIA DCGM exporter Helm values: utilisation, memory, power, power limit, temperature, clock
+# events and PCIe throughput of every GPU (#546, #821).
 # Chart: nvidia-dcgm/dcgm-exporter
 # Repo:  https://nvidia.github.io/dcgm-exporter/helm-charts
 #
 # DCGM supports Maxwell and newer GeForce and Quadro GPUs and Kepler and newer datacenter GPUs.
 # Datacenter GPUs (such as Tesla PG500-216) require the SYS_ADMIN capability to access hardware
-# performance counters without failing host engine checks. Which fields a card reports varies;
-# the dashboards use device fields supported across cards.
+# performance counters without failing host engine checks. Which fields a card reports varies:
+# the profiling (DCGM_FI_PROF_*) fields come only from cards with DCGM profiling support.
 
 image:
   tag: 4.6.1-4.8.4-distroless
@@ -32,9 +33,78 @@ securityContext:
     drop: ["ALL"]
     add: ["SYS_ADMIN"]
 
-arguments:
-  - "-f"
-  - "/etc/dcgm-exporter/dcp-metrics-included.csv"
+# The pod template carries the SHA-256 of customMetrics. The chart mounts the list with subPath,
+# so a running exporter never sees a new list, and its file watcher does not follow a ConfigMap
+# update. A changed checksum rolls the pods onto the new list (Helm's checksum/config pattern).
+# tests/test_stack_dashboards.py fails when the checksum does not match the list.
+podAnnotations:
+  checksum/counters: "f636a5dfff8c116f098785682de1789ee698a46ab69bbde4c79fed13963665a6"
+
+# The fields the exporter collects. The chart writes this list to its ConfigMap and mounts it at
+# /etc/dcgm-exporter/default-counters.csv, the file the exporter reads when no -f is given. It is
+# the image's dcp-metrics-included.csv (4.8.4) with two more fields: the enforced power limit and
+# the exporter's count of clock events by reason (#821). tests/test_stack_dashboards.py fails when
+# it stops asking for a family in tests/fixtures/metrics/dcgm-exporter.yaml.
+#
+# The *_VIOLATION throttle-time counters stay out. A Tesla PG500-216 returns a negative value for
+# some of them, and the exporter then serves no metric at all for that node.
+customMetrics: |
+  # DCGM FIELD, Prometheus metric type, help message
+
+  # Clocks
+  DCGM_FI_DEV_SM_CLOCK,  gauge, SM clock frequency (in MHz).
+  DCGM_FI_DEV_MEM_CLOCK, gauge, Memory clock frequency (in MHz).
+
+  # Clock events (throttle reasons): DCGM samples with each reason active in the last
+  # 5 minutes, one sample every 30 seconds.
+  DCGM_EXP_CLOCK_EVENTS_COUNT, gauge, Clock events observed during the configured time window.
+
+  # Temperature
+  DCGM_FI_DEV_MEMORY_TEMP, gauge, Memory temperature (in C).
+  DCGM_FI_DEV_GPU_TEMP,    gauge, GPU temperature (in C).
+
+  # Power
+  DCGM_FI_DEV_POWER_USAGE,              gauge, Power draw (in W).
+  DCGM_FI_DEV_ENFORCED_POWER_LIMIT,     gauge, Effective power limit enforced by the driver after all limiters (in W).
+  DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION, counter, Total energy consumption since the driver was last reloaded (in mJ).
+
+  # PCIe
+  DCGM_FI_DEV_PCIE_REPLAY_COUNTER, counter, Total number of PCIe retries.
+
+  # Utilization (the sample period varies depending on the product)
+  DCGM_FI_DEV_GPU_UTIL,      gauge, GPU utilization (in %).
+  DCGM_FI_DEV_MEM_COPY_UTIL, gauge, Memory utilization (in %).
+  DCGM_FI_DEV_ENC_UTIL,      gauge, Encoder utilization (in %).
+  DCGM_FI_DEV_DEC_UTIL,      gauge, Decoder utilization (in %).
+
+  # Errors
+  DCGM_FI_DEV_XID_ERRORS, gauge, Value of the last XID error encountered.
+
+  # Memory usage
+  DCGM_FI_DEV_FB_FREE,     gauge, Framebuffer memory free (in MiB).
+  DCGM_FI_DEV_FB_USED,     gauge, Framebuffer memory used (in MiB).
+  DCGM_FI_DEV_FB_RESERVED, gauge, Framebuffer memory reserved (in MiB).
+
+  # NVLink
+  DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL, gauge, Aggregate NVLink throughput across all lanes (in MB/s).
+
+  # vGPU license status
+  DCGM_FI_DEV_VGPU_LICENSE_STATUS, gauge, vGPU License status
+
+  # Remapped rows
+  DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS, counter, Number of remapped rows for uncorrectable errors
+  DCGM_FI_DEV_CORRECTABLE_REMAPPED_ROWS,   counter, Number of remapped rows for correctable errors
+  DCGM_FI_DEV_ROW_REMAP_FAILURE,           gauge,   Whether remapping of rows has failed
+
+  # Static configuration, a label on the other metrics
+  DCGM_FI_DRIVER_VERSION, label, Driver Version
+
+  # Profiling (DCP) fields
+  DCGM_FI_PROF_GR_ENGINE_ACTIVE,   gauge, Ratio of time the graphics engine is active.
+  DCGM_FI_PROF_PIPE_TENSOR_ACTIVE, gauge, Ratio of cycles the tensor (HMMA) pipe is active.
+  DCGM_FI_PROF_DRAM_ACTIVE,        gauge, Ratio of cycles the device memory interface is active sending or receiving data.
+  DCGM_FI_PROF_PCIE_TX_BYTES,      gauge, The rate of data transmitted over the PCIe bus - including both protocol headers and data payloads - in bytes per second.
+  DCGM_FI_PROF_PCIE_RX_BYTES,      gauge, The rate of data received over the PCIe bus - including both protocol headers and data payloads - in bytes per second.
 
 # RSS about 420-430 MiB with 2 GPUs per node, 2026-10.
 resources:

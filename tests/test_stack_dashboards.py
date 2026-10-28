@@ -15,6 +15,8 @@ The checks read files only.
 from __future__ import annotations
 
 import copy
+import csv
+import hashlib
 import json
 import re
 from collections.abc import Callable
@@ -498,7 +500,7 @@ def test_a_series_or_label_a_classic_histogram_or_summary_never_serves_fails(
 
 # The panels that draw a limit as a threshold line, by dashboard.
 LIMIT_LINES = {
-    "llm-stack.json": ["GPU Memory Utilization (%)"],
+    "llm-stack.json": ["GPU Memory Utilization (%)", "GPU Power against Enforced Limit (%)"],
     "otel-collector.json": [
         "Exporter Queue Fill",
         "Process Memory against the memory_limiter Limit",
@@ -642,6 +644,121 @@ def test_llm_stack_dashboard_shows_latency_per_output_token_beside_time_to_first
         (first_token["gridPos"]["y"], first_token["gridPos"]["x"] + first_token["gridPos"]["w"]),
         True,
     )
+
+
+def _row_panels(dashboard: dict[str, Any], title: str) -> list[dict[str, Any]]:
+    """The panels between the row `title` and the next row, by position."""
+    rows = sorted(p["gridPos"]["y"] for p in dashboard["panels"] if p.get("type") == "row")
+    top = next(
+        p["gridPos"]["y"]
+        for p in dashboard["panels"]
+        if p.get("type") == "row" and p["title"] == title
+    )
+    bottom = next((y for y in rows if y > top), float("inf"))
+    return [
+        p for p in _panels(dashboard) if p.get("type") != "row" and top < p["gridPos"]["y"] < bottom
+    ]
+
+
+def test_llm_stack_gpu_row_charts_clock_events_power_limit_and_pcie() -> None:
+    """Verify the GPU row of `llm-stack.json` charts the clock-event reasons, the power draw against
+    the enforced power limit and the PCIe throughput of each GPU over captured DCGM fields, and each
+    panel says what it measures and which cards do not report it (#821)."""
+    dcgm_series, _ = _capture("dcgm-exporter")
+    panels = {p["title"]: p for p in _row_panels(_dashboard("llm-stack.json"), "GPUs")}
+    titles = [
+        "GPU Clock Event Reasons (Samples in 5 Minutes)",
+        "GPU Power against Enforced Limit (%)",
+        "GPU PCIe Throughput",
+    ]
+    found = [
+        panels.get(title, {"targets": [], "fieldConfig": {"defaults": {}}}) for title in titles
+    ]
+
+    assert [
+        (
+            sorted({s.metric or "" for t in p["targets"] for s in selectors(t["expr"])}),
+            all(s.metric in dcgm_series for t in p["targets"] for s in selectors(t["expr"])),
+            p["fieldConfig"]["defaults"].get("unit"),
+            bool(p.get("description")),
+        )
+        for p in found
+    ] == [
+        (["DCGM_EXP_CLOCK_EVENTS_COUNT"], True, "short", True),
+        (["DCGM_FI_DEV_ENFORCED_POWER_LIMIT", "DCGM_FI_DEV_POWER_USAGE"], True, "percent", True),
+        (["DCGM_FI_PROF_PCIE_RX_BYTES", "DCGM_FI_PROF_PCIE_TX_BYTES"], True, "Bps", True),
+    ]
+
+
+def test_the_clock_event_panel_charts_each_reason_but_idle() -> None:
+    """Verify the clock-event panel keeps one line per GPU and reason, and leaves out `gpu_idle`,
+    which is the normal state of an idle GPU and not a slowdown (#821)."""
+    panels = {p["title"]: p for p in _row_panels(_dashboard("llm-stack.json"), "GPUs")}
+    targets = panels.get("GPU Clock Event Reasons (Samples in 5 Minutes)", {"targets": []})[
+        "targets"
+    ]
+
+    assert [
+        (grouping_labels(t["expr"]), [sorted(s.labels) for s in selectors(t["expr"])], t["expr"])
+        for t in targets
+    ] == [
+        (
+            frozenset({"hostname", "gpu", "modelName", "clock_event"}),
+            [["clock_event"]],
+            'max by (hostname, gpu, modelName, clock_event) (DCGM_EXP_CLOCK_EVENTS_COUNT{clock_event!="gpu_idle"})',
+        )
+    ]
+
+
+def _counter_list(text: str) -> dict[str, str]:
+    """The DCGM fields a dcgm-exporter counter list asks for, each with its Prometheus type."""
+    rows = csv.reader(text.splitlines(), skipinitialspace=True)
+    return {row[0].strip(): row[1].strip() for row in rows if row and not row[0].startswith("#")}
+
+
+def _families_not_asked_for(
+    fields: dict[str, str], families: dict[str, Any]
+) -> dict[str, str | None]:
+    """The captured families a counter list does not ask for with the captured type, each with
+    the type the list gives it, or None when the list does not name it."""
+    return {
+        name: fields.get(name)
+        for name, family in families.items()
+        if fields.get(name) != family["type"]
+    }
+
+
+def test_the_exporter_reads_a_counter_list_that_asks_for_every_captured_family() -> None:
+    """Verify the exporter reads the chart's counter list from `customMetrics`, that the list asks
+    for every family the capture holds, with the type the capture printed, so a dashboard checked
+    against the capture reads a field the exporter collects, and that the pod template carries the
+    list's checksum, so a changed list rolls the pods (#821)."""
+    values = _yaml(K8S / "monitoring" / "dcgm-exporter-values.yaml")
+    counters = values.get("customMetrics", "")
+    families = _yaml(CAPTURES / "dcgm-exporter.yaml")["families"]
+
+    assert (
+        values.get("arguments", []),
+        _families_not_asked_for(_counter_list(counters), families),
+        values.get("podAnnotations", {}).get("checksum/counters"),
+    ) == ([], {}, hashlib.sha256(counters.encode()).hexdigest())
+
+
+def test_a_counter_list_without_a_captured_family_fails() -> None:
+    """Verify a counter list that drops a captured family, or names it with another type, fails."""
+    families = _yaml(CAPTURES / "dcgm-exporter.yaml")["families"]
+    fields = _counter_list(
+        "# Format\n"
+        "DCGM_FI_DEV_GPU_UTIL, gauge, GPU utilization (in %).\n"
+        "DCGM_FI_DEV_PCIE_REPLAY_COUNTER, gauge, Total number of PCIe retries.\n"
+    )
+    wrong = _families_not_asked_for(fields, families)
+
+    assert (
+        "DCGM_FI_DEV_GPU_UTIL" in wrong,
+        wrong.get("DCGM_FI_DEV_PCIE_REPLAY_COUNTER"),
+        wrong.get("DCGM_EXP_CLOCK_EVENTS_COUNT", "missing"),
+    ) == (False, "gauge", None)
 
 
 def test_coredns_dashboard_covers_requests_responses_latency_cache_and_forward() -> None:
