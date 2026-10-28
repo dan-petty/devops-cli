@@ -303,10 +303,7 @@ def test_the_proxy_refuses_every_method_that_writes_and_every_path_past_the_api_
     )
 
 
-@pytest.mark.parametrize(
-    ("context", "expected_context", "expected_namespace"),
-    [(None, "example", "apps"), ("other", "other", "tools")],
-)
+@pytest.mark.parametrize(("context", "expected_context"), [(None, "example"), ("other", "other")])
 def test_the_relay_kubeconfig_names_the_loopback_port_and_the_context_with_no_credentials(
     tree: Path,
     bwrap: Path,
@@ -314,11 +311,11 @@ def test_the_relay_kubeconfig_names_the_loopback_port_and_the_context_with_no_cr
     process_fake: ProcessFake,
     context: str | None,
     expected_context: str,
-    expected_namespace: str,
 ) -> None:
     """During the run, the kubeconfig of the sandbox names the relay on the loopback port and the
-    context of the request, else the active context, with its namespace and no credentials. The
-    proxy gets the same context. After the run, the scratch directory does not exist."""
+    context of the request, else the active context, with no credentials. It names no namespace:
+    Popeye gets `-n <namespace>` or `-A`, so the namespace of the context has no effect (#2436).
+    The proxy gets the same context. After the run, the scratch directory does not exist."""
     seen: dict[str, Any] = {}
 
     def read_kubeconfig(call: ProcessCall) -> subprocess.CompletedProcess[str]:
@@ -344,11 +341,7 @@ def test_the_relay_kubeconfig_names_the_loopback_port_and_the_context_with_no_cr
             "contexts": [
                 {
                     "name": expected_context,
-                    "context": {
-                        "cluster": expected_context,
-                        "user": expected_context,
-                        "namespace": expected_namespace,
-                    },
+                    "context": {"cluster": expected_context, "user": expected_context},
                 }
             ],
             "users": [{"name": expected_context, "user": {}}],

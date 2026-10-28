@@ -21,5 +21,4 @@
 
 ## Workflow follow-up
 
-- A Popeye scan with no namespace scans only the namespace of the context, but `build_popeye_cmd` says "every namespace": #2421.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

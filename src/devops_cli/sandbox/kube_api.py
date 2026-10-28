@@ -12,10 +12,10 @@ of programs that already do this work:
   of util-linux ends it with the shell that started it.
 - `socat`, in the sandbox, on the loopback port `CONST_KUBE_API_RELAY_PORT`. It relays each
   connection to the socket, which the sandbox sees in the read-only bind of the scratch directory.
-- A kubeconfig in the scratch directory that names the relay, the context and its namespace, and no
-  credentials. `kubectl config view --minify` reads the context and its namespace from the
-  kubeconfig of the user, as the proxy reads it. The tool reads the kubeconfig of the sandbox
-  through `KUBECONFIG`. The credentials of the user stay outside the sandbox.
+- A kubeconfig in the scratch directory that names the relay and the context, and no credentials.
+  `kubectl config view --minify` reads the name of the context from the kubeconfig of the user, as
+  the proxy reads it. The tool reads the kubeconfig of the sandbox through `KUBECONFIG`. The
+  credentials of the user stay outside the sandbox.
 
 Two shell scripts connect these programs (`CONST_KUBE_API_HOST_SCRIPT` outside the sandbox and
 `CONST_KUBE_API_SANDBOX_SCRIPT` in it). `SandboxToolExecutor` starts the whole run as one command
@@ -79,9 +79,8 @@ def kube_api_programs() -> KubeApiPrograms:
     return KubeApiPrograms(*(str(found[name]) for name in CONST_KUBE_API_PROGRAMS))
 
 
-def _user_context(kubectl: str, name: str | None) -> tuple[str, str | None]:
-    """The name and the namespace of the context `name` of the kubeconfig of the user, else of its
-    current context.
+def _user_context(kubectl: str, name: str | None) -> str:
+    """The name of the context `name` of the kubeconfig of the user, else of its current context.
 
     `kubectl config view --minify` reads the kubeconfig as `kubectl proxy` then reads it: the files
     that `KUBECONFIG` names, else `~/.kube/config`. Its output redacts the credentials. A kubeconfig
@@ -99,22 +98,22 @@ def _user_context(kubectl: str, name: str | None) -> tuple[str, str | None]:
         raise SandboxError(
             f"kubectl cannot read the context {name or 'current'} of the kubeconfig: {cause}"
         )
-    context = json.loads(done.stdout)["contexts"][0]
-    return context["name"], context["context"].get("namespace")
+    context_name: str = json.loads(done.stdout)["contexts"][0]["name"]
+    return context_name
 
 
-def _relay_kubeconfig(context: str, namespace: str | None) -> dict[str, Any]:
+def _relay_kubeconfig(context: str) -> dict[str, Any]:
     """A kubeconfig with one cluster, one context and one user, each named `context`. The cluster
-    is the relay in the sandbox, the context keeps `namespace`, and the user has no credentials."""
+    is the relay in the sandbox, and the user has no credentials. The context names no namespace:
+    Popeye gets `-n <namespace>` or `-A` (`build_popeye_cmd`), so a namespace has no effect."""
     server = str(
         httpx2.URL(scheme="http", host=CONST_KUBE_API_RELAY_HOST, port=CONST_KUBE_API_RELAY_PORT)
     )
-    scope = {"namespace": namespace} if namespace else {}
     return {
         "apiVersion": "v1",
         "kind": "Config",
         "clusters": [{"name": context, "cluster": {"server": server}}],
-        "contexts": [{"name": context, "context": {"cluster": context, "user": context, **scope}}],
+        "contexts": [{"name": context, "context": {"cluster": context, "user": context}}],
         "users": [{"name": context, "user": {}}],
         "current-context": context,
     }
@@ -198,10 +197,10 @@ def kube_api_relay(context: str | None) -> Iterator[KubeApiRelay]:
     user does not have raises `SandboxError`. Both come before the scratch directory exists.
     """
     programs = kube_api_programs()
-    name, namespace = _user_context(programs.kubectl, context)
+    name = _user_context(programs.kubectl, context)
     with tempfile.TemporaryDirectory(prefix=CONST_KUBE_API_SCRATCH_PREFIX) as scratch:
         relay = KubeApiRelay(programs=programs, context=name, directory=Path(scratch))
-        relay.kubeconfig.write_text(json.dumps(_relay_kubeconfig(name, namespace)), "utf-8")
+        relay.kubeconfig.write_text(json.dumps(_relay_kubeconfig(name)), "utf-8")
         yield relay
 
 

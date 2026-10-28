@@ -90,8 +90,8 @@ def test_k8s_audit_runs_popeye_in_the_sandbox_with_the_kube_api_profile(
     cli: Any, cluster: ProcessFake
 ) -> None:
     """The audit starts `kubectl proxy` for the current context outside bubblewrap, and Popeye in
-    bubblewrap with no network of its own, from an empty directory that does not stay. It shows
-    the findings of Popeye and exits 0."""
+    bubblewrap with no network of its own, over every namespace (`-A`), from an empty directory
+    that does not stay. It shows the findings of Popeye and exits 0."""
     result = cli("k8s", "audit")
 
     runs = [call for call in cluster.calls if _is_kube_api_run(call)]
@@ -102,7 +102,7 @@ def test_k8s_audit_runs_popeye_in_the_sandbox_with_the_kube_api_profile(
         argv[7],
         "--unshare-all" in argv[bwrap:],
         "--share-net" in argv,
-        argv[-5:],
+        argv[-6:],
         argv[argv.index("--chdir") + 1] == str(cwd),
         cwd is not None and cwd.exists(),
         "[POP-500] Zero scale detected" in result.output,
@@ -111,7 +111,7 @@ def test_k8s_audit_runs_popeye_in_the_sandbox_with_the_kube_api_profile(
         "example",
         True,
         False,
-        (shutil.which("popeye"), "-o", "json", "-l", "warn"),
+        (shutil.which("popeye"), "-o", "json", "-l", "warn", "-A"),
         True,
         False,
         True,

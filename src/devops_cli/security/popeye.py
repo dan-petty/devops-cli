@@ -128,8 +128,8 @@ class PopeyeScanner(BaseSecurityScanner):
 
 
 def run_popeye_scan(namespace: str | None = None, context: str | None = None) -> ScanOutcome:
-    """Run Popeye over `namespace`, else over the namespace of the context, of the context
-    `context`, else of the current context, and return the outcome of the scan.
+    """Run Popeye over `namespace`, else over every namespace, of the context `context`, else of
+    the current context, and return the outcome of the scan.
 
     Popeye reads the cluster, not a tree. It runs in the sandbox with the network profile
     `kube-api`, from a new empty directory: the sandbox shows the tool the directory that a scan

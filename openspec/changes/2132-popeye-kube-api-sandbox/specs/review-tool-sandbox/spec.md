@@ -40,11 +40,11 @@ The sandbox of a `kube-api` request SHALL keep `--unshare-all` with no `--share-
 - **THEN** bubblewrap runs with `--unshare-all` and no `--share-net`, binds the scratch directory read-only, and starts the sandbox script with `socat`, the socket and the port 8001, then `prlimit` and Popeye
 
 ### Requirement: A kube-api tool gets a kubeconfig with no credentials
-The tool of a `kube-api` request SHALL get `KUBECONFIG` set to a kubeconfig in the scratch directory that names `http://127.0.0.1:8001`, the name and the namespace of the context, and no credentials. The executor SHALL read the context and its namespace with `kubectl config view --minify`. The scratch directory SHALL not stay after the run. A context that the kubeconfig of the user does not have SHALL stop the run before the proxy, the sandbox or the tool starts.
+The tool of a `kube-api` request SHALL get `KUBECONFIG` set to a kubeconfig in the scratch directory that names `http://127.0.0.1:8001` and the name of the context, with no namespace and no credentials. The executor SHALL read the name of the context with `kubectl config view --minify`. The scratch directory SHALL not stay after the run. A context that the kubeconfig of the user does not have SHALL stop the run before the proxy, the sandbox or the tool starts.
 
 #### Scenario: The kubeconfig in the sandbox
 - **WHEN** the kubeconfig of the user has the active context `example` with the namespace `apps`, a cluster at `https://192.0.2.10:6443` and a user with a token
-- **THEN** during the run, the kubeconfig in the scratch directory names `http://127.0.0.1:8001`, the context `example` with the namespace `apps`, and a user with no field
+- **THEN** during the run, the kubeconfig in the scratch directory names `http://127.0.0.1:8001`, the context `example` with no namespace, and a user with no field
 - **AND** after the run, the scratch directory does not exist
 
 #### Scenario: A context that the kubeconfig does not have

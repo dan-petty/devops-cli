@@ -19,7 +19,7 @@ Goals:
 Non-Goals:
 
 - The context that `settings.k8s.context` names. Popeye uses the current context of the kubeconfig when its scan names none, as before. `resolve_context` of `src/devops_cli/k8s/context.py` is not in its path, and this change does not alter that.
-- The scope of a Popeye scan with no namespace. Popeye scans the namespace of the context, as before, and the kubeconfig of the sandbox copies that namespace. The code and the spec said "every namespace", and a follow-up issue decides the scope.
+- The scope of a Popeye scan. #2436 gives Popeye `-A` when a scan names no namespace, so Popeye scans every namespace, and `-n <namespace>` when a scan names one. This change keeps that command.
 - A column for the network in the Tool Runs table of `review.md`. A review runs no tool with a network, so each row would say `none`. The field is in `profile.json` and in the SARIF property bag, as each field of the record is.
 
 ## Decisions
@@ -65,7 +65,7 @@ In the sandbox, `sh -c <sandbox script>` starts the `socat` listener, waits for 
 
 ### 4. The kubeconfig of the sandbox
 
-The executor reads the context of the request, else the current context, with `kubectl config view --minify --output=json [--context=<name>]`, through `run_subprocess` as a local read. kubectl reads the kubeconfig as `kubectl proxy` then reads it: the files that `KUBECONFIG` names, else `~/.kube/config`. Its output redacts the credentials. The executor writes a JSON kubeconfig with one cluster, one context and one user, each with the name of the context. The cluster names `http://127.0.0.1:8001`. The user is empty. The context copies the namespace of the context of the user, because Popeye scans that namespace when it gets no `-n`. The proxy gets `--context=<name>`, so the proxy and the kubeconfig name the same context.
+The executor reads the context of the request, else the current context, with `kubectl config view --minify --output=json [--context=<name>]`, through `run_subprocess` as a local read. kubectl reads the kubeconfig as `kubectl proxy` then reads it: the files that `KUBECONFIG` names, else `~/.kube/config`. Its output redacts the credentials. The executor writes a JSON kubeconfig with one cluster, one context and one user, each with the name of the context. The cluster names `http://127.0.0.1:8001`. The user is empty. The context names no namespace: Popeye gets `-n <namespace>` or `-A` (#2436), so the namespace of a context has no effect on the scan. The proxy gets `--context=<name>`, so the proxy and the kubeconfig name the same context.
 
 A kubeconfig that kubectl cannot read, or that has no such context, raises `SandboxError` with the first line of the error of kubectl, and the scan fails with its message. The proxy, the sandbox and the tool do not start.
 
