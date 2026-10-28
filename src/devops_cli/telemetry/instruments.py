@@ -199,9 +199,13 @@ GITHUB_REQUESTS_TOTAL = Instrument(
     "devops_cli_github_requests_total",
     InstrumentKind.COUNTER,
     "1",
-    "GitHub requests the rate limiter paced, each attempt and retry once, by resource: the rate "
-    "limit resource the request spends, such as core, graphql or search. A gh command and a "
-    "request of the GitHub session both count",
+    "GitHub requests the rate limiter paced, each attempt and retry once, by resource, method, "
+    "repo and row. The resource is the rate limit resource the request spends, such as core, "
+    "graphql or search. The method is the HTTP method; a GraphQL request is a POST, and a gh "
+    "command other than gh api is a POST when it writes and a GET when it reads. The repo is the "
+    "repository of the roadmap Service worker that sent the request, one of service.repos, and "
+    "the row is the job row that sent it, such as metrics, intake or refine; each is other "
+    "outside a worker or a row. A gh command and a request of the GitHub session both count",
 )
 GITHUB_THROTTLE_WAIT = Instrument(
     "devops_cli_github_throttle_wait_seconds",
@@ -216,6 +220,23 @@ GITHUB_GRAPHQL_POINTS_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "GraphQL points that GitHub reported each answer cost in its rateLimit field",
+)
+FIRECRAWL_SEARCHES_TOTAL = Instrument(
+    "devops_cli_firecrawl_searches_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Firecrawl web searches, by result: ok, the HTTP status of a search that Firecrawl refused, "
+    "such as 402 when the account has no credits or 429 at its rate limit, or error for a search "
+    "that got no answer or a reply with no web results",
+)
+ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL = Instrument(
+    "devops_cli_roadmap_refine_comments_capped_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Refine comments that the cap on refine's comments on one item in 24 hours stopped: one "
+    "count for each newest comment on an item that the cap left with no answer. The item waits "
+    "on a person and takes no place under the round's limit. A later round that finds no newer "
+    "comment on the item does not count it again",
 )
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
@@ -414,6 +435,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
     GITHUB_GRAPHQL_POINTS_TOTAL,
+    FIRECRAWL_SEARCHES_TOTAL,
+    ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
@@ -494,6 +517,7 @@ __all__ = [
     "EMBEDDING_CACHE_LOOKUPS_TOTAL",
     "EMBEDDING_CACHE_SIZE",
     "FINDINGS_TOTAL",
+    "FIRECRAWL_SEARCHES_TOTAL",
     "GITHUB_GRAPHQL_POINTS_TOTAL",
     "GITHUB_REQUESTS_TOTAL",
     "GITHUB_THROTTLE_WAIT",
@@ -523,6 +547,7 @@ __all__ = [
     "RAG_QUERY_DURATION",
     "RAG_STOPS_TOTAL",
     "REVIEW_DURATION",
+    "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "SUBCOMMAND_DURATION",
     "SUBPROCESS_DURATION",
     "TELEMETRY_TESTS_TOTAL",

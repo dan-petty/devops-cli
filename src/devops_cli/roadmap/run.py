@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.defaults import (
@@ -60,6 +61,7 @@ from devops_cli.core.paths import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
+from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.intake import (
     IntakeApplied,
@@ -78,6 +80,7 @@ from devops_cli.server.service import (
     keep_state_record,
     read_state_record,
 )
+from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.intake_model import IntakeModel
@@ -609,7 +612,8 @@ class FailureLedger:
     failed on: a webhook trigger, or a change to an item the job reads. A poll alone brings no
     new input, so a failing job stops costing GitHub requests at every round. A success clears
     the job's record. With a `record`, the ledger is kept in that file at each change and read
-    back when the ledger is made, so a restart of the Service keeps it (#2474).
+    back when the ledger is made, so a restart of the Service keeps it (#2474). The Service's
+    /metrics shows each job that failed its limit of rounds in a row (#2475).
     """
 
     def __init__(
@@ -622,6 +626,8 @@ class FailureLedger:
         self._failed: dict[tuple[str, str], tuple[int, str]] = {
             (repo, job): (rounds, failed_on) for repo, job, rounds, failed_on in kept
         }
+        for repo, job in self._failed:
+            self._report_locked(repo, job)
 
     @property
     def limit(self) -> int:
@@ -642,6 +648,7 @@ class FailureLedger:
             rounds = rounds + 1 if failed_on == current or rounds < self._limit else 1
             self._failed[(repo, job)] = (rounds, current)
             self._keep_locked()
+            self._report_locked(repo, job)
             return rounds
 
     def succeeded(self, repo: str, job: str) -> None:
@@ -649,6 +656,17 @@ class FailureLedger:
         with self._lock:
             if self._failed.pop((repo, job), None) is not None:
                 self._keep_locked()
+                self._report_locked(repo, job)
+
+    def _report_locked(self, repo: str, job: str) -> None:
+        """Show on the Service's /metrics whether `job` failed its limit of rounds in a row; the
+        caller holds the lock, or the ledger is still being made."""
+        rounds, _ = self._failed.get((repo, job), (0, None))
+        GLOBAL_METRICS.set_gauge(
+            CONST_SERVICE_METRIC_JOB_SUSPENDED,
+            1.0 if rounds >= self._limit else 0.0,
+            labels={"repo": repo, "row": job},
+        )
 
     def _keep_locked(self) -> None:
         """Write the ledger to its record, if it has one; the caller holds the lock."""
@@ -720,7 +738,8 @@ def _execute_due_rows(
     Each runner also gets the repository's data directory and the round's time. With the
     `failures` ledger, a job that failed its limit of rounds in a row on the same input does not
     run (#2161). A refusal of the identity ends the round at once: no later job sends a
-    request."""
+    request. Each row runs in the request scope of its name, so its GitHub requests count under
+    it (#2475)."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
     outcomes: dict[str, JobOutcome] = {}
@@ -746,15 +765,16 @@ def _execute_due_rows(
             if row.needs_clone and clone_path is None:
                 clone_path = ensure_checkout(repo, base_data, remote_url, clone_dirname)
 
-            outcome = row.runner(
-                store=store,
-                clone_path=clone_path,
-                changes=changes,
-                batch=active_batch,
-                repo=repo,
-                repo_dir=schedule_path.parent,
-                now=current_time,
-            )
+            with request_scope(row=row.name):
+                outcome = row.runner(
+                    store=store,
+                    clone_path=clone_path,
+                    changes=changes,
+                    batch=active_batch,
+                    repo=repo,
+                    repo_dir=schedule_path.parent,
+                    now=current_time,
+                )
             outcomes[row.name] = outcome or JobOutcome()
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)

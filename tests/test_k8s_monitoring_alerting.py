@@ -1,5 +1,5 @@
 """Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules
-and the roadmap Service's rules (#2472) and the rule of its webhook route (#2476).
+and the roadmap Service's rules (#2472, #2475) and the rule of its webhook route (#2476).
 
 The rules live in `k8s/monitoring/prometheus-values.yaml` (`serverFiles.alerting_rules.yml`).
 A rule over a series nothing in the stack serves never fires, so every expression may name
@@ -37,6 +37,7 @@ from devops_cli.config.defaults import DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR
 from devops_cli.prometheus.promql import selectors
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
+    FIRECRAWL_SEARCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
 )
@@ -57,16 +58,22 @@ ROADMAP_SERVICE_RULE_TESTS = FIXTURES / "prometheus_rules" / "roadmap_service_te
 ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_webhooks_tests.yaml"
 )
+ROADMAP_SERVICE_ACTIVITY_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "roadmap_service_activity_tests.yaml"
+)
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
 ROADMAP_SERVICE_GROUP = "roadmap-service"
 # The group of the Service's webhook route, apart from the Service's group (#2476).
 ROADMAP_SERVICE_WEBHOOKS_GROUP = "roadmap-service-webhooks"
+# The Service's writes, the deliveries of its own writes and its web search (#2475).
+ROADMAP_SERVICE_ACTIVITY_GROUP = "roadmap-service-activity"
 # Each group of the roadmap Service, with the promtool unit tests of its rules.
 ROADMAP_SERVICE_GROUP_TESTS = (
     (ROADMAP_SERVICE_GROUP, ROADMAP_SERVICE_RULE_TESTS),
     (ROADMAP_SERVICE_WEBHOOKS_GROUP, ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS),
+    (ROADMAP_SERVICE_ACTIVITY_GROUP, ROADMAP_SERVICE_ACTIVITY_RULE_TESTS),
 )
 ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
 
@@ -143,6 +150,7 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
         CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
+        FIRECRAWL_SEARCHES_TOTAL.name,
         GITHUB_REQUESTS_TOTAL.name,
         GITHUB_THROTTLE_WAIT.name,
     }
@@ -212,7 +220,7 @@ def test_every_alert_rule_selects_only_series_the_stack_serves() -> None:
 def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
-    the roadmap Service's rules (#2472) with the rule of its webhook route (#2476).
+    the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -254,13 +262,16 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
+        ("RoadmapServiceFirecrawlRefused", "warning"),
         ("RoadmapServiceGitHubRequestsHigh", "warning"),
         ("RoadmapServiceGitHubThrottled", "critical"),
+        ("RoadmapServiceGitHubWritesHigh", "warning"),
         ("RoadmapServiceIdentityRefused", "critical"),
         ("RoadmapServiceJobsFailing", "warning"),
         ("RoadmapServiceLaneStalled", "warning"),
         ("RoadmapServiceModelRequestsHigh", "warning"),
         ("RoadmapServiceRestarted", "warning"),
+        ("RoadmapServiceSelfDeliveriesHigh", "warning"),
         ("RoadmapServiceUnavailable", "warning"),
         ("RoadmapServiceWebhooksRejected", "warning"),
         ("TargetDown", "warning"),
@@ -842,6 +853,43 @@ ROADMAP_SERVICE_RULES = [
         "warning",
     ),
 ]
+# The rules of `roadmap-service-activity` (#2475), in file order, as `ROADMAP_SERVICE_RULES`.
+ROADMAP_SERVICE_ACTIVITY_RULES = [
+    (
+        "RoadmapServiceGitHubWritesHigh",
+        "sum( "
+        + _window_count(
+            'devops_cli_github_requests_total{job="roadmap-service", method!="GET", '
+            'resource!="graphql"}',
+            "1h",
+        )
+        + " ) > 300",
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceSelfDeliveriesHigh",
+        "sum( "
+        + _window_count(
+            'devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}',
+            "1h",
+        )
+        + " ) > 150",
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceFirecrawlRefused",
+        "sum by (result) ( "
+        + _window_count(
+            'devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}',
+            "1h",
+        )
+        + " ) > 0",
+        "0m",
+        "warning",
+    ),
+]
 # A series selector and the matchers in its braces.
 _SELECTOR_MATCHERS = re.compile(r"([A-Za-z_:][\w:]*)\{([^}]*)\}")
 
@@ -883,6 +931,17 @@ def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minute
             "warning",
         )
     ]
+
+
+def test_the_roadmap_service_activity_rules_watch_writes_own_deliveries_and_web_search() -> None:
+    """`roadmap-service-activity` warns at more than 300 GitHub writes of the Service in an hour,
+    more than 150 deliveries of its own writes in an hour, and any Firecrawl search refused for
+    credits (402) or its rate limit (429) (#2475). Each counts a series that starts in the hour
+    from zero (#2505)."""
+    assert [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in _group(ROADMAP_SERVICE_ACTIVITY_GROUP)
+    ] == ROADMAP_SERVICE_ACTIVITY_RULES
 
 
 @pytest.mark.parametrize("group", ROADMAP_SERVICE_GROUPS)
@@ -1005,7 +1064,7 @@ def test_each_roadmap_service_rule_fires_on_a_sample_and_stays_quiet_on_a_normal
     group: str, rule_tests: Path, tmp_path: Path
 ) -> None:
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472) and
-    of `roadmap-service-webhooks` (#2476).
+    of `roadmap-service-webhooks` (#2476) and `roadmap-service-activity` (#2475).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the same series of another job.

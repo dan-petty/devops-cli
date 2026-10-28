@@ -757,3 +757,54 @@ serverFiles:
             annotations:
               summary: 'The roadmap Service rejected {{ printf "%.0f" $value }} webhook deliveries in the last 15 minutes'
               description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
+      # What the roadmap Service writes, the deliveries of its own writes, and its paid web search
+      # (#2475): a burst of comments or label writes, an echo loop with another bot or workflow,
+      # and a Firecrawl account with no credits or at its rate limit. Each count of the last hour
+      # reads a series that starts in the hour as the group roadmap-service does (#2505).
+      - name: roadmap-service-activity
+        rules:
+          # GraphQL sends a read and a mutation alike as a POST, and the roadmap jobs write only
+          # through REST, so the rule counts the REST requests that are not a GET.
+          - alert: RoadmapServiceGitHubWritesHigh
+            expr: >-
+              sum(
+              (last_over_time(devops_cli_github_requests_total{job="roadmap-service", method!="GET", resource!="graphql"}[1h])
+              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service", method!="GET", resource!="graphql"}[1h] offset 1h))
+              or increase(devops_cli_github_requests_total{job="roadmap-service", method!="GET", resource!="graphql"}[1h])
+              ) > 300
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The roadmap Service sent {{ printf "%.0f" $value }} GitHub writes in the last hour'
+              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (k8s/README.md, Roadmap service)."
+          # A delivery of the App bot's own write counts as outcome self. Each write of the Service
+          # can come back as one delivery, so many of them can be another bot or workflow that
+          # answers each write of the Service.
+          - alert: RoadmapServiceSelfDeliveriesHigh
+            expr: >-
+              sum(
+              (last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])
+              unless last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h] offset 1h))
+              or increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])
+              ) > 150
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The roadmap Service got {{ printf "%.0f" $value }} deliveries of its own writes in the last hour'
+              description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (k8s/README.md, Roadmap service)."
+          # Firecrawl answers 402 when the account has no credits and 429 at its rate limit.
+          - alert: RoadmapServiceFirecrawlRefused
+            expr: >-
+              sum by (result) (
+              (last_over_time(devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}[1h])
+              unless last_over_time(devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}[1h] offset 1h))
+              or increase(devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}[1h])
+              ) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'Firecrawl refused web searches of the roadmap Service with HTTP {{ $labels.result }} in the last hour'
+              description: "Firecrawl refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."

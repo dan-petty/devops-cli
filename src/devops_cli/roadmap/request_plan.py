@@ -248,7 +248,9 @@ def refine_requests(
     them. Each item's comments are read for the replies since refine's last comment, and each
     open item a blocked item waits on is read for its state (#1758). A round without `--item`
     reads the newest commit of each path the block of a waiting item cites, when no reply ends
-    the wait first (#2005). Refine reads no repository file, so `ref` changes no request."""
+    the wait first (#2005). A round records on each item that the cap on refine's comments
+    leaves alone the time of its newest comment, once for each such comment (#2475). Refine
+    reads no repository file, so `ref` changes no request."""
     del ref
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -299,7 +301,8 @@ def refine_requests(
                     *within(store.comment(target_item), cond["posted"]),
                 ],
                 repeat=each_candidate,
-            )
+            ),
+            *within(store.set_marks(target_item), cond["capped"], repeat=each_candidate),
         ]
 
     return tuple(reads), tuple(writes)

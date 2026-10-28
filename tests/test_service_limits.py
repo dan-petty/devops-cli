@@ -1,7 +1,8 @@
 """What stops the roadmap Service's GitHub requests: a refused identity, a spent hourly budget, a
 job that fails every round (#2161), and a rate limit that one worker meets (#2474). A restart
 keeps the halt, the budget window and the failure ledger, which the Service keeps on its volume
-(#2474).
+(#2474). The Service's /metrics shows the budget, each hold and each suspended job, and each
+GitHub request names the worker's repository and the job row that sent it (#2475).
 
 The jobs and the request counter are the process edges the tests replace; the engine, the
 budget and the ledger are real, and the volume is a directory under `tmp_path`. A job that sends
@@ -26,13 +27,18 @@ from devops_cli.config.constants import (
     CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_BUDGET_WINDOW_SECONDS,
     CONST_SERVICE_FAILURES_FILENAME,
+    CONST_SERVICE_METRIC_BUDGET_HOLDS,
+    CONST_SERVICE_METRIC_BUDGET_LIMIT,
+    CONST_SERVICE_METRIC_BUDGET_SPENT,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED,
 )
 from devops_cli.config.defaults import DEFAULT_GH_MAX_RETRIES, DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github import rate_limiter, session_transport
+from devops_cli.github.request_scope import request_labels
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -574,7 +580,9 @@ def test_a_restart_keeps_the_halt_the_budget_window_and_the_failure_ledger(
         _refusal_metric(),
         restarted.budget.spent(),
         len(calls),
-    ) == (True, 1, 60, DEFAULT_SERVICE_MAX_FAILED_ROUNDS)
+        _gauge(CONST_SERVICE_METRIC_BUDGET_SPENT),
+        _suspended_metric(),
+    ) == (True, 1, 60, DEFAULT_SERVICE_MAX_FAILED_ROUNDS, 60, 1)
 
 
 @pytest.mark.parametrize(
@@ -600,3 +608,99 @@ def test_a_record_that_cannot_be_read_stops_the_start_and_names_the_file(
         start(volume)
 
     assert raised.value.details == {"path": str(volume / name)}
+
+
+# ── What the Service reports (#2475) ────────────────────────────────────────────────────────
+
+
+def _gauge(name: str, labels: dict[str, str] | None = None) -> float:
+    return GLOBAL_METRICS.get_gauge_value(name, labels=labels)
+
+
+def _suspended_metric() -> float:
+    return _gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, {"repo": REPO_A, "row": "intake"})
+
+
+def _budget_report() -> tuple[float, float, float]:
+    """The budget's limit and the requests of the window, as gauges, and the holds counted."""
+    return (
+        _gauge(CONST_SERVICE_METRIC_BUDGET_LIMIT),
+        _gauge(CONST_SERVICE_METRIC_BUDGET_SPENT),
+        GLOBAL_METRICS.get_counter_value(CONST_SERVICE_METRIC_BUDGET_HOLDS),
+    )
+
+
+def test_the_budget_reports_its_limit_the_requests_of_the_window_and_each_hold_once() -> None:
+    """The gauges follow the window as it slides, and a hold counts once when it begins, so a
+    held Service shows on /metrics and not only in its log."""
+    clock, requests = _Clock(), _Requests()
+    budget = RequestBudget(clock, 100, requests)
+    reports = [_budget_report()]
+
+    requests.count = 130
+    clock.now += timedelta(minutes=10)
+    budget.record_round()
+    budget.holds()
+    budget.holds()
+    reports.append(_budget_report())
+
+    clock.now = START + timedelta(seconds=CONST_SERVICE_BUDGET_WINDOW_SECONDS + 15 * 60)
+    budget.holds()
+    reports.append(_budget_report())
+
+    requests.count = 260
+    clock.now += timedelta(minutes=1)
+    budget.record_round()
+    budget.holds()
+    reports.append(_budget_report())
+
+    assert reports == [(100, 0, 0), (100, 130, 1), (100, 0, 1), (100, 130, 2)]
+
+
+def test_a_job_reports_its_suspension_until_new_input_or_a_success_ends_it() -> None:
+    """The gauge of a job is 1 once it failed its limit of rounds in a row, 0 when it fails on
+    new input, whose count starts again at 1, and 0 after a success."""
+    ledger = FailureLedger(limit=2)
+    seen: list[float] = []
+    for current in ("a", "a", "b", "b"):
+        ledger.failed(REPO_A, "intake", current)
+        seen.append(_suspended_metric())
+    ledger.succeeded(REPO_A, "intake")
+    seen.append(_suspended_metric())
+
+    assert seen == [0, 1, 0, 1, 0]
+
+
+def test_each_github_request_of_a_round_names_the_workers_repository_and_its_job_row(
+    tmp_path: Path,
+) -> None:
+    """A worker's round runs in the scope of its repository, one of `service.repos`, and each
+    job row in the scope of its row. A request outside a worker names neither (#2475)."""
+    seen: list[dict[str, str]] = []
+
+    def row(**_: Any) -> JobOutcome:
+        seen.append(request_labels())
+        return JobOutcome()
+
+    table = build_stub_table({"intake": row, "refine": row})
+
+    def lane(batch: TriggerBatch) -> None:
+        seen.append(request_labels())
+        run_due_jobs(batch.repo, InMemoryRoadmapStore(), batch, table=table, data_dir=tmp_path)
+
+    manager = _manager({"lane": lane}, clock=_Clock())
+    try:
+        manager.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
+        assert wait_until(lambda: len(seen) == 3)
+        assert manager.workers[(REPO_A, "lane")].wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    finally:
+        _stop(manager)
+
+    assert (seen, request_labels()) == (
+        [
+            {"repo": REPO_A, "row": "other"},
+            {"repo": REPO_A, "row": "intake"},
+            {"repo": REPO_A, "row": "refine"},
+        ],
+        {"repo": "other", "row": "other"},
+    )

@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_OUTCOME_IGNORED,
     CONST_SERVICE_OUTCOME_NO_SUBSCRIBER,
     CONST_SERVICE_OUTCOME_REJECTED,
+    CONST_SERVICE_OUTCOME_SELF,
     CONST_SERVICE_PING_EVENT,
     CONST_SERVICE_SOURCE_WEBHOOK,
     CONST_SERVICE_STATUS_OWN_WRITE,
@@ -46,6 +47,11 @@ if TYPE_CHECKING:
     from devops_cli.server.service import ServiceManager
 
 logger = logging.getLogger(__name__)
+
+# The outcome each refusal status counts as; any other refusal counts as ignored (#2475).
+_REFUSAL_OUTCOMES: Final[Mapping[str, str]] = {
+    CONST_SERVICE_STATUS_OWN_WRITE: CONST_SERVICE_OUTCOME_SELF,
+}
 
 
 class HmacSha256(BaseModel):
@@ -307,7 +313,8 @@ def _hand_to_consumers(
     delivery: _Delivery, payload: GitHubWebhookPayload, subscribed: Sequence[WebhookConsumer]
 ) -> _Reply:
     """Deliver the event to each subscribed consumer that takes this payload. When none does,
-    the answer is the first refusal's status."""
+    the answer is the first refusal's status, and the outcome is `self` for the App bot's own
+    write, else `ignored`."""
     verdicts = [(consumer, consumer.refusal(payload)) for consumer in subscribed]
     takers = [consumer for consumer, refusal in verdicts if refusal is None]
     refusals = [refusal for _consumer, refusal in verdicts if refusal is not None]
@@ -315,7 +322,8 @@ def _hand_to_consumers(
         consumer.deliver(payload.repository.full_name, delivery.event, payload.action or "")
     if takers:
         return _Reply(202, {"status": "accepted"}, CONST_SERVICE_OUTCOME_ACCEPTED)
-    return _acknowledged(refusals[0], CONST_SERVICE_OUTCOME_IGNORED)
+    first = refusals[0]
+    return _acknowledged(first, _REFUSAL_OUTCOMES.get(first, CONST_SERVICE_OUTCOME_IGNORED))
 
 
 def _route(
