@@ -20,7 +20,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1644-retire-adopted-helm-records`
 
 ## Workflow follow-up
