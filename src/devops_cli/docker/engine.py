@@ -234,7 +234,6 @@ def container_log_frames(
     own followed log has none.
     """
     from docker.errors import create_api_error_from_http_exception  # type: ignore[import-untyped]
-    from requests.exceptions import HTTPError
 
     api = client.api
     response = api.get(
@@ -251,7 +250,7 @@ def container_log_frames(
     )
     try:
         response.raise_for_status()
-    except HTTPError as exc:
+    except Exception as exc:  # the `requests` HTTPError of a refused reply, as the SDK reads it
         response.close()
         raise create_api_error_from_http_exception(exc) from exc
     return _log_frames(response, tty=bool(_section(container.attrs, "Config").get("Tty")))
@@ -259,7 +258,7 @@ def container_log_frames(
 
 def _log_frames(response: Any, *, tty: bool) -> Iterator[tuple[bytes | None, bytes | None]]:
     """The frames of a log reply; with a TTY, each chunk of the one raw stream is stdout."""
-    from docker.utils.socket import demux_adaptor  # type: ignore[import-untyped]
+    from docker.utils import socket as sdk_socket  # type: ignore[import-untyped]
 
     try:
         if tty:
@@ -269,7 +268,7 @@ def _log_frames(response: Any, *, tty: bool) -> Iterator[tuple[bytes | None, byt
         while header := response.raw.read(_LOG_FRAME_HEADER.size):
             stream, length = _LOG_FRAME_HEADER.unpack(header)
             if length:
-                yield demux_adaptor(stream, response.raw.read(length))
+                yield sdk_socket.demux_adaptor(stream, response.raw.read(length))
     finally:
         response.close()
 
@@ -383,7 +382,7 @@ class DockerEngineService:
     @classmethod
     def _gather_endpoint(cls) -> tuple[str, str, dict[str, Any]]:
         """Gather the endpoint from the first winning source in priority order."""
-        import docker.utils  # type: ignore[import-untyped]
+        import docker.utils
         from docker import ContextAPI
         from docker.context.api import get_current_context_name  # type: ignore[import-untyped]
 
