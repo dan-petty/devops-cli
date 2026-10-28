@@ -9,15 +9,15 @@
 
 ## 2. pr ready and pr monitor read the verdict
 
-- [ ] Add failing tests: the exit-code table of `pr ready` and `pr monitor`, the scripted monitor run that names the failed check and the thread, a missing priority label that only warns in `pr ready`, and a failed read that stops `pr ready`
+- [x] Add failing tests: the exit-code table of `pr ready` and `pr monitor`, the scripted monitor run that names the failed check and the thread, a missing priority label that only warns in `pr ready`, and a failed read that stops `pr ready`
   - Verification: `uv run devops ci test tests/commands/test_pr.py`
-- [ ] Make `fetch_pr_details` the one pull request read and delete `_fetch_pr_details` in `commands/pr.py`
+- [x] Make `fetch_pr_details` the one pull request read and delete `_fetch_pr_details` in `commands/pr.py`
   - Verification: `rg -n 'def _?fetch_pr_details' src`
-- [ ] Judge each monitor poll through the verdict and the review gate, wait while a check runs, and report every blocker; delete the monitor's own mergeable, draft, thread and check rules, `PRCheckRun`, and their tests
+- [x] Judge each monitor poll through the verdict and the review gate, wait while a check runs, and report every blocker; delete the monitor's own mergeable, draft, thread and check rules, `PRCheckRun`, and their tests
   - Verification: `uv run devops ci test tests/test_github_pr_monitor.py tests/commands/test_pr.py`
-- [ ] Map the verdict to `pr ready`'s exit codes; delete its check-verdict rendering and the readiness tests that patch `devops_cli.commands.pr.run_gh`
+- [x] Map the verdict to `pr ready`'s exit codes; delete its check-verdict rendering and the readiness tests that patch `devops_cli.commands.pr.run_gh`
   - Verification: `uv run devops ci test tests/test_pr_cmd.py tests/commands/test_pr.py`
-- [ ] Describe the new monitor behavior in the command help, and regenerate the documentation
+- [x] Describe the new monitor behavior in the command help, and regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme`
 
 ## 3. Archive

@@ -34,14 +34,20 @@ from devops_cli.github.defect_classifier import (
 )
 from devops_cli.github.error_classifier import is_gh_rate_limited
 from devops_cli.github.merge_readiness import (
+    CHECK_FAILURE_KINDS,
     AdvisoryLevel,
+    BlockerKind,
     MergeReadiness,
     ReadinessOptions,
     assess_merge_readiness,
 )
-from devops_cli.github.pr_monitor import sort_prs_oldest_first
+from devops_cli.github.pr_monitor import (
+    PRMonitorResult,
+    fetch_pr_details,
+    sort_prs_oldest_first,
+)
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.lang import ERRORS, HELP, MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -211,32 +217,33 @@ def list_prs(
 # =============================================================================
 
 
-def _fetch_pr_details(number: int, repo: str | None = None) -> dict[str, Any]:
-    """Fetch PR details via REST API (immune to GraphQL rate limit)."""
+def _split_target_repo(repo: str | None) -> tuple[str, str]:
+    """The owner and name of `repo`, or of the checkout's origin; empty when neither names one."""
     from devops_cli.core.repo import get_repo_origin_name
 
     target = repo or get_repo_origin_name()
     if not target or "/" not in target:
-        return {}
+        return "", ""
     owner, repo_name = target.split("/", 1)
-    res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{number}"],
-        check=False,
-        quiet=True,
-    )
-    if res.returncode == 0 and res.stdout.strip():
-        try:
-            parsed = json.loads(res.stdout)
-            if isinstance(parsed, dict):
-                return cast(dict[str, Any], parsed)
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    return owner, repo_name
+
+
+def _shown_pr(number: int, repo: str | None = None) -> dict[str, Any]:
+    """Pull request `number` as `fetch_pr_details` reads it, for the commands that show what they
+    can without it (`pr view`, `pr checks`, `pr update`): empty when it cannot be read."""
+    owner, repo_name = _split_target_repo(repo)
+    if not owner:
+        return {}
+    try:
+        return fetch_pr_details(owner, repo_name, number, runner=run_gh)
+    except GitHubOperationError as exc:
+        logger.debug("PR #%s could not be read: %s", number, exc)
+        return {}
 
 
 def _render_pr_view_fallback(number: int, repo: str | None = None) -> bool:
     """Render PR details via REST API when gh pr view fails or hits rate limits."""
-    pr = _fetch_pr_details(number, repo)
+    pr = _shown_pr(number, repo)
     if not pr:
         return False
     title = str(pr.get("title", ""))
@@ -269,7 +276,7 @@ def _render_pr_view_fallback(number: int, repo: str | None = None) -> bool:
 
 def _resolve_pr_head_sha(number: int, repo: str | None = None) -> str:
     """Retrieve the head commit SHA for a pull request."""
-    pr = _fetch_pr_details(number, repo)
+    pr = _shown_pr(number, repo)
     if not pr:
         return ""
     head_data = pr.get("head", {})
@@ -386,20 +393,13 @@ def pr_checks(
 # =============================================================================
 
 
-def _format_check_badge(check: Any) -> str:
-    """Format check status badge with color coding."""
-    if check.is_success:
-        return "[green]✓ Success[/green]"
-    if check.is_failure:
-        return f"[bold red]✗ {check.conclusion}[/bold red]"
-    return f"[yellow]● {check.status}[/yellow]"
-
-
 def _render_monitor_summary(status: Any) -> None:
     """Render structured checks summary table."""
     if not status.checks:
         return
-    rows = [[c.name, c.workflow or "-", _format_check_badge(c), c.url] for c in status.checks]
+    rows = [
+        [c.name, c.workflow or "-", _format_bucket_badge(c.bucket), c.link] for c in status.checks
+    ]
     print_table(
         title=f"CI Quality Gate Checks (PR #{status.number})",
         columns=["Check", "Workflow", "Status", "URL"],
@@ -426,42 +426,30 @@ def _render_unresolved_threads_summary(threads: list[Any]) -> None:
     )
 
 
-def _handle_monitor_exit(result: Any, pr_number: int) -> None:
-    """Handle non-zero exit states for devops pr monitor."""
-    if result.exit_code == 1:
-        print_error(
-            ERRORS.pr.checks_failed.format(
-                number=pr_number,
-                failed_count=len(result.status.failing_checks),
-            )
+def _handle_monitor_exit(result: PRMonitorResult, pr_number: int) -> None:
+    """Print every blocker the monitor found, with the hint for each kind, and exit with its
+    code: 1 for a failed or unread check, 2 for any other blocker, 3 on the timeout."""
+    status = result.status
+    if result.exit_code == 3:
+        print_error(result.message, safe=True)
+        raise typer.Exit(3)
+    for blocker in status.blockers:
+        print_error(blocker, prefix=False, safe=True)
+    if status.unresolved_threads:
+        _render_unresolved_threads_summary(status.unresolved_threads)
+        print_warning(
+            "Remediate issues with test-first fixes, reply in-thread via:\n"
+            '  devops pr threads reply <thread_id> "<reply>"\n'
+            "and resolve via:\n"
+            "  devops pr threads resolve <thread_id>"
         )
+    if status.checks_failed:
         print_warning("Inspect failed job logs via: gh run view --log-failed <run_id>")
-        raise typer.Exit(1)
-
-    if result.exit_code == 2:
-        if getattr(result.status, "is_draft", False):
-            print_warning(result.message)
-            raise typer.Exit(2)
-        if result.status.unresolved_threads:
-            print_error(
-                ERRORS.pr.unresolved_threads.format(
-                    number=pr_number,
-                    count=len(result.status.unresolved_threads),
-                )
-            )
-            _render_unresolved_threads_summary(result.status.unresolved_threads)
-            print_warning(
-                "Remediate issues with test-first fixes, reply in-thread via:\n"
-                '  devops pr threads reply <thread_id> "<reply>"\n'
-                "and resolve via:\n"
-                "  devops pr threads resolve <thread_id>"
-            )
-            raise typer.Exit(2)
-        print_error(result.message)
-        raise typer.Exit(2)
-
-    print_error(result.message)
-    raise typer.Exit(3)
+    elif status.is_draft:
+        print_warning(
+            f"PR #{pr_number} is still a draft. Mark it ready with 'devops pr ready {pr_number}'."
+        )
+    raise typer.Exit(result.exit_code)
 
 
 def _sanitize_threads_for_output(status_dict: dict[str, Any]) -> dict[str, Any]:
@@ -511,12 +499,7 @@ def _format_markdown_monitor_summary(result: Any, pr_number: int) -> str:
         "| :--- | :--- | :--- | :--- |",
     ]
     for c in result.status.checks:
-        badge = (
-            "✓ Success"
-            if c.is_success
-            else (f"✗ {c.conclusion}" if c.is_failure else f"● {c.status}")
-        )
-        md_lines.append(f"| {c.name} | {c.workflow or '-'} | {badge} | {c.url} |")
+        md_lines.append(f"| {c.name} | {c.workflow or '-'} | {c.bucket.value} | {c.link} |")
     if result.status.unresolved_threads:
         md_lines.extend(_format_markdown_threads_section(result.status.unresolved_threads))
     return "\n".join(md_lines)
@@ -609,7 +592,13 @@ def monitor_pr_command(
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
-    """Monitor PR checks, Copilot review sessions, and unresolved threads until ready."""
+    """Wait until the checks of a PR settle, then name every blocker of its merge.
+
+    While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
+    the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
+    approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
+    be read; 2: another blocker; 3: the timeout passed first.
+    """
     _require_gh_cli()
     from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.github.pr_monitor import monitor_pr
@@ -954,86 +943,50 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
     print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}", safe=True)
 
 
-def _extract_pr_head_sha(pr_data: dict[str, Any] | None) -> str:
-    """Extract git commit SHA from PR head data dictionary."""
-    if not pr_data:
-        return ""
-    head = pr_data.get("head")
-    return str(head.get("sha", "")) if isinstance(head, dict) else ""
-
-
-def _emit_ready_check_pending(number: int, verdict: Any) -> None:
-    """Emit pending check error and exit with code 8."""
-    from devops_cli.github.check_verdict import CheckBucket
-
-    pending = [item.name for item in verdict.items if item.bucket == CheckBucket.PENDING]
-    print_error(
-        f"Cannot mark PR #{number} as ready for review: {len(pending)} check(s) still pending: {', '.join(pending)}.",
-        safe=True,
-    )
-    print_info("Pass --force to override failing check verification.")
-    raise typer.Exit(8)
-
-
-def _emit_ready_check_failures(number: int, verdict: Any) -> None:
-    """Emit failing or unread check errors and exit with code 1."""
-    from devops_cli.github.check_verdict import CheckBucket
-
-    if verdict.fail_count > 0 or verdict.cancel_count > 0:
-        failing = [
-            f"{item.name} ({item.state or item.bucket.value})"
-            for item in verdict.items
-            if item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL)
-        ]
-        print_error(
-            f"Cannot mark PR #{number} as ready for review: {len(failing)} check(s) failed:",
-            safe=True,
-        )
-        for item in failing:
-            print_error(f"  ✗ {item}", prefix=False, safe=True)
+def _ready_check_blockers(number: int, verdict: MergeReadiness) -> None:
+    """Stop `pr ready` on the verdict's checks: exit 1 when one failed or could not be read, 8
+    while one runs."""
+    failed = [b for b in verdict.blocking if b.kind in CHECK_FAILURE_KINDS]
+    pending = [b for b in verdict.blocking if b.kind is BlockerKind.CHECKS_PENDING]
+    for blocker in failed or pending:
+        print_error(f"Cannot mark PR #{number} as ready for review: {blocker.text}", safe=True)
+    if failed or pending:
         print_info("Pass --force to override failing check verification.")
-        raise typer.Exit(1)
+        raise typer.Exit(1 if failed else 8)
 
-    reason = verdict.unread_reason or "unread check status"
-    print_error(
-        f"Cannot mark PR #{number} as ready for review: check verification failed closed: {reason}.",
-        safe=True,
+
+def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[str, Any]) -> None:
+    """Hold `pr ready` to the merge-readiness verdict's checks, and warn of each other blocker.
+
+    Ready for review says the work is done and its checks pass; the merge itself stays gated by
+    `check-readiness`, the required checks and a person. The pull request is a draft until this
+    command runs, so its draft state blocks nothing here.
+    """
+    verdict = assess_merge_readiness(
+        pr_data, owner, repo_name, number, options=ReadinessOptions(allow_draft=True)
     )
-    print_info("Pass --force to override failing check verification.")
-    raise typer.Exit(1)
+    _ready_check_blockers(number, verdict)
+    for blocker in verdict.blocking:
+        print_warning(f"Still blocks the merge: {blocker.text}")
 
 
-def _validate_pr_ready_checks(
-    number: int, repo: str | None, pr_data: dict[str, Any] | None
-) -> None:
-    """Ensure PR has no failing commit check runs prior to marking ready."""
-    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
-
-    sha = _extract_pr_head_sha(pr_data)
-    if not sha:
-        return
-    try:
-        verdict = fetch_pr_check_verdicts(number, repo=repo, head_sha=sha, runner=run_gh)
-    except Exception as exc:
-        print_error(
-            f"Failed fetching PR #{number} check verdicts: {exc}. Pass --force to override.",
-            safe=True,
-        )
-        raise typer.Exit(1) from exc
-
-    if verdict.is_passing:
-        return
-    if verdict.exit_code == 8:
-        _emit_ready_check_pending(number, verdict)
-    _emit_ready_check_failures(number, verdict)
-
-
-def _verify_pr_draft_transition(number: int, repo: str | None) -> None:
+def _verify_pr_draft_transition(number: int, owner: str, repo_name: str) -> None:
     """Verify that the pull request transitioned out of draft state."""
-    post_data = _fetch_pr_details(number, repo)
-    if not post_data or post_data.get("draft", True):
+    post_data = fetch_pr_details(owner, repo_name, number, runner=run_gh)
+    if post_data.get("draft", True):
         print_error(MESSAGES.pr.pr_still_draft_error.format(number=number))
         raise typer.Exit(1)
+
+
+def _read_pr_to_ready(number: int, owner: str, repo_name: str, force: bool) -> dict[str, Any]:
+    """Read the pull request `pr ready` marks; a failed read stops it unless `force` is given,
+    since a pull request it cannot read is no proof that its checks pass."""
+    try:
+        return fetch_pr_details(owner, repo_name, number, runner=run_gh)
+    except GitHubOperationError:
+        if not force:
+            raise
+        return {}
 
 
 @app.command("ready")
@@ -1054,9 +1007,17 @@ def ready_pr(
         ),
     ] = False,
 ) -> None:
-    """Mark a draft pull request as ready for review."""
+    """Mark a draft pull request as ready for review once its checks pass.
+
+    It exits 1 when a check failed or could not be read and 8 while one runs. Every other
+    blocker of the merge-readiness verdict prints as a warning. --force skips the checks.
+    """
     _require_gh_cli()
-    pr_data = _fetch_pr_details(number, repo)
+    owner, repo_name = _split_target_repo(repo)
+    if not owner:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+    pr_data = _read_pr_to_ready(number, owner, repo_name, force)
     if pr_data and not pr_data.get("draft", True):
         print_info(MESSAGES.pr.pr_already_ready.format(number=number))
         if monitor:
@@ -1064,7 +1025,7 @@ def ready_pr(
         return
 
     if not force:
-        _validate_pr_ready_checks(number, repo, pr_data)
+        _validate_pr_ready(number, owner, repo_name, pr_data)
 
     cmd = [CONST_GH_CLI, "pr", "ready", str(number)]
     if repo:
@@ -1074,7 +1035,7 @@ def ready_pr(
         _handle_pr_ready_failure(res.stderr, number)
         raise typer.Exit(1)
 
-    _verify_pr_draft_transition(number, repo)
+    _verify_pr_draft_transition(number, owner, repo_name)
     print_success(MESSAGES.pr.pr_marked_ready_success.format(number=number))
     if monitor:
         monitor_pr_command(number=number, repo=repo)
@@ -1182,8 +1143,8 @@ def _render_threads_table(threads: list[Any]) -> None:
     )
 
 
-def _resolve_readiness_target(repo: str | None, number: int | None) -> tuple[str, str, int, str]:
-    """Resolve repository owner, name, target PR number, and target repo string."""
+def _resolve_readiness_target(repo: str | None, number: int | None) -> tuple[str, str, int]:
+    """Resolve repository owner, name and target PR number."""
     from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.github.pr_monitor import resolve_branch_pr_number
 
@@ -1194,7 +1155,7 @@ def _resolve_readiness_target(repo: str | None, number: int | None) -> tuple[str
 
     owner, repo_name = target_repo.split("/", 1)
     pr_num = number or resolve_branch_pr_number(owner=owner, repo=repo_name)
-    return owner, repo_name, pr_num, target_repo
+    return owner, repo_name, pr_num
 
 
 def _check_pr_terminal_state(pr_data: dict[str, Any], pr_num: int) -> bool:
@@ -1299,11 +1260,8 @@ def check_readiness(
     writes for that issue's change. Only that archive writes openspec/specs/ and
     openspec/changes/archive/.
     """
-    owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
-    pr_data = _fetch_pr_details(pr_num, target_repo)
-    if not pr_data:
-        print_error(f"Unable to retrieve details for PR #{pr_num}.")
-        raise typer.Exit(1)
+    owner, repo_name, pr_num = _resolve_readiness_target(repo, number)
+    pr_data = fetch_pr_details(owner, repo_name, pr_num, runner=run_gh)
 
     if _check_pr_terminal_state(pr_data, pr_num):
         return
@@ -1383,7 +1341,7 @@ def _poll_head_sha_change(
     latest_pr: dict[str, Any] = {}
     for _ in range(DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS):
         time.sleep(DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS)
-        latest_pr = _fetch_pr_details(number, target_repo)
+        latest_pr = _shown_pr(number, target_repo)
         current_sha = latest_pr.get("head", {}).get("sha", "")
         if current_sha and current_sha != pre_sha:
             return latest_pr, True
@@ -1585,7 +1543,7 @@ def _update_single_pr(
         )
         return True, "dry-run"
 
-    pr = _fetch_pr_details(number, target_repo)
+    pr = _shown_pr(number, target_repo)
     base_ref = pr.get("base", {}).get("ref", "base")
     pre_sha = pr.get("head", {}).get("sha", "")
 

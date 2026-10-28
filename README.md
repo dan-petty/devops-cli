@@ -369,11 +369,11 @@ and excessive permissions fail it, and every other finding is shown. |
 | [**pr**](docs/commands/pr.md) | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
-|  | `devops pr wait [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
-|  | `devops pr monitor [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
+|  | `devops pr wait [OPTIONS] <number>` | Wait until the checks of a PR settle, then name every blocker of its merge. |
+|  | `devops pr monitor [OPTIONS] <number>` | Wait until the checks of a PR settle, then name every blocker of its merge. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, body, or milestone. |
 |  | `devops pr create [OPTIONS]` | Open a draft pull request, into the default branch unless --base names another. |
-|  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review. |
+|  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review once its checks pass. |
 |  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
 |  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |

@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any, NamedTuple, cast
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
     CONST_COPILOT_REVIEWER_LOGINS,
@@ -20,60 +20,20 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.check_verdict import CheckBucket, classify_check_item
-from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
+from devops_cli.github.check_verdict import CheckBucket, PRCheckItem
+from devops_cli.github.merge_readiness import (
+    CHECK_FAILURE_KINDS,
+    BlockerKind,
+    assess_merge_readiness,
+)
+from devops_cli.github.pr_threads import GhRun, ReviewThread
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
 
 logger = logging.getLogger(__name__)
 
-
-class PRCheckRun(BaseModel):
-    """Structured representation of a CI check run or status context."""
-
-    name: str
-    workflow: str = ""
-    status: str = "COMPLETED"
-    conclusion: str = "SUCCESS"
-    url: str = ""
-    bucket: CheckBucket = CheckBucket.PASS
-
-    @model_validator(mode="before")
-    @classmethod
-    def _resolve_bucket_field(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            if not data.get("bucket"):
-                raw_status = data.get("status")
-                raw_conclusion = data.get("conclusion")
-                st = raw_status if raw_status is not None else "COMPLETED"
-                conc = (
-                    raw_conclusion
-                    if raw_conclusion is not None
-                    else ("SUCCESS" if raw_status is None else "")
-                )
-                item = classify_check_item(
-                    name=str(data.get("name") or "Check"),
-                    status=st,
-                    conclusion=conc,
-                )
-                data["bucket"] = item.bucket
-        return data
-
-    @property
-    def is_completed(self) -> bool:
-        return self.bucket != CheckBucket.PENDING
-
-    @property
-    def is_success(self) -> bool:
-        return self.bucket in {CheckBucket.PASS, CheckBucket.SKIPPING}
-
-    @property
-    def is_failure(self) -> bool:
-        return self.bucket in {CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD}
-
-    @property
-    def is_pending(self) -> bool:
-        return self.bucket == CheckBucket.PENDING
+_PASSING_BUCKETS = frozenset({CheckBucket.PASS, CheckBucket.SKIPPING})
+_FAILING_BUCKETS = frozenset({CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD})
 
 
 class CopilotReviewStatus(BaseModel):
@@ -88,20 +48,27 @@ class CopilotReviewStatus(BaseModel):
 
 
 class PRMonitorStatus(BaseModel):
-    """Comprehensive snapshot of a PR's CI checks, reviews, and discussion threads."""
+    """One poll of a pull request: the verdict's checks and blockers, and the review gate's.
+
+    `blockers` holds every blocker, the merge-readiness verdict's and then the review gate's.
+    `checks_failed` is whether a check failed or could not be read, which the monitor exits 1 on.
+    """
 
     number: int
     title: str = ""
     head_sha: str = ""
     is_draft: bool = False
+    merged: bool = False
     mergeable: bool | None = None
     mergeable_state: str = "unknown"
     review_decision: str | None = None
     has_changes_requested: bool = False
-    checks: list[PRCheckRun] = Field(default_factory=list)
+    checks: list[PRCheckItem] = Field(default_factory=list)
+    pending_checks: list[str] = Field(default_factory=list)
     copilot_status: CopilotReviewStatus = Field(default_factory=CopilotReviewStatus)
     unresolved_threads: list[ReviewThread] = Field(default_factory=list)
-    failure_reasons: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    checks_failed: bool = False
     require_reviews: bool = True
 
     @property
@@ -110,54 +77,27 @@ class PRMonitorStatus(BaseModel):
 
     @property
     def completed_checks(self) -> int:
-        return sum(1 for c in self.checks if c.is_completed)
+        return sum(1 for c in self.checks if c.bucket != CheckBucket.PENDING)
 
     @property
     def successful_checks(self) -> int:
-        return sum(1 for c in self.checks if c.is_success)
+        return sum(1 for c in self.checks if c.bucket in _PASSING_BUCKETS)
 
     @property
-    def failing_checks(self) -> list[PRCheckRun]:
-        return [c for c in self.checks if c.is_failure]
+    def failing_checks(self) -> list[PRCheckItem]:
+        return [c for c in self.checks if c.bucket in _FAILING_BUCKETS]
 
     @property
-    def pending_checks(self) -> list[PRCheckRun]:
-        return [c for c in self.checks if c.is_pending]
-
-    @property
-    def all_checks_completed(self) -> bool:
-        return len(self.checks) > 0 and all(c.is_completed for c in self.checks)
-
-    @property
-    def all_checks_passed(self) -> bool:
-        return len(self.checks) > 0 and all(c.is_success for c in self.checks)
-
-    @property
-    def is_review_ready(self) -> bool:
-        """Evaluate if reviews and thread resolutions satisfy readiness."""
-        threads_ok = len(self.unresolved_threads) == 0
-        approval_ok = (self.review_decision == "APPROVED") if self.require_reviews else True
-        copilot_ok = (
-            not self.copilot_status.is_active
-            and self.copilot_status.state not in {"changes_requested", "unread"}
-            and not self.has_changes_requested
-        )
-        return threads_ok and approval_ok and copilot_ok
-
-    @property
-    def is_ready_for_merge(self) -> bool:
-        """Evaluate if PR is completely verified and ready for merge."""
-        draft_ok = not self.is_draft
-        checks_ok = self.all_checks_completed and self.all_checks_passed
-        merge_ok = self.mergeable is True and (self.mergeable_state or "").lower() == "clean"
-        return draft_ok and checks_ok and self.is_review_ready and merge_ok
+    def settled(self) -> bool:
+        """Whether no check runs and no Copilot review is active, so the blockers are final."""
+        return not self.pending_checks and not self.copilot_status.is_active
 
 
 class PRMonitorResult(BaseModel):
     """Final outcome of monitoring a pull request."""
 
     success: bool
-    exit_code: int  # 0: ready, 1: checks failed, 2: unresolved threads, 3: timeout
+    exit_code: int  # 0: ready, 1: a check failed or is unread, 2: another blocker, 3: timeout
     message: str
     status: PRMonitorStatus
 
@@ -471,33 +411,6 @@ def _copilot_review_status(
     )
 
 
-def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
-    """Fetch check runs and commit status contexts via GitHub REST API."""
-    from devops_cli.github.check_verdict import read_commit_checks
-
-    verdict = read_commit_checks(owner, repo, head_sha, runner=run_gh)
-    if verdict.unread_reason:
-        return [
-            PRCheckRun(
-                name="PR check verification failed closed",
-                status="COMPLETED",
-                conclusion=verdict.unread_reason,
-                bucket=CheckBucket.UNREAD,
-            )
-        ]
-    return [
-        PRCheckRun(
-            name=item.name,
-            workflow=item.workflow,
-            status="COMPLETED" if item.bucket != CheckBucket.PENDING else "IN_PROGRESS",
-            conclusion=item.state.upper() if item.bucket != CheckBucket.PENDING else "",
-            url=item.link,
-            bucket=item.bucket,
-        )
-        for item in verdict.items
-    ]
-
-
 class RawReviewsList(list[dict[str, Any]]):
     """List of review dictionaries carrying optional read error reason."""
 
@@ -508,9 +421,12 @@ class RawReviewsList(list[dict[str, Any]]):
         self.error = error
 
 
-def fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
-    """Query GitHub REST API for pull request core attributes."""
-    pr_proc = run_gh(pr_details_argv(owner, repo_name, pr_number), check=False, quiet=True)
+def fetch_pr_details(
+    owner: str, repo_name: str, pr_number: int, *, runner: GhRun = run_gh
+) -> dict[str, Any]:
+    """Read pull request `pr_number` through the REST API: the one read of a pull request that
+    every `devops pr` command makes, raising `GitHubOperationError` when GitHub cannot answer."""
+    pr_proc = runner(pr_details_argv(owner, repo_name, pr_number), check=False, quiet=True)
     if pr_proc.returncode != 0 or not pr_proc.stdout.strip():
         err = _extract_proc_error(pr_proc)
         raise GitHubOperationError(f"Failed to query PR #{pr_number}: {err}")
@@ -530,68 +446,6 @@ def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> RawReviews
         return RawReviewsList(list(get_github_session().paginate(reviews)), error="")
     except GitHubOperationError as exc:
         return RawReviewsList([], error=str(exc)[:CONST_MAX_ERROR_DETAIL_LENGTH])
-
-
-def _fetch_unresolved_threads(owner: str, repo_name: str, pr_number: int) -> list[ReviewThread]:
-    """Fetch unresolved review threads via GitHub GraphQL API, honoring rate limits."""
-    return list_pr_review_threads(owner, repo_name, pr_number, unresolved_only=True)
-
-
-def _resolve_merge_failure_reason(
-    mergeable: bool | None,
-    mergeable_state: str,
-    is_draft: bool,
-) -> str | None:
-    """Evaluate mergeability state and draft status into an actionable failure reason."""
-    if is_draft:
-        return "Pull request is currently a draft"
-    if mergeable is False or mergeable_state == "dirty":
-        return "Merge conflicts with base branch"
-    if mergeable_state == "blocked":
-        return "Blocked by branch protection or awaiting required review approval"
-    if mergeable_state == "behind":
-        return "Branch is behind target base branch"
-    if mergeable is not True:
-        return "Pull request mergeability is not yet determined by GitHub"
-    if mergeable_state != "clean":
-        return f"Mergeable state is '{mergeable_state}' (requires clean)"
-    return None
-
-
-def _build_failure_reasons(
-    checks: list[PRCheckRun],
-    unresolved_threads: list[ReviewThread],
-    copilot_status: CopilotReviewStatus,
-    has_changes_requested: bool,
-    mergeable: bool | None,
-    mergeable_state: str,
-    is_draft: bool,
-    require_reviews: bool = True,
-    review_decision: str | None = None,
-) -> list[str]:
-    """Compile structured list of failure reasons preventing merge."""
-    reasons: list[str] = []
-    unread = [c for c in checks if c.bucket == CheckBucket.UNREAD]
-    failing = [c for c in checks if c.is_failure]
-    if unread:
-        reasons.append(f"PR check verification failed closed: {unread[0].conclusion}")
-    elif failing:
-        reasons.append(f"{len(failing)} CI check(s) failed")
-    if unresolved_threads:
-        reasons.append(f"{len(unresolved_threads)} unresolved review thread(s)")
-    if copilot_status.state == "unread":
-        reasons.append(f"Copilot review state could not be read: {copilot_status.unread_reason}")
-    elif copilot_status.state == "changes_requested":
-        reasons.append(f"Copilot review: {copilot_status.message}")
-    elif has_changes_requested:
-        reasons.append("Reviewers requested changes on the pull request")
-    elif require_reviews and review_decision != "APPROVED":
-        reasons.append("Pull request requires approved review before merging")
-
-    merge_reason = _resolve_merge_failure_reason(mergeable, mergeable_state, is_draft)
-    if merge_reason:
-        reasons.append(merge_reason)
-    return reasons
 
 
 def _extract_latest_reviews_by_user(
@@ -632,164 +486,97 @@ def _resolve_review_decision(
     return "APPROVED" if has_approval else "REVIEW_REQUIRED"
 
 
-def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
-    """Return True if any reviewer's latest review state is CHANGES_REQUESTED."""
-    return _resolve_review_decision(raw_reviews) == "CHANGES_REQUESTED"
+def _review_blockers(
+    pr_number: int,
+    copilot_status: CopilotReviewStatus,
+    review_decision: str | None,
+    require_reviews: bool,
+) -> list[str]:
+    """The monitor's review gate: what Copilot's review and the reviewers' verdicts block.
+
+    `check-readiness` reads no review, so this gate is the monitor's own; the merge-readiness
+    verdict judges everything else.
+    """
+    blockers: list[str] = []
+    if copilot_status.state == "unread":
+        blockers.append(
+            f"PR #{pr_number} Copilot review state could not be read: "
+            f"{copilot_status.unread_reason}"
+        )
+    elif copilot_status.state == "changes_requested":
+        blockers.append(
+            f"PR #{pr_number} Copilot review requested changes: {copilot_status.message}."
+        )
+    if review_decision == "CHANGES_REQUESTED":
+        blockers.append(f"PR #{pr_number} has review changes requested.")
+    elif require_reviews and review_decision != "APPROVED":
+        blockers.append(
+            f"PR #{pr_number} requires review approval before merging: current review decision "
+            f"is '{review_decision or 'NONE'}'."
+        )
+    return blockers
 
 
 def get_pr_monitoring_status(
-    owner: str, repo: str, pr_number: int, require_reviews: bool = True
+    owner: str,
+    repo: str,
+    pr_number: int,
+    require_reviews: bool = True,
+    *,
+    runner: GhRun = run_gh,
 ) -> PRMonitorStatus:
-    """Fetch current CI checks, Copilot review status, and unresolved review threads."""
+    """Read pull request `pr_number` once, judge it through the merge-readiness verdict, and add
+    the review gate's blockers."""
     repo_name = repo.split("/")[-1]
-    pr_data = fetch_pr_details(owner, repo_name, pr_number)
+    pr_data = fetch_pr_details(owner, repo_name, pr_number, runner=runner)
     head_sha = str(pr_data.get("head", {}).get("sha", ""))
-    is_draft = bool(pr_data.get("draft", False))
-    mergeable = pr_data.get("mergeable")
-    mergeable_state = str(pr_data.get("mergeable_state") or "unknown").lower()
-
-    checks = _fetch_rest_check_runs(owner, repo_name, head_sha)
+    status = PRMonitorStatus(
+        number=pr_number,
+        title=str(pr_data.get("title", "")),
+        head_sha=head_sha,
+        is_draft=bool(pr_data.get("draft", False)),
+        merged=pr_data.get("merged") is True,
+        mergeable=pr_data.get("mergeable"),
+        mergeable_state=str(pr_data.get("mergeable_state") or "unknown").lower(),
+        require_reviews=require_reviews,
+    )
+    if status.merged:
+        return status
+    verdict = assess_merge_readiness(pr_data, owner, repo_name, pr_number, runner=runner)
+    threads_read = BlockerKind.THREADS_UNREAD not in verdict.kinds
     raw_reviews = _fetch_raw_reviews(owner, repo_name, pr_number)
-    unresolved_threads = _fetch_unresolved_threads(owner, repo_name, pr_number)
-    reviews_err = getattr(raw_reviews, "error", "")
     copilot_status = _detect_copilot_status(
         owner,
         repo_name,
         pr_number,
         raw_reviews,
-        unresolved_threads=unresolved_threads,
-        reviews_err=reviews_err,
+        unresolved_threads=list(verdict.threads_to_show) if threads_read else None,
+        reviews_err=raw_reviews.error,
     )
-
     review_decision = _resolve_review_decision(raw_reviews, head_sha=head_sha)
-    has_changes_requested = (
+    status.copilot_status = copilot_status
+    status.review_decision = review_decision
+    status.has_changes_requested = (
         copilot_status.state == "changes_requested" or review_decision == "CHANGES_REQUESTED"
     )
-    failure_reasons = _build_failure_reasons(
-        checks,
-        unresolved_threads,
-        copilot_status,
-        has_changes_requested,
-        mergeable,
-        mergeable_state,
-        is_draft,
-        require_reviews=require_reviews,
-        review_decision=review_decision,
-    )
-    return PRMonitorStatus(
-        number=pr_number,
-        title=str(pr_data.get("title", "")),
-        head_sha=head_sha,
-        is_draft=is_draft,
-        mergeable=mergeable,
-        mergeable_state=mergeable_state,
-        review_decision=review_decision,
-        has_changes_requested=has_changes_requested,
-        checks=checks,
-        copilot_status=copilot_status,
-        unresolved_threads=unresolved_threads,
-        failure_reasons=failure_reasons,
-        require_reviews=require_reviews,
-    )
+    status.checks = list(verdict.checks.items) if verdict.checks else []
+    status.pending_checks = list(verdict.pending_checks)
+    status.unresolved_threads = list(verdict.threads_to_show)
+    status.checks_failed = bool(verdict.kinds & CHECK_FAILURE_KINDS)
+    status.blockers = [
+        *verdict.blockers,
+        *_review_blockers(pr_number, copilot_status, review_decision, require_reviews),
+    ]
+    return status
 
 
-def _check_early_pr_failures(
-    latest_status: PRMonitorStatus, pr_number: int
-) -> PRMonitorResult | None:
-    """Check for immediate failure conditions such as failing CI or requested changes."""
-    if latest_status.failing_checks:
-        unread = [c for c in latest_status.failing_checks if c.bucket == CheckBucket.UNREAD]
-        if unread:
-            msg = f"PR #{pr_number} check verification failed closed: {unread[0].conclusion}"
-        else:
-            msg = (
-                f"PR #{pr_number} CI checks failed: {len(latest_status.failing_checks)} failure(s)."
-            )
+def _settled_result(status: PRMonitorStatus, pr_number: int) -> PRMonitorResult:
+    """The result once no check runs: ready, or every blocker the poll found."""
+    if status.merged:
         return PRMonitorResult(
-            success=False,
-            exit_code=1,
-            message=msg,
-            status=latest_status,
+            success=True, exit_code=0, message=f"PR #{pr_number} is merged.", status=status
         )
-    if (
-        latest_status.copilot_status.state == "changes_requested"
-        and not latest_status.copilot_status.is_active
-    ):
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=f"PR #{pr_number} Copilot review requested changes: {latest_status.copilot_status.message}",
-            status=latest_status,
-        )
-    if latest_status.has_changes_requested:
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=f"PR #{pr_number} has review changes requested.",
-            status=latest_status,
-        )
-    if latest_status.mergeable is False or latest_status.mergeable_state == "dirty":
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=f"PR #{pr_number} has merge conflicts with the base branch.",
-            status=latest_status,
-        )
-    return None
-
-
-def _evaluate_pr_settled_readiness(
-    latest_status: PRMonitorStatus, pr_number: int, require_reviews: bool
-) -> PRMonitorResult | None:
-    """Evaluate settled readiness, verifying draft, threads, and mergeable state."""
-    if latest_status.is_draft:
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=(
-                f"PR #{pr_number} is still a draft and its checks pass. Mark it ready with "
-                f"'devops pr ready {pr_number}'."
-            ),
-            status=latest_status,
-        )
-    if latest_status.unresolved_threads:
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=(
-                f"PR #{pr_number} has {len(latest_status.unresolved_threads)} unresolved "
-                "review discussion thread(s)."
-            ),
-            status=latest_status,
-        )
-    if latest_status.mergeable_state == "blocked":
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=(
-                f"PR #{pr_number} is blocked from merging by GitHub: "
-                "awaiting required review approval or branch protection requirements."
-            ),
-            status=latest_status,
-        )
-    if require_reviews and latest_status.review_decision != "APPROVED":
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=(
-                f"PR #{pr_number} requires review approval before merging: "
-                f"current review decision is '{latest_status.review_decision or 'NONE'}'."
-            ),
-            status=latest_status,
-        )
-    if latest_status.mergeable_state == "behind":
-        return PRMonitorResult(
-            success=False,
-            exit_code=2,
-            message=f"PR #{pr_number} branch is behind base branch: update branch before merging.",
-            status=latest_status,
-        )
-    if latest_status.is_ready_for_merge:
+    if not status.blockers:
         return PRMonitorResult(
             success=True,
             exit_code=0,
@@ -797,21 +584,25 @@ def _evaluate_pr_settled_readiness(
                 f"PR #{pr_number} is 100% READY FOR MERGING: all checks passed, "
                 "reviews complete, 0 unresolved threads."
             ),
-            status=latest_status,
+            status=status,
         )
-    return None
+    return PRMonitorResult(
+        success=False,
+        exit_code=1 if status.checks_failed else 2,
+        message=f"PR #{pr_number} has {len(status.blockers)} blocker(s): "
+        + " ".join(status.blockers),
+        status=status,
+    )
 
 
 def _build_monitor_timeout_result(
     latest_status: PRMonitorStatus, pr_number: int, elapsed: int
 ) -> PRMonitorResult:
-    """Build timeout result with pending check and review diagnostics."""
-    pending_checks = len(latest_status.pending_checks)
+    """The result when the timeout passes while a check runs or Copilot reviews."""
+    pending = latest_status.pending_checks
+    running = f": {', '.join(pending)}" if pending else ""
     if latest_status.copilot_status.is_active:
         copilot_msg = " (Copilot review still active)"
-    elif latest_status.copilot_status.state == "unread":
-        reason = latest_status.copilot_status.unread_reason or "unknown"
-        copilot_msg = f" (Copilot review state could not be read: {reason})"
     else:
         copilot_msg = ""
     return PRMonitorResult(
@@ -819,29 +610,10 @@ def _build_monitor_timeout_result(
         exit_code=3,
         message=(
             f"PR #{pr_number} monitoring timed out after {elapsed}s: "
-            f"{pending_checks} check(s) pending{copilot_msg}."
+            f"{len(pending)} check(s) pending{running}{copilot_msg}."
         ),
         status=latest_status,
     )
-
-
-def _check_pr_ready_step(
-    latest_status: PRMonitorStatus,
-    pr_number: int,
-    now: float,
-    settle_deadline: float,
-    require_reviews: bool,
-) -> PRMonitorResult | None:
-    """Check whether PR meets settled criteria and return settled result if so."""
-    checks_completed = latest_status.all_checks_completed and latest_status.all_checks_passed
-    copilot_done = (
-        not latest_status.copilot_status.is_active
-        and latest_status.copilot_status.state not in {"changes_requested", "unread"}
-    )
-    settled = now >= settle_deadline
-    if checks_completed and copilot_done and (settled or not require_reviews):
-        return _evaluate_pr_settled_readiness(latest_status, pr_number, require_reviews)
-    return None
 
 
 def monitor_pr(
@@ -855,7 +627,13 @@ def monitor_pr(
     require_reviews: bool = True,
     status_callback: Callable[[PRMonitorStatus, int], None] | None = None,
 ) -> PRMonitorResult:
-    """Monitor PR checks, Copilot review sessions, and threads until ready or failure."""
+    """Poll a pull request until no check runs and no Copilot review is active, then report every
+    blocker at once; return the timeout result if it passes first.
+
+    While a check runs the monitor waits, whatever other blockers it sees, so a blocker that
+    comes later is not left for a second run (#998). With `require_reviews`, it also waits out
+    `settle_timeout`, so a Copilot review that starts late is seen.
+    """
     valid_interval = max(1, interval)
     valid_timeout = max(1, timeout)
     valid_settle = max(0, settle_timeout)
@@ -870,20 +648,14 @@ def monitor_pr(
         latest_status = get_pr_monitoring_status(
             owner, repo, pr_number, require_reviews=require_reviews
         )
-        latest_status.require_reviews = require_reviews
 
         if status_callback:
             status_callback(latest_status, elapsed)
 
-        early_failure = _check_early_pr_failures(latest_status, pr_number)
-        if early_failure:
-            return early_failure
-
-        settled_res = _check_pr_ready_step(
-            latest_status, pr_number, now, settle_deadline, require_reviews
-        )
-        if settled_res:
-            return settled_res
+        if latest_status.merged or (
+            latest_status.settled and (now >= settle_deadline or not require_reviews)
+        ):
+            return _settled_result(latest_status, pr_number)
 
         time_left = max_deadline - time.monotonic()
         if time_left <= 0:

@@ -283,13 +283,6 @@ class PRErrorMessages:
     list_failed: str = "Failed to list PRs: {error}"
     invalid_number: str = "Invalid PR number: {number}"
     no_pr_for_branch: str = "No open pull request found for current branch '{branch}'."
-    monitor_timeout: str = (
-        "PR #{number} monitoring timed out after {timeout}s: checks or reviews still pending."
-    )
-    checks_failed: str = (
-        "✗ Remote CI checks failed on PR #{number} ({failed_count} failing check(s))."
-    )
-    unresolved_threads: str = "✗ PR #{number} has {count} unresolved review discussion thread(s)."
 
 
 @dataclass(frozen=True)
