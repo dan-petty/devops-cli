@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0](https://github.com/dan-petty/devops-cli/compare/v0.8.3...v0.9.0) (2026-10-28)
+
+
+### Features
+
+* **ai:** observe the Ollama slot wait by priority and chart its p95 ([#2404](https://github.com/dan-petty/devops-cli/issues/2404)) ([ffeeda4](https://github.com/dan-petty/devops-cli/commit/ffeeda4514b5a1c2934c6811601a74373d3a1666))
+* **github:** send GitHub request, throttle and GraphQL point metrics, and show them on the devops-cli dashboard ([#2406](https://github.com/dan-petty/devops-cli/issues/2406)) ([bded64b](https://github.com/dan-petty/devops-cli/commit/bded64b22c9c1bb3c6f87cae2fd255c50347a619))
+* **k8s:** gpu row panels for clock-event reasons, power against the enforced limit and pcie throughput ([#2409](https://github.com/dan-petty/devops-cli/issues/2409)) ([21f023c](https://github.com/dan-petty/devops-cli/commit/21f023cb4b0bd700b20fc05d46deb79492c893d1)), closes [#821](https://github.com/dan-petty/devops-cli/issues/821)
+* **review:** a review session records its head commit and clean tree, and says whether it is on merged code ([#2434](https://github.com/dan-petty/devops-cli/issues/2434)) ([8b4ed46](https://github.com/dan-petty/devops-cli/commit/8b4ed46eac4e0efc50889a066909f6896bbe1fcd))
+* **review:** an issue filed from a review finding carries its fingerprint, and the review leaves out a finding that an issue already carries ([#2428](https://github.com/dan-petty/devops-cli/issues/2428)) ([acace03](https://github.com/dan-petty/devops-cli/commit/acace0343d15369eca9995a7bdbef54781a9bb16))
+* **review:** the feedback export counts each review subject once and keeps every human verdict ([#2417](https://github.com/dan-petty/devops-cli/issues/2417)) ([73d1807](https://github.com/dan-petty/devops-cli/commit/73d180770396c73d6a4c990bbbe035d084b5f76d))
+* **roadmap:** act as GitHub App devops-roadmap instead of a machine account ([#2411](https://github.com/dan-petty/devops-cli/issues/2411)) ([d739a47](https://github.com/dan-petty/devops-cli/commit/d739a472dcfc7c8394513e4afcaad359b5a0fbd4)), closes [#1647](https://github.com/dan-petty/devops-cli/issues/1647)
+* **roadmap:** labels and milestones hold each item's status, priority, value and effort, and no roadmap job reads or writes the project board ([#2435](https://github.com/dan-petty/devops-cli/issues/2435)) ([84f02a1](https://github.com/dan-petty/devops-cli/commit/84f02a1a523970fdd921520cac7d4df4a58769d3)), closes [#2399](https://github.com/dan-petty/devops-cli/issues/2399)
+* **roadmap:** refine investigates open questions with code and web tools and decides design questions by the best practice ([#2410](https://github.com/dan-petty/devops-cli/issues/2410)) ([890e228](https://github.com/dan-petty/devops-cli/commit/890e228e99e5dfe2c52d6c2d81e91fa829ad15b0)), closes [#2398](https://github.com/dan-petty/devops-cli/issues/2398)
+* **telemetry:** count embedding cache lookups and send every metric through a declared instrument ([#2416](https://github.com/dan-petty/devops-cli/issues/2416)) ([19412fa](https://github.com/dan-petty/devops-cli/commit/19412fa931476f94afebef7b2229be8379b24f88))
+
+
+### Bug Fixes
+
+* **git:** ignore missing files when measuring directory size during reclaim ([#2438](https://github.com/dan-petty/devops-cli/issues/2438)) ([4226904](https://github.com/dan-petty/devops-cli/commit/4226904e21d18adfbe4b4516c3be09391634c18e))
+* **security:** scan all namespaces with Popeye when no namespace is given ([#2436](https://github.com/dan-petty/devops-cli/issues/2436)) ([4d5f789](https://github.com/dan-petty/devops-cli/commit/4d5f78937f24fcb459c9c51ae570fb8711c908fa))
+* **security:** scan_uv_audit runs a uv audit adapter that audits the lockfile as it is ([#2446](https://github.com/dan-petty/devops-cli/issues/2446)) ([0b2d005](https://github.com/dan-petty/devops-cli/commit/0b2d00564295e3b0daa5b7ab4da54ed2b59bd445)), closes [#2106](https://github.com/dan-petty/devops-cli/issues/2106)
+
 ## [0.8.3](https://github.com/dan-petty/devops-cli/compare/v0.8.2...v0.8.3) (2026-10-28)
 
 
