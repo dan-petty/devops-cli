@@ -13,7 +13,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1642-otel-collector-export-alerts`
 - Pending a person: after Argo CD syncs the merge, read the two rules in Grafana's Alerting view. Each stays Normal while Tempo, Prometheus and Loki accept the collector's data.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
