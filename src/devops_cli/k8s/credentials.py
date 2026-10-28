@@ -78,30 +78,14 @@ _SYNCED = CredentialSync(SyncState.SYNCED)
 _MISSING = CredentialSync(SyncState.MISSING)
 
 
-def _clean_service_base_url(base_url: str, setting_name: str = "service URL") -> str:
-    """Ensure base URL has valid http/https scheme and host, returning urlunsplit without trailing slash."""
-    clean = (base_url or "").strip().rstrip("/")
-    from urllib.parse import urlsplit, urlunsplit
-
-    from devops_cli.exceptions.config import ConfigurationError
-
-    parts = urlsplit(clean)
-    scheme = parts.scheme.lower()
-    if scheme not in ("http", "https") or not parts.netloc or not parts.hostname:
-        raise ConfigurationError(
-            f"Invalid {setting_name} '{base_url}': must have http or https scheme and host",
-            key=setting_name,
-        )
-    return urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment)).rstrip("/")
-
-
 def _service_base_url(
     base_url: str, setting_name: str, purpose: str, allow_private_network: bool
 ) -> str:
     """Return the clean base URL of a stack service, after the egress check of the URL."""
+    from devops_cli.http.urls import service_base_url
     from devops_cli.http.validation import validate_service_url
 
-    clean_base = _clean_service_base_url(base_url, setting_name)
+    clean_base = service_base_url(base_url, setting_name)
     validate_service_url(clean_base, purpose, allow=allow_private_network)
     return clean_base
 

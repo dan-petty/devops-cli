@@ -7,7 +7,7 @@
 
 ## 2. The Grafana, Prometheus and Argo CD commands
 
-- [ ] Move `_clean_service_base_url` to `devops_cli.http.urls` as `service_base_url`, give the `devops grafana`, `devops prometheus` and `devops argo cd apps` commands factory clients at the configured level, delete their `validate_service_url` calls, check the URL with `service_base_url`, and report `SSRFBlockedError` with `exit_on`
+- [x] Move `_clean_service_base_url` to `devops_cli.http.urls` as `service_base_url`, give the `devops grafana`, `devops prometheus` and `devops argo cd apps` commands factory clients at the configured level, delete their `validate_service_url` calls, check the URL with `service_base_url`, and report `SSRFBlockedError` with `exit_on`
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_grafana.py tests/test_grafana_dashboards.py tests/test_prometheus.py tests/test_argo.py`
 
 ## 3. The Argo CD fleet sync, the GitOps sync and the rollout metric gate

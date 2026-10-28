@@ -129,11 +129,8 @@ def test_argocd_app_from_api_item() -> None:
     assert nested_app.health_status == "Unknown"
 
 
-def test_argo_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_argo_commands_execution(tmp_path: Path) -> None:
     """Verify argo cd, workflows, and rollouts subcommands."""
-    monkeypatch.setattr(
-        "devops_cli.http.validation.validate_service_url", lambda *args, **kwargs: None
-    )
     mock_apps = {
         "items": [
             {
@@ -368,9 +365,6 @@ def test_argo_cd_apps_list_and_status_render(monkeypatch: pytest.MonkeyPatch) ->
         return httpx2.Response(200, json={"items": [mock_app_data]}, request=req)
 
     monkeypatch.setattr(httpx2.Client, "get", fake_get)
-    monkeypatch.setattr(
-        "devops_cli.commands.argo.validate_service_url", lambda *args, **kwargs: None
-    )
 
     mock_settings = Settings()
     mock_settings.argocd.url = "http://localhost:8080"
@@ -395,9 +389,6 @@ def test_argo_cd_apps_list_null_items(monkeypatch: pytest.MonkeyPatch) -> None:
         return httpx2.Response(200, json={"metadata": {}, "items": None}, request=req)
 
     monkeypatch.setattr(httpx2.Client, "get", fake_get)
-    monkeypatch.setattr(
-        "devops_cli.commands.argo.validate_service_url", lambda *args, **kwargs: None
-    )
 
     mock_settings = Settings()
     mock_settings.argocd.url = "http://localhost:8080"
@@ -563,7 +554,6 @@ def test_cd_apps_sync_payload_structure() -> None:
 
     with (
         patch("devops_cli.commands.argo.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.argo.validate_service_url"),
         patch("httpx2.Client") as mock_client_cls,
     ):
         mock_client = MagicMock()

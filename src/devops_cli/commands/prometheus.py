@@ -16,11 +16,14 @@ from devops_cli.config.defaults import (
     DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
     DEFAULT_TABLE_FORMAT,
 )
+from devops_cli.config.options import PROMETHEUS_URL
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.http.validation import validate_service_url
+from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import configured_level
+from devops_cli.http.urls import service_base_url
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.output import (
@@ -31,7 +34,8 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
-app = new_typer(help=HELP.prometheus.app, no_args_is_help=True)
+# A refusal at the connect ends a command with its message, as the URL check before it does.
+app = new_typer(help=HELP.prometheus.app, no_args_is_help=True, exit_on=SSRFBlockedError)
 
 _MAX_PROMQL_LEN = 4096
 
@@ -42,6 +46,7 @@ _MAX_PROMQL_LEN = 4096
 
 
 def _base_url(settings: Settings) -> str:
+    """Return the Prometheus base URL. The check reads only the URL and makes no lookup."""
     if not settings.prometheus.url:
         print_error(
             MESSAGES.prometheus.url_not_configured,
@@ -49,15 +54,17 @@ def _base_url(settings: Settings) -> str:
         )
         raise typer.Exit(1)
     try:
-        validate_service_url(
-            settings.prometheus.url, "Prometheus", allow=settings.ai.allow_private_network
-        )
-    except (ValueError, DevOpsCLIError) as exc:
+        return service_base_url(settings.prometheus.url, PROMETHEUS_URL)
+    except ValueError as exc:
         from devops_cli.security.sanitizer import mask_secrets
 
         print_error(mask_secrets(str(exc)), prefix=False)
         raise typer.Exit(1) from exc
-    return settings.prometheus.url.rstrip("/")
+
+
+def _client(settings: Settings) -> httpx2.Client:
+    """A Prometheus client that dials the configured level: loopback, or private with the flag."""
+    return new_http_client(level=configured_level(settings.ai))
 
 
 def _validate_expr(expr: str) -> None:
@@ -148,7 +155,7 @@ def query(
     if at:
         params["time"] = at
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/v1/query",
             params=params,
@@ -202,7 +209,7 @@ def query_range(
     end_ts = end or str(now)
 
     params = {"query": expr, "start": start_ts, "end": end_ts, "step": step}
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/v1/query_range",
             params=params,
@@ -291,7 +298,7 @@ def analyze(
         "step": step,
     }
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/v1/query_range",
             params=params,
@@ -346,7 +353,7 @@ def rules() -> None:
     settings = load_settings()
     base = _base_url(settings)
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/v1/rules",
             timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -388,7 +395,7 @@ def targets() -> None:
     settings = load_settings()
     base = _base_url(settings)
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/v1/targets",
             timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,

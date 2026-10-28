@@ -18,11 +18,8 @@ from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
 runner = CliRunner()
 
 
-def test_prometheus_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_prometheus_commands() -> None:
     """Verify prometheus query, query-range, targets, and rules subcommands."""
-    monkeypatch.setattr(
-        "devops_cli.http.validation.validate_service_url", lambda *args, **kwargs: None
-    )
     mock_vector = {
         "status": "success",
         "data": {
@@ -126,8 +123,8 @@ def test_prometheus_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         assert res_rules.exit_code == 0
 
 
-def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify prometheus error branches: missing URL, validation, long expr, invalid content-type, duration parsing."""
+def test_prometheus_errors_and_edge_cases() -> None:
+    """Verify prometheus error branches: missing URL, long expr, invalid content-type, duration parsing."""
     # 1. Missing URL
     settings_no_url = Settings()
     settings_no_url.prometheus.url = None
@@ -135,16 +132,7 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
         res_no_url = runner.invoke(prometheus_app, ["query", "up"])
         assert res_no_url.exit_code == 1
 
-    # 2. Invalid service URL (SSRF block)
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    settings_bad_url = Settings()
-    settings_bad_url.prometheus.url = "http://10.0.0.1:9090"
-    settings_bad_url.ai.allow_private_network = False
-    with patch("devops_cli.commands.prometheus.load_settings", return_value=settings_bad_url):
-        res_bad_url = runner.invoke(prometheus_app, ["query", "up"])
-        assert res_bad_url.exit_code == 1
-
-    # 3. Expr too long
+    # 2. Expr too long
     settings_ok = Settings()
     settings_ok.prometheus.url = "http://localhost:9090"
     settings_ok.ai.allow_private_network = True
@@ -152,7 +140,7 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
         res_long = runner.invoke(prometheus_app, ["query", "a" * 5000])
         assert res_long.exit_code == 1
 
-    # 4. Invalid content type
+    # 3. Invalid content type
     mock_bad_resp = MagicMock()
     mock_bad_resp.status_code = 200
     mock_bad_resp.headers = {"content-type": "text/html"}
@@ -160,13 +148,12 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
     mock_client_bad.__enter__.return_value.get.return_value = mock_bad_resp
     with (
         patch("devops_cli.commands.prometheus.load_settings", return_value=settings_ok),
-        patch("devops_cli.commands.prometheus.validate_service_url", return_value=None),
         patch("devops_cli.commands.prometheus.httpx2.Client", return_value=mock_client_bad),
     ):
         res_bad_ct = runner.invoke(prometheus_app, ["query", "up"])
         assert res_bad_ct.exit_code == 1
 
-    # 5. Query returning empty / failed
+    # 4. Query returning empty / failed
     mock_empty_resp = MagicMock()
     mock_empty_resp.status_code = 200
     mock_empty_resp.headers = {"content-type": "application/json"}
@@ -178,13 +165,12 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
     mock_client_empty.__enter__.return_value.get.return_value = mock_empty_resp
     with (
         patch("devops_cli.commands.prometheus.load_settings", return_value=settings_ok),
-        patch("devops_cli.commands.prometheus.validate_service_url", return_value=None),
         patch("devops_cli.commands.prometheus.httpx2.Client", return_value=mock_client_empty),
     ):
         res_empty = runner.invoke(prometheus_app, ["query", "empty_metric"])
         assert res_empty.exit_code == 0
 
-    # 6. Parse duration helpers
+    # 5. Parse duration helpers
     from devops_cli.commands.prometheus import _parse_duration
 
     assert _parse_duration("10s") == 10.0
@@ -226,7 +212,10 @@ def test_a_k8s_address_in_the_prometheus_url_stops_the_query_before_a_lookup(
 def test_a_refused_prometheus_address_ends_the_query_with_the_refusal(
     cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The connect refuses a private answer without the flag, and the command prints why (#2424)."""
+    """The connect refuses a private answer without the flag, and the command prints why (#2424).
+
+    The command exits with the status of `SSRFBlockedError` (`SSRF_BLOCKED`, docs/ERRORS.md).
+    """
     scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
     recorder = record_connects(monkeypatch, [])
 
@@ -245,4 +234,4 @@ def test_a_refused_prometheus_address_ends_the_query_with_the_refusal(
         type(result.exception),
         "the loopback egress level refuses" in result.output,
         recorder.dialled,
-    ) == (1, SystemExit, True, [])
+    ) == (2, SystemExit, True, [])

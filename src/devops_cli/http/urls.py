@@ -97,9 +97,32 @@ def append_path(base: httpx2.URL | str, reference: str) -> httpx2.URL:
     return base_with_slash.join(rel)
 
 
+def service_base_url(base_url: str, setting_name: str) -> str:
+    """Return the base URL of a configured HTTP service, with a lowercase scheme and no end slash.
+
+    Raise ConfigurationError, which names `setting_name`, when the URL does not have the http or
+    https scheme and a host. A `k8s://` address is such a URL. The check reads only the URL and
+    makes no lookup: the client checks the address that it dials at the connect.
+    """
+    from devops_cli.exceptions.config import ConfigurationError
+
+    clean = (base_url or "").strip().rstrip("/")
+    parts = urllib.parse.urlsplit(clean)
+    scheme = parts.scheme.lower()
+    if scheme not in ("http", "https") or not parts.netloc or not parts.hostname:
+        raise ConfigurationError(
+            f"Invalid {setting_name} '{base_url}': must have http or https scheme and host",
+            key=setting_name,
+        )
+    return urllib.parse.urlunsplit(
+        (scheme, parts.netloc, parts.path, parts.query, parts.fragment)
+    ).rstrip("/")
+
+
 __all__ = [
     "append_path",
     "extract_domain_target",
     "get_url_origin",
     "read_url_or_authority",
+    "service_base_url",
 ]
