@@ -101,6 +101,16 @@ sidecar:
   rules:
     enabled: false
 
+# With the rules sidecar off, no Loki pod calls the Kubernetes API, so none mounts a ServiceAccount
+# token (#1652). Chart 20.0.2 sets the field on each Loki pod from `defaults`, and the pod field
+# wins over the field of the ServiceAccount. The `serviceAccount` value covers a pod that sets no
+# field. The canary and the gateway have values of their own, which are false by default.
+defaults:
+  automountServiceAccountToken: false
+
+serviceAccount:
+  automountServiceAccountToken: false
+
 # Zero out scalable targets to satisfy SingleBinary deploymentMode validation
 read:
   replicas: 0

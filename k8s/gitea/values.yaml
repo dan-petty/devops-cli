@@ -31,6 +31,12 @@ containerSecurityContext:
     drop:
       - ALL
 
+# Gitea does not call the Kubernetes API. Without its own ServiceAccount the pod runs as
+# `default` with a token; the chart's ServiceAccount has none (#1652).
+serviceAccount:
+  create: true
+  automountServiceAccountToken: false
+
 resources:
   requests:
     cpu: 100m

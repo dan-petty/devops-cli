@@ -50,6 +50,9 @@ server:
 
 repoServer:
   replicas: 1
+  # The repo server renders manifests and does not call the Kubernetes API; the upstream install
+  # manifest also runs it without a ServiceAccount token (#1652).
+  automountServiceAccountToken: false
   metrics:
     enabled: true
     serviceMonitor:
@@ -78,6 +81,9 @@ repoServer:
 # Valkey replacement for Redis under BSD-3-Clause open-source license
 redis:
   enabled: true
+  # Valkey and its exporter do not call the Kubernetes API. The redis-secret-init hook Job, with
+  # its own ServiceAccount, writes the password Secret (#1652).
+  automountServiceAccountToken: false
   image:
     repository: valkey/valkey
     tag: 9.1.2-alpine

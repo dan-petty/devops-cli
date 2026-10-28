@@ -22,6 +22,7 @@ spec:
         app.kubernetes.io/component: tunnel
         app.kubernetes.io/part-of: devops-cli-stack
     spec:
+      automountServiceAccountToken: false
       # The two tunnel connectors prefer different nodes, so the loss or drain of one node keeps
       # external ingress up. The term is preferred: a replica still starts while only one node can
       # take it. pdb.yaml keeps one replica through a drain.

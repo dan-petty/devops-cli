@@ -33,6 +33,11 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault
 
+# No pipeline reads the Kubernetes API (no k8sattributes processor and no Kubernetes preset), so
+# the pod mounts no ServiceAccount token (#1652).
+serviceAccount:
+  automountServiceAccountToken: false
+
 
 # ── Collector pipeline configuration ─────────────────────────────────────────
 config:

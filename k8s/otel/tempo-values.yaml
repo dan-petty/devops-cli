@@ -17,6 +17,10 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault
 
+# Tempo does not call the Kubernetes API, so its pod mounts no ServiceAccount token (#1652).
+serviceAccount:
+  automountServiceAccountToken: false
+
 tempo:
   securityContext:
     allowPrivilegeEscalation: false

@@ -1022,6 +1022,24 @@ CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS: Final[dict[str, str]] = {
 A key is `<values file>:<pod>` for a chart pod or `<manifest>:<kind>/<name>` for a manifest pod,
 as `tests/test_k8s_local_path_placement.py` names them (#1634).
 """
+CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS: Final[dict[str, str]] = {
+    "k8s/coredns/deployment-patch.yaml:Deployment/coredns": (
+        "k3s makes the CoreDNS Deployment, its ServiceAccount coredns and the ClusterRoleBinding "
+        "system:coredns, and CoreDNS reads Services and EndpointSlices through the API. The file "
+        "patches only the resources of that Deployment, so the tree does not show the binding."
+    ),
+    "k8s/llm/values-qdrant.yaml:qdrant": (
+        "Qdrant does not call the API, but chart 1.19.1 sets automountServiceAccountToken on "
+        "neither its pod nor its ServiceAccount and has no value for it. qdrant/qdrant-helm#506 "
+        "asks for the value. Remove this entry when a chart release adds it."
+    ),
+}
+"""The pods that mount a ServiceAccount token that no role in the tree or in their chart binds,
+each with its reason.
+
+A key is `<values file>:<pod>` for a chart pod or `<manifest>:<kind>/<name>` for a manifest pod,
+as `tests/invariants/test_k8s_manifests.py` names them (#1652).
+"""
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
 CONST_INLINE_SUPPRESSION_MARKERS: Final[dict[str, tuple[str, ...]]] = {
