@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import re
 from typing import Any
 
 import pytest
@@ -14,12 +15,18 @@ from devops_cli.config.env import CREDENTIALS
 from devops_cli.config.settings import Settings
 from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
 from devops_cli.telemetry.exporter import OtlpSignal
+from tests.k8s_manifests import applied_documents
 from tests.support.fakes.otlp import FakeCollector
-from tests.support.paths import REPO_ROOT
+from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
+K8S_README = K8S_DIR / "README.md"
 DEVOPS_DIR = K8S_DIR / "devops"
 ROADMAP_SERVICE_DIR = DEVOPS_DIR / "roadmap-service"
+# The Traefik annotation of an Ingress that names the Middlewares of its routes.
+MIDDLEWARES_ANNOTATION = "traefik.ingress.kubernetes.io/router.middlewares"
+# The metric families that the deployed Traefik serves, with their label names (#1136).
+TRAEFIK_FAMILIES = FIXTURES / "metrics" / "traefik.yaml"
 
 
 @functools.cache
@@ -295,4 +302,110 @@ def test_kustomizations_list_manifests_and_directory() -> None:
         sorted(rs_kust["resources"]),
         len(expected_manifests),
         all((ROADMAP_SERVICE_DIR / m).is_file() for m in rs_kust["resources"]),
-    ) == (True, expected_manifests, 5, True)
+    ) == (True, expected_manifests, 6, True)
+
+
+def test_the_folder_tree_of_the_readme_lists_each_file_of_the_roadmap_service() -> None:
+    """The folder tree of `k8s/README.md` lists each file of `k8s/devops/roadmap-service/`, the
+    Middleware of the rate limit included (#2476)."""
+    lines = K8S_README.read_text(encoding="utf-8").splitlines()
+    (start,) = [i for i, line in enumerate(lines) if line.startswith("│   └── roadmap-service/")]
+    children = itertools.takewhile(lambda line: line.startswith("│       "), lines[start + 1 :])
+    assert sorted(line.split()[-1] for line in children) == sorted(
+        path.name for path in ROADMAP_SERVICE_DIR.iterdir()
+    )
+
+
+def _readme_subsection(heading: str) -> str:
+    """The text of one `####` subsection of k8s/README.md, up to the next heading."""
+    text = K8S_README.read_text(encoding="utf-8")
+    start = text.index(f"\n#### {heading}\n") + 1
+    ends = [
+        found for found in (text.find("\n### ", start), text.find("\n#### ", start)) if found != -1
+    ]
+    return text[start : min(ends, default=len(text))]
+
+
+def test_the_webhook_route_section_counts_the_429_answers_of_the_rate_limit() -> None:
+    """The query of the Traefik answers in the subsection Webhook route counts the HTTP 429 that
+    the rate limit gives (#2476).
+
+    The rate limit is a middleware of the router. Traefik counts `traefik_router_requests_total`
+    before the middlewares of the router, so it counts each answer of the route, the 429 included.
+    Traefik counts `traefik_service_requests_total` only around its proxy to the pods, so a
+    request that the rate limit refuses does not count there. The series of the router names the
+    service of the Ingress backend as `<namespace>-<name>-<port>@kubernetes`, and the deployed
+    Traefik serves it with the labels `code` and `service`.
+    """
+    ingress = _doc("ingress.yaml")
+    (rule,) = ingress["spec"]["rules"]
+    (path,) = rule["http"]["paths"]
+    backend = path["backend"]["service"]
+    service = (
+        f"{ingress['metadata']['namespace']}-{backend['name']}-{backend['port']['number']}"
+        "@kubernetes"
+    )
+    families = yaml.safe_load(TRAEFIK_FAMILIES.read_text(encoding="utf-8"))["families"]
+    # Each query is a code span with a selector; a code span can also name a metric alone.
+    assert (
+        re.findall(r"`([^`]*traefik_[^`]*\{[^`]*)`", _readme_subsection("Webhook route")),
+        {"code", "service"} <= set(families["traefik_router_requests_total"]["labels"]),
+    ) == (
+        [f'sum by (code) (increase(traefik_router_requests_total{{service="{service}"}}[15m]))'],
+        True,
+    )
+
+
+def _roadmap_ingress(documents: list[dict[str, Any]]) -> dict[str, Any]:
+    """The Ingress `devops/roadmap-service` among the objects that one apply sends."""
+    (ingress,) = [
+        document
+        for document in documents
+        if document.get("kind") == "Ingress"
+        and document["metadata"]["name"] == "roadmap-service"
+        and document["metadata"]["namespace"] == "devops"
+    ]
+    return ingress
+
+
+def test_each_webhook_ingress_names_the_rate_limit_that_the_devops_stack_renders() -> None:
+    """Traefik limits the deliveries of the webhook route (#2476). Argo CD renders the Middleware
+    and the Ingress from the homelab overlay of `devops`. deploy-stack applies the Ingress from
+    `roadmap-service/ingress.yaml` and from its copy in `ingress/ingress-routes.yaml`, and each
+    names the Middleware, so no apply removes the limit."""
+    rendered = applied_documents(K8S_DIR / "overlays" / "homelab" / "devops")
+    applies = [
+        rendered,
+        applied_documents(ROADMAP_SERVICE_DIR / "ingress.yaml"),
+        applied_documents(K8S_DIR / "ingress" / "ingress-routes.yaml"),
+    ]
+    middlewares = {
+        (document["metadata"]["namespace"], document["metadata"]["name"]): (
+            document["apiVersion"],
+            document["spec"],
+        )
+        for document in rendered
+        if document.get("kind") == "Middleware"
+    }
+    assert (
+        [
+            _roadmap_ingress(documents)["metadata"]["annotations"].get(MIDDLEWARES_ANNOTATION)
+            for documents in applies
+        ],
+        middlewares,
+    ) == (
+        ["devops-roadmap-service-rate-limit@kubernetescrd"] * 3,
+        {
+            ("devops", "roadmap-service-rate-limit"): (
+                "traefik.io/v1alpha1",
+                {
+                    "rateLimit": {
+                        "average": 60,
+                        "period": "1m",
+                        "burst": 60,
+                        "sourceCriterion": {"requestHost": True},
+                    }
+                },
+            )
+        },
+    )

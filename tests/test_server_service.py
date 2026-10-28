@@ -10,7 +10,7 @@ import logging
 import queue
 import sys
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
+    CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
@@ -1997,6 +1998,59 @@ def test_a_content_length_padded_with_zeros_is_judged_by_its_value() -> None:
             headers={"Content-Length": "0" * 5000 + "2"},
         )
     assert (response.status_code, response.json()) == (202, {"status": "accepted"})
+
+
+def _body_that_records_its_read(reads: list[str]) -> Iterator[bytes]:
+    """The body of an `issues` delivery, which writes to `reads` when the server reads it."""
+    reads.append("read")
+    yield json.dumps(_event_payload()).encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("headers", "status", "error", "reads"),
+    [
+        ({}, 401, "missing signature", []),
+        ({CONST_GH_WEBHOOK_SIGNATURE_HEADER: ""}, 401, "missing signature", []),
+        (
+            {
+                CONST_GH_WEBHOOK_SIGNATURE_HEADER: "sha256=0",
+                "Content-Length": str(CONST_SERVICE_MAX_BODY_BYTES + 1),
+            },
+            413,
+            "payload too large",
+            [],
+        ),
+        ({CONST_GH_WEBHOOK_SIGNATURE_HEADER: "sha256=0"}, 401, "invalid signature", ["read"]),
+    ],
+    ids=["unsigned", "empty-signature", "declared-above-the-cap", "signed-within-the-cap"],
+)
+def test_the_route_reads_the_body_only_of_a_signed_delivery_within_the_cap(
+    headers: dict[str, str], status: int, error: str, reads: list[str]
+) -> None:
+    """A delivery without a signature, or one that declares a length above the cap, is refused
+    before the route reads its body, and counts once as rejected (#2476). The route reads the body
+    of a signed delivery within the cap, to check its signature. The TestClient reads a body only
+    when the app asks for it, so the body records whether the route read it."""
+    recorded: list[str] = []
+    app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhooks/github",
+            content=_body_that_records_its_read(recorded),
+            headers={
+                "Content-Type": "application/json",
+                CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+                CONST_GH_WEBHOOK_DELIVERY_HEADER: "unread-1",
+                **headers,
+            },
+        )
+        series = _delivery_series(client)
+    assert (response.status_code, response.json(), recorded, series) == (
+        status,
+        {"error": error},
+        reads,
+        {("github", "issues", "rejected"): 1.0},
+    )
 
 
 def test_the_detail_of_an_invalid_payload_is_cut_to_the_bound_on_error_details() -> None:

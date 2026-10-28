@@ -42,9 +42,11 @@ def test_devops_stack_registration_and_resolution() -> None:
 
 
 def test_devops_stack_manifests_integrity() -> None:
-    """Every devops manifest exists; the ConfigMap is rendered from config at deploy time instead."""
+    """Every devops manifest exists; the ConfigMap is rendered from config at deploy time instead.
+    The rate limit of the webhook route is applied before the Ingress that names it (#2476)."""
     manifests = _MANIFESTS_BY_STACK.get("devops", [])
     filenames = [p.name for p in manifests]
+    rate_limit_then_ingress = ["roadmap-service/middleware.yaml", "roadmap-service/ingress.yaml"]
 
     assert (
         len(manifests),
@@ -56,8 +58,13 @@ def test_devops_stack_manifests_integrity() -> None:
         "deployment.yaml" in filenames,
         "service.yaml" in filenames,
         "clusterrolebinding.yaml" in filenames,
+        [
+            f"{p.parent.name}/{p.name}"
+            for p in manifests
+            if f"{p.parent.name}/{p.name}" in rate_limit_then_ingress
+        ],
     ) == (
-        10,
+        11,
         True,
         True,
         True,
@@ -66,6 +73,7 @@ def test_devops_stack_manifests_integrity() -> None:
         True,
         True,
         True,
+        rate_limit_then_ingress,
     )
 
 
