@@ -30,7 +30,7 @@ Issue #2422 is part 1 of the split of #1381. The AI service clients in the table
 - The bridge no longer turns an address refusal into a `ConfigurationError` when it builds a remote model, because no check runs at that time. A request to an address that the level refuses raises `SSRFBlockedError` at the connect.
 - Some levels change. The Ollama model of pydantic-ai is narrower: a private Ollama needs `ai.allow_private_network` on this path too. The `--source` URL of the pricing update is narrower: a private source needs the flag. The default pricing registry and the documentation crawler dial only public addresses, whatever the flag says. The gateway and backend probes, the pool-load query and the benchmark endpoints are wider: a loopback answer is dialled without the flag. A name that answers loopback reaches the embeddings and the provider base URL without the flag.
 - `README.md`, `docs/KNOWN_ISSUES.md` and the pydantic-ai page of the knowledge base name the moved clients. The general statement that every HTTP client is checked at the connect waits for part 5 (#2437).
-- A consumer sees the levels and the refusals, so the change carries a spec delta. It adds a requirement to the capability `configured-service-urls`.
+- A consumer sees the levels and the refusals, so the change carries a spec delta. It adds four requirements to the capability `configured-service-urls`.
 - This change fits one pull request.
 
 ## Capabilities
@@ -41,7 +41,7 @@ None.
 
 ### Modified Capabilities
 
-- `configured-service-urls`: a new requirement gives the egress level of each AI service client and says that the client checks the address at the connect.
+- `configured-service-urls`: four new requirements. "Configured AI service clients dial at the configured level" gives the level of the clients whose URL comes from the configuration. "The gateway connect probe dials private addresses" gives the level of the `devops ai gateway connect` probe. "The pricing registry and the documentation crawler dial only public addresses" gives the public level of these two clients. "AI service clients dial the address that they checked" says that each of these clients resolves the host one time, at the connect, and gives the socket the address that it checked.
 
 ## Impact
 
