@@ -5,7 +5,7 @@ Which pods of the cluster mount a Kubernetes API token: only a pod that calls th
 ## ADDED Requirements
 
 ### Requirement: A pod that does not call the Kubernetes API mounts no ServiceAccount token
-Each pod that a manifest under `k8s/` declares, and each pod that a chart of an Argo CD Application makes with its values file, SHALL mount no ServiceAccount token, unless a Role or ClusterRole binds its ServiceAccount. A pod turns the token off with `automountServiceAccountToken: false` on the pod, or on its ServiceAccount when the pod does not set the field. A pod in `CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS` SHALL be the only other pod with a token, and each exception SHALL have a reason.
+Each pod that a manifest under `k8s/` declares, and each pod that a chart of an Argo CD Application makes with its values file, SHALL mount no ServiceAccount token, unless a Role or ClusterRole binds its ServiceAccount. A pod in `CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS` SHALL be the only other pod with a token, and each exception SHALL have a reason.
 
 #### Scenario: A manifest pod mounts a token
 - **WHEN** a test reads each workload under `k8s/`, with the ServiceAccounts, RoleBindings and ClusterRoleBindings under `k8s/`
@@ -23,6 +23,13 @@ Each pod that a manifest under `k8s/` declares, and each pod that a chart of an 
 - **WHEN** an exception names a pod that the test does not find, or a pod that mounts no token, or a pod with a role
 - **THEN** the test fails and names the exception
 
+### Requirement: The check finds each token that a pod mounts
+The check SHALL read the field `automountServiceAccountToken` of the pod, or of its ServiceAccount when the pod does not set it. It SHALL report a token unless that field is `false`. A pod with a projected `serviceAccountToken` source, or with a volume of a Secret of type `kubernetes.io/service-account-token`, SHALL mount a token, whatever the field says.
+
 #### Scenario: The pod field wins over the ServiceAccount field
 - **WHEN** the check reads a pod that sets the field to `true` and names a ServiceAccount that sets it to `false`
+- **THEN** the check reports that the pod mounts a token
+
+#### Scenario: A pod mounts a token as a volume
+- **WHEN** the check reads a pod that sets the field to `false` and has a projected `serviceAccountToken` source, or a volume of a Secret of type `kubernetes.io/service-account-token`
 - **THEN** the check reports that the pod mounts a token

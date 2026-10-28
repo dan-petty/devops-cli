@@ -22,7 +22,7 @@ A chart binds its own Roles and ClusterRoles, so a binding of a chart pod is not
 ## Decisions
 
 - **Decision: one rule for manifest pods and chart pods.**
-  *Choice:* a pod passes when its token is off (on the pod, or on its ServiceAccount), when a role binds its ServiceAccount, or when it is in `CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS`. For a manifest pod, the test finds the RoleBindings and ClusterRoleBindings under `k8s/`. For a chart pod, the table of the test names the Role or ClusterRole with rules that the chart binds to it, as `helm template` showed.
+  *Choice:* a pod passes when its token is off (on the pod, or on its ServiceAccount) and no volume holds a token, when a role binds its ServiceAccount, or when it is in `CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS`. For a manifest pod, the test finds the RoleBindings and ClusterRoleBindings under `k8s/`. For a chart pod, the table of the test names the Role or ClusterRole with rules that the chart binds to it, as `helm template` showed.
   *Rejected alternative:* a named exception for each chart pod that calls the API.
   *Evidence for rejection:* 18 chart pods call the API (Argo CD, Argo Workflows, Image Updater, Grafana, k8s-monitoring, the Prometheus server, Pyroscope and Traefik). A manifest pod with a binding needs no exception, and a chart pod with a binding is the same case. The exceptions then hold only the pods that keep a token they do not need, or whose binding the tree cannot show.
 

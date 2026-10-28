@@ -105,6 +105,9 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
 # one that no role binds.
 TokenUse = Literal["none", "bound", "unbound"]
 
+# A Secret of this type holds a token of a ServiceAccount, which a pod can mount as a volume.
+_TOKEN_SECRET_TYPE = "kubernetes.io/service-account-token"
+
 
 @dataclass(frozen=True)
 class TokenSite:
@@ -325,9 +328,27 @@ EXPECTED_TOKENLESS_PODS = frozenset(
 )
 
 
-def mounts_token(pod: dict[str, Any], account: dict[str, Any] | None) -> bool:
-    """Whether a pod mounts a token of its ServiceAccount: the pod field wins, then the field of
-    the ServiceAccount, and Kubernetes mounts the token when neither sets it."""
+def _holds_token(volume: dict[str, Any], token_secrets: frozenset[str]) -> bool:
+    """Whether a volume holds a token: a projected `serviceAccountToken` source, or one of the
+    token Secrets, as a Secret volume or a projected Secret source."""
+    sources = value_at(volume, "projected.sources", []) or []
+    return value_at(volume, "secret.secretName") in token_secrets or any(
+        "serviceAccountToken" in source or value_at(source, "secret.name") in token_secrets
+        for source in sources
+    )
+
+
+def mounts_token(
+    pod: dict[str, Any], account: dict[str, Any] | None, token_secrets: frozenset[str] = frozenset()
+) -> bool:
+    """Whether a pod mounts a token of its ServiceAccount.
+
+    A volume that holds a token gives the pod one whatever the field says. `token_secrets` names
+    the Secrets of type kubernetes.io/service-account-token in the pod's namespace. Else the pod
+    field wins, then the field of the ServiceAccount, and Kubernetes mounts the token when neither
+    sets it."""
+    if any(_holds_token(volume, token_secrets) for volume in pod.get("volumes") or []):
+        return True
     if "automountServiceAccountToken" in pod:
         return pod["automountServiceAccountToken"] is not False
     return (account or {}).get("automountServiceAccountToken") is not False
@@ -354,13 +375,19 @@ def _manifest_token_use() -> dict[str, TokenUse]:
     """What each manifest pod does with its token, keyed `<file>:<kind>/<name>`.
 
     A pod in a namespace runs as the ServiceAccount it names, or as `default`. A role binds it
-    when a RoleBinding or ClusterRoleBinding under k8s/ names that ServiceAccount.
+    when a RoleBinding or ClusterRoleBinding under k8s/ names that ServiceAccount. A token Secret
+    is a Secret under k8s/ of type kubernetes.io/service-account-token.
     """
     documents = list(manifests())
     accounts = {
         (document["metadata"].get("namespace"), document["metadata"]["name"]): document
         for _, document in documents
         if document["kind"] == "ServiceAccount"
+    }
+    token_secrets = {
+        (document["metadata"].get("namespace"), document["metadata"]["name"])
+        for _, document in documents
+        if document["kind"] == "Secret" and document.get("type") == _TOKEN_SECRET_TYPE
     }
     bound = {
         (subject.get("namespace"), subject["name"])
@@ -374,10 +401,12 @@ def _manifest_token_use() -> dict[str, TokenUse]:
         pod = pod_spec(document)
         if pod is None:
             continue
-        account = (document["metadata"].get("namespace"), pod.get("serviceAccountName", "default"))
+        namespace = document["metadata"].get("namespace")
+        account = (namespace, pod.get("serviceAccountName", "default"))
+        secrets = frozenset(name for space, name in token_secrets if space == namespace)
         use[f"{relative}:{document['kind']}/{document['metadata']['name']}"] = (
             "none"
-            if not mounts_token(pod, accounts.get(account))
+            if not mounts_token(pod, accounts.get(account), secrets)
             else "bound"
             if account in bound
             else "unbound"
@@ -403,6 +432,36 @@ def test_the_pod_field_wins_over_the_service_account_field(
     """Pin the check on literal pods: Kubernetes reads the ServiceAccount only when the pod spec
     does not set the field."""
     assert mounts_token(pod, account) is mounts
+
+
+@pytest.mark.parametrize(
+    ("volume", "mounts"),
+    [
+        ({"projected": {"sources": [{"serviceAccountToken": {"path": "token"}}]}}, True),
+        ({"secret": {"secretName": "robot-token"}}, True),
+        ({"projected": {"sources": [{"secret": {"name": "robot-token"}}]}}, True),
+        ({"secret": {"secretName": "robot-config"}}, False),
+        ({"projected": {"sources": [{"configMap": {"name": "robot-token"}}]}}, False),
+        ({"emptyDir": {}}, False),
+    ],
+    ids=[
+        "projected-token",
+        "token-secret",
+        "projected-token-secret",
+        "other-secret",
+        "projected-config-map",
+        "empty-dir",
+    ],
+)
+def test_a_token_volume_mounts_a_token_when_the_field_is_off(
+    volume: dict[str, Any], mounts: bool
+) -> None:
+    """Pin the check on literal pods: a projected `serviceAccountToken` source, or a Secret of type
+    kubernetes.io/service-account-token, gives the pod a token that the API server accepts. The
+    field `automountServiceAccountToken` does not stop it."""
+    pod = {"automountServiceAccountToken": False, "volumes": [{"name": "token", **volume}]}
+
+    assert mounts_token(pod, None, frozenset({"robot-token"})) is mounts
 
 
 def test_every_chart_an_application_installs_states_its_pods() -> None:

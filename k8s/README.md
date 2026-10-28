@@ -354,7 +354,7 @@ When a move stops after the point of no return, the old claim is gone, the new v
 
 ## Service Account Tokens
 
-Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process in the pod can then call the Kubernetes API as that ServiceAccount. The pod field `automountServiceAccountToken: false` stops the mount. When the pod does not set the field, the field of the ServiceAccount applies. A pod that does not call the API mounts no token (#1652):
+Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process in the pod can then call the Kubernetes API as that ServiceAccount. The pod field `automountServiceAccountToken: false` stops the mount. When the pod does not set the field, the field of the ServiceAccount applies. A volume can also give the pod a token, whatever the field says: a projected `serviceAccountToken` source, or a Secret of type `kubernetes.io/service-account-token`. A pod that does not call the API mounts no token (#1652):
 
 - The manifests set the field to `false` on the pod template of each workload that does not call the API, for example `cloudflared`, `gpu-feature-discovery`, `llm-gateway`, `portkey`, `valkey`, `valkey-runs` and the Ollama tiers.
 - The chart values turn the token off for Loki (`defaults` and `serviceAccount`), Tempo and the OpenTelemetry collector (`serviceAccount`), Alertmanager (`alertmanager`), and the Argo CD repo server and Redis (`repoServer` and `redis`). Gitea gets its own ServiceAccount (`serviceAccount.create: true`), which has no token.
