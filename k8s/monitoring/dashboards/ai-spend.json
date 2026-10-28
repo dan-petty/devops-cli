@@ -880,6 +880,84 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The 95th percentile of the time a call to Ollama waited in its process for a slot on one of its nodes, over the last hour, by priority (high, normal or as_available), with the count of calls that asked for a slot on the right axis. A call that timed out counts at the wait it had. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "min": 0,
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^calls "
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "calls"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Ollama Slot Wait by Priority (p95)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (priority) (increase(devops_cli_ai_ollama_slot_wait_seconds[1h])))",
+          "legendFormat": "p95 {{{{priority}}}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_count(sum by (priority) (increase(devops_cli_ai_ollama_slot_wait_seconds[1h])))",
+          "legendFormat": "calls {{{{priority}}}}",
+          "refId": "B"
+        }
+      ]
     }
   ],
   "refresh": "10s",

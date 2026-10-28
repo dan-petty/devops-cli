@@ -8,9 +8,9 @@
 
 ## 2. The AI spend dashboard charts the p95 wait by priority
 
-- [ ] 2.1 Add `devops_cli_ai_ollama_slot_wait_seconds` p95 by `priority` to the expected quantiles and groups of `test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends` in `tests/test_telemetry_instruments.py`, and see it fail with `uv run devops ci test tests/test_telemetry_instruments.py`
-- [ ] 2.2 Add the panel "Ollama Slot Wait by Priority (p95)" to `k8s/monitoring/dashboards/ai-spend.json`; verify with `uv run devops ci test tests/test_telemetry_instruments.py tests/test_grafana_dashboards.py tests/test_k8s_monitoring_dashboards.py`
-- [ ] 2.3 Regenerate the documentation; the dashboard changes no command, option or message; verify with `uv run devops docs generate --sync-readme` and `uv run devops docs check`
+- [x] 2.1 Add `devops_cli_ai_ollama_slot_wait_seconds` p95 by `priority` to the expected quantiles and groups of `test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends` in `tests/test_telemetry_instruments.py`, and see it fail with `uv run devops ci test tests/test_telemetry_instruments.py`
+- [x] 2.2 Add the panel "Ollama Slot Wait by Priority (p95)" to `k8s/monitoring/dashboards/ai-spend.json`; verify with `uv run devops ci test tests/test_telemetry_instruments.py tests/test_grafana_dashboards.py tests/test_k8s_monitoring_dashboards.py`
+- [x] 2.3 Regenerate the documentation; the dashboard changes no command, option or message; verify with `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## Workflow follow-up
 
