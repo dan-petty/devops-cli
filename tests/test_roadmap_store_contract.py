@@ -57,6 +57,7 @@ class World(Protocol):
         body: str = "",
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
+        author_association: str = "COLLABORATOR",
     ) -> int: ...
 
     def person_adds(self, number: int, label: str) -> None: ...
@@ -83,9 +84,15 @@ class MemoryWorld:
         body: str = "",
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
+        author_association: str = "COLLABORATOR",
     ) -> int:
         return self._roadmap.seed_issue(
-            title, labels=labels, body=body, state=state, pull_request=pull_request
+            title,
+            labels=labels,
+            body=body,
+            state=state,
+            pull_request=pull_request,
+            author_association=author_association,
         )
 
     def person_adds(self, number: int, label: str) -> None:
@@ -118,6 +125,7 @@ class GitHubWorld:
         body: str = "",
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
+        author_association: str = "COLLABORATOR",
     ) -> int:
         number = len(self.github.issues) + 1
         self.github.seed_issue(
@@ -127,6 +135,7 @@ class GitHubWorld:
             body=body,
             state=state.value,
             pull_request=pull_request,
+            author_association=author_association,
         )
         return number
 
@@ -208,6 +217,17 @@ def test_items_are_the_issues_with_a_priority_label_and_candidates_the_open_issu
         world.store.item(pull),
         world.store.item(99),
     ) == ([placed, done], [(candidate, ("type/bug", "status/new"))], None, None, None)
+
+
+def test_an_item_carries_its_authors_association_with_the_repository(world: World) -> None:
+    """A refine round judges an Item by its author with no read of each issue (#2478): the
+    listing of Items and the read of one Item give the association that the issue holds."""
+    owners = world.seed("by the owner", labels=("priority/p2-medium",), author_association="OWNER")
+    outside = world.seed("from outside", labels=("priority/p2-medium",), author_association="NONE")
+    assert (
+        [(item.number, item.author_association) for item in world.store.backlog()],
+        read(world, outside).author_association,
+    ) == ([(owners, "OWNER"), (outside, "NONE")], "NONE")
 
 
 def test_a_job_sets_a_field_by_replacing_the_familys_labels(world: World) -> None:

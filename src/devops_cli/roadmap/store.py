@@ -172,7 +172,9 @@ class Item(BaseModel):
     Effort from its label families (`field_values`). The job record holds the last value the
     store set for each field; a field missing from it was never set by a job. `body` is the
     issue's body, with no record block, as the read the Item came from gave it, so a job can
-    judge an Item by its text without a read of each issue.
+    judge an Item by its text without a read of each issue. `author_association` is the
+    author's relation to the repository, as on `IssueRecord`: a refine round refines only an
+    Item that the owner, a member or a collaborator opened (#2478).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -185,6 +187,7 @@ class Item(BaseModel):
     state_reason: str | None = None
     labels: tuple[str, ...] = ()
     milestone: str | None = None
+    author_association: str | None = None
     status: str | None = None
     priority: str | None = None
     value: str | None = None
@@ -499,7 +502,7 @@ def require_unchanged(
 def item_of(issue: IssueRecord) -> Item:
     """The issue as an Item, its fields read from its labels and its job record, whether or not
     it holds a Priority: intake writes to a Candidate through it."""
-    held = issue.model_dump(exclude={"pull_request", "author_association", "created_at"})
+    held = issue.model_dump(exclude={"pull_request", "created_at"})
     held = {key: value for key, value in held.items() if key in Item.model_fields}
     return Item.model_validate(held | field_values(issue.labels, issue.job_record))
 

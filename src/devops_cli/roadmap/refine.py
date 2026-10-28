@@ -6,11 +6,13 @@ P1 items; the backlog's other New items; each place by priority. The number of R
 not stop a round: the board shows that number to the person who plans, and `--limit` is the only
 cap (#2004). Each open milestone and the backlog's P0/P1 items also give their Ready items no
 refine round has recorded, which refine confirms Ready or sets back to New. It leaves out items
-that are Blocked or started, items whose section a person edited (`check_person_edits`), and
-items unchanged since their last round that still wait on their next step, so none of them takes
-one of the `--limit` places. Selection judges an item by the body its listing carried, so an item
-nothing changed costs no body read and no model call (#1539). `--item` refines the item it names
-whenever it is open, New or Ready, since a person asked for it.
+that are Blocked or started, items that an account without write access opened (GitHub's
+`author_association` is not OWNER, MEMBER or COLLABORATOR), which wait on a person (#2478),
+items whose section a person edited (`check_person_edits`), and items unchanged since their last
+round that still wait on their next step, so none of them takes one of the `--limit` places.
+Selection judges an item by the body and the author its listing carried, so an item nothing
+changed costs no body read and no model call (#1539). `--item` refines the item it names
+whenever it is open, New or Ready, whoever opened it, since a person asked for it.
 
 Every item refine does not set Ready gets a next step (`NextStep`, #1758), recorded in its job
 record and posted as one comment that carries `CONST_ROADMAP_REFINE_COMMENT_MARKER`: the open
@@ -94,6 +96,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
+    CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
 from devops_cli.config.settings import get_firecrawl_api_key, load_settings
@@ -816,23 +819,49 @@ def step_comment(
 
 _IMAGE_RE = re.compile(r"!\[.*?\](?:\(.*?\)|\[.*?\])")
 _HTML_TAG_RE = re.compile(r"<[a-zA-Z/][^>]*>")
+# The `<` that opens an HTML comment, declaration, CDATA section or processing instruction:
+# GitHub hides the text after an unclosed one, and `<!--` can forge a marker or a record block.
+_RAW_HTML_OPENER_RE = re.compile(r"<(?=[!?])")
 _HANDLE_RE = re.compile(r"(?<!`)(@[a-zA-Z0-9_\-]+)(?!`)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)]+)\)")
 _BARE_URL_RE = re.compile(r"(?<!`)(https?://[^\s\)\]]+)(?!`)")
+# A `www.` link that GitHub links with no scheme: after the start, a space, `*`, `_`, `~` or `(`.
+_BARE_WWW_RE = re.compile(r"(?<![^\s*_~(])(www\.[^\s\)\]`]+)", re.IGNORECASE)
+# An `owner/repo#N` reference, which GitHub links and records on the other issue.
+_CROSS_REPO_REF_RE = re.compile(r"(?<![\w`/.\-])([\w.\-]+/[\w.\-]+#\d+)(?![\w`])")
+_TRAILING_PUNCTUATION: Final[str] = ".,;:!?"
+
+
+def _code_span_unless_allowed(match: re.Match[str], allowed_urls: set[str]) -> str:
+    """The link `match` holds as it is when `allowed_urls` holds it, else as a code span, with
+    its trailing punctuation kept outside."""
+    raw_match = match.group(1)
+    stripped = raw_match.rstrip(_TRAILING_PUNCTUATION)
+    punct = raw_match[len(stripped) :]
+    if stripped in allowed_urls:
+        return f"{stripped}{punct}"
+    return f"`{stripped}`{punct}"
 
 
 def sanitize_text(text: str, allowed_urls: set[str]) -> str:
-    """Strips images and HTML tags, wraps handles and unallowed URLs in code spans."""
+    """Strips images and HTML tags, turns the `<` of a comment opener into an entity, and wraps
+    handles, unallowed URLs and `www.` links, and cross-repository references in code spans.
+
+    The opener is neutralized after the tags are stripped, so a stripped tag cannot build one
+    again (#2478).
+    """
     # 1. Remove end markers inside text
     t = text.replace(CONST_ROADMAP_REFINE_END_MARKER, "[end-marker]")
     # 2. Remove images
     t = _IMAGE_RE.sub("", t)
     # 3. Remove HTML tags
     t = _HTML_TAG_RE.sub("", t)
-    # 4. Wrap @handles
+    # 4. Neutralize comment, declaration and processing instruction openers
+    t = _RAW_HTML_OPENER_RE.sub("&lt;", t)
+    # 5. Wrap @handles
     t = _HANDLE_RE.sub(r"`\1`", t)
 
-    # 5. Process markdown links
+    # 6. Process markdown links
     def _link_sub(m: re.Match[str]) -> str:
         label, url = m.group(1), m.group(2)
         if url in allowed_urls:
@@ -841,17 +870,14 @@ def sanitize_text(text: str, allowed_urls: set[str]) -> str:
 
     t = _MARKDOWN_LINK_RE.sub(_link_sub, t)
 
-    # 6. Wrap bare URLs not in allowed_urls
-    def _bare_url_sub(m: re.Match[str]) -> str:
-        raw_match = m.group(1)
-        stripped = raw_match.rstrip(".,;:!?")
-        punct = raw_match[len(stripped) :]
-        if stripped in allowed_urls:
-            return f"{stripped}{punct}"
-        return f"`{stripped}`{punct}"
+    # 7. Wrap bare URLs and `www.` links not in allowed_urls
+    def _unallowed_sub(m: re.Match[str]) -> str:
+        return _code_span_unless_allowed(m, allowed_urls)
 
-    t = _BARE_URL_RE.sub(_bare_url_sub, t)
-    return t
+    t = _BARE_URL_RE.sub(_unallowed_sub, t)
+    t = _BARE_WWW_RE.sub(_unallowed_sub, t)
+    # 8. Wrap cross-repository references
+    return _CROSS_REPO_REF_RE.sub(r"`\1`", t)
 
 
 def _option_lines(qa: QuestionAnswer) -> list[str]:
@@ -871,11 +897,11 @@ def render_proposal_section(
 ) -> str:
     """Builds the sanitized plain text markdown section between markers.
 
-    The markers go around the text after it is sanitized, so `sanitize_text` neutralises an
-    end marker in the model's text but never the section's own (#1470).
+    The markers and the `checked-at` comment go around the text after it is sanitized, so
+    `sanitize_text` neutralises an end marker or a comment opener in the model's text but never
+    the section's own (#1470, #2478).
     """
     lines: list[str] = [
-        f"<!-- checked-at: sha={sha} -->",
         "## Proposed design",
         "",
         "### Problem statement",
@@ -924,7 +950,10 @@ def render_proposal_section(
         lines.append("None.")
 
     section = sanitize_text("\n".join(lines), allowed_urls)
-    return f"{CONST_ROADMAP_REFINE_START_MARKER}\n{section}\n{CONST_ROADMAP_REFINE_END_MARKER}"
+    return (
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n<!-- checked-at: sha={sha} -->\n{section}\n"
+        f"{CONST_ROADMAP_REFINE_END_MARKER}"
+    )
 
 
 # ── Selection ─────────────────────────────────────────────────────────────────
@@ -1033,6 +1062,23 @@ def _still_waiting(store: RoadmapStore, item: Item) -> WaitingItem | None:
     return WaitingItem(item, step, details)
 
 
+def _outside_author(item: Item) -> WaitingItem | None:
+    """The wait of an item that an account without write access opened, as GitHub's
+    `author_association` gives it, or None for the owner's, a member's or a collaborator's item.
+
+    Build agents take Ready items as work, so a round never refines text from such an account:
+    the item waits on a person, who refines it with `--item` (#2478). An item with no
+    association, which GitHub never gives, is treated the same way.
+    """
+    if item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS:
+        return None
+    texts = MESSAGES.roadmap
+    detail = texts.refine_outside_author.format(
+        association=item.author_association or texts.refine_author_unknown, number=item.number
+    )
+    return WaitingItem(item, NextStep.PERSON, (detail,))
+
+
 @dataclass
 class _Selection:
     """The items one selection takes, and those it leaves with their next step."""
@@ -1042,7 +1088,12 @@ class _Selection:
     waiting: list[WaitingItem] = field(default_factory=list)
 
     def consider(self, item: Item) -> None:
-        """Take `item` unless its wait is not over or a person edited its section (#1515)."""
+        """Take `item` unless an account without write access opened it (#2478), its wait is
+        not over, or a person edited its section (#1515)."""
+        outside = _outside_author(item)
+        if outside is not None:
+            self.waiting.append(outside)
+            return
         if _is_unchanged(item, item.body):
             waits = _still_waiting(self.store, item)
             if waits is not None:
