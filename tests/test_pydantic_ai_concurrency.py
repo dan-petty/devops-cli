@@ -71,3 +71,13 @@ async def test_multi_agent_pipeline_concurrency_async() -> None:
         '{"summary": "Agent 1 output"}',
         '{"summary": "Agent 2 output"}',
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_pipeline_with_no_agents_returns_an_empty_result() -> None:
+    """Verify a pipeline with no agents returns an empty result from both parallel runs."""
+    pipeline = MultiAgentPipeline()
+
+    results = [pipeline.run_parallel("prompt"), await pipeline.run_parallel_async("prompt")]
+
+    assert [(result.final_content, result.steps) for result in results] == [("", []), ("", [])]

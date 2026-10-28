@@ -12,6 +12,8 @@
   - Verification: `uv run devops ci test tests/test_ai_fixer.py tests/test_schema_reflection.py`
 - [x] Delete `MultiAgentPipeline.output_schema`, `_parse_pipeline_output`, `final_data`, `parsed_data` and the type parameter
   - Verification: `uv run devops ci test tests/test_agent.py tests/test_pipeline_context_budget.py tests/test_pydantic_ai_concurrency.py`
+- [x] Cover the changed lines through the public interface: an integer `retries` sets the tool retry budget, and a pipeline with no agents returns an empty result
+  - Verification: `uv run devops ci test tests/test_pydantic_agent.py tests/test_pydantic_ai_concurrency.py`
 - [x] Lower the swallowed-failure ceilings to the new counts
   - Verification: `uv run devops ci test tests/test_swallowed_failures_ratchet.py`
 - [x] Correct the knowledge-base page on `PydanticAgent`, and regenerate the documentation

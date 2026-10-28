@@ -938,3 +938,29 @@ def test_agent_response_output_falls_back_to_the_text() -> None:
     resp_data = AgentResponse(content="{}", data={"key": "val"})
 
     assert (resp_text.output, resp_data.output) == ("Simple text", {"key": "val"})
+
+
+def test_an_integer_retries_is_the_tool_retry_budget() -> None:
+    """Verify an integer `retries`, on the agent or on one run, sets the tool retry budget."""
+    from devops_cli.ai.agents.context import AgentRetries
+    from devops_cli.exceptions.ai import UnexpectedModelBehavior
+
+    mock_client = MagicMock()
+    mock_client.model = "test-model"
+    agent = PydanticAgent(client=mock_client, name="Budget", retries=2)
+
+    @agent.tool
+    def strict_tool(val: str) -> str:
+        raise ModelRetry(f"Invalid val: {val}")
+
+    mock_client.chat_messages.side_effect = [
+        '{"tool": "strict_tool", "arguments": {"val": "bad1"}}',
+        '{"tool": "strict_tool", "arguments": {"val": "bad2"}}',
+    ]
+    with pytest.raises(UnexpectedModelBehavior) as exc_info:
+        agent.run("Run strict tool", max_turns=3, skip_rag=True, retries=1)
+
+    assert (agent.retries, "exceeded retry budget" in str(exc_info.value)) == (
+        AgentRetries(tools=2),
+        True,
+    )
