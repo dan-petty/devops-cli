@@ -11,7 +11,7 @@ import threading
 import time
 import types
 import typing
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -1499,6 +1499,37 @@ def _canonical_key(key: str) -> str:
 def dotted_get(settings: Settings, key: str) -> Any:
     """Get a config value by dotted key, e.g. 'github.default_org'."""
     return operator.attrgetter(_canonical_key(key))(settings)
+
+
+def _field_keys(model: type[BaseModel], prefix: str = "") -> Iterator[str]:
+    """The dotted key of each field of `model` that holds a value, in its sections at any depth."""
+    for name, field in model.model_fields.items():
+        annotation = field.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            yield from _field_keys(annotation, f"{prefix}{name}.")
+        else:
+            yield f"{prefix}{name}"
+
+
+def _config_keys() -> frozenset[str]:
+    """Each key that `devops config set` takes: a settings field that holds a value, or a
+    credential. Some credentials, such as `grafana.token`, have no settings field."""
+    return frozenset(_field_keys(Settings)) | _SECRET_FIELDS
+
+
+def is_config_key(key: str) -> bool:
+    """Whether the dotted `key` names a settings field that holds a value, or a credential.
+
+    A section, such as `ai` or `ai.tasks.chat`, holds no value of its own, so it is no config key.
+    """
+    return _canonical_key(key) in _config_keys()
+
+
+def similar_config_keys(key: str) -> list[str]:
+    """The config keys whose names are nearest to the dotted `key`, the nearest first."""
+    import difflib
+
+    return difflib.get_close_matches(_canonical_key(key), _config_keys())
 
 
 def _coerce_setting_value(new_value: Any, is_list_field: bool) -> Any:

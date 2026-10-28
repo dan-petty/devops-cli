@@ -897,6 +897,11 @@ class DocGenerator:
             "key, its file and line, the release that removed the key when devops-cli knows it, "
             "and the `devops config unset` command that removes it.",
             "",
+            "`devops config set` takes a key that names a settings field with a value, or a "
+            "credential. For any other key, it exits 1 with `Unknown config key: '<key>'` before "
+            "it asks for a value or reads a file, and names the known keys with a similar name. "
+            "`devops config get` gives the same message for a key that it cannot find.",
+            "",
             "---",
             "",
         ]

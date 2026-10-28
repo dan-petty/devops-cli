@@ -1,4 +1,4 @@
-"""Verify what the `devops config` commands tell the user about the config file they write."""
+"""Verify what the `devops config` commands tell the user about the config file and its keys."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from devops_cli.config.settings import reset_settings_cache
@@ -150,4 +151,49 @@ def test_the_unset_command_that_the_error_names_for_the_other_config_file_remove
     assert (result.exit_code, other.read_text(encoding="utf-8")) == (
         0,
         "github:\n  default_org: example-org\nai: {}\n",
+    )
+
+
+_SIMILAR_TO_AN_API_KEY = "ai.api_key, firecrawl.api_key, qdrant.api_key"
+
+
+@pytest.mark.parametrize(
+    ("args", "output"),
+    [
+        pytest.param(["no.such_key"], "Unknown config key: 'no.such_key'\n", id="no-value"),
+        pytest.param(
+            ["tavily.api_key", "example-value"],
+            "Unknown config key: 'tavily.api_key'\n"
+            f"Known keys with a similar name: {_SIMILAR_TO_AN_API_KEY}\n",
+            id="value",
+        ),
+        pytest.param(
+            ["firecrawl.apikey", "--from-file", "-"],
+            "Unknown config key: 'firecrawl.apikey'\n"
+            "Known keys with a similar name: firecrawl.api_key, ai.api_key, qdrant.api_key\n",
+            id="from-stdin",
+        ),
+    ],
+)
+def test_config_set_of_an_unknown_key_exits_1_before_any_prompt_and_names_the_similar_keys(
+    cli: Any, mock_keyring: Any, isolate_devops_cli_config: Path, args: list[str], output: str
+) -> None:
+    """Without a VALUE, an unknown key got the message of a known key that is no credential and
+    exit 2. With a VALUE, it got the text of the error of the settings walk (#2448)."""
+    config_before = isolate_devops_cli_config.read_text(encoding="utf-8")
+
+    result = cli("config", "set", *args, input="example-value\n")
+
+    assert (result.exit_code, result.output) == (1, output)
+    assert mock_keyring.writes == {}
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == config_before
+
+
+def test_config_get_of_an_unknown_key_names_the_similar_keys(cli: Any) -> None:
+    result = cli("config", "get", "firecrawl.apikey")
+
+    assert (result.exit_code, result.output) == (
+        1,
+        "Unknown config key: 'firecrawl.apikey'\n"
+        "Known keys with a similar name: firecrawl.api_key, ai.api_key, qdrant.api_key\n",
     )
