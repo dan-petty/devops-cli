@@ -1,0 +1,120 @@
+# serializer version: 1
+# name: test_the_aibom_document_of_a_workspace
+  dict({
+    'bomFormat': 'CycloneDX',
+    'components': list([
+      dict({
+        'hashes': list([
+          dict({
+            'alg': 'SHA-256',
+            'content': '151ed3822804b642bdfb392d93557c8a5fedadb322911a4d6ea44828745d962c',
+          }),
+        ]),
+        'licenses': list([
+          dict({
+            'license': dict({
+              'id': 'apache-2.0',
+              'name': 'Permissive Open Weight',
+            }),
+          }),
+        ]),
+        'name': 'qwen-coder',
+        'properties': list([
+          dict({
+            'name': 'devops:parameters_billion',
+            'value': '6.4',
+          }),
+          dict({
+            'name': 'devops:trust_remote_code',
+            'value': 'false',
+          }),
+          dict({
+            'name': 'devops:safe_weights',
+            'value': 'true',
+          }),
+          dict({
+            'name': 'devops:license_category',
+            'value': 'Permissive Open Weight',
+          }),
+          dict({
+            'name': 'devops:estimated_vram_gb',
+            'value': '18.08',
+          }),
+          dict({
+            'name': 'devops:estimated_ram_gb',
+            'value': '20.14',
+          }),
+          dict({
+            'name': 'devops:estimated_disk_gb',
+            'value': '13.44',
+          }),
+        ]),
+        'purl': 'pkg:ai/Qwen/qwen-coder@1.0.0',
+        'type': 'machine-learning-model',
+        'version': '1.0.0',
+      }),
+      dict({
+        'licenses': list([
+          dict({
+            'license': dict({
+              'id': 'NOASSERTION',
+              'name': 'Unknown / Custom',
+            }),
+          }),
+        ]),
+        'name': 'mistral:7b',
+        'properties': list([
+          dict({
+            'name': 'devops:parameters_billion',
+            'value': '7.0',
+          }),
+          dict({
+            'name': 'devops:trust_remote_code',
+            'value': 'false',
+          }),
+          dict({
+            'name': 'devops:safe_weights',
+            'value': 'true',
+          }),
+          dict({
+            'name': 'devops:license_category',
+            'value': 'Unknown / Custom',
+          }),
+          dict({
+            'name': 'devops:estimated_vram_gb',
+            'value': '19.7',
+          }),
+          dict({
+            'name': 'devops:estimated_ram_gb',
+            'value': '21.84',
+          }),
+          dict({
+            'name': 'devops:estimated_disk_gb',
+            'value': '14.7',
+          }),
+        ]),
+        'purl': 'pkg:ai/local/mistral:7b@1.0.0',
+        'type': 'machine-learning-model',
+        'version': '1.0.0',
+      }),
+    ]),
+    'metadata': dict({
+      'component': dict({
+        'name': 'test-repo',
+        'type': 'application',
+        'version': '0.2.7',
+      }),
+      'timestamp': str,
+      'tools': list([
+        dict({
+          'name': 'devops-cli-aibom',
+          'vendor': 'DevOps CLI',
+          'version': '0.2.7',
+        }),
+      ]),
+    }),
+    'serialNumber': str,
+    'specVersion': '1.5',
+    'version': 1,
+  })
+# ---

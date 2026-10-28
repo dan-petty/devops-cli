@@ -20,6 +20,7 @@ from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.constants import CONST_STATUS_VERIFIED
 from devops_cli.review.report import ReportInput
 from devops_cli.roadmap.store import Candidate, Item, Milestone
+from devops_cli.security.normalization import NormalizedFinding
 
 _ISSUES_URL = "https://example.com/octo/repo/issues"
 
@@ -29,6 +30,15 @@ _FINDING: dict[str, Any] = {
     "title": "SQL injection in search",
     "description": "User input reaches the query unchecked.",
     "fix": "Bind the value as a query parameter.",
+}
+
+_NORMALIZED_FINDING: dict[str, Any] = {
+    "tool": "bandit",
+    "rule_id": "B602",
+    "severity": "HIGH",
+    "message": "subprocess call with shell=True",
+    "path": "src/app.py",
+    "line": 4,
 }
 
 
@@ -48,6 +58,12 @@ def make_finding(*, saved: bool = False, **overrides: Any) -> Finding:
     """A review finding with a severity, a location, a title, a description and a fix; with
     `saved`, the `SavedFinding` a review session writes."""
     return _validated(SavedFinding if saved else Finding, _FINDING, overrides)
+
+
+def make_normalized_finding(**overrides: Any) -> NormalizedFinding:
+    """A scanner finding as `security.normalization` gives it: bandit's B602 at `src/app.py:4`,
+    severity HIGH."""
+    return NormalizedFinding(**{**_NORMALIZED_FINDING, **overrides})
 
 
 def make_verdict(**overrides: Any) -> Verdict:

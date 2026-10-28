@@ -10,9 +10,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.ssh import app as ssh_app
 from devops_cli.crypto.ssh_keys import (
     find_newest_key,
     generate_ed25519_key,
@@ -22,8 +20,6 @@ from devops_cli.crypto.ssh_keys import (
 )
 from devops_cli.models.ssh import ManagedSSHKey
 from tests.support.fakes.github import GitHubApiFake, github_json
-
-runner = CliRunner()
 
 
 def test_generate_creates_key_pair(tmp_path: Path) -> None:
@@ -178,8 +174,23 @@ def test_list_managed_keys_filters_correctly(tmp_path: Path) -> None:
     assert names == {"id_ed25519-20240115", "custom-app-id_ed25519-20250301"}
 
 
-def test_ssh_commands(tmp_path: Path) -> None:
-    """Verify ssh generate, status, audit, register, and rotate subcommands."""
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(
+            ["generate", "--key-dir", "{key_dir}", "--comment", "test@domain.com"], id="generate"
+        ),
+        pytest.param(["status", "--key-dir", "{key_dir}"], id="status"),
+        pytest.param(["audit", "--key-dir", "{key_dir}"], id="audit"),
+        pytest.param(["register", "--key-file", "{key_file}", "--title", "My Key"], id="register"),
+        pytest.param(["rotate", "--key-dir", "{key_dir}"], id="rotate"),
+        pytest.param(["rotate", "--key-dir", "{key_dir}", "--force"], id="rotate-force"),
+    ],
+)
+def test_each_ssh_command_succeeds_with_a_current_managed_key(
+    tmp_path: Path, cli: Callable[..., Any], argv: list[str]
+) -> None:
+    """With a ten-day-old managed key and GitHub accepting the key, each command exits 0."""
     mock_key_info = ManagedSSHKey(
         path=tmp_path / "devops-cli-id_ed25519-20240115",
         key_date=date(2024, 1, 15),
@@ -202,40 +213,32 @@ def test_ssh_commands(tmp_path: Path) -> None:
         patch("devops_cli.github.ssh.register_key_on_github", return_value=True),
         patch("devops_cli.commands.ssh._configure_git_signing"),
     ):
-        res_gen = runner.invoke(
-            ssh_app, ["generate", "--key-dir", str(tmp_path), "--comment", "test@domain.com"]
-        )
-        assert res_gen.exit_code == 0
+        result = cli(["ssh", *(arg.format(key_dir=tmp_path, key_file=priv_file) for arg in argv)])
 
-        res_stat = runner.invoke(ssh_app, ["status", "--key-dir", str(tmp_path)])
-        assert res_stat.exit_code == 0
-
-        res_audit = runner.invoke(ssh_app, ["audit", "--key-dir", str(tmp_path)])
-        assert res_audit.exit_code == 0
-
-        res_reg = runner.invoke(
-            ssh_app, ["register", "--key-file", str(priv_file), "--title", "My Key"]
-        )
-        assert res_reg.exit_code == 0
-
-        res_rot = runner.invoke(ssh_app, ["rotate", "--key-dir", str(tmp_path)])
-        assert res_rot.exit_code == 0
-
-        res_rot_force = runner.invoke(ssh_app, ["rotate", "--key-dir", str(tmp_path), "--force"])
-        assert res_rot_force.exit_code == 0
+    assert result.exit_code == 0
 
 
-def test_ssh_dry_run_commands(tmp_path: Path) -> None:
-    """Verify dry-run mode across all ssh subcommands."""
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["generate", "--key-dir", "{key_dir}"], id="generate"),
+        pytest.param(["register"], id="register"),
+        pytest.param(["rotate"], id="rotate"),
+        pytest.param(["audit"], id="audit"),
+        pytest.param(["status"], id="status"),
+    ],
+)
+def test_each_ssh_command_succeeds_in_a_dry_run(
+    tmp_path: Path, cli: Callable[..., Any], argv: list[str]
+) -> None:
+    """In a dry run, each ssh command exits 0."""
     with patch("devops_cli.dry_run.is_dry_run", return_value=True):
-        assert runner.invoke(ssh_app, ["generate", "--key-dir", str(tmp_path)]).exit_code == 0
-        assert runner.invoke(ssh_app, ["register"]).exit_code == 0
-        assert runner.invoke(ssh_app, ["rotate"]).exit_code == 0
-        assert runner.invoke(ssh_app, ["audit"]).exit_code == 0
-        assert runner.invoke(ssh_app, ["status"]).exit_code == 0
+        result = cli(["ssh", *(arg.format(key_dir=tmp_path) for arg in argv)])
+
+    assert result.exit_code == 0
 
 
-def test_ssh_generate_key_collision(tmp_path: Path) -> None:
+def test_ssh_generate_key_collision(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Verify ssh generate exits with error when key already exists."""
     with (
         patch("devops_cli.commands.ssh._date_suffix", return_value="20260101"),
@@ -246,15 +249,14 @@ def test_ssh_generate_key_collision(tmp_path: Path) -> None:
         settings.ssh.key_prefix = None
         mock_load.return_value = settings
         (tmp_path / "devops-cli-id_ed25519-20260101").touch()
-        res_exist = runner.invoke(ssh_app, ["generate"])
+        res_exist = cli(["ssh", "generate"])
         assert res_exist.exit_code == 1
 
 
-def test_ssh_register_error_branches(tmp_path: Path) -> None:
-    """Verify ssh register error paths for missing key, missing pub, and API error."""
-    from devops_cli.github.ssh import SSHRegistrationError
-
-    # Missing newest key
+def test_ssh_register_without_a_managed_key_exits_1(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """With no managed key in the key directory, `ssh register` stops with exit status 1."""
     with (
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=None),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -263,16 +265,26 @@ def test_ssh_register_error_branches(tmp_path: Path) -> None:
         settings.ssh.key_dir = tmp_path
         settings.ssh.key_prefix = None
         mock_load.return_value = settings
-        res_no_key = runner.invoke(ssh_app, ["register"])
-        assert res_no_key.exit_code == 1
 
-    # Missing .pub
+        assert cli(["ssh", "register"]).exit_code == 1
+
+
+def test_ssh_register_of_a_key_without_its_public_file_exits_1(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """A private key file with no `.pub` beside it cannot be registered."""
     priv = tmp_path / "custom_priv"
     priv.touch()
-    res_no_pub = runner.invoke(ssh_app, ["register", "--key-file", str(priv)])
-    assert res_no_pub.exit_code == 1
 
-    # SSHRegistrationError in register
+    assert cli(["ssh", "register", "--key-file", str(priv)]).exit_code == 1
+
+
+def test_ssh_register_that_github_refuses_exits_1(tmp_path: Path, cli: Callable[..., Any]) -> None:
+    """A registration error from GitHub stops the command with exit status 1."""
+    from devops_cli.github.ssh import SSHRegistrationError
+
+    priv = tmp_path / "custom_priv"
+    priv.touch()
     (tmp_path / "custom_priv.pub").write_text("ssh-ed25519 AAAA", encoding="utf-8")
     with (
         patch(
@@ -284,11 +296,11 @@ def test_ssh_register_error_branches(tmp_path: Path) -> None:
         settings = MagicMock()
         settings.ssh.key_prefix = None
         mock_load.return_value = settings
-        res_reg_err = runner.invoke(ssh_app, ["register", "--key-file", str(priv)])
-        assert res_reg_err.exit_code == 1
+
+        assert cli(["ssh", "register", "--key-file", str(priv)]).exit_code == 1
 
 
-def test_ssh_status_key_age_buckets(tmp_path: Path) -> None:
+def test_ssh_status_key_age_buckets(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Verify ssh status output for warning threshold and overdue keys."""
     priv = tmp_path / "custom_priv"
     priv.touch()
@@ -304,17 +316,17 @@ def test_ssh_status_key_age_buckets(tmp_path: Path) -> None:
         mock_load.return_value = settings
 
         with patch("devops_cli.crypto.ssh_keys.get_key_age_days", return_value=85):
-            res_stat_warn = runner.invoke(ssh_app, ["status"])
+            res_stat_warn = cli(["ssh", "status"])
             assert res_stat_warn.exit_code == 0
             assert "5 days remaining" in res_stat_warn.output
 
         with patch("devops_cli.crypto.ssh_keys.get_key_age_days", return_value=100):
-            res_stat_overdue = runner.invoke(ssh_app, ["status"])
+            res_stat_overdue = cli(["ssh", "status"])
             assert res_stat_overdue.exit_code == 0
             assert "overdue by 10 days" in res_stat_overdue.output
 
 
-def test_ssh_audit_key_age_buckets(tmp_path: Path) -> None:
+def test_ssh_audit_key_age_buckets(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Verify ssh audit output with multiple managed key ages."""
     from devops_cli.crypto.ssh_keys import ManagedSSHKey
 
@@ -334,7 +346,7 @@ def test_ssh_audit_key_age_buckets(tmp_path: Path) -> None:
         settings.ssh.rotation_days = 90
         mock_load.return_value = settings
 
-        res_audit = runner.invoke(ssh_app, ["audit"])
+        res_audit = cli(["ssh", "audit"])
         assert res_audit.exit_code == 0
 
 
@@ -436,7 +448,9 @@ def test_ssh_prefix_filtering_and_parsing(tmp_path: Path) -> None:
     assert list_managed_keys(regular_file) == []
 
 
-def test_ssh_register_honors_prefix_setting_and_option(tmp_path: Path) -> None:
+def test_ssh_register_honors_prefix_setting_and_option(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
     """Verify devops ssh register and list commands honor settings.ssh.key_prefix and --prefix flag."""
     k_prefixed = tmp_path / "custom-env-id_ed25519-20260901"
     k_prefixed.write_text("private")
@@ -464,34 +478,34 @@ def test_ssh_register_honors_prefix_setting_and_option(tmp_path: Path) -> None:
         mock_load.return_value = settings
 
         # 1. Register with key_prefix setting (no --key-file or --title)
-        res = runner.invoke(ssh_app, ["register"])
+        res = cli(["ssh", "register"])
         assert res.exit_code == 0
         assert mock_registered_titles[-1] == "custom-env-id_ed25519-20260901"
 
         # 2. Register with explicit --prefix option
-        res_opt = runner.invoke(ssh_app, ["register", "--prefix", "custom-env"])
+        res_opt = cli(["ssh", "register", "--prefix", "custom-env"])
         assert res_opt.exit_code == 0
         assert mock_registered_titles[-1] == "custom-env-id_ed25519-20260901"
 
         # 3. Status with prefix option
-        res_stat = runner.invoke(ssh_app, ["status", "--prefix", "custom-env"])
+        res_stat = cli(["ssh", "status", "--prefix", "custom-env"])
         assert res_stat.exit_code == 0
         assert "custom-env-id_ed25519-20260901" in res_stat.output
 
         # 4. List without --prefix defaults to settings.ssh.key_prefix (shows custom-env, excludes other-proj)
-        res_list_default = runner.invoke(ssh_app, ["list"])
+        res_list_default = cli(["ssh", "list"])
         assert res_list_default.exit_code == 0
         assert "custom-env-id_ed25519-20260901" in res_list_default.output
         assert "other-proj-id_ed25519-20260901" not in res_list_default.output
 
         # 5. List with explicit --prefix other-proj (shows other-proj, excludes custom-env)
-        res_list_other = runner.invoke(ssh_app, ["list", "--prefix", "other-proj"])
+        res_list_other = cli(["ssh", "list", "--prefix", "other-proj"])
         assert res_list_other.exit_code == 0
         assert "other-proj-id_ed25519-20260901" in res_list_other.output
         assert "custom-env-id_ed25519-20260901" not in res_list_other.output
 
 
-def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
+def test_ssh_empty_states_and_rotation_failure(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Verify ssh commands when key dir is empty or rotation fails."""
     from devops_cli.github.ssh import SSHRegistrationError
 
@@ -499,17 +513,17 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
     empty_dir.mkdir()
 
     # 1. Rotate in empty dir
-    res_rot = runner.invoke(ssh_app, ["rotate", "--key-dir", str(empty_dir)])
+    res_rot = cli(["ssh", "rotate", "--key-dir", str(empty_dir)])
     assert res_rot.exit_code == 0
     assert "No managed SSH key with the prefix" in res_rot.output
 
     # 2. List in empty dir
-    res_list = runner.invoke(ssh_app, ["list", "--key-dir", str(empty_dir)])
+    res_list = cli(["ssh", "list", "--key-dir", str(empty_dir)])
     assert res_list.exit_code == 0
     assert "No managed SSH key with the prefix" in res_list.output
 
     # 3. Status in empty dir
-    res_stat = runner.invoke(ssh_app, ["status", "--key-dir", str(empty_dir)])
+    res_stat = cli(["ssh", "status", "--key-dir", str(empty_dir)])
     assert res_stat.exit_code == 0
     assert "No managed SSH key with the prefix" in res_stat.output
 
@@ -533,7 +547,7 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
         settings.ssh.rotation_days = 30
         mock_load.return_value = settings
 
-        res_rot_fail = runner.invoke(ssh_app, ["rotate", "--force"])
+        res_rot_fail = cli(["ssh", "rotate", "--force"])
         assert res_rot_fail.exit_code == 0
         assert "registration failed" in res_rot_fail.output
         assert "ghp_secret" not in res_rot_fail.output
@@ -541,7 +555,7 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
 
 
 def test_a_rotation_github_refuses_removes_the_new_key(
-    tmp_path: Path, github_api: GitHubApiFake
+    tmp_path: Path, github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
     """The GitHub session registers the new key, and GitHub refuses its signing key with a 422
     the listing does not confirm: rotate warns, removes the key it generated and exits 0 (#983)."""
@@ -556,7 +570,7 @@ def test_a_rotation_github_refuses_removes_the_new_key(
         load.return_value.ssh.key_dir = tmp_path
         load.return_value.ssh.key_prefix = "devops-cli"
         load.return_value.ssh.rotation_days = 30
-        result = runner.invoke(ssh_app, ["rotate", "--force"])
+        result = cli(["ssh", "rotate", "--force"])
     assert (
         result.exit_code,
         "registration failed" in result.output,
@@ -565,7 +579,7 @@ def test_a_rotation_github_refuses_removes_the_new_key(
 
 
 def test_a_rotation_github_answers_with_a_404_warns_with_the_scope_command_and_removes_the_new_key(
-    tmp_path: Path, github_api: GitHubApiFake
+    tmp_path: Path, github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
     """GitHub answers a token without the key scope with a 404, and rotate's warning gives the
     command that adds the scopes, then removes the key it generated."""
@@ -577,7 +591,7 @@ def test_a_rotation_github_answers_with_a_404_warns_with_the_scope_command_and_r
         load.return_value.ssh.key_dir = tmp_path
         load.return_value.ssh.key_prefix = "devops-cli"
         load.return_value.ssh.rotation_days = 30
-        result = runner.invoke(ssh_app, ["rotate", "--force"])
+        result = cli(["ssh", "rotate", "--force"])
     assert (
         result.exit_code,
         "gh auth refresh -h github.com -s admin:public_key,write:ssh_signing_key"
@@ -586,31 +600,45 @@ def test_a_rotation_github_answers_with_a_404_warns_with_the_scope_command_and_r
     ) == (0, True, ["devops-cli-id_ed25519-20240101", "devops-cli-id_ed25519-20240101.pub"])
 
 
-def test_crypto_ssh_keys_edge_cases(tmp_path: Path) -> None:
-    """Verify corrupted devcontainer.json parsing, parse_key_prefix, and format_managed_key_filename."""
-    from devops_cli.crypto.ssh_keys import (
-        format_managed_key_filename,
-        get_ssh_key_prefix,
-        parse_key_prefix,
-    )
+def test_a_devcontainer_json_that_does_not_parse_falls_back_to_the_directory_name(
+    tmp_path: Path,
+) -> None:
+    """With no settings and a devcontainer.json that is not JSON, the key prefix is the
+    workspace directory's name."""
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
 
-    # 1. Corrupted devcontainer.json
     dev_dir = tmp_path / "bad_devcontainer"
     dev_cfg = dev_dir / ".devcontainer"
     dev_cfg.mkdir(parents=True)
     (dev_cfg / "devcontainer.json").write_text("INVALID JSON // comment", encoding="utf-8")
 
     with patch("devops_cli.config.settings.load_settings", side_effect=Exception("no settings")):
-        prefix = get_ssh_key_prefix(dev_dir)
-        assert prefix == "bad_devcontainer"
+        assert get_ssh_key_prefix(dev_dir) == "bad_devcontainer"
 
-    # 2. format_managed_key_filename with empty prefix
-    fn = format_managed_key_filename(prefix="", key_date=date(2026, 9, 1))
-    assert fn == "id_ed25519-20260901"
 
-    # 3. parse_key_prefix with invalid key name
-    assert parse_key_prefix(Path("unmanaged_rsa_key")) is None
-    assert parse_key_prefix(Path("my-prefix-id_ed25519-20260901")) == "my-prefix"
+def test_a_managed_key_name_with_an_empty_prefix_has_no_leading_dash() -> None:
+    """An empty prefix gives the bare key type and date."""
+    from devops_cli.crypto.ssh_keys import format_managed_key_filename
+
+    assert format_managed_key_filename(prefix="", key_date=date(2026, 9, 1)) == (
+        "id_ed25519-20260901"
+    )
+
+
+@pytest.mark.parametrize(
+    ("key_name", "prefix"),
+    [
+        pytest.param("unmanaged_rsa_key", None, id="unmanaged"),
+        pytest.param("my-prefix-id_ed25519-20260901", "my-prefix", id="managed"),
+    ],
+)
+def test_the_prefix_of_a_key_name_is_read_only_from_a_managed_name(
+    key_name: str, prefix: str | None
+) -> None:
+    """A managed key name gives its prefix, and any other name gives none."""
+    from devops_cli.crypto.ssh_keys import parse_key_prefix
+
+    assert parse_key_prefix(Path(key_name)) == prefix
 
 
 def test_crypto_ssh_keys_devcontainer_config_resolution(

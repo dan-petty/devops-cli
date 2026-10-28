@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.scan import app as scan_app
 from devops_cli.core.code_metrics import FunctionComplexity, measure_tree
 from devops_cli.security.complexity import run_complexity_scan
-
-runner = CliRunner()
 
 
 def _measure(path: Path) -> list[FunctionComplexity]:
@@ -78,7 +76,7 @@ def test_run_complexity_scan_thresholds(tmp_path: Path) -> None:
     assert any("High Cyclomatic Complexity" in f.title for f in findings)
 
 
-def test_scan_complexity_cli(tmp_path: Path) -> None:
+def test_scan_complexity_cli(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Test CLI execution of devops scan complexity."""
     sample = tmp_path / "code.py"
     sample.write_text(
@@ -86,17 +84,17 @@ def test_scan_complexity_cli(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     # Test JSON output
-    res = runner.invoke(scan_app, ["complexity", str(sample), "--json", "--max-complexity", "20"])
+    res = cli(["scan", "complexity", str(sample), "--json", "--max-complexity", "20"])
     assert res.exit_code == 0
     assert "[]" in res.output or "location" in res.output
 
     # Test clean pass table output
-    res_clean = runner.invoke(scan_app, ["complexity", str(sample), "--max-complexity", "20"])
+    res_clean = cli(["scan", "complexity", str(sample), "--max-complexity", "20"])
     assert res_clean.exit_code == 0
     assert "Code complexity and indentation depth within standard limits" in res_clean.output
 
     # Test dry run
-    res_dry = runner.invoke(scan_app, ["complexity", str(sample), "--dry-run"])
+    res_dry = cli(["scan", "complexity", str(sample), "--dry-run"])
     assert res_dry.exit_code == 0
 
 

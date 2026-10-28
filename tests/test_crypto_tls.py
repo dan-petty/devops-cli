@@ -211,35 +211,31 @@ def test_inspect_and_verify_certificate_sources_and_ips(tmp_path: Path) -> None:
     assert verify_certificate(b"invalid pem bytes", ca_cert.read_bytes()) is False
 
 
-def test_tls_edge_cases_and_cached_returns(tmp_path: Path) -> None:
-    """Verify SAN deduplication, cached certificate returns, and verification edge cases."""
-    # 1. Existing CA without overwrite
-    ca_cert1, ca_key1 = generate_ca_certificate(output_dir=tmp_path, overwrite=False)
-    ca_cert2, ca_key2 = generate_ca_certificate(output_dir=tmp_path, overwrite=False)
-    assert ca_cert1 == ca_cert2
-    assert ca_key1 == ca_key2
+def test_an_existing_ca_is_returned_again_without_overwrite(tmp_path: Path) -> None:
+    """A second CA call without `overwrite` returns the files the first one wrote."""
+    first = generate_ca_certificate(output_dir=tmp_path, overwrite=False)
 
-    # 2. Existing Server Cert without overwrite and with duplicate/empty SANs
-    sans_with_dups = ["", "example.com", "example.com", "127.0.0.1", "127.0.0.1"]
-    srv_cert1, srv_key1, chain1 = generate_server_certificate(
-        common_name="example.com",
-        sans=sans_with_dups,
-        ca_cert_path=ca_cert1,
-        ca_key_path=ca_key1,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    srv_cert2, srv_key2, chain2 = generate_server_certificate(
-        common_name="example.com",
-        sans=sans_with_dups,
-        ca_cert_path=ca_cert1,
-        ca_key_path=ca_key1,
-        output_dir=tmp_path,
-        overwrite=False,
-    )
-    assert srv_cert1 == srv_cert2
-    assert srv_key1 == srv_key2
-    assert chain1 == chain2
+    assert generate_ca_certificate(output_dir=tmp_path, overwrite=False) == first
+
+
+def test_an_existing_server_certificate_is_returned_again_with_duplicate_and_empty_sans(
+    tmp_path: Path,
+) -> None:
+    """A second server certificate call without `overwrite` returns the first one's files, and
+    duplicate and empty SANs do not stop either call."""
+    ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, overwrite=False)
+
+    def generate() -> tuple[Path, Path, Path | None]:
+        return generate_server_certificate(
+            common_name="example.com",
+            sans=["", "example.com", "example.com", "127.0.0.1", "127.0.0.1"],
+            ca_cert_path=ca_cert,
+            ca_key_path=ca_key,
+            output_dir=tmp_path,
+            overwrite=False,
+        )
+
+    assert generate() == generate()
 
 
 def test_tls_output_dir_path_traversal_prevention() -> None:

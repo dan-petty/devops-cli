@@ -5,15 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.vault import app as vault_app
 from devops_cli.config.constants import (
     CONST_HTTP_EGRESS_POLICY_EXTENSION,
     CONST_VAULT_LOGIN_KEYRING_KEY,
@@ -35,8 +33,6 @@ from tests.support.fakes.keyring import FakeKeyring
 from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
-
-runner = CliRunner()
 
 VAULT_ADDR = "https://example.com:8200"
 STORED_TOKEN = "s.stored-login-token"
@@ -184,16 +180,16 @@ def test_get_status_reports_an_unreachable_vault() -> None:
     assert (status.sealed, "did not answer" in (status.error_message or "")) == (True, True)
 
 
-def test_cli_vault_status_dry_run() -> None:
+def test_cli_vault_status_dry_run(cli: Callable[..., Any]) -> None:
     """Test devops vault status CLI subcommand with dry-run."""
-    res = runner.invoke(vault_app, ["status", "--dry-run"])
+    res = cli(["vault", "status", "--dry-run"])
     assert res.exit_code == 0
     assert "vault_health_status" in res.output
 
 
-def test_cli_vault_get_dry_run() -> None:
+def test_cli_vault_get_dry_run(cli: Callable[..., Any]) -> None:
     """Test devops vault get CLI subcommand with dry-run."""
-    res = runner.invoke(vault_app, ["get", "secret/data/app", "--key", "token", "--dry-run"])
+    res = cli(["vault", "get", "secret/data/app", "--key", "token", "--dry-run"])
     assert res.exit_code == 0
     assert "secret/data/app" in res.output
     assert "token" in res.output
@@ -335,14 +331,16 @@ def test_stored_login_never_reprs_its_token() -> None:
 
 
 @pytest.mark.parametrize("source", ["stored", "environment"])
-def test_status_never_sends_a_token(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
+def test_status_never_sends_a_token(
+    monkeypatch: pytest.MonkeyPatch, source: str, cli: Callable[..., Any]
+) -> None:
     """`sys/health` needs no token, so status sends none, whatever address it is given."""
     store_login(monkeypatch, vault_addr="https://example.com")
     if source == "environment":
         monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
 
     with patch(_REQUEST, return_value=reply(200, {"initialized": True})) as mock_request:
-        res = runner.invoke(vault_app, ["status", "--addr", "https://example.com"])
+        res = cli(["vault", "status", "--addr", "https://example.com"])
 
     assert (res.exit_code, sent_tokens(mock_request)) == (0, [None])
 

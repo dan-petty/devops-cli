@@ -8,23 +8,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.ai.review_schema import DefectClass, Finding
-from devops_cli.commands.scan import app as scan_app
+from devops_cli.ai.review_schema import DefectClass
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.gitleaks import (
     parse_gitleaks_json,
     run_gitleaks_scan,
 )
 from devops_cli.security.sarif import to_sarif
+from tests.support.builders import make_finding
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolRequest
-
-runner = CliRunner()
 
 
 def test_parse_gitleaks_json() -> None:
@@ -83,7 +80,9 @@ def _leaks_of_its_source(make_leaks: Callable[[str], list[dict[str, Any]]]) -> A
     return answer
 
 
-def test_scan_secrets_cli(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+def test_scan_secrets_cli(
+    tmp_path: Path, scanner_fake: ScannerFake, cli: Callable[..., Any]
+) -> None:
     secret_file = tmp_path / "creds.env"
     secret_file.write_text(
         "API_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz123456\n",
@@ -100,8 +99,8 @@ def test_scan_secrets_cli(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     ]"""
     scanner_fake.script("gitleaks", ToolAnswer(exit_code=1, stdout=fake_json))
 
-    res_scan = runner.invoke(scan_app, ["secrets", str(secret_file)])
-    res_json = runner.invoke(scan_app, ["secrets", str(secret_file), "--json"])
+    res_scan = cli(["scan", "secrets", str(secret_file)])
+    res_json = cli(["scan", "secrets", str(secret_file), "--json"])
 
     assert (
         (res_scan.exit_code, "Gitleaks Secret Scan" in res_scan.stdout),
@@ -143,20 +142,6 @@ def _leaked_settings(tmp_path: Path) -> Path:
     return settings
 
 
-def _leak(settings: Path) -> Finding:
-    """The finding of the leak in Gitleaks' recorded report."""
-    return Finding(
-        severity="CRITICAL",
-        location=f"{settings}:1",
-        title=f"[GITLEAKS:github-pat] {_GITHUB_PAT}",
-        description=f"Gitleaks detected secret rule pattern 'github-pat' at {settings}:1: "
-        f"{_GITHUB_PAT}",
-        fix="Remove plaintext credentials from source control and store securely in OS Keyring.",
-        confidence_score=None,
-        category=DefectClass.SECRET_EXPOSURE.value,
-    )
-
-
 def test_a_leak_that_gitleaks_reports_is_a_finding_of_a_scan_that_ran(
     scanner_fake: ScannerFake, tmp_path: Path
 ) -> None:
@@ -170,7 +155,19 @@ def test_a_leak_that_gitleaks_reports_is_a_finding_of_a_scan_that_ran(
     assert (scanner_fake.runs, outcome.status, outcome.findings) == (
         [recorded],
         "ran",
-        [_leak(settings)],
+        [
+            make_finding(
+                severity="CRITICAL",
+                location=f"{settings}:1",
+                title=f"[GITLEAKS:github-pat] {_GITHUB_PAT}",
+                description=f"Gitleaks detected secret rule pattern 'github-pat' at {settings}:1: "
+                f"{_GITHUB_PAT}",
+                fix="Remove plaintext credentials from source control and store securely in OS "
+                "Keyring.",
+                confidence_score=None,
+                category=DefectClass.SECRET_EXPOSURE.value,
+            )
+        ],
     )
 
 
