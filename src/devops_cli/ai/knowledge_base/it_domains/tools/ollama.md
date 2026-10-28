@@ -1,10 +1,10 @@
 ---
 applies_to:
-  - "tool:ollama@0.34.*"
+  - "tool:ollama@0.40.*"
 sources:
   - "https://ollama.com/"
   - "https://github.com/ollama/ollama"
-reviewed: "2026-10-15"
+reviewed: "2026-10-28"
 tags:
   - "ollama"
   - "ai"
@@ -109,7 +109,7 @@ curl http://localhost:11434/api/embeddings -d '{
      - A call through the gateway keeps the lease that `devops ai prewarm` set (one hour by default). Ollama starts that lease again when the call ends.
      - A model that a gateway call loads gets the default keep-alive of its tier: `OLLAMA_KEEP_ALIVE`, or 5 minutes when the tier does not set it.
      - A request that sends `keep_alive` replaces the lease. Thus a prewarm with `keep_alive: 1h` replaces the forever lease of `ollama-48gib-slow` with one hour. This comes from `useLoadedRunner` in the source, and nobody tested it on a live tier.
-     - Source: in Ollama 0.34.4 `server/sched.go`, `useLoadedRunner` changes the lease only when a request sends `keep_alive`. `load` uses `OLLAMA_KEEP_ALIVE` only when a request that loads a model sends none.
+     - Source: in Ollama 0.40.12 `server/sched.go`, `useLoadedRunner` changes the lease only when a request sends `keep_alive`. `load` uses `OLLAMA_KEEP_ALIVE` only when a request that loads a model sends none.
      - Test: on 2026-10-24, on an idle tier, a prewarm with `keep_alive: 1h` set the expiry one hour later. Then `/api/chat` (blocking and streamed) and `/api/embed` without `keep_alive` kept the one-hour expiry.
    - **Prompt Cache RAM Limits in llama-server**:
      - Ollama runs `llama-server` as a child process. By default, `llama-server` reserves up to 8,192 MiB in host RAM for prompt caching across idle slots.
