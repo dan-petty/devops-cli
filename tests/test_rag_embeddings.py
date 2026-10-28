@@ -24,8 +24,10 @@ from devops_cli.config.constants import (
     CONST_RAG_MAX_CHUNK_TOKENS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.telemetry.instruments import EMBEDDING_CACHE_LOOKUPS_TOTAL
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
+from tests.support.telemetry_capture import Captured
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -1621,3 +1623,51 @@ def test_probe_ollama_embed_dimension_sends_num_ctx_option(
     assert len(sent) == 1
     body = json.loads(sent[0].content)
     assert body.get("options") == {"num_ctx": CONST_RAG_MAX_CHUNK_TOKENS}
+
+
+# =============================================================================
+# Tests: embedding cache lookups are one counter (#817)
+# =============================================================================
+
+
+def _lookups(captured: Captured) -> list[tuple[dict[str, Any], float]]:
+    """The points of the embedding cache lookup counter, hits before misses."""
+    return sorted(
+        captured.points(EMBEDDING_CACHE_LOOKUPS_TOTAL.name), key=lambda point: point[0]["result"]
+    )
+
+
+def test_an_embedding_request_counts_each_text_once_by_its_cache_result(
+    monkeypatch: pytest.MonkeyPatch, captured: Captured
+) -> None:
+    """Three texts that the memory cache holds and two that it does not are three hits and two
+    misses, each sent one time."""
+    _serve(monkeypatch, _gateway_reply)
+    engine = _gateway_engine()
+    engine.embed_texts(["first", "second", "third"])
+    captured.clear()
+
+    engine.embed_texts(["first", "second", "third", "fourth", "fifth"])
+
+    assert _lookups(captured) == [
+        ({"result": "hit", "tier": "memory"}, 3.0),
+        ({"result": "miss"}, 2.0),
+    ]
+
+
+def test_a_text_that_only_valkey_holds_counts_as_a_valkey_hit(
+    monkeypatch: pytest.MonkeyPatch, captured: Captured, valkey_client: ValkeyClient
+) -> None:
+    """A second process finds the text in Valkey and not in its own memory cache."""
+    _serve(monkeypatch, _gateway_reply)
+    config = _gateway_config()
+    EmbeddingsEngine(config, api_key="sk-gateway", valkey_client=valkey_client).embed_texts(
+        ["shared chunk"]
+    )
+    captured.clear()
+
+    EmbeddingsEngine(config, api_key="sk-gateway", valkey_client=valkey_client).embed_texts(
+        ["shared chunk"]
+    )
+
+    assert _lookups(captured) == [({"result": "hit", "tier": "valkey"}, 1.0)]

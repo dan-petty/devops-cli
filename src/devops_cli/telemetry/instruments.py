@@ -140,6 +140,19 @@ GITHUB_GRAPHQL_POINTS_TOTAL = Instrument(
     "1",
     "GraphQL points that GitHub reported each answer cost in its rateLimit field",
 )
+EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
+    "devops_cli_embedding_cache_lookups_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Embedding cache lookups, one for each text that an embedding request gets, by result: hit "
+    "or miss. A hit names its tier: memory for the cache of the process, or valkey",
+)
+EMBEDDING_CACHE_SIZE = Instrument(
+    "devops_cli_embedding_cache_size",
+    InstrumentKind.GAUGE,
+    "1",
+    "Embeddings that the memory cache of the process held after its last embedding request",
+)
 
 PROJECT_RELEASES = Instrument(
     "devops_cli_project_releases",
@@ -258,6 +271,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
     GITHUB_GRAPHQL_POINTS_TOTAL,
+    EMBEDDING_CACHE_LOOKUPS_TOTAL,
+    EMBEDDING_CACHE_SIZE,
     PROJECT_RELEASES,
     PROJECT_COMMITS,
     PROJECT_PRS,
@@ -316,6 +331,8 @@ __all__ = [
     "AI_TOKENS_TOTAL",
     "COMMAND_DURATION",
     "COMMAND_TOTAL",
+    "EMBEDDING_CACHE_LOOKUPS_TOTAL",
+    "EMBEDDING_CACHE_SIZE",
     "FINDINGS_TOTAL",
     "GITHUB_GRAPHQL_POINTS_TOTAL",
     "GITHUB_REQUESTS_TOTAL",

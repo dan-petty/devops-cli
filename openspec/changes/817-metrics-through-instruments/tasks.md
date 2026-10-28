@@ -2,9 +2,9 @@
 
 ## 1. Embedding cache lookups are one counter
 
-- [ ] Add failing tests: a request with three memory hits and two misses sends `{result="hit", tier="memory"}` 3 and `{result="miss"}` 2 one time each; a Valkey hit sends `{result="hit", tier="valkey"}` 1
+- [x] Add failing tests: a request with three memory hits and two misses sends `{result="hit", tier="memory"}` 3 and `{result="miss"}` 2 one time each; a Valkey hit sends `{result="hit", tier="valkey"}` 1
   - Verification: `uv run devops ci test tests/test_rag_embeddings.py`
-- [ ] Declare `devops_cli_embedding_cache_lookups_total` and the gauge `devops_cli_embedding_cache_size`, emit them from `embed_texts`, and delete the three hit and miss gauges
+- [x] Declare `devops_cli_embedding_cache_lookups_total` and the gauge `devops_cli_embedding_cache_size`, emit them from `embed_texts`, and delete the three hit and miss gauges
   - Verification: `uv run devops ci test tests/test_rag_embeddings.py tests/test_telemetry_instruments.py`
 
 ## 2. The devops-cli dashboard shows the hit share
