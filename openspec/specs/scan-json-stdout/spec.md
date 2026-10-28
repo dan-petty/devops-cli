@@ -6,7 +6,7 @@ Defines the stdout contract of `devops scan` commands: with `--json` or `--forma
 ## Requirements
 
 ### Requirement: JSON stdout parses
-The system SHALL write a single valid JSON document to stdout for `devops scan trivy`, `scan secrets`, `scan sast`, `scan iac`, `scan complexity`, `scan workflows` and `scan aibom` when `--json` or `--format json` is set, and SHALL NOT print a progress line to stdout in that mode.
+The system SHALL write a single valid JSON document to stdout for `devops scan trivy`, `scan secrets`, `scan sast`, `scan complexity`, `scan workflows` and `scan aibom` when `--json` or `--format json` is set, and SHALL NOT print a progress line to stdout in that mode.
 
 #### Scenario: JSON flag
 - **WHEN** the user runs `devops scan trivy . --json`
