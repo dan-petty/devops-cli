@@ -13,10 +13,11 @@
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 - [x] 2.2 Remove `PYTHONPATH` and `PYTHONHOME` from `DEFAULT_ALLOWED_ENV_VARS`
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_ci.py tests/test_cli_startup_imports.py`
-- [x] 2.3 Write the child environment bullet of `ARCHITECTURE.md` and the purpose of the `subprocess-environment` spec for the zsh and interpreter keys, and name the git keys (#2483)
+- [x] 2.3 Write the child environment bullet of `ARCHITECTURE.md` and the purpose of the `subprocess-environment` spec for the zsh and interpreter keys and for `extra_allowed_keys`, and name `HOME`, the git keys (#2483) and the library keys (#2503)
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## Workflow follow-up
 
 - The git keys that make a git child run a program, for example `GIT_CONFIG_*` and `GIT_SSH_COMMAND`: #2483.
+- The library keys that make a library of the child load a module, for example `OPENSSL_CONF`: #2503.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
