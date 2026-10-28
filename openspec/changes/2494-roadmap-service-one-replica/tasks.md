@@ -6,7 +6,7 @@
   - Verification: `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_runtime.py tests/test_k8s_configmap.py`
 - [x] Set `replicas: 1` in `k8s/devops/roadmap-service/deployment.yaml`, with a comment that names the App and points to the stop switch, and set `ai.max_retries: 1` in `k8s/devops/configmap.example.yaml`
   - Verification: `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_runtime.py tests/test_k8s_configmap.py tests/test_k8s_llm_gateway.py`
-- [x] In `k8s/README.md`, replace the hold note of "Roadmap service" with the go-live check and the stop switch, and name the template's retry count in "LLM Gateway"; remove the hold from the docstring in `tests/test_k8s.py`
+- [x] In `k8s/README.md`, replace the hold note of "Roadmap service" with the go-live check and the stop switch, and name the template's retry count and the deploy-stack run that applies it in "LLM Gateway"; start the go-live check with a deploy-stack run, a read of the live retry count and a restart of the pod; remove the 0 replicas from the install check of "Argo Workflows"; remove the hold from the docstring in `tests/test_k8s.py`
   - Verification: `uv run devops ci test tests/test_k8s.py tests/test_docs.py tests/test_docs_inventory.py && uv run devops docs check`
 
 ## 2. Archive

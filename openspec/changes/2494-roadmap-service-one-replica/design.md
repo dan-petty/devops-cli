@@ -15,3 +15,9 @@ Rejected: **a redelivery of an `issues` delivery.** It starts a round for the re
 ## The comment in the manifest names no command
 
 The stop switch has seven steps, and some of them only a person can do. The comment in `deployment.yaml` names the identity the Service acts as and points to `k8s/README.md`, so the steps live in one document.
+
+## The go-live check runs deploy-stack and restarts the pod
+
+Argo CD syncs `k8s/devops/`, which holds no ConfigMap. Only deploy-stack renders `devops-cli-config`, because the render takes `service.repos` and the App's settings from the active config, which git does not hold. On a cluster that Argo CD manages, deploy-stack applies the ConfigMap and does not restart the pod. So the go-live check runs deploy-stack from `main`, reads `max_retries` from the live ConfigMap, and restarts the pod.
+
+Rejected: **`DEVOPS_CLI_AI_MAX_RETRIES=1` in the environment of the deployment and of the CronJob.** Argo CD would apply it with the replica count, but the retry count would then have two sources, the template and the manifests, and issue #2494 puts it in the template.
