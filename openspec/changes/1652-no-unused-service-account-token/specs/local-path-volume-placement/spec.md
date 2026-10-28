@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A pod that mounts a claim does not run on the control-plane node
-Each pod that mounts a claim, in a chart values file that an Argo CD Application installs or in a manifest under `k8s/`, SHALL have a required node affinity in which every node selector term holds the expression `node-role.kubernetes.io/control-plane` `DoesNotExist`. A pod in the test's table of exemptions SHALL be the only exception, and each exemption SHALL name a pod that mounts a claim and does not have that affinity.
+Each pod that mounts a claim SHALL have a required node affinity in which every node selector term holds the expression `node-role.kubernetes.io/control-plane` `DoesNotExist`. This applies to a pod in a chart values file that an Argo CD Application installs, and to a pod in a manifest under `k8s/`. A pod in the test's table of exemptions SHALL be the only exception. Each exemption SHALL name a pod that mounts a claim and does not have that affinity.
 
 #### Scenario: A chart pod mounts a claim
 - **WHEN** a test reads the values file of each chart that an Application installs, with the claim switches and the affinity paths of that chart
@@ -20,5 +20,5 @@ Each pod that mounts a claim, in a chart values file that an Argo CD Application
 - **THEN** the test fails and names the exemption
 
 #### Scenario: Only a required term in every term counts
-- **WHEN** the check reads an affinity with no node affinity, with the expression only as a preference, or with a second required term without the expression
+- **WHEN** the check reads an affinity with no node affinity, with the expression only as a preference, or with a second required term without it
 - **THEN** the check reports that the pod can run on the control-plane node

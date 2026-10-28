@@ -356,14 +356,21 @@ When a move stops after the point of no return, the old claim is gone, the new v
 
 Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process in the pod can then call the Kubernetes API as that ServiceAccount. The pod field `automountServiceAccountToken: false` stops the mount. When the pod does not set the field, the field of the ServiceAccount applies. A volume can also give the pod a token, whatever the field says: a projected `serviceAccountToken` source, or a Secret of type `kubernetes.io/service-account-token`. A pod that does not call the API mounts no token (#1652):
 
-- The manifests set the field to `false` on the pod template of each workload that does not call the API, for example `cloudflared`, `gpu-feature-discovery`, `llm-gateway`, `portkey`, `valkey`, `valkey-runs` and the Ollama tiers.
-- The chart values turn the token off for Loki (`defaults` and `serviceAccount`), Tempo and the OpenTelemetry collector (`serviceAccount`), Alertmanager (`alertmanager`), and the Argo CD repo server and Redis (`repoServer` and `redis`). Gitea gets its own ServiceAccount (`serviceAccount.create: true`), which has no token.
+- The manifests set the field to `false` on the pod template of each workload that does not call the API. Examples are `cloudflared`, `gpu-feature-discovery`, `llm-gateway`, `portkey`, `valkey`, `valkey-runs` and the Ollama tiers.
+- The chart values turn the token off for Loki (`defaults` and `serviceAccount`), Tempo and the OpenTelemetry collector (`serviceAccount`). They also turn it off for Alertmanager (`alertmanager`), and for the Argo CD repo server and Redis (`repoServer` and `redis`). Gitea gets its own ServiceAccount (`serviceAccount.create: true`), which has no token.
 - A pod that calls the API keeps its token, and a Role or ClusterRole binds its ServiceAccount. Examples are Argo CD, Argo Workflows, Grafana, the k8s-monitoring collectors, the Prometheus server, Pyroscope and Traefik.
 
-`tests/invariants/test_k8s_manifests.py` fails when a pod mounts a token and no Role or ClusterRole binds its ServiceAccount. It reads the manifests under `k8s/` and the values of each chart that an Argo CD Application installs. It also fails when an Application installs a chart, or a chart version, that the test does not know, because each chart keeps the field at different values and a chart release can move it. When you change the version of a chart, read its token values again with `helm template`, and change the entry of the test. The test reads the files only. Thus it fails when an Application gives a chart values that are not in its values files, or when a kustomization patches a workload, a ServiceAccount, a Secret, a binding or a claim. A pod that keeps a token with no binding is in `_TOKEN_EXCEPTIONS` of the test, with its reason:
+`tests/invariants/test_k8s_manifests.py` reads the manifests under `k8s/` and the values of each chart that an Argo CD Application installs. It fails in these cases:
+
+- A pod mounts a token, and no Role or ClusterRole binds its ServiceAccount.
+- An Application installs a chart, or a chart version, that the test does not know. Each chart keeps the field at different values, and a chart release can move it. When you change the version of a chart, read its token values again with `helm template`. Then change the entry of the test.
+- An Application gives a chart values that are not in its values files. The test reads the files only.
+- A kustomization patches a workload, a ServiceAccount, a Secret, a binding or a claim.
+
+A pod that keeps a token with no binding is in `_TOKEN_EXCEPTIONS` of the test, with its reason:
 
 - Qdrant: chart 1.19.1 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
-- The CoreDNS patch (`coredns/deployment-patch.yaml`): k3s makes the CoreDNS Deployment, its ServiceAccount and its binding, and CoreDNS reads Services and EndpointSlices through the API.
+- The CoreDNS patch (`coredns/deployment-patch.yaml`): k3s makes the CoreDNS Deployment, its ServiceAccount and its binding. CoreDNS reads Services and EndpointSlices through the API.
 
 `kubectl get pods -A -o json` shows a `kube-api-access-*` volume only on the pods that keep a token.
 

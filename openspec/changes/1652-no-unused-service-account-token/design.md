@@ -2,7 +2,7 @@
 
 ## Context
 
-Kubernetes mounts a token of the pod's ServiceAccount into each pod, unless the pod spec or the ServiceAccount sets `automountServiceAccountToken: false`. The pod field wins over the ServiceAccount field. The workloads of the cluster come from two sources: the manifests under `k8s/`, and the charts that the Argo CD Applications in `k8s/argocd/apps/` install with a values file from the tree. Argo CD tracks `main` with automated prune and self-heal.
+Kubernetes mounts a token of the pod's ServiceAccount into each pod, unless the pod spec or the ServiceAccount sets `automountServiceAccountToken: false`. The pod field wins over the ServiceAccount field. The workloads of the cluster come from two sources. The first source is the manifests under `k8s/`. The second source is the charts that the Argo CD Applications in `k8s/argocd/apps/` install, each with a values file from the tree. Argo CD tracks `main` with automated prune and self-heal.
 
 A chart binds its own Roles and ClusterRoles, so a binding of a chart pod is not in the tree. `tests/test_k8s_local_path_placement.py` (#1634) met the same problem for claims with a table of the pods of each chart.
 
@@ -11,7 +11,7 @@ A chart binds its own Roles and ClusterRoles, so a binding of a chart pod is not
 **Goals:**
 
 - No pod that does not call the API mounts a token.
-- A test fails when a pod mounts a token with no binding and no named exception, when an Application installs a chart that the test does not know, and when an exception is stale.
+- A test fails when a pod mounts a token with no binding and no named exception. It also fails on a chart or a chart version that it does not know, and on a stale exception.
 
 **Non-Goals:**
 
@@ -22,20 +22,20 @@ A chart binds its own Roles and ClusterRoles, so a binding of a chart pod is not
 ## Decisions
 
 - **Decision: one rule for manifest pods and chart pods.**
-  *Choice:* a pod passes when its token is off (on the pod, or on its ServiceAccount) and no volume holds a token, when a role binds its ServiceAccount, or when it is in `_TOKEN_EXCEPTIONS`. For a manifest pod, the test finds the RoleBindings and ClusterRoleBindings under `k8s/`. For a chart pod, the table of the test names the Role or ClusterRole with rules that the chart binds to it, as `helm template` showed.
+  *Choice:* a pod passes in three cases. Its token is off and no volume holds a token. Or a role binds its ServiceAccount. Or `_TOKEN_EXCEPTIONS` names it. The token is off when the pod, or else its ServiceAccount, sets the field to `false`. For a manifest pod, the test finds the RoleBindings and ClusterRoleBindings under `k8s/`. For a chart pod, the table of the test names the Role or ClusterRole that the chart binds to it. `helm template` showed these roles and their rules.
   *Rejected alternative:* a named exception for each chart pod that calls the API.
-  *Evidence for rejection:* 18 chart pods call the API (Argo CD, Argo Workflows, Image Updater, Grafana, k8s-monitoring, the Prometheus server, Pyroscope and Traefik). A manifest pod with a binding needs no exception, and a chart pod with a binding is the same case. The exceptions then hold only the pods that keep a token they do not need, or whose binding the tree cannot show.
+  *Evidence for rejection:* 18 chart pods call the API (Argo CD, Argo Workflows, Image Updater, Grafana, k8s-monitoring, the Prometheus server, Pyroscope and Traefik). A manifest pod with a binding needs no exception, and a chart pod with a binding is the same case. The exceptions then hold only two kinds of pods. Some keep a token that they do not need. For the others, the tree cannot show the binding.
 
 - **Decision: a table of chart pods in the test, not a chart render.**
-  *Choice:* `_CHART_TOKENS` names, for each chart that an Application installs, the pods that the chart makes with the values in the tree, the value that turns the token off (with the chart's default), and the role of each pod that calls the API. The k8s-monitoring collectors come from `collectors` in the values. A chart that the table does not name fails the test. Each entry also names the chart version that `helm template` read, and the test fails when an Application pins another version. A chart release can move the value that sets the pod field, as Loki 20.0.2 did (#1632).
+  *Choice:* `_CHART_TOKENS` has one entry for each chart that an Application installs. The entry names the pods that the chart makes with the values in the tree. For each pod, it names the value that turns the token off, with the chart's default. For each pod that calls the API, it names the role. The k8s-monitoring collectors come from `collectors` in the values. A chart that the table does not name fails the test. Each entry also names the chart version that `helm template` read. The test fails when an Application pins another version. A chart release can move the value that sets the pod field, as Loki 20.0.2 did (#1632).
   *Rejected alternative:* `helm template` of each chart in the test.
-  *Evidence for rejection:* a test starts no program and reaches no network (docs/TESTING.md), and a render needs each chart from the network or a vendored copy. The same evidence rejected a render in #1634.
-  *Known limit:* a values change that turns on a chart pod that the table does not name, such as Argo CD's dex, passes until the table names it. The table names the optional pods that the values in the tree turn off (dex, notifications and the commit server of argo-cd, the Loki canary and gateway), so that a change of their switch fails the test.
+  *Evidence for rejection:* the test floor refuses `helm` and each network connection (docs/TESTING.md). A render needs each chart from the network or a vendored copy. The same evidence rejected a render in #1634.
+  *Known limit:* the table names only the pods that it knows. A values change can turn on a chart pod that the table does not name. That change passes until the table names the pod. The table also names the optional pods that the values in the tree turn off. These are dex, notifications and the commit server of argo-cd, and the Loki canary and gateway. Thus the checks read each of these pods when a values change turns it on. But the switch change alone does not fail the test. Dex and notifications have a role, and the other three have no token by default. The table reads the token values of each chart. It does not read an extra volume that a values file adds to a chart pod.
 
 - **Decision: the tree uses only the inputs that the readers see.**
-  *Choice:* the readers of `tests/support/k8s_tree.py` read the files under `k8s/` and the values files of the Applications. Argo CD also takes chart values from `helm.values`, `helm.valuesObject` and `helm.parameters`, and Kustomize changes objects with patches. A test fails when an Application source has an option that the readers do not read, or when a kustomization has a key that changes objects or patches an object that a check reads. The test also keeps the claim check of `tests/test_k8s_local_path_placement.py` correct, because that check uses the same readers.
+  *Choice:* the readers of `tests/support/k8s_tree.py` read the files under `k8s/` and the values files of the Applications. Argo CD also takes chart values from `helm.values`, `helm.valuesObject` and `helm.parameters`. Kustomize changes objects with patches. A test fails when an Application source has an option that the readers do not read. It also fails when a kustomization has a key that changes objects, or patches an object that a check reads. Thus the test also keeps the claim check of `tests/test_k8s_local_path_placement.py` correct, because that check uses the same readers.
   *Rejected alternative:* readers that render each Application path with `kubectl kustomize`, which the test floor admits.
-  *Evidence for rejection:* today no Application gives inline values, and the one patch of the tree deletes an Ingress, so the files show what Argo CD applies. A render shows only the files that a kustomization lists, so it loses the file of each object, which the keys of the exceptions use, and it changes the claim check too. A render also cannot apply inline chart values without the chart.
+  *Evidence for rejection:* today no Application gives inline values, and the one patch of the tree deletes an Ingress. Thus the files show what Argo CD applies. A render shows only the files that a kustomization lists. It also loses the file of each object, and the keys of the exceptions use that file. The render changes the claim check too. A render cannot apply inline chart values without the chart.
 
 - **Decision: turn off the token of each chart pod that does not call the API.**
   *Choice:* Loki, Tempo, the OpenTelemetry collector, Alertmanager, the Argo CD repo server and Redis, and Gitea. The issue named only Loki among the charts. For Loki, the issue named `serviceAccount.automountServiceAccountToken`. Loki chart 20.0.2 (#1632) sets the pod field from `defaults.automountServiceAccountToken`, and the pod field wins over the ServiceAccount field. Thus the values set both keys to `false`. `helm template` showed the other six with no binding, or with a Role that has no rules.
@@ -55,7 +55,7 @@ A chart binds its own Roles and ClusterRoles, so a binding of a chart pod is not
   *Evidence for rejection:* the bump also changes the Qdrant server version, which is a change of its own.
 
 - **Decision: the CoreDNS patch is an exception.**
-  *Choice:* `k8s/coredns/deployment-patch.yaml:Deployment/coredns` in the exceptions. k3s makes the CoreDNS Deployment, its ServiceAccount `coredns` and the ClusterRoleBinding `system:coredns`, and the file patches only the resources.
+  *Choice:* `k8s/coredns/deployment-patch.yaml:Deployment/coredns` in the exceptions. k3s makes the CoreDNS Deployment, its ServiceAccount `coredns` and the ClusterRoleBinding `system:coredns`. The file patches only the resources.
   *Rejected alternative:* leave patch files out of the test.
   *Evidence for rejection:* the test cannot tell a patch from a full Deployment, and a skip rule for patches would also skip a real workload.
 
@@ -64,9 +64,9 @@ A chart binds its own Roles and ClusterRoles, so a binding of a chart pod is not
   *Choice:* the readers of the tree go into `tests/support/k8s_tree.py`, and `tests/test_k8s_local_path_placement.py` uses them. A test imports only from `tests/support/`.
 
 - **Decision: the tables of exceptions live in the test modules that read them.**
-  *Choice:* `_TOKEN_EXCEPTIONS` in `tests/invariants/test_k8s_manifests.py`. The change also moves `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS` from `src/devops_cli/config/constants.py` to `_CONTROL_PLANE_CLAIM_EXEMPTIONS` in `tests/test_k8s_local_path_placement.py`, because the change edits that test. CONTRIBUTING.md puts a table beside its one reader, and puts it in `config/` only when modules of two packages import it. It also moves a table out of `config/` when a change edits its one owner. docs/TESTING.md says that product code holds nothing for tests. Only a test reads each table.
+  *Choice:* `_TOKEN_EXCEPTIONS` in `tests/invariants/test_k8s_manifests.py`. The change also moves `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS` out of `src/devops_cli/config/constants.py`. It becomes `_CONTROL_PLANE_CLAIM_EXEMPTIONS` in `tests/test_k8s_local_path_placement.py`, which the change edits. CONTRIBUTING.md puts a table beside its one reader. A table goes into `config/` only when modules of two packages import it. A change that edits the one owner of a table in `config/` moves the table to that owner. docs/TESTING.md says that product code holds nothing for tests. Only a test reads each of these tables.
   *Rejected alternative:* the table in `src/devops_cli/config/constants.py`, as criterion 4 of the issue asks.
-  *Evidence for rejection:* the issue was written before #1016 set the rule for the place of a table. A constant in the wheel that only a test reads breaks the rule and docs/TESTING.md.
+  *Evidence for rejection:* the issue was written before #1016 set the rule for the place of a table. A constant in the wheel that only a test reads breaks that rule and docs/TESTING.md.
 
 - **Decision: no scanner.**
   *Choice:* the test. See the proposal, Existing Tool Considered.
@@ -75,6 +75,6 @@ A chart binds its own Roles and ClusterRoles, so a binding of a chart pod is not
 
 ## Risks / Trade-offs
 
-- A pod that needs its token and loses it fails at start or on its first API request. Mitigation: each pod that loses its token has no binding, or a Role with no rules, and `kubectl auth can-i --list` shows only discovery for each of its ServiceAccounts. Upstream Argo CD ships its repo server with no token.
+- A pod that needs its token and loses it fails at start or on its first API request. Mitigation: each pod that loses its token has no binding, or a Role with no rules. For each of their ServiceAccounts, `kubectl auth can-i --list` shows only discovery. Upstream Argo CD ships its repo server with no token.
 - Argo CD syncs its own Application. A failure of the repo server would stop each sync. Mitigation: the upstream install manifest of the same Argo CD version sets the field to `false` on the repo server.
 - Gitea moves from the ServiceAccount `default` to the ServiceAccount `gitea`. No Role binds either of them.
