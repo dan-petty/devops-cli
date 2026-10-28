@@ -83,7 +83,6 @@ import stat
 import subprocess
 import tempfile
 from collections.abc import Sequence
-from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
@@ -734,7 +733,7 @@ class SandboxToolExecutor:
         return command if relay is None else relay.host_command(command)
 
     @staticmethod
-    def _relay(request: ToolRequest) -> AbstractContextManager[KubeApiRelay | None]:
+    def _relay(request: ToolRequest) -> contextlib.AbstractContextManager[KubeApiRelay | None]:
         """The relay of the run of `request` to the API server, when it selects `kube-api`."""
         if request.network is None:
             return contextlib.nullcontext()
