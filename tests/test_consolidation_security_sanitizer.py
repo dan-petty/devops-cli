@@ -451,6 +451,60 @@ def test_assigned_credentials_are_unaffected_by_the_guard() -> None:
 
 
 # =============================================================================
+# A line break ends a credential keyword's value (#2450)
+# =============================================================================
+
+# Each pair is a line that ends with a credential keyword or its separator, and the line
+# after it. The first word of the second line is masked when the two lines are one line.
+_KEYWORD_LINE_PAIRS = [
+    pytest.param(
+        "$ devops config set ai.api_key",
+        "ai.api_key is stored in the keyring",
+        id="keyword-then-space",
+    ),
+    pytest.param("Enter the password:", "authenticated_user logged in", id="password-separator"),
+    pytest.param("export TOKEN=", "settings_loader_ok ran", id="token-separator"),
+    pytest.param("aws_secret_access_key =", "A" * 40, id="aws-secret-separator"),
+    pytest.param("client_secret:", "rotation_schedule_monthly_v2", id="client-secret-separator"),
+    pytest.param("api_key:", "rotation_schedule_monthly_v2", id="api-key-separator"),
+    pytest.param("env:", "secret_key_base_name: value", id="secret-prefix-after-separator"),
+    pytest.param("send the bearer", "secret_key_base_name next", id="secret-prefix-after-bearer"),
+]
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    "line_break", [pytest.param("\n", id="lf"), pytest.param("\r\n", id="crlf")]
+)
+@pytest.mark.parametrize(("first_line", "second_line"), _KEYWORD_LINE_PAIRS)
+def test_a_credential_keyword_at_a_line_end_leaves_the_next_line_alone(
+    first_line: str, second_line: str, line_break: str, syntax: str
+) -> None:
+    """A keyword and its value sit on one line, so a line break ends the match.
+
+    A terminal transcript ended a command line with a config key whose name ends in
+    "api_key", and the output line started with that key. The keyword rule took the first
+    word of the output line as the value and masked it, so intake refused a bug report that
+    held no secret.
+    """
+    text = f"{first_line}{line_break}{second_line}"
+    assert redact_text(text, syntax=syntax) == text
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(("first_line", "second_line"), _KEYWORD_LINE_PAIRS)
+def test_a_credential_keyword_and_its_value_on_one_line_are_still_masked(
+    first_line: str, second_line: str, syntax: str
+) -> None:
+    """The line-break limit narrows no rule on one line: the same pair is masked there."""
+    text = f"{first_line} {second_line}"
+    value = second_line.split()[0]
+    masked = redact_text(text, syntax=syntax)
+    assert "<masked-" in masked
+    assert masked.count(value) < text.count(value)
+
+
+# =============================================================================
 # GitHub token prefixes
 # =============================================================================
 
