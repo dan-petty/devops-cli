@@ -49,7 +49,7 @@ Rejected alternatives:
 
 `kubectl proxy` gets `--reject-methods='(?i)^(POST|PUT|PATCH|DELETE)$'`. It also gets `--reject-paths` with its default paths (exec and attach of a pod), the port-forward of a pod, and the proxy subresource of a pod, a service and a node. A proxy subresource sends a request through the API server to a workload or a kubelet, which is more than the API server.
 
-Evidence: Popeye 0.22.1 gave the same report through the read-only proxy as in a direct run, and a POST through the relay got `403 Forbidden`.
+Evidence: Popeye 0.22.1 gave the same linters through the read-only proxy as in a direct run, and the proxy accepted each of its requests. A POST and a GET of the exec path of a pod through the relay got `403 Forbidden`.
 
 ### 3. One command, and the proxy ends with it
 
@@ -65,9 +65,11 @@ In the sandbox, `sh -c <sandbox script>` starts the `socat` listener, waits for 
 
 ### 4. The kubeconfig of the sandbox
 
-The executor reads the contexts of the kubeconfig of the user with `kubernetes.config.kube_config.list_kube_config_contexts`, from the files that `KUBECONFIG` names, else from `~/.kube/config`. It gives the path itself, because the library reads `KUBECONFIG` only when it is imported. It takes the context of the request, else the active context. It writes a JSON kubeconfig with one cluster, one context and one user, each with the name of the context. The cluster names `http://127.0.0.1:8001`. The user is empty. The context copies the namespace of the context of the user, because Popeye scans that namespace when it gets no `-n`. The proxy gets `--context=<name>`, so the proxy and the kubeconfig name the same context.
+The executor reads the context of the request, else the current context, with `kubectl config view --minify --output=json [--context=<name>]`, through `run_subprocess` as a local read. kubectl reads the kubeconfig as `kubectl proxy` then reads it: the files that `KUBECONFIG` names, else `~/.kube/config`. Its output redacts the credentials. The executor writes a JSON kubeconfig with one cluster, one context and one user, each with the name of the context. The cluster names `http://127.0.0.1:8001`. The user is empty. The context copies the namespace of the context of the user, because Popeye scans that namespace when it gets no `-n`. The proxy gets `--context=<name>`, so the proxy and the kubeconfig name the same context.
 
-A kubeconfig that cannot be read, or that has no such context, raises `SandboxError`, and the scan fails with its message.
+A kubeconfig that kubectl cannot read, or that has no such context, raises `SandboxError` with the first line of the error of kubectl, and the scan fails with its message. The proxy, the sandbox and the tool do not start.
+
+The kubernetes Python client (`list_kube_config_contexts`) is not used. Its module has no type information, so its import needs one more `type: ignore`, and the count of these is at its ceiling. The client also reads `KUBECONFIG` only when it is imported. kubectl is a program of the relay already, and it reads the kubeconfig in the same way as the proxy.
 
 ### 5. Only Popeye selects the profile
 

@@ -3865,9 +3865,13 @@ CONST_TOOL_ADDRESS_SPACE_BYTES: Final[dict[str, int]] = {
 # The paths of the host that a tool reads when it starts, by tool, which the sandbox binds
 # read-only when they exist. The engine of Semgrep 1.179.0 loads the CA bundle when it starts, and
 # stops with "ca-certs: no trust anchor file found" without it, though a scan uses no network
-# (measured 2026-10-24, #2096). The directory holds public certificates only.
+# (measured 2026-10-24, #2096). The directory holds public certificates only. Popeye 0.22.1 is
+# built without cgo, and stops with "user: Current requires cgo or $USER set in environment" when
+# it cannot find the user in the user database (measured 2026-10-28, #2132). The file holds no
+# password.
 CONST_TOOL_HOST_READ_ONLY_PATHS: Final[dict[str, tuple[str, ...]]] = {
     "semgrep": ("/etc/ssl/certs",),
+    "popeye": ("/etc/passwd",),
 }
 # How long the check that the host can start the sandbox may take, in seconds.
 CONST_TOOL_SANDBOX_CHECK_TIMEOUT_SECONDS: Final[float] = 30.0
@@ -3893,6 +3897,74 @@ CONST_TOOL_NETWORK_NONE: Final[str] = "none"
 # only to read, and only the tool `CONST_TOOL_KUBE_API_TOOL` can select it (#2132).
 CONST_TOOL_NETWORK_KUBE_API: Final[str] = "kube-api"
 CONST_TOOL_KUBE_API_TOOL: Final[str] = "popeye"
+# The programs of a kube-api run (`devops_cli.sandbox.kube_api`): the shell of its two scripts,
+# the relay in the sandbox, the proxy outside it, and the program that ends the proxy with its
+# parent (util-linux). A host without one of them runs no kube-api request.
+CONST_KUBE_API_PROGRAMS: Final[tuple[str, ...]] = ("sh", "socat", "kubectl", "setpriv")
+# The scratch directory of a kube-api run holds the socket of `kubectl proxy` and the kubeconfig
+# of the tool. The sandbox binds it read-only.
+CONST_KUBE_API_SCRATCH_PREFIX: Final[str] = "devops-kube-api-"
+CONST_KUBE_API_SOCKET_NAME: Final[str] = "kube-api.sock"
+CONST_KUBE_API_KUBECONFIG_NAME: Final[str] = "kubeconfig.json"
+# The address in the sandbox where `socat` relays each connection to the socket of the proxy. The
+# network namespace of the sandbox has only a loopback device, so the port is free in each run.
+CONST_KUBE_API_RELAY_HOST: Final[str] = "127.0.0.1"
+CONST_KUBE_API_RELAY_PORT: Final[int] = 8001
+# How often, and how far apart in seconds, each script tries to connect to the proxy or the relay
+# before it gives up: 10 s in all.
+CONST_KUBE_API_WAIT_RETRIES: Final[int] = 100
+CONST_KUBE_API_WAIT_INTERVAL_SECONDS: Final[float] = 0.1
+# The methods and the paths that `kubectl proxy` refuses (`--reject-methods`, `--reject-paths`):
+# each method that changes a resource, and each path that reaches a process, a port or a server
+# behind the API server. The paths are the default of kubectl (exec and attach of a pod) and the
+# port-forward and proxy subresources. The proxy matches the path after it decodes and cleans it.
+CONST_KUBE_API_REJECTED_METHODS: Final[str] = "(?i)^(POST|PUT|PATCH|DELETE)$"
+CONST_KUBE_API_REJECTED_PATHS: Final[tuple[str, ...]] = (
+    "^/api/.*/pods/.*/exec",
+    "^/api/.*/pods/.*/attach",
+    "^/api/.*/pods/.*/portforward",
+    "^/api/.*/pods/.*/proxy",
+    "^/api/.*/services/.*/proxy",
+    "^/api/.*/nodes/.*/proxy",
+)
+# The name that each script of a kube-api run has as `$0`, in its messages.
+CONST_KUBE_API_SCRIPT_NAME: Final[str] = "devops-kube-api"
+# The script that runs a kube-api request outside the sandbox. It starts `kubectl proxy` on the
+# socket for the context, under `setpriv --pdeathsig KILL`, so the proxy ends when the shell ends,
+# also when the wall-clock limit kills the shell. It waits for the socket, runs the sandbox
+# command, stops the proxy and exits with the exit code of the sandbox. The proxy writes to
+# standard error, so standard output is the output of the tool. Its arguments are the socket,
+# setpriv, kubectl, the context, the rejected methods and paths, socat, the retries and the
+# interval of the wait, then the sandbox command.
+CONST_KUBE_API_HOST_SCRIPT: Final[str] = (
+    "socket=$1 setpriv=$2 kubectl=$3 context=$4 methods=$5 paths=$6 socat=$7 retries=$8 interval=$9\n"
+    "shift 9\n"
+    '"$setpriv" --pdeathsig KILL -- "$kubectl" proxy --unix-socket="$socket" --context="$context"'
+    ' --reject-methods="$methods" --reject-paths="$paths" >&2 &\n'
+    "proxy=$!\n"
+    'if ! "$socat" -d0 -u /dev/null "UNIX-CONNECT:$socket,retry=$retries,interval=$interval"; then\n'
+    '  kill "$proxy" 2>/dev/null\n'
+    '  echo "$0: kubectl proxy did not open $socket" >&2\n'
+    "  exit 1\n"
+    "fi\n"
+    '"$@"\n'
+    "code=$?\n"
+    'kill "$proxy" 2>/dev/null\n'
+    'wait "$proxy" 2>/dev/null\n'
+    'exit "$code"\n'
+)
+# The script that runs in the sandbox of a kube-api request. `socat` listens on the relay address
+# and relays each connection to the socket of the proxy. The script waits for the listener, then
+# becomes the tool command. The listener ends with the process namespace of the sandbox. Its
+# arguments are socat, the socket, the port, the retries and the interval of the wait, then the
+# tool command.
+CONST_KUBE_API_SANDBOX_SCRIPT: Final[str] = (
+    "socat=$1 socket=$2 port=$3 retries=$4 interval=$5\n"
+    "shift 5\n"
+    '"$socat" -d0 "TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr" "UNIX-CONNECT:$socket" &\n'
+    '"$socat" -d0 -u /dev/null "TCP:127.0.0.1:$port,retry=$retries,interval=$interval" || exit 1\n'
+    'exec "$@"\n'
+)
 # The digest of a binary or of a group of files that a record could not read. It stands in the record
 # of a run that must not fail for the record. The digest of no files is not this value.
 CONST_TOOL_DIGEST_UNAVAILABLE: Final[str] = "unavailable"

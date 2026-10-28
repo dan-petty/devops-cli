@@ -40,7 +40,7 @@ The sandbox of a `kube-api` request SHALL keep `--unshare-all` with no `--share-
 - **THEN** bubblewrap runs with `--unshare-all` and no `--share-net`, binds the scratch directory read-only, and starts the sandbox script with `socat`, the socket and the port 8001, then `prlimit` and Popeye
 
 ### Requirement: A kube-api tool gets a kubeconfig with no credentials
-The tool of a `kube-api` request SHALL get `KUBECONFIG` set to a kubeconfig in the scratch directory that names `http://127.0.0.1:8001`, the name and the namespace of the context, and no credentials. The scratch directory SHALL not stay after the run. A context that the kubeconfig of the user does not have SHALL stop the run before anything starts.
+The tool of a `kube-api` request SHALL get `KUBECONFIG` set to a kubeconfig in the scratch directory that names `http://127.0.0.1:8001`, the name and the namespace of the context, and no credentials. The executor SHALL read the context and its namespace with `kubectl config view --minify`. The scratch directory SHALL not stay after the run. A context that the kubeconfig of the user does not have SHALL stop the run before the proxy, the sandbox or the tool starts.
 
 #### Scenario: The kubeconfig in the sandbox
 - **WHEN** the kubeconfig of the user has the active context `example` with the namespace `apps`, a cluster at `https://192.0.2.10:6443` and a user with a token
@@ -49,7 +49,7 @@ The tool of a `kube-api` request SHALL get `KUBECONFIG` set to a kubeconfig in t
 
 #### Scenario: A context that the kubeconfig does not have
 - **WHEN** the request selects `kube-api` for a context that the kubeconfig of the user does not have, or the user has no kubeconfig
-- **THEN** the run raises `SandboxError` and starts nothing
+- **THEN** the run raises `SandboxError` with the error of kubectl, and starts no proxy, no sandbox and no tool
 
 ### Requirement: A host without a program of the relay runs no kube-api request
 A `kube-api` run SHALL raise `SandboxUnavailableError` that names the program, and start nothing, when `sh`, `socat`, `kubectl` or `setpriv` is not installed.

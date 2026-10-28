@@ -71,12 +71,14 @@ its scanners one, and shows the records in its profile, in `review.md` and in `f
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import stat
 import subprocess
 import tempfile
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
@@ -119,6 +121,7 @@ from devops_cli.review.canary import resolve_tool_binary, resolve_tool_version_a
 
 if TYPE_CHECKING:
     from devops_cli.sandbox.host import HostSandbox
+    from devops_cli.sandbox.kube_api import KubeApiRelay
 
 
 class _Frozen(BaseModel):
@@ -671,13 +674,19 @@ class SandboxToolExecutor:
         if self._refusal is not None:
             raise SandboxUnavailableError(self._refusal)
 
-    def command(self, request: ToolRequest) -> list[str]:
+    def command(self, request: ToolRequest, relay: KubeApiRelay | None = None) -> list[str]:
         """The whole command that runs `request`: bubblewrap, its options, `prlimit` and the tool.
 
         The tool starts from the program of the request, by its path, else from the binary of the
         tool on the PATH of the host. The sandbox binds the program (`_program_binds`), the paths
         of the host that the tool reads when it starts (`_host_paths`), the read-only binds of the
         request, its config and ruleset files, and its writable directories read-write.
+
+        A request that selects the network profile `kube-api` runs through the `relay` of its run
+        (`devops_cli.sandbox.kube_api`). The command then starts `kubectl proxy` outside the
+        sandbox, and bubblewrap, with no network of its own, starts the relay in the sandbox before
+        `prlimit` and the tool. The sandbox binds the scratch directory of the relay read-only, and
+        `KUBECONFIG` names the kubeconfig in it. Without a relay, the tool has no network.
         """
         if request.program is not None and not request.program.is_file():
             raise SandboxError(
@@ -704,37 +713,57 @@ class SandboxToolExecutor:
             *request.config_files,
             *request.ruleset_files,
         )
-        return self._sandbox.build_bwrap_args(
+        env = {**request.env, "GOMEMLIMIT": CONST_TOOL_GO_MEMORY_LIMIT}
+        if relay is not None:
+            tool_command = relay.sandbox_command(tool_command)
+            inputs = (*inputs, *relay.read_only_binds)
+            env = {**env, **relay.env}
+        command = self._sandbox.build_bwrap_args(
             tool_command,
             request.cwd or root,
             repo_root=root,
-            env={**request.env, "GOMEMLIMIT": CONST_TOOL_GO_MEMORY_LIMIT},
+            env=env,
             read_only_binds=list(dict.fromkeys(inputs)),
             writable_binds=request.writable_dirs,
         )
+        return command if relay is None else relay.host_command(command)
+
+    @staticmethod
+    def _relay(request: ToolRequest) -> AbstractContextManager[KubeApiRelay | None]:
+        """The relay of the run of `request` to the API server, when it selects `kube-api`."""
+        if request.network is None:
+            return contextlib.nullcontext()
+        from devops_cli.sandbox.kube_api import kube_api_relay
+
+        return kube_api_relay(request.network.context)
 
     def run(self, request: ToolRequest) -> ToolResult:
         """Run the tool of `request` in the sandbox and answer how it ended and what ran.
 
         A request that cannot run raises `SandboxError` before anything starts: a tool that the
-        host lacks, a target outside the tree, or a bind that the sandbox refuses. A host that
-        cannot start the sandbox raises `SandboxUnavailableError` with the cause, and runs no
-        tool.
+        host lacks, a target outside the tree, a bind that the sandbox refuses, or a context of
+        `kube-api` that the kubeconfig of the user does not have. A host that cannot start the
+        sandbox raises `SandboxUnavailableError` with the cause, and runs no tool. A host without
+        a program of the `kube-api` relay raises it too, and runs no `kube-api` request. Its
+        `refusal` does not change: the host can still run the tools that need no network.
         """
-        try:
-            command = self.command(request)
-            self._check_host()
-        except SandboxUnavailableError as refused:
-            self._refusal = refused.message
-            raise
-        version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
-        run = record_tool_run(
-            request,
-            version=version,
-            binary_sha256=binary_sha256,
-            executor=CONST_TOOL_EXECUTOR_SANDBOX,
-        )
-        return _start(run, command, cwd=request.workdir, wall_seconds=request.limits.wall_seconds)
+        with self._relay(request) as relay:
+            try:
+                command = self.command(request, relay)
+                self._check_host()
+            except SandboxUnavailableError as refused:
+                self._refusal = refused.message
+                raise
+            version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
+            run = record_tool_run(
+                request,
+                version=version,
+                binary_sha256=binary_sha256,
+                executor=CONST_TOOL_EXECUTOR_SANDBOX,
+            )
+            return _start(
+                run, command, cwd=request.workdir, wall_seconds=request.limits.wall_seconds
+            )
 
 
 class RecordingToolExecutor:
