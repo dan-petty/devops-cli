@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,9 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, ToolFiles, masked_reason
 from devops_cli.telemetry import trace_span
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import KubeApiNetwork
 
 logger = logging.getLogger(__name__)
 
@@ -191,10 +194,12 @@ class DiveScanner(BaseSecurityScanner):
         target_path: Any,
         timeout: float,
         files: Callable[[], ToolFiles] = ToolFiles,
+        network: KubeApiNetwork | None = None,
     ) -> ScanOutcome:
         """Run dive through `run_dive_analysis`, since dive writes its analysis to a file.
 
-        Dive starts no tool through the executor, so it has no record of files to digest.
+        Dive starts no tool through the executor, so it has no record of files to digest, and it
+        selects no network profile.
         """
         analysis = run_dive_analysis(cmd[1], timeout=timeout)
         if analysis.status != "ran":

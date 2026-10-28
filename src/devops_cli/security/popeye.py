@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_POPEYE, build_popeye_cmd
@@ -13,10 +13,19 @@ from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import KubeApiNetwork
+
 logger = logging.getLogger(__name__)
 
 
 _LEVEL_TO_SEV = {0: "INFO", 1: "LOW", 2: "MEDIUM", 3: "HIGH"}
+
+
+def _named_context(context: str | None) -> str | None:
+    """The context that a scan names, or None for the current context, which a scan names as
+    `current` or not at all."""
+    return context if context and context != "current" else None
 
 
 def _popeye_finding(linter: str, resource: str, issue: dict[str, Any]) -> Finding:
@@ -75,8 +84,14 @@ class PopeyeScanner(BaseSecurityScanner):
         **kwargs: Any,
     ) -> list[str]:
         """Build argument command list for invoking Popeye over `namespace`, or every namespace."""
-        ctx = context if context and context != "current" else None
-        return build_popeye_cmd(context=ctx, namespace=namespace)
+        return build_popeye_cmd(context=_named_context(context), namespace=namespace)
+
+    def tool_network(self, context: str | None = None, **kwargs: Any) -> KubeApiNetwork:
+        """The network profile `kube-api` for the context of the scan: Popeye reads the API server
+        of that context, and no other network (#2132)."""
+        from devops_cli.security.tool_executor import KubeApiNetwork
+
+        return KubeApiNetwork(context=_named_context(context))
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Popeye cluster JSON payload into Finding models."""

@@ -3885,6 +3885,14 @@ CONST_TOOL_RULESET_PLACEHOLDER: Final[str] = "{ruleset}"
 # confinement, or in the bubblewrap sandbox.
 CONST_TOOL_EXECUTOR_DIRECT: Final[str] = "direct"
 CONST_TOOL_EXECUTOR_SANDBOX: Final[str] = "sandbox"
+# The network of a tool run, as a record names it (#2132): the network of the host for the direct
+# executor, and no network for the sandbox, unless the request selects the network profile below.
+CONST_TOOL_NETWORK_HOST: Final[str] = "host"
+CONST_TOOL_NETWORK_NONE: Final[str] = "none"
+# The one network profile of the sandbox. It reaches only the Kubernetes API server of one context,
+# only to read, and only the tool `CONST_TOOL_KUBE_API_TOOL` can select it (#2132).
+CONST_TOOL_NETWORK_KUBE_API: Final[str] = "kube-api"
+CONST_TOOL_KUBE_API_TOOL: Final[str] = "popeye"
 # The digest of a binary or of a group of files that a record could not read. It stands in the record
 # of a run that must not fail for the record. The digest of no files is not this value.
 CONST_TOOL_DIGEST_UNAVAILABLE: Final[str] = "unavailable"

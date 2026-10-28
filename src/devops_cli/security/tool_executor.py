@@ -78,7 +78,7 @@ import subprocess
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -93,7 +93,11 @@ from devops_cli.config.constants import (
     CONST_TOOL_EXECUTOR_SANDBOX,
     CONST_TOOL_GO_MEMORY_LIMIT,
     CONST_TOOL_HOST_READ_ONLY_PATHS,
+    CONST_TOOL_KUBE_API_TOOL,
     CONST_TOOL_MIN_ADDRESS_SPACE_BYTES,
+    CONST_TOOL_NETWORK_HOST,
+    CONST_TOOL_NETWORK_KUBE_API,
+    CONST_TOOL_NETWORK_NONE,
     CONST_TOOL_PRLIMIT_BINARY,
     CONST_TOOL_RULESET_PLACEHOLDER,
     CONST_TOOL_SANDBOX_CHECK_TIMEOUT_SECONDS,
@@ -147,6 +151,18 @@ class ToolLimits(_Frozen):
         )
 
 
+class KubeApiNetwork(_Frozen):
+    """The network profile `kube-api` of the sandbox (#2132). The tool reaches the Kubernetes API
+    server of one context, only to read, through `kubectl proxy` outside the sandbox
+    (`devops_cli.sandbox.kube_api`).
+
+    `context` names a context of the kubeconfig of the user. None is the current context.
+    """
+
+    name: ClassVar[str] = CONST_TOOL_NETWORK_KUBE_API
+    context: str | None = Field(default=None, min_length=1)
+
+
 class ToolRequest(_Frozen):
     """One run of a review tool.
 
@@ -171,6 +187,10 @@ class ToolRequest(_Frozen):
     `workdir` is the tree. The tool starts in `cwd`, and in the tree when `cwd` is none. A scan that
     must not read the config files of the tree starts in a scratch directory of its own. The
     sandbox binds a `cwd` outside the tree read-only.
+
+    `network` selects the network profile of the sandbox. None gives the tool no network. Only
+    Popeye (`CONST_TOOL_KUBE_API_TOOL`) can select `KubeApiNetwork`, and only by its name on the
+    PATH: a `program` could start another binary under that name.
     """
 
     tool: str = Field(min_length=1)
@@ -185,12 +205,30 @@ class ToolRequest(_Frozen):
     writable_dirs: tuple[Path, ...] = ()
     env: dict[str, str] = Field(default_factory=dict)
     limits: ToolLimits = Field(default_factory=ToolLimits)
+    network: KubeApiNetwork | None = None
 
     @model_validator(mode="after")
     def _program_is_absolute(self) -> ToolRequest:
         """A relative program would start another program in each directory a run starts in."""
         if self.program is not None and not self.program.is_absolute():
             raise ValueError(f"the program {self.program} of a tool is no absolute path")
+        return self
+
+    @model_validator(mode="after")
+    def _only_popeye_selects_the_network(self) -> ToolRequest:
+        """No tool but Popeye, started by its name, gets the network profile `kube-api`."""
+        if self.network is None:
+            return self
+        if self.tool != CONST_TOOL_KUBE_API_TOOL:
+            raise ValueError(
+                f"only {CONST_TOOL_KUBE_API_TOOL} can select the network profile "
+                f"{self.network.name}, not {self.tool}"
+            )
+        if self.program is not None:
+            raise ValueError(
+                f"a request that names the program {self.program} cannot select the network "
+                f"profile {self.network.name}"
+            )
         return self
 
 
@@ -208,6 +246,9 @@ class ToolRun(_Frozen):
     target, a config file or a ruleset file, so the same scan records the same template. It starts
     with the tool, or with the file name of the program of the request when it names one.
 
+    `network` says which network the tool had: `host` under the direct executor, `none` in the
+    sandbox, and the name of the network profile, `kube-api`, in the sandbox with that profile.
+
     `commit` is the commit of the checkout that holds the tree. It ends with `-dirty` when a target
     holds a change that the commit does not. A tree outside any git checkout has no commit, and
     neither has a checkout that holds no commit yet. The sandbox executor refuses a checkout that
@@ -219,6 +260,7 @@ class ToolRun(_Frozen):
     version: str
     binary_sha256: str
     executor: str = Field(min_length=1)
+    network: str = Field(min_length=1)
     config_digest: str
     ruleset_digest: str
     argv_template: tuple[str, ...]
@@ -410,6 +452,7 @@ def record_tool_run(
     version: str,
     binary_sha256: str,
     executor: str,
+    network: str | None = None,
     require_commit: bool = True,
     require_files: bool = True,
 ) -> ToolRun:
@@ -417,18 +460,22 @@ def record_tool_run(
     started by the executor that `executor` names.
 
     Every executor builds its record here. So every executor refuses a request, and reads its
-    digests and its commit, in the same way. A checkout that git cannot read raises `SandboxError`,
-    unless `require_commit` is false. Then the record holds no commit. A config file or a ruleset
-    file that cannot be read as a regular file raises `SandboxValidationError`, unless
-    `require_files` is false. Then its digest is `unavailable`.
+    digests and its commit, in the same way. The network is the network profile of the request,
+    else `none`, unless `network` names another: the direct executor gives the network of the host.
+    A checkout that git cannot read raises `SandboxError`, unless `require_commit` is false. Then
+    the record holds no commit. A config file or a ruleset file that cannot be read as a regular
+    file raises `SandboxValidationError`, unless `require_files` is false. Then its digest is
+    `unavailable`.
     """
     targets = _resolved_targets(request)
     root = request.workdir.resolve()
+    profile = request.network.name if request.network else CONST_TOOL_NETWORK_NONE
     return ToolRun(
         tool=request.tool,
         version=version,
         binary_sha256=binary_sha256,
         executor=executor,
+        network=network or profile,
         config_digest=_files_digest(request.config_files, required=require_files),
         ruleset_digest=_files_digest(request.ruleset_files, required=require_files),
         argv_template=_argv_template(request, targets),
@@ -508,15 +555,23 @@ class DirectToolExecutor:
     def run(self, request: ToolRequest) -> ToolResult:
         """Start the tool of `request` and answer how it ended and what ran.
 
-        A target outside the tree raises `SandboxError` before anything starts. The tool starts
-        from the program of the request, else by its name on the PATH of the host.
+        A target outside the tree raises `SandboxError` before anything starts. So does a request
+        that selects a network profile: a child process has the whole network of the host, so a
+        run here would give the tool more network than the profile. The tool starts from the
+        program of the request, else by its name on the PATH of the host.
         """
+        if request.network is not None:
+            raise SandboxError(
+                f"The direct executor gives {request.tool} the whole network of the host, so it "
+                f"cannot run the network profile {request.network.name}"
+            )
         version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
         run = record_tool_run(
             request,
             version=version,
             binary_sha256=binary_sha256,
             executor=CONST_TOOL_EXECUTOR_DIRECT,
+            network=CONST_TOOL_NETWORK_HOST,
             require_commit=False,
             require_files=False,
         )
@@ -709,6 +764,7 @@ class RecordingToolExecutor:
 
 __all__ = [
     "DirectToolExecutor",
+    "KubeApiNetwork",
     "RecordingToolExecutor",
     "SandboxToolExecutor",
     "ToolExecutor",

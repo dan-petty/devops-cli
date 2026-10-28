@@ -33,7 +33,7 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
 if TYPE_CHECKING:
-    from devops_cli.security.tool_executor import ToolExecutor
+    from devops_cli.security.tool_executor import KubeApiNetwork, ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -620,6 +620,13 @@ class BaseSecurityScanner(ABC):
         named in the request as writable."""
         return ()
 
+    def tool_network(self, **kwargs: Any) -> KubeApiNetwork | None:
+        """The network profile that the tool of a scan with `kwargs` selects: none by default.
+
+        The sandbox then gives the tool no network. Only Popeye selects a profile (#2132).
+        """
+        return None
+
     def fallback_scan(self, target_path: Any) -> list[Finding]:
         """Execute fallback scan logic when primary binary is unavailable."""
         return []
@@ -665,10 +672,12 @@ class BaseSecurityScanner(ABC):
         target_path: Any,
         timeout: float,
         files: Callable[[], ToolFiles] = ToolFiles,
+        network: KubeApiNetwork | None = None,
     ) -> Any:
         """Start `cmd` through the tool executor and answer as a finished process, honoring
         module-level test mocks. `files` names the config files and the ruleset files the tool
-        reads, so the record of the run holds a digest of each.
+        reads, so the record of the run holds a digest of each. `network` is the network profile
+        of the request (`tool_network`).
 
         A run that ran out of time raises `subprocess.TimeoutExpired`, as the process would.
         """
@@ -700,6 +709,7 @@ class BaseSecurityScanner(ABC):
                 **{cache.variable: str(cache.directory) for cache in caches},
             },
             limits=ToolLimits.for_tool(cmd[0], wall_seconds=timeout),
+            network=network,
         )
         result = self._tool_executor.run(request)
         if result.timed_out:
@@ -731,16 +741,18 @@ class BaseSecurityScanner(ABC):
         target_path: Any,
         timeout: float,
         files: Callable[[], ToolFiles] = ToolFiles,
+        network: KubeApiNetwork | None = None,
     ) -> ScanOutcome:
         """Execute scanner command subprocess with output parsing and fallback handling.
 
         The scanner gets an empty stdin, never the caller's, such as a stdio MCP server's
-        request stream, so no target it is named makes it read one (#1079)."""
+        request stream, so no target it is named makes it read one (#1079). `network` is the
+        network profile of the request (`tool_network`)."""
 
         @trace_span(f"security.{self.name}")
         def _run() -> ScanOutcome:
             try:
-                proc = self._run_tool(cmd, cwd_dir, target_path, timeout, files)
+                proc = self._run_tool(cmd, cwd_dir, target_path, timeout, files, network)
                 is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
                 if not is_valid_json:
                     return _handle_non_json_output(self, proc, target_path)
@@ -811,12 +823,15 @@ class BaseSecurityScanner(ABC):
         self, target_path: Any, cwd: Path, timeout: float, handed: list[str], **kwargs: Any
     ) -> ScanOutcome:
         """Build the scanner's command for `target_path` and run it from `cwd`, with the flags
-        that name the files devops-cli handed it."""
+        that name the files devops-cli handed it and the network profile of the scan."""
         cmd = self.build_command(target_path, cwd=cwd, **kwargs)
         if not cmd:
             return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
         files = partial(self._tool_files, target_path, cwd, handed, kwargs)
-        return self._run_scanner_command([*cmd, *handed], cwd, target_path, timeout, files)
+        network = self.tool_network(**kwargs)
+        return self._run_scanner_command(
+            [*cmd, *handed], cwd, target_path, timeout, files, network=network
+        )
 
     def isolated_targets(self, target_path: Any, workdir: Path, **kwargs: Any) -> Any:
         """The targets an isolated scan names from `workdir`: as given.
