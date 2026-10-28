@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding, ReviewSessionPayload
 from devops_cli.config.constants import (
@@ -26,6 +27,9 @@ from devops_cli.security.ruff import (
     parse_ruff_sarif,
 )
 from tests.support.fakes.tool_executor import ToolExecutorFake
+
+# The report of a scan; no group analysis, so no model sees the admitted findings.
+_NO_GROUP_ANALYSIS = ReviewStageFlags(group_analysis=False)
 
 # ── Acceptance Criterion 1 & 2: C901 Complexity Deltas ───────────────────────
 
@@ -175,7 +179,7 @@ def test_complexity_table_rendering_in_markdown(tmp_path: Path) -> None:
         },
     ]
 
-    report = orchestrator._build_consolidated_markdown_report("test-c901", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     assert "## Complexity" in report
     complexity_section = report.split("## Complexity\n", 1)[1].split("\n\n", 1)[0]

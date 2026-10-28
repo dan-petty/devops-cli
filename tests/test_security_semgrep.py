@@ -15,6 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.review import pipeline
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.profile import profiling
 from devops_cli.ai.review_schema import SavedFinding
@@ -947,8 +948,11 @@ def test_a_review_shows_the_files_semgrep_left_out_in_its_coverage_and_analyzer_
     with profiling() as profiler:
         orchestrator._run_static_scanners(files)
     profile = profiler.build(session_id="semgrep", target=str(reviewed_checkout))
-    coverage = "\n".join(orchestrator._build_coverage_section())
-    analyzers = "\n".join(orchestrator._build_static_analyzers_section())
+    report = orchestrator.generate_consolidated_report(
+        [], stage_flags=ReviewStageFlags(group_analysis=False)
+    )[1]
+    coverage = report.split("## Coverage", 1)[1].split("\n\n", 1)[0]
+    analyzers = report.split("## Static Analyzers", 1)[1].split("\n\n", 1)[0]
 
     assert orchestrator.static_analyzers["Semgrep"] == "coverage_gap"
     assert orchestrator.coverage["Semgrep"] == {

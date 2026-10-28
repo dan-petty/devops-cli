@@ -21,6 +21,7 @@ import jsonschema
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.profile import ReviewProfile, profiling
 from devops_cli.ai.review.runner import _write_review_profile
 from devops_cli.ai.review.tool_runs import TOOL_RUNS_COLUMNS, tool_runs_section
@@ -55,6 +56,9 @@ from devops_cli.security.trivy import run_trivy_scan
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
 from tests.support.paths import FIXTURES
 from tests.support.registry_cache import REPLACED_RULESET
+
+# The report of a scan; no group analysis, so no model sees the admitted findings.
+_NO_GROUP_ANALYSIS = ReviewStageFlags(group_analysis=False)
 
 _MANIFEST = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n"
 _RULES = "rules:\n  - id: any\n    languages: [python]\n    severity: ERROR\n    message: m\n    pattern: eval(...)\n"
@@ -613,7 +617,7 @@ def test_the_report_shows_a_row_for_each_distinct_record_and_counts_its_runs(
     run_bandit_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
     bandit = executor.runs[-1]
 
-    report = orchestrator._build_consolidated_markdown_report("s772c", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     section = report.split("## Tool Runs\n", 1)[1].split("\n\n", 1)[0].splitlines()
     assert section == [
@@ -670,7 +674,7 @@ def test_a_report_of_a_review_that_ran_no_tool_has_no_tool_runs_section(tmp_path
     """A table with no row would read as a review that ran its tools and recorded nothing."""
     orchestrator = ReviewPipelineOrchestrator(session_id="s772c", target_dir=tmp_path)
 
-    report = orchestrator._build_consolidated_markdown_report("s772c", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     assert "## Tool Runs" not in report
 

@@ -88,11 +88,10 @@ def test_the_pipeline_records_its_subject_and_leaves_itself_out_of_its_baseline(
         subject=subject,
     )
 
-    with patch("devops_cli.ai.review.pipeline.print_table"):
-        orchestrator.generate_consolidated_report(
-            [FileReviewPayload(file_path="config.py", findings=[_secret("INVALIDATED", "llm")])],
-            personas=["devsecops"],
-        )
+    orchestrator.generate_consolidated_report(
+        [FileReviewPayload(file_path="config.py", findings=[_secret("INVALIDATED", "llm")])],
+        personas=["devsecops"],
+    )
     session = orchestrator.session.publish()
     report = (session / "review.md").read_text(encoding="utf-8")
     assert (

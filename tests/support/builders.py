@@ -10,6 +10,7 @@ number.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal, overload
 
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from devops_cli.ai.review.adjudication import Verdict
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.constants import CONST_STATUS_VERIFIED
+from devops_cli.review.report import ReportInput
 from devops_cli.roadmap.store import Candidate, Item, Milestone
 
 _ISSUES_URL = "https://example.com/octo/repo/issues"
@@ -70,6 +72,20 @@ def make_candidate(**overrides: Any) -> Candidate:
     number = overrides.get("number", 2)
     defaults = {"number": number, "title": "A candidate", "url": f"{_ISSUES_URL}/{number}"}
     return _validated(Candidate, defaults, overrides)
+
+
+def make_report_input(**overrides: Any) -> ReportInput:
+    """The report input of session `20261028-120000` with no finding, no dependency, no network
+    reference and nothing from the run: no analyzer, no coverage, no history."""
+    defaults: dict[str, Any] = {
+        "session_id": "20261028-120000",
+        "session_name": "20261028-120000",
+        "generated_at": "2026-10-28T12:00:00+00:00",
+        "report_path": Path("reviews/20261028-120000/review.md"),
+        "findings_path": Path("reviews/20261028-120000/findings.json"),
+        "reportable_findings": (),
+    }
+    return ReportInput(**{**defaults, **overrides})
 
 
 def _validated[ModelT: BaseModel](

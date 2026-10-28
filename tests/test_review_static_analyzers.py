@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.ai.review import pipeline
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
     _compute_coverage_matrix,
@@ -35,6 +36,9 @@ from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import CACHED_RULESET_DIGEST, CACHED_RULESET_WORKDIR_NAME
+
+# The report of a scan; no group analysis, so no model sees the admitted findings.
+_NO_GROUP_ANALYSIS = ReviewStageFlags(group_analysis=False)
 
 _ONLY_BANDIT = {
     "Bandit": "ran",
@@ -152,7 +156,7 @@ def test_the_session_report_lists_each_analyzer_result(tmp_path: Path) -> None:
     orchestrator = ReviewPipelineOrchestrator(session_id="s516", target_dir=tmp_path)
     orchestrator.static_analyzers = _ONLY_BANDIT
 
-    report = orchestrator._build_consolidated_markdown_report("s516", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
     assert section.splitlines() == [
@@ -208,7 +212,7 @@ def test_the_report_says_why_an_analyzer_failed_and_the_console_points_there(
         observed_outcomes={"Bandit": failed},
     )
 
-    report = orchestrator._build_consolidated_markdown_report("s1009", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
     assert (
@@ -244,7 +248,7 @@ def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
     )
 
     orchestrator._run_static_scanners(["app.py"])
-    report = orchestrator._build_consolidated_markdown_report("s915", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
     assert (token in report, section.splitlines()[2]) == (
@@ -279,7 +283,7 @@ def test_a_scanner_timeout_reads_timed_out_in_the_report_and_the_profile(
     with profiling() as profiler:
         orchestrator._run_static_scanners(["app.py"])
     profile = profiler.build(session_id="s1079", target=str(tmp_path))
-    report = orchestrator._build_consolidated_markdown_report("s1079", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
     assert (
@@ -419,7 +423,7 @@ def test_a_review_without_the_cached_ruleset_reports_a_coverage_gap_in_the_repor
     )
 
     orchestrator, profile = _static_scan(tmp_path)
-    report = orchestrator._build_consolidated_markdown_report("s1144", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
 
     section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
     assert (
@@ -500,7 +504,7 @@ def test_two_manifest_scan_where_one_fails_admits_good_findings_and_records_per_
     assert orchestrator.static_analyzers["Kube-linter"] == "ran; 1 of 2 files failed"
     assert orchestrator.static_analyzer_reasons["Kube-linter"] == "Scanner execution failed: exit 1"
 
-    report = orchestrator._build_consolidated_markdown_report("s1140", "now", [], [], [])
+    report = orchestrator.generate_consolidated_report([], stage_flags=_NO_GROUP_ANALYSIS)[1]
     section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
     assert "| Kube-linter | ran; 1 of 2 files failed: Scanner execution failed: exit 1 |" in section
 

@@ -6,6 +6,7 @@ cached analysis.
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import LLMClient
@@ -93,21 +95,24 @@ def _delta(meta: FileAnalysisMeta) -> tuple[list[str], list[str], list[str]]:
     return meta.symbols_added, meta.symbols_removed, meta.symbols_retained
 
 
+@pytest.fixture
+def terminal(monkeypatch: pytest.MonkeyPatch) -> Console:
+    """The shared console, recording everything the review prints."""
+    import devops_cli.output.console as console_module
+
+    recording = Console(record=True, width=400, color_system=None, file=io.StringIO())
+    monkeypatch.setattr(console_module, "_CONSOLE", recording)
+    return recording
+
+
 def _report_summary(
-    orchestrator: ReviewPipelineOrchestrator, payloads: list[FileReviewPayload]
-) -> tuple[dict[str, Any], dict[str, str]]:
-    """Generate the session report; return `findings.json` and the console summary's rows."""
-    with patch("devops_cli.ai.review.pipeline.print_table") as tables:
-        orchestrator.generate_consolidated_report(payloads)
+    orchestrator: ReviewPipelineOrchestrator, payloads: list[FileReviewPayload], terminal: Console
+) -> tuple[dict[str, Any], str]:
+    """Generate the session report; return `findings.json` and what the terminal printed."""
+    orchestrator.generate_consolidated_report(payloads)
     orchestrator.session.publish()
-    rows = {
-        str(metric): str(value)
-        for call in tables.call_args_list
-        if call.kwargs.get("title") == "Review Summary"
-        for metric, value in call.kwargs["rows"]
-    }
     findings_json = (orchestrator.session.directory / "findings.json").read_text(encoding="utf-8")
-    return json.loads(findings_json), rows
+    return json.loads(findings_json), terminal.export_text()
 
 
 def _write_cached_analysis(path: Path, removed: dict[str, list[str]], repo: Path) -> Path:
@@ -344,7 +349,7 @@ def test_a_failed_read_leaves_the_delta_empty(review_repo: Path, base: BaseRevis
 
 
 def test_a_review_with_no_delta_shows_no_symbol_delta_row(
-    review_repo: Path, tmp_path: Path
+    review_repo: Path, tmp_path: Path, terminal: Console
 ) -> None:
     """Verify a review whose files have no delta reports a zero delta and no Symbol Delta row,
     though a cached analysis on disk lists a removal."""
@@ -353,14 +358,14 @@ def test_a_review_with_no_delta_shows_no_symbol_delta_row(
     )
     orchestrator = _orchestrator(review_repo, _NoModel())
 
-    findings_json, summary_rows = _report_summary(
-        orchestrator, [FileReviewPayload(file_path="mod.py")]
+    findings_json, printed = _report_summary(
+        orchestrator, [FileReviewPayload(file_path="mod.py")], terminal
     )
 
     assert (
         findings_json["symbol_delta_summary"],
-        "Symbol Delta" in summary_rows,
+        "Symbol Delta" in printed,
         "Symbol Delta"
         in (orchestrator.session.directory / "review.md").read_text(encoding="utf-8"),
-        "Session ID" in summary_rows,
+        "Session ID" in printed,
     ) == ({"added": 0, "removed": 0, "retained": 0}, False, False, True)
