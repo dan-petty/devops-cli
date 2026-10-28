@@ -13,7 +13,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1024-review-scanner-rule-exclusions`
 - Pending a person: score lenient precision on the review redesign's tuning inputs (the S11 input and the loop input) with `devops review score` (#1138), and record it on #1024.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
