@@ -85,7 +85,8 @@ def create_ollama_provider(
     Without `openai_client` and `http_client`, the provider gets a client from
     `new_async_http_client` at the configured level of `ai_config` (of the loaded settings when
     None): loopback, or private when `ai.allow_private_network` is set. The connect checks each
-    address, so pydantic-ai never builds a client of its own.
+    address, so pydantic-ai never builds a client of its own. The client keeps the timeouts of the
+    client that pydantic-ai builds: 600 s, with a 5 s connect.
 
     Args:
         base_url: Primary Ollama HTTP endpoint URL.
@@ -112,10 +113,19 @@ def create_ollama_provider(
     normalized_url = normalize_ollama_base_url(raw_url)
     resolved_api_key = api_key or os.environ.get("OLLAMA_API_KEY")
     if openai_client is None and http_client is None:
+        import httpx2
+        from pydantic_ai.models import DEFAULT_HTTP_TIMEOUT
+
+        from devops_cli.config.defaults import DEFAULT_AI_CONNECT_TIMEOUT_SECONDS
         from devops_cli.http.client import new_async_http_client
         from devops_cli.http.egress import configured_level
 
-        http_client = new_async_http_client(level=configured_level(ai_config))
+        http_client = new_async_http_client(
+            level=configured_level(ai_config),
+            timeout=httpx2.Timeout(
+                DEFAULT_HTTP_TIMEOUT, connect=DEFAULT_AI_CONNECT_TIMEOUT_SECONDS
+            ),
+        )
 
     from pydantic_ai.providers.ollama import OllamaProvider
 

@@ -125,6 +125,34 @@ def test_the_ollama_provider_dials_at_the_configured_level(flag: bool) -> None:
     ) == (expected, expected)
 
 
+def test_the_ollama_model_keeps_the_pydantic_ai_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify a request of the Ollama model has the timeouts of the client pydantic-ai built before.
+
+    pydantic-ai gives its own client 600 s and a 5 s connect, and openai uses the timeout of the
+    client that it gets. The factory client of the provider (#2422) keeps these bounds, so an
+    Ollama node that takes more than 1 s to accept the connect still answers.
+    """
+    import asyncio
+
+    import httpx2
+
+    from devops_cli.ai.models.ollama import create_ollama_model
+    from devops_cli.config.settings import AIConfig
+    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects
+
+    recorder = record_connects(monkeypatch, [http_response(200, '{"object": "list", "data": []}')])
+    model = create_ollama_model(
+        "qwen3-coder:30b", base_url="http://example.com:11434", ai_config=AIConfig()
+    )
+
+    asyncio.run(model.client.with_options(max_retries=0).models.list())
+
+    assert (recorder.timeouts_of(PUBLIC_ADDRESS), model.client.timeout) == (
+        [5.0],
+        httpx2.Timeout(600, connect=5),
+    )
+
+
 def test_create_ollama_provider() -> None:
     """Verify create_ollama_provider builds native OllamaProvider with cluster and auth support."""
     from pydantic_ai.providers.ollama import OllamaProvider
