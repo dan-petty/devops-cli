@@ -1,7 +1,8 @@
 """The scenarios of the Docker engine's contract suite: SDK calls, and what each one shows (#1316).
 
 Each scenario makes the calls of `devops_cli.docker.sdk` on an `EngineClient` and returns what a
-caller sees, with the parts that differ between engines (IDs, times, byte counts) left out.
+caller sees, with the parts that differ between engines and runs left out: IDs, times, byte
+counts, and the order of the lines of stdout and stderr in one log.
 `tests/docker/test_engine_contract.py` runs each scenario over `DockerEngineFake` and over the
 docker SDK client reading the Engine API's recorded answers. `tests/support/docker_engine_recording`
 records those answers by running the same scenarios over a real engine.
@@ -72,20 +73,20 @@ def container_runs_to_exit(client: EngineClient) -> tuple[Any, ...]:
     )
     container.start()
     status = container.wait(timeout=30)["StatusCode"]
+    # The engine reads stdout and stderr from two pipes, so the order of their lines in one log
+    # can differ from run to run; the lines are compared as a sorted list.
     both = container.logs(stdout=True, stderr=True, stream=False, tail="all", timestamps=False)
     out = b"".join(container.logs(stdout=True, stderr=False, stream=True, follow=False))
     err = container.logs(stdout=False, stderr=True)
-    last = container.logs(stdout=True, stderr=True, tail=1)
     container.reload()
     listed = [c.name for c in client.containers.list(all=True, filters={"name": EXIT_NAME})]
     found = client.containers.get(container.id[:12]).name
     client.api.remove_container(container.id, force=True)
     return (
         status,
-        both,
+        sorted(both.splitlines(keepends=True)),
         out,
         err,
-        last,
         container.status,
         container.attrs["State"]["ExitCode"],
         container.attrs["Config"]["Labels"],
@@ -102,7 +103,7 @@ def container_execs_and_reports_stats(client: EngineClient) -> tuple[Any, ...]:
     container.reload()
     running = container.status
     exit_code, output = container.exec_run(
-        EXEC_COMMAND, workdir="/tmp", environment={"DEVOPS_CONTRACT": "1"}
+        EXEC_COMMAND, workdir="/", environment={"DEVOPS_CONTRACT": "1"}
     )
     stream = container.stats(stream=True, decode=True)
     frames = [next(stream), next(stream)]

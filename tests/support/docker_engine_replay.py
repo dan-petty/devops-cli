@@ -11,14 +11,15 @@ frames), or after `101 UPGRADED` as raw frames on the socket, as the engine answ
 SDK reads an upgraded reply from the socket under the HTTP reader, so the raw frames go out after
 a short pause, once the reader has taken the status line and the headers.
 
-The socket is bound in the test's process, which the hermetic floor allows. Its path is short:
-a Unix socket path holds at most 107 bytes, and a test's own directory can be longer.
+The socket is bound in the test's process, which the hermetic floor allows, in a new directory
+under the test's own temporary directory.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import os
 import shutil
 import socket
 import socketserver
@@ -34,6 +35,8 @@ import h11
 
 # The record of the scenarios' exchanges.
 RECORD = files("tests").joinpath("fixtures", "docker_engine", "recorded_exchanges.json")
+# The longest Unix socket path, in bytes, that `bind` and `connect` take on Linux.
+UNIX_PATH_BYTES = 107
 # How long the server waits after `101 UPGRADED` before it sends the raw frames.
 UPGRADE_PAUSE_SECONDS = 0.05
 # How often a server's loop looks for its shutdown; `serve_forever` waits half a second by default.
@@ -115,9 +118,15 @@ def send_reply(conn: h11.Connection, sock: socket.socket, exchange: dict[str, An
 
 
 def short_socket_dir(prefix: str) -> Path:
-    """A new directory for a socket, under the system's temporary directory if it is short."""
-    base = tempfile.gettempdir()
-    return Path(tempfile.mkdtemp(prefix=prefix, dir=base if len(base) < 64 else "/tmp"))
+    """A new directory for a socket under the temporary directory, which pytest keeps short.
+
+    A Unix socket path holds at most `UNIX_PATH_BYTES` bytes; a longer one fails here, by name.
+    """
+    directory = Path(tempfile.mkdtemp(prefix=prefix))
+    if len(os.fsencode(directory / "engine.sock")) > UNIX_PATH_BYTES:
+        directory.rmdir()
+        raise RuntimeError(f"a socket under {directory} would pass {UNIX_PATH_BYTES} bytes")
+    return directory
 
 
 class _ReplayServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -138,7 +147,12 @@ class _ReplayHandler(socketserver.BaseRequestHandler):
             request, _ = read_request(conn, self.request)
             if request is None:
                 return
-            if not send_reply(conn, self.request, engine.answer(request)):
+            reply = engine.answer(request)
+            try:
+                if not send_reply(conn, self.request, reply):
+                    return
+            except BrokenPipeError, ConnectionResetError:
+                # The SDK closes a stats stream after the frames it wants; nothing reads the rest.
                 return
             conn.start_next_cycle()
 

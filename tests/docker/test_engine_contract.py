@@ -45,9 +45,8 @@ EXPECTED: dict[str, tuple[Any, ...]] = {
     "daemon_facts": (True, True, True, True, True, True),
     "container_runs_to_exit": (
         2,
-        b"hello\noops\n",
+        [b"hello\n", b"oops\n"],
         b"hello\n",
-        b"oops\n",
         b"oops\n",
         "exited",
         2,

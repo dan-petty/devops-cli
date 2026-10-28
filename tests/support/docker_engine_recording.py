@@ -229,7 +229,12 @@ class _ProxyHandler(socketserver.BaseRequestHandler):
             request, body = read_request(conn, self.request)
             if request is None:
                 return
-            if not send_reply(conn, self.request, proxy.forward(request, body)):
+            reply = proxy.forward(request, body)
+            try:
+                if not send_reply(conn, self.request, reply):
+                    return
+            except BrokenPipeError, ConnectionResetError:
+                # The SDK closes a stats stream after the frames it wants; nothing reads the rest.
                 return
             conn.start_next_cycle()
 

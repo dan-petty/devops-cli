@@ -14,6 +14,7 @@ recorded answers, and the fake in `tests/support/fakes/docker_engine.py` to the 
 
 from __future__ import annotations
 
+import builtins
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Protocol
 
@@ -82,7 +83,7 @@ class EngineContainers(Protocol):
 
     def list(
         self, all: bool = False, filters: Mapping[str, Any] | None = None
-    ) -> list[EngineContainer]:
+    ) -> builtins.list[EngineContainer]:
         """The running containers, or every container with `all=True`."""
         ...
 
@@ -123,7 +124,7 @@ class EngineImages(Protocol):
 
     def list(
         self, name: str | None = None, all: bool = False, filters: Mapping[str, Any] | None = None
-    ) -> list[EngineImage]:
+    ) -> builtins.list[EngineImage]:
         """The local images, or the images of one repository with `name`."""
         ...
 
@@ -171,7 +172,7 @@ class EngineNetworks(Protocol):
         """Create a network, such as an internal bridge with `driver` and `internal`."""
         ...
 
-    def list(self, **kwargs: Any) -> list[EngineNetwork]:
+    def list(self, **kwargs: Any) -> builtins.list[EngineNetwork]:
         """The networks."""
         ...
 
@@ -199,7 +200,7 @@ class EngineVolume(Protocol):
 class EngineVolumes(Protocol):
     """`DockerClient.volumes`."""
 
-    def list(self, **kwargs: Any) -> list[EngineVolume]:
+    def list(self, **kwargs: Any) -> builtins.list[EngineVolume]:
         """The volumes."""
         ...
 
