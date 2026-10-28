@@ -139,14 +139,12 @@ def security_intel_network(target: str) -> str:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
-    """Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs."""
+def scan_uv_audit(directory: str = ".") -> str:
+    """Audit the packages that the uv.lock of a project pins, as it is, for known vulnerabilities and adverse project statuses, with uv audit."""
     _validate_mcp_arg("directory", directory)
-    if requirements_file:
-        _validate_mcp_arg("requirements_file", requirements_file)
     from devops_cli.ai.tools.builtin_tools import scan_uv_audit as _native_uv_audit
 
-    return _native_uv_audit(directory=directory, requirements_file=requirements_file)
+    return _native_uv_audit(directory=directory)
 
 
 # ── FastMCP Dynamic System State Resources ─────────────────────────────────────

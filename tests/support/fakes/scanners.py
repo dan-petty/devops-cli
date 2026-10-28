@@ -51,7 +51,9 @@ on 2026-10-25 with the command each adapter makes, and `script_run_with_findings
 not in the recording. Pluto ran over two objects whose APIs Kubernetes removed, one with no
 replacement. Popeye ran at warn level over the namespace of a lab cluster; its report keeps three
 of its sections and two of its resources, and the names of the cluster and the context read
-`example`.
+`example`. uv audit 0.12.23 ran on 2026-10-28 over a project whose `uv.lock` pins idna 3.6
+(#2106). No tools lock pins uv, and uv 0.13.6, which the images pin, writes a report of the same
+layout.
 """
 
 from __future__ import annotations
@@ -171,8 +173,9 @@ class ScannerFake(ToolExecutorFake):
         the directory that run started in.
 
         The runs are in `tests/fixtures/scanner_runs/runs_with_findings.json`, each the real
-        tool's at the version `tools.lock` pins, started with the command its adapter makes. In
-        each, a placeholder such as `{tree}` stands for the path given as that keyword."""
+        tool's, at the version `tools.lock` pins when it pins one, started with the command its
+        adapter makes. In each, a placeholder such as `{tree}` stands for the path given as that
+        keyword."""
         recorded = files("tests").joinpath("fixtures", "scanner_runs", "runs_with_findings.json")
         run: dict[str, Any] = json.loads(recorded.read_text(encoding="utf-8"))[tool]
 

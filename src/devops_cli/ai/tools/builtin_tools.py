@@ -269,23 +269,6 @@ def _outside_workspace_reply(target: str | Path) -> str:
     return f"Access Denied: {target} is outside workspace."
 
 
-def _run_workspace_security_scan(
-    target: str | Path,
-    cmd_builder: Callable[[Path], list[str]],
-    *,
-    fallback_msg: str = "",
-) -> str:
-    """Validate target path security boundaries and execute scanner subprocess."""
-    target_path = _workspace_target(target)
-    if target_path is None:
-        return _outside_workspace_reply(target)
-    return _run_tool_cmd(
-        cmd_builder(target_path),
-        fallback_msg=fallback_msg,
-        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
-    )
-
-
 def _finding_line(finding: Finding) -> str:
     """One finding of a scan reply: its severity, location and title, then its fix if it has one."""
     line = MESSAGES.tools.scan_finding.format(
@@ -337,17 +320,11 @@ def scan_trivy(target: str = ".") -> str:
     return _run_adapter_scan("Trivy", target, run_trivy_scan)
 
 
-def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
-    """Audit Python dependency security vulnerabilities and CVE advisories using uv pip audit."""
-    return _run_workspace_security_scan(
-        directory,
-        lambda p: (
-            ["uv", "audit"]
-            if not requirements_file
-            else ["uv", "pip", "audit", "-r", str(p / requirements_file)]
-        ),
-        fallback_msg="No known security vulnerabilities identified by uv audit.",
-    )
+def scan_uv_audit(directory: str = ".") -> str:
+    """Audit the packages that the uv.lock of a project pins, as it is, for known vulnerabilities and adverse project statuses, with uv audit."""
+    from devops_cli.security.uv_audit import run_uv_audit_scan
+
+    return _run_adapter_scan("uv audit", directory, run_uv_audit_scan)
 
 
 def scan_kubelinter(target: str = ".") -> str:
