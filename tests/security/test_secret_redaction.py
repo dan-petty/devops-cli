@@ -1,4 +1,4 @@
-"""Unit tests for centralized secret sanitizer (TDD Specification)."""
+"""Secret redaction: the text that `security/sanitizer.py` masks, and the text it leaves alone."""
 
 from __future__ import annotations
 

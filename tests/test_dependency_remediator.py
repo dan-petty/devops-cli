@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.scan import app as scan_app
 from devops_cli.exceptions import SecurityError
 from devops_cli.models.vulnerability import (
     PackageLookupResult,
@@ -20,8 +20,6 @@ from devops_cli.security.dependency_remediator import (
     DependencyRemediator,
     detect_lockfile_ecosystem,
 )
-
-runner = CliRunner()
 
 
 def test_detect_lockfile_ecosystem(tmp_path: Path) -> None:
@@ -159,7 +157,7 @@ def test_remediate_with_git_branch(tmp_path: Path) -> None:
         assert mock_branch.called
 
 
-def test_cli_scan_fix_dry_run(tmp_path: Path) -> None:
+def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Test devops scan fix CLI command in dry-run mode."""
     (tmp_path / "uv.lock").write_text("", encoding="utf-8")
 
@@ -183,7 +181,7 @@ def test_cli_scan_fix_dry_run(tmp_path: Path) -> None:
             summary="Planned 1 vulnerability remediation",
         )
 
-        res = runner.invoke(scan_app, ["fix", str(tmp_path), "--dry-run"])
+        res = cli(["scan", "fix", str(tmp_path), "--dry-run"])
         assert res.exit_code == 0
         assert "test-lib" in res.output
         assert "CVE-2026-1111" in res.output

@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import base64
 import stat
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import git as gitlib
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
-from typer.testing import CliRunner
 
-from devops_cli.commands.repos import app as repos_app
 from devops_cli.config.constants import CONST_GITHUB_KNOWN_HOSTS_LINES
 from devops_cli.exceptions import GitOperationError
 from devops_cli.git.operations import _ensure_known_host, clone_repo
-
-runner = CliRunner()
 
 # Published fingerprints from https://api.github.com/meta (.ssh_key_fingerprints)
 # and https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
@@ -203,7 +201,9 @@ def test_clone_repo_wraps_git_command_error_with_masked_stderr(tmp_path: Path) -
     ) == (True, True, True)
 
 
-def test_devops_repos_clone_cli_exits_nonzero_with_no_traceback(tmp_path: Path) -> None:
+def test_devops_repos_clone_cli_exits_nonzero_with_no_traceback(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
     """CLI devops repos clone exits non-zero with clean error and no traceback on failure."""
     fake_cmd_err = gitlib.GitCommandError(
         "clone", 128, stderr="Host key verification failed for github.com"
@@ -215,5 +215,5 @@ def test_devops_repos_clone_cli_exits_nonzero_with_no_traceback(tmp_path: Path) 
         patch("devops_cli.commands.repos.load_settings"),
     ):
         dest = tmp_path / "clone_target"
-        res = runner.invoke(repos_app, ["clone", "git@github.com:org/repo.git", str(dest)])
+        res = cli(["repos", "clone", "git@github.com:org/repo.git", str(dest)])
         assert (res.exit_code != 0, "Traceback" not in res.output) == (True, True)
