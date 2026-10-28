@@ -73,6 +73,9 @@
     "MINIKUBE_WANTUPDATENOTIFICATION": "false",
     "MINIKUBE_WANTREPORTERRORPROMPT": "false"
   },
+  "remoteEnv": {
+    "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"
+  },
   "postCreateCommand": "devops devcontainer post-create",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {

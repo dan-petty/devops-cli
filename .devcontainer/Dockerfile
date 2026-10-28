@@ -38,7 +38,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     python3 -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" && \
     rm -rf /tmp/requirements.txt
 
-# Copy devops-cli source files and install the package without re-downloading dependencies
+# Copy devops-cli source files and install the package without re-downloading dependencies.
+# This copy is the devops of the published image: a child repository's post-create and
+# post-start run it, and so does this repository's first post-create, before `uv sync` fills
+# the .venv volume. The remoteEnv PATH of .devcontainer/devcontainer.json puts .venv/bin first,
+# so in this repository `devops` is the editable install of the checkout (#2449).
 COPY pyproject.toml README.md /tmp/devops-cli/
 COPY src/ /tmp/devops-cli/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
