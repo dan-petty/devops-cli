@@ -551,6 +551,37 @@ def test_the_agent_popeye_tool_runs_the_popeye_adapter_over_the_namespace(
     )
 
 
+def test_the_agent_uv_audit_tool_runs_the_uv_audit_adapter_over_the_directory(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`scan_uv_audit` runs uv audit through its adapter, over the lockfile of the project in the
+    directory as it is, and replies with the outcome of the scan (#2106)."""
+    monkeypatch.chdir(tmp_path)
+    recorded = scanner_fake.script_run_with_findings("uv", tree=tmp_path.resolve())
+
+    reply = scan_uv_audit(str(tmp_path))
+
+    assert (scanner_fake.runs, reply) == (
+        [recorded],
+        "\n".join(
+            [
+                "uv audit scan status: ok",
+                "Findings (4):",
+                "- [MEDIUM] uv.lock:idna: [GHSA-65pc-fj4g-8rjx] Internationalized Domain Names in "
+                "Applications (IDNA): Specially crafted inputs to idna.encode() can bypass "
+                "CVE-2024-3651 fix (Upgrade idna from 3.6 to 3.15)",
+                "- [MEDIUM] uv.lock:idna: [GHSA-jjg7-2v4v-x38h] Internationalized Domain Names in "
+                "Applications (IDNA) vulnerable to denial of service from specially crafted "
+                "inputs to idna.encode (Upgrade idna from 3.6 to 3.7)",
+                "- [MEDIUM] uv.lock:idna: [PYSEC-2024-60] idna 3.6 has a known vulnerability "
+                "(Upgrade idna from 3.6 to 3.7)",
+                "- [MEDIUM] uv.lock:idna: [PYSEC-2026-215] idna 3.6 has a known vulnerability "
+                "(Upgrade idna from 3.6 to 3.15)",
+            ]
+        ),
+    )
+
+
 def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -650,6 +681,7 @@ _ADAPTER_SCAN_TOOLS = [
     pytest.param(scan_bandit, "Bandit", "bandit", id="bandit"),
     pytest.param(scan_gitleaks, "Gitleaks", "gitleaks", id="gitleaks"),
     pytest.param(scan_semgrep, "Semgrep", "semgrep", id="semgrep"),
+    pytest.param(scan_uv_audit, "uv audit", "uv", id="uv-audit"),
 ]
 
 

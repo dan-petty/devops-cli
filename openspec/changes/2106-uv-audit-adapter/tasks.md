@@ -9,7 +9,7 @@
 
 ## 2. The agent and MCP tools run the adapter
 
-- [ ] Record a run of uv audit with findings in `tests/fixtures/scanner_runs/runs_with_findings.json` and name it in the docstring of `tests/support/fakes/scanners.py`. Add failing tests: `test_the_agent_uv_audit_tool_runs_the_uv_audit_adapter_over_the_directory` and the `uv-audit` cases of the not-installed and failed-scan tests in `tests/test_builtin_tools.py`, and `test_the_mcp_uv_audit_tool_takes_a_directory_and_runs_the_uv_audit_adapter_there` in `tests/test_mcp.py`
+- [x] Record a run of uv audit with findings in `tests/fixtures/scanner_runs/runs_with_findings.json` and name it in the docstring of `tests/support/fakes/scanners.py`. Add failing tests: `test_the_agent_uv_audit_tool_runs_the_uv_audit_adapter_over_the_directory` and the `uv-audit` cases of the not-installed and failed-scan tests in `tests/test_builtin_tools.py`, and `test_the_mcp_uv_audit_tool_takes_a_directory_and_runs_the_uv_audit_adapter_there` in `tests/test_mcp.py`
   - Verification: `uv run devops ci test tests/test_builtin_tools.py tests/test_mcp.py` fails on `origin/main`
 - [ ] Make `scan_uv_audit` call `run_uv_audit_scan` through `_run_adapter_scan`, and make the MCP tool `scan_uv_audit` take only `directory`. Delete the `requirements_file` parameter, the `uv pip audit` and `uv audit` command lines, the fallback message, `_run_workspace_security_scan` and the `scan_uv_audit` lines of `test_devops_subcommand_wrappers`
   - Verification: `uv run devops ci test tests/test_builtin_tools.py tests/test_mcp.py`
