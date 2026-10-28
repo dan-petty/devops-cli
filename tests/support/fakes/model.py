@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel
 from pydantic_ai.messages import (
     FinishReason,
     ModelMessage,
@@ -25,6 +26,7 @@ from pydantic_ai.messages import (
     SystemPromptPart,
     TextPart,
     ThinkingPart,
+    ToolCallPart,
     UserPromptPart,
 )
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
@@ -99,6 +101,14 @@ def _extract_prompt_and_system(
     return "\n\n".join(filter(None, prompts)), "\n\n".join(filter(None, systems))
 
 
+def _answer_part(answer: ModelAnswer, params: ModelRequestParameters | None) -> Any:
+    """The answer as a model gives it: the call of the request's output tool when the request
+    takes its answer only through one, as pydantic-ai's `ToolOutput` does, else text (#2398)."""
+    if params is not None and params.output_tools and not params.allow_text_output:
+        return ToolCallPart(tool_name=params.output_tools[0].name, args=answer.content)
+    return TextPart(content=answer.content)
+
+
 @dataclass(frozen=True)
 class ModelCall:
     """A recorded invocation of the fake model."""
@@ -133,7 +143,7 @@ class ModelAnswer:
     output_tokens: int = 20
 
 
-AnswerType = str | ModelAnswer | Exception | type[Exception]
+AnswerType = str | ModelAnswer | BaseModel | Exception | type[Exception]
 RoutePattern = str | re.Pattern[str] | Callable[[str], bool]
 
 
@@ -423,6 +433,13 @@ class ModelFake(Model):
         for i, word in enumerate(words):
             yield word if i == len(words) - 1 else f"{word} "
 
+    def _prepared(
+        self, settings: ModelSettings | None, params: ModelRequestParameters | None
+    ) -> ModelRequestParameters:
+        """The request parameters as pydantic-ai resolves them for a model, as `FunctionModel`
+        and `TestModel` do, so an `auto` output mode becomes the agent's real one (#2398)."""
+        return self.prepare_request(settings, params or ModelRequestParameters())[1]
+
     async def request(
         self,
         messages: list[ModelMessage],
@@ -438,7 +455,7 @@ class ModelFake(Model):
         parts: list[Any] = []
         if answer.thinking:
             parts.append(ThinkingPart(content=answer.thinking))
-        parts.append(TextPart(content=answer.content))
+        parts.append(_answer_part(answer, self._prepared(model_settings, model_request_parameters)))
         usage = RequestUsage(
             input_tokens=answer.input_tokens,
             output_tokens=answer.output_tokens,
@@ -464,11 +481,11 @@ class ModelFake(Model):
             prompt=prompt, system_prompt=system_prompt, messages=messages, stream=True
         )
         answer = self._resolve_answer(prompt)
-        params = model_request_parameters or ModelRequestParameters()
+        params = self._prepared(model_settings, model_request_parameters)
         parts: list[Any] = []
         if answer.thinking:
             parts.append(ThinkingPart(content=answer.thinking))
-        parts.append(TextPart(content=answer.content))
+        parts.append(_answer_part(answer, params))
         usage = RequestUsage(
             input_tokens=answer.input_tokens,
             output_tokens=answer.output_tokens,
@@ -559,6 +576,10 @@ class ModelFake(Model):
             raise candidate
         if isinstance(candidate, str):
             return ModelAnswer(content=candidate)
+        if isinstance(candidate, BaseModel):
+            # A structured answer is the JSON text of the model, so a pydantic-ai request reads
+            # it as a model's reply and `chat_structured` validates it back (#2398).
+            return ModelAnswer(content=candidate.model_dump_json())
         return candidate
 
     @staticmethod

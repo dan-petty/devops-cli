@@ -525,9 +525,10 @@ DEFAULT_JSON_REPAIR_MAX_LENGTH: int = 50 * 1024 * 1024  # 50 MiB
 DEFAULT_TOOL_EXTRACT_PAGE_SIZE: int = 32 * 1024  # 32 KiB
 DEFAULT_TOOL_EXTRACT_OVERLAP: int = 1024  # 1 KiB
 
-# ── AI Tavily Search Defaults ────────────────────────────────────────────────
-DEFAULT_TAVILY_MAX_RESULTS: int = 5
-DEFAULT_TAVILY_TIMEOUT_SECONDS: float = 15.0
+# ── AI Firecrawl Search Defaults ────────────────────────────────────────────────
+DEFAULT_FIRECRAWL_SEARCH_URL: str = "https://api.firecrawl.dev/v2/search"
+DEFAULT_FIRECRAWL_SEARCH_LIMIT: int = 5
+DEFAULT_FIRECRAWL_TIMEOUT_SECONDS: float = 30.0
 
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"

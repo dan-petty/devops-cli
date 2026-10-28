@@ -252,13 +252,13 @@ In-cluster webhook receiver and background job runner settings.
 | `drain_timeout_seconds` | `int` | `120` | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | - |
 | `github_requests_per_hour` | `int` | `500` | - | - |
 
-## Tavily Search Configuration (`tavily`)
+## Firecrawl Configuration (`firecrawl`)
 
-Tavily web search API authentication settings.
+Firecrawl web search API authentication settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `api_key` | `Union` | - | `DEVOPS_CLI_TAVILY_API_KEY` | - |
+| `api_key` | `Union` | - | `DEVOPS_CLI_FIRECRAWL_API_KEY` | - |
 
 ## Top-Level Settings
 

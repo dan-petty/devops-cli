@@ -462,7 +462,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` | keyring `service_github_app_private_key` | yes | adopt the live value; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
-| `devops/devops-cli` | `DEVOPS_CLI_TAVILY_API_KEY` | keyring `tavily_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_FIRECRAWL_API_KEY` | keyring `firecrawl_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 | `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |

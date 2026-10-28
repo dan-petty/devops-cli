@@ -1154,7 +1154,12 @@ class RoadmapCommandHelp:
     )
     refine: str = (
         "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, "
-        "using code, documentation, and external research. Without --item, refine takes items "
+        "using code and documentation. When a fact or a decision has no verified source, or "
+        "a key question of the body has no answer, refine investigates it with tools that read "
+        "the code and, for a public repository with a Firecrawl key, search the web. A design "
+        "question gets the best-practice option with the options it compared, and only a "
+        "decision that a person must make waits on a person. The plan says when web search is "
+        "off. Without --item, refine takes items "
         "nearest place first: each open milestone's New items, by due date and then by number, "
         "then the backlog's P0 and P1 items, then the backlog's other New items, each place by "
         "priority. Only --limit stops a run. The number of Ready items does not stop it. In "

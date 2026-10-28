@@ -450,10 +450,10 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             None,
         ),
         (
-            opt.TAVILY_API_KEY,
-            "tavily_api_key",
-            ("DEVOPS_CLI_TAVILY_API_KEY", "TAVILY_API_KEY"),
-            "tavily.api_key",
+            opt.FIRECRAWL_API_KEY,
+            "firecrawl_api_key",
+            ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"),
+            "firecrawl.api_key",
         ),
     )
 

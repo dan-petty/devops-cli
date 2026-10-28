@@ -254,8 +254,8 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 required=False,
             ),
             SecretEntry(
-                "DEVOPS_CLI_TAVILY_API_KEY",
-                KeyringSource("tavily_api_key", opt.TAVILY_API_KEY),
+                "DEVOPS_CLI_FIRECRAWL_API_KEY",
+                KeyringSource("firecrawl_api_key", opt.FIRECRAWL_API_KEY),
                 required=False,
             ),
         ),

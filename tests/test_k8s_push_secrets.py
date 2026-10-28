@@ -190,7 +190,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
         ),
         (
             "devops/devops-cli",
-            "DEVOPS_CLI_TAVILY_API_KEY",
+            "DEVOPS_CLI_FIRECRAWL_API_KEY",
             "devops",
             False,
             None,
@@ -324,18 +324,18 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
         OPTION_TO_ENV_VAR[opt.SERVICE_GITHUB_APP_PRIVATE_KEY],
         OPTION_TO_ENV_VAR[opt.AI_API_KEY],
         OPTION_TO_ENV_VAR[opt.SERVICE_WEBHOOK_SECRETS],
-        OPTION_TO_ENV_VAR[opt.TAVILY_API_KEY],
+        OPTION_TO_ENV_VAR[opt.FIRECRAWL_API_KEY],
     ) == (
         {
             "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY": opt.SERVICE_GITHUB_APP_PRIVATE_KEY,
             "DEVOPS_CLI_AI_API_KEY": opt.AI_API_KEY,
             "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": opt.SERVICE_WEBHOOK_SECRETS,
-            "DEVOPS_CLI_TAVILY_API_KEY": opt.TAVILY_API_KEY,
+            "DEVOPS_CLI_FIRECRAWL_API_KEY": opt.FIRECRAWL_API_KEY,
         },
         "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
         "DEVOPS_CLI_AI_API_KEY",
         "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",
-        "DEVOPS_CLI_TAVILY_API_KEY",
+        "DEVOPS_CLI_FIRECRAWL_API_KEY",
     )
 
 
@@ -780,7 +780,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "service_github_app_private_key",
             LLM_GATEWAY_MASTER_KEY,
             "service_webhook_secrets",
-            "tavily_api_key",
+            "firecrawl_api_key",
         },
         [],
         APP_KEY,
@@ -946,7 +946,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
     requests = dry_run_push(selected, options).requests
     planned = [r for r in requests if not r.condition or r.condition in holds]
     stub_keyring.values["service_webhook_secrets"] = "service-secrets-value-0001"
-    stub_keyring.values["tavily_api_key"] = "tavily-secrets-value-0001"
+    stub_keyring.values["firecrawl_api_key"] = "firecrawl-secrets-value-0001"
     result = _push("--only", "llm/qdrant-api-key", "--only", "devops/devops-cli")
     planned_apply = json.loads(next(r.stdin for r in planned if r.stdin) or "{}")
     applied = cluster.applied_items()

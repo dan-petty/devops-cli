@@ -1,9 +1,9 @@
 """Unit tests for `devops roadmap refine`: selection, minimization, validation,
 renderer sanitization, person edit guards, size limit, intake hook, and CLI.
 
-Zero network sockets are opened, LLM and Tavily calls are mocked, and all tests run under 1 s.
+Zero network sockets are opened, LLM and Firecrawl calls are mocked, and all tests run under 1 s.
 The model-failure cases (#1363) answer refine's own client at the HTTP edge with httpx2's
-`MockTransport`, on a private repository so research makes no call, and retry with no wait.
+`MockTransport`, on a private repository so no web search runs, and retry with no wait.
 """
 
 from __future__ import annotations
@@ -53,24 +53,27 @@ from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
+    DesignOption,
     QuestionAnswer,
     RefinementProposal,
     RefinePlan,
-    ResearchPlan,
+    WebSearch,
     apply_refine,
+    body_questions,
     check_person_edits,
     check_ready,
     collect_context,
     extract_section_and_outside,
     hash_text,
     inspect_checkout,
+    needs_investigation,
     plan_refine,
     render_proposal_section,
     render_refine_plan,
-    run_research_step,
     sanitize_text,
     select_candidates,
     validate_proposal,
+    web_search_of,
 )
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
@@ -156,12 +159,10 @@ def store() -> BodyReadCountingStore:
 class MockLLMClient:
     def __init__(
         self,
-        plan_queries: list[str] | None = None,
         proposal: RefinementProposal | None = None,
         fail_with: AIClientError | None = None,
     ):
         self.fail_with = fail_with
-        self.plan_queries = plan_queries or []
         self.proposal = proposal or RefinementProposal(
             problem_statement="Test problem",
             acceptance_criteria=[AcceptanceCriterion(description="C1", verification="V1")],
@@ -175,8 +176,6 @@ class MockLLMClient:
 
     def chat_structured(self, system: str, prompt: str, schema: type[Any]) -> Any:
         self.calls.append((system, prompt, schema))
-        if schema is ResearchPlan:
-            return ResearchPlan(queries=self.plan_queries)
         if self.fail_with is not None:
             raise self.fail_with
         return self.proposal
@@ -237,53 +236,11 @@ def test_collect_context_handles_spaces_and_non_ascii_adrs(git_repo: Path) -> No
     assert "0002-café decision with space.md" in ctx
 
 
-def test_research_plan_public_vs_private_and_errors(store: InMemoryRoadmapStore) -> None:
-    llm = MockLLMClient(plan_queries=["roadmap architecture", "cli best practices"])
-
-    # 1. Private repo -> no research
-    store.seed_visibility(is_private=True)
-    with patch("devops_cli.roadmap.refine.get_tavily_api_key", return_value="dummy-key"):
-        res_priv, urls_priv = run_research_step(store, "body", llm)
-    assert (res_priv, urls_priv) == ([], set())
-
-    # 2. Public repo with Tavily key -> runs research
-    store.seed_visibility(is_private=False)
-    fake_results = [{"title": "Doc", "url": "https://example.com/doc", "content": "Content"}]
-    with (
-        patch("devops_cli.roadmap.refine.get_tavily_api_key", return_value="dummy-key"),
-        patch("devops_cli.roadmap.refine.tavily_search", return_value=fake_results),
-    ):
-        res_pub, urls_pub = run_research_step(store, "body", llm)
-    assert (len(res_pub), urls_pub) == (2, {"https://example.com/doc"})
-
-    # 3. Failed query -> category recorded
-    def _fail_search(query: str, **_: Any) -> Any:
-        if "architecture" in query:
-            raise TimeoutError("HTTP connection timeout")
-        raise RuntimeError("HTTP 401 Unauthorized")
-
-    with (
-        patch("devops_cli.roadmap.refine.get_tavily_api_key", return_value="dummy-key"),
-        patch("devops_cli.roadmap.refine.tavily_search", side_effect=_fail_search),
-    ):
-        res_fail, urls_fail = run_research_step(store, "body", llm)
-    errors = [r.get("error") for r in res_fail]
-    assert (
-        errors,
-        urls_fail,
-    ) == (
-        ["research failed: timeout", "research failed: 401"],
-        set(),
-    )
-
-
-def test_run_research_step_visibility_errors(
+def test_the_web_search_state_of_a_round_whose_visibility_read_fails(
     store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Checking repository visibility re-raises GitHubRateLimitError, and logs a warning and
-    returns ([], set()) for any other error (#1365)."""
-    llm = MockLLMClient()
-
+    """A spent quota stops the round, and any other failed read of the repository's visibility
+    turns web search off with its reason and a warning (#1365, #2398)."""
     with (
         patch.object(
             store,
@@ -292,18 +249,22 @@ def test_run_research_step_visibility_errors(
         ),
         pytest.raises(GitHubRateLimitError),
     ):
-        run_research_step(store, "body", llm)
+        web_search_of(store)
 
     with (
         patch.object(
-            store, "repository_is_private", side_effect=RuntimeError("transient read failure")
+            store,
+            "repository_is_private",
+            side_effect=GitHubOperationError("transient read failure", operation="read"),
         ),
         caplog.at_level(logging.WARNING),
     ):
-        res, urls = run_research_step(store, "body", llm)
+        web = web_search_of(store)
 
-    assert (res, urls) == ([], set())
-    assert any("Could not read repository visibility" in rec.getMessage() for rec in caplog.records)
+    assert (
+        web,
+        any("Could not read repository visibility" in r.getMessage() for r in caplog.records),
+    ) == (WebSearch(off_reason="the repository's visibility could not be read"), True)
 
 
 def test_validate_proposal_sources_and_questions(
@@ -327,6 +288,7 @@ def test_validate_proposal_sources_and_questions(
                 answer="Token based",
                 kind="fact",
                 sources=["src/sample.py:1"],
+                body_question=1,
             ),
             # Fact with invalid source
             QuestionAnswer(
@@ -824,8 +786,7 @@ def scripted_gateway(
     """Point refine's `analysis` model at a gateway whose answer to each issue is scripted.
 
     Every request refine's client sends ends at a `MockTransport`, which reads the issue's
-    number from the JSON document the request's user message carries; a research plan's
-    document has none, so its answer is scripted under `None`. Retries wait no time.
+    number from the JSON document the request's user message carries. Retries wait no time.
     """
     isolate_devops_cli_config.write_text(_GATEWAY_CONFIG, encoding="utf-8")
     reset_settings_cache()
@@ -871,7 +832,7 @@ def _seed_new_items(
 
 
 def _issue_number(request: httpx2.Request) -> int | None:
-    """The issue a refine request is about, or None for a research plan's request."""
+    """The issue a refine request is about, or None for a request about none."""
     document = json.loads(json.loads(request.content)["messages"][1]["content"])
     number: int | None = document.get("number")
     return number
@@ -1001,64 +962,6 @@ def test_rejected_credentials_still_stop_the_job_at_the_first_item(
         plan_refine(store, repo=REPO, source=git_repo)
 
     assert (_requests_per_item(sent), _bodies_written(store)) == ({first: 1}, [])
-
-
-def test_rejected_credentials_in_the_research_step_stop_the_job_before_the_proposal(
-    git_repo: Path,
-    store: InMemoryRoadmapStore,
-    scripted_gateway: Callable[..., list[httpx2.Request]],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify a public repository's research plan that meets rejected credentials stops refine
-    there: no proposal call is made and nothing is written."""
-    _seed_new_items(store)
-    store.seed_visibility(is_private=False)
-    monkeypatch.setenv("DEVOPS_CLI_TAVILY_API_KEY", "tvly-test")
-    sent = scripted_gateway({}, default=httpx2.Response(401, text="Unauthorized"))
-
-    with pytest.raises(AICredentialsError):
-        plan_refine(store, repo=REPO, source=git_repo)
-
-    assert (_requests_per_item(sent), _bodies_written(store)) == ({None: 1}, [])
-
-
-def test_a_research_plan_that_never_fits_its_schema_refines_without_search_results(
-    git_repo: Path,
-    store: InMemoryRoadmapStore,
-    scripted_gateway: Callable[..., list[httpx2.Request]],
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Verify a public repository's research plan that fails its schema is logged by its error
-    class alone, no search runs, and the item is still refined and written."""
-    first, _second, _third = _seed_new_items(store)
-    store.seed_visibility(is_private=False)
-    monkeypatch.setenv("DEVOPS_CLI_TAVILY_API_KEY", "tvly-test")
-    sent = scripted_gateway({None: _SCHEMA_MISS})
-
-    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
-        plan = plan_refine(store, repo=REPO, source=git_repo, item_number=first)
-    apply_refine(store, plan)
-
-    proposal_request = json.loads(json.loads(sent[-1].content)["messages"][1]["content"])
-    assert (
-        _requests_per_item(sent),
-        proposal_request["search_results"],
-        _bodies_written(store),
-        [
-            record.getMessage()
-            for record in caplog.records
-            if record.name == "devops_cli.roadmap.refine"
-        ],
-    ) == (
-        {None: 3, first: 1},
-        [],
-        [first],
-        [
-            "Research plan generation failed (StructuredOutputValidationError); refining "
-            "without search results."
-        ],
-    )
 
 
 @pytest.mark.parametrize("mode", ["--confirm", None])
@@ -1548,17 +1451,21 @@ def test_refine_raises_its_own_error_naming_each_failed_item() -> None:
     )
 
 
-def test_refines_prompts_load_and_the_proposal_prompt_names_every_field() -> None:
-    """Verify both prompt files load, and the proposal prompt names every key the schema
-    allows, at the top level and in a criterion and a key question."""
-    research = load_task_prompt("roadmap_refine_research.md")
-    proposal = load_task_prompt("roadmap_refine_proposal.md")
+def test_refines_prompts_load_and_the_reply_prompt_names_every_field() -> None:
+    """Verify the step prompts load, and the reply prompt that both steps send names every key
+    the schema allows, at the top level and in a criterion, a key question and an option."""
+    steps = [
+        load_task_prompt(name)
+        for name in ("roadmap_refine_proposal.md", "roadmap_refine_investigation.md")
+    ]
+    reply = load_task_prompt("roadmap_refine_reply.md")
     keys = [
         *RefinementProposal.model_fields,
         *AcceptanceCriterion.model_fields,
         *QuestionAnswer.model_fields,
+        *DesignOption.model_fields,
     ]
-    assert (bool(research), [key for key in keys if f"`{key}`" not in proposal]) == (True, [])
+    assert (all(steps), [key for key in keys if f"`{key}`" not in reply]) == (True, [])
 
 
 # ── Each item refine cannot set Ready gets a next step (#1758) ────────────────────────────
@@ -1718,7 +1625,8 @@ def test_a_persons_reply_makes_an_item_that_waits_on_them_eligible_and_reaches_t
     and the model reads the reply; the first round, with no comment, sent none (#1758)."""
     store.seed_visibility(is_private=True)
     asked = _seed_item(store, "New", "P1-High")
-    model_fake.answer(_QUESTION, _READY)
+    # The first round's proposal and its investigation (#2398) both leave the question open.
+    model_fake.answer(_QUESTION, _QUESTION, _READY)
     _refine_round(store, git_repo)
     first_replies = _replies_sent(model_fake)
 
@@ -1820,7 +1728,11 @@ def test_an_item_a_person_sets_back_to_new_waits_for_their_reason_and_is_refined
 
 @pytest.mark.parametrize(
     ("answers", "status"),
-    [((_QUESTION, _READY), CONST_ROADMAP_STATUS_READY), ((_READY, _QUESTION), "New")],
+    # A round that leaves the question open asks twice: the proposal and its investigation.
+    [
+        ((_QUESTION, _QUESTION, _READY), CONST_ROADMAP_STATUS_READY),
+        ((_READY, _QUESTION, _QUESTION), "New"),
+    ],
     ids=["waiting-on-a-person", "ready"],
 )
 def test_an_item_named_with_item_is_refined_though_nothing_changed_since_its_last_round(
@@ -1845,7 +1757,7 @@ def test_an_item_named_with_item_is_refined_though_nothing_changed_since_its_las
         [r.item.number for r in again.refined_items],
         model_fake.call_count,
         _require_item(store, number).status,
-    ) == ([number], 2, status)
+    ) == ([number], 3, status)
 
 
 @pytest.mark.parametrize("status", ["In Progress", "Blocked"])
@@ -2020,3 +1932,313 @@ def test_a_proposal_that_names_no_block_records_no_cited_path(
         _require_item(store, number).job_record.get(RefineRecordKey.BLOCK_PATHS),
         [_CITED_PATH in comment.body for comment in store.comments_on(number)],
     ) == (None, [False])
+
+
+# ── Body questions, decisions and the web search state (#2398) ────────────────────────────
+
+
+def _seed_with_body(store: InMemoryRoadmapStore, body: str) -> int:
+    """A New P1 backlog item with `body`, on a private repository."""
+    store.seed_visibility(is_private=True)
+    return store.seed_issue(
+        "Item", body=body, fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P1-High"}
+    )
+
+
+def _first_request(model_fake: ModelFake) -> dict[str, Any]:
+    document: dict[str, Any] = json.loads(model_fake.calls[0].prompt)
+    return document
+
+
+def _section_lines(store: InMemoryRoadmapStore, number: int) -> list[str]:
+    _, section = extract_section_and_outside(store.read_issue_body(number))
+    return (section or "").splitlines()
+
+
+_ANSWERED_IN_BODY = (
+    "Body\n\n## Key questions\n"
+    "- *Which ADR number?* (proposed) The next free one.\n"
+    "- *Which files?*\n"
+    "  - Decided: each file goes to the package that owns it.\n"
+    "- #1336 owns the directory.\n"
+)
+
+
+def test_a_bodys_answered_key_questions_and_its_statements_open_no_question(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A question answered after its question mark or by indented lines, and a bullet with no
+    question mark, are not sent and open no question, so one request makes the item Ready."""
+    _seed_with_body(store, _ANSWERED_IN_BODY)
+    model_fake.answer(_READY)
+
+    plan = _refine_round(store, git_repo)
+
+    assert (
+        _first_request(model_fake)["body_questions"],
+        plan.refined_items[0].next_step,
+        model_fake.call_count,
+    ) == ([], "ready", 1)
+
+
+@pytest.mark.parametrize(
+    ("section", "questions"),
+    [
+        (
+            "- How should refine handle a body\n  that wraps across lines?\n",
+            ["How should refine handle a body that wraps across lines?"],
+        ),
+        (
+            "- How should refine handle a body\nthat wraps across lines?\n",
+            ["How should refine handle a body that wraps across lines?"],
+        ),
+        (
+            "- Which store holds the record?\n\nContext: the Service writes it hourly.\n",
+            ["Which store holds the record?"],
+        ),
+        (
+            "### Storage\n- Which backend holds the record?\n### Auth\n- Who owns the key?\n",
+            ["Which backend holds the record?", "Who owns the key?"],
+        ),
+        (
+            "- Which command installs the hook?\n\n```sh\n# README today:\nmake hooks\n```\n\n- Does the hook run on push?\n",
+            ["Which command installs the hook?", "Does the hook run on push?"],
+        ),
+        ("- Which format does the export use?\n\n  It is JSON today.\n", []),
+        ("- Which store?\n## Next\n- Not this one?\n", ["Which store?"]),
+    ],
+    ids=[
+        "wrapped-indented",
+        "wrapped-lazy",
+        "paragraph-after",
+        "sub-headings",
+        "code-fence",
+        "indented-answer",
+        "next-section",
+    ],
+)
+def test_the_body_questions_follow_markdown(section: str, questions: list[str]) -> None:
+    """A wrapped question stays one question, a paragraph or a code block after the list answers
+    nothing, a lower heading stays inside the section and a heading of its level ends it, and a
+    paragraph indented under the item answers it."""
+    assert body_questions(f"Body\n\n## Key questions\n{section}") == questions
+
+
+def test_a_mark_the_model_copies_is_replaced_by_the_one_the_answer_earns(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """An answer that holds an earlier round's mark gets one mark: "(best practice)" for a
+    sourced decision, and "(proposed)" for an unsourced one, which the investigation then sees."""
+    sha = inspect_checkout(git_repo, REPO)
+    copied = [
+        QuestionAnswer(
+            question="Sourced?",
+            answer="Use the library. (proposed)",
+            kind="decision",
+            sources=["src/sample.py"],
+        ),
+        QuestionAnswer(
+            question="Unsourced?",
+            answer="(proposed) Use Valkey. It is maintained.",
+            kind="decision",
+        ),
+    ]
+    proposal, open_qs = validate_proposal(
+        _READY.model_copy(update={"key_questions": copied}), "Body", set(), git_repo, sha, store
+    )
+
+    assert (
+        [qa.answer for qa in proposal.key_questions],
+        needs_investigation(proposal, open_qs),
+    ) == (["Use the library. (best practice)", "Use Valkey. It is maintained. (proposed)"], True)
+
+
+def test_only_an_answer_that_quotes_an_owner_decision_is_the_owners(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    sha = inspect_checkout(git_repo, REPO)
+    body = "Body\n\n## Owner decisions\n- Use Valkey, not Redis.\n"
+    answers = [
+        QuestionAnswer(question="Cache?", answer="Redis", kind="decision"),
+        QuestionAnswer(question="Store?", answer="Use Valkey, not Redis.", kind="decision"),
+    ]
+    proposal, _ = validate_proposal(
+        _READY.model_copy(update={"key_questions": answers}), body, set(), git_repo, sha, store
+    )
+
+    assert [qa.answer for qa in proposal.key_questions] == [
+        "Redis (proposed)",
+        "Use Valkey, not Redis. (owner decision)",
+    ]
+
+
+def test_the_investigation_hears_of_a_decision_whose_sources_failed(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A decision whose cited path the commit does not hold reaches the investigation as a
+    decision with no verified source."""
+    _seed_with_body(store, "Body")
+    answer = QuestionAnswer(
+        question="Which parser?",
+        answer="Use the library.",
+        kind="decision",
+        sources=["docs/parsers.md"],
+    )
+    model_fake.answer(_READY.model_copy(update={"key_questions": [answer]}))
+
+    _refine_round(store, git_repo)
+
+    assert json.loads(model_fake.calls[1].prompt)["open_questions"] == [
+        "Which parser? (decision with no verified source)"
+    ]
+
+
+def test_a_url_source_renders_as_a_link_before_the_closing_bracket() -> None:
+    url = "https://example.com/doc"
+    answer = QuestionAnswer(question="Which?", answer="This.", kind="decision", sources=[url])
+    section = render_proposal_section(
+        _READY.model_copy(update={"key_questions": [answer]}), [], "a" * 40, {url}
+    )
+
+    assert f"[sources: {url}]" in section
+
+
+def test_a_body_question_that_no_answer_names_waits_on_a_person(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    _seed_with_body(store, "Body\n\n## Key questions\n- *Which store holds the record?*\n")
+    model_fake.answer(_READY)
+
+    plan = _refine_round(store, git_repo)
+
+    refined = plan.refined_items[0]
+    assert (
+        _first_request(model_fake)["body_questions"],
+        refined.next_step,
+        refined.step_details,
+    ) == (
+        [{"number": 1, "question": "*Which store holds the record?*"}],
+        "person",
+        ("*Which store holds the record?*",),
+    )
+
+
+def test_an_answer_that_names_a_body_question_answers_it(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    _seed_with_body(store, "Body\n\n## Key questions\n- *Which store holds the record?*\n")
+    answer = QuestionAnswer(
+        question="Which store?",
+        answer="The job record.",
+        kind="decision",
+        sources=["src/sample.py"],
+        body_question=1,
+    )
+    model_fake.answer(_READY.model_copy(update={"key_questions": [answer]}))
+
+    plan = _refine_round(store, git_repo)
+
+    assert (plan.refined_items[0].next_step, model_fake.call_count) == ("ready", 1)
+
+
+_LIBRARY = DesignOption(option="Use the library", chosen=True, reason="It is maintained.")
+_PARSER = DesignOption(option="Write a parser", chosen=False, reason="It adds code to keep.")
+
+
+def _decision(sources: list[str]) -> RefinementProposal:
+    answer = QuestionAnswer(
+        question="Which parser?",
+        answer="Use the library.",
+        kind="decision",
+        sources=sources,
+        options=[_LIBRARY, _PARSER],
+    )
+    return _READY.model_copy(update={"key_questions": [answer]})
+
+
+def test_a_sourced_decision_shows_its_options_and_the_best_practice_and_can_be_ready(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    number = _seed_with_body(store, "Body")
+    model_fake.answer(_decision(["src/sample.py"]))
+
+    plan = _refine_round(store, git_repo)
+
+    lines = _section_lines(store, number)
+    start = lines.index("### Key questions") + 1
+    assert (plan.refined_items[0].next_step, model_fake.call_count, lines[start : start + 3]) == (
+        "ready",
+        1,
+        [
+            "- **Which parser?**: Use the library. (best practice) [sources: src/sample.py]",
+            "  - Chosen: Use the library. It is maintained.",
+            "  - Rejected: Write a parser. It adds code to keep.",
+        ],
+    )
+
+
+def test_an_unsourced_decision_is_investigated_and_stays_proposed(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A decision with no source starts the investigation; when it finds none, the decision
+    stays "(proposed)" and does not stop Ready."""
+    number = _seed_with_body(store, "Body")
+    model_fake.answer(_decision([]))
+
+    plan = _refine_round(store, git_repo)
+
+    lines = _section_lines(store, number)
+    start = lines.index("### Key questions") + 1
+    assert (plan.refined_items[0].next_step, model_fake.call_count, lines[start]) == (
+        "ready",
+        2,
+        "- **Which parser?**: Use the library. (proposed)",
+    )
+
+
+def test_a_question_for_a_person_waits_on_a_person_with_no_investigation(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    _seed_with_body(store, "Body")
+    asked = QuestionAnswer(
+        question="Which repository secret holds the key?",
+        answer="Recommended: a new secret.",
+        kind="person",
+    )
+    model_fake.answer(_READY.model_copy(update={"key_questions": [asked]}))
+
+    plan = _refine_round(store, git_repo)
+
+    refined = plan.refined_items[0]
+    assert (refined.next_step, refined.step_details, model_fake.call_count) == (
+        "person",
+        ("Which repository secret holds the key? (a person decides)",),
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("is_private", "reason"),
+    [(False, "no Firecrawl key is set"), (True, "the repository is private")],
+    ids=["no-key", "private"],
+)
+def test_a_round_with_no_web_search_says_why(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    is_private: bool,
+    reason: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    _seed_with_body(store, "Body")
+    store.seed_visibility(is_private=is_private)
+    model_fake.answer(_READY)
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (plan.web_search_off, render_refine_plan(plan).splitlines()[1]) == (
+        reason,
+        f"Web search is off: {reason}.",
+    )

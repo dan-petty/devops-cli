@@ -67,7 +67,10 @@ def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", _fail("resolved a name"))
     monkeypatch.setattr(ai_client, "get_llm_client", _fail("called LLM"))
     monkeypatch.setattr("devops_cli.roadmap.refine.get_llm_client", _fail("called LLM"))
-    monkeypatch.setattr("devops_cli.roadmap.refine.tavily_search", _fail("called search"))
+    monkeypatch.setattr("devops_cli.roadmap.refine.get_task_model", _fail("called LLM"))
+    monkeypatch.setattr(
+        "devops_cli.roadmap.refine_investigation.firecrawl_search", _fail("called search")
+    )
 
 
 @pytest.mark.parametrize("job", JOBS)

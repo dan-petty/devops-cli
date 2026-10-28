@@ -61,7 +61,7 @@ def test_config_audit_keys_json_output() -> None:
         "cloudflare.api_token" in keys,
         "service.webhook_secrets" in keys,
         "service.github_app.private_key" in keys,
-        "tavily.api_key" in keys,
+        "firecrawl.api_key" in keys,
     ) == (
         True,
         True,

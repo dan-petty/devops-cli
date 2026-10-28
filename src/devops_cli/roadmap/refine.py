@@ -27,11 +27,16 @@ code causes the block (`block_paths`). Refine records those that the checkout ho
 commit on the default branch changed one of them at or after refine's last comment (#2005). That
 costs one commit read for each recorded path of an item that still waits, once a round.
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
-Two model steps run with `ai.for_task("analysis")`: research plan (Tavily search when public) and proposal.
-Their prompts are `roadmap_refine_research.md` and `roadmap_refine_proposal.md`, and the issue reaches the
-model as a JSON document; `chat_structured` adds the schema each reply must match.
-Deterministic validation checks sources, key questions and owner decisions, and the Ready check sets
-Status New → Ready only when complete.
+The proposal is one `chat_structured` call with `ai.for_task("analysis")`: its prompts are
+`roadmap_refine_proposal.md` and `roadmap_refine_reply.md`, the issue and the body's unanswered key
+questions, numbered, reach the model as a JSON document, and `chat_structured` adds the schema each
+reply must match. Deterministic validation checks sources, key questions and owner decisions. When
+a fact or a decision has no verified source, or a body question no answer names, the investigation
+(`refine_investigation`, #2398) runs one pydantic-ai agent with read-only tools on the pinned commit,
+and with Firecrawl web search when the repository is public and a key is set; its revised proposal is
+validated the same way. A decision names the options it compared, a question only a person can
+decide waits on a person, and the Ready check sets Status New → Ready only when complete. The plan
+says when web search is off, and why.
 A model call that fails skips only its item: refine writes the others, then fails with
 `RoadmapRefineError` naming each skipped item, its error's class and its schema violation count.
 Rejected credentials still stop the run at the first item.
@@ -57,16 +62,18 @@ from pathlib import Path
 from typing import Any, Final, Literal
 from urllib.parse import urlsplit
 
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.client import LLMClient, get_llm_client
+from devops_cli.ai.client.factory import get_task_model
 from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
     ReplyRejectedError,
     StructuredOutputValidationError,
 )
-from devops_cli.ai.common_tools import tavily_search
 from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_GIT
@@ -83,21 +90,24 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
-    CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
-    CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
-from devops_cli.config.settings import get_tavily_api_key, load_settings
+from devops_cli.config.settings import get_firecrawl_api_key, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.refine_investigation import (
+    InvestigationStopped,
+    InvestigationTools,
+    investigate,
+)
 from devops_cli.roadmap.store import (
     GitHubState,
     IssueComment,
@@ -113,23 +123,32 @@ logger = logging.getLogger(__name__)
 # ── Models ────────────────────────────────────────────────────────────────────
 
 
-class ResearchPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    queries: list[str] = Field(default_factory=list)
-
-
 class AcceptanceCriterion(BaseModel):
     model_config = ConfigDict(extra="forbid")
     description: str
     verification: str
 
 
+class DesignOption(BaseModel):
+    """One option a decision compared, and why it was chosen or rejected (#2398)."""
+
+    model_config = ConfigDict(extra="forbid")
+    option: str
+    chosen: bool = False
+    reason: str
+
+
 class QuestionAnswer(BaseModel):
+    """A question and its answer. `kind` is `fact`, `decision`, or `person` for a decision only
+    a person makes; `body_question` is the number of the body's key question it answers (#2398)."""
+
     model_config = ConfigDict(extra="forbid")
     question: str
     answer: str
-    kind: Literal["fact", "decision"]
+    kind: Literal["fact", "decision", "person"]
     sources: list[str] = Field(default_factory=list)
+    options: list[DesignOption] = Field(default_factory=list)
+    body_question: int | None = None
 
 
 class RefinementProposal(BaseModel):
@@ -238,6 +257,7 @@ class RefinePlan:
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
     write_requests: tuple[PlannedRequest, ...] = ()
+    web_search_off: str | None = None
 
 
 @dataclass(frozen=True)
@@ -438,99 +458,123 @@ def collect_context(
     return truncate_to_token_limit(raw_text, max_tokens=max_tokens)
 
 
-# ── Search & External Research ────────────────────────────────────────────────
+# ── Web Search State ──────────────────────────────────────────────────────────
 
 
-def _categorize_search_error(exc: Exception) -> str:
-    msg = str(exc).lower()
-    if "timeout" in msg:
-        return "timeout"
-    status_match = re.search(r"\b(4\d\d|5\d\d)\b", msg)
-    if status_match:
-        return status_match.group(1)
-    return "malformed reply"
+@dataclass(frozen=True)
+class WebSearch:
+    """The round's web search: the Firecrawl key the investigation searches with, or, when web
+    search is off, the reason, which the plan reports once (#2398)."""
+
+    key: str | None = None
+    off_reason: str | None = None
 
 
-def run_research_step(
-    store: RoadmapStore,
-    body: str,
-    client: LLMClient | Any,
-) -> tuple[list[dict[str, str]], set[str]]:
-    """Runs step 1 (research plan) and executes queries through Tavily when allowed.
-    Returns (results_list, allowed_urls).
-    """
+def web_search_of(store: RoadmapStore) -> WebSearch:
+    """The round's web search: on for a public repository with a Firecrawl key, else off with the
+    reason. A failed read of the repository's visibility turns it off; a spent quota stops the
+    round."""
+    texts = MESSAGES.roadmap
     try:
         is_private = store.repository_is_private()
     except GitHubRateLimitError:
         raise
-    except Exception as exc:
+    except GitHubOperationError as exc:
         logger.warning("Could not read repository visibility: %s", exc)
-        return [], set()
-
-    tavily_key = get_tavily_api_key()
-    if is_private or not tavily_key:
-        return [], set()
-
-    # Step 1: research plan from model
-    request = {"body": body, "max_queries": CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES}
-    try:
-        plan: ResearchPlan = client.chat_structured(
-            load_task_prompt("roadmap_refine_research.md"),
-            json.dumps(request, ensure_ascii=False, indent=1),
-            ResearchPlan,
-        )
-    except AICredentialsError:
-        raise
-    except AIClientError as exc:
-        # The error's message can quote the reply, so only its class is logged.
-        logger.warning(
-            "Research plan generation failed (%s); refining without search results.",
-            type(exc).__name__,
-        )
-        return [], set()
-
-    queries = [q.strip() for q in plan.queries if q.strip()][
-        :CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES
-    ]
-    search_results: list[dict[str, str]] = []
-    allowed_urls: set[str] = set()
-
-    for query in queries:
-        try:
-            res = tavily_search(
-                query=query,
-                max_results=CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
-                api_key=tavily_key,
-            )
-            for item in res:
-                url = item.get("url") or ""
-                if url:
-                    allowed_urls.add(url)
-                search_results.append(
-                    {
-                        "query": query,
-                        "title": item.get("title") or "",
-                        "url": url,
-                        "content": item.get("content") or "",
-                    }
-                )
-        except Exception as exc:
-            cat = _categorize_search_error(exc)
-            search_results.append({"query": query, "error": f"research failed: {cat}"})
-
-    return search_results, allowed_urls
+        return WebSearch(off_reason=texts.refine_web_off_unread)
+    if is_private:
+        return WebSearch(off_reason=texts.refine_web_off_private)
+    key = get_firecrawl_api_key()
+    return WebSearch(key=key) if key else WebSearch(off_reason=texts.refine_web_off_no_key)
 
 
 # ── Proposal Validation ───────────────────────────────────────────────────────
 
-_KEY_QUESTIONS_HEADING_RE = re.compile(r"^#+\s*Key questions\b", re.IGNORECASE)
 _OWNER_DECISIONS_HEADING_RE = re.compile(r"^#+\s*Owner decisions\b", re.IGNORECASE)
 
 
-def _normalize_question(text: str) -> str:
-    cleaned = re.sub(r"^[-\*0-9\.\s]+", "", text)
-    cleaned = re.sub(r"[\*_`\?]", "", cleaned)
-    return " ".join(cleaned.lower().split())
+# The marks an answer's text gets: a fact with no source and a person's question open a question,
+# and a decision follows the owner, a sourced best practice, or is only proposed (#2398).
+_MISSING_SOURCE: Final[str] = "(missing verified source)"
+_A_PERSON_DECIDES: Final[str] = "(a person decides)"
+_OWNER_DECISION: Final[str] = "(owner decision)"
+_BEST_PRACTICE: Final[str] = "(best practice)"
+_PROPOSED: Final[str] = "(proposed)"
+_MARKS_RE = re.compile(
+    "|".join(
+        re.escape(mark)
+        for mark in (_MISSING_SOURCE, _A_PERSON_DECIDES, _OWNER_DECISION, _BEST_PRACTICE, _PROPOSED)
+    )
+)
+# How the investigation's request names a decision that has no verified source (#2398).
+_DECISION_WITHOUT_SOURCE: Final[str] = "(decision with no verified source)"
+
+# The characters that can close a question's text without answering it.
+_EMPHASIS_CHARS: Final[str] = "*_` \t"
+_KEY_QUESTIONS_TITLE_RE = re.compile(r"Key questions\b", re.IGNORECASE)
+
+
+def _section_tokens(tokens: Sequence[Token], title_re: re.Pattern[str]) -> list[Token]:
+    """The tokens under the first heading whose title `title_re` matches, up to the next heading
+    of the same or a higher level; a lower heading stays inside the section."""
+    for index, token in enumerate(tokens[:-1]):
+        if token.type == "heading_open" and title_re.match(tokens[index + 1].content.strip()):
+            level = int(token.tag[1:])
+            rest = tokens[index + 3 :]
+            end = next(
+                (
+                    i
+                    for i, other in enumerate(rest)
+                    if other.type == "heading_open" and int(other.tag[1:]) <= level
+                ),
+                len(rest),
+            )
+            return list(rest[:end])
+    return []
+
+
+def _top_items(tokens: Sequence[Token]) -> list[list[Token]]:
+    """The tokens inside each top-level list item of `tokens`, in order."""
+    items: list[list[Token]] = []
+    for token in tokens:
+        if token.type == "list_item_open" and token.level == 1:
+            items.append([])
+        elif token.type == "list_item_close" and token.level == 1:
+            continue
+        elif items and token.level > 1:
+            items[-1].append(token)
+    return items
+
+
+def _unanswered_question(item: Sequence[Token]) -> str | None:
+    """The question an item asks when nothing answers it, else None.
+
+    The item's first paragraph is its text, its wrapped lines joined. Text after the last
+    question mark, other than emphasis, answers it in place, and so does any block after that
+    paragraph inside the item, such as a nested list, a paragraph or a code block.
+    """
+    if len(item) < 3 or item[0].type != "paragraph_open" or item[1].type != "inline":
+        return None
+    text = " ".join(item[1].content.split())
+    _, mark, after = text.rpartition("?")
+    answered = bool(after.strip(_EMPHASIS_CHARS)) or len(item) > 3
+    return text if mark and not answered else None
+
+
+def body_questions(body: str) -> list[str]:
+    """The key questions the body leaves unanswered, in order (#2398).
+
+    Under the person's "Key questions" heading, outside refine's own section, each top-level
+    list item that asks a question (its first paragraph holds a question mark) and that nothing
+    answers (`_unanswered_question`) is a question. A list item with no question mark, and a
+    paragraph or a code block outside the list, is not. The body is parsed as CommonMark, so a
+    question that wraps to a second line stays one question, and a heading in a code block is
+    not a heading.
+    """
+    persons_text, _ = extract_section_and_outside(body)
+    section = _section_tokens(MarkdownIt("commonmark").parse(persons_text), _KEY_QUESTIONS_TITLE_RE)
+    asked = (_unanswered_question(item) for item in _top_items(section))
+    return [question for question in asked if question]
 
 
 def _extract_heading_bullets(body: str, heading_re: re.Pattern[str]) -> list[str]:
@@ -601,6 +645,20 @@ def _is_valid_source(src: str, allowed_urls: set[str], source: Path, sha: str) -
     return True
 
 
+def _marked(qa: QuestionAnswer, owner_decisions: Sequence[str]) -> QuestionAnswer:
+    """`qa` with the one mark of its kind: a person's question, or a decision that quotes an
+    owner decision, follows a best practice with a verified source, or is only proposed (#2398).
+    A mark the model copied from an earlier section goes first, so the answer holds one."""
+    if qa.kind == "fact":
+        return qa
+    answer = " ".join(_MARKS_RE.sub("", qa.answer).split())
+    marker = _A_PERSON_DECIDES
+    if qa.kind == "decision":
+        quotes_owner = any(d in answer.lower() for d in owner_decisions if len(d) > 5)
+        marker = _OWNER_DECISION if quotes_owner else _BEST_PRACTICE if qa.sources else _PROPOSED
+    return qa.model_copy(update={"answer": f"{answer} {marker}".strip()})
+
+
 def validate_proposal(
     proposal: RefinementProposal,
     body: str,
@@ -612,47 +670,34 @@ def validate_proposal(
     """Deterministically validates proposal sources, key questions, decisions and block paths.
     Returns (validated_proposal, open_questions).
 
-    The key questions and owner decisions are the person's, read from the body outside refine's
+    A fact with no verified source and a question only a person decides are open questions, and
+    so is each of the body's unanswered key questions whose number no answer names (#2398). The
+    key questions and owner decisions are the person's, read from the body outside refine's
     own section, so a refined item's section never asks its own questions again (#1758). Only
     the block paths that the checkout holds are kept (#2005).
     """
     open_questions: list[str] = []
     validated_qa: list[QuestionAnswer] = []
     persons_text, _ = extract_section_and_outside(body)
-
-    # 1. Sources validation
-    for qa in proposal.key_questions:
-        valid_srcs = [s for s in qa.sources if _is_valid_source(s, allowed_urls, source, sha)]
-        if qa.kind == "fact" and not valid_srcs:
-            open_questions.append(f"{qa.question} (missing verified source)")
-        else:
-            validated_qa.append(qa.model_copy(update={"sources": valid_srcs}))
-
-    # 2. Body's own key questions check
-    body_questions = _extract_heading_bullets(persons_text, _KEY_QUESTIONS_HEADING_RE)
-    answered_normalized = {_normalize_question(qa.question) for qa in proposal.key_questions}
-    for bq in body_questions:
-        norm = _normalize_question(bq)
-        if not any(norm in a or a in norm for a in answered_normalized):
-            open_questions.append(bq)
-
-    # 3. Decision checking against ## Owner decisions
     owner_decisions = [
         line.strip().lower()
         for line in _extract_heading_bullets(persons_text, _OWNER_DECISIONS_HEADING_RE)
     ]
-    final_qa: list[QuestionAnswer] = []
-    for qa in validated_qa:
-        if qa.kind == "decision":
-            ans_clean = qa.answer.strip().lower()
-            is_owner = any(d in ans_clean or ans_clean in d for d in owner_decisions if len(d) > 5)
-            marker = "(owner decision)" if is_owner else "(proposed)"
-            new_ans = f"{qa.answer} {marker}" if marker not in qa.answer else qa.answer
-            final_qa.append(qa.model_copy(update={"answer": new_ans}))
-        else:
-            final_qa.append(qa)
 
-    # 4. Dependency check
+    for qa in proposal.key_questions:
+        valid_srcs = [s for s in qa.sources if _is_valid_source(s, allowed_urls, source, sha)]
+        if qa.kind == "fact" and not valid_srcs:
+            open_questions.append(f"{qa.question} {_MISSING_SOURCE}")
+            continue
+        if qa.kind == "person":
+            open_questions.append(f"{qa.question} {_A_PERSON_DECIDES}")
+        validated_qa.append(_marked(qa.model_copy(update={"sources": valid_srcs}), owner_decisions))
+
+    named = {qa.body_question for qa in proposal.key_questions}
+    open_questions.extend(
+        asked for number, asked in enumerate(body_questions(body), start=1) if number not in named
+    )
+
     all_known_issues: set[int] = (
         {item.number for item in store.items()} if hasattr(store, "items") else set()
     )
@@ -660,12 +705,22 @@ def validate_proposal(
 
     validated_proposal = proposal.model_copy(
         update={
-            "key_questions": final_qa,
+            "key_questions": validated_qa,
             "dependencies": valid_deps,
             "block_paths": _block_paths(proposal.block_paths, source, sha),
         }
     )
     return validated_proposal, open_questions
+
+
+def needs_investigation(proposal: RefinementProposal, open_questions: Sequence[str]) -> bool:
+    """Whether a validated proposal leaves what the investigation can settle: an open question
+    that is not a person's, or a decision with no verified source (#2398)."""
+    persons = sum(qa.kind == "person" for qa in proposal.key_questions)
+    proposed = any(
+        qa.kind == "decision" and qa.answer.endswith(_PROPOSED) for qa in proposal.key_questions
+    )
+    return len(open_questions) > persons or proposed
 
 
 def _suspected_block(proposal: RefinementProposal) -> str | None:
@@ -763,7 +818,7 @@ _IMAGE_RE = re.compile(r"!\[.*?\](?:\(.*?\)|\[.*?\])")
 _HTML_TAG_RE = re.compile(r"<[a-zA-Z/][^>]*>")
 _HANDLE_RE = re.compile(r"(?<!`)(@[a-zA-Z0-9_\-]+)(?!`)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)]+)\)")
-_BARE_URL_RE = re.compile(r"(?<!`)(https?://[^\s\)]+)(?!`)")
+_BARE_URL_RE = re.compile(r"(?<!`)(https?://[^\s\)\]]+)(?!`)")
 
 
 def sanitize_text(text: str, allowed_urls: set[str]) -> str:
@@ -799,6 +854,15 @@ def sanitize_text(text: str, allowed_urls: set[str]) -> str:
     return t
 
 
+def _option_lines(qa: QuestionAnswer) -> list[str]:
+    """The options a decision compared, the chosen one and each rejected one with its reason."""
+    return [
+        f"  - {'Chosen' if option.chosen else 'Rejected'}: "
+        f"{option.option.strip().rstrip('.')}. {option.reason.strip()}"
+        for option in qa.options
+    ]
+
+
 def render_proposal_section(
     proposal: RefinementProposal,
     open_questions: list[str],
@@ -829,6 +893,7 @@ def render_proposal_section(
         for qa in proposal.key_questions:
             src_str = f" [sources: {', '.join(qa.sources)}]" if qa.sources else ""
             lines.append(f"- **{qa.question.strip()}**: {qa.answer.strip()}{src_str}")
+            lines.extend(_option_lines(qa))
     else:
         lines.append("None.")
 
@@ -1074,9 +1139,13 @@ def refine_one_item(
     source: Path,
     sha: str,
     client: LLMClient | Any,
+    web: WebSearch | None = None,
+    investigator: Any = None,
     max_context_tokens: int = 8192,
 ) -> RefinedItem:
-    """Refines one item through context collection, research, proposal, and validation."""
+    """Refines one item through context collection, proposal, validation and, when a question
+    stays open, the investigation with `web`'s search and the `investigator` model (#2398)."""
+    web = web or WebSearch()
     current_body = store.read_issue_body(item.number)
 
     # Person edits check
@@ -1097,31 +1166,42 @@ def refine_one_item(
             skip_reason=edit_problem,
         )
 
-    # Step 1: Research
-    search_results, allowed_urls = run_research_step(store, current_body, client)
-
-    # Step 2: Context minimization
+    # Step 1: Context minimization
     ctx = collect_context(source, sha, current_body, max_tokens=max_context_tokens)
 
-    # Step 3: Proposal generation
-    request = {
+    # Step 2: Proposal generation
+    request: dict[str, Any] = {
         "number": item.number,
         "title": item.title,
         "body": current_body,
         "replies": _replies_for_model(store.comments_on(item.number)),
         "context": ctx,
-        "search_results": search_results,
+        "body_questions": [
+            {"number": number, "question": asked}
+            for number, asked in enumerate(body_questions(current_body), start=1)
+        ],
     }
     raw_proposal: RefinementProposal = client.chat_structured(
-        load_task_prompt("roadmap_refine_proposal.md"),
+        _prompt("roadmap_refine_proposal.md"),
         json.dumps(request, ensure_ascii=False, indent=1),
         RefinementProposal,
     )
 
-    # Step 4: Validation
+    # Step 3: Validation, and the investigation of what stays open (#2398)
+    allowed_urls: set[str] = set()
     proposal, open_questions = validate_proposal(
         raw_proposal, current_body, allowed_urls, source, sha, store
     )
+    if needs_investigation(proposal, open_questions):
+        tools = InvestigationTools(source=source, sha=sha, firecrawl_key=web.key)
+        revised = _investigate(
+            item, request, raw_proposal, proposal, open_questions, tools, investigator
+        )
+        if revised is not None:
+            allowed_urls = tools.allowed_urls
+            proposal, open_questions = validate_proposal(
+                revised, current_body, allowed_urls, source, sha, store
+            )
     is_ready = check_ready(proposal, open_questions)
     needs_split = not proposal.fits_one_pr
     step, model_details, blocked_by = next_step_of(
@@ -1134,7 +1214,7 @@ def refine_one_item(
     blocked = bool(blocked_by) or _suspected_block(proposal) is not None
     block_paths = tuple(proposal.block_paths) if blocked else ()
 
-    # Step 5: Render section & Check size
+    # Step 4: Render section & Check size
     rendered_section = render_proposal_section(proposal, open_questions, sha, allowed_urls)
     outside, _ = extract_section_and_outside(current_body)
     new_body = outside.rstrip() + "\n\n" + rendered_section
@@ -1185,6 +1265,54 @@ def refine_one_item(
     )
 
 
+def _prompt(task: str) -> str:
+    """The system prompt of a refine step: the step's task, then the keys of the reply."""
+    return f"{load_task_prompt(task)}\n\n{load_task_prompt('roadmap_refine_reply.md')}"
+
+
+def _investigate(
+    item: Item,
+    request: dict[str, Any],
+    first: RefinementProposal,
+    proposal: RefinementProposal,
+    open_questions: Sequence[str],
+    tools: InvestigationTools,
+    investigator: Any,
+) -> RefinementProposal | None:
+    """The proposal the investigation returns for `item`, or None when it stops with none.
+
+    It gets the proposal request without the context, which its tools read, with the first
+    proposal and the questions the validated `proposal` leaves open: the open questions and
+    each decision with no verified source (#2398).
+    """
+    unsourced = [
+        f"{qa.question} {_DECISION_WITHOUT_SOURCE}"
+        for qa in proposal.key_questions
+        if qa.kind == "decision" and qa.answer.endswith(_PROPOSED)
+    ]
+    document = {key: value for key, value in request.items() if key != "context"} | {
+        "proposal": first.model_dump(mode="json"),
+        "open_questions": [*open_questions, *unsourced],
+        "web_search": tools.firecrawl_key is not None,
+    }
+    revised = investigate(
+        investigator or get_task_model("analysis"),
+        _prompt("roadmap_refine_investigation.md"),
+        json.dumps(document, ensure_ascii=False, indent=1),
+        tools,
+        RefinementProposal,
+    )
+    if isinstance(revised, InvestigationStopped):
+        logger.warning(
+            "Refine's investigation of #%d stopped with no proposal (%s); the item keeps its "
+            "open questions.",
+            item.number,
+            revised.reason,
+        )
+        return None
+    return revised
+
+
 def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
     """The replies the model reads: the comments after refine's last comment, or every comment
     when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
@@ -1209,8 +1337,12 @@ def plan_refine(
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
     model: Any = None,
+    investigator: Any = None,
 ) -> RefinePlan:
-    """Plans refinement for eligible candidates without writing anything to GitHub."""
+    """Plans refinement for eligible candidates without writing anything to GitHub.
+
+    `model` is the proposal step's client and `investigator` the investigation's pydantic-ai
+    model; each defaults to the `analysis` task's (#2398)."""
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
 
@@ -1222,6 +1354,7 @@ def plan_refine(
     ai_config = settings.ai
     client = model or get_llm_client(task="analysis", settings=settings)
     max_tokens = ai_config.for_task("analysis").context_window or 8192
+    web = web_search_of(store)
 
     refined: list[RefinedItem] = []
     failed: list[RefineFailure] = []
@@ -1233,6 +1366,8 @@ def plan_refine(
                 source=source_path,
                 sha=sha,
                 client=client,
+                web=web,
+                investigator=investigator,
                 max_context_tokens=max_tokens,
             )
         except AICredentialsError:
@@ -1252,6 +1387,7 @@ def plan_refine(
         waiting_items=waiting,
         has_writes=has_writes,
         failed_items=failed,
+        web_search_off=web.off_reason,
     )
 
 
@@ -1437,6 +1573,8 @@ def render_refine_plan(plan: RefinePlan) -> str:
     """Formats the refinement plan for CLI stdout report: the items grouped by next step, then
     the items whose model call failed (#1758)."""
     lines: list[str] = [MESSAGES.roadmap.refine_title.format(repo=plan.repo)]
+    if plan.web_search_off:
+        lines.append(MESSAGES.roadmap.refine_web_search_off.format(reason=plan.web_search_off))
     if not (plan.refined_items or plan.waiting_items or plan.failed_items):
         lines.append(MESSAGES.roadmap.refine_none)
         return "\n".join(lines)
@@ -1461,6 +1599,7 @@ def render_refine_plan(plan: RefinePlan) -> str:
 
 __all__ = [
     "AcceptanceCriterion",
+    "DesignOption",
     "NextStep",
     "QuestionAnswer",
     "RefineApplied",
@@ -1468,9 +1607,10 @@ __all__ = [
     "RefinePlan",
     "RefinedItem",
     "RefinementProposal",
-    "ResearchPlan",
     "WaitingItem",
+    "WebSearch",
     "apply_refine",
+    "body_questions",
     "check_person_edits",
     "check_ready",
     "collect_context",
@@ -1478,6 +1618,7 @@ __all__ = [
     "extract_section_and_outside",
     "hash_text",
     "inspect_checkout",
+    "needs_investigation",
     "next_step_of",
     "plan_refine",
     "raise_for_failed_items",
@@ -1488,4 +1629,5 @@ __all__ = [
     "select_candidates",
     "step_comment",
     "validate_proposal",
+    "web_search_of",
 ]
