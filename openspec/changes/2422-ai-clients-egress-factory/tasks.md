@@ -7,11 +7,11 @@
 
 ## 2. The gateway probes, the connect probe and the pool-load query
 
-- [ ] Give the gateway model query, the gateway health probe and the backend probe a factory client at the configured level, and delete their `validate_url_egress` calls
+- [x] Give the gateway model query, the gateway health probe and the backend probe a factory client at the configured level, and delete their `validate_url_egress` calls
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_ai_gateway.py tests/test_ai_gateway_portkey.py`
-- [ ] Give the `devops ai gateway connect` probe a private-level factory client, and delete its `validate_url_egress` call
+- [x] Give the `devops ai gateway connect` probe a private-level factory client, and delete its `validate_url_egress` call
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_ai_gateway.py`
-- [ ] Make `prometheus_query` take the level from its caller, give it the configured level from `devops ai gateway load`, and delete the `validate_url_egress` and `validate_service_url` calls
+- [x] Make `prometheus_query` take the level from its caller, give it the configured level from `devops ai gateway load`, and delete the `validate_url_egress` and `validate_service_url` calls
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_llm_pool_metrics.py`
 
 ## 3. The embeddings engine

@@ -21,7 +21,7 @@ from devops_cli.ai.pool_load import pool_load, window_seconds
 from devops_cli.commands import ai_gateway
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _HELM_REPOS_BY_STACK
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.http.egress import EgressLevel
 from devops_cli.main import app
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
@@ -170,7 +170,7 @@ def _with_prometheus(monkeypatch: pytest.MonkeyPatch, answers: Any) -> None:
     settings.prometheus.url = "http://prometheus.example:9090"
     settings.ai.allow_private_network = True
     monkeypatch.setattr(ai_gateway, "load_settings", lambda: settings)
-    monkeypatch.setattr(ai_gateway, "prometheus_query", lambda url, timeout: answers)
+    monkeypatch.setattr(ai_gateway, "prometheus_query", lambda url, timeout, level: answers)
 
 
 def test_load_reports_the_pool_as_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,7 +193,7 @@ def test_load_table_and_an_empty_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     metrics is named rather than shown as idle."""
     _with_prometheus(monkeypatch, _fake_prometheus)
     table = cli.invoke(app, ["ai", "gateway", "load"])
-    monkeypatch.setattr(ai_gateway, "prometheus_query", lambda url, timeout: lambda expr: [])
+    monkeypatch.setattr(ai_gateway, "prometheus_query", lambda url, timeout, level: lambda expr: [])
     empty = cli.invoke(app, ["ai", "gateway", "load"])
 
     assert (
@@ -221,18 +221,23 @@ def test_load_needs_prometheus_and_a_valid_window(monkeypatch: pytest.MonkeyPatc
 
 def test_prometheus_errors_are_reported(refusing_port: int) -> None:
     """Verify an unreachable Prometheus is reported, not raised."""
-    query = pool_load_module.prometheus_query(f"http://127.0.0.1:{refusing_port}", timeout=1)
+    query = pool_load_module.prometheus_query(
+        f"http://127.0.0.1:{refusing_port}", timeout=1, level=EgressLevel.LOOPBACK
+    )
 
     with pytest.raises(pool_load_module.PoolLoadError, match="did not answer"):
         query("up")
 
 
 def test_window_seconds_bounds_and_prometheus_query_validation() -> None:
-    """Verify window_seconds enforces 30-day limit and prometheus_query validates egress."""
+    """Verify window_seconds enforces 30-day limit and a query refuses a scheme other than http."""
     with pytest.raises(ValueError, match="exceeds maximum permitted limit"):
         window_seconds("31d")
 
-    with pytest.raises(SSRFBlockedError, match="Invalid Prometheus URL scheme"):
-        pool_load_module.prometheus_query("ftp://example.com", timeout=1)
+    query = pool_load_module.prometheus_query(
+        "ftp://example.com", timeout=1, level=EgressLevel.LOOPBACK
+    )
+    with pytest.raises(pool_load_module.PoolLoadError, match="unsupported protocol"):
+        query("up")
 
     assert (window_seconds("30d"), window_seconds("1h")) == (30 * 86400, 3600)

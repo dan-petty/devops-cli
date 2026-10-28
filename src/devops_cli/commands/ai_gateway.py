@@ -41,9 +41,9 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import get_ai_api_key, load_settings, save_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.core.validation import validate_url_egress
-from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.http.validation import validate_service_url
+from devops_cli.exceptions import DevOpsCLIError, SSRFBlockedError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.k8s.context import resolve_context
 from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError, node_port_address
 from devops_cli.lang import MESSAGES
@@ -160,11 +160,13 @@ def _probe_gateway_liveliness_and_models(
     headers: dict[str, str],
     timeout: float,
 ) -> None:
-    """Probe gateway liveliness and model info endpoints before configuring connection."""
-    import httpx2
+    """Probe gateway liveliness and model info endpoints before configuring connection.
 
+    The address is a node address from the Kubernetes API, so the probe dials at the private
+    level, and the connect checks the address.
+    """
     try:
-        with httpx2.Client(timeout=timeout) as client:
+        with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
             live_resp = client.get(f"{base_url}/health/liveliness")
             if live_resp.status_code >= 400:
                 print_error(
@@ -177,7 +179,7 @@ def _probe_gateway_liveliness_and_models(
                     f"The LLM gateway at {base_url} rejected model info query: HTTP {model_resp.status_code}"
                 )
                 raise typer.Exit(code=1)
-    except (httpx2.HTTPError, OSError) as exc:
+    except (httpx2.HTTPError, OSError, SSRFBlockedError) as exc:
         print_error(f"The LLM gateway at {base_url} does not answer: {str(exc)[:256]}")
         raise typer.Exit(code=1) from exc
 
@@ -217,7 +219,6 @@ def connect_cmd(
 
     base_url = str(httpx2.URL(scheme="http", host=host, port=port))
     node_port_url = f"{base_url}/v1"
-    validate_url_egress(base_url, purpose="AI gateway", allow_private=True)
 
     settings = load_settings()
     api_key = get_ai_api_key(settings)
@@ -607,10 +608,11 @@ def load_cmd(
         print_error(MESSAGES.prometheus.url_not_configured, prefix=False)
         raise typer.Exit(1)
     try:
-        validate_service_url(
-            settings.prometheus.url, "Prometheus", allow=settings.ai.allow_private_network
+        query = prometheus_query(
+            settings.prometheus.url.rstrip("/"),
+            DEFAULT_HTTP_TIMEOUT_SECONDS,
+            configured_level(settings.ai),
         )
-        query = prometheus_query(settings.prometheus.url.rstrip("/"), DEFAULT_HTTP_TIMEOUT_SECONDS)
         load = pool_load(query, window)
     except (ValueError, DevOpsCLIError) as exc:
         print_error(mask_secrets(str(exc)), prefix=False)

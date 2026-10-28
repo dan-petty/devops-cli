@@ -18,8 +18,9 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.gateway_tune import backend_label
 from devops_cli.config.constants import CONST_MAX_PROMETHEUS_WINDOW_SECONDS
-from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.models.prometheus import PrometheusQueryResult
 
 # A PromQL instant query's result: each series' labels and value.
@@ -38,16 +39,17 @@ class PoolLoadError(DevOpsCLIError):
     """Prometheus could not answer a pool load query."""
 
 
-def prometheus_query(base_url: str, timeout: float) -> Query:
-    """Instant queries against a Prometheus server; series without a number are left out."""
-    validate_url_egress(base_url, purpose="Prometheus", allow_private=True)
+def prometheus_query(base_url: str, timeout: float, level: EgressLevel) -> Query:
+    """Instant queries against a Prometheus server; series without a number are left out.
+
+    Each query dials at the `level` that the caller gives, and the connect checks the address.
+    An address that the level refuses raises SSRFBlockedError.
+    """
 
     def query(expr: str) -> list[tuple[dict[str, str], float]]:
         try:
-            with httpx2.Client(timeout=timeout) as client:
-                response = client.get(
-                    f"{base_url}/api/v1/query", params={"query": expr}, timeout=timeout
-                )
+            with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+                response = client.get(f"{base_url}/api/v1/query", params={"query": expr})
                 response.raise_for_status()
         except httpx2.HTTPError as exc:
             raise PoolLoadError(f"Prometheus at {base_url} did not answer: {exc}") from exc
