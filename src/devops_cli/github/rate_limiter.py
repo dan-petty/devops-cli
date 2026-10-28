@@ -41,6 +41,7 @@ from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
     CONST_GH_API_DEFAULT_METHOD,
     CONST_GH_API_GRAPHQL_ENDPOINT,
+    CONST_GH_API_PARAMS_METHOD,
     CONST_GH_API_SUBCOMMAND,
     CONST_GH_CLI,
     CONST_GH_GRAPHQL_GROUPS,
@@ -86,6 +87,7 @@ from devops_cli.github.request_classifier import (
     is_write_gh_command,
     parse_gh_api_args,
 )
+from devops_cli.github.request_scope import request_labels
 from devops_cli.telemetry.instruments import (
     GITHUB_GRAPHQL_POINTS_TOTAL,
     GITHUB_REQUESTS_TOTAL,
@@ -1053,11 +1055,13 @@ class GitHubRateLimiter:
         resource: str | None = None,
         is_mutation: bool = False,
         cost: int = 1,
+        method: str = CONST_GH_API_DEFAULT_METHOD,
     ) -> float:
         """Institute mandatory pause of the request delay calculated for that subcommand.
 
         Synchronizes global tracking across processes and serializes requests. Each request it
-        lets go adds 1 to `devops_cli_github_requests_total` for its resource.
+        lets go adds 1 to `devops_cli_github_requests_total` for its resource, its HTTP `method`,
+        and the repository and job row of its request scope (#2475).
         """
         target = resource or subcommand
         with self._lock:
@@ -1069,7 +1073,7 @@ class GitHubRateLimiter:
                     )
             else:
                 sleep_duration = self._acquire_locked(target, is_mutation=is_mutation, cost=cost)
-        emit(GITHUB_REQUESTS_TOTAL, 1, {"resource": target})
+        emit(GITHUB_REQUESTS_TOTAL, 1, {"resource": target, "method": method, **request_labels()})
 
         if sleep_duration > 0.0:
             logger.info(
@@ -1664,6 +1668,17 @@ def _post_process_run(
         _parse_rate_limit_from_output(proc.stderr, resource, limiter)
 
 
+def gh_request_method(clean_args: Sequence[str], *, is_mutation: bool) -> str:
+    """The HTTP method of the request a gh command sends: the one `gh api` sends, which is POST
+    for GraphQL. gh chooses the requests of its other commands, so such a command, and a `gh api`
+    argv that does not parse, counts as POST when it writes and GET when it reads (#2475)."""
+    if clean_args and clean_args[0] == CONST_GH_API_SUBCOMMAND:
+        args = parse_gh_api_args(clean_args[1:])
+        if args is not None:
+            return args.method
+    return CONST_GH_API_PARAMS_METHOD if is_mutation else CONST_GH_API_DEFAULT_METHOD
+
+
 def _execute_gh_single_attempt(
     full_cmd: list[str],
     input: str | None,
@@ -1677,10 +1692,13 @@ def _execute_gh_single_attempt(
     is_exempt: bool,
     is_mutation: bool,
     cost: int,
+    method: str,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a single attempt of GitHub CLI command under rate limiting."""
     if not is_exempt:
-        limiter.acquire(subcommand=target_resource, is_mutation=is_mutation, cost=cost)
+        limiter.acquire(
+            subcommand=target_resource, is_mutation=is_mutation, cost=cost, method=method
+        )
     try:
         proc = run_subprocess(
             full_cmd,
@@ -1777,6 +1795,7 @@ def _run_gh_retry_loop(
 ) -> subprocess.CompletedProcess[str]:
     """Execute command with retries and backoff."""
     cache_key = _build_cache_key(clean_args, input)
+    method = gh_request_method(clean_args, is_mutation=is_mutation)
     last_res = subprocess.CompletedProcess(args=full_cmd, returncode=1, stdout="", stderr="")
     for attempt in range(max_retries + 1):
         proc = _execute_gh_single_attempt(
@@ -1792,6 +1811,7 @@ def _run_gh_retry_loop(
             is_exempt,
             is_mutation,
             effective_cost,
+            method,
         )
         last_res = proc
         if proc.returncode == 0:

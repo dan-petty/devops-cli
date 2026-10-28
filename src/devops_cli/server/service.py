@@ -27,6 +27,9 @@ from devops_cli.config.constants import (
     CONST_SERVICE_BUDGET_WINDOW_SECONDS,
     CONST_SERVICE_HALT_FILENAME,
     CONST_SERVICE_LANE_DEFAULT,
+    CONST_SERVICE_METRIC_BUDGET_HOLDS,
+    CONST_SERVICE_METRIC_BUDGET_LIMIT,
+    CONST_SERVICE_METRIC_BUDGET_SPENT,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
@@ -43,6 +46,7 @@ from devops_cli.config.settings import (
     load_settings,
 )
 from devops_cli.exceptions import ConfigurationError, RoadmapRunError
+from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
 from devops_cli.server.routes.webhooks import (
     DeliveryLRUCache,
@@ -142,6 +146,11 @@ def keep_state_record(record: Path, payload: object) -> None:
         )
 
 
+def _report_spent(spent: int) -> None:
+    """Show the requests of the budget's window on the Service's /metrics."""
+    GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_BUDGET_SPENT, float(spent))
+
+
 class RequestBudget:
     """The GitHub requests the Service may send in any one hour, all repositories and lanes
     together (#2161).
@@ -152,6 +161,9 @@ class RequestBudget:
     so the budget can be passed by the cost of one round per worker. The cost of a round sets the
     poll cadence: the Service polls no faster than the budget pays for. With a `record`, the
     rounds of the window are kept in that file, and a restart reads them back (#2474).
+
+    The Service's /metrics shows the limit, the requests of the window as of the last round or
+    check, and a count of each hold when it begins (#2475).
     """
 
     def __init__(
@@ -175,6 +187,8 @@ class RequestBudget:
         kept = [] if record is None else read_state_record(record, _RoundsSent, [])
         self._sent: deque[tuple[datetime, int]] = deque(kept)
         self._holding = False
+        GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_BUDGET_LIMIT, float(limit))
+        _report_spent(self.spent())
 
     @property
     def limit(self) -> int:
@@ -189,10 +203,11 @@ class RequestBudget:
             self._rounds += 1
             self._sent.append((self._clock(), count - self._latest))
             self._latest = count
-            self._spent_locked()
+            spent = self._spent_locked()
             if self._record is not None:
                 kept = _RoundsSent.dump_python(list(self._sent), mode="json")
                 keep_state_record(self._record, kept)
+        _report_spent(spent)
 
     def _spent_locked(self) -> int:
         cutoff = self._clock() - self._window
@@ -207,13 +222,15 @@ class RequestBudget:
 
     def holds(self) -> bool:
         """Whether the last hour's requests have used the budget, so no round may start. The
-        hold is logged once each time it begins."""
+        hold is logged and counted once each time it begins."""
         with self._lock:
             spent = self._spent_locked()
             holding = spent >= self._limit
             began = holding and not self._holding
             self._holding = holding
+        _report_spent(spent)
         if began:
+            GLOBAL_METRICS.increment_counter(CONST_SERVICE_METRIC_BUDGET_HOLDS)
             logger.warning(MESSAGES.serve.budget_spent.format(spent=spent, limit=self._limit))
         return holding
 
@@ -477,7 +494,8 @@ class RepoWorker:
             },
         ) as span:
             try:
-                self.job_func(batch)
+                with request_scope(repo=self.repo):
+                    self.job_func(batch)
             except Exception as exc:
                 result = "error"
                 span.set_status("ERROR", str(exc)[:256])

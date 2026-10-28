@@ -155,12 +155,15 @@ def _gh_api_command(url: str) -> list[str]:
 
 def pace_request(method: str, url: str, identity: str) -> str:
     """Wait for the request's turn on the ledger of the identity `identity` names, as `run_gh`
-    waits for `gh api <path>`, a write as a write; return the rate-limit resource it spends."""
+    waits for `gh api <path>`, a write as a write, counted under its method; return the
+    rate-limit resource it spends."""
     command = _gh_api_command(url)
     resource = gh_request_resource(command)
     if gh_request_is_paced(command):
         is_mutation = is_write_request(GitHubRequest(method, command[1]))
-        identity_rate_limiter(identity).acquire(subcommand=resource, is_mutation=is_mutation)
+        identity_rate_limiter(identity).acquire(
+            subcommand=resource, is_mutation=is_mutation, method=method.upper()
+        )
     return resource
 
 

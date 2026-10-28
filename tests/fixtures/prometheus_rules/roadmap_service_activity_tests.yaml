@@ -1,0 +1,146 @@
+# promtool rule unit tests of the alert group roadmap-service-activity in
+# k8s/monitoring/prometheus-values.yaml (#2475). Each alert fires on a sample series and stays
+# quiet on a normal one. The series of another job (a workstation as job="devops-cli", or the
+# server's old kubernetes-pods job) are in each normal case, and the rules must not count them.
+#
+# tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
+# beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, one sample each `interval`. A counter that grows by 4 each minute gives 236
+# over the 59 minutes of samples in a 1h range, and increase() makes it 240 by extrapolation to
+# the range. A counter with no sample in the hour before the range started in the range, and the
+# rules give its last value (#2505).
+rule_files:
+  - roadmap-service-activity.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: More than 300 REST writes in an hour fire; reads, GraphQL and a workstation's writes do not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", method="POST", repo="example/app", row="refine"}'
+        values: '0+4x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", method="PATCH", repo="example/app", row="intake"}'
+        values: '0+2x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", method="GET", repo="example/app", row="refine"}'
+        values: '0+20x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql", method="POST", repo="example/app", row="intake"}'
+        values: '0+20x90'
+      - series: 'devops_cli_github_requests_total{job="devops-cli", resource="core", method="POST", repo="other", row="other"}'
+        values: '0+20x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubWritesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 360 GitHub writes in the last hour"
+              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (k8s/README.md, Roadmap service)."
+
+  - name: A write stream that starts in the hour counts its first flush
+    interval: 5m
+    input_series:
+      # The first flush of the stream at 60m holds 250 writes, and 10 more come every 5 minutes:
+      # 360 writes in the hour before 115m.
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", method="POST", repo="example/app", row="refine"}'
+        values: '_x12 250+10x11'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoadmapServiceGitHubWritesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 360 GitHub writes in the last hour"
+              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (k8s/README.md, Roadmap service)."
+
+  - name: 240 writes in an hour stay quiet
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", method="POST", repo="example/app", row="refine"}'
+        values: '0+4x90'
+      - series: 'devops_cli_github_requests_total{job="kubernetes-pods", resource="core", method="POST", repo="example/app", row="refine"}'
+        values: '0+20x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubWritesHigh
+        exp_alerts: []
+
+  - name: More than 150 deliveries of the Service's own writes in an hour fire; other outcomes and jobs do not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="self"}'
+        values: '0+3x90'
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="ignored"}'
+        values: '0+10x90'
+      - series: 'devops_cli_service_webhook_deliveries_total{job="kubernetes-pods", provider="github", event="issues", outcome="self"}'
+        values: '0+10x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceSelfDeliveriesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service got 180 deliveries of its own writes in the last hour"
+              description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (k8s/README.md, Roadmap service)."
+
+  - name: 120 deliveries of the Service's own writes in an hour stay quiet
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="self"}'
+        values: '0+2x90'
+      - series: 'devops_cli_service_webhook_deliveries_total{job="devops-cli", provider="github", event="issues", outcome="self"}'
+        values: '0+10x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceSelfDeliveriesHigh
+        exp_alerts: []
+
+  - name: The first Firecrawl 402 fires for an hour; other results and jobs do not count
+    interval: 1m
+    input_series:
+      # A new series: its first flush at 30m holds one refused search.
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="402"}'
+        values: '_x30 1x30'
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="ok"}'
+        values: '0+5x130'
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="401"}'
+        values: '0+1x130'
+      - series: 'devops_cli_firecrawl_searches_total{job="devops-cli", result="429"}'
+        values: '0+1x130'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: RoadmapServiceFirecrawlRefused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              result: "402"
+            exp_annotations:
+              summary: "Firecrawl refused web searches of the roadmap Service with HTTP 402 in the last hour"
+              description: "Firecrawl refused a web search of the roadmap Service with HTTP 402: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."
+      - eval_time: 125m
+        alertname: RoadmapServiceFirecrawlRefused
+        exp_alerts: []
+
+  - name: One more Firecrawl 429 of an older series fires; an older series with no new refusal does not
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="429"}'
+        values: '3x70 4x40'
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="402"}'
+        values: '2x110'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: RoadmapServiceFirecrawlRefused
+        exp_alerts: []
+      - eval_time: 100m
+        alertname: RoadmapServiceFirecrawlRefused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              result: "429"
+            exp_annotations:
+              summary: "Firecrawl refused web searches of the roadmap Service with HTTP 429 in the last hour"
+              description: "Firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."

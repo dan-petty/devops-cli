@@ -59,7 +59,7 @@ import logging
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Literal
@@ -86,11 +86,13 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_P1_PRIORITY,
     CONST_ROADMAP_P2_PRIORITY,
     CONST_ROADMAP_P3_PRIORITY,
+    CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
+    CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
@@ -121,6 +123,7 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     RoadmapStore,
 )
+from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
@@ -1319,20 +1322,13 @@ def refine_one_item(
     # Person edits check
     edit_problem = check_person_edits(item, current_body)
     if edit_problem:
-        return RefinedItem(
-            item=item,
-            proposal=RefinementProposal(problem_statement=""),
-            open_questions=[],
-            is_ready=False,
-            needs_split=False,
-            reason_comment=None,
-            new_body=current_body,
-            body_hash="",
-            section_hash="",
-            next_step=NextStep.EDIT,
-            step_details=(edit_problem,),
-            skip_reason=edit_problem,
-        )
+        return _left_alone(item, current_body, NextStep.EDIT, edit_problem)
+
+    # The cap on refine's comments on one item (#2475)
+    comments = store.comments_on(item.number)
+    cap_reached = _comment_cap_reached(item, comments)
+    if cap_reached:
+        return _left_alone(item, current_body, NextStep.PERSON, cap_reached)
 
     # Step 1: Context minimization
     ctx = collect_context(source, sha, current_body, max_tokens=max_context_tokens)
@@ -1342,7 +1338,7 @@ def refine_one_item(
         "number": item.number,
         "title": item.title,
         "body": current_body,
-        "replies": _replies_for_model(store.comments_on(item.number)),
+        "replies": _replies_for_model(comments),
         "context": ctx,
         "body_questions": [
             {"number": number, "question": asked}
@@ -1432,6 +1428,54 @@ def refine_one_item(
         blocked_by=blocked_by,
         block_paths=block_paths,
     )
+
+
+def _left_alone(item: Item, body: str, step: NextStep, reason: str) -> RefinedItem:
+    """An item that a round leaves alone before any model call: it writes nothing, and the item
+    waits on `step` for `reason`."""
+    return RefinedItem(
+        item=item,
+        proposal=RefinementProposal(problem_statement=""),
+        open_questions=[],
+        is_ready=False,
+        needs_split=False,
+        reason_comment=None,
+        new_body=body,
+        body_hash="",
+        section_hash="",
+        next_step=step,
+        step_details=(reason,),
+        skip_reason=reason,
+    )
+
+
+def _comment_cap_reached(item: Item, comments: Sequence[IssueComment]) -> str | None:
+    """Why a round leaves `item` alone, or None: refine wrote
+    `CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM` comments on it in the last
+    `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS` hours.
+
+    Each round that comments on an item reads its comments first, so the cap reads them with no
+    other request. A stopped comment is one warning and one count of
+    `devops_cli_roadmap_refine_comments_capped_total` (#2475).
+    """
+    hours = CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS
+    since = datetime.now(UTC) - timedelta(hours=hours)
+    count = sum(
+        1
+        for comment in comments
+        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body and comment.created_at > since
+    )
+    if count < CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM:
+        return None
+    logger.warning(
+        "Refine left #%d alone: it wrote %d comments on the item in the last %d hours, which is "
+        "its limit.",
+        item.number,
+        count,
+        hours,
+    )
+    emit(ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, 1)
+    return MESSAGES.roadmap.refine_comment_cap.format(count=count, hours=hours)
 
 
 def _prompt(task: str) -> str:

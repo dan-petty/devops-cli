@@ -1709,6 +1709,12 @@ class RoadmapMessages:
         "refines this item with --item {number}."
     )
     refine_author_unknown: str = "unknown"
+    # Why a refine round leaves an item that refine commented on too often (#2475).
+    refine_comment_cap: str = (
+        "Refine wrote {count} comments on this item in the last {hours} hours, which is its "
+        "limit. A round after the oldest of these comments is {hours} hours old looks at the "
+        "item again."
+    )
     refine_title: str = "# Refinement plan for {repo}"
     # Why a refine round had no web search (#2398).
     refine_web_search_off: str = "Web search is off: {reason}."

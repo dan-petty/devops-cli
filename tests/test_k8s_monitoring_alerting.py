@@ -1,5 +1,5 @@
 """Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules
-and the roadmap Service's rules (#2472).
+and the roadmap Service's rules (#2472, #2475).
 
 The rules live in `k8s/monitoring/prometheus-values.yaml` (`serverFiles.alerting_rules.yml`).
 A rule over a series nothing in the stack serves never fires, so every expression may name
@@ -10,9 +10,9 @@ targets them and none of their series is listed: a rule over them would fire on 
 target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
 
 The checks read files only, except the two that run the pinned promtool (`tools.lock`):
-`promtool check rules` over every rule, and `promtool test rules` over the roadmap Service's
-group with the unit tests in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`. Each
-skips where promtool is not installed; CI's test job installs it.
+`promtool check rules` over every rule, and `promtool test rules` over each group of the
+roadmap Service with its unit tests in `tests/fixtures/prometheus_rules/`. Each skips where
+promtool is not installed; CI's test job installs it.
 """
 
 from __future__ import annotations
@@ -31,11 +31,13 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
 )
 from devops_cli.config.defaults import DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR
 from devops_cli.prometheus.promql import selectors
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
+    FIRECRAWL_SEARCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
 )
@@ -53,10 +55,20 @@ KUBE_STATE_METRICS_ALLOW_LIST = (
     FIXTURES / "k8s_monitoring" / "cluster_metrics" / "kube-state-metrics.yaml"
 )
 ROADMAP_SERVICE_RULE_TESTS = FIXTURES / "prometheus_rules" / "roadmap_service_tests.yaml"
+ROADMAP_SERVICE_ACTIVITY_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "roadmap_service_activity_tests.yaml"
+)
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
 ROADMAP_SERVICE_GROUP = "roadmap-service"
+# The Service's writes, the deliveries of its own writes and its web search (#2475).
+ROADMAP_SERVICE_ACTIVITY_GROUP = "roadmap-service-activity"
+# Each group of the roadmap Service, with the file of its promtool unit tests.
+ROADMAP_SERVICE_GROUPS = {
+    ROADMAP_SERVICE_GROUP: ROADMAP_SERVICE_RULE_TESTS,
+    ROADMAP_SERVICE_ACTIVITY_GROUP: ROADMAP_SERVICE_ACTIVITY_RULE_TESTS,
+}
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -129,7 +141,9 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_IDENTITY_REFUSED,
         CONST_SERVICE_METRIC_JOBS,
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+        CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
+        FIRECRAWL_SEARCHES_TOTAL.name,
         GITHUB_REQUESTS_TOTAL.name,
         GITHUB_THROTTLE_WAIT.name,
     }
@@ -199,7 +213,7 @@ def test_every_alert_rule_selects_only_series_the_stack_serves() -> None:
 def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
-    the roadmap Service's rules (#2472).
+    the roadmap Service's rules (#2472, #2475).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -241,13 +255,16 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
+        ("RoadmapServiceFirecrawlRefused", "warning"),
         ("RoadmapServiceGitHubRequestsHigh", "warning"),
         ("RoadmapServiceGitHubThrottled", "critical"),
+        ("RoadmapServiceGitHubWritesHigh", "warning"),
         ("RoadmapServiceIdentityRefused", "critical"),
         ("RoadmapServiceJobsFailing", "warning"),
         ("RoadmapServiceLaneStalled", "warning"),
         ("RoadmapServiceModelRequestsHigh", "warning"),
         ("RoadmapServiceRestarted", "warning"),
+        ("RoadmapServiceSelfDeliveriesHigh", "warning"),
         ("RoadmapServiceUnavailable", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
@@ -825,6 +842,40 @@ ROADMAP_SERVICE_RULES = [
         "warning",
     ),
 ]
+# The rules of `roadmap-service-activity` (#2475), in file order, as `ROADMAP_SERVICE_RULES`.
+ROADMAP_SERVICE_ACTIVITY_RULES = [
+    (
+        "RoadmapServiceGitHubWritesHigh",
+        "sum( "
+        + _hour_count(
+            'devops_cli_github_requests_total{job="roadmap-service", method!="GET", '
+            'resource!="graphql"}'
+        )
+        + " ) > 300",
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceSelfDeliveriesHigh",
+        "sum( "
+        + _hour_count(
+            'devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}'
+        )
+        + " ) > 150",
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceFirecrawlRefused",
+        "sum by (result) ( "
+        + _hour_count(
+            'devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}'
+        )
+        + " ) > 0",
+        "0m",
+        "warning",
+    ),
+]
 # A series selector and the matchers in its braces.
 _SELECTOR_MATCHERS = re.compile(r"([A-Za-z_:][\w:]*)\{([^}]*)\}")
 
@@ -847,7 +898,19 @@ def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_vo
     ] == ROADMAP_SERVICE_RULES
 
 
-def test_each_roadmap_service_rule_selects_only_the_service() -> None:
+def test_the_roadmap_service_activity_rules_watch_writes_own_deliveries_and_web_search() -> None:
+    """`roadmap-service-activity` warns at more than 300 GitHub writes of the Service in an hour,
+    more than 150 deliveries of its own writes in an hour, and any Firecrawl search refused for
+    credits (402) or its rate limit (429) (#2475). Each counts a series that starts in the hour
+    from zero (#2505)."""
+    assert [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in _group(ROADMAP_SERVICE_ACTIVITY_GROUP)
+    ] == ROADMAP_SERVICE_ACTIVITY_RULES
+
+
+@pytest.mark.parametrize("group", list(ROADMAP_SERVICE_GROUPS))
+def test_each_roadmap_service_rule_selects_only_the_service(group: str) -> None:
     """Each `devops_cli_` selector filters the Service's job, and each kube-state-metrics
     selector its namespace and its deployment or pods (#2472).
 
@@ -856,7 +919,7 @@ def test_each_roadmap_service_rule_selects_only_the_service() -> None:
     """
     found = [
         (metric, frozenset(part.strip() for part in matchers.split(",")))
-        for rule in _group(ROADMAP_SERVICE_GROUP)
+        for rule in _group(group)
         for metric, matchers in _SELECTOR_MATCHERS.findall(rule["expr"])
     ]
     service = f'job="{ROADMAP_SERVICE_JOB}"'
@@ -873,11 +936,7 @@ def test_each_roadmap_service_rule_selects_only_the_service() -> None:
             )
         ],
     ) == (
-        [
-            selector.metric
-            for rule in _group(ROADMAP_SERVICE_GROUP)
-            for selector in selectors(rule["expr"])
-        ],
+        [selector.metric for rule in _group(group) for selector in selectors(rule["expr"])],
         [],
     )
 
@@ -927,11 +986,12 @@ def _readme_section(heading: str) -> str:
     return text[start : end if end != -1 else len(text)]
 
 
-def test_each_roadmap_service_alert_points_to_its_step_in_the_readme() -> None:
+@pytest.mark.parametrize("group", list(ROADMAP_SERVICE_GROUPS))
+def test_each_roadmap_service_alert_points_to_its_step_in_the_readme(group: str) -> None:
     """Each description names `k8s/README.md, Roadmap service`, that section says what to do for
     each alert, and it says that no alert leaves the cluster without the webhook Secret (#2472)."""
     section = _readme_section("Roadmap service")
-    rules = _group(ROADMAP_SERVICE_GROUP)
+    rules = _group(group)
     pointer = "(k8s/README.md, Roadmap service)"
     assert (
         [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
@@ -961,26 +1021,28 @@ def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
 
 
 @pytest.mark.live("promtool")
+@pytest.mark.parametrize(("group", "rule_tests"), list(ROADMAP_SERVICE_GROUPS.items()))
 def test_each_roadmap_service_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series(
-    tmp_path: Path,
+    tmp_path: Path, group: str, rule_tests: Path
 ) -> None:
-    """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472).
+    """`promtool test rules` passes the unit tests of each rule of each group of the roadmap
+    Service (#2472, #2475).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the same series of another job.
     """
-    unit_tests = yaml.safe_load(ROADMAP_SERVICE_RULE_TESTS.read_text(encoding="utf-8"))
+    unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
     (rule_file,) = unit_tests["rule_files"]
     groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
     (tmp_path / rule_file).write_text(
-        yaml.safe_dump({"groups": [g for g in groups if g["name"] == ROADMAP_SERVICE_GROUP]}),
+        yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
         encoding="utf-8",
     )
     tested = {case["alertname"] for test in unit_tests["tests"] for case in test["alert_rule_test"]}
-    copy = tmp_path / ROADMAP_SERVICE_RULE_TESTS.name
-    copy.write_text(ROADMAP_SERVICE_RULE_TESTS.read_text(encoding="utf-8"), encoding="utf-8")
+    copy = tmp_path / rule_tests.name
+    copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
     result = _promtool("test", "rules", copy)
     assert (sorted(tested), result.returncode) == (
-        sorted(rule["alert"] for rule in _group(ROADMAP_SERVICE_GROUP)),
+        sorted(rule["alert"] for rule in _group(group)),
         0,
     ), result.stdout + result.stderr

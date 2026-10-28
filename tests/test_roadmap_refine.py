@@ -16,7 +16,7 @@ import time
 import traceback
 from collections import Counter
 from collections.abc import Callable, Mapping
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -94,7 +94,9 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     split_record,
 )
+from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL
 from tests.llm_stream_fakes import route_llm_clients
+from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1955,6 +1957,66 @@ def test_a_proposal_that_names_no_block_records_no_cited_path(
         _require_item(store, number).job_record.get(RefineRecordKey.BLOCK_PATHS),
         [_CITED_PATH in comment.body for comment in store.comments_on(number)],
     ) == (None, [False])
+
+
+# ── A cap on refine's comments on one item (#2475) ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("age", "capped"),
+    [(timedelta(hours=23), True), (timedelta(hours=25), False)],
+    ids=["within-the-day", "older-than-the-day"],
+)
+def test_refine_leaves_an_item_it_commented_on_up_to_its_cap_in_24_hours_alone(
+    git_repo: Path,
+    model_fake: ModelFake,
+    otlp: FakeCollector,
+    caplog: pytest.LogCaptureFixture,
+    age: timedelta,
+    capped: bool,
+) -> None:
+    """Another bot that replies to each refine comment would make refine refine the item, and
+    comment on it, at each round. Once refine wrote its cap of comments on an item in the last 24
+    hours, a round leaves the item alone: no model call and no comment, one warning, and one
+    count of the comment that the cap stopped. Comments older than 24 hours do not count."""
+    when = [datetime.now(UTC) - age]
+    store = BodyReadCountingStore(repo=REPO, clock=lambda: when[0])
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY)
+    cap = constants.CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM
+    for _ in range(cap):
+        store.comment(number, f"{constants.CONST_ROADMAP_REFINE_COMMENT_MARKER}\nA next step.")
+        store.as_actor("echo-bot[bot]").comment(number, "A reply from another bot.")
+    when[0] = datetime.now(UTC)
+    calls = model_fake.call_count
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine"):
+        plan = _refine_round(store, git_repo)
+
+    hours = constants.CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS
+    detail = (
+        f"Refine wrote {cap} comments on this item in the last {hours} hours, which is its limit. "
+        f"A round after the oldest of these comments is {hours} hours old looks at the item again."
+    )
+    stopped = (
+        [(number, "person", (detail,), detail)],
+        0,
+        2 * cap,
+        [({}, 1.0)],
+        [
+            f"Refine left #{number} alone: it wrote {cap} comments on the item in the last {hours} "
+            "hours, which is its limit."
+        ],
+    )
+    refined = ([(number, "ready", (), None)], 1, 2 * cap + 1, [], [])
+    assert (
+        [(r.item.number, r.next_step, r.step_details, r.skip_reason) for r in plan.refined_items],
+        model_fake.call_count - calls,
+        len(store.comments_on(number)),
+        otlp.points(ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL.name),
+        [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.refine"],
+    ) == (stopped if capped else refined)
 
 
 # ── Body questions, decisions and the web search state (#2398) ────────────────────────────

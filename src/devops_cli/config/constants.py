@@ -925,6 +925,8 @@ CONST_GITHUB_API_VERSION: Final[str] = "2022-11-28"
 CONST_GITHUB_HEADER_API_VERSION: Final[str] = "x-github-api-version"
 # The media type GitHub serves a pull request's unified diff as.
 CONST_GITHUB_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.github.diff"
+# The `repo` and `row` of a GitHub request that no Service worker and no job row sent (#2475).
+CONST_GITHUB_REQUEST_SCOPE_OTHER: Final[str] = "other"
 # The characters that open and close an expression in a URI template (RFC 6570, section 2.2).
 # gidgethub expands every path as a template, so the session sends them percent-encoded.
 CONST_URI_TEMPLATE_EXPRESSION_DELIMITERS: Final[str] = "{}"
@@ -1413,6 +1415,9 @@ CONST_SERVICE_OUTCOME_ACCEPTED: Final[str] = "accepted"
 CONST_SERVICE_OUTCOME_IGNORED: Final[str] = "ignored"
 CONST_SERVICE_OUTCOME_REJECTED: Final[str] = "rejected"
 CONST_SERVICE_OUTCOME_NO_SUBSCRIBER: Final[str] = "no_subscriber"
+# The outcome of a delivery the GitHub App's own bot sent, which the roadmap consumer refuses: apart
+# from the other ignored deliveries, so an echo loop with another bot or workflow shows (#2475).
+CONST_SERVICE_OUTCOME_SELF: Final[str] = "self"
 # The deliveries counter's `event` for an event no consumer subscribes to, so a sender's choice of
 # event name can't grow the series (#1386).
 CONST_SERVICE_EVENT_OTHER: Final[str] = "other"
@@ -1430,6 +1435,14 @@ CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
 # each start that finds the halt kept from before, so the count stays above 0 while the Service
 # is halted (#2474). The `identity` label names the account, as the refusal does.
 CONST_SERVICE_METRIC_IDENTITY_REFUSED: Final[str] = "devops_cli_service_identity_refused_total"
+# The Service's hourly GitHub request budget (#2475): its limit, the requests of the window as of
+# the last round or check, and a count of each hold when it begins.
+CONST_SERVICE_METRIC_BUDGET_LIMIT: Final[str] = "devops_cli_service_budget_limit_requests"
+CONST_SERVICE_METRIC_BUDGET_SPENT: Final[str] = "devops_cli_service_budget_spent_requests"
+CONST_SERVICE_METRIC_BUDGET_HOLDS: Final[str] = "devops_cli_service_budget_holds_total"
+# 1 while a job of a repository failed its limit of rounds in a row and waits for new input, else
+# 0, by `repo` and `row` (#2475). The label is `row`, not `job`, which is the scrape's label.
+CONST_SERVICE_METRIC_JOB_SUSPENDED: Final[str] = "devops_cli_service_job_suspended"
 # The Service's window for its GitHub request budget (#2161).
 CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 # What the Service keeps on its volume so that a restart does not clear it (#2474), each a file in
@@ -2825,6 +2838,16 @@ CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end --
 CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
+# The `result` of `devops_cli_firecrawl_searches_total` for a search that returned its web results,
+# and for one that got no answer or a reply with no web results. A search that Firecrawl refused
+# counts under its HTTP status (#2475).
+CONST_FIRECRAWL_RESULT_OK: Final[str] = "ok"
+CONST_FIRECRAWL_RESULT_ERROR: Final[str] = "error"
+# The most comments refine posts on one item in `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS`.
+# A round that finds that many refine comments on the item leaves it alone, so a loop of replies
+# from another bot or workflow stops after this many comments (#2475).
+CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM: Final[int] = 2
+CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS: Final[int] = 24
 # Every comment refine posts carries this marker, so a later round tells a person's reply from
 # refine's own comments: a comment after refine's last one is a reply (#1758).
 CONST_ROADMAP_REFINE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap refine: next step -->"

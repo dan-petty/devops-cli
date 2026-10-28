@@ -1918,7 +1918,9 @@ def test_header_values_in_the_record_and_the_counter_are_bounded(
 
 def test_every_path_counts_its_delivery_by_provider_event_and_outcome() -> None:
     """Accepted, repeated, pong, own-write, no-subscriber, refused and draining deliveries
-    all count under the provider, the event (an undeclared one as "other") and the outcome."""
+    all count under the provider, the event (an undeclared one as "other") and the outcome. The
+    App bot's own write counts as `self`, apart from the other ignored deliveries, so an echo
+    loop with another bot shows in the counter (#2475)."""
     app = create_service_app(settings=_make_settings(repos=[REPO_A]), secrets={REPO_A: "secret-1"})
     with TestClient(app) as client:
         statuses = [
@@ -1954,7 +1956,8 @@ def test_every_path_counts_its_delivery_by_provider_event_and_outcome() -> None:
         [202, 200, 200, 200, 200, 200, 200, 401, 415, 400, 400, 503],
         {
             ("github", "issues", "accepted"): 1.0,
-            ("github", "issues", "ignored"): 2.0,
+            ("github", "issues", "ignored"): 1.0,
+            ("github", "issues", "self"): 1.0,
             ("github", "ping", "ignored"): 1.0,
             ("github", "other", "no_subscriber"): 3.0,
             ("github", "issues", "rejected"): 5.0,
