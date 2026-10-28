@@ -46,7 +46,6 @@ class AgentInfo(BaseModel):
 
     agent_name: str = "Assistant"
     tools: list[str] = Field(default_factory=list)
-    output_schema: Any | None = None
 
 
 class TestModel(BaseModel):

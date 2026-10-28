@@ -28,7 +28,7 @@ def _create_fake_agent(client: LLMClient, idx: int, name: str | None = None) -> 
 
 def test_pipeline_stage_context_budget_default_constant_and_constructor() -> None:
     """Verify DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS is 4096 and cuts nothing for 1K replies."""
-    pipe = MultiAgentPipeline[Any]()
+    pipe = MultiAgentPipeline()
     assert (DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS, pipe.stage_context_tokens) == (4096, 4096)
 
     sent_prompts: list[str] = []
@@ -42,7 +42,7 @@ def test_pipeline_stage_context_budget_default_constant_and_constructor() -> Non
 
     agents = [_create_fake_agent(client, i) for i in range(1, 6)]
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
-        pipeline = MultiAgentPipeline[Any](agents=agents)
+        pipeline = MultiAgentPipeline(agents=agents)
         res = pipeline.run("Analyze workspace")
 
     truncated_flags = tuple(step.context_truncated for step in res.steps)
@@ -69,7 +69,7 @@ def test_pipeline_stage_context_budget_holds() -> None:
 
     agents = [_create_fake_agent(client, i) for i in range(1, 6)]
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
-        pipeline = MultiAgentPipeline[Any](agents=agents, stage_context_tokens=2048)
+        pipeline = MultiAgentPipeline(agents=agents, stage_context_tokens=2048)
         res = pipeline.run("Analyze workspace")
 
     max_carried_tokens = max(step.context_tokens for step in res.steps)
@@ -103,7 +103,7 @@ def test_pipeline_stage_context_budget_recorded_metrics() -> None:
 
     agents = [_create_fake_agent(client, i) for i in range(1, 6)]
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
-        pipeline = MultiAgentPipeline[Any](agents=agents, stage_context_tokens=2048)
+        pipeline = MultiAgentPipeline(agents=agents, stage_context_tokens=2048)
         res = pipeline.run("Analyze workspace")
 
     three_outputs_raw = "\n\n".join(
@@ -141,7 +141,7 @@ def test_pipeline_stage_context_budget_fallback_token_counting() -> None:
 
         agents = [_create_fake_agent(client, i) for i in range(1, 6)]
         with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
-            pipeline = MultiAgentPipeline[Any](agents=agents, stage_context_tokens=2048)
+            pipeline = MultiAgentPipeline(agents=agents, stage_context_tokens=2048)
             res = pipeline.run("Analyze workspace")
 
         three_outputs_raw = "\n\n".join(
@@ -176,7 +176,7 @@ def test_pipeline_stage_context_budget_off() -> None:
 
     agents = [_create_fake_agent(client, i) for i in range(1, 6)]
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
-        pipeline = MultiAgentPipeline[Any](agents=agents, stage_context_tokens=0)
+        pipeline = MultiAgentPipeline(agents=agents, stage_context_tokens=0)
         res = pipeline.run("Analyze workspace")
 
     prompt_5 = sent_prompts[4]
@@ -195,7 +195,7 @@ def test_pipeline_skip_rag_forwarded() -> None:
     agent2 = _create_fake_agent(client, 2)
 
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context") as mock_rag:
-        pipeline = MultiAgentPipeline[Any](agents=[agent1, agent2])
+        pipeline = MultiAgentPipeline(agents=[agent1, agent2])
         pipeline.run("Task", skip_rag=True)
         calls_when_skipped = mock_rag.call_count
 
@@ -203,7 +203,7 @@ def test_pipeline_skip_rag_forwarded() -> None:
     agent2_b = _create_fake_agent(client, 2)
 
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context") as mock_rag:
-        pipeline_b = MultiAgentPipeline[Any](agents=[agent1_b, agent2_b])
+        pipeline_b = MultiAgentPipeline(agents=[agent1_b, agent2_b])
         pipeline_b.run("Task", skip_rag=False)
         calls_when_enabled = mock_rag.call_count
 

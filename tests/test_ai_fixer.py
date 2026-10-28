@@ -3,21 +3,16 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast
 
 import pytest
-from pydantic import BaseModel
-from pydantic_ai import RunContext
 
-from devops_cli.ai.output import TextOutput
 from devops_cli.ai.response_repair import (
     _JSON_FENCE,
-    FormattedLLMResponse,
     extract_tool_invocations,
     fix_llm_response,
     repair_json_string,
 )
-from devops_cli.ai.review_schema import ReviewResult, normalize_unicode_text, parse_review_response
+from devops_cli.ai.review_schema import normalize_unicode_text, parse_review_response
 from tests.support.review_replies import (
     FINDINGS,
     LINK,
@@ -26,12 +21,6 @@ from tests.support.review_replies import (
     TITLES,
     TRUNCATED,
 )
-
-
-class SampleModel(BaseModel):
-    name: str
-    count: int
-    active: bool = True
 
 
 def test_normalize_unicode_text_spaces_and_quotes() -> None:
@@ -108,20 +97,6 @@ def test_extract_tool_invocations_function_style_in_thinking() -> None:
     assert fixed.was_repaired is True
 
 
-def test_a_repaired_reply_builds_no_model_class_of_its_own() -> None:
-    """Verify every repaired reply is a plain `FormattedLLMResponse`, with or without a schema.
-    A reply built as `FormattedLLMResponse[T]` made pydantic build a parametrized class that it
-    caches only weakly, so after a garbage collection the next reply rebuilt the class's whole
-    schema, about 30 ms of CPU per reply and much of a review persona call's own work (#1354)."""
-    raw = '```json\n{"name": "a", "count": 1}\n```'
-    replies = [fix_llm_response(raw), fix_llm_response(raw, schema=SampleModel)]
-
-    assert ({type(reply) for reply in replies}, replies[1].parsed_model) == (
-        {FormattedLLMResponse},
-        SampleModel(name="a", count=1),
-    )
-
-
 def test_fix_llm_response_strict_thinking_isolation() -> None:
     raw = """
     <think>
@@ -136,7 +111,7 @@ def test_fix_llm_response_strict_thinking_isolation() -> None:
     assert "Conclusion: The package python-dotenv" in fixed.thoughts[0]
 
 
-def test_fix_llm_response_does_not_parse_json_from_thinking_for_schema() -> None:
+def test_fix_llm_response_does_not_parse_json_from_thinking() -> None:
     raw = """
     <think>
     ```json
@@ -148,12 +123,11 @@ def test_fix_llm_response_does_not_parse_json_from_thinking_for_schema() -> None
     ```
     </think>
     """
-    fixed = fix_llm_response(raw, schema=SampleModel)
-    assert fixed.parsed_model is None
-    assert fixed.content == ""
+    fixed = fix_llm_response(raw)
+    assert (fixed.json_data, fixed.content) == (None, "")
 
 
-def test_fix_llm_response_schema_validation() -> None:
+def test_fix_llm_response_repairs_python_literals_in_a_fenced_block() -> None:
     raw = """
     ```json
     {
@@ -163,11 +137,8 @@ def test_fix_llm_response_schema_validation() -> None:
     }
     ```
     """
-    fixed = fix_llm_response(raw, schema=SampleModel)
-    assert fixed.parsed_model is not None
-    assert fixed.parsed_model.name == "DevOpsAgent"
-    assert fixed.parsed_model.count == 10
-    assert fixed.parsed_model.active is True
+    fixed = fix_llm_response(raw)
+    assert fixed.json_data == {"name": "DevOpsAgent", "count": 10, "active": True}
 
 
 def test_repair_json_string_rejects_oversized_payload(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,28 +147,6 @@ def test_repair_json_string_rejects_oversized_payload(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr("devops_cli.ai.response_repair.DEFAULT_JSON_REPAIR_MAX_LENGTH", 20)
     assert repair_json_string("{" + (" " * 30) + "}") is None
-
-
-def _shout(text: str) -> str:
-    return text.upper()
-
-
-def _with_context(ctx: RunContext[Any], text: str) -> str:
-    return text.upper()
-
-
-async def _async_shout(text: str) -> str:
-    return text.upper()
-
-
-def test_text_output_functions_run_only_when_they_take_the_text_alone() -> None:
-    """Verify a text-only function parses the reply, and context-taking or async ones are skipped."""
-    results = [
-        fix_llm_response("hello", schema=cast(Any, TextOutput(fn))).parsed_model
-        for fn in (_shout, _with_context, _async_shout)
-    ]
-
-    assert results == ["HELLO", None, None]
 
 
 def _titles(reply: str) -> list[str] | None:
@@ -229,15 +178,9 @@ def test_brackets_in_the_prose_cost_a_review_no_finding(reply: str) -> None:
     """Verify a fenced review keeps all three findings when its prose holds brackets (#786).
 
     json-repair reads `[OWASP A03](...)`, `items[0]` or `args["id"]` as list items beside the
-    answer, so the whole reply parsed to a list that neither the review parser nor the agent
-    loop's schema validation could read.
+    answer, so the whole reply parsed to a list that the review parser could not read.
     """
-    structured = fix_llm_response(reply, schema=ReviewResult).parsed_model
-
-    assert (
-        _titles(reply),
-        [finding.title for finding in structured.findings] if structured else None,
-    ) == (TITLES, TITLES)
+    assert _titles(reply) == TITLES
 
 
 _FENCED_FIX = "Bind the term as a parameter:\n```python\ncursor.execute(sql, (term,))\n```\nRerun."

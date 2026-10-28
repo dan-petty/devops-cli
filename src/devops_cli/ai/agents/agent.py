@@ -54,13 +54,10 @@ from devops_cli.ai.agents.runner import (
     _execute_stream_tool_step,
     _find_deferred_tool_handler,
     _handle_deferred_resolution,
-    _handle_schema_validation_retry,
     _is_scratchpad_deliberation,
     _record_and_broadcast_thoughts,
     _resolve_fallback_output,
     _resolve_thinking_preference,
-    _validate_agent_output,
-    is_structured_output_schema,
 )
 from devops_cli.ai.agents.tools import (
     AbstractToolset,
@@ -236,8 +233,6 @@ class PydanticAgent[T, DepsT = Any]:
         client: LLMClient | Any = None,
         instructions: str | list[str] | None = None,
         name: str = DEFAULT_AGENT_NAME,
-        output_type: Any = None,
-        output_schema: Any = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
         memory: AgentMemory | None = None,
         deps_type: type[DepsT] | None = None,
@@ -270,7 +265,6 @@ class PydanticAgent[T, DepsT = Any]:
         self.system_prompt: SystemPrompt = SystemPrompt(raw_system_prompt, agent=self)
 
         self.name = name
-        self.output_schema = output_type or output_schema
         self.memory: AgentMemory = memory or AgentMemory(session_id=name)
         self.deps_type = deps_type
         self.hooks = hooks or AgentHooks()
@@ -288,7 +282,7 @@ class PydanticAgent[T, DepsT = Any]:
             self._concurrency_limiter = None
 
         if isinstance(retries, int):
-            self.retries = AgentRetries(tools=retries, output=retries)
+            self.retries = AgentRetries(tools=retries)
         elif isinstance(retries, dict):
             self.retries = AgentRetries.model_validate(retries)
         elif isinstance(retries, AgentRetries):
@@ -297,7 +291,6 @@ class PydanticAgent[T, DepsT = Any]:
             self.retries = AgentRetries()
         self._tools: dict[str, AgentTool | Tool] = {}
         self._dynamic_system_prompts: list[Callable[..., str]] = []
-        self._output_validators: list[Callable[..., Any]] = []
         self._invariant_reminders: SystemReminders = SystemReminders(
             id=DEFAULT_INVARIANT_REMINDER_ID,
             cadence=DEFAULT_PLAN_REMINDER_CADENCE,
@@ -374,25 +367,6 @@ class PydanticAgent[T, DepsT = Any]:
             return str(self.client.model)
         return None
 
-    @property
-    def output_type(self) -> Any:
-        """Return the structured response model type or OutputSpec."""
-        return self.output_schema
-
-    @property
-    def output_json_schema(self) -> Any:
-        """Return the JSON schema dictionary for output validation if available.
-
-        Returns a CallableDict supporting both property access (`agent.output_json_schema['properties']`)
-        and function call style (`agent.output_json_schema()`).
-        """
-        if self.output_schema is None:
-            return None
-        from devops_cli.ai.output import CallableDict, extract_output_json_schema
-
-        schema = extract_output_json_schema(self.output_schema)
-        return CallableDict(schema) if schema is not None else None
-
     def tool(
         self,
         func: Callable[..., Any] | None = None,
@@ -459,13 +433,6 @@ class PydanticAgent[T, DepsT = Any]:
     def system_prompt_fn(self, func: Callable[..., str]) -> Callable[..., str]:
         """Decorator to register a dynamic system prompt function."""
         self._dynamic_system_prompts.append(func)
-        return func
-
-    def output_validator(
-        self, func: Callable[[RunContext[DepsT], T], T] | Callable[[T], T]
-    ) -> Callable[..., T]:
-        """Decorator to register an output validation callback that can raise ModelRetry."""
-        self._output_validators.append(func)
         return func
 
     def before_model_request(
@@ -675,17 +642,6 @@ class PydanticAgent[T, DepsT = Any]:
         if self._tools:
             prompt_parts.append(_format_tools_description_block(self._tools))
 
-        if self.output_schema is not None:
-            schema_getter = getattr(self.output_schema, "model_json_schema", None)
-            if callable(schema_getter):
-                schema_json = json.dumps(schema_getter(), separators=(",", ":"))
-                json_block = (
-                    "## Required Response Format\n"
-                    "Return response as JSON matching schema:\n"
-                    f"```json\n{schema_json}\n```"
-                )
-                prompt_parts.append(json_block)
-
         if self.memory and self.memory.invariants:
             self._invariant_reminders.reminders = [
                 textwrap.shorten(inv, width=DEFAULT_INVARIANT_REMINDER_CHARS, placeholder="...")
@@ -838,7 +794,7 @@ class PydanticAgent[T, DepsT = Any]:
         from devops_cli.ai.context_budget import count_tokens
 
         if isinstance(retries, int):
-            active_retries = AgentRetries(tools=retries, output=retries)
+            active_retries = AgentRetries(tools=retries)
         elif isinstance(retries, dict):
             active_retries = AgentRetries.model_validate(retries)
         elif isinstance(retries, AgentRetries):
@@ -847,7 +803,6 @@ class PydanticAgent[T, DepsT = Any]:
             active_retries = self.retries
 
         tool_retries: dict[str, int] = defaultdict(int)
-        output_retries: int = 0
 
         raw_model = getattr(self.client, "model", "")
         model_str = raw_model if isinstance(raw_model, str) else ""
@@ -943,11 +898,7 @@ class PydanticAgent[T, DepsT = Any]:
 
             from devops_cli.ai.response_repair import fix_llm_response
 
-            fixed = fix_llm_response(
-                response_text,
-                schema=self.output_schema,
-                available_tools=set(self._tools.keys()),
-            )
+            fixed = fix_llm_response(response_text, available_tools=set(self._tools.keys()))
 
             # Broadcast thoughts
             _record_and_broadcast_thoughts(fixed.thoughts, all_thoughts, on_thought)
@@ -1007,37 +958,6 @@ class PydanticAgent[T, DepsT = Any]:
 
             final_output = _resolve_fallback_output(final_output, tool_calls, all_thoughts)
 
-            # Output validation stage
-            if is_structured_output_schema(self.output_schema) and fixed.parsed_model is None:
-                retried, output_retries = _handle_schema_validation_retry(
-                    fixed,
-                    response_text,
-                    messages,
-                    turn,
-                    max_turns,
-                    output_retries,
-                    active_retries.output,
-                )
-                if retried:
-                    continue
-
-            if self._output_validators and (
-                fixed.parsed_model is not None or self.output_schema is None
-            ):
-                target_val = fixed.parsed_model if fixed.parsed_model is not None else final_output
-                val_err, fixed.parsed_model = _validate_agent_output(
-                    self._output_validators, target_val, ctx, fixed.parsed_model
-                )
-                if val_err and turn < max_turns and output_retries + 1 > active_retries.output:
-                    err_text = f"Output validation exceeded retry budget of {active_retries.output}: {val_err}"
-                    raise UnexpectedModelBehavior(err_text)
-                if val_err and turn < max_turns:
-                    output_retries += 1
-                    messages.append(ChatMessage(role="assistant", content=response_text))
-                    retry_prompt = f"Output validation failed: {val_err}. Please adjust your response and try again."
-                    messages.append(ChatMessage(role="user", content=retry_prompt))
-                    continue
-
             if not skip_memory:
                 self.memory.add_interaction("assistant", final_output)
                 self.memory.auto_summarize_if_needed(llm_client=self.client)
@@ -1055,7 +975,6 @@ class PydanticAgent[T, DepsT = Any]:
             )
             return AgentResponse[T](
                 content=final_output,
-                data=fixed.parsed_model,
                 tool_calls=tool_calls,
                 thoughts=all_thoughts,
                 turns=turn,
@@ -1133,11 +1052,7 @@ class PydanticAgent[T, DepsT = Any]:
 
             from devops_cli.ai.response_repair import fix_llm_response
 
-            fixed = fix_llm_response(
-                response_text,
-                schema=self.output_schema,
-                available_tools=set(self._tools.keys()),
-            )
+            fixed = fix_llm_response(response_text, available_tools=set(self._tools.keys()))
             if fixed.tool_calls:
                 yield from self._stream_turn_tools(fixed.tool_calls, ctx, response_text, messages)
                 continue
@@ -1145,7 +1060,7 @@ class PydanticAgent[T, DepsT = Any]:
             final_output = fixed.content.strip() or response_text
             yield AgentStepNode(
                 kind="end",
-                payload={"output": final_output, "data": fixed.parsed_model},
+                payload={"output": final_output},
             )
             return
 

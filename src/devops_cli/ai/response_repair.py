@@ -6,14 +6,13 @@ and normalizes responses across all LLM providers using standard pydantic_ai.mes
 
 from __future__ import annotations
 
-import inspect
 import json
 import re
-from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import json_repair
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import (
@@ -191,7 +190,7 @@ class ExtractedToolCall(BaseModel):
     raw_syntax: str = ""
 
 
-class FormattedLLMResponse[T](BaseModel):
+class FormattedLLMResponse(BaseModel):
     """Standardized, repaired, and formatted LLM response backed by pydantic_ai.messages."""
 
     content: str
@@ -201,11 +200,7 @@ class FormattedLLMResponse[T](BaseModel):
     tool_calls: list[ExtractedToolCall] = Field(default_factory=list)
     model_response: ModelResponse | None = None
     json_data: Any = None
-    parsed_model: T | None = None
-    validation_error: str | None = None
-    schema_reflection: Any = None
     was_repaired: bool = False
-    repair_notes: list[str] = Field(default_factory=list)
 
 
 def _extract_json_dict_tool_call(
@@ -393,108 +388,6 @@ def extract_model_response_parts(
     return clean_text, thinking_text, tool_calls
 
 
-def _text_only_function(function: Callable[..., object]) -> Callable[[str], object] | None:
-    """The text output function when it can run here: synchronous, taking the text alone.
-
-    A text output function may also take a `RunContext`, or be async; without a run context or
-    an event loop, the reply is left to the schema-free path rather than called wrongly.
-    """
-    if inspect.iscoroutinefunction(function):
-        return None
-    try:
-        parameters = inspect.signature(function).parameters
-    except TypeError, ValueError:
-        return None
-    return cast(Callable[[str], object], function) if len(parameters) == 1 else None
-
-
-def _try_model_validate[T](
-    target_schema: Any,
-    json_data: Any,
-    notes: list[str],
-) -> tuple[T | None, Any | None]:
-    """Validate json_data using model_validate if available."""
-    from pydantic import ValidationError
-
-    validator = getattr(target_schema, "model_validate", None)
-    if callable(validator) and isinstance(json_data, dict | list):
-        try:
-            return validator(json_data), None
-        except ValidationError as val_err:
-            return None, val_err
-        except Exception as exc:
-            notes.append(f"Model validation error: {exc}")
-    return None, None
-
-
-def _try_python_validate[T](
-    target_schema: Any,
-    json_data: Any,
-    notes: list[str],
-) -> tuple[T | None, Any | None]:
-    """Validate json_data using TypeAdapter.validate_python."""
-    from pydantic import ValidationError
-
-    try:
-        return cast(T, TypeAdapter(target_schema).validate_python(json_data)), None
-    except ValidationError as val_err:
-        return None, val_err
-    except Exception as exc:
-        notes.append(f"Python validation error: {exc}")
-    return None, None
-
-
-def _try_json_validate[T](
-    target_schema: Any,
-    final_content: str,
-    notes: list[str],
-) -> tuple[T | None, Any | None]:
-    """Validate raw final_content string using TypeAdapter.validate_json."""
-    from pydantic import ValidationError
-
-    try:
-        return TypeAdapter(target_schema).validate_json(final_content), None
-    except ValidationError as val_err:
-        return None, val_err
-    except Exception as exc:
-        notes.append(f"JSON validation error: {exc}")
-    return None, None
-
-
-def _parse_schema_model[T](
-    target_schema: Any,
-    json_data: Any,
-    final_content: str,
-) -> tuple[T | None, str | None, Any | None, list[str]]:
-    """Attempt parsing and validating response against target schema with error reflection."""
-    from devops_cli.ai.schema_reflection import extract_schema_reflection
-
-    notes: list[str] = []
-
-    model, last_err = _try_model_validate(target_schema, json_data, notes)
-    if model is not None:
-        return model, None, None, notes
-
-    if json_data is not None:
-        model, py_err = _try_python_validate(target_schema, json_data, notes)
-        if model is not None:
-            return model, None, None, notes
-        last_err = py_err or last_err
-
-    if final_content:
-        model, json_err = _try_json_validate(target_schema, final_content, notes)
-        if model is not None:
-            return model, None, None, notes
-        last_err = last_err or json_err
-
-    if last_err is not None:
-        report = extract_schema_reflection(last_err)
-        notes.extend([v.fix_hint for v in report.violations if v.fix_hint])
-        return None, report.format_error_summary(), report, notes
-
-    return None, None, None, notes
-
-
 def _build_extracted_tool_calls(
     tool_parts: Sequence[ToolCallPart],
     available_tools: list[str] | set[str] | None,
@@ -514,38 +407,10 @@ def _build_extracted_tool_calls(
     return calls
 
 
-def _resolve_schema_parsed_model[T](
-    schema: Any,
-    json_data: Any,
-    final_content: str,
-) -> tuple[T | None, str | None, Any | None, list[str]]:
-    """Resolve parsed model against TextOutput or structured model schema."""
-    if schema is None:
-        return None, None, None, []
-
-    from devops_cli.ai.output import TextOutput, unwrap_output_spec
-
-    if isinstance(schema, TextOutput):
-        parse_text = _text_only_function(schema.output_function)
-        if parse_text is not None:
-            try:
-                return cast(T, parse_text(final_content)), None, None, []
-            except Exception as exc:
-                return None, f"Text output function error: {exc}", None, []
-        return None, None, None, []
-
-    unwrapped = unwrap_output_spec(schema)
-    target_schema = unwrapped[0] if unwrapped else schema
-    if target_schema is str:
-        return cast(T, final_content), None, None, []
-    return _parse_schema_model(target_schema, json_data, final_content)
-
-
-def fix_llm_response[T = Any](
+def fix_llm_response(
     raw_response: str | Any,
-    schema: type[T] | None = None,
     available_tools: list[str] | set[str] | None = None,
-) -> FormattedLLMResponse[T]:
+) -> FormattedLLMResponse:
     """Universal AI/LLM response parser and formatter built on pydantic_ai.messages.ModelResponse."""
     from pydantic_ai.messages import ThinkingPart
 
@@ -555,9 +420,6 @@ def fix_llm_response[T = Any](
     thoughts = [p.content for p in resp.parts if isinstance(p, ThinkingPart) and p.has_content()]
 
     json_data = repair_json_string(final_content)
-    parsed_model, validation_err, schema_refl, notes = _resolve_schema_parsed_model(
-        schema, json_data, final_content
-    )
 
     raw_str = str(raw_response) if raw_response is not None else ""
     was_repaired = bool(
@@ -567,8 +429,6 @@ def fix_llm_response[T = Any](
         or (final_content.strip() != raw_str.strip())
     )
 
-    # Not `FormattedLLMResponse[T]`: pydantic would build a parametrized class that it caches
-    # only weakly, and rebuild its whole schema for a reply after any garbage collection.
     return FormattedLLMResponse(
         content=final_content,
         raw_content=raw_str,
@@ -577,9 +437,5 @@ def fix_llm_response[T = Any](
         tool_calls=tool_calls,
         model_response=resp,
         json_data=json_data,
-        parsed_model=parsed_model,
-        validation_error=validation_err,
-        schema_reflection=schema_refl,
         was_repaired=was_repaired,
-        repair_notes=notes,
     )

@@ -277,7 +277,6 @@ class AgentSpec(BaseModel):
     model_settings: dict[str, Any] = Field(default_factory=dict)
     capabilities: list[Any] = Field(default_factory=list)
     deps_schema: dict[str, Any] | None = None
-    output_schema: dict[str, Any] | None = None
     retries: int | None = None
     end_strategy: str = "early"
     tool_timeout: float | None = None
