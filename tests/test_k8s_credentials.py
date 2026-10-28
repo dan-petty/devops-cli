@@ -23,6 +23,7 @@ import pytest
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.k8s import KubernetesError
+from devops_cli.http.egress import EgressLevel
 from devops_cli.k8s.credentials import (
     fetch_argocd_password,
     fetch_grafana_password,
@@ -47,6 +48,7 @@ GRAFANA_TOKENS = f"{GRAFANA_ACCOUNTS}/7/tokens"
 ARGOCD_SECRET_READ = ("kubectl", "get", "secret", "argocd-initial-admin-secret")
 NOT_FOUND = 'Error from server (NotFound): secrets "argocd-initial-admin-secret" not found'
 KEPT = "; the stored token stays in the keyring"
+LOOPBACK = EgressLevel.LOOPBACK
 
 pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
 
@@ -784,7 +786,7 @@ def test_a_failed_mint_raises_its_cause(stub_web: StubWeb) -> None:
     stub_web.respond("POST", ARGOCD_SESSION, 401, {"error": "Invalid username or password"})
 
     with pytest.raises(KubernetesError) as caught:
-        mint_argocd_token(ARGOCD, "wrong-pw")
+        mint_argocd_token(ARGOCD, "wrong-pw", level=LOOPBACK)
 
     assert str(caught.value) == (
         f"Argo CD refused the admin session at {ARGOCD_SESSION} with HTTP 401"
@@ -793,9 +795,9 @@ def test_a_failed_mint_raises_its_cause(stub_web: StubWeb) -> None:
 
 def test_mint_tokens_refuse_a_url_with_no_scheme(stub_web: StubWeb) -> None:
     with pytest.raises(ConfigurationError) as argocd_error:
-        mint_argocd_token("argocd.example.com", "admin-pw")
+        mint_argocd_token("argocd.example.com", "admin-pw", level=LOOPBACK)
     with pytest.raises(ConfigurationError) as grafana_error:
-        mint_grafana_token("grafana.example.com", "admin-pw")
+        mint_grafana_token("grafana.example.com", "admin-pw", level=LOOPBACK)
 
     assert (
         "argocd.url" in str(argocd_error.value),
@@ -809,8 +811,12 @@ def test_mint_tokens_use_a_lowercase_scheme(stub_web: StubWeb, mock_keyring: Fak
     _serve_grafana_mint(stub_web, [])
 
     tokens = (
-        mint_argocd_token("HTTPS://argocd.example.com", "admin-pw", save_to_keyring=False),
-        mint_grafana_token("HTTPS://grafana.example.com/", "admin-pw", save_to_keyring=False),
+        mint_argocd_token(
+            "HTTPS://argocd.example.com", "admin-pw", level=LOOPBACK, save_to_keyring=False
+        ),
+        mint_grafana_token(
+            "HTTPS://grafana.example.com/", "admin-pw", level=LOOPBACK, save_to_keyring=False
+        ),
     )
 
     assert (tokens, _requests(stub_web), mock_keyring.writes) == (

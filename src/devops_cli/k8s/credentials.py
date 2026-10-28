@@ -5,6 +5,10 @@ keeps an API token for Argo CD and for Grafana. It keeps a stored token that the
 and mints a new token only when the service refuses the stored one. When the check fails, with
 another HTTP status or a request error, the sync keeps the stored token. Every failure reaches
 the sync result with its cause (#2156).
+
+Each request dials through the egress factory at the level of its caller. The callers that read
+the settings give the configured level: loopback, or private with `ai.allow_private_network`. An
+address that the level refuses fails the step with its cause, as a request error does.
 """
 
 from __future__ import annotations
@@ -41,7 +45,10 @@ from devops_cli.config.settings import (
     load_settings,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.exceptions.k8s import StackCredentialError
+from devops_cli.http.egress import EgressLevel, configured_level
+from devops_cli.http.urls import service_base_url
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
@@ -76,18 +83,6 @@ class CredentialSync:
 
 _SYNCED = CredentialSync(SyncState.SYNCED)
 _MISSING = CredentialSync(SyncState.MISSING)
-
-
-def _service_base_url(
-    base_url: str, setting_name: str, purpose: str, allow_private_network: bool
-) -> str:
-    """Return the clean base URL of a stack service, after the egress check of the URL."""
-    from devops_cli.http.urls import service_base_url
-    from devops_cli.http.validation import validate_service_url
-
-    clean_base = service_base_url(base_url, setting_name)
-    validate_service_url(clean_base, purpose, allow=allow_private_network)
-    return clean_base
 
 
 def _store_secret(key: str, value: str, metric_service: str) -> None:
@@ -269,23 +264,26 @@ def mint_argocd_token(
     base_url: str,
     password: str,
     *,
+    level: EgressLevel,
     save_to_keyring: bool = True,
-    allow_private_network: bool = True,
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
 ) -> str:
     """Open an Argo CD admin session with the admin password, and return its token.
 
-    Raise StackCredentialError with the cause when Argo CD refuses the session or sends no
-    token, when the request fails, or when the keyring cannot store the token.
+    The request dials at `level`. Raise StackCredentialError with the cause when Argo CD refuses
+    the session or sends no token, when the request fails or `level` refuses the address, or
+    when the keyring cannot store the token.
     """
     import httpx2
 
-    clean_base = _service_base_url(base_url, "argocd.url", "ArgoCD", allow_private_network)
+    from devops_cli.http.client import new_http_client
+
+    clean_base = service_base_url(base_url, "argocd.url")
     url = f"{clean_base}/api/v1/session"
     try:
-        with httpx2.Client(timeout=timeout) as client:
+        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.post(url, json={"username": "admin", "password": password})
-    except httpx2.RequestError as exc:
+    except (httpx2.RequestError, SSRFBlockedError) as exc:
         raise StackCredentialError(
             f"The {_ARGOCD_LABEL} token mint at {url} failed: {_request_failure(exc)}"
         ) from exc
@@ -394,8 +392,8 @@ def mint_grafana_token(
     base_url: str,
     password: str,
     *,
+    level: EgressLevel,
     save_to_keyring: bool = True,
-    allow_private_network: bool = True,
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
 ) -> str:
     """Mint a token for the devops-cli service account of Grafana with the admin password.
@@ -403,14 +401,17 @@ def mint_grafana_token(
     The account keeps one token: the mint lists the older tokens, creates the new token, stores
     it, and only then revokes the older tokens. A failed create or store revokes nothing. A
     refused revoke logs its cause and keeps the new token, and the next mint revokes the old one.
-    Raise StackCredentialError with the cause when a step before the revoke fails, or when the
-    keyring cannot store the token.
+    The requests dial at `level`. Raise StackCredentialError with the cause when a step before
+    the revoke fails or `level` refuses the address, or when the keyring cannot store the token.
     """
     import httpx2
 
-    clean_base = _service_base_url(base_url, "grafana.url", "Grafana", allow_private_network)
+    from devops_cli.http.client import new_http_client
+
+    clean_base = service_base_url(base_url, "grafana.url")
     try:
-        with httpx2.Client(auth=("admin", password), timeout=timeout) as client:
+        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+            client.auth = httpx2.BasicAuth("admin", password)
             account_id = _find_or_create_grafana_sa(client, clean_base)
             old_token_ids = _list_grafana_sa_token_ids(client, clean_base, account_id)
             token = _create_grafana_sa_token(client, clean_base, account_id)
@@ -420,7 +421,7 @@ def mint_grafana_token(
                 _revoke_grafana_sa_tokens(client, clean_base, account_id, old_token_ids)
             except StackCredentialError as exc:
                 logger.warning("%s; the old token stays until a later mint revokes it", exc)
-    except httpx2.RequestError as exc:
+    except (httpx2.RequestError, SSRFBlockedError) as exc:
         raise StackCredentialError(
             f"The {_GRAFANA_LABEL} token mint at {clean_base} failed: {_request_failure(exc)}"
         ) from exc
@@ -439,12 +440,11 @@ def get_or_mint_argocd_token(settings: Any) -> str | None:
     pw = get_argocd_password(settings)
     argo_url = getattr(getattr(settings, "argocd", None), "url", None)
     if pw and argo_url:
-        allow = getattr(getattr(settings, "ai", None), "allow_private_network", True)
         return mint_argocd_token(
             argo_url,
             pw,
+            level=configured_level(settings.ai),
             save_to_keyring=True,
-            allow_private_network=allow,
         )
     return None
 
@@ -465,13 +465,12 @@ def get_or_mint_grafana_auth(settings: Any) -> tuple[str | None, str | None]:
 
     graf_url = getattr(getattr(settings, "grafana", None), "url", None)
     if graf_url:
-        allow = getattr(getattr(settings, "ai", None), "allow_private_network", True)
         try:
             minted = mint_grafana_token(
                 graf_url,
                 pw,
+                level=configured_level(settings.ai),
                 save_to_keyring=True,
-                allow_private_network=allow,
             )
         except StackCredentialError as exc:
             logger.warning(
@@ -484,17 +483,22 @@ def get_or_mint_grafana_auth(settings: Any) -> tuple[str | None, str | None]:
     return None, f"Basic {base64.b64encode(auth_bytes).decode('utf-8')}"
 
 
-def _check_token(url: str, token: str, service: str, timeout: float) -> httpx2.Response | None:
+def _check_token(
+    url: str, token: str, service: str, level: EgressLevel, timeout: float
+) -> httpx2.Response | None:
     """Send the bearer token to `url`: the answer when accepted, None when the service refused it.
 
-    Raise StackCredentialError when the check fails, with another status or a request error.
+    The request dials at `level`. Raise StackCredentialError when the check fails, with another
+    status, a request error or an address that `level` refuses.
     """
     import httpx2
 
+    from devops_cli.http.client import new_http_client
+
     try:
-        with httpx2.Client(timeout=timeout) as client:
+        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(url, headers={"Authorization": f"Bearer {token}"})
-    except httpx2.RequestError as exc:
+    except (httpx2.RequestError, SSRFBlockedError) as exc:
         raise StackCredentialError(
             f"The {service} token check at {url} failed: {_request_failure(exc)}"
         ) from exc
@@ -511,18 +515,19 @@ def verify_argocd_token(
     base_url: str,
     token: str,
     *,
+    level: EgressLevel,
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
-    allow_private_network: bool = True,
 ) -> bool:
     """Return True when Argo CD accepts the session token, and False when it refuses it.
 
     Argo CD refuses a token with HTTP 401 or 403, or with `loggedIn: false` from its userinfo,
     which answers every caller with HTTP 200. Raise StackCredentialError when the check fails:
-    another status, an answer that is not JSON, or a request error.
+    another status, an answer that is not JSON, a request error, or an address that `level`
+    refuses.
     """
-    clean_base = _service_base_url(base_url, "argocd.url", "ArgoCD", allow_private_network)
+    clean_base = service_base_url(base_url, "argocd.url")
     url = f"{clean_base}/api/v1/session/userinfo"
-    resp = _check_token(url, token, _ARGOCD_LABEL, timeout)
+    resp = _check_token(url, token, _ARGOCD_LABEL, level, timeout)
     if resp is None:
         return False
     return _read_json(resp, dict, _ARGOCD_LABEL).get("loggedIn") is True
@@ -532,16 +537,17 @@ def verify_grafana_token(
     base_url: str,
     token: str,
     *,
+    level: EgressLevel,
     timeout: float = DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
-    allow_private_network: bool = True,
 ) -> bool:
     """Return True when Grafana accepts the API or service account token, False when it refuses it.
 
     Grafana refuses a token with HTTP 401 or 403. Raise StackCredentialError when the check
-    fails: another status, or a request error.
+    fails: another status, a request error, or an address that `level` refuses.
     """
-    clean_base = _service_base_url(base_url, "grafana.url", "Grafana", allow_private_network)
-    return _check_token(f"{clean_base}/api/org", token, _GRAFANA_LABEL, timeout) is not None
+    clean_base = service_base_url(base_url, "grafana.url")
+    url = f"{clean_base}/api/org"
+    return _check_token(url, token, _GRAFANA_LABEL, level, timeout) is not None
 
 
 @dataclass(frozen=True)
@@ -551,7 +557,7 @@ class _TokenService:
     label: str
     key: str
     stored_token: Callable[[Settings], str | None]
-    verify: Callable[[str, str], bool]
+    verify: Callable[..., bool]
     mint: Callable[..., str]
 
 
@@ -589,12 +595,14 @@ def _sync_token(
 ) -> CredentialSync | None:
     """Keep the stored token that the service accepts, and mint a new one only after a refusal.
 
-    Return None when there is nothing to sync: no stored token and no admin password.
+    The check and the mint dial the configured level of `settings`. Return None when there is
+    nothing to sync: no stored token and no admin password.
     """
+    level = configured_level(settings.ai)
     stored_token = service.stored_token(settings)
     if stored_token:
         try:
-            accepted = service.verify(url, stored_token)
+            accepted = service.verify(url, stored_token, level=level)
         except StackCredentialError as exc:
             return CredentialSync(SyncState.FAILED, f"{exc}; the stored token stays in the keyring")
         if accepted:
@@ -608,7 +616,7 @@ def _sync_token(
     if not password:
         return None
     try:
-        service.mint(url, password, save_to_keyring=save_to_keyring)
+        service.mint(url, password, level=level, save_to_keyring=save_to_keyring)
     except StackCredentialError as exc:
         return _failed(exc)
     return _SYNCED

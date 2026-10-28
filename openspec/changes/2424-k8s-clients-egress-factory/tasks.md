@@ -17,7 +17,7 @@
 
 ## 4. The token mint and the token check
 
-- [ ] Give the mint and the check functions a keyword `level` in place of `allow_private_network`, give them factory clients at that level, delete `_service_base_url`, make a refused address a failed step, and give `configured_level(settings.ai)` from `get_or_mint_argocd_token`, `get_or_mint_grafana_auth` and `sync_k8s_credentials`
+- [x] Give the mint and the check functions a keyword `level` in place of `allow_private_network`, give them factory clients at that level, delete `_service_base_url`, make a refused address a failed step, and give `configured_level(settings.ai)` from `get_or_mint_argocd_token`, `get_or_mint_grafana_auth` and `sync_k8s_credentials`
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_k8s_credentials.py`
 
 ## 5. Loki and the direct cluster-service URLs
