@@ -119,7 +119,7 @@ def _stream_lines(frames: Iterable[tuple[bytes | None, bytes | None]]) -> list[t
 
 def log_frames_keep_their_stream(client: EngineClient) -> tuple[Any, ...]:
     """A container's log read as frames keeps each line's stream, with tail, timestamps and follow;
-    a container with a TTY gives every line on stdout."""
+    a container with a TTY gives every line on stdout; the log of a removed container is refused."""
     # Imported here: the fail-to-pass replay loads this plugin on a base without the function.
     from devops_cli.docker.engine import container_log_frames
 
@@ -135,6 +135,7 @@ def log_frames_keep_their_stream(client: EngineClient) -> tuple[Any, ...]:
     in_tty = _stream_lines(container_log_frames(client, tty))
     for container in (piped, tty):
         client.api.remove_container(container.id, force=True)
+    gone = _refusal(lambda: container_log_frames(client, piped))[:2]
     return (
         every,
         len(last),
@@ -142,6 +143,7 @@ def log_frames_keep_their_stream(client: EngineClient) -> tuple[Any, ...]:
         sorted((stream, _LOG_TIME.sub(b"", line)) for stream, line in stamped),
         followed,
         in_tty,
+        gone,
     )
 
 
