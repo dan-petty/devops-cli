@@ -21,7 +21,7 @@ Issue #2424 is part 2 of the split of #1381. The Grafana, Prometheus and Argo CD
 ## What Changes
 
 - Each caller in the table gets its client from `new_http_client` at its level. The client resolves the host one time, at the connect, and dials only the addresses that its level admits. The factory checks each redirect hop in the same way.
-- The pre-flight address checks in the table are deleted, and `_service_base_url` of `k8s/credentials.py` with them.
+- The pre-flight address checks in the table are deleted, and with them `_service_base_url` of `k8s/credentials.py` and the `purpose` parameter of `service_http.get_json`, which only the deleted check read.
 - The mint and the check functions of `k8s/credentials.py` take an `EgressLevel` in place of the `allow_private_network` flag, whose default was `True`. `get_or_mint_argocd_token`, `get_or_mint_grafana_auth` and `sync_k8s_credentials` give `configured_level(settings.ai)`.
 - An address that the level refuses is a failed step of the mint or the check, with its cause, as a request error is. The sync reports it and does not stop.
 - A check that reads only the URL stays where a command needs an early error. `_clean_service_base_url` of `k8s/credentials.py` moves to `devops_cli.http.urls` as `service_base_url`. The `devops grafana`, `devops prometheus` and `devops argo cd apps` commands call it, so a `k8s://` address that `devops k8s configure-urls --addressing proxy` wrote stops the command with an error that names the setting, before any lookup.
@@ -46,7 +46,7 @@ None.
 
 ## Impact
 
-- `src/devops_cli/commands/grafana.py`, `src/devops_cli/commands/prometheus.py`, `src/devops_cli/commands/argo.py`, `src/devops_cli/argo/fleet.py`, `src/devops_cli/argo/gitops.py`, `src/devops_cli/argo/rollouts.py`, `src/devops_cli/k8s/credentials.py`, `src/devops_cli/k8s/logql.py`, `src/devops_cli/k8s/service_http.py`, `src/devops_cli/http/urls.py`.
+- `src/devops_cli/commands/grafana.py`, `src/devops_cli/commands/prometheus.py`, `src/devops_cli/commands/argo.py`, `src/devops_cli/argo/fleet.py`, `src/devops_cli/argo/gitops.py`, `src/devops_cli/argo/rollouts.py`, `src/devops_cli/k8s/credentials.py`, `src/devops_cli/k8s/logql.py`, `src/devops_cli/k8s/service_http.py`, `src/devops_cli/http/urls.py`, and the one caller of `get_json` that gave `purpose`, `src/devops_cli/ui/data_providers.py`.
 - `tests/test_http_egress.py`, and the tests that faked the deleted checks: `tests/test_prometheus.py`, `tests/test_argo.py`, `tests/test_grafana.py`, `tests/test_argo_fleet.py`, `tests/test_k8s_credentials.py`, `tests/test_k8s_logql.py`, `tests/test_k8s_service_proxy.py`.
 - `README.md`, `SECURITY.md`, `docs/KNOWN_ISSUES.md`.
 
@@ -60,4 +60,4 @@ None.
 
 ## Existing Tool Considered
 
-The change uses the egress-checked factory of #898 (`devops_cli.http.client`), which builds on the httpcore2 network backend API, and the `exit_on` option of `new_typer` for the error report. The early URL check is the existing `_clean_service_base_url`, moved and renamed; it uses `urllib.parse.urlsplit` and makes no lookup. The change builds no new check. It deletes these internal paths: the nine pre-flight calls in the table, `_service_base_url`, and the `allow_private_network` parameters of `mint_argocd_token`, `mint_grafana_token`, `verify_argocd_token` and `verify_grafana_token`.
+The change uses the egress-checked factory of #898 (`devops_cli.http.client`), which builds on the httpcore2 network backend API, and the `exit_on` option of `new_typer` for the error report. The early URL check is the existing `_clean_service_base_url`, moved and renamed; it uses `urllib.parse.urlsplit` and makes no lookup. The change builds no new check. It deletes these internal paths: the nine pre-flight calls in the table, `_service_base_url`, the `purpose` parameter of `get_json`, and the `allow_private_network` parameters of `mint_argocd_token`, `mint_grafana_token`, `verify_argocd_token` and `verify_grafana_token`.

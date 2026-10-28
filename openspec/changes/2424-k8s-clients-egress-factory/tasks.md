@@ -22,8 +22,8 @@
 
 ## 5. Loki and the direct cluster-service URLs
 
-- [ ] Delete the `validate_url_egress` calls of `execute_loki_query` and `service_http.get_json`
-  - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_k8s_logql.py tests/test_k8s_service_proxy.py`
+- [x] Delete the `validate_url_egress` calls of `execute_loki_query` and `service_http.get_json`, the `purpose` parameter of `get_json` that only the deleted check read, and the Loki test that expected `SSRFBlockedError` for an `ftp://` URL
+  - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_k8s_logql.py tests/test_k8s_service_proxy.py tests/test_ui_telemetry_panel.py`
 
 ## 6. Documentation
 

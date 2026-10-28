@@ -12,7 +12,6 @@ import logging
 from typing import Any
 
 from devops_cli.config.defaults import DEFAULT_K8S_PROXY_TIMEOUT_SECONDS
-from devops_cli.core.validation import validate_url_egress
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.pool import get_shared_client
 from devops_cli.k8s.service_proxy import (
@@ -43,7 +42,6 @@ def get_json(
     *,
     timeout: float = DEFAULT_K8S_PROXY_TIMEOUT_SECONDS,
     context: str | None = None,
-    purpose: str = "cluster service",
 ) -> Any:
     """Fetch JSON from a plain URL or a `k8s://` Service reference."""
     from devops_cli.http.urls import append_path
@@ -67,11 +65,10 @@ def get_json(
         response.raise_for_status()
         return json.loads(response.text)
 
-    # A direct URL is validated for egress. The endpoint is operator-configured and
-    # ordinarily private, which is the case SSRF protection is not aimed at; the connect still
-    # refuses a cloud metadata address, as it does for the API server proxy above.
+    # The endpoint is operator-configured and ordinarily private, which is the case SSRF
+    # protection is not aimed at. The connect resolves the host once and refuses a cloud
+    # metadata address, as it does for the API server proxy above.
     full_url = str(append_path(url, path)) if path else url
-    validate_url_egress(full_url, purpose=purpose, allow_private=True)
     client = get_shared_client(f"direct:{_transport_key(full_url)}", EgressLevel.PRIVATE)
     response = client.get(full_url, timeout=timeout)
     response.raise_for_status()

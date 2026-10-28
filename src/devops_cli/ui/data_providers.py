@@ -509,7 +509,6 @@ def _fetch_prometheus_metrics(base_url: str) -> TelemetrySummary:
         base_url,
         "api/v1/label/__name__/values",
         timeout=DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS,
-        purpose="Prometheus",
     )
     names = payload.get("data") or []
 

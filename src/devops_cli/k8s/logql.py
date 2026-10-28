@@ -18,7 +18,7 @@ from devops_cli.config.defaults import (
     DEFAULT_LOKI_URL,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.validation import is_valid_k8s_name, validate_url_egress
+from devops_cli.core.validation import is_valid_k8s_name
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
@@ -380,9 +380,12 @@ def execute_loki_query(
     limit: int = DEFAULT_LOG_QUERY_LIMIT,
     since: str = DEFAULT_LOG_QUERY_SINCE,
 ) -> LogQueryResult:
-    """Execute LogQL query against Loki REST API (/loki/api/v1/query_range)."""
-    valid_url = validate_url_egress(loki_url, purpose="Loki", allow_private=True)
-    endpoint = f"{valid_url.rstrip('/')}/loki/api/v1/query_range"
+    """Execute LogQL query against Loki REST API (/loki/api/v1/query_range).
+
+    The client dials the private level and resolves the host once, at the connect. httpx2
+    refuses a scheme other than http and https with UnsupportedProtocol before any lookup.
+    """
+    endpoint = f"{loki_url.strip().rstrip('/')}/loki/api/v1/query_range"
     params: dict[str, Any] = {
         "query": query.raw_query,
         "limit": limit,
