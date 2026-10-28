@@ -2,7 +2,7 @@
 
 ## 1. Share the readers of the k8s tree
 
-- [ ] 1.1 Move the readers of `tests/test_k8s_local_path_placement.py` (the values at a dotted path, the YAML documents of a file, the values of each chart that an Application installs, the objects of each manifest, and the pod spec of a workload) into `tests/support/k8s_tree.py`, and delete the private copies; verify with `uv run devops ci test tests/test_k8s_local_path_placement.py`
+- [x] 1.1 Move the readers of `tests/test_k8s_local_path_placement.py` (the values at a dotted path, the YAML documents of a file, the values of each chart that an Application installs, the objects of each manifest, and the pod spec of a workload) into `tests/support/k8s_tree.py`, and delete the private copies; verify with `uv run devops ci test tests/test_k8s_local_path_placement.py`
 
 ## 2. Pods that do not call the API mount no token
 

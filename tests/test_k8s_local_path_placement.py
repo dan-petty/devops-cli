@@ -16,43 +16,17 @@ is in `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS`, with its reason.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
-from functools import cache
-from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from devops_cli.config.constants import CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS
-from tests.support.paths import REPO_ROOT
+from tests.support.k8s_tree import chart_values, manifests, pod_spec, value_at
 
-K8S = REPO_ROOT / "k8s"
-APPLICATIONS = K8S / "argocd" / "apps"
 CONTROL_PLANE_LABEL = "node-role.kubernetes.io/control-plane"
 OFF_CONTROL_PLANE = {"key": CONTROL_PLANE_LABEL, "operator": "DoesNotExist"}
-VALUES_PREFIX = "$values/"
-
-# Where each workload kind keeps its pod spec.
-POD_SPEC_PATHS: dict[str, tuple[str, ...]] = {
-    "Pod": ("spec",),
-    "Deployment": ("spec", "template", "spec"),
-    "StatefulSet": ("spec", "template", "spec"),
-    "DaemonSet": ("spec", "template", "spec"),
-    "ReplicaSet": ("spec", "template", "spec"),
-    "Job": ("spec", "template", "spec"),
-    "CronJob": ("spec", "jobTemplate", "spec", "template", "spec"),
-}
-
-
-def _get(values: Any, path: str, default: Any = None) -> Any:
-    """The value at a dotted path, or the default when a key on the path is absent."""
-    for key in path.split("."):
-        if not isinstance(values, dict) or key not in values:
-            return default
-        values = values[key]
-    return values
 
 
 @dataclass(frozen=True)
@@ -66,7 +40,7 @@ class ClaimSite:
 
 def _on(*switches: tuple[str, Any]) -> Callable[[dict[str, Any]], bool]:
     """A claim that is on when every switch is truthy; each switch has the chart's default."""
-    return lambda values: all(_get(values, path, default) for path, default in switches)
+    return lambda values: all(value_at(values, path, default) for path, default in switches)
 
 
 def _loki_mode(values: dict[str, Any]) -> bool:
@@ -76,15 +50,15 @@ def _loki_mode(values: dict[str, Any]) -> bool:
     The other modes run write and backend StatefulSets with claims of their own, which this table
     does not name, so the test fails on them until it does.
     """
-    mode = _get(values, "deploymentMode", "Monolithic")
+    mode = value_at(values, "deploymentMode", "Monolithic")
     if mode not in ("Monolithic", "SingleBinary"):
         pytest.fail(f"Loki deploymentMode {mode}: name its claims in CHART_CLAIMS")
-    return bool(_get(values, "singleBinary.persistence.enabled", True))
+    return bool(value_at(values, "singleBinary.persistence.enabled", True))
 
 
 def _alloy_collectors(values: dict[str, Any]) -> tuple[ClaimSite, ...]:
     """Each k8s-monitoring Alloy collector whose controller has claim templates."""
-    collectors = _get(values, "collectors", {}) or {}
+    collectors = value_at(values, "collectors", {}) or {}
     return tuple(
         ClaimSite(
             f"collectors.{name}",
@@ -168,38 +142,12 @@ def keeps_off_the_control_plane(affinity: Any) -> bool:
 
     The terms of `nodeSelectorTerms` are ORed, so one term without it admits the node.
     """
-    terms = _get(
+    terms = value_at(
         affinity, "nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms"
     )
     return bool(terms) and all(
         OFF_CONTROL_PLANE in (term.get("matchExpressions") or []) for term in terms
     )
-
-
-@cache
-def _documents(path: Path) -> tuple[dict[str, Any], ...]:
-    """The mappings a YAML file holds, read once."""
-    return tuple(
-        document
-        for document in yaml.safe_load_all(path.read_text(encoding="utf-8"))
-        if isinstance(document, dict)
-    )
-
-
-def _chart_values() -> Iterator[tuple[str, str, dict[str, Any]]]:
-    """Each chart an Application installs, its values file and the values, in file order."""
-    for application_file in sorted(APPLICATIONS.glob("*.yaml")):
-        for application in _documents(application_file):
-            if application.get("kind") != "Application":
-                continue
-            spec = application["spec"]
-            for source in spec.get("sources") or [spec.get("source")]:
-                if not source or "chart" not in source:
-                    continue
-                for value_file in source.get("helm", {}).get("valueFiles", []):
-                    relative = value_file.removeprefix(VALUES_PREFIX)
-                    (values,) = _documents(REPO_ROOT / relative)
-                    yield source["chart"], relative, values
 
 
 def _chart_sites(chart: str, values: dict[str, Any]) -> tuple[ClaimSite, ...]:
@@ -211,42 +159,16 @@ def _chart_sites(chart: str, values: dict[str, Any]) -> tuple[ClaimSite, ...]:
 def _chart_pods() -> dict[str, Any]:
     """Each chart pod that mounts a claim, keyed `<values file>:<pod>`, with its affinity."""
     return {
-        f"{relative}:{site.pod}": _get(values, site.affinity)
-        for chart, relative, values in _chart_values()
+        f"{relative}:{site.pod}": value_at(values, site.affinity)
+        for chart, relative, values in chart_values()
         for site in _chart_sites(chart, values)
         if site.claims(values)
     }
 
 
-def _value_files() -> frozenset[str]:
-    """Every values file an Application names."""
-    return frozenset(relative for _, relative, _ in _chart_values())
-
-
-def _manifests() -> Iterator[tuple[str, dict[str, Any]]]:
-    """Each Kubernetes object a manifest under k8s/ declares, with its file."""
-    values = _value_files()
-    for path in sorted(K8S.rglob("*.y*ml")):
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        if relative in values:
-            continue
-        for document in _documents(path):
-            if "kind" in document:
-                yield relative, document
-
-
-def _pod_spec(document: dict[str, Any]) -> dict[str, Any] | None:
-    """The pod spec of a workload, or None for another kind."""
-    path = POD_SPEC_PATHS.get(str(document.get("kind")))
-    spec = document
-    for key in path or ():
-        spec = spec.get(key) or {}
-    return spec if path else None
-
-
 def _manifest_pods() -> dict[str, Any]:
     """Each manifest pod that mounts a claim, keyed `<file>:<kind>/<name>`, with its affinity."""
-    documents = list(_manifests())
+    documents = list(manifests())
     claims = {
         (document["metadata"].get("namespace"), document["metadata"]["name"])
         for _, document in documents
@@ -254,7 +176,7 @@ def _manifest_pods() -> dict[str, Any]:
     }
     pods: dict[str, Any] = {}
     for relative, document in documents:
-        pod = _pod_spec(document)
+        pod = pod_spec(document)
         if pod is None:
             continue
         namespace = document["metadata"].get("namespace")
@@ -320,7 +242,7 @@ def test_the_placement_check_needs_the_term_in_every_required_term(
 
 def test_every_chart_an_application_installs_states_its_claims() -> None:
     """A chart with no entry in CHART_CLAIMS could mount a claim that no check sees."""
-    assert sorted({chart for chart, _, _ in _chart_values()} - CHART_CLAIMS.keys()) == []
+    assert sorted({chart for chart, _, _ in chart_values()} - CHART_CLAIMS.keys()) == []
 
 
 def test_every_chart_pod_on_a_claim_keeps_off_the_control_plane_node() -> None:
