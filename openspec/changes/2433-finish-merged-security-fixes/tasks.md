@@ -31,7 +31,7 @@
   - Verification: `uv run devops ci test tests/invariants/test_service_image.py`
 - [x] 4.3 Make the finder search the Dockerfile text for each gh release URL
   - Verification: `uv run devops ci test tests/invariants/test_service_image.py`
-- [ ] 4.4 Add `test_service_image.py` to the subject files of `tests/invariants/` in `docs/TESTING.md`
+- [x] 4.4 Add `test_service_image.py` to the subject files of `tests/invariants/` in `docs/TESTING.md`
   - Verification: `uv run devops docs check`
 
 ## Workflow follow-up
