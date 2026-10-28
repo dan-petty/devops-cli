@@ -22,6 +22,7 @@ from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_UV, build_uv_audit_cmd
 from devops_cli.config.constants import CONST_UV_LOCK_FILENAME
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
+from devops_cli.lang import MESSAGES
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 if TYPE_CHECKING:
@@ -114,6 +115,15 @@ class UvAuditScanner(BaseSecurityScanner):
 
     name: str = "uv-audit"
     binary_name: str = BIN_UV
+
+    def is_applicable(self, target_path: Any, **kwargs: Any) -> tuple[bool, str]:
+        """Applicable to a directory only. uv finds the project from the directory that it starts
+        in and from each parent directory, and a scan of a path that is not a directory starts in
+        the nearest parent directory. Thus uv would audit the project of that directory, and the
+        scan would give it as the audit of the path."""
+        if Path(target_path).is_dir():
+            return True, ""
+        return False, MESSAGES.scan.uv_audit_not_a_directory.format(target=target_path)
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
         """The audit command. uv finds the project from the directory that the scan starts in."""

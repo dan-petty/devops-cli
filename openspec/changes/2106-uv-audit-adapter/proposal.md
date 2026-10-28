@@ -13,6 +13,7 @@ Issue #2106: the agent tool `scan_uv_audit` in `src/devops_cli/ai/tools/builtin_
 - A new adapter, `devops_cli.security.uv_audit`, holds `UvAuditScanner` and `run_uv_audit_scan`. It starts `uv audit --frozen --quiet --output-format json` in the scanned directory through the `ToolExecutor` of `BaseSecurityScanner`, with an empty standard input, and gives a `ScanOutcome`. `build_uv_audit_cmd` in `config/commands.py` builds this command.
 - The adapter reads the JSON report of uv. Each vulnerability is a finding at `uv.lock:<package>`, with the advisory id and the summary in its title, its link as a reference, and the releases that fix it. Each adverse project status (archived, deprecated or quarantined) is a finding too. uv gives no severity, so each finding has the default severity of the finding model, `MEDIUM`.
 - A run that writes no report, such as a project with no `uv.lock` or an advisory service that cannot be reached, is a `failed` scan, with what uv wrote on stderr as the reason. A report with no `vulnerabilities` list or no `adverse_statuses` list is a `failed` scan too, and does not read as a clean scan.
+- A path that is not a directory, such as a directory that does not exist, is a `not_applicable` scan. uv does not start, so it does not audit the project of a parent directory as the project of that path.
 - `scan_uv_audit` and the MCP tool `scan_uv_audit` take only `directory`, run the adapter through `_run_adapter_scan`, and reply as the other agent scan tools reply, with the scanner named `uv audit`.
 - The `requirements_file` parameter, the `uv pip audit` command line, the clean fallback message and the helper `_run_workspace_security_scan`, which only `scan_uv_audit` used, go.
 - `docs/MCP_TOOLS.md` gives the new description and parameters of the MCP tool.
@@ -32,7 +33,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/security/uv_audit.py` (new), `src/devops_cli/config/commands.py`, `src/devops_cli/ai/tools/builtin_tools.py` and `src/devops_cli/ai/mcp/server.py`.
+- Code: `src/devops_cli/security/uv_audit.py` (new), `src/devops_cli/config/commands.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/tools/builtin_tools.py` and `src/devops_cli/ai/mcp/server.py`.
 - Tests: `tests/test_security_uv_audit.py` (new), `tests/test_builtin_tools.py`, `tests/test_mcp.py`, `tests/test_command_builders.py`, the recorded run in `tests/fixtures/scanner_runs/runs_with_findings.json`, and the docstring of `tests/support/fakes/scanners.py`.
 - Documentation: `docs/MCP_TOOLS.md`.
 
@@ -43,6 +44,7 @@ None.
 - Command output, uv 0.12.23, on a scratch project: on this repository, `uv audit --frozen --quiet --output-format json` exited 0 with a report of 233 packages and no finding. On a project that pins idna 3.6, it exited 1 with four vulnerabilities and an empty stderr; this run is the recording in `runs_with_findings.json`. Each vulnerability has `dependency.name`, `dependency.version`, `id`, `display_id`, `aliases`, `summary`, `description`, `link` and `fix_versions`, and no severity. `summary` was `null` for the two `PYSEC` advisories.
 - Command output, uv 0.12.23: `uv audit --output-format json` on a project whose `pyproject.toml` no longer agreed with its `uv.lock` rewrote the lockfile (its SHA-256 changed). With `--frozen`, the lockfile did not change.
 - Command output, uv 0.12.23: with no `uv.lock`, `uv audit --frozen --output-format json` exited 1 with no stdout, and wrote two preview warnings (about 270 characters) before the error on stderr. `ScanOutcome` cuts its reason at `CONST_MAX_ERROR_DETAIL_LENGTH`, 256 characters, so the reason held only the warnings. With `--quiet`, stderr held only the error, and the JSON report was still written. With an advisory service that refused the connection, uv exited 2 with no stdout and "error: Request failed after 3 retries".
+- Command output, uv 0.12.23, on a scratch project `proj` with an empty directory `proj/sub`: `uv workspace dir --project proj/sub` wrote the path of `proj`, so uv finds the project of a parent directory. `--project proj/nope` exited 2 with "error: Project directory `proj/nope` does not exist", `--directory proj/nope` gave "error: No such file or directory (os error 2)", and `--project proj/pyproject.toml` exited 0.
 - `BaseSecurityScanner` reads a run with no JSON on stdout and a non-zero exit code as `failed`, and a JSON report with findings as `ran` (`_handle_non_json_output`, `_handle_json_output` in `src/devops_cli/security/base.py`). Thus exit code 1 with no report is a failure, and is not read as a finding.
 - `devops ci fail-to-pass --base origin/main`, on `origin/main` at `d739a472`: the new tests failed. The agent and MCP tools started a real `uv audit` outside the tool executor, which the test floor refused, `build_uv_audit_cmd` returned `["uv", "audit"]`, and the test module of the adapter did not import.
 

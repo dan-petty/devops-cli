@@ -28,3 +28,14 @@ The uv audit adapter SHALL read a run that writes no report and exits non-zero a
 #### Scenario: The report has another layout
 - **WHEN** uv audit exits 0 and writes a report with no `vulnerabilities` list and no `adverse_statuses` list
 - **THEN** the outcome is `failed` with no finding, and its reason starts with `Scanner execution failed:`
+
+### Requirement: uv audit scans only a directory
+The uv audit adapter SHALL NOT start uv for a path that is not a directory, such as a directory that does not exist or a file. It SHALL give the outcome `not_applicable` with a reason that names the path, so that uv does not audit the project of a parent directory as the project of that path.
+
+#### Scenario: The directory does not exist
+- **WHEN** the uv audit adapter scans the path `services/api-typo` of a project, and no directory is at that path
+- **THEN** uv does not start, and the outcome is `not_applicable` with no finding and the reason `<path> is not a directory. uv audit audits the project of a directory.`
+
+#### Scenario: The path is a file
+- **WHEN** the uv audit adapter scans the `uv.lock` file of a project
+- **THEN** uv does not start, and the outcome is `not_applicable` with no finding and the reason `<path> is not a directory. uv audit audits the project of a directory.`

@@ -14,3 +14,7 @@ The agent tool `scan_uv_audit` and the MCP tool `scan_uv_audit` SHALL take only 
 #### Scenario: The MCP tool takes only a directory
 - **WHEN** an MCP client reads the input schema of `scan_uv_audit`
 - **THEN** its only property is `directory`, with the default `.`
+
+#### Scenario: The directory does not exist
+- **WHEN** the workspace holds a uv project, and an agent calls `scan_uv_audit` over a path of the workspace where no directory is
+- **THEN** uv does not start, and the reply is `uv audit scan status: not_applicable`, then `Reason: <path> is not a directory. uv audit audits the project of a directory.`, then `The scan gave no result. Do not report the target as clean.`

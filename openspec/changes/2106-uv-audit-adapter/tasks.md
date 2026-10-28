@@ -16,7 +16,14 @@
 - [x] Regenerate `docs/MCP_TOOLS.md`
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
-## 3. Archive
+## 3. A path that is not a directory
+
+- [x] Add failing tests: `test_uv_audit_of_a_path_that_is_not_a_directory_gives_no_result` in `tests/test_security_uv_audit.py`, for a missing directory and for a file, and `test_the_agent_uv_audit_tool_over_a_directory_that_does_not_exist_gives_no_result` in `tests/test_builtin_tools.py`
+  - Verification: `uv run devops ci test tests/test_security_uv_audit.py tests/test_builtin_tools.py` fails: uv starts in the parent directory, and the scan gives the findings of its project
+- [x] Add `UvAuditScanner.is_applicable`, which refuses a path that is not a directory with the reason `MESSAGES.scan.uv_audit_not_a_directory`
+  - Verification: `uv run devops ci test tests/test_security_uv_audit.py tests/test_builtin_tools.py tests/test_mcp.py`
+
+## 4. Archive
 
 - [ ] Archive the change
   - Verification: `uv run devops openspec archive 2106-uv-audit-adapter`
