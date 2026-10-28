@@ -1167,6 +1167,9 @@ class RoadmapCommandHelp:
         "it has no record of, and sets one back to New when it finds it not ready. "
         "An item that an account other than the owner, a member or a collaborator opened waits "
         "on a person, and only --item refines it. "
+        "An item on which refine wrote 2 comments in the last 24 hours also waits on a person "
+        "and takes no place under --limit, and only --item refines it until the older comment "
+        "is 24 hours old. "
         "An item refine cannot set to Ready gets one comment with its next step. The step is "
         "the questions a person answers, the split a person makes, or the open items it waits "
         "on. Refine looks at the item again after a reply, a body edit or the close of those "
@@ -1178,7 +1181,7 @@ class RoadmapCommandHelp:
     refine_item: str = (
         "Specific issue number to refine instead of selecting by priority. Refine refines it "
         "when it is open and New or Ready, even when nothing changed since its last round, "
-        "whoever opened it."
+        "whoever opened it, and however many comments refine wrote on it."
     )
     refine_limit: str = "Maximum number of items to refine in this run (default 3)."
     refine_source: str = "Path to the repository checkout (defaults to current directory)."

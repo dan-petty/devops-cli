@@ -8,11 +8,16 @@ cap (#2004). Each open milestone and the backlog's P0/P1 items also give their R
 refine round has recorded, which refine confirms Ready or sets back to New. It leaves out items
 that are Blocked or started, items that an account without write access opened (GitHub's
 `author_association` is not OWNER, MEMBER or COLLABORATOR), which wait on a person (#2478),
-items whose section a person edited (`check_person_edits`), and items unchanged since their last
-round that still wait on their next step, so none of them takes one of the `--limit` places.
-Selection judges an item by the body and the author its listing carried, so an item nothing
-changed costs no body read and no model call (#1539). `--item` refines the item it names
-whenever it is open, New or Ready, whoever opened it, since a person asked for it.
+items whose section a person edited (`check_person_edits`), items unchanged since their last
+round that still wait on their next step, and items on which refine wrote
+`CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM` comments in the last 24 hours, which wait on a person
+(#2475), so none of them takes one of the `--limit` places. Selection judges an item by the body
+and the author its listing carried, so an item nothing changed costs no body read and no model
+call (#1539). The cap reads the comments of each item that the selection would take, once for
+the selection. Apply records, logs and counts once each comment that the cap stops: the comment
+that would answer the item's newest comment. `--item` refines the item it names whenever it is
+open, New or Ready, whoever opened it and however many comments refine wrote on it, since a
+person asked for it.
 
 Every item refine does not set Ready gets a next step (`NextStep`, #1758), recorded in its job
 record and posted as one comment that carries `CONST_ROADMAP_REFINE_COMMENT_MARKER`: the open
@@ -218,11 +223,17 @@ class RefinedItem:
 @dataclass(frozen=True)
 class WaitingItem:
     """An item refine did not refine in this round, with the next step it waits on (#1758):
-    `details` names the open items it waits on, or why refine leaves it alone."""
+    `details` names the open items it waits on, or why refine leaves it alone.
+
+    `cap_stop` is set when the cap on refine's comments stops the comment that would answer the
+    item's newest comment, and no earlier round stopped it: the newest comment's creation time,
+    which apply records in the item's job record, logs and counts (#2475).
+    """
 
     item: Item
     step: NextStep
     details: tuple[str, ...] = ()
+    cap_stop: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1154,11 +1165,14 @@ def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> boo
     return False
 
 
-def _still_waiting(store: RoadmapStore, item: Item) -> WaitingItem | None:
+def _still_waiting(
+    store: RoadmapStore, item: Item, comments_on: Callable[[int], list[IssueComment]]
+) -> WaitingItem | None:
     """The next step an item nothing changed since its last round still waits on, or None when
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
     closed, a comment followed refine's last one, or a commit on the default branch changed a
-    path the block cites after that comment (#2005). Only a body edit ends an `EDIT` wait."""
+    path the block cites after that comment (#2005). Only a body edit ends an `EDIT` wait.
+    `comments_on` reads the item's comments."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     match step:
@@ -1174,7 +1188,7 @@ def _still_waiting(store: RoadmapStore, item: Item) -> WaitingItem | None:
         case NextStep.READY:
             # A New item refine set Ready: a person set it back, and refine waits for the reason.
             step, details = NextStep.PERSON, (MESSAGES.roadmap.refine_set_back_by_person,)
-    comments = store.comments_on(item.number)
+    comments = comments_on(item.number)
     replies = replies_since_refine(comments)
     # No reply: the last comment is refine's own.
     if replies is None or replies or _cited_code_changed(store, item, comments[-1].created_at):
@@ -1199,29 +1213,70 @@ def _outside_author(item: Item) -> WaitingItem | None:
     return WaitingItem(item, NextStep.PERSON, (detail,))
 
 
+def _comment_cap(item: Item, comments: Sequence[IssueComment]) -> WaitingItem | None:
+    """The wait of an item on which refine wrote `CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM`
+    comments in the last `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS` hours, or None.
+
+    The item waits on a person, so another bot that answers each refine comment gets no more
+    of them (#2475). The cap stops the comment that would answer the item's newest comment; it
+    is a new stop, which apply records, logs and counts, unless the item's record holds that
+    comment's time from an earlier round.
+    """
+    hours = CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS
+    since = datetime.now(UTC) - timedelta(hours=hours)
+    count = sum(
+        1
+        for comment in comments
+        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body and comment.created_at > since
+    )
+    if count < CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM:
+        return None
+    newest = comments[-1].created_at.isoformat()
+    stopped_before = item.job_record.get(RefineRecordKey.CAPPED_AFTER) == newest
+    detail = MESSAGES.roadmap.refine_comment_cap.format(
+        count=count, hours=hours, number=item.number
+    )
+    return WaitingItem(
+        item, NextStep.PERSON, (detail,), cap_stop=None if stopped_before else newest
+    )
+
+
 @dataclass
 class _Selection:
-    """The items one selection takes, and those it leaves with their next step."""
+    """The items one selection takes, and those it leaves with their next step. It reads the
+    comments on each item once."""
 
     store: RoadmapStore
     selected: list[Item] = field(default_factory=list)
     waiting: list[WaitingItem] = field(default_factory=list)
+    comments: dict[int, list[IssueComment]] = field(default_factory=dict)
+
+    def comments_on(self, number: int) -> list[IssueComment]:
+        """The comments on issue `number`, read once for the selection."""
+        if number not in self.comments:
+            self.comments[number] = self.store.comments_on(number)
+        return self.comments[number]
 
     def consider(self, item: Item) -> None:
         """Take `item` unless an account without write access opened it (#2478), its wait is
-        not over, or a person edited its section (#1515)."""
+        not over, a person edited its section (#1515), or refine wrote its cap of comments on
+        it in the last 24 hours (#2475)."""
         outside = _outside_author(item)
         if outside is not None:
             self.waiting.append(outside)
             return
         if _is_unchanged(item, item.body):
-            waits = _still_waiting(self.store, item)
+            waits = _still_waiting(self.store, item, self.comments_on)
             if waits is not None:
                 self.waiting.append(waits)
                 return
         edit_problem = check_person_edits(item, item.body)
         if edit_problem:
             self.waiting.append(WaitingItem(item, NextStep.EDIT, (edit_problem,)))
+            return
+        capped = _comment_cap(item, self.comments_on(item.number))
+        if capped is not None:
+            self.waiting.append(capped)
             return
         self.selected.append(item)
 
@@ -1322,13 +1377,20 @@ def refine_one_item(
     # Person edits check
     edit_problem = check_person_edits(item, current_body)
     if edit_problem:
-        return _left_alone(item, current_body, NextStep.EDIT, edit_problem)
-
-    # The cap on refine's comments on one item (#2475)
-    comments = store.comments_on(item.number)
-    cap_reached = _comment_cap_reached(item, comments)
-    if cap_reached:
-        return _left_alone(item, current_body, NextStep.PERSON, cap_reached)
+        return RefinedItem(
+            item=item,
+            proposal=RefinementProposal(problem_statement=""),
+            open_questions=[],
+            is_ready=False,
+            needs_split=False,
+            reason_comment=None,
+            new_body=current_body,
+            body_hash="",
+            section_hash="",
+            next_step=NextStep.EDIT,
+            step_details=(edit_problem,),
+            skip_reason=edit_problem,
+        )
 
     # Step 1: Context minimization
     ctx = collect_context(source, sha, current_body, max_tokens=max_context_tokens)
@@ -1338,7 +1400,7 @@ def refine_one_item(
         "number": item.number,
         "title": item.title,
         "body": current_body,
-        "replies": _replies_for_model(comments),
+        "replies": _replies_for_model(store.comments_on(item.number)),
         "context": ctx,
         "body_questions": [
             {"number": number, "question": asked}
@@ -1430,54 +1492,6 @@ def refine_one_item(
     )
 
 
-def _left_alone(item: Item, body: str, step: NextStep, reason: str) -> RefinedItem:
-    """An item that a round leaves alone before any model call: it writes nothing, and the item
-    waits on `step` for `reason`."""
-    return RefinedItem(
-        item=item,
-        proposal=RefinementProposal(problem_statement=""),
-        open_questions=[],
-        is_ready=False,
-        needs_split=False,
-        reason_comment=None,
-        new_body=body,
-        body_hash="",
-        section_hash="",
-        next_step=step,
-        step_details=(reason,),
-        skip_reason=reason,
-    )
-
-
-def _comment_cap_reached(item: Item, comments: Sequence[IssueComment]) -> str | None:
-    """Why a round leaves `item` alone, or None: refine wrote
-    `CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM` comments on it in the last
-    `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS` hours.
-
-    Each round that comments on an item reads its comments first, so the cap reads them with no
-    other request. A stopped comment is one warning and one count of
-    `devops_cli_roadmap_refine_comments_capped_total` (#2475).
-    """
-    hours = CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS
-    since = datetime.now(UTC) - timedelta(hours=hours)
-    count = sum(
-        1
-        for comment in comments
-        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body and comment.created_at > since
-    )
-    if count < CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM:
-        return None
-    logger.warning(
-        "Refine left #%d alone: it wrote %d comments on the item in the last %d hours, which is "
-        "its limit.",
-        item.number,
-        count,
-        hours,
-    )
-    emit(ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, 1)
-    return MESSAGES.roadmap.refine_comment_cap.format(count=count, hours=hours)
-
-
 def _prompt(task: str) -> str:
     """The system prompt of a refine step: the step's task, then the keys of the reply."""
     return f"{load_task_prompt(task)}\n\n{load_task_prompt('roadmap_refine_reply.md')}"
@@ -1560,8 +1574,9 @@ def plan_refine(
     sha = inspect_checkout(source_path, repo)
 
     candidates, waiting = select_candidates(store, item_number=item_number, limit=limit)
+    cap_stops = any(w.cap_stop is not None for w in waiting)
     if not candidates:
-        return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=False)
+        return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=cap_stops)
 
     settings = load_settings()
     ai_config = settings.ai
@@ -1590,8 +1605,10 @@ def plan_refine(
             continue
         refined.append(res)
 
-    has_writes = any(r.skip_reason is None or r.record_only for r in refined) or any(
-        failure.item_caused for failure in failed
+    has_writes = (
+        cap_stops
+        or any(r.skip_reason is None or r.record_only for r in refined)
+        or any(failure.item_caused for failure in failed)
     )
     return RefinePlan(
         repo=repo,
@@ -1709,9 +1726,28 @@ def _record_unwritten(store: RoadmapStore, plan: RefinePlan) -> None:
             _record_failure(store, failure)
 
 
+def _record_cap_stops(store: RoadmapStore, plan: RefinePlan) -> None:
+    """Record, log and count each comment that the cap on refine's comments stopped and no
+    earlier round stopped. The record holds the time of the item's newest comment, so a later
+    round that finds no newer comment counts the item no more (#2475)."""
+    for waiting in plan.waiting_items:
+        if waiting.cap_stop is None:
+            continue
+        store.set_marks(waiting.item, {RefineRecordKey.CAPPED_AFTER: waiting.cap_stop})
+        logger.warning(
+            "Refine left #%d alone and wrote no comment: it reached its limit of %d comments on "
+            "the item in %d hours.",
+            waiting.item.number,
+            CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
+            CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS,
+        )
+        emit(ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, 1)
+
+
 def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
-    """Applies the planned writes to GitHub: updates issue body, marks, status and comments, and
-    records the body of an item too big to refine or failing on its own text."""
+    """Applies the planned writes to GitHub: updates issue body, marks, status and comments,
+    records the body of an item too big to refine or failing on its own text, and records each
+    comment that the cap on refine's comments stopped."""
     refined_count = readied_count = split_count = comments_posted = 0
 
     for r in plan.refined_items:
@@ -1755,6 +1791,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             comments_posted += 1
 
     _record_unwritten(store, plan)
+    _record_cap_stops(store, plan)
     return RefineApplied(
         refined_count=refined_count,
         readied_count=readied_count,

@@ -120,8 +120,9 @@ class RefineRecordKey(StrEnum):
     """What refine records in an Item's job record (#744): the body hash outside the section,
     the section hash, whether the proposal needs splitting, the body hash a reply that never
     validated was about (#1539), the next step the item waits on with the open items that
-    block it (#1758), and the repository paths whose code the proposal cites as the cause of
-    the block (#2005)."""
+    block it (#1758), the repository paths whose code the proposal cites as the cause of
+    the block (#2005), and the creation time of the newest comment that the cap on refine's
+    comments last left with no answer (#2475)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -130,6 +131,7 @@ class RefineRecordKey(StrEnum):
     NEXT_STEP = "refine.next_step"
     BLOCKED_BY = "refine.blocked_by"
     BLOCK_PATHS = "refine.block_paths"
+    CAPPED_AFTER = "refine.capped_after"
 
 
 JobRecord = dict[ItemField | RefineRecordKey, str | None]

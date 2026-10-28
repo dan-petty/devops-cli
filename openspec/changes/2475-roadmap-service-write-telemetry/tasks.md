@@ -30,10 +30,12 @@
 
 ## 5. Cap refine's comments on one item
 
-- [x] Add a failing test: two refine comments within 24 hours leave the item alone with no model call, no comment, one warning and one count; the same comments 25 hours old do not
-  - Verification: `uv run devops ci test tests/test_roadmap_refine.py`
-- [x] Declare `ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL`, read the comments first in `refine_one_item`, and leave the item alone at the cap
-  - Verification: `uv run devops ci test tests/test_roadmap_refine.py`
+- [x] Add failing tests: two refine comments within 24 hours leave the item waiting on a person with no model call, no comment, one warning and one count; the same comments 25 hours old do not; items at the cap take no place under the limit; a round with no newer comment writes, logs and counts nothing, and a newer reply counts once; `--item` refines an item at the cap; a round's plan lists the record write of a stop
+  - Verification: `uv run devops ci test tests/test_roadmap_refine.py tests/test_roadmap_dry_runs.py`
+- [x] Declare `ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL` and `RefineRecordKey.CAPPED_AFTER`, apply the cap in `_Selection.consider`, and record, log and count each new stop in `apply_refine`
+  - Verification: `uv run devops ci test tests/test_roadmap_refine.py tests/test_roadmap_dry_runs.py`
+- [x] Say in the help of `devops roadmap refine` and in `k8s/README.md` how the cap holds an item and how a person refines it, and regenerate the documentation
+  - Verification: `uv run devops docs generate --sync-readme`
 
 ## 6. Alert on the writes, the own deliveries and the Firecrawl refusals
 

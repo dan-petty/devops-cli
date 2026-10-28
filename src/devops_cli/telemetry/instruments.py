@@ -233,8 +233,10 @@ ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL = Instrument(
     "devops_cli_roadmap_refine_comments_capped_total",
     InstrumentKind.COUNTER,
     "1",
-    "Refine comments that the cap on refine's comments on one item in 24 hours stopped. Refine "
-    "left the item alone in that round, with no model call and no write",
+    "Refine comments that the cap on refine's comments on one item in 24 hours stopped: one "
+    "count for each newest comment on an item that the cap left with no answer. The item waits "
+    "on a person and takes no place under the round's limit. A later round that finds no newer "
+    "comment on the item does not count it again",
 )
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
