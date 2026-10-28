@@ -62,7 +62,10 @@ through four stages:
    `findings.json` and `candidates.json` also record the session's `checkout`: the commit of the
    checkout that holds the target, and whether its working tree was clean when the review
    started. A clean path review at a commit that `origin/main` holds is on merged code
-   (`devops_cli.review.checkout`, #2415).
+   (`devops_cli.review.checkout`, #2415). `devops review intake <session>` hands the qualifying
+   findings of such a session to roadmap intake (`devops_cli.review.handoff`, #2420), and
+   `devops review path` names that command when it keeps a session of a clean tree that has
+   qualifying findings.
 
    The table of skipped and errored files in `review.md` gives each coverage gap of the review:
    a file that pre-analysis, the admission of a finding or the threat-intelligence lookup could
@@ -495,7 +498,7 @@ sequenceDiagram
     participant Dataset as Feedback Dataset
 
     Person->>Agent: Request review remediation
-    Agent->>GH: Find or file the tracking issue (devops gh issues create)
+    Agent->>GH: Hand findings on merged code to intake (devops review intake --confirm)
     Agent->>Session: devops review findings (and --candidates)
     Agent->>Code: Write failing tests from the finding
     Agent->>Code: Fix the cited code
@@ -517,8 +520,22 @@ only counts LOW and INFO ones (`ai/review/pipeline.py:3706-3729`); `review.md` h
 
 ### Step 2: Ground the Work in an Issue
 
-Every remediation has a GitHub issue: find it, or file one with `devops gh issues create`. The
-pull request that delivers the work plans it as the OpenSpec change
+Every remediation of merged code has a GitHub issue, and roadmap intake files it:
+
+- For a session on merged code, run `devops review intake <session> --plan`, read the plan, then
+  run it with `--confirm`. The command refuses a session that is not on merged code and says why:
+  not a path review, a working tree with a change, or a commit that `origin/main` does not hold.
+- A finding qualifies when admission gave it a fingerprint v2 and no verdict invalidated or
+  mitigated it. Each one becomes one candidate, which carries the finding's marker
+  (`<!-- devops-review-finding: fingerprint_v2=... -->`). The command leaves out a finding that an
+  open issue carries, or one closed as not planned or as a duplicate, so a later review files it
+  no second time. A finding whose issue was closed as completed is filed again.
+- A `--plan` or `--confirm` run calls the `analysis` model one time and embeds one time for each
+  finding that no issue carries. `--dry-run` makes no request.
+- A finding about the diff of a branch or a pull request is fixed in that pull request, and gets
+  no issue.
+
+The pull request that delivers the work plans it as the OpenSpec change
 `openspec/changes/<issue>-<slug>/` and archives that change in its last commit.
 
 ### Step 3: Author Regression Tests First (Living Contract)

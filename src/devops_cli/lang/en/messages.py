@@ -170,6 +170,69 @@ class ReviewMessages:
     files_not_scanned: str = "Files not scanned: {count}. The Coverage section lists them."
     filed_findings_search_target: str = "issues that carry a review finding marker"
     filed_findings_search_repeat: str = "per page of 100 issues, while the search has more results"
+    # Why a session is not on merged code (#2420), and the hand-off of its findings to intake.
+    merged_reason_no_subject: str = "the session records no target"
+    merged_reason_target: str = "the session reviewed a {type}, not a path"
+    merged_reason_no_checkout: str = "the session records no checkout"
+    merged_reason_dirty: str = "the working tree had a change when the review started"
+    merged_reason_not_on_main: str = (
+        "origin/main does not hold the commit {head}. If the commit is merged, run `git fetch "
+        "origin` and try again"
+    )
+    hand_off_refused: str = (
+        "Session {session} is not on merged code: {reason}. Only the findings of a path review "
+        "of a clean tree at a commit on origin/main go to roadmap intake."
+    )
+    hand_off_hint: str = (
+        "{count} findings of this session can go to roadmap intake when origin/main holds its "
+        "commit. Run: devops review intake {session} --plan"
+    )
+    hand_off_none: str = "No finding of session {session} qualifies for roadmap intake."
+    hand_off_all_filed: str = (
+        "An issue already holds each of the {count} qualifying findings of session {session}. "
+        "No finding is left to hand off."
+    )
+    hand_off_settled: str = "{count} qualifying findings are already in an issue and stay out."
+    hand_off_secret: str = (
+        "The candidate of the finding at {location} looks like it holds a secret, so the hand-off "
+        "stopped before any request. Remove the secret from the finding, or suppress the finding."
+    )
+    hand_off_dry_run_candidates: str = (
+        "The hand-off sends these {count} candidates to roadmap intake, in this order:"
+    )
+    hand_off_dry_run_note: str = (
+        "Intake makes the requests after the issue search for each candidate in turn. The list "
+        "shows them for the first candidate."
+    )
+    hand_off_plan_note: str = (
+        "Nothing was written. Run with --confirm to file and place the candidates."
+    )
+    hand_off_skipped: str = (
+        "Intake skipped {count} candidates, because the model's proposal was not usable."
+    )
+    hand_off_filed: str = "Intake filed #{number}."
+    hand_off_no_checkout: str = (
+        "Run `devops review intake` in the checkout that the session reviewed: the working "
+        "directory is in no checkout."
+    )
+    hand_off_no_repo: str = (
+        "Cannot find the repository from the origin of this checkout. Give it with --repo "
+        "owner/name."
+    )
+    hand_off_body: str = (
+        "## Problem Description\n\n"
+        "A review of merged code found this with {tool}.\n\n"
+        "{description}\n\n"
+        "## Evidence\n\n"
+        "- Session: `{session}`\n"
+        "- Location: `{location}`\n"
+        "- Tool: `{tool}`\n"
+        "- Severity: {severity}\n"
+        "- Verdict: {verdict}"
+    )
+    hand_off_cited_code: str = "## Cited Code"
+    hand_off_fix: str = "## Proposed Fix"
+    hand_off_criteria: str = "## Verification Criteria"
 
 
 @dataclass(frozen=True)

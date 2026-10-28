@@ -1202,12 +1202,24 @@ def _close_session(
     reporting stage writes it: a review run without that stage has no session to keep.
     """
     if _reports(stage_flags):
-        orchestrator.session.publish()
+        published = orchestrator.session.publish()
+        if orchestrator.subject.get("type") == "path":
+            _name_intake_hand_off(published)
         return
     from devops_cli.lang import MESSAGES
 
     orchestrator.session.discard()
     print_info(MESSAGES.review.session_not_kept, prefix=False)
+
+
+def _name_intake_hand_off(session_dir: Path) -> None:
+    """Name `devops review intake` when the published session reviewed a clean tree and has
+    findings that qualify for roadmap intake (#2420). It runs no git and sends no request."""
+    from devops_cli.review.handoff import intake_hint, read_session
+
+    hint = intake_hint(read_session(session_dir), session_dir.name)
+    if hint is not None:
+        print_info(hint, prefix=False)
 
 
 def _write_review_profile(

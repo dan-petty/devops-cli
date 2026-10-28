@@ -28,12 +28,12 @@ from devops_cli.exceptions.validation import ValidationError
 from devops_cli.github.client import GitHubClient, IssueSearchHit
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.review.fingerprint import FINGERPRINT_V2, is_fingerprint_v2
 from devops_cli.roadmap.request_plan import planned_session_read
 
-_FINGERPRINT = re.compile(r"[0-9a-f]{64}")
 _MARKER = re.compile(
     rf"<!-- {re.escape(CONST_REVIEW_FILED_FINDING_MARKER)}: "
-    rf"fingerprint_v2=({_FINGERPRINT.pattern}) -->"
+    rf"fingerprint_v2=({FINGERPRINT_V2.pattern}) -->"
 )
 
 
@@ -41,7 +41,7 @@ def finding_marker(fingerprint_v2: str) -> str:
     """The marker that the issue filed from a finding carries: an HTML comment with the finding's
     fingerprint v2. A value that is not 64 lowercase hex characters is refused, because a marker
     the parser cannot read would let the same finding be filed again."""
-    if not _FINGERPRINT.fullmatch(fingerprint_v2):
+    if not is_fingerprint_v2(fingerprint_v2):
         raise ValidationError(
             "A review finding marker needs a fingerprint v2 of 64 lowercase hex characters.",
             field="fingerprint_v2",

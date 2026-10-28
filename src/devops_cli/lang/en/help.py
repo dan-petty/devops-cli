@@ -1270,6 +1270,21 @@ class ReviewCommandHelp:
         "Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`."
     )
     export_feedback: str = "Export review findings to structured feedback files."
+    intake_cmd: str = (
+        "Hand the qualifying findings of a session on merged code to roadmap intake, one "
+        "candidate for each finding. A finding that an issue already carries is left out."
+    )
+    intake_repo: str = (
+        "Repository to file the items in, as owner/name (default: the origin of this checkout)."
+    )
+    intake_dry_run: str = (
+        "Make no request and call no model: print the candidates, the issue search and the "
+        "requests intake makes for each candidate."
+    )
+    intake_plan: str = (
+        "Read GitHub and call the model for each candidate, and write nothing. The default."
+    )
+    intake_confirm: str = "File and place each candidate as roadmap intake does."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."
     target_branch: str = "Branch to review (default: current branch)."

@@ -347,6 +347,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request. |
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
 |  | `devops review verify [OPTIONS] <session>` | Record a person's verdict on a review finding or candidate. |
+|  | `devops review intake [OPTIONS] <session>` | Hand the qualifying findings of a session on merged code to roadmap intake, one candidate for each finding. A finding that an issue already carries is left out. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
 |  | `devops review score [OPTIONS] <sessions>` | Score saved review sessions against a label file: precision, recall and stability, each with its n. |
