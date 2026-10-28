@@ -25,7 +25,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Inner Loop (Daily / Per Edit)** | Task Grounding | Step 1 | `devops gh project audit` && `devops roadmap intake` | Query project tracking, and verify the issue's labels or file the work through intake | Task grounded in an open issue with a `priority/*` label |
 | **Inner Loop (Daily / Per Edit)** | Dependency Synchronization | Step 2 | `uv sync` | Synchronizes virtual environment with `uv.lock` | Clean exit; all dependencies resolved |
-| **Inner Loop (Daily / Per Edit)** | Constant & Config Centralization | Step 3 | Manual / Refactor | Centralize literals in `constants.py`, `defaults.py`, `lang/en/` | No hardcoded string literals in command code |
+| **Inner Loop (Daily / Per Edit)** | Constant & Config Placement | Step 3 | Manual / Refactor | Put each table beside its one owner, and in `config/` once a second package imports it; put messages in `lang/en/` | No hardcoded string literals in command code |
 | **Inner Loop (Daily / Per Edit)** | Targeted Linting & Formatting | Step 4 | `uv run ruff check --fix <file>` | Fast focused linting on modified files | `ruff check` reports 0 errors |
 | **Inner Loop (Daily / Per Edit)** | Targeted Type Checking | Step 5 | `uv run mypy --strict <file>` | Strict type validation on modified modules | 0 type errors across modified files |
 | **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 6 | `uv run devops ci test <test-file>` | Fast isolated testing of active features/fixes, with xdist workers sized to the selection | Targeted tests pass |
@@ -68,7 +68,7 @@ The Inner Development Loop follows a strict **Test-First Development (TDD)** met
 flowchart TD
     A[Requirement / Feature Goal] --> B[1. Project Planning & Task State Setup]
     B --> C[2. uv sync Dependencies]
-    C --> D[3. Centralize Literals & Defaults]
+    C --> D[3. Place Constants & Defaults]
     D --> E[4. Write Tests First in tests/test_*.py]
     E --> F[5. Implement Feature Code in src/]
     F --> G[6. ruff check & format modified files]
@@ -84,10 +84,9 @@ flowchart TD
      - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it (a possible duplicate too, which its reason comment names for a person to close), labels its type, Status, Priority, Value and Effort, and puts it in the backlog; set no milestone or priority on it yourself.
    - Plan the item as an OpenSpec change, `openspec/changes/<issue>-<slug>/` ([`openspec/config.yaml`](../openspec/config.yaml)). The labels of the issue hold the Status of the item, and the change folder holds none.
 2. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
-3. **Centralize Constants, Config & Defaults**:
+3. **Place Constants, Config & Defaults**:
    - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](../src/devops_cli/config/settings.py).
-   - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](../src/devops_cli/config/constants.py).
-   - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](../src/devops_cli/config/defaults.py).
+   - Put a constant, regex, protocol string, timeout or numeric default beside its one owner. Move it to [`src/devops_cli/config/constants.py`](../src/devops_cli/config/constants.py) or [`src/devops_cli/config/defaults.py`](../src/devops_cli/config/defaults.py) only when a second package imports it ([CONTRIBUTING.md](../CONTRIBUTING.md), "Closed Lists and Standard Parsers").
    - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en/`](../src/devops_cli/lang/en/).
 4. **Leverage Shared Domain Helpers & Declarative Frameworks**:
    - Before writing ad-hoc subprocess calls, path containment checks, binary verification, or secret sanitization, always leverage the shared helper ecosystem:
