@@ -18,7 +18,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2545-security-tests-by-behaviour`
 
 ## Workflow follow-up
