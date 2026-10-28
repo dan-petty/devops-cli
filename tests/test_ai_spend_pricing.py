@@ -721,6 +721,102 @@ def test_a_gateway_call_is_local_by_the_backend_that_served_it(
     ] == [True, True, False, True, False]
 
 
+def _settings_loads_of(call: Callable[[], object]) -> int:
+    """The number of times `call` runs `load_settings`, counted by a profile hook, so the test
+    patches no devops-cli name (#1420)."""
+    import sys
+    import threading
+
+    from devops_cli.config import settings as settings_module
+
+    code = settings_module.load_settings.__code__
+    loads = 0
+
+    def count(frame: object, event: str, _arg: object) -> None:
+        nonlocal loads
+        if event == "call" and getattr(frame, "f_code", None) is code:
+            loads += 1
+
+    previous = sys.getprofile()
+    sys.setprofile(count)
+    threading.setprofile(count)
+    try:
+        call()
+    finally:
+        sys.setprofile(previous)
+        threading.setprofile(None)  # type: ignore[arg-type]
+    return loads
+
+
+def test_a_priced_request_loads_the_settings_at_most_once(
+    config: Callable[..., Path], spend_ledger: object
+) -> None:
+    """Verify the spend path of one request loads the settings at most once, whichever host
+    decides locality, and not at all when the provider or the address decides it (#1420)."""
+    from devops_cli.ai.spend.ledger import track_request_spend
+    from devops_cli.ai.spend.pricing import get_pricing_registry, reset_pricing_registry
+
+    config(k8s={"domain": "cluster.example.com"}, ai={"gateway_url": "https://gw.example.com/v1"})
+    reset_pricing_registry()
+    get_pricing_registry()
+    # The first request also builds the process's tracer, which reads the settings once.
+    track_request_spend(provider="ollama", model="qwen", server="http://127.0.0.1:1")
+    requests: dict[str, dict[str, str]] = {
+        "hosted": {"provider": "openai", "model": "gpt-4o", "server": "https://api.openai.com/v1"},
+        "served by a hosted backend": {
+            "provider": "gateway",
+            "model": "route",
+            "server": "https://gw.example.com/v1",
+            "served_by": "https://api.openai.com/v1",
+            "served_model": "openai/gpt-4o",
+        },
+        "gateway with no server": {"provider": "gateway", "model": "route", "server": ""},
+        "two hosted servers": {
+            "provider": "openai",
+            "model": "gpt-4o",
+            "server": "https://a.example.org,https://b.example.org",
+        },
+        "local provider": {"provider": "ollama", "model": "qwen", "server": "http://127.0.0.1:1"},
+    }
+
+    loads = {
+        name: _settings_loads_of(
+            lambda fields=fields: track_request_spend(
+                prompt_tokens=10, completion_tokens=5, **fields
+            )
+        )
+        for name, fields in requests.items()
+    }
+
+    assert loads == {
+        "hosted": 1,
+        "served by a hosted backend": 1,
+        "gateway with no server": 1,
+        "two hosted servers": 1,
+        "local provider": 0,
+    }
+
+
+def test_no_configured_host_is_local_when_the_settings_cannot_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify a public host and a gateway call with no server are hosted when the settings
+    cannot load, while a local address stays local (#1420)."""
+    from devops_cli.ai.spend.pricing import is_local
+    from devops_cli.config.settings import reset_settings_cache
+
+    unreadable = tmp_path / "list.yaml"
+    unreadable.write_text("- not a mapping\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(unreadable))
+    reset_settings_cache()
+
+    assert (
+        is_local("https://example.com/v1", "openai"),
+        is_local(None, "gateway"),
+        is_local("http://127.0.0.1:4000", "gateway"),
+    ) == (False, False, True)
+
+
 def test_pricing_local_vs_remote_and_configured_domain_table(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

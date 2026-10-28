@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import ipaddress
 import json
 import logging
@@ -23,7 +24,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_PRICING_OVERRIDES_FILENAME,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.repo import resolve_review_data_path
 from devops_cli.lang import MESSAGES
 
@@ -169,16 +170,29 @@ def _is_local_provider(provider: str | None) -> bool:
     return bool(provider and provider.strip().lower() in CONST_LOCAL_PROVIDER_NAMES)
 
 
-def _is_configured_cluster_host(host: str) -> bool:
+class _SettingsOnce:
+    """The settings of one call of `is_local`, loaded on first use and then kept (#1420).
+
+    One request asks about one to several hosts, and each host that its address or name does not
+    decide is checked against the configured domains and AI servers. Loading the settings once
+    for the call, and only when a host needs them, keeps the cost of a request to one load. None
+    when the settings cannot load: then no configured host counts as local.
+    """
+
+    @functools.cached_property
+    def value(self) -> Settings | None:
+        try:
+            return load_settings()
+        except Exception:
+            return None
+
+
+def _is_configured_cluster_host(host: str, settings: Settings) -> bool:
     """Check if host matches configured Kubernetes or Cloudflare cluster domain."""
     import dns.exception
 
     from devops_cli.core.dns_names import is_at_or_under
 
-    try:
-        settings = load_settings()
-    except Exception:
-        return False
     for domain in (settings.k8s.domain, settings.cloudflare.domain):
         if not domain:
             continue
@@ -190,12 +204,8 @@ def _is_configured_cluster_host(host: str) -> bool:
     return False
 
 
-def _is_configured_ai_server_host(host: str) -> bool:
+def _is_configured_ai_server_host(host: str, settings: Settings) -> bool:
     """Check if host matches any configured AI endpoints in settings."""
-    try:
-        settings = load_settings()
-    except Exception:
-        return False
     candidates = (
         settings.ai.gateway_url,
         settings.ai.api_base_url,
@@ -213,7 +223,7 @@ def _is_configured_ai_server_host(host: str) -> bool:
     return False
 
 
-def _is_local_host(host: str) -> bool:
+def _is_local_host(host: str, settings: _SettingsOnce | None = None) -> bool:
     from devops_cli.core.dns_names import is_public_dns_name
 
     clean = urlsplit(f"//{host}").hostname or host
@@ -224,10 +234,13 @@ def _is_local_host(host: str) -> bool:
     except ValueError:
         if not is_public_dns_name(host):
             return True
-    return _is_configured_cluster_host(host) or _is_configured_ai_server_host(host)
+    loaded = (settings or _SettingsOnce()).value
+    if loaded is None:
+        return False
+    return _is_configured_cluster_host(host, loaded) or _is_configured_ai_server_host(host, loaded)
 
 
-def _is_single_server_local(server: str) -> bool:
+def _is_single_server_local(server: str, settings: _SettingsOnce) -> bool:
     clean = server.strip().lower()
     if not clean:
         return False
@@ -236,31 +249,28 @@ def _is_single_server_local(server: str) -> bool:
     from devops_cli.http.urls import extract_domain_target
 
     host = extract_domain_target(clean)
-    if host and _is_local_host(host):
+    if host and _is_local_host(host, settings):
         return True
     return False
 
 
-def _is_local_server(server: str | None) -> bool:
+def _is_local_server(server: str | None, settings: _SettingsOnce) -> bool:
     if not server:
         return False
     clean = server.strip().lower()
     if "," in clean:
         parts = [p.strip() for p in clean.split(",") if p.strip()]
-        return bool(parts) and all(_is_single_server_local(p) for p in parts)
-    return _is_single_server_local(clean)
+        return bool(parts) and all(_is_single_server_local(p, settings) for p in parts)
+    return _is_single_server_local(clean, settings)
 
 
-def _is_local_gateway_configured() -> bool:
+def _is_local_gateway_configured(settings: _SettingsOnce) -> bool:
     """Check if configured AI gateway endpoint resolves to local/cluster infrastructure."""
-    try:
-        settings = load_settings()
-        gw_url = settings.ai.gateway_url or settings.ai.api_base_url
-        if gw_url and _is_local_server(gw_url):
-            return True
-    except Exception:
-        pass
-    return False
+    loaded = settings.value
+    if loaded is None:
+        return False
+    gw_url = loaded.ai.gateway_url or loaded.ai.api_base_url
+    return bool(gw_url) and _is_local_server(gw_url, settings)
 
 
 def is_local(
@@ -273,16 +283,18 @@ def is_local(
     behind a local gateway is hosted, and a local backend behind a gateway on a public host is
     local (#1631). LiteLLM names the API base of a route only when it knows it, so a gateway
     route sets `api_base`. When the reply names no backend, the provider and the server the call
-    was sent to decide.
+    was sent to decide. The call loads the settings at most once, and only for a host that its
+    address and its name do not decide (#1420).
     """
+    settings = _SettingsOnce()
     if served_by and served_by.strip():
-        return _is_local_server(served_by)
+        return _is_local_server(served_by, settings)
     if _is_local_provider(provider):
         return True
-    if _is_local_server(server):
+    if _is_local_server(server, settings):
         return True
     if provider and provider.strip().lower() == "gateway" and not server:
-        return _is_local_gateway_configured()
+        return _is_local_gateway_configured(settings)
     return False
 
 
