@@ -1228,6 +1228,12 @@ class DocGenerator:
             "observation of `devops_cli_ai_gateway_slot_wait_seconds`. The call's "
             "`llm.wall_seconds`, its time to first chunk and its spend's duration start once it "
             "holds the slot, so the wait is not counted as inference.",
+            "- **Ollama slot wait**: A call to Ollama first waits in the process for a slot on "
+            "one of its nodes, queued by priority: `high` first, `as_available` last. Each call "
+            "observes its wait once in `devops_cli_ai_ollama_slot_wait_seconds`, by `priority` "
+            "and by `outcome`: `ok` once it holds a slot, or `timeout` when its deadline passes "
+            "with no slot. A call that finds a free slot observes about 0 s, so the quantiles "
+            "cover every call.",
             "- **Private keys**: Anything the conventions do not define is written under `llm.*`, "
             "such as `llm.request.priority`, `llm.tokens_per_second` and `llm.usage.cost_usd`, "
             "never under `gen_ai.*`.",

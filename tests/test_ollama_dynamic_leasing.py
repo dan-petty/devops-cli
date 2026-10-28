@@ -1,4 +1,5 @@
-"""Unit tests for Ollama dynamic slot leasing and least-loaded load balancing."""
+"""Unit tests for Ollama dynamic slot leasing and least-loaded load balancing, and the wait for
+a slot as a histogram by priority and outcome (#815)."""
 
 from __future__ import annotations
 
@@ -9,11 +10,18 @@ from collections.abc import Iterator
 import pytest
 
 from devops_cli.ai.client import AIClientError
+from devops_cli.ai.client.models import RequestPriority
 from devops_cli.ai.client.network import (
     acquire_ollama_slot,
     get_ollama_active_leases,
+    get_ollama_waiting_counts,
     reset_ollama_slots,
 )
+from devops_cli.telemetry.instruments import AI_OLLAMA_SLOT_WAIT
+from tests.support.telemetry_capture import Captured
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
+
+NODE = "http://example.com:11434"
 
 
 @pytest.fixture(autouse=True)
@@ -134,3 +142,70 @@ def test_acquire_ollama_slot_effective_timeout_defaults() -> None:
             DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
             0.0,
         )
+
+
+def _slot_waits(captured: Captured) -> dict[tuple[str, str], tuple[int, float]]:
+    """The observations of the Ollama slot wait sent, as (count, seconds) by (priority, outcome)."""
+    waits: dict[tuple[str, str], tuple[int, float]] = {}
+    for metric in captured.metrics:
+        if metric["name"] != AI_OLLAMA_SLOT_WAIT.name:
+            continue
+        for point in metric["exponentialHistogram"]["dataPoints"]:
+            attrs = {a["key"]: next(iter(a["value"].values())) for a in point["attributes"]}
+            count, seconds = waits.get((attrs["priority"], attrs["outcome"]), (0, 0.0))
+            waits[(attrs["priority"], attrs["outcome"])] = (
+                count + int(point["count"]),
+                seconds + point["sum"],
+            )
+    return waits
+
+
+def _counts(waits: dict[tuple[str, str], tuple[int, float]]) -> dict[tuple[str, str], int]:
+    return {labels: count for labels, (count, _) in waits.items()}
+
+
+def test_a_call_with_a_free_slot_observes_its_wait_by_priority(captured: Captured) -> None:
+    """A call that finds a free slot sends one observation with the priority it asked for, or
+    the priority of its context when it names none."""
+    with acquire_ollama_slot([NODE], priority=RequestPriority.HIGH):
+        pass
+    with acquire_ollama_slot([NODE]):
+        pass
+
+    assert _counts(_slot_waits(captured)) == {("high", "ok"): 1, ("normal", "ok"): 1}
+
+
+def _lease_once(priority: RequestPriority) -> str:
+    with acquire_ollama_slot(
+        [NODE], max_parallel=1, timeout=THREAD_HANDOFF_BOUND_SECONDS, priority=priority
+    ) as leased_url:
+        return leased_url
+
+
+def test_a_call_that_waits_for_a_held_slot_observes_the_wait(captured: Captured) -> None:
+    """A normal call queued behind a held slot sends one `ok` observation once the holder
+    releases, and its wait is above 0 s."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        with acquire_ollama_slot([NODE], max_parallel=1, priority=RequestPriority.HIGH):
+            waiter = pool.submit(_lease_once, RequestPriority.NORMAL)
+            queued = wait_until(lambda: get_ollama_waiting_counts()["normal"] == 1)
+        leased_url = waiter.result(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+
+    waits = _slot_waits(captured)
+    assert (queued, leased_url, _counts(waits), waits.get(("normal", "ok"), (0, 0.0))[1] > 0) == (
+        True,
+        NODE,
+        {("high", "ok"): 1, ("normal", "ok"): 1},
+        True,
+    )
+
+
+def test_an_as_available_call_with_no_free_slot_observes_a_timeout(captured: Captured) -> None:
+    """An as-available call finds the only slot held, fails at once and sends one `timeout`
+    observation."""
+    with acquire_ollama_slot([NODE], max_parallel=1, priority=RequestPriority.HIGH):
+        with pytest.raises(AIClientError, match="No capacity available"):
+            with acquire_ollama_slot([NODE], max_parallel=1, priority=RequestPriority.AS_AVAILABLE):
+                pass
+
+    assert _counts(_slot_waits(captured)) == {("high", "ok"): 1, ("as_available", "timeout"): 1}
