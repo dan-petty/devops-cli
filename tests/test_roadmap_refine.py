@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 import time
 import traceback
@@ -28,6 +29,10 @@ if TYPE_CHECKING:
 
 import httpx2
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+from markdown_it import MarkdownIt
+from markdown_it.rules_inline import StateInline, backtick
 from typer.testing import CliRunner
 
 from devops_cli.ai.client.models import (
@@ -1619,6 +1624,23 @@ def test_the_next_step_comment_holds_the_models_text_sanitized_and_one_line_for_
     ]
 
 
+def test_a_link_in_a_code_block_of_the_models_point_is_a_code_span_on_the_points_line(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A point goes on one line before it is sanitized: the line has no code block, so the
+    link that a code block held goes in a code span and GitHub does not link it (#2525)."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    split_offs = ["Read this:\n\n    www.example.com", "The second change."]
+    model_fake.answer(_SPLIT.model_copy(update={"split_offs": split_offs}))
+
+    _refine_round(store, git_repo)
+
+    assert [comment.splitlines()[-2:] for comment in _comment_bodies(store, number)] == [
+        ["1. Read this: `www.example.com`", "2. The second change."]
+    ]
+
+
 def test_a_persons_reply_makes_an_item_that_waits_on_them_eligible_and_reaches_the_model(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
@@ -2373,6 +2395,26 @@ def test_a_rendered_section_neutralizes_comment_openers_www_links_and_cross_repo
         ("Keep `other/repo#1` as code", set(), "Keep `other/repo#1` as code"),
         ("Read https://example.com/a/b#1", set(), "Read `https://example.com/a/b#1`"),
         ("Cite src/sample.py:1", set(), "Cite src/sample.py:1"),
+        ("A _cli/cli#1_ B", set(), "A _`cli/cli#1`_ B"),
+        ("_Depends on cli/cli#1_", set(), "_Depends on `cli/cli#1`_"),
+        ("C x/cli/cli#1 D __cli/cli#1__ E", set(), "C x/`cli/cli#1` D __`cli/cli#1`__ E"),
+        (">www.example.com", set(), ">`www.example.com`"),
+        ("|www.example.com|", set(), "|`www.example.com`|"),
+        ("Read HTTPS://example.com/a", set(), "Read `HTTPS://example.com/a`"),
+        ("[``a ` b`` ``` cli/cli#1 `", set(), "[``a ` b`` ``` ````cli/cli#1```` `"),
+        ("Ask @alice.other/repo#1", set(), "Ask `@alice`.`other/repo#1`"),
+        ("A `` `x` `see www.example.com` B", set(), "A `` `x` `see ```www.example.com``` ` B"),
+        ("[``www.example.com`` `", set(), "[`` ```www.example.com``` `` `"),
+        (
+            "~> ```|> `)https://example.com/a a*cli/cli#1 ",
+            set(),
+            "~> ```|> `)````https://example.com/a```` a*`````cli/cli#1````` ",
+        ),
+        (
+            "See x.cli/cli#1#2https://example.com/a",
+            set(),
+            "See x.`cli/cli#1#2https://example.com/a`",
+        ),
     ],
 )
 def test_sanitize_text_neutralizes_what_github_hides_links_or_cross_references(
@@ -2380,5 +2422,143 @@ def test_sanitize_text_neutralizes_what_github_hides_links_or_cross_references(
 ) -> None:
     """The opener of a comment, a CDATA section or a processing instruction becomes an entity,
     also when a stripped tag builds it again; a bare `www.` link that `allowed` does not hold
-    and a cross-repository reference become code spans, one time each (#2478)."""
+    and a cross-repository reference become code spans, one time each, also inside emphasis,
+    after a slash, after a block quote marker, in a table cell, with a scheme in capitals,
+    after a handle, after a code span that an unclosed `[` comes before, with what follows a
+    reference up to a space, and in a text with a backtick that opens no code span, where GitHub
+    takes a later code span as text: each added code span there has a length of its own
+    (#2478, #2525)."""
     assert sanitize_text(raw, allowed) == sanitized
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Run `curl www.example.com` here",
+        "Run `see other/repo#1 now` here",
+        "Ask `ping @alice now`",
+        "Run `curl https://example.com/a now`",
+        "Run ``a ` www.example.com`` here",
+        "```\ncurl www.example.com other/repo#1 @alice\n```",
+        "Read:\n\n    curl www.example.com",
+    ],
+)
+def test_sanitize_text_writes_the_code_in_the_models_text_as_it_is(raw: str) -> None:
+    """A link, a handle or a reference in a code span or a code block is text that GitHub does
+    not link, so it stays as it is: a backtick added in the span would close it early and
+    show what it holds (#2525)."""
+    assert sanitize_text(raw, set()) == raw
+
+
+def test_sanitize_text_neutralizes_a_comment_opener_in_a_code_span_too() -> None:
+    """The record block and the markers are found in the raw text, which knows no code span,
+    so a code span in the model's text cannot forge them either (#2478, #2525)."""
+    sanitized = sanitize_text('Quote `<!-- devops-roadmap-record {"Status": "Ready"} -->`', set())
+    assert (sanitized, split_record(sanitized)) == (
+        'Quote `&lt;!-- devops-roadmap-record {"Status": "Ready"} -->`',
+        (sanitized, {}),
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "allowed", "sanitized"),
+    [
+        ("See `code` and www.example.com", set(), "See `code` and ``www.example.com``"),
+        ("A `b www.example.com c", set(), "A `b ``www.example.com`` c"),
+        ("`code`@alice", set(), "`code` ``@alice``"),
+        ("See \\@alice", set(), "See \\ `@alice`"),
+        ("See other/repo#1`code`", set(), "See ``other/repo#1`` `code`"),
+        (
+            "Read https://example.com/a)`x www.example.com`",
+            {"https://example.com/a"},
+            "Read ``https://example.com/a``)`x www.example.com`",
+        ),
+        ("[`refine.py`](https://example.com/a)", set(), "`refine.py` (``https://example.com/a``)"),
+        ("www.example.com\\`` `", set(), "```www.example.com```\\`` `"),
+        (
+            "Read https://example.com[a](`) `b www.example.com`",
+            set(),
+            "Read ``https://example.com``[a](`) `b www.example.com`",
+        ),
+        ("[a `b](https://example.com/a)` c", set(), "[a `b](https://example.com/a)` c"),
+    ],
+)
+def test_sanitize_text_puts_a_link_next_to_code_in_a_code_span_of_its_own(
+    raw: str, allowed: set[str], sanitized: str
+) -> None:
+    """The added code span takes more backticks than any run in the text, so it closes on its
+    own backticks and on no backtick of the model's; a space keeps it from a backtick or a
+    backslash next to it. A link ends before a backslash or a bracket, so the escape and the
+    link after it stay. An allowed link that GitHub's autolink would run into a code span goes
+    in a code span too (#2525)."""
+    assert sanitize_text(raw, allowed) == sanitized
+
+
+_MARKDOWN_PIECES = st.sampled_from(
+    [
+        "`",
+        "``",
+        " ",
+        "\n",
+        "\n\n",
+        "a",
+        "1",
+        "_",
+        "*",
+        "|",
+        "> ",
+        "\\",
+        "(",
+        ")",
+        "[",
+        "]",
+        ".",
+        ":",
+        "- ",
+        "    ",
+        "```\n",
+        "www.example.com",
+        "other/repo#1",
+        "@alice",
+        "https://example.com/a",
+        "x/",
+    ]
+)
+# What GitHub links in text: a `www.` link, a URL whose scheme no letter comes before, the handle
+# and a reference.
+_SHOWN_LIVE_TEXT = re.compile(
+    r"www\.|(?<![a-z])https?://|@alice|[a-z0-9-]/[\w.\-]+#\d", re.IGNORECASE
+)
+
+
+def _code_span_rule_without_cache(state: StateInline, silent: bool) -> bool:
+    """markdown-it's code span rule with its backtick cache cleared: the cache that the look for
+    a link label fills makes the rule miss a code span after an unclosed `[`."""
+    state.backticks = {}
+    state.backticksScanned = False
+    return backtick(state, silent)
+
+
+_COMMONMARK_WITH_TABLES = MarkdownIt("commonmark").enable("table")
+_COMMONMARK_WITH_TABLES.inline.ruler.at("backticks", _code_span_rule_without_cache)
+
+
+def _code_and_text(markdown: str) -> tuple[Counter[str], str]:
+    """The code spans that `markdown` shows, and the text it shows outside code, a line for
+    each piece of text."""
+    shown = [
+        token for block in _COMMONMARK_WITH_TABLES.parse(markdown) for token in block.children or ()
+    ]
+    spans = Counter(token.content for token in shown if token.type == "code_inline")
+    return spans, "\n".join(token.content for token in shown if token.type == "text")
+
+
+@given(st.lists(_MARKDOWN_PIECES, max_size=30).map("".join))
+def test_sanitized_text_shows_links_handles_and_references_only_as_code(raw: str) -> None:
+    """Whatever the model writes, the sanitized text shows no `www.` link, URL, handle or
+    cross-repository reference outside code, and it keeps every code span of a text that shows
+    no backtick as text (#2525)."""
+    raw_spans, raw_text = _code_and_text(raw)
+    spans, text = _code_and_text(sanitize_text(raw, set()))
+    lost = Counter() if "`" in raw_text else raw_spans - spans
+    assert (_SHOWN_LIVE_TEXT.findall(text), lost) == ([], Counter())
