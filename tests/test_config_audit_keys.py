@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+import shutil
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app
+from devops_cli.config.constants import CONST_CONFIG_DIR, CONST_CONFIG_PATH
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -24,6 +26,32 @@ _UNPARSABLE_CONFIG = "ai:\n  api_key: FAKE-1022-value: x\n"
 def _audit_in_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run each audit in a tmp dir, so a developer's own config.yaml is never scanned."""
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture
+def write_global_config() -> Iterator[Callable[[bytes], Path]]:
+    """Write the global config file of the settings, which is in the isolated HOME of the worker.
+
+    The teardown removes the file, and the config directory when the test made it, so the
+    worker-home tripwire finds no state that stays.
+    """
+    config_dir_existed = CONST_CONFIG_DIR.exists()
+
+    def write(content: bytes) -> Path:
+        CONST_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONST_CONFIG_PATH.write_bytes(content)
+        return CONST_CONFIG_PATH
+
+    yield write
+    CONST_CONFIG_PATH.unlink(missing_ok=True)
+    if not config_dir_existed and CONST_CONFIG_DIR.exists():
+        CONST_CONFIG_DIR.rmdir()
+
+
+@pytest.fixture
+def global_config_with_a_secret(write_global_config: Callable[[bytes], Path]) -> Path:
+    """The global config file of the settings, with `ai.api_key` in plaintext."""
+    return write_global_config(b"ai:\n  api_key: FAKE-2426-global-value\n")
 
 
 def test_config_audit_keys_dry_run() -> None:
@@ -103,7 +131,7 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_table(
     assert result.exit_code == 1
     assert "LEAK DETECTED" in result.output
     alert = result.output[result.output.index("Security Alert") :]
-    assert f"{config_file.name}:grafana.token" in alert
+    assert f"{config_file.resolve()}:grafana.token" in alert
     assert "verified free of plaintext secrets" not in result.output
 
 
@@ -118,8 +146,171 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_json_report(
     assert result.exit_code == 1
     data = json.loads(result.stdout)
     assert data["is_compliant"] is False
-    assert data["plaintext_leaks"] == [f"{config_file.name}:grafana.token"]
+    assert data["plaintext_leaks"] == [f"{config_file.resolve()}:grafana.token"]
     assert data["unaudited_config_files"] == []
+
+
+def test_config_audit_keys_skips_a_top_level_setting_and_finds_the_secret_of_a_section(
+    tmp_path: Path,
+) -> None:
+    """A top-level key with a scalar value is not a section, so the audit goes on to the next key
+    and finds the plaintext secret of the section after it."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "log_level: INFO\ngrafana:\n  token: FAKE-2426-section-token\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["audit-keys", "--json"])
+
+    data = json.loads(result.stdout)
+    assert (result.exit_code, data["plaintext_leaks"], data["unaudited_config_files"]) == (
+        1,
+        [f"{config_file.resolve()}:grafana.token"],
+        [],
+    )
+
+
+def test_config_audit_keys_finds_no_secret_key_in_a_config_file_whose_document_is_a_list(
+    tmp_path: Path,
+) -> None:
+    """A config file whose YAML document is a list holds no key, so no key in it can be a
+    plaintext secret: the audit scans the file and finds no leak."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("- FAKE-2426-list-item\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["audit-keys", "--json"])
+
+    data = json.loads(result.stdout)
+    assert (
+        result.exit_code,
+        str(config_file.resolve()) in data["scanned_config_files"],
+        data["plaintext_leaks"],
+        data["unaudited_config_files"],
+    ) == (0, True, [], [])
+
+
+@pytest.mark.parametrize("walk_finds_the_project_file", [False, True])
+def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_global_config_file(
+    walk_finds_the_project_file: bool,
+    cli: Callable[..., Any],
+    global_config_with_a_secret: Path,
+    isolate_devops_cli_config: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The settings merge the global config file and the project file, so the audit scans both.
+
+    The project file holds no secret. `DEVOPS_CLI_CONFIG` names it, or the directory walk finds it
+    as `.devcontainer/config.yaml` in the current directory (#2426).
+    """
+    project_file = isolate_devops_cli_config
+    if walk_finds_the_project_file:
+        project_file = tmp_path / ".devcontainer" / "config.yaml"
+        project_file.parent.mkdir()
+        shutil.copyfile(isolate_devops_cli_config, project_file)
+        monkeypatch.delenv("DEVOPS_CLI_CONFIG")
+
+    result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (
+        result.exit_code,
+        data["is_compliant"],
+        data["plaintext_leaks"],
+        sorted(data["scanned_config_files"]),
+    ) == (
+        1,
+        False,
+        [f"{global_config_with_a_secret.resolve()}:ai.api_key"],
+        sorted([str(global_config_with_a_secret.resolve()), str(project_file.resolve())]),
+    )
+
+
+def test_config_audit_keys_table_names_the_path_of_the_global_config_file_that_holds_a_secret(
+    cli: Callable[..., Any],
+    global_config_with_a_secret: Path,
+    isolate_devops_cli_config: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The global file and the project file both have the name `config.yaml`, so the alert of the
+    table names the full path of the file that holds the secret (#2426)."""
+    project_file = tmp_path / ".devcontainer" / "config.yaml"
+    project_file.parent.mkdir()
+    shutil.copyfile(isolate_devops_cli_config, project_file)
+    monkeypatch.delenv("DEVOPS_CLI_CONFIG")
+
+    result = cli("config", "audit-keys")
+
+    assert result.exit_code == 1
+    alert = result.output[result.output.index("Security Alert") :]
+    assert f"'{global_config_with_a_secret.resolve()}:ai.api_key'" in alert
+
+
+_LOADER_CREDENTIAL = "FAKE-2426-value"
+
+
+@pytest.mark.parametrize(
+    ("content", "error_type"),
+    [
+        pytest.param(
+            f"ai:\n  api_key: !!int {_LOADER_CREDENTIAL}\n".encode(), "ValueError", id="int"
+        ),
+        pytest.param(
+            f"ai:\n  api_key: !!bool {_LOADER_CREDENTIAL}\n".encode(), "KeyError", id="bool"
+        ),
+        pytest.param(
+            f"ai:\n  api_key: !!timestamp {_LOADER_CREDENTIAL}\n".encode(),
+            "AttributeError",
+            id="timestamp",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_LOADER_CREDENTIAL}\n  timeout: !!int ''\n".encode(),
+            "IndexError",
+            id="empty-int",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_LOADER_CREDENTIAL}\n  tags: {'[' * 10_000}{']' * 10_000}\n".encode(),
+            "RecursionError",
+            id="deep-nesting",
+        ),
+        pytest.param(
+            f"ai:\n  api_key: {_LOADER_CREDENTIAL}\xe9\n".encode("latin-1"),
+            "UnicodeDecodeError",
+            id="not-utf-8",
+        ),
+    ],
+)
+def test_config_audit_keys_reports_a_global_config_file_that_the_yaml_loader_cannot_load_unaudited(
+    content: bytes,
+    error_type: str,
+    cli: Callable[..., Any],
+    write_global_config: Callable[[bytes], Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The audit refuses the errors of the YAML loader that the settings load refuses (#1468).
+
+    The message of these errors quotes the value, so the audit names only the file and the type of
+    the error. It prints the full report and exits 1.
+    """
+    global_config = write_global_config(content).resolve()
+
+    with caplog.at_level(logging.WARNING):
+        result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (
+        result.exit_code,
+        data["unaudited_config_files"],
+        data["plaintext_leaks"],
+        data["is_compliant"],
+    ) == (1, [str(global_config)], [], False)
+    assert f"Could not audit config file {global_config}: {error_type}" in caplog.messages
+    assert [
+        text
+        for text in (result.stdout, result.stderr, caplog.text)
+        if _LOADER_CREDENTIAL.casefold() in text.casefold()
+    ] == []
 
 
 def test_config_audit_keys_canonical_secret_leak_detected(

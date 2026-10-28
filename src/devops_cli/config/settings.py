@@ -1325,6 +1325,18 @@ def _yaml_error_location(exc: Exception) -> str:
     return ERRORS.config.not_yaml_location.format(line=mark.line + 1, column=mark.column + 1)
 
 
+def config_layer_paths() -> tuple[Path, Path | None]:
+    """The config files that the settings read: the global config file, and the project config
+    file or None when there is no project file. A value in the project file wins over the global
+    file (`setting_sources`).
+
+    `load_settings` reads these files, and `devops config audit-keys` scans them, so a file that
+    gives a value to the settings is also a file that the audit scans (#2426). A file need not
+    exist.
+    """
+    return CONFIG_PATH, _find_project_config_path()
+
+
 class ConfigLayers(typing.NamedTuple):
     """The config files of one load, each as its file holds it."""
 
@@ -1383,12 +1395,12 @@ def _config_layers() -> ConfigLayers:
 
     # Stamped before the read, so a write that races the read leaves a stamp that looks
     # older than the content held -- which costs a re-read, never a stale answer.
-    project_path = _find_project_config_path()
-    stamps = (_file_stamp(CONFIG_PATH), _file_stamp(project_path))
+    global_path, project_path = config_layer_paths()
+    stamps = (_file_stamp(global_path), _file_stamp(project_path))
     layers = ConfigLayers(
         project_path,
         _without_none(_read_config_mapping(project_path)),
-        _read_config_mapping(CONFIG_PATH),
+        _read_config_mapping(global_path),
     )
     if _stamps_are_settled(stamps):
         with _CONFIG_CACHE_LOCK:

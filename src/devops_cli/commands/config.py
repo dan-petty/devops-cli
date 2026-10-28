@@ -32,9 +32,12 @@ from devops_cli.config.env import (
 )
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
+    _YAML_LOAD_ERRORS,
     SecretStorageError,
     Settings,
     _keyring_has,
+    _yaml_error_location,
+    config_layer_paths,
     dotted_get,
     dotted_set,
     get_active_config_path,
@@ -599,9 +602,18 @@ def audit_stream(
 # Command: devops config audit-keys
 # =============================================================================
 
+# The audit refuses the errors that the settings load refuses (#1468), and an error that stops the
+# read of the file.
+_AUDIT_READ_ERRORS: tuple[type[Exception], ...] = (*_YAML_LOAD_ERRORS, OSError)
+
 
 def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
-    """Return the secret-named keys holding a value in ``cfg_file``, or None if it is unreadable."""
+    """Return each secret-named key that holds a value in ``cfg_file``, as ``<path>:<section>.<key>``,
+    or None if the file is unreadable.
+
+    A leak names the full path: the global config file and a project config file can both have the
+    name ``config.yaml`` (#2426).
+    """
     import yaml
 
     from devops_cli.security.sanitizer import is_secret_field
@@ -609,24 +621,24 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
     secret_options = secret_keys()
     try:
         raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
-        if not isinstance(raw_cfg, dict):
-            return []
-        leaks: list[str] = []
-        for section_name, section_dict in raw_cfg.items():
-            if not isinstance(section_dict, dict):
-                continue
-            for opt_name, value in section_dict.items():
-                composite = f"{section_name}.{opt_name}"
-                # A secret-named key that is no longer an option is still a plaintext secret.
-                if value and is_secret_field(str(opt_name), composite, secret_options):
-                    leaks.append(f"{cfg_file.name}:{composite}")
-        return leaks
-    except (yaml.YAMLError, OSError, ValueError) as err:
-        # The error's message and mark quote the file's content, which may hold the value.
-        mark = err.problem_mark if isinstance(err, yaml.MarkedYAMLError) else None
-        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+    except _AUDIT_READ_ERRORS as err:
+        # The message of the error and the mark of a YAML error quote the file's content, which
+        # may hold the value.
+        where = _yaml_error_location(err)
         logger.warning("Could not audit config file %s: %s%s", cfg_file, type(err).__name__, where)
         return None
+    if not isinstance(raw_cfg, dict):
+        return []
+    leaks: list[str] = []
+    for section_name, section_dict in raw_cfg.items():
+        if not isinstance(section_dict, dict):
+            continue
+        for opt_name, value in section_dict.items():
+            composite = f"{section_name}.{opt_name}"
+            # A secret-named key that is no longer an option is still a plaintext secret.
+            if value and is_secret_field(str(opt_name), composite, secret_options):
+                leaks.append(f"{cfg_file}:{composite}")
+    return leaks
 
 
 def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> tuple[list[str], list[Path]]:
@@ -661,7 +673,7 @@ def audit_keys_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit."""
+    """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. The audit scans each config file that the settings merge: the global config file and the project config file. It also scans config.yaml and .devops/config.yaml in the current directory. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit."""
     if dry_run:
         render_dry_run_result(
             command="devops config audit-keys",
@@ -682,7 +694,7 @@ def audit_keys_cmd(
     backend_priority = getattr(active_backend, "priority", 0)
 
     scanned_files = [
-        get_active_config_path(),
+        *(path for path in config_layer_paths() if path is not None),
         Path.cwd() / "config.yaml",
         Path.cwd() / ".devops" / "config.yaml",
     ]
