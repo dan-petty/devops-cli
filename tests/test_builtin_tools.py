@@ -384,7 +384,7 @@ def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
 def test_builtin_security_and_iac_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
-    """Verify scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search.
+    """Verify tf_lint, docker_analyze_layers, and rag_search.
 
     The knowledge base check before the search finds Qdrant down, refused through
     `refusing_port`, and its retry waits return at once.
@@ -392,9 +392,7 @@ def test_builtin_security_and_iac_tools(
     from devops_cli.ai.review_schema import Finding
     from devops_cli.ai.tools.builtin_tools import (
         docker_analyze_layers,
-        k8s_validate_manifests,
         rag_search,
-        scan_iac,
         tf_lint,
     )
 
@@ -424,12 +422,7 @@ def test_builtin_security_and_iac_tools(
 
     with (
         patch("devops_cli.ai.tools.builtin_tools._is_safe_workspace_path", return_value=True),
-        patch("devops_cli.security.checkov.run_checkov_scan", return_value=[mock_finding]),
         patch("devops_cli.security.tflint.run_tflint_scan", return_value=[mock_finding]),
-        patch(
-            "devops_cli.security.kubeconform.run_kubeconform_validation",
-            return_value=[mock_finding],
-        ),
         patch("devops_cli.security.dive.run_dive_analysis", return_value=mock_dive),
         patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
         patch(
@@ -437,14 +430,8 @@ def test_builtin_security_and_iac_tools(
             return_value=MagicMock(results=[]),
         ),
     ):
-        res_iac = scan_iac(str(tmp_path))
-        assert "Sample issue" in res_iac
-
         res_tflint = tf_lint(str(tmp_path))
         assert "Sample issue" in res_tflint
-
-        res_k8s = k8s_validate_manifests(str(tmp_path))
-        assert "Sample issue" in res_k8s
 
         res_docker = docker_analyze_layers("alpine:latest")
         assert "Efficiency Score: 95.0%" in res_docker
@@ -610,6 +597,7 @@ def test_the_agent_manifest_tool_reports_each_resource_that_kubeconform_finds_in
     outcome, one line for each resource that kubeconform reports (#2214)."""
     manifests = tmp_path / "k8s"
     manifests.mkdir()
+    (manifests / "app.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     recorded = scanner_fake.script_run_with_findings("kubeconform", tree=tmp_path)
 

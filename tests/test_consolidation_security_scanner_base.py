@@ -345,9 +345,20 @@ _SAMPLE_STDOUTS: dict[str, str] = {
             }
         ]
     ),
-    "kubeconform": (
-        '{"filename": "pod.yaml", "status": "Invalid", "msg": "schema error"}\n'
-        '{"filename": "svc.yaml", "status": "Invalid", "msg": "port error"}\n'
+    "kubeconform": json.dumps(
+        {
+            "resources": [
+                {
+                    "filename": "pod.yaml",
+                    "kind": "Pod",
+                    "name": "web",
+                    "version": "v1",
+                    "status": "statusInvalid",
+                    "msg": "schema error",
+                    "validationErrors": [{"path": "/spec", "msg": "schema error"}],
+                }
+            ]
+        }
     ),
     "kubelinter": json.dumps(
         {
@@ -498,30 +509,6 @@ def test_kubelinter_contract_finding_names_its_check(tmp_path: Path) -> None:
     assert [finding.title for finding in findings] == [
         "[no-read-only-root-fs] Root filesystem writeable"
     ]
-
-
-def test_kubeconform_ndjson_preserves_multiple_records(tmp_path: Path) -> None:
-    """Verify Kubeconform NDJSON multi-line stream output parses all records without loss."""
-    scanner = global_scanner_registry.get("kubeconform")
-    assert scanner is not None
-
-    test_manifest = tmp_path / "manifest.yaml"
-    test_manifest.write_text("apiVersion: v1\nkind: Pod\n", encoding="utf-8")
-
-    ndjson_stdout = (
-        '{"filename": "pod1.yaml", "status": "Invalid", "msg": "spec missing"}\n'
-        '{"filename": "pod2.yaml", "status": "Invalid", "msg": "port invalid"}\n'
-    )
-    mock_proc = MagicMock(returncode=0, stdout=ndjson_stdout, stderr="")
-
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
-    ):
-        findings = scanner.scan(test_manifest)
-        assert len(findings) == 2
-        assert any("pod1.yaml" in f.location for f in findings)
-        assert any("pod2.yaml" in f.location for f in findings)
 
 
 def test_dive_scanner_skips_directory_without_image(tmp_path: Path) -> None:

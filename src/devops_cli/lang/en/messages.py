@@ -463,6 +463,7 @@ class K8sMessages:
     removing_llm_namespace: str = "[bold]Removing llm namespace...[/bold]"
     kube_linter_passed: str = "Kube-linter audit passed: no security warnings."
     kube_linter_not_run: str = "Kube-linter audit {status}: {reason}. The manifest was not audited, so the check did not pass."
+    kubeconform_not_run: str = "Kubeconform validation {status}: {reason}. The manifests were not validated, so the check did not pass."
     popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
     pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."

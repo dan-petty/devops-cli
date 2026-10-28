@@ -585,19 +585,10 @@ def tf_lint(target: str = ".") -> str:
 
 
 def k8s_validate_manifests(target: str = ".") -> str:
-    """Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform."""
-    try:
-        from devops_cli.security.kubeconform import run_kubeconform_validation
+    """Validate Kubernetes YAML manifests against their JSON schemas using Kubeconform."""
+    from devops_cli.security.kubeconform import run_kubeconform_validation
 
-        findings = run_kubeconform_validation(manifest_path=Path(target))
-        if not findings:
-            return f"Kubeconform validation passed cleanly for '{target}'."
-        lines = [f"Found {len(findings)} schema validation issue(s) in '{target}':"]
-        for f in findings:
-            lines.append(f"- [{f.severity}] {f.location}: {f.title} ({f.description})")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"Kubeconform validation error: {exc}"
+    return _run_adapter_scan("Kubeconform", target, run_kubeconform_validation)
 
 
 def docker_analyze_layers(image: str) -> str:

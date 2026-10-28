@@ -3000,6 +3000,13 @@ CONST_K8S_MANIFEST_EXTENSIONS: Final[frozenset[str]] = frozenset(
         ".json",
     }
 )
+# The statuses of a resource in a `kubeconform -output json` report that are findings: a resource
+# that does not match its schema, and one that kubeconform could not validate (#2214). The other
+# two, `statusValid` and `statusSkipped`, are listed only with `-verbose`.
+CONST_KUBECONFORM_STATUS_INVALID: Final[str] = "statusInvalid"
+CONST_KUBECONFORM_FINDING_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONST_KUBECONFORM_STATUS_INVALID, "statusError"}
+)
 
 CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
     {"ollama", "local", "in-process", "internal"}

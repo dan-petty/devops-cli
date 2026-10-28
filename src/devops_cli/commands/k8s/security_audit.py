@@ -297,6 +297,13 @@ def k8s_validate(
         strict=strict,
     )
 
+    if findings.status != "ran":
+        print_error(
+            MESSAGES.k8s.kubeconform_not_run.format(status=findings.status, reason=findings.reason),
+            safe=True,
+        )
+        raise typer.Exit(1)
+
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized([f.model_dump() for f in findings], resolved)
