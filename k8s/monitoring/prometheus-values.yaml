@@ -625,7 +625,12 @@ serverFiles:
       # pod before #1130, never counts.
       # kube-state-metrics gives the restarts and the replicas. On both paths a series starts at
       # its first count, with no zero sample before it, and increase() does not count that first
-      # value. The OTLP series also get a sample only when the Service sends a new observation.
+      # value. The OTLP series also get a sample only when the Service sends a new observation, and
+      # the collector starts a stream again from zero after an hour with none (max_stale).
+      # So each count of the last hour reads a series with no sample in the hour before as new,
+      # and gives its last value, which is all of its count. Every other series gives its
+      # increase(). Neither part reads one sample near the start of the hour, so a sparse series
+      # from before the hour adds none of its earlier count (#2505).
       - name: roadmap-service
         rules:
           # A refusal stops every round until the pod restarts, and /healthz stays healthy. The
@@ -649,15 +654,13 @@ serverFiles:
               summary: "GitHub throttled {{ $labels.resource }} requests of the roadmap Service"
               description: "In the last 15 minutes GitHub refused a {{ $labels.resource }} request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (k8s/README.md, Roadmap service)."
           # Three failed rounds in a row suspend a job (roadmap-service-limits), so three errors
-          # in an hour is a job that fails at each round. An error series that starts in the hour
-          # adds its first value: `offset 1h * 0` gives 0 for a series that was there an hour ago,
-          # and `or` gives the lowest value of the hour for a new series.
+          # in an hour is a job that fails at each round.
           - alert: RoadmapServiceJobsFailing
             expr: >-
               sum by (repo, lane) (
-              increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])
-              + (devops_cli_service_jobs_total{job="roadmap-service", result="error"} offset 1h * 0
-              or min_over_time(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h]))
+              (last_over_time(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])
+              unless last_over_time(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h] offset 1h))
+              or increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])
               ) >= 3
             for: 0m
             labels:
@@ -665,8 +668,10 @@ serverFiles:
             annotations:
               summary: '{{ printf "%.0f" $value }} {{ $labels.lane }} jobs of {{ $labels.repo }} failed in the last hour'
               description: "Three or more {{ $labels.lane }} jobs of {{ $labels.repo }} failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
-          # Each poll starts a round on every lane, every 5 minutes by default. A replica that is
-          # not available starts no job, and RoadmapServiceUnavailable covers it.
+          # Each poll starts a round on every lane, every 5 minutes by default. A worker sets the
+          # job start of its lane when it starts, so a lane of a new pod that starts no job also
+          # fires (#2505). A replica that is not available starts no job, and
+          # RoadmapServiceUnavailable covers it.
           - alert: RoadmapServiceLaneStalled
             expr: >-
               time() - max by (repo, lane) (devops_cli_service_job_start_timestamp_seconds{job="roadmap-service"}) > 7200
@@ -698,7 +703,12 @@ serverFiles:
           # 90% of the default service.github_requests_per_hour (500). The Service holds its
           # rounds at the budget, and one round per worker can go past it.
           - alert: RoadmapServiceGitHubRequestsHigh
-            expr: sum(increase(devops_cli_github_requests_total{job="roadmap-service"}[1h])) > 450
+            expr: >-
+              sum(
+              (last_over_time(devops_cli_github_requests_total{job="roadmap-service"}[1h])
+              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service"}[1h] offset 1h))
+              or increase(devops_cli_github_requests_total{job="roadmap-service"}[1h])
+              ) > 450
             for: 0m
             labels:
               severity: warning
@@ -707,7 +717,12 @@ serverFiles:
               description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
           # A request that the cache answered does not go to a model.
           - alert: RoadmapServiceModelRequestsHigh
-            expr: sum(increase(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h])) > 352
+            expr: >-
+              sum(
+              (last_over_time(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h])
+              unless last_over_time(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h] offset 1h))
+              or increase(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h])
+              ) > 352
             for: 0m
             labels:
               severity: warning

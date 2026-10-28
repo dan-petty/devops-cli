@@ -8,7 +8,8 @@
 # series at time 0, one sample each `interval`, and `time()` is the seconds since time 0. A value
 # in an annotation is what increase() gives over the samples: for example, a counter that grows by
 # 10 each minute gives 590 over the 59 minutes of samples in a 1h range, and increase() makes it
-# 600 by extrapolation to the range.
+# 600 by extrapolation to the range. A counter with no sample in the hour before the range started
+# in the range, and the count rules give its last value (#2505).
 rule_files:
   - roadmap-service.rules.yaml
 
@@ -87,6 +88,36 @@ tests:
               summary: "3 model jobs of example/app failed in the last hour"
               description: "Three or more model jobs of example/app failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
 
+  - name: An error series with no sample near the start of the hour counts only the errors of the hour
+    interval: 10m
+    input_series:
+      # Samples at 50m, 70m and 110m: two jobs failed in the hour before 120m. The series has no
+      # sample in the 5 minutes before 60m, and it is not new.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", result="error"}'
+        values: '_x5 5 _ 6 _ _ _ 7'
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: RoadmapServiceJobsFailing
+        exp_alerts: []
+
+  - name: A new error series with one sample of 3 fires
+    interval: 10m
+    input_series:
+      # One sample at 60m: 3 jobs failed before the Service sent the series.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", result="error"}'
+        values: '_x6 3'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: RoadmapServiceJobsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              lane: model
+            exp_annotations:
+              summary: "3 model jobs of example/app failed in the last hour"
+              description: "Three or more model jobs of example/app failed in one hour. A job that fails three rounds in a row stops until its input changes (k8s/README.md, Roadmap service)."
+
   - name: A lane with no job start for over 2 hours fires after 10 minutes while a replica is available
     interval: 1m
     input_series:
@@ -126,6 +157,32 @@ tests:
       - eval_time: 135m
         alertname: RoadmapServiceLaneStalled
         exp_alerts: []
+
+  - name: A lane of a new pod that starts no job fires 2 hours after its worker started
+    interval: 1m
+    input_series:
+      # The last model job of the old pod started at time 0, and the old pod stops at 30m.
+      - series: 'devops_cli_service_job_start_timestamp_seconds{job="roadmap-service", instance="192.0.2.10:8000", repo="example/app", lane="model"}'
+        values: '0x30 stale'
+      # The worker of the new pod starts at 31m (1860 s) and starts no job.
+      - series: 'devops_cli_service_job_start_timestamp_seconds{job="roadmap-service", instance="192.0.2.11:8000", repo="example/app", lane="model"}'
+        values: '_x31 1860x190'
+      - series: 'kube_deployment_status_replicas_available{namespace="devops", deployment="roadmap-service"}'
+        values: '1x220'
+    alert_rule_test:
+      - eval_time: 155m
+        alertname: RoadmapServiceLaneStalled
+        exp_alerts: []
+      - eval_time: 200m
+        alertname: RoadmapServiceLaneStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              lane: model
+            exp_annotations:
+              summary: "No model job of example/app started for 2h 49m 0s"
+              description: "The roadmap Service has an available replica, but no model job of example/app started for over 2 hours (k8s/README.md, Roadmap service)."
 
   - name: A restart of the service container fires; a pod with no restart and another namespace do not
     interval: 1m
@@ -199,6 +256,35 @@ tests:
               summary: "The roadmap Service sent 600 GitHub requests in the last hour"
               description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
 
+  - name: A GitHub request stream that starts in the hour counts its first flush
+    interval: 5m
+    input_series:
+      # The first flush of the stream at 60m holds 300 requests, and 20 more come every 5
+      # minutes: 520 requests in the hour before 115m.
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
+        values: '_x12 300+20x11'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 520 GitHub requests in the last hour"
+              description: "The roadmap Service sent more than 450 GitHub requests in one hour, near its default budget of 500 (k8s/README.md, Roadmap service)."
+
+  - name: A GitHub request stream from before the hour counts only the requests of the hour
+    interval: 10m
+    input_series:
+      # Samples at 50m, 70m and 110m of a stream at 2000 requests: 20 requests in the hour before
+      # 120m. The stream has no sample in the 5 minutes before 60m, and it is not new.
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
+        values: '_x5 2000 _ 2010 _ _ _ 2020'
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+
   - name: 300 GitHub requests in an hour stay quiet; a workstation's requests do not count
     interval: 1m
     input_series:
@@ -224,6 +310,25 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 420 model requests in the last hour"
+              description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
+
+  - name: A model request stream that starts in the hour counts its first flush; cached answers do not count
+    interval: 5m
+    input_series:
+      # The first flush of the stream at 60m holds 250 requests, and 15 more come every 5
+      # minutes: 415 requests in the hour before 115m.
+      - series: 'devops_cli_ai_requests_total{job="roadmap-service", operation="chat", cached="false"}'
+        values: '_x12 250+15x11'
+      - series: 'devops_cli_ai_requests_total{job="roadmap-service", operation="chat", cached="true"}'
+        values: '_x12 250+15x11'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoadmapServiceModelRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 415 model requests in the last hour"
               description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
 
   - name: 300 model requests in an hour stay quiet; cached answers and a workstation's requests do not count

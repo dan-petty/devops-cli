@@ -745,6 +745,20 @@ def test_an_ingress_that_routes_a_placeholder_host_alerts() -> None:
     ) == (True, [], [], True, True)
 
 
+def _hour_count(series: str) -> str:
+    """The count of a counter of the roadmap Service in the last hour (#2505).
+
+    A series with no sample in the hour before started in the hour, so its last value is all of
+    its count: `increase()` does not count the first value of a series. Every other series counts
+    its `increase()`. Neither part reads one sample near the start of the hour, so a sparse series
+    from before the hour adds none of its earlier count.
+    """
+    return (
+        f"(last_over_time({series}[1h]) unless last_over_time({series}[1h] offset 1h))"
+        f" or increase({series}[1h])"
+    )
+
+
 # The roadmap Service's rules (#2472), in file order: (alert, expression, wait, severity). The
 # GitHub request rule warns at 90% of the default hourly budget of the Service.
 ROADMAP_SERVICE_RULES = [
@@ -764,12 +778,9 @@ ROADMAP_SERVICE_RULES = [
     ),
     (
         "RoadmapServiceJobsFailing",
-        "sum by (repo, lane) ("
-        ' increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])'
-        ' + (devops_cli_service_jobs_total{job="roadmap-service", result="error"} offset 1h * 0'
-        " or min_over_time("
-        'devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h]))'
-        " ) >= 3",
+        "sum by (repo, lane) ( "
+        + _hour_count('devops_cli_service_jobs_total{job="roadmap-service", result="error"}')
+        + " ) >= 3",
         "0m",
         "warning",
     ),
@@ -799,15 +810,17 @@ ROADMAP_SERVICE_RULES = [
     ),
     (
         "RoadmapServiceGitHubRequestsHigh",
-        'sum(increase(devops_cli_github_requests_total{job="roadmap-service"}[1h])) > '
-        f"{DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR * 9 // 10}",
+        "sum( "
+        + _hour_count('devops_cli_github_requests_total{job="roadmap-service"}')
+        + f" ) > {DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR * 9 // 10}",
         "0m",
         "warning",
     ),
     (
         "RoadmapServiceModelRequestsHigh",
-        'sum(increase(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h]))'
-        " > 352",
+        "sum( "
+        + _hour_count('devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}')
+        + " ) > 352",
         "0m",
         "warning",
     ),
@@ -824,8 +837,8 @@ def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_vo
     A refused identity stops every round until the pod restarts, and the refusal counter stays
     above 0 for as long, so the critical alert holds for the whole stop. A throttle sample is
     written only when the Service sends one, so a sample in 15 minutes is a throttle; increase()
-    needs two samples. An error series that starts in its hour adds its first value, which
-    increase() does not count.
+    needs two samples. The failed jobs and the GitHub and model requests count a series that
+    starts in the hour from zero (#2505).
     """
     assert [
         (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])

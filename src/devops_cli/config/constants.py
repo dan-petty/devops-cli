@@ -1431,6 +1431,8 @@ CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhoo
 CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
 CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
 CONST_SERVICE_METRIC_JOB_SECONDS: Final[str] = "devops_cli_service_job_seconds_total"
+# The time the last job of a lane started, or the time its worker started before its first job
+# (#2505).
 CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )

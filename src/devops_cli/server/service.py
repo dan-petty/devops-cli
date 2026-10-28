@@ -306,7 +306,12 @@ class RepoWorker:
         self._error: Exception | None = None
 
     def start(self) -> None:
-        """Start the daemon worker thread."""
+        """Start the daemon worker thread. The job start of the lane is the time the worker
+        starts until its first job starts, so a lane of a new pod that starts no job has a series
+        (#2505)."""
+        GLOBAL_METRICS.set_gauge(
+            CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, self.clock().timestamp(), labels=self._labels
+        )
         self._thread = threading.Thread(
             target=self._run,
             name=f"service-worker-{self.repo}-{self.lane}",
