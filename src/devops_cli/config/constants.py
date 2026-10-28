@@ -367,7 +367,6 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("scan", "aibom"), 60.0, True, False),
     (("scan", "complexity"), 60.0, True, False),
     (("scan", "fix"), 300.0, False, False),
-    (("scan", "iac"), 300.0, True, False),
     (("scan", "injection"), 60.0, True, False),
     (("scan", "sast"), 300.0, True, False),
     (("scan", "sbom"), 60.0, True, False),
@@ -1063,29 +1062,6 @@ CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
 }
 """Environment that makes git fail instead of prompting for credentials or a passphrase."""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
-# Where each workload kind keeps its pod spec: Pod; PodTemplate; Deployment, ReplicaSet,
-# StatefulSet, DaemonSet, Job and ReplicationController; CronJob.
-CONST_K8S_POD_SPEC_PATHS: Final[tuple[tuple[str, ...], ...]] = (
-    ("spec",),
-    ("template", "spec"),
-    ("spec", "template", "spec"),
-    ("spec", "jobTemplate", "spec", "template", "spec"),
-)
-# Every container list a pod spec carries.
-CONST_K8S_POD_CONTAINER_KEYS: Final[tuple[str, ...]] = (
-    "containers",
-    "initContainers",
-    "ephemeralContainers",
-)
-# Where a document keeps other resources: a `List` kind, which `kubectl get -o yaml` writes, in
-# `items`; an OpenShift Template in `objects`.
-CONST_K8S_NESTED_RESOURCE_KEYS: Final[tuple[str, ...]] = ("items", "objects")
-# The line match for a manifest that does not parse as YAML, such as a Helm template.
-CONST_K8S_PRIVILEGED_LINE_RE: Final[re.Pattern[str]] = re.compile(
-    r"^\s*privileged:\s*(?:true|yes|on)\b", re.IGNORECASE
-)
-# The tag the YAML resolver gives a plain boolean scalar.
-CONST_YAML_BOOL_TAG: Final[str] = "tag:yaml.org,2002:bool"
 
 # ── Kubernetes RBAC Audit ─────────────────────────────────────────────────────
 # The built-in ClusterRoles that grant everything (cluster-admin) or write access to most of
@@ -1125,34 +1101,6 @@ CONST_K8S_RBAC_BROAD_SUBJECTS: Final[frozenset[str]] = frozenset(
         "system:serviceaccounts",
     }
 )
-
-# ── Dockerfile Fallback Checks ────────────────────────────────────────────────
-# A FROM instruction: any `--flag=value` options, the image, and an optional stage name.
-CONST_DOCKERFILE_FROM_RE: Final[re.Pattern[str]] = re.compile(
-    r"^FROM\s+(?:--\S+\s+)*(?P<image>\S+)(?:\s+AS\s+(?P<alias>\S+))?", re.IGNORECASE
-)
-CONST_DOCKERFILE_USER_RE: Final[re.Pattern[str]] = re.compile(r"^USER\s+", re.IGNORECASE)
-# A parser directive, `# name=value`, read only at the top of the file (moby/buildkit
-# frontend/dockerfile/parser). `escape` sets the line-continuation character.
-CONST_DOCKERFILE_PARSER_DIRECTIVE_RE: Final[re.Pattern[str]] = re.compile(
-    r"^#\s*(?P<name>[a-zA-Z][a-zA-Z0-9]*)\s*=\s*(?P<value>.+?)\s*$"
-)
-CONST_DOCKERFILE_ESCAPE_DIRECTIVE: Final[str] = "escape"
-CONST_DOCKERFILE_ESCAPE_CHARACTERS: Final[tuple[str, ...]] = ("\\", "`")
-# A BuildKit heredoc opener word, `<<EOF`, `<<-EOF` (terminator may be tab-indented) or
-# `<<'EOF'`; a RUN, COPY or ADD reads the lines after it up to its terminator.
-CONST_DOCKERFILE_HEREDOC_RE: Final[re.Pattern[str]] = re.compile(
-    r"^\d*<<(?P<chomp>-?)(?P<quote>[\"']?)(?P<word>[^<\"']+)(?P=quote)$"
-)
-CONST_DOCKERFILE_HEREDOC_INSTRUCTIONS: Final[frozenset[str]] = frozenset({"RUN", "COPY", "ADD"})
-# The instruction that defers another, which may then open a heredoc: `ONBUILD RUN <<EOF`.
-CONST_DOCKERFILE_ONBUILD_INSTRUCTION: Final[str] = "ONBUILD"
-# A `$VAR` or `${VAR...}` reference, which stands for text the check cannot see.
-CONST_DOCKERFILE_VARIABLE_RE: Final[re.Pattern[str]] = re.compile(r"\$(?:\{[^}]*\}|\w+)")
-# The reserved empty base image, which has nothing to pin.
-CONST_DOCKERFILE_SCRATCH_IMAGE: Final[str] = "scratch"
-# The tag a registry serves for an image reference that names none.
-CONST_DOCKER_DEFAULT_TAG: Final[str] = "latest"
 
 # ── File Permissions ──────────────────────────────────────────────────────────
 CONST_PERM_DIR = 0o700
@@ -2999,6 +2947,13 @@ CONST_K8S_MANIFEST_EXTENSIONS: Final[frozenset[str]] = frozenset(
         ".yml",
         ".json",
     }
+)
+# The statuses of a resource in a `kubeconform -output json` report that are findings: a resource
+# that does not match its schema, and one that kubeconform could not validate (#2214). The other
+# two, `statusValid` and `statusSkipped`, are listed only with `-verbose`.
+CONST_KUBECONFORM_STATUS_INVALID: Final[str] = "statusInvalid"
+CONST_KUBECONFORM_FINDING_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONST_KUBECONFORM_STATUS_INVALID, "statusError"}
 )
 
 CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(

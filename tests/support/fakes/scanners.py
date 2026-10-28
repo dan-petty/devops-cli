@@ -53,7 +53,8 @@ replacement. Popeye ran at warn level over the namespace of a lab cluster; its r
 of its sections and two of its resources, and the names of the cluster and the context read
 `example`. uv audit 0.12.23 ran on 2026-10-28 over a project whose `uv.lock` pins idna 3.6
 (#2106). No tools lock pins uv, and uv 0.13.6, which the images pin, writes a report of the same
-layout.
+layout. kubeconform ran on 2026-10-28 over a manifest with two invalid resources and one custom
+resource with no schema (#2214).
 """
 
 from __future__ import annotations

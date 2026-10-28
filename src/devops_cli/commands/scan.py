@@ -40,7 +40,6 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.aibom import generate_aibom
-from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.complexity import run_complexity_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
 from devops_cli.security.pipeline import ScanReport, build_report, report_from_findings
@@ -468,76 +467,6 @@ def scan_sast(
             target=str(target_abs),
             action="semgrep_ast_scan",
             details={"config": config, "findings_count": len(findings)},
-        )
-    return None
-
-
-@app.command("iac")
-def scan_iac(
-    target: Annotated[
-        Path,
-        typer.Argument(help=HELP.scan.target_checkov),
-    ] = DEFAULT_CURRENT_PATH,
-    framework: Annotated[
-        str | None,
-        typer.Option("--framework", "-f", help=HELP.scan.framework),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-    output_format: Annotated[
-        str,
-        typer.Option("--format", help=HELP.options.format_type),
-    ] = DEFAULT_TABLE_FORMAT,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help=HELP.options.json_output),
-    ] = False,
-) -> CommandDryRunResult | None:
-    """Run Checkov IaC static policy and security compliance scan."""
-    set_dry_run(dry_run)
-    target_abs = target.resolve() if target.exists() else target
-
-    resolved = resolve_format(output_format, json_output=json_output)
-    if not is_dry_run() and resolved == CONST_OUTPUT_FORMAT_TABLE:
-        print_muted(MESSAGES.scan.checkov_executing.format(target=target_abs))
-
-    findings = run_checkov_scan(target_path=target_abs, framework=framework)
-
-    if resolved != CONST_OUTPUT_FORMAT_TABLE:
-        data = _serialize_scanner_outcome(findings)
-        emit_serialized(data, resolved)
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan iac {target}",
-                target=str(target_abs),
-                action="checkov_iac_scan",
-                details={"framework": framework, "findings_count": len(findings)},
-            )
-        return None
-
-    if _handle_single_scanner_result("Checkov", findings, MESSAGES.scan.checkov_passed):
-        if is_dry_run():
-            return CommandDryRunResult(
-                command=f"devops scan iac {target}",
-                target=str(target_abs),
-                action="checkov_iac_scan",
-                details={"framework": framework, "findings_count": 0},
-            )
-        return None
-
-    _render_scan_results_table(
-        title=f"Checkov IaC Scan: {target_abs.name or target_abs}",
-        findings=findings,
-    )
-
-    if is_dry_run():
-        return CommandDryRunResult(
-            command=f"devops scan iac {target}",
-            target=str(target_abs),
-            action="checkov_iac_scan",
-            details={"framework": framework, "findings_count": len(findings)},
         )
     return None
 

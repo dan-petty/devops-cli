@@ -211,7 +211,6 @@ def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
 
 ALL_EXPECTED_SCANNER_NAMES = [
     "bandit",
-    "checkov",
     "dive",
     "gitleaks",
     "kubeconform",
@@ -221,6 +220,7 @@ ALL_EXPECTED_SCANNER_NAMES = [
     "semgrep",
     "tflint",
     "trivy",
+    "trivy-config",
 ]
 
 
@@ -240,7 +240,6 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
     """Verify each of the 11 scanner classes subclasses BaseSecurityScanner."""
     from devops_cli.security import (
         BanditScanner,
-        CheckovScanner,
         DiveScanner,
         GitleaksScanner,
         KubeconformScanner,
@@ -249,12 +248,12 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
         PopeyeScanner,
         SemgrepScanner,
         TflintScanner,
+        TrivyConfigScanner,
         TrivyScanner,
     )
 
     classes = [
         BanditScanner,
-        CheckovScanner,
         DiveScanner,
         GitleaksScanner,
         KubeconformScanner,
@@ -263,6 +262,7 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
         PopeyeScanner,
         SemgrepScanner,
         TflintScanner,
+        TrivyConfigScanner,
         TrivyScanner,
     ]
     for cls in classes:
@@ -272,15 +272,26 @@ def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
         assert instance.binary_name != ""
 
 
+def _sample_target(scanner_name: str, tmp_path: Path) -> Path:
+    """The file that a scanner scans in a contract test: a manifest for kubeconform, which starts
+    only for a target that holds one (#2214), else a Python file."""
+    name, text = (
+        ("pod.yaml", "apiVersion: v1\nkind: Pod\nmetadata:\n  name: web\n")
+        if scanner_name == "kubeconform"
+        else ("test_target.py", "content = True\n")
+    )
+    target = tmp_path / name
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 def test_all_11_scanners_dry_run_simulation(tmp_path: Path) -> None:
     """Verify all 11 scanners handle dry-run execution by returning simulated findings."""
-    test_file = tmp_path / "app.py"
-    test_file.write_text("import os\n", encoding="utf-8")
-
     with patch("devops_cli.dry_run.state.is_dry_run", return_value=True):
         for name in ALL_EXPECTED_SCANNER_NAMES:
             scanner = global_scanner_registry.get(name)
             assert scanner is not None
+            test_file = _sample_target(name, tmp_path)
             findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
             assert isinstance(findings, list)
             assert len(findings) >= 1
@@ -318,22 +329,6 @@ _SAMPLE_STDOUTS: dict[str, str] = {
             ]
         }
     ),
-    "checkov": json.dumps(
-        {
-            "results": {
-                "failed_checks": [
-                    {
-                        "check_id": "CKV_DOCKER_1",
-                        "file_path": "/Dockerfile",
-                        "file_line_range": [1, 2],
-                        "check_name": "Root user",
-                        "severity": "HIGH",
-                        "guideline": "Use non-root",
-                    }
-                ]
-            }
-        }
-    ),
     "gitleaks": json.dumps(
         [
             {
@@ -345,9 +340,20 @@ _SAMPLE_STDOUTS: dict[str, str] = {
             }
         ]
     ),
-    "kubeconform": (
-        '{"filename": "pod.yaml", "status": "Invalid", "msg": "schema error"}\n'
-        '{"filename": "svc.yaml", "status": "Invalid", "msg": "port error"}\n'
+    "kubeconform": json.dumps(
+        {
+            "resources": [
+                {
+                    "filename": "pod.yaml",
+                    "kind": "Pod",
+                    "name": "web",
+                    "version": "v1",
+                    "status": "statusInvalid",
+                    "msg": "schema error",
+                    "validationErrors": [{"path": "/spec", "msg": "schema error"}],
+                }
+            ]
+        }
     ),
     "kubelinter": json.dumps(
         {
@@ -446,6 +452,22 @@ _SAMPLE_STDOUTS: dict[str, str] = {
             ]
         }
     ),
+    "trivy-config": json.dumps(
+        {
+            "Results": [
+                {
+                    "Target": "Dockerfile",
+                    "Misconfigurations": [
+                        {
+                            "ID": "DS-0002",
+                            "Title": "Image user should not be 'root'",
+                            "Severity": "HIGH",
+                        }
+                    ],
+                }
+            ]
+        }
+    ),
 }
 
 
@@ -455,8 +477,7 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
     scanner = global_scanner_registry.get(scanner_name)
     assert scanner is not None
 
-    test_file = tmp_path / "test_target.py"
-    test_file.write_text("content = True\n", encoding="utf-8")
+    test_file = _sample_target(scanner_name, tmp_path)
 
     sample_stdout = _SAMPLE_STDOUTS.get(scanner_name, "[]")
     mock_proc = MagicMock(returncode=0, stdout=sample_stdout, stderr="")
@@ -498,30 +519,6 @@ def test_kubelinter_contract_finding_names_its_check(tmp_path: Path) -> None:
     assert [finding.title for finding in findings] == [
         "[no-read-only-root-fs] Root filesystem writeable"
     ]
-
-
-def test_kubeconform_ndjson_preserves_multiple_records(tmp_path: Path) -> None:
-    """Verify Kubeconform NDJSON multi-line stream output parses all records without loss."""
-    scanner = global_scanner_registry.get("kubeconform")
-    assert scanner is not None
-
-    test_manifest = tmp_path / "manifest.yaml"
-    test_manifest.write_text("apiVersion: v1\nkind: Pod\n", encoding="utf-8")
-
-    ndjson_stdout = (
-        '{"filename": "pod1.yaml", "status": "Invalid", "msg": "spec missing"}\n'
-        '{"filename": "pod2.yaml", "status": "Invalid", "msg": "port invalid"}\n'
-    )
-    mock_proc = MagicMock(returncode=0, stdout=ndjson_stdout, stderr="")
-
-    with (
-        patch("devops_cli.security.base.check_binary", return_value=True),
-        patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
-    ):
-        findings = scanner.scan(test_manifest)
-        assert len(findings) == 2
-        assert any("pod1.yaml" in f.location for f in findings)
-        assert any("pod2.yaml" in f.location for f in findings)
 
 
 def test_dive_scanner_skips_directory_without_image(tmp_path: Path) -> None:

@@ -13,7 +13,7 @@ class SecurityScanRequest(BaseModel):
     target_path: str = Field(default=".", description="File or directory path to scan")
     scanner: str = Field(
         default="all",
-        description="Target scanner engine (all, bandit, checkov, gitleaks, kubelinter, pluto, semgrep, trivy)",
+        description="Target scanner engine (all, bandit, gitleaks, kubelinter, pluto, semgrep, trivy)",
     )
     severity_threshold: str = Field(
         default="LOW",

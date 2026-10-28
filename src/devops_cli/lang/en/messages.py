@@ -465,6 +465,7 @@ class K8sMessages:
     removing_llm_namespace: str = "[bold]Removing llm namespace...[/bold]"
     kube_linter_passed: str = "Kube-linter audit passed: no security warnings."
     kube_linter_not_run: str = "Kube-linter audit {status}: {reason}. The manifest was not audited, so the check did not pass."
+    kubeconform_not_run: str = "Kubeconform validation {status}: {reason}. kubeconform validated no manifest, so the check did not pass."
     popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
     pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."
@@ -1061,14 +1062,13 @@ class ScanMessages:
     uv_audit_not_a_directory: str = (
         "{target} is not a directory. uv audit audits the project of a directory."
     )
+    kubeconform_not_applicable: str = "No Kubernetes manifest in the target"
     semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
     semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
     semgrep_default_message: str = "Code pattern flaw detected by Semgrep"
     semgrep_batch_failed: str = "batch {batch} of {batches}, {files} files: {reason}"
     semgrep_file_not_scanned: str = "Semgrep did not list the file as scanned"
-    checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
-    checkov_passed: str = "✓ No IaC policy violations detected."
     injection_executing: str = "Scanning '{target}' for prompt-injection smuggling vectors..."
     injection_passed: str = "✓ No prompt-injection smuggling vectors detected."
 

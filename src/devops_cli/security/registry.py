@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 def _create_default_scanners() -> list[BaseSecurityScanner]:
     """Instantiate the 14 built-in security scanners."""
     from devops_cli.security.bandit import BanditScanner
-    from devops_cli.security.checkov import CheckovScanner
     from devops_cli.security.dive import DiveScanner
     from devops_cli.security.gitleaks import GitleaksScanner
     from devops_cli.security.golangci_lint import GolangciLintScanner
@@ -28,12 +27,11 @@ def _create_default_scanners() -> list[BaseSecurityScanner]:
     from devops_cli.security.popeye import PopeyeScanner
     from devops_cli.security.semgrep import SemgrepScanner
     from devops_cli.security.tflint import TflintScanner
-    from devops_cli.security.trivy import TrivyScanner
+    from devops_cli.security.trivy import TrivyConfigScanner, TrivyScanner
     from devops_cli.security.zizmor import ZizmorScanner
 
     return [
         BanditScanner(),
-        CheckovScanner(),
         DiveScanner(),
         GitleaksScanner(),
         GolangciLintScanner(),
@@ -45,6 +43,7 @@ def _create_default_scanners() -> list[BaseSecurityScanner]:
         SemgrepScanner(),
         TflintScanner(),
         TrivyScanner(),
+        TrivyConfigScanner(),
         ZizmorScanner(),
     ]
 

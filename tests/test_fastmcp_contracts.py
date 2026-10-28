@@ -82,7 +82,6 @@ def test_fastmcp_tools_registration() -> None:
         "scan_trivy",
         "scan_secrets",
         "scan_sast",
-        "scan_iac",
         "scan_complexity",
         "scan_aibom",
         "scan_sbom",

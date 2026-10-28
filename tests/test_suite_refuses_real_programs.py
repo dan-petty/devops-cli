@@ -36,8 +36,8 @@ def test_a_refused_shell_command_fails_the_test(
 ) -> None:
     """A command line given as one string is refused by its first word."""
     try:
-        with pytest.raises(pytest.fail.Exception, match="real checkov"):
-            subprocess.run("checkov --version", shell=True, check=False)
+        with pytest.raises(pytest.fail.Exception, match="real kubeconform"):
+            subprocess.run("kubeconform -v", shell=True, check=False)
     finally:
         unexpected_loopback_connects.clear()
 

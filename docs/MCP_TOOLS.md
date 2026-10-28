@@ -120,7 +120,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`scan_aibom`](#scan-aibom) | `true` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
 | [`scan_complexity`](#scan-complexity) | `true` | Run AST-based cyclomatic complexity and indentation depth analysis. |
 | [`scan_fix`](#scan-fix) | `false` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
-| [`scan_iac`](#scan-iac) | `true` | Run Checkov IaC static policy and security compliance scan. |
 | [`scan_injection`](#scan-injection) | `true` | Scan target files for prompt-injection smuggling vectors and canary tokens. |
 | [`scan_sast`](#scan-sast) | `true` | Run static application security testing (SAST) via Semgrep. |
 | [`scan_sbom`](#scan-sbom) | `true` | Generate Software Bill of Materials (SBOM) using Trivy (#1439). |
@@ -1985,22 +1984,6 @@ Remediate vulnerable dependencies via lockfile upgrades and optional git branch 
 | `create_branch` | `boolean` | No | `False` | Create a git topic branch for the remediation |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `scan_iac`
-
-Run Checkov IaC static policy and security compliance scan.
-
-**Annotations:** `readOnlyHint: true`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `target` | `string` | No | `.` | Target directory or file to scan with Checkov IaC rules. |
-| `framework` | `string` | No | - | Specific IaC framework (e.g. terraform). |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-| `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
-| `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-
 ### `scan_injection`
 
 Scan target files for prompt-injection smuggling vectors and canary tokens.
@@ -2078,7 +2061,7 @@ Run Aqua Trivy vulnerability, secret, and misconfiguration scan.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory, file, or repository to scan. |
-| `scan_type` | `string` | No | `fs` | Trivy scan mode: fs, image, iac, repo. |
+| `scan_type` | `string` | No | `fs` | Trivy scan mode: fs, image, config, repo. The config mode scans IaC files for misconfigurations. |
 | `severity` | `string` | No | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |

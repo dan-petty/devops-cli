@@ -67,26 +67,27 @@ def test_run_json_subprocess_raises_on_malformed_json_without_default() -> None:
 
 
 def test_run_json_subprocess_nonzero_returncode_allowed_when_check_false() -> None:
-    """When check=False, parses valid JSON stdout even if returncode != 0 (e.g. Checkov failed checks)."""
+    """When check=False, parses valid JSON stdout even if returncode != 0 (e.g. invalid resources
+    of kubeconform)."""
     fake_completed = subprocess.CompletedProcess(
-        args=["checkov", "-d", ".", "-o", "json"],
+        args=["kubeconform", "-output", "json", "."],
         returncode=1,
-        stdout='{"results": {"failed_checks": [{"check_id": "CKV_AWS_1"}]}}',
+        stdout='{"resources": [{"kind": "Service", "status": "statusInvalid"}]}',
         stderr="",
     )
     with patch("devops_cli.core.process.run_subprocess", return_value=fake_completed):
-        res = run_json_subprocess(["checkov", "-d", ".", "-o", "json"], check=False)
-        assert res == {"results": {"failed_checks": [{"check_id": "CKV_AWS_1"}]}}
+        res = run_json_subprocess(["kubeconform", "-output", "json", "."], check=False)
+        assert res == {"resources": [{"kind": "Service", "status": "statusInvalid"}]}
 
 
 def test_run_json_subprocess_nonzero_returncode_fallback_when_check_false() -> None:
     """When check=False and output is empty/invalid, returns default fallback."""
     fake_completed = subprocess.CompletedProcess(
-        args=["checkov", "-d", "."],
+        args=["kubeconform", "-output", "json", "."],
         returncode=2,
         stdout="",
         stderr="Fatal error",
     )
     with patch("devops_cli.core.process.run_subprocess", return_value=fake_completed):
-        res = run_json_subprocess(["checkov", "-d", "."], default={}, check=False)
+        res = run_json_subprocess(["kubeconform", "-output", "json", "."], default={}, check=False)
         assert res == {}

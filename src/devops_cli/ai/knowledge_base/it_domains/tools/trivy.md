@@ -4,7 +4,7 @@ applies_to:
 sources:
   - "https://trivy.dev/"
   - "https://github.com/aquasecurity/trivy"
-reviewed: "2026-10-15"
+reviewed: "2026-10-28"
 tags:
   - "trivy"
   - "security"
@@ -24,6 +24,7 @@ Trivy (by Aqua Security) is a comprehensive, open-source security scanner. It de
 - **Multi-Target Scanning**: Scans container images (`trivy image`), local directory filesystems (`trivy fs`), Git repositories (`trivy repo`), and Kubernetes manifests (`trivy k8s`).
 - **Offline Vulnerability DB**: Downloads and updates local vulnerability database caches under `~/.cache/trivy/db`.
 - **Integration Layer**: Programmatically wrapped in `src/devops_cli/security/trivy.py` and exposed via `devops scan` subcommands.
+- **IaC misconfiguration scan**: `trivy config` scans Dockerfiles, Kubernetes manifests, Helm charts, Terraform, CloudFormation, Azure ARM templates and Ansible with the checks bundle of Trivy. The scanner registry holds it as `trivy-config` beside `trivy` (`trivy fs`), so `devops scan report` runs both.
 
 ---
 
@@ -34,11 +35,11 @@ Trivy (by Aqua Security) is a comprehensive, open-source security scanner. It de
 # Scan a container image for vulnerabilities
 devops scan trivy ghcr.io/dan-petty/devops-cli/devcontainer:latest --type image
 
-# Scan a local repository filesystem for CVEs and misconfigurations
+# Scan a local repository filesystem for CVEs and secrets
 devops scan trivy . --type fs
 
-# Scan Kubernetes manifests for security misconfigurations
-devops scan trivy k8s/ --type iac
+# Scan IaC files (Kubernetes manifests, Dockerfiles, Terraform) for misconfigurations
+devops scan trivy k8s/ --type config
 ```
 
 ### Standard & Advanced `trivy` Commands

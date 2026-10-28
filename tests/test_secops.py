@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -12,8 +13,10 @@ from devops_cli.commands.scan import scan_trivy as scan_main
 from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter_scan
 from devops_cli.security.pluto import parse_pluto_json, run_pluto_scan
 from devops_cli.security.popeye import run_popeye_scan
+from devops_cli.security.registry import ScannerRegistry
 from devops_cli.security.trivy import parse_trivy_json, run_trivy_scan
 from tests.support.fakes.scanners import ScannerFake, ScannerRun
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_trivy_parser() -> None:
@@ -61,6 +64,39 @@ def test_trivy_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
     findings = run_trivy_scan(target=tmp_path, scan_type="fs")
     assert [f.title for f in findings] == ["[DRY-RUN] Simulated Trivy Vulnerability Scan Result"]
+
+
+def test_the_registry_scans_iac_files_with_the_misconfiguration_scan_of_trivy(
+    scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """The registry holds `trivy-config` in place of Checkov. A scan with every Trivy scanner
+    starts Trivy once with `fs` and once with `config` over the target, and each misconfiguration
+    that `trivy config` reports is a finding of `trivy-config` (#2214)."""
+    dockerfile = {
+        "Target": "Dockerfile",
+        "Misconfigurations": [
+            {
+                "ID": "DS-0002",
+                "Title": "Image user should not be 'root'",
+                "Severity": "HIGH",
+                "Resolution": "Add 'USER <non root user name>' line to the Dockerfile",
+            }
+        ],
+    }
+    scanner_fake.script("trivy", ToolAnswer(stdout=json.dumps({"Results": [dockerfile]})))
+    registry = ScannerRegistry(auto_load_defaults=True)
+
+    outcomes = registry.scan_all(tmp_path, names=["trivy", "trivy-config"])
+
+    assert (
+        "checkov" in registry.list_scanners(),
+        [run.argv[:3] for run in scanner_fake.runs],
+        [(f.severity, f.title) for f in outcomes["trivy-config"].findings],
+    ) == (
+        False,
+        [["trivy", "fs", str(tmp_path)], ["trivy", "config", str(tmp_path)]],
+        [("HIGH", "[DS-0002] Image user should not be 'root'")],
+    )
 
 
 def test_kubelinter_parser() -> None:

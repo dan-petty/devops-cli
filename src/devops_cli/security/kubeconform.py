@@ -1,4 +1,5 @@
-"""Kubeconform fast Kubernetes OpenAPI and JSONSchema validator."""
+"""Kubeconform, the Kubernetes manifest validator against the JSON schemas, which `tools.lock` pins
+(#2214)."""
 
 from __future__ import annotations
 
@@ -10,14 +11,19 @@ from typing import Any, ClassVar
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import (
     CONST_K8S_MANIFEST_EXTENSIONS,
+    CONST_KUBECONFORM_FINDING_STATUSES,
+    CONST_KUBECONFORM_STATUS_INVALID,
     CONST_MAX_INSPECT_FILE_SIZE_BYTES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
-from devops_cli.core.repo import find_repo_root, is_ignored_by_git
+from devops_cli.core.repo import list_repo_files
+from devops_cli.lang import MESSAGES
+from devops_cli.review.manifests import manifest_object_key
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.kubelinter import manifest_location
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -43,8 +49,8 @@ def _is_manifest_document(document: Any) -> bool:
 
     A document omitting `apiVersion` is therefore skipped. That trades away detection of a
     manifest missing it entirely, which `kubectl apply` rejects immediately with a clearer
-    message than this fallback could give, for not flagging correct files -- the failure
-    that teaches people to ignore a validator.
+    message, for not flagging correct files -- the failure that teaches people to ignore a
+    validator.
     """
     return isinstance(document, dict) and "apiVersion" in document
 
@@ -69,83 +75,65 @@ def is_kubernetes_manifest(path: Path | str) -> bool:
         return False
 
 
-def _validate_single_k8s_file_fallback(f: Path, rel_root: Path) -> Finding | None:
-    """Check the Kubernetes manifests in a YAML file for required schema headers.
+def kubernetes_manifests(target: Path) -> list[Path]:
+    """The Kubernetes manifests of `target` that kubeconform validates: the target when it is a
+    manifest, else each manifest below it that git lists and does not ignore.
 
-    A file with no manifest documents is skipped rather than reported. Treating the absence
-    of `apiVersion` and `kind` as a defect inverted the test: that absence is precisely how
-    a non-manifest is recognised, so every Helm values file in this repository was reported
-    as a broken manifest -- nine HIGH findings, all false, which is how a validator teaches
-    people to ignore it.
+    kubeconform reads each YAML and JSON file of a directory that it is given, and reports each
+    file that is not a manifest as a resource that it could not validate. A Helm values file, a
+    Helm template, a workflow and a dashboard are such files (#2214).
     """
-    rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name
-    documents = _parse_documents(f)
-    if documents is None:
-        return Finding(
-            severity="HIGH",
-            location=f"{rel_str}:1",
-            title="Unparseable YAML document",
-            description="File could not be parsed as YAML and cannot be validated.",
-            fix="Correct the YAML syntax so the document can be parsed.",
+    return [path for path in list_repo_files(target) if is_kubernetes_manifest(path)]
+
+
+def _kubeconform_finding(resource: dict[str, Any]) -> Finding:
+    """One resource of a kubeconform report as a HIGH finding at its manifest and object.
+
+    kubeconform writes the `filename`, `kind`, `name`, `status` and `msg` of each resource, and
+    `validationErrors` for an invalid one, but no namespace and no line. The object is
+    `Kind/name`, as kube-linter and Pluto name it. A resource that kubeconform could not read,
+    such as a file that is not YAML, has an empty `kind`, and is named by its manifest alone.
+    """
+    manifest = manifest_location(resource["filename"])
+    kind, name, status = resource["kind"], resource["name"], resource["status"]
+    location = f"{manifest}:{manifest_object_key(kind, name)}" if kind else manifest
+    subject = f"{kind} '{name}'" if kind else manifest
+    if status == CONST_KUBECONFORM_STATUS_INVALID:
+        errors = "; ".join(
+            f"{error['path']}: {error['msg']}" if error["path"] else error["msg"]
+            for error in resource.get("validationErrors") or []
         )
-
-    manifests = [document for document in documents if _is_manifest_document(document)]
-    if not manifests:
-        return None
-
-    for document in manifests:
-        if not document.get("kind"):
-            return Finding(
-                severity="HIGH",
-                location=f"{rel_str}:1",
-                title="Invalid Kubernetes manifest schema",
-                description="Manifest declares apiVersion but is missing kind.",
-                fix="Specify the canonical kind metadata header.",
-            )
-    return None
-
-
-def _run_native_fallback_k8s_validation(manifest_path: Path) -> list[Finding]:
-    """Fallback basic schema check for Kubernetes YAML manifests when kubeconform is absent."""
-    findings: list[Finding] = []
-    resolved = manifest_path.resolve()
-    files = list(resolved.rglob("*.yaml")) if resolved.is_dir() else [resolved]
-    rel_root = resolved if resolved.is_dir() else resolved.parent
-    repo_root = find_repo_root(rel_root)
-
-    for f in files:
-        if not f.is_file() or is_ignored_by_git(repo_root, f):
-            continue
-        try:
-            if not f.resolve().is_relative_to(rel_root):
-                continue
-        except ValueError, OSError:
-            continue
-        finding = _validate_single_k8s_file_fallback(f, rel_root)
-        if finding:
-            findings.append(finding)
-
-    return findings
+        title = f"[Kubeconform {status}] {subject} does not match its schema"
+        fix = (
+            f"Correct the resource to match its schema: {errors}."
+            if errors
+            else "Correct the resource to match its schema."
+        )
+    else:
+        title = f"[Kubeconform {status}] {subject} could not be validated"
+        fix = (
+            "Correct the resource so that kubeconform can read it, or give kubeconform a schema "
+            "for its kind."
+        )
+    return Finding(
+        severity="HIGH",
+        location=location,
+        title=title,
+        description=resource["msg"],
+        fix=fix,
+        confidence_score=None,
+    )
 
 
-def _parse_kubeconform_line(line: str) -> Finding | None:
-    """Parse a single JSON line from Kubeconform output into a Finding."""
-    try:
-        item = json.loads(line)
-        status = item.get("status", "")
-        if status.lower() in ("invalid", "error"):
-            resource_path = item.get("filename", "")
-            msg = item.get("msg", "Schema validation failure")
-            return Finding(
-                severity="HIGH",
-                location=f"{resource_path}:1" if resource_path else ":1",
-                title=f"Kubeconform Schema Validation Error: {status}",
-                description=msg,
-                fix="Align resource specification with Kubernetes OpenAPI schema.",
-            )
-    except json.JSONDecodeError:
-        pass
-    return None
+def parse_kubeconform_json(data: dict[str, Any]) -> list[Finding]:
+    """The findings of the one JSON object that `kubeconform -output json` writes: one for each
+    resource with `statusInvalid` or `statusError`, in the order of the report. A resource that
+    is valid or that kubeconform skipped, which only `-verbose` lists, is no finding."""
+    return [
+        _kubeconform_finding(resource)
+        for resource in data["resources"]
+        if resource["status"] in CONST_KUBECONFORM_FINDING_STATUSES
+    ]
 
 
 class KubeconformScanner(BaseSecurityScanner):
@@ -154,7 +142,12 @@ class KubeconformScanner(BaseSecurityScanner):
     name: str = "kubeconform"
     binary_name: str = "kubeconform"
     gating: ClassVar[bool] = True
-    has_builtin_patterns: ClassVar[bool] = True
+
+    def is_applicable(self, target_path: Any, **kwargs: Any) -> tuple[bool, str]:
+        """Applicable where the target holds a Kubernetes manifest."""
+        if any(is_kubernetes_manifest(path) for path in list_repo_files(Path(target_path))):
+            return True, ""
+        return False, MESSAGES.scan.kubeconform_not_applicable
 
     def build_command(
         self,
@@ -163,32 +156,16 @@ class KubeconformScanner(BaseSecurityScanner):
         strict: bool = True,
         **kwargs: Any,
     ) -> list[str]:
-        """Build argument command list for invoking Kubeconform."""
+        """The kubeconform command that validates the manifests of the target, each by its path."""
         cmd = [self.binary_name, "-output", "json", "-kubernetes-version", k8s_version]
         if strict:
             cmd.append("-strict")
-        cmd.append(str(target_path))
+        cmd.extend(str(path) for path in kubernetes_manifests(Path(target_path)))
         return cmd
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
-        """Parse raw Kubeconform JSON or line-delimited records into Finding models."""
-        findings: list[Finding] = []
-        if isinstance(data, dict):
-            finding = _parse_kubeconform_line(json.dumps(data))
-            if finding:
-                findings.append(finding)
-        elif isinstance(data, list):
-            for item in data:
-                finding = _parse_kubeconform_line(
-                    json.dumps(item) if isinstance(item, dict) else str(item)
-                )
-                if finding:
-                    findings.append(finding)
-        return findings
-
-    def fallback_scan(self, target_path: Path) -> list[Finding]:
-        """Execute native fallback validation for Kubernetes manifests."""
-        return _run_native_fallback_k8s_validation(target_path)
+        """Parse the one JSON object that kubeconform writes into Finding models."""
+        return parse_kubeconform_json(data)
 
 
 @trace_span("k8s.kubeconform")
@@ -206,5 +183,7 @@ def run_kubeconform_validation(
 __all__ = [
     "KubeconformScanner",
     "is_kubernetes_manifest",
+    "kubernetes_manifests",
+    "parse_kubeconform_json",
     "run_kubeconform_validation",
 ]

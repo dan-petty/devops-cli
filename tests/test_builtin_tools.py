@@ -21,10 +21,12 @@ from devops_cli.ai.tools.builtin_tools import (
     git_status,
     k8s_pods,
     k8s_tempo_status,
+    k8s_validate_manifests,
     list_files,
     read_file,
     scan_bandit,
     scan_gitleaks,
+    scan_iac,
     scan_kubelinter,
     scan_osv,
     scan_pluto,
@@ -34,7 +36,7 @@ from devops_cli.ai.tools.builtin_tools import (
     scan_uv_audit,
     search_code,
 )
-from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS
+from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS, DEFAULT_TRIVY_SEVERITIES
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.scanners import ScannerFake
@@ -382,7 +384,7 @@ def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
 def test_builtin_security_and_iac_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusing_port: int
 ) -> None:
-    """Verify scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search.
+    """Verify tf_lint, docker_analyze_layers, and rag_search.
 
     The knowledge base check before the search finds Qdrant down, refused through
     `refusing_port`, and its retry waits return at once.
@@ -390,9 +392,7 @@ def test_builtin_security_and_iac_tools(
     from devops_cli.ai.review_schema import Finding
     from devops_cli.ai.tools.builtin_tools import (
         docker_analyze_layers,
-        k8s_validate_manifests,
         rag_search,
-        scan_iac,
         tf_lint,
     )
 
@@ -422,12 +422,7 @@ def test_builtin_security_and_iac_tools(
 
     with (
         patch("devops_cli.ai.tools.builtin_tools._is_safe_workspace_path", return_value=True),
-        patch("devops_cli.security.checkov.run_checkov_scan", return_value=[mock_finding]),
         patch("devops_cli.security.tflint.run_tflint_scan", return_value=[mock_finding]),
-        patch(
-            "devops_cli.security.kubeconform.run_kubeconform_validation",
-            return_value=[mock_finding],
-        ),
         patch("devops_cli.security.dive.run_dive_analysis", return_value=mock_dive),
         patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
         patch(
@@ -435,14 +430,8 @@ def test_builtin_security_and_iac_tools(
             return_value=MagicMock(results=[]),
         ),
     ):
-        res_iac = scan_iac(str(tmp_path))
-        assert "Sample issue" in res_iac
-
         res_tflint = tf_lint(str(tmp_path))
         assert "Sample issue" in res_tflint
-
-        res_k8s = k8s_validate_manifests(str(tmp_path))
-        assert "Sample issue" in res_k8s
 
         res_docker = docker_analyze_layers("alpine:latest")
         assert "Efficiency Score: 95.0%" in res_docker
@@ -601,6 +590,67 @@ def test_the_agent_uv_audit_tool_over_a_directory_that_does_not_exist_gives_no_r
     )
 
 
+def test_the_agent_manifest_tool_reports_each_resource_that_kubeconform_finds_invalid(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`k8s_validate_manifests` runs the kubeconform adapter over its target and replies with the
+    outcome, one line for each resource that kubeconform reports (#2214)."""
+    manifests = tmp_path / "k8s"
+    manifests.mkdir()
+    (manifests / "app.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    recorded = scanner_fake.script_run_with_findings("kubeconform", tree=tmp_path)
+
+    reply = k8s_validate_manifests(str(manifests))
+
+    fix_invalid = "Correct the resource to match its schema"
+    assert (scanner_fake.runs, reply) == (
+        [recorded],
+        "\n".join(
+            [
+                "Kubeconform scan status: ok",
+                "Findings (3):",
+                "- [HIGH] app.yaml:Widget/blue: [Kubeconform statusError] Widget 'blue' could not "
+                "be validated (Correct the resource so that kubeconform can read it, or give "
+                "kubeconform a schema for its kind.)",
+                "- [HIGH] app.yaml:ConfigMap/settings: [Kubeconform statusInvalid] ConfigMap "
+                f"'settings' does not match its schema ({fix_invalid}: additional properties "
+                "'replicas' not allowed.)",
+                "- [HIGH] app.yaml:Service/web: [Kubeconform statusInvalid] Service 'web' does "
+                f"not match its schema ({fix_invalid}: /spec/ports/0/port: got string, want "
+                "integer.)",
+            ]
+        ),
+    )
+
+
+def test_the_agent_iac_tool_runs_the_misconfiguration_scan_of_trivy(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`scan_iac` runs Trivy's misconfiguration scan over its target, in place of Checkov, and
+    replies as `scan_trivy` does (#2214)."""
+    scanner_fake.script("trivy", _trivy_run([]))
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_iac(str(tmp_path))
+
+    assert ([run.argv for run in scanner_fake.runs], reply) == (
+        [
+            [
+                "trivy",
+                "config",
+                str(tmp_path),
+                "--severity",
+                DEFAULT_TRIVY_SEVERITIES,
+                "--format",
+                "json",
+                "--quiet",
+            ]
+        ],
+        "Trivy scan status: ok\nNo findings.",
+    )
+
+
 def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -691,6 +741,9 @@ def test_the_agent_semgrep_tool_without_the_cached_ruleset_runs_the_rule_pack_an
     )
 
 
+# A Kubernetes manifest. kubeconform starts only for a target that holds one (#2214).
+_MANIFEST = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n"
+
 # Each agent scan tool that runs a scanner adapter over a workspace path (#1435): the tool, the
 # name its reply gives the scanner, and the program the adapter starts.
 _ADAPTER_SCAN_TOOLS = [
@@ -701,6 +754,8 @@ _ADAPTER_SCAN_TOOLS = [
     pytest.param(scan_gitleaks, "Gitleaks", "gitleaks", id="gitleaks"),
     pytest.param(scan_semgrep, "Semgrep", "semgrep", id="semgrep"),
     pytest.param(scan_uv_audit, "uv audit", "uv", id="uv-audit"),
+    pytest.param(scan_iac, "Trivy", "trivy", id="trivy-config"),
+    pytest.param(k8s_validate_manifests, "Kubeconform", "kubeconform", id="kubeconform"),
 ]
 
 
@@ -713,11 +768,12 @@ def test_an_agent_scan_tool_whose_scanner_is_not_installed_says_so_and_not_clean
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A scanner that no directory of PATH holds gives no result, and the reply says so first
-    (#1435)."""
+    (#1435). The target holds a manifest, which kubeconform needs before it starts."""
     no_scanners = tmp_path / "no-scanners"
     no_scanners.mkdir()
     monkeypatch.setenv("PATH", str(no_scanners))
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.yaml").write_text(_MANIFEST, encoding="utf-8")
 
     reply = scan_tool(str(tmp_path))
 
@@ -738,9 +794,11 @@ def test_an_agent_scan_tool_whose_scanner_fails_with_no_output_says_failed_and_n
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A scanner that exits non-zero and writes nothing on stdout gives no result, and the reply
-    says that the scan failed, with what the scanner wrote on stderr (#1435)."""
+    says that the scan failed, with what the scanner wrote on stderr (#1435). The target holds a
+    manifest, which kubeconform needs before it starts."""
     scanner_fake.script(program, ToolAnswer(exit_code=2, stderr="fatal: the target cannot be read"))
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "deploy.yaml").write_text(_MANIFEST, encoding="utf-8")
 
     reply = scan_tool(str(tmp_path))
 

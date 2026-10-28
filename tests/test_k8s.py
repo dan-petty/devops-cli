@@ -942,7 +942,8 @@ def test_k8s_security_tools_and_scans(tmp_path: Path) -> None:
         assert res_pluto_dry.exit_code == 0
 
     with patch(
-        "devops_cli.security.kubeconform.run_kubeconform_validation", return_value=[mock_finding]
+        "devops_cli.security.kubeconform.run_kubeconform_validation",
+        return_value=ScanOutcome("ran", [mock_finding]),
     ):
         res_val = runner.invoke(app, ["validate", str(tmp_path)])
         assert res_val.exit_code == 0
@@ -1183,7 +1184,10 @@ def test_k8s_extended_subcommands(tmp_path: Path) -> None:
         ),
         patch("devops_cli.security.popeye.run_popeye_scan", return_value=[]),
         patch("devops_cli.security.pluto.run_pluto_scan", return_value=[]),
-        patch("devops_cli.security.kubeconform.run_kubeconform_validation", return_value=[]),
+        patch(
+            "devops_cli.security.kubeconform.run_kubeconform_validation",
+            return_value=ScanOutcome("ran", []),
+        ),
     ):
         res_lint = runner.invoke(app, ["lint", str(manifest)])
         assert res_lint.exit_code == 0

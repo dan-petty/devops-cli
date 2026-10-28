@@ -45,7 +45,7 @@
 
 - name: "scope/security"
   color: "E99695"
-  description: "Security linters (trivy, bandit, checkov, gitleaks) and Vault"
+  description: "Security linters (trivy, bandit, gitleaks, kubeconform) and Vault"
 
 - name: "scope/cli"
   color: "C2E0C6"

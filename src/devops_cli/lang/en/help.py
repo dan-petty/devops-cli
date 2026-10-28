@@ -1334,11 +1334,10 @@ class ReviewCommandHelp:
 
 @dataclass(frozen=True)
 class ScanCommandHelp:
-    app: str = "Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform."
+    app: str = "Security scanner suite: Trivy, Gitleaks, Semgrep, Kubeconform."
     trivy: str = "Run Trivy security scan."
     gitleaks: str = "Run Gitleaks secret detection scan."
     semgrep: str = "Run Semgrep static analysis."
-    checkov: str = "Run Checkov Infrastructure as Code security scan."
     kubeconform: str = "Run Kubeconform Kubernetes manifest validation."
     kubelinter: str = "Run KubeLinter security audit on Kubernetes manifests."
     pluto: str = "Run Pluto Kubernetes deprecated API check."
@@ -1350,8 +1349,7 @@ class ScanCommandHelp:
         "Directory of GitHub Actions workflows and actions to audit with zizmor."
     )
     target_semgrep: str = "Target directory or file to scan with Semgrep AST rules."
-    target_checkov: str = "Target directory or file to scan with Checkov IaC rules."
-    scan_type: str = "Trivy scan mode: fs, image, iac, repo."
+    scan_type: str = "Trivy scan mode: fs, image, config, repo. The config mode scans IaC files for misconfigurations."
     severity: str = "Comma-separated severity levels to include."
     semgrep_config: str = (
         "Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads "
@@ -1369,7 +1367,6 @@ class ScanCommandHelp:
     target_aibom: str = "Target directory or model repository to analyze for AI models and AIBOM."
     aibom_format: str = "AIBOM format output (cyclonedx, json)."
     aibom_output: str = "Destination file path for generated AIBOM manifest."
-    framework: str = "Specific IaC framework (e.g. terraform)."
     report: str = (
         "Run every registered scanner, deduplicate and correlate findings across tools, "
         "and report or export them as SARIF."

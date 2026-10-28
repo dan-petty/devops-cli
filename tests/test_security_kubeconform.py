@@ -1,79 +1,277 @@
-"""Unit tests for Kubeconform OpenAPI manifest validator."""
+"""The kubeconform adapter reads the one report object that the pinned kubeconform writes (#2214).
+
+The runs are kubeconform 0.8.0's, recorded on 2026-10-28 over `_MANIFESTS`: the run with the command
+of the adapter in `tests/fixtures/scanner_runs/runs_with_findings.json`, and a run with `-verbose
+-skip ConfigMap` in `tests/fixtures/scanner_runs/kubeconform_verbose_run.json`. Without `-verbose`,
+kubeconform lists only the resources that are invalid or that it could not validate. kubeconform
+validates with parallel workers, so the order of a report can change from one run to the next.
+"""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-from devops_cli.security.kubeconform import (
-    _run_native_fallback_k8s_validation,
-    run_kubeconform_validation,
+import pytest
+
+from devops_cli.ai.review_schema import Finding
+from devops_cli.security.base import ScanOutcome
+from devops_cli.security.kubeconform import KubeconformScanner, run_kubeconform_validation
+from devops_cli.tools_lock import load_tools_lock
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
+from tests.support.paths import FIXTURES
+
+# The manifest of both recorded runs: a valid Deployment, a Service whose port is a string, a
+# ConfigMap with a key that its schema does not allow, and a custom resource with no schema.
+_MANIFESTS = """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: shop
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27.0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: shop
+spec:
+  selector:
+    app: web
+  ports:
+    - port: "http"
+      targetPort: 8080
+---
+apiVersion: example.com/v1
+kind: Widget
+metadata:
+  name: blue
+spec:
+  size: 3
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: settings
+  namespace: shop
+data:
+  mode: fast
+replicas: 3
+"""
+
+_SCHEMA = (
+    "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict"
+)
+
+_WIDGET = Finding(
+    severity="HIGH",
+    location="k8s/app.yaml:Widget/blue",
+    title="[Kubeconform statusError] Widget 'blue' could not be validated",
+    description="could not find schema for Widget",
+    fix="Correct the resource so that kubeconform can read it, or give kubeconform a schema for its kind.",
+    confidence_score=None,
+)
+_CONFIGMAP = Finding(
+    severity="HIGH",
+    location="k8s/app.yaml:ConfigMap/settings",
+    title="[Kubeconform statusInvalid] ConfigMap 'settings' does not match its schema",
+    description=(
+        "problem validating schema. Check JSON formatting: jsonschema validation failed with "
+        f"'{_SCHEMA}/configmap-v1.json#' - at '': additional properties 'replicas' not allowed"
+    ),
+    fix="Correct the resource to match its schema: additional properties 'replicas' not allowed.",
+    confidence_score=None,
+)
+_SERVICE = Finding(
+    severity="HIGH",
+    location="k8s/app.yaml:Service/web",
+    title="[Kubeconform statusInvalid] Service 'web' does not match its schema",
+    description=(
+        "problem validating schema. Check JSON formatting: jsonschema validation failed with "
+        f"'{_SCHEMA}/service-v1.json#' - at '/spec/ports/0/port': got string, want integer"
+    ),
+    fix="Correct the resource to match its schema: /spec/ports/0/port: got string, want integer.",
+    confidence_score=None,
 )
 
 
-def test_kubeconform_fallback_ignores_yaml_that_is_not_a_manifest(tmp_path: Path) -> None:
-    """A YAML file declaring no apiVersion is not a manifest, so it is not validated.
-
-    This previously reported every such file as a broken manifest -- nine of them in this
-    repository, all correct Helm values files. Absence of apiVersion is how a non-manifest
-    is recognised, not a defect in one.
-    """
-    (tmp_path / "values.yaml").write_text("foo: bar\ncount: 5\n", encoding="utf-8")
-
-    assert _run_native_fallback_k8s_validation(tmp_path) == []
+def _manifests(tmp_path: Path, git: Callable[..., None]) -> Path:
+    """The directory `k8s` of a checkout, holding the manifest of the recorded runs."""
+    tree = tmp_path / "tree"
+    manifests = tree / "k8s"
+    manifests.mkdir(parents=True)
+    git(tree, "init", "-q")
+    (manifests / "app.yaml").write_text(_MANIFESTS, encoding="utf-8")
+    return manifests
 
 
-def test_kubeconform_fallback_validation(tmp_path: Path) -> None:
-    """A document declaring apiVersion is a manifest, and must declare kind too."""
-    bad_yaml = tmp_path / "bad.yaml"
-    bad_yaml.write_text("apiVersion: apps/v1\nmetadata:\n  name: x\n", encoding="utf-8")
+def test_kubeconform_reports_each_resource_it_finds_invalid_or_cannot_validate(
+    scanner_fake: ScannerFake, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """kubeconform writes one report object with a `resources` list. Each resource with
+    `statusInvalid` or `statusError` is one HIGH finding at its manifest and object, in the order
+    of the report."""
+    manifests = _manifests(tmp_path, git)
+    recorded = scanner_fake.script_run_with_findings("kubeconform", tree=manifests.parent)
 
-    findings = _run_native_fallback_k8s_validation(tmp_path)
-    assert len(findings) == 1
-    assert "Invalid Kubernetes manifest" in findings[0].title
-    assert findings[0].location == "bad.yaml:1"
+    outcome = run_kubeconform_validation(manifests)
 
-
-def test_kubeconform_mocked_binary(tmp_path: Path) -> None:
-    fake_line = json.dumps(
-        {
-            "filename": "service.yaml",
-            "kind": "Service",
-            "version": "v1",
-            "status": "invalid",
-            "msg": "spec.ports[0].port: Invalid type. Expected: integer, given: string",
-        }
+    assert (scanner_fake.runs, outcome.status, outcome.findings) == (
+        [recorded],
+        "ran",
+        [_WIDGET, _CONFIGMAP, _SERVICE],
     )
 
-    mock_proc = MagicMock(returncode=0, stderr="")
-    mock_proc.stdout = fake_line + "\n"
 
-    with patch("shutil.which", return_value="/usr/local/bin/kubeconform"):
-        with patch("subprocess.run", return_value=mock_proc):
-            findings = run_kubeconform_validation(tmp_path, strict=False)
-            assert len(findings) == 1
-            assert "Kubeconform Schema Validation Error" in findings[0].title
-            assert findings[0].location == "service.yaml:1"
+def test_kubeconform_gives_no_finding_for_a_valid_or_skipped_resource(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A `-verbose` report also lists the resources that are valid and those that kubeconform
+    skipped. Neither is a finding."""
+    manifests = _manifests(tmp_path, git)
+    run = json.loads((FIXTURES / "scanner_runs" / "kubeconform_verbose_run.json").read_text())
+    report = json.loads(run["stdout"].replace("{tree}", str(manifests.parent)))
 
-        # Non-json and invalid json lines
-        mock_proc.stdout = "not json\n{invalid json\n" + json.dumps({"status": "valid"}) + "\n"
-        with patch("subprocess.run", return_value=mock_proc):
-            findings_non_json = run_kubeconform_validation(tmp_path)
-            assert len(findings_non_json) == 0
+    findings = KubeconformScanner().parse_output(report, manifests)
 
-        # Empty output
-        mock_proc.stdout = ""
-        with patch("subprocess.run", return_value=mock_proc):
-            findings_empty = run_kubeconform_validation(tmp_path)
-            assert len(findings_empty) == 0
+    assert run["version"] == load_tools_lock().tools()["kubeconform"].version
+    assert [status["status"] for status in report["resources"]] == [
+        "statusSkipped",
+        "statusError",
+        "statusInvalid",
+        "statusValid",
+    ]
+    assert findings == [_WIDGET, _SERVICE]
 
-        # Subprocess exception fallback
-        with patch("subprocess.run", side_effect=Exception("Timeout")):
-            findings_exc = run_kubeconform_validation(tmp_path)
-            assert isinstance(findings_exc, list)
 
-    # When kubeconform binary not in PATH
-    with patch("shutil.which", return_value=None):
-        findings_nobin = run_kubeconform_validation(tmp_path)
-        assert isinstance(findings_nobin, list)
+def test_a_resource_that_kubeconform_cannot_read_is_named_by_its_manifest(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """kubeconform writes an empty kind and name for a file that is not YAML, so the finding names
+    the manifest alone."""
+    manifests = _manifests(tmp_path, git)
+    report = {
+        "resources": [
+            {
+                "filename": str(manifests / "app.yaml"),
+                "kind": "",
+                "name": "",
+                "version": "",
+                "status": "statusError",
+                "msg": "error unmarshalling resource: error converting YAML to JSON",
+            }
+        ]
+    }
+
+    findings = KubeconformScanner().parse_output(report, manifests)
+
+    assert [(finding.location, finding.title) for finding in findings] == [
+        ("k8s/app.yaml", "[Kubeconform statusError] k8s/app.yaml could not be validated")
+    ]
+
+
+def test_kubeconform_that_finds_nothing_is_a_clean_scan(
+    scanner_fake: ScannerFake, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """With no invalid resource, kubeconform writes an empty `resources` list and exits 0."""
+    manifests = _manifests(tmp_path, git)
+    scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
+
+    outcome = run_kubeconform_validation(manifests)
+
+    assert outcome == ScanOutcome("ran", [])
+
+
+# Files that kubeconform reads in a directory and that are not manifests. kubeconform 0.8.0
+# reported each of them as `statusError`, with `missing 'kind' key`, `missing 'apiVersion' key`
+# or a YAML error, when it was given their directory.
+_NOT_MANIFESTS = {
+    "k8s/chart/values.yaml": "replicaCount: 2\nkind: web\nimage:\n  tag: 1.27.0\n",
+    "k8s/chart/templates/deploy.yaml": (
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Release.Name }}\n"
+    ),
+    "k8s/dashboards/board.json": '{"title": "board", "panels": []}\n',
+    ".github/workflows/ci.yml": "name: ci\non: push\njobs: {}\n",
+    "package.json": '{"name": "web"}\n',
+}
+
+
+def test_kubeconform_reads_only_the_manifests_that_git_lists(
+    scanner_fake: ScannerFake, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """kubeconform reads each YAML and JSON file of a directory that it is given, and reports
+    each file that is not a manifest as a resource that it could not validate. So the adapter
+    gives kubeconform the manifests below the target, and no Helm values file, Helm template,
+    dashboard, workflow, package file or file that git ignores."""
+    manifests = _manifests(tmp_path, git)
+    tree = manifests.parent
+    ignored = {".gitignore": ".venv/\n", ".venv/lib/pod.yaml": "apiVersion: v1\nkind: Pod\n"}
+    for name, text in {**_NOT_MANIFESTS, **ignored}.items():
+        (tree / name).parent.mkdir(parents=True, exist_ok=True)
+        (tree / name).write_text(text, encoding="utf-8")
+    scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
+
+    outcome = run_kubeconform_validation(tree)
+
+    assert (outcome, [run.argv for run in scanner_fake.runs]) == (
+        ScanOutcome("ran", []),
+        [
+            [
+                "kubeconform",
+                "-output",
+                "json",
+                "-kubernetes-version",
+                "master",
+                "-strict",
+                str(manifests / "app.yaml"),
+            ]
+        ],
+    )
+
+
+def test_a_target_with_no_manifest_is_not_applicable_and_starts_no_kubeconform(
+    scanner_fake: ScannerFake, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A target with no manifest gives kubeconform nothing to validate. The scan is not
+    applicable, and kubeconform does not start, so no file of the target becomes a finding."""
+    git(tmp_path, "init", "-q")
+    for name, text in _NOT_MANIFESTS.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    scanner_fake.script("kubeconform", ToolAnswer(stdout='{\n  "resources": []\n}\n'))
+
+    outcome = run_kubeconform_validation(tmp_path)
+
+    assert (outcome, scanner_fake.runs) == (
+        ScanOutcome("not_applicable", [], "No Kubernetes manifest in the target"),
+        [],
+    )
+
+
+def test_a_missing_kubeconform_is_unavailable_and_runs_no_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """kubeconform is pinned, so its adapter has no hand-written checks: with no kubeconform on
+    PATH, the scan is unavailable and has no findings, also for a manifest with no `kind`."""
+    no_scanners = tmp_path / "no-scanners"
+    no_scanners.mkdir()
+    monkeypatch.setenv("PATH", str(no_scanners))
+    (tmp_path / "bad.yaml").write_text("apiVersion: apps/v1\nmetadata:\n  name: x\n")
+
+    outcome = run_kubeconform_validation(tmp_path)
+
+    assert outcome == ScanOutcome("unavailable", [], "Binary 'kubeconform' not found on PATH")

@@ -692,7 +692,6 @@ def _is_k8s_group(group: Any) -> bool:
             "kubelinter",
             "popeye",
             "pluto",
-            "checkov",
             "kustomize",
             "kubectl",
         ):

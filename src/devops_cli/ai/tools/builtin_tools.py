@@ -553,19 +553,11 @@ def check_threat_intel(target: str) -> str:
 
 
 def scan_iac(target: str = ".") -> str:
-    """Run Checkov IaC security and compliance scanner on IaC manifests."""
-    try:
-        from devops_cli.security.checkov import run_checkov_scan
+    """Run Trivy's misconfiguration scan (trivy config) on IaC files: Dockerfiles, Kubernetes
+    manifests, Helm charts, Terraform and CloudFormation."""
+    from devops_cli.security.trivy import TrivyConfigScanner
 
-        findings = run_checkov_scan(target_path=Path(target))
-        if not findings:
-            return f"Checkov IaC scan clean for '{target}'. No policy violations."
-        lines = [f"Found {len(findings)} IaC policy violation(s) in '{target}':"]
-        for f in findings:
-            lines.append(f"- [{f.severity}] {f.location}: {f.title} ({f.fix})")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"Checkov IaC scan error: {exc}"
+    return _run_adapter_scan("Trivy", target, TrivyConfigScanner().scan)
 
 
 def tf_lint(target: str = ".") -> str:
@@ -585,19 +577,10 @@ def tf_lint(target: str = ".") -> str:
 
 
 def k8s_validate_manifests(target: str = ".") -> str:
-    """Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform."""
-    try:
-        from devops_cli.security.kubeconform import run_kubeconform_validation
+    """Validate Kubernetes YAML manifests against their JSON schemas using Kubeconform."""
+    from devops_cli.security.kubeconform import run_kubeconform_validation
 
-        findings = run_kubeconform_validation(manifest_path=Path(target))
-        if not findings:
-            return f"Kubeconform validation passed cleanly for '{target}'."
-        lines = [f"Found {len(findings)} schema validation issue(s) in '{target}':"]
-        for f in findings:
-            lines.append(f"- [{f.severity}] {f.location}: {f.title} ({f.description})")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"Kubeconform validation error: {exc}"
+    return _run_adapter_scan("Kubeconform", target, run_kubeconform_validation)
 
 
 def docker_analyze_layers(image: str) -> str:

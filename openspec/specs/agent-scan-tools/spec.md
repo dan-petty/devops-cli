@@ -96,3 +96,18 @@ The agent tool `scan_uv_audit` and the MCP tool `scan_uv_audit` SHALL take only 
 #### Scenario: The directory does not exist
 - **WHEN** the workspace holds a uv project, and an agent calls `scan_uv_audit` over a path of the workspace where no directory is
 - **THEN** uv does not start, and the reply is `uv audit scan status: not_applicable`, then `Reason: <path> is not a directory. uv audit audits the project of a directory.`, then `The scan gave no result. Do not report the target as clean.`
+
+### Requirement: The manifest validation and IaC tools run the pinned adapters
+The agent tool `k8s_validate_manifests` SHALL run the kubeconform adapter over its target, a path inside the workspace. The agent tool `scan_iac` SHALL run the Trivy adapter with the scan type `config` over its target. Each SHALL keep no command line of its own, and SHALL reply as the other agent scan tools reply.
+
+#### Scenario: kubeconform is not installed
+- **WHEN** no directory of PATH holds kubeconform, and the agent calls `k8s_validate_manifests` over a manifest
+- **THEN** the reply is `Kubeconform scan status: not installed`, then `Reason: Binary 'kubeconform' not found on PATH`, then `The scan gave no result. Do not report the target as clean.`
+
+#### Scenario: kubeconform finds invalid resources
+- **WHEN** the agent calls `k8s_validate_manifests` over a manifest directory in which kubeconform reports three resources
+- **THEN** the reply is `Kubeconform scan status: ok`, then `Findings (3):`, then one line for each finding
+
+#### Scenario: The IaC tool runs Trivy's misconfiguration scan
+- **WHEN** the agent calls `scan_iac` over a directory
+- **THEN** Trivy starts with `config` over that directory, and the reply starts with `Trivy scan status:`

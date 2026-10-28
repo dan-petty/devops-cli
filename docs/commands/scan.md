@@ -1,6 +1,6 @@
 # `devops scan`
 
-Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
+Security scanner suite: Trivy, Gitleaks, Semgrep, Kubeconform.
 
 ```bash
 devops scan [OPTIONS] COMMAND [ARGS]...
@@ -33,7 +33,7 @@ devops scan trivy [OPTIONS] <target>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo. |
+| `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, config, repo. The config mode scans IaC files for misconfigurations. |
 | `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
@@ -111,31 +111,6 @@ devops scan sast [OPTIONS] <target>
 | `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config: a local path, or a registry id such as p/default. The scan reads a registry id from the ruleset that `devops review rules fetch` cached. The rule pack of devops-cli runs with it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
----
-
-## `devops scan iac`
-
-**Run Checkov IaC static policy and security compliance scan.**
-
-```bash
-devops scan iac [OPTIONS] <target>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
