@@ -20,7 +20,7 @@ from devops_cli.config.constants import (
     CONST_URL_GITHUB_COPILOT_API_BASE,
 )
 from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
-from devops_cli.exceptions import ConfigurationError, InvalidURLError, SSRFBlockedError
+from devops_cli.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,8 @@ def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str
 
 def _resolve_remote_provider_endpoint(
     model_str: str, active_settings: Settings
-) -> tuple[str, str | None, str]:
-    """The name pydantic-ai infers a remote model from, its base URL, and the setting naming it.
+) -> tuple[str, str | None]:
+    """The name pydantic-ai infers a remote model from, and its base URL.
 
     A gateway's model is inferred as an OpenAI chat model sent to that gateway's URL; any
     other is sent to `ai.api_base_url`, or to Copilot's API for provider `copilot` when that
@@ -70,25 +70,26 @@ def _resolve_remote_provider_endpoint(
                 f"No AI gateway URL configured. Run: devops config set ai.{setting} <url>",
                 key=f"ai.{setting}",
             )
-        return f"openai-chat:{target}", gateway_url, f"ai.{setting}"
+        return f"openai-chat:{target}", gateway_url
     copilot_base = CONST_URL_GITHUB_COPILOT_API_BASE if ai_cfg.provider == "copilot" else None
     name = f"{prefix}:{target}" if prefix else target
-    return name, ai_cfg.api_base_url or copilot_base, "ai.api_base_url"
+    return name, ai_cfg.api_base_url or copilot_base
 
 
 def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) -> Any:
     """Infer a remote model that is sent to the endpoint its settings name.
 
-    Raises ConfigurationError naming the endpoint's setting when its URL cannot be used, such
-    as a non-public host without `ai.allow_private_network`, and naming `ai.provider` and
-    `ai.model` when pydantic-ai cannot infer the model, rather than leaving pydantic-ai to send
-    the prompts to the vendor's own endpoint.
+    The provider's client dials at the configured level, and the connect checks each address:
+    a request to an address that the level refuses raises SSRFBlockedError. Raises
+    ConfigurationError naming the endpoint's setting when it has no URL, and naming
+    `ai.provider` and `ai.model` when pydantic-ai cannot infer the model, rather than leaving
+    pydantic-ai to send the prompts to the vendor's own endpoint.
     """
     from pydantic_ai.models import infer_model
 
     from devops_cli.ai.providers import create_pydantic_ai_provider
 
-    name, base_url, setting = _resolve_remote_provider_endpoint(model_str, active_settings)
+    name, base_url = _resolve_remote_provider_endpoint(model_str, active_settings)
     api_key = get_ai_api_key(active_settings)
     allow_private = active_settings.ai.allow_private_network
 
@@ -102,11 +103,6 @@ def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) ->
         if active_settings.ai.provider == CONST_AI_GATEWAY_PROVIDER or _gateway_prefix(model_str):
             setattr(model_obj, "served_by", base_url)
         return model_obj
-    except (InvalidURLError, SSRFBlockedError) as exc:
-        reason = exc.details.get("reason", exc.message)
-        raise ConfigurationError(
-            f"{setting} cannot serve model {model_str!r}: {reason}", key=setting
-        ) from exc
     except (UserError, ValueError, ImportError) as exc:
         # UserError: pydantic-ai knows no such model or has no key for it. ValueError: a name
         # left unprefixed, under a provider that maps to none, reads its tag's base as one.
@@ -121,7 +117,10 @@ def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) ->
 
 
 def _resolve_ollama_model(model_str: str, active_settings: Settings) -> Any:
-    """Resolve an Ollama model on the configured cluster URLs, parameters and timeout."""
+    """Resolve an Ollama model on the configured cluster URLs, parameters and timeout.
+
+    Its client dials at the configured level of these settings.
+    """
     from devops_cli.ai.models.ollama import create_ollama_model
 
     ai_cfg = active_settings.ai
@@ -132,6 +131,7 @@ def _resolve_ollama_model(model_str: str, active_settings: Settings) -> Any:
         max_tokens=ai_cfg.max_tokens,
         reasoning_effort=ai_cfg.reasoning_effort,
         timeout=ai_cfg.timeout,
+        ai_config=ai_cfg,
     )
 
 

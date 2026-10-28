@@ -7,10 +7,14 @@ lookups a client made and the address it dialled, with no socket opened and no D
 from __future__ import annotations
 
 import asyncio
+import importlib
+import json
+import os
 import socket
 import ssl
 import time
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -18,14 +22,24 @@ import httpcore2
 import httpx2
 import pytest
 
+from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
+from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.common_tools import firecrawl_search
+from devops_cli.ai.gateway import GatewayRouter, fetch_model_info
+from devops_cli.ai.library.docs_ingester import DocsIngester
+from devops_cli.ai.providers import create_pydantic_ai_provider
+from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+from devops_cli.ai.spend.pricing import PricingRegistry
+from devops_cli.commands import ai_gateway
 from devops_cli.commands.install_tools import _download
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
     DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
 )
-from devops_cli.config.settings import AIConfig
+from devops_cli.config.settings import AIConfig, Settings
+from devops_cli.core.process import reset_process_runner, set_process_runner
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.http.broker import HttpClientBroker
 from devops_cli.http.client import new_async_http_client, new_http_client
@@ -46,15 +60,28 @@ from devops_cli.security.vault_lease import _post
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
 from devops_cli.telemetry.waterfall import query_tempo_trace
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.web_fakes import (
     PUBLIC_ADDRESS,
     http_response,
+    rebinding,
     record_connects,
     scripted_resolver,
 )
 
 PUBLIC, LOOPBACK, PRIVATE = EgressLevel.PUBLIC, EgressLevel.LOOPBACK, EgressLevel.PRIVATE
 _TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def model_modules_imported() -> None:
+    """Import the modules a pydantic-ai model request loads, once, before the first test.
+
+    Their first import takes over 1 s. Without this, that cost lands in the call phase of the
+    first row that builds a model, and not in the behavior that the row checks.
+    """
+    for module in ("pydantic_ai.models.ollama", "devops_cli.ai.agents.agent"):
+        importlib.import_module(module)
 
 
 @pytest.fixture(autouse=True)
@@ -648,8 +675,152 @@ def _ai_shared_call(flag: bool) -> Callable[[], Any]:
     return lambda: LLMClient(config)._shared_client().get("https://example.com/v1/models")
 
 
-def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
-    """Each caller #898 moves, invoked against example.com or its fixed API host."""
+def _ai_config(flag: bool, **fields: Any) -> AIConfig:
+    """An AI configuration with one attempt per request, so a stopped connect is not retried."""
+    return AIConfig(allow_private_network=flag, max_retries=1, **fields)
+
+
+def _ollama_config(flag: bool, **fields: Any) -> AIConfig:
+    return _ai_config(flag, provider="ollama", ollama_urls=["http://example.com:11434"], **fields)
+
+
+def _gateway_config(flag: bool, **fields: Any) -> AIConfig:
+    return _ai_config(flag, provider="gateway", gateway_url="https://example.com/v1", **fields)
+
+
+_GATEWAY_SERVICE = {
+    "spec": {"type": "NodePort", "ports": [{"name": "http", "port": 4000, "nodePort": 30400}]}
+}
+
+
+def _gateway_connect_call() -> None:
+    """`devops ai gateway connect`, with kubectl answering a gateway NodePort on example.com."""
+    kubectl = ProcessFake()
+    kubectl.answer(
+        lambda call: "service" in call.argv, ProcessAnswer(stdout=json.dumps(_GATEWAY_SERVICE))
+    )
+    kubectl.answer(
+        lambda call: "config" in call.argv, ProcessAnswer(stdout="https://example.com:6443")
+    )
+    set_process_runner(kubectl)
+    try:
+        ai_gateway.connect_cmd(timeout=1.0)
+    finally:
+        reset_process_runner()
+
+
+def _pool_load_call() -> None:
+    """`devops ai gateway load`, which gives `prometheus_query` its level."""
+    with patch.dict(os.environ, {"DEVOPS_CLI_PROMETHEUS_URL": "http://example.com:9090"}):
+        ai_gateway.load_cmd(window="30m", output_format="json")
+
+
+def _ollama_model_call(flag: bool) -> Callable[[], Any]:
+    """One request of the pydantic-ai Ollama model that the bridge resolves."""
+    settings = Settings(ai=_ollama_config(flag))
+
+    def call() -> None:
+        model = resolve_pydantic_ai_model("ollama:qwen3-coder:30b", settings=settings)
+        asyncio.run(model.client.with_options(max_retries=0).models.list())
+
+    return call
+
+
+def _provider_call(flag: bool) -> Callable[[], Any]:
+    """One request of a pydantic-ai provider on a configured base URL."""
+
+    def call() -> None:
+        provider = create_pydantic_ai_provider(
+            "openai",
+            base_url="https://example.com/v1",
+            api_key="sk-test",
+            allow_private_network=flag,
+        )
+        asyncio.run(provider.client.with_options(max_retries=0).models.list())
+
+    return call
+
+
+def _benchmark_chat_call(flag: bool) -> Callable[[], Any]:
+    """A request of the AI client that the chat benchmark builds for a `--servers` URL."""
+    settings = Settings(ai=_ollama_config(flag).model_copy(update={"max_retries": 0}))
+
+    def call() -> None:
+        runner = BenchmarkRunner(models=["qwen3-coder:30b"], tasks=[], settings=settings)
+        client = runner._client_for_model("qwen3-coder:30b", "http://example.com:11434")
+        client._shared_client().get("http://example.com:11434/api/tags")
+
+    return call
+
+
+_UNKNOWN_EMBEDDING_MODEL = "probe-embedding"
+"""A model with no known dimension: a failed probe caches no dimension, so each run probes again."""
+
+
+_PROBING_TASKS = {"embedding": {"model": _UNKNOWN_EMBEDDING_MODEL}}
+
+
+def _dimension_probe_call(config: AIConfig, **engine_options: Any) -> Callable[[], Any]:
+    """The dimension of a new engine for a model with no known dimension: the engine probes it."""
+    return lambda: EmbeddingsEngine(config, valkey_client=None, **engine_options).dimension
+
+
+def _benchmark_embedding_call(flag: bool) -> Callable[[], Any]:
+    """The run of one model of the embedding benchmark on a server."""
+    settings = Settings(ai=_ollama_config(flag))
+
+    def call() -> None:
+        runner = EmbeddingBenchmarkRunner(
+            models=[_UNKNOWN_EMBEDDING_MODEL], settings=settings, is_dry_run=False
+        )
+        runner.evaluate_model(
+            _UNKNOWN_EMBEDDING_MODEL, [], ["probe"], server_url="http://example.com:11434"
+        )
+
+    return call
+
+
+def _ai_service_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
+    """Each AI service caller #2422 moves, invoked against example.com or its fixed API host."""
+    return {
+        "gateway model info": lambda: fetch_model_info("https://example.com/v1", flag),
+        "gateway probe": lambda: GatewayRouter(
+            _ai_config(flag, gateway_url="https://example.com/v1"),
+            state_file=tmp_path / "gateway.json",
+        ).probe_gateway(),
+        "backend probe": lambda: GatewayRouter(
+            _ai_config(flag), state_file=tmp_path / "gateway.json"
+        ).probe_backend("ollama", backend_url="http://example.com:11434"),
+        "gateway connect probe": _gateway_connect_call,
+        "pool load query": _pool_load_call,
+        "embeddings ollama": lambda: EmbeddingsEngine(
+            _ollama_config(flag), valkey_client=None
+        ).embed_texts(["probe"]),
+        "embeddings openai": lambda: EmbeddingsEngine(
+            _gateway_config(flag), api_key="sk-test", valkey_client=None
+        ).embed_texts(["probe"]),
+        "embedding probe ollama": _dimension_probe_call(_ollama_config(flag, tasks=_PROBING_TASKS)),
+        "embedding probe openai": _dimension_probe_call(
+            _gateway_config(flag, tasks=_PROBING_TASKS), api_key="sk-test"
+        ),
+        "pricing source": lambda: PricingRegistry(data_dir=tmp_path).update_from_remote(
+            source_url="https://example.com/prices.json", timeout=1.0
+        ),
+        "pricing registry": lambda: PricingRegistry(data_dir=tmp_path).update_from_remote(
+            timeout=1.0
+        ),
+        "docs crawler": lambda: DocsIngester().ingest_remote_docs(
+            "https://example.com/docs", output_dir=tmp_path / "docs"
+        ),
+        "ollama model": _ollama_model_call(flag),
+        "pydantic-ai provider": _provider_call(flag),
+        "benchmark chat": _benchmark_chat_call(flag),
+        "benchmark embedding": _benchmark_embedding_call(flag),
+    }
+
+
+def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
+    """Each caller #898 and #2422 move, invoked against example.com or its fixed API host."""
     return {
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
@@ -662,11 +833,35 @@ def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
         "ai shared client": _ai_shared_call(flag),
         "firecrawl": lambda: firecrawl_search("devops", api_key="fc-test"),
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
+        **_ai_service_calls(flag, tmp_path),
+    }
+
+
+def _ai_service_levels(flag: bool) -> dict[str, EgressLevel]:
+    """The level table of #2422. Configured is loopback, or private with the flag."""
+    configured = PRIVATE if flag else LOOPBACK
+    return {
+        "gateway model info": configured,
+        "gateway probe": configured,
+        "backend probe": configured,
+        "gateway connect probe": PRIVATE,
+        "pool load query": configured,
+        "embeddings ollama": configured,
+        "embeddings openai": configured,
+        "embedding probe ollama": configured,
+        "embedding probe openai": configured,
+        "pricing source": configured,
+        "pricing registry": PUBLIC,
+        "docs crawler": PUBLIC,
+        "ollama model": configured,
+        "pydantic-ai provider": configured,
+        "benchmark chat": configured,
+        "benchmark embedding": configured,
     }
 
 
 def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
-    """The level table of #898, for the callers this change moves."""
+    """The level tables of #898 and #2422, for the callers those changes move."""
     return {
         "tool download": PUBLIC,
         "vault": PRIVATE,
@@ -679,39 +874,77 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "ai shared client": PRIVATE if flag else LOOPBACK,
         "firecrawl": PUBLIC,
         "statuspage": PUBLIC,
+        **_ai_service_levels(flag),
     }
 
 
-_CALLER_HOSTS = ("example.com", "api.firecrawl.dev")
+_CALLER_HOSTS = ("example.com", "api.firecrawl.dev", "raw.githubusercontent.com")
 
 _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True): PRIVATE}
 """A level, by whether a loopback answer and an RFC 1918 answer reached the dial."""
 
 
+@pytest.mark.usefixtures("mock_keyring")
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
 @pytest.mark.parametrize("caller", list(_expected_levels(False)))
 def test_each_caller_dials_at_its_level(
-    monkeypatch: pytest.MonkeyPatch, caller: str, flag: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caller: str, flag: bool
 ) -> None:
     """Every caller dials what the level the table gives it admits, with and without the flag.
 
     The caller runs twice, its host answering 127.0.0.1 and then 10.0.0.1: a public-level client
-    dials neither, a loopback-level one only the first, a private-level one both. Only the AI
-    client's URL comes from configuration, so only its level follows the flag; the tool downloads
-    no longer widen with it. Only dials to the answer count: the test configuration's telemetry
+    dials neither, a loopback-level one only the first, a private-level one both. Only the URLs
+    that come from configuration follow the flag; the tool downloads, the documentation crawler
+    and the default pricing registry do not widen with it. A caller host name never reaches the
+    dial: a client that hands the socket the name lets it resolve the name again after the check
+    (#2422). Only dials to the answer or a caller host count: the test configuration's telemetry
     exporter may dial its collector from a background thread meanwhile.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
-    call = _caller_calls(flag)[caller]
+    call = _caller_calls(flag, tmp_path)[caller]
     dials: list[bool] = []
+    named: list[str] = []
     for address in ("127.0.0.1", "10.0.0.1"):
         scripted_resolver(monkeypatch, {host: [[address]] for host in _CALLER_HOSTS})
         recorder = record_connects(monkeypatch, [])
         _call_ignoring_errors(call)
         dials.append(address in [host for host, _ in recorder.dialled])
+        named += [host for host, _ in recorder.dialled if host in _CALLER_HOSTS]
         close_shared_clients()
 
-    assert _LEVEL_BY_DIALS.get((dials[0], dials[1])) == _expected_levels(flag)[caller]
+    assert (_LEVEL_BY_DIALS.get((dials[0], dials[1])), named) == (
+        _expected_levels(flag)[caller],
+        [],
+    )
+
+
+_METADATA_ADDRESS = "169.254.169.254"
+
+
+@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.parametrize("caller", list(_ai_service_levels(False)))
+def test_each_ai_service_caller_dials_the_address_it_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caller: str
+) -> None:
+    """Old vs new (#2422): a host that answers cloud metadata after two lookups is never reached.
+
+    Before, the caller checked the host name before the request, at most twice, and httpx2
+    resolved it again at the socket, so a rebinding DNS server reached an address no check saw.
+    Now the connect resolves the name once and dials the address it checked; a later connect
+    resolves again and refuses the metadata answer. Neither the name nor the metadata address
+    reaches the socket. The engines that the embedding benchmark builds read the Valkey password
+    from the keyring, which `mock_keyring` fakes.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    scripted_resolver(
+        monkeypatch, {host: rebinding(2, _METADATA_ADDRESS) for host in _CALLER_HOSTS}
+    )
+    recorder = record_connects(monkeypatch, [])
+
+    _call_ignoring_errors(_ai_service_calls(False, tmp_path)[caller])
+
+    unvetted = {*_CALLER_HOSTS, _METADATA_ADDRESS}
+    assert [host for host, _ in recorder.dialled if host in unvetted] == []
 
 
 def test_the_memory_profiler_exercises_its_pool_without_a_lookup_or_a_dial(

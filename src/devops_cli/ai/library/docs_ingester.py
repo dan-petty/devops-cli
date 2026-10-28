@@ -17,7 +17,8 @@ import httpx2
 from devops_cli.ai.rag.chunker import parse_markdown_headings
 from devops_cli.core.repo import resolve_store_path
 from devops_cli.exceptions.ai import DocsIngestionError
-from devops_cli.http.validation import validate_service_url
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.models.library import DocChunk, IngestDocResult
 from devops_cli.security.sanitizer import mask_uri_credentials
 
@@ -238,9 +239,11 @@ class DocsIngester:
         output_dir: Path | str | None = None,
         max_pages: int = 10,
     ) -> IngestDocResult:
-        """Ingest remote documentation page over HTTP/HTTPS with strict SSRF validation."""
-        validate_service_url(url, "Docs Ingestion", allow=False)
+        """Ingest remote documentation page over HTTP/HTTPS with strict SSRF validation.
 
+        The crawler dials at the public level, whatever `ai.allow_private_network` says: a page,
+        not the configuration, names each URL after the first. The connect checks each address.
+        """
         parsed_url = httpx2.URL(url)
         start_origin = parsed_url.origin
         ingest_root = resolve_store_path(Path("docs_ingest"))
@@ -254,7 +257,7 @@ class DocsIngester:
         visited: set[str] = set()
         all_chunks: list[DocChunk] = []
 
-        with httpx2.Client(timeout=30.0) as client:
+        with new_http_client(level=EgressLevel.PUBLIC, timeout=httpx2.Timeout(30.0)) as client:
             while queue and len(visited) < max(1, max_pages):
                 current_url = queue.pop(0)
                 clean_url = urldefrag(current_url).url
@@ -263,7 +266,6 @@ class DocsIngester:
                 visited.add(clean_url)
 
                 try:
-                    validate_service_url(clean_url, "Docs Ingestion", allow=False)
                     resp = client.get(clean_url)
                     resp.raise_for_status()
                     content_type = resp.headers.get("content-type", "")

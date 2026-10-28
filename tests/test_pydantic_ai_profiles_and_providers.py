@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from devops_cli.ai.thinking_stream import (
     strip_think_blocks,
 )
 from devops_cli.config.settings import Settings
+from devops_cli.http.egress import EgressLevel
+from tests.web_fakes import egress_level_of, record_connects
 
 
 class TestPydanticAIProviders:
@@ -207,27 +210,31 @@ def test_remote_model_is_sent_to_its_configured_endpoint(
 
 
 @pytest.mark.parametrize(
-    ("model", "ai_fields", "key"),
+    ("model", "ai_fields"),
     [
-        ("openai:gpt-4o", {"api_base_url": "http://169.254.169.254/v1"}, "ai.api_base_url"),
-        ("litellm:devops-coder", {"gateway_url": "http://169.254.169.254/v1"}, "ai.gateway_url"),
-        ("portkey:devops-coder", {"portkey_url": "http://169.254.169.254/v1"}, "ai.portkey_url"),
+        ("openai:gpt-4o", {"api_base_url": "http://169.254.169.254/v1"}),
+        ("litellm:devops-coder", {"gateway_url": "http://169.254.169.254/v1"}),
+        ("portkey:devops-coder", {"portkey_url": "http://169.254.169.254/v1"}),
     ],
 )
-def test_remote_model_with_malformed_base_url_raises(
-    remote_bridge: Any, model: str, ai_fields: dict[str, Any], key: str
+def test_remote_model_on_a_metadata_address_is_refused_at_the_connect(
+    remote_bridge: Any, monkeypatch: pytest.MonkeyPatch, model: str, ai_fields: dict[str, Any]
 ) -> None:
-    """Verify an endpoint URL that cannot be used raises an error naming its setting."""
-    from devops_cli.exceptions import ConfigurationError, SSRFBlockedError
+    """Verify a request to a cloud metadata endpoint, whatever setting names it, is never dialled.
 
-    with pytest.raises(ConfigurationError) as caught:
-        remote_bridge.resolve_pydantic_ai_model(
-            model, settings=_remote_settings("openai", **ai_fields)
-        )
+    The model builds, and its provider's client refuses the address at the connect. openai does
+    not retry the refusal, so it comes out of the first request.
+    """
+    from devops_cli.exceptions import SSRFBlockedError
 
-    assert caught.value.details["key"] == key
-    assert str(caught.value).startswith(f"{key} cannot serve model {model!r}")
-    assert isinstance(caught.value.__cause__, SSRFBlockedError)
+    recorder = record_connects(monkeypatch, [])
+    resolved = remote_bridge.resolve_pydantic_ai_model(
+        model, settings=_remote_settings("openai", **ai_fields)
+    )
+
+    with pytest.raises(SSRFBlockedError):
+        asyncio.run(resolved.client.with_options(max_retries=0).models.list())
+    assert [host for host, _ in recorder.dialled if host == "169.254.169.254"] == []
 
 
 def test_schemeless_url_refused_on_assignment() -> None:
@@ -253,55 +260,42 @@ _PRIVATE_BASE = "http://192.0.2.10:4000/v1"
         ("openai", "portkey:devops-coder", "portkey_url"),
     ],
 )
-def test_remote_model_on_a_private_host_needs_the_opt_in(
-    remote_bridge: Any, monkeypatch: pytest.MonkeyPatch, provider: str, model: str, setting: str
+def test_remote_model_on_a_private_host_dials_it_only_with_the_opt_in(
+    remote_bridge: Any, provider: str, model: str, setting: str
 ) -> None:
-    """Verify a non-public endpoint is refused, naming its setting, until private hosts are allowed.
+    """Verify a remote model's client dials a private host only once private hosts are allowed.
 
-    The bridge's URLs follow `validate_configured_service_url`, as the LLM client's do, so
-    pydantic-ai is not handed a URL, the prompts and the key that `LLMClient` refuses.
+    The client of the model's provider dials at the configured level, as the LLM client's does:
+    loopback without `ai.allow_private_network`, private with it. The connect checks the address,
+    so pydantic-ai is not handed a client that reaches what `LLMClient` refuses.
     """
-    from devops_cli.exceptions import ConfigurationError, SSRFBlockedError
-
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    with pytest.raises(ConfigurationError) as caught:
-        remote_bridge.resolve_pydantic_ai_model(
-            model,
-            settings=_remote_settings(
-                provider, allow_private_network=False, **{setting: _PRIVATE_BASE}
-            ),
+    levels = [
+        egress_level_of(
+            remote_bridge.resolve_pydantic_ai_model(
+                model,
+                settings=_remote_settings(
+                    provider, allow_private_network=flag, **{setting: _PRIVATE_BASE}
+                ),
+            ).client._client._transport
         )
-    allowed = remote_bridge.resolve_pydantic_ai_model(
-        model,
-        settings=_remote_settings(provider, allow_private_network=True, **{setting: _PRIVATE_BASE}),
-    )
+        for flag in (False, True)
+    ]
 
-    assert caught.value.details["key"] == f"ai.{setting}"
-    assert str(caught.value).startswith(f"ai.{setting} cannot serve model {model!r}: Refusing ")
-    assert isinstance(caught.value.__cause__, SSRFBlockedError)
-    assert str(allowed.base_url) == f"{_PRIVATE_BASE}/"
+    assert levels == [EgressLevel.LOOPBACK, EgressLevel.PRIVATE]
 
 
-def test_provider_factory_allows_a_private_base_url_only_when_told(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify the provider factory takes loopback, and a private host only with the opt-in."""
-    from devops_cli.exceptions import SSRFBlockedError
-
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    with pytest.raises(SSRFBlockedError):
-        create_pydantic_ai_provider("openai", base_url=_PRIVATE_BASE, api_key="sk-test")
+def test_provider_factory_dials_a_private_base_url_only_when_told() -> None:
+    """Verify the provider factory's client takes loopback, and a private host only with the opt-in."""
+    refused = create_pydantic_ai_provider("openai", base_url=_PRIVATE_BASE, api_key="sk-test")
     allowed = create_pydantic_ai_provider(
         "openai", base_url=_PRIVATE_BASE, api_key="sk-test", allow_private_network=True
     )
-    loopback = create_pydantic_ai_provider(
-        "openai", base_url="http://localhost:4000/v1", api_key="sk-test"
-    )
 
-    assert (str(allowed.base_url), str(loopback.base_url)) == (
-        f"{_PRIVATE_BASE}/",
-        "http://localhost:4000/v1/",
-    )
+    assert (
+        egress_level_of(refused.client._client._transport),
+        egress_level_of(allowed.client._client._transport),
+        str(allowed.base_url),
+    ) == (EgressLevel.LOOPBACK, EgressLevel.PRIVATE, f"{_PRIVATE_BASE}/")
 
 
 def test_remote_model_on_loopback_needs_no_opt_in(

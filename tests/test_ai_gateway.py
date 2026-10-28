@@ -834,10 +834,6 @@ class TestGatewayRouteDiscovery:
         )
         probed_urls: list[str] = []
         monkeypatch.setattr(
-            "devops_cli.commands.ai_gateway.validate_url_egress",
-            lambda url, **kwargs: None,
-        )
-        monkeypatch.setattr(
             "devops_cli.commands.ai_gateway._probe_gateway_liveliness_and_models",
             lambda url, *args, **kwargs: probed_urls.append(url),
         )

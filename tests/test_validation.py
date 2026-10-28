@@ -633,9 +633,11 @@ def test_widened_metadata_denials_core_and_probe() -> None:
     assert connect_blocked == 3
 
 
-def test_widened_metadata_denials_models_telemetry_ollama() -> None:
-    """Verify sandbox models, telemetry waterfall, and ollama deny unified metadata superset."""
-    from devops_cli.ai.models.ollama import _is_cloud_metadata_host as ollama_is_metadata
+def test_widened_metadata_denials_models_and_the_connect() -> None:
+    """Verify sandbox models and the connect-time policy deny the unified metadata superset.
+
+    The telemetry waterfall and the pydantic-ai Ollama model dial through that policy.
+    """
     from devops_cli.exceptions import SSRFBlockedError
     from devops_cli.http.egress import EgressLevel, vet_addresses
     from devops_cli.sandbox.models import _resolve_local_host, _validate_local_whitelist_item
@@ -656,12 +658,6 @@ def test_widened_metadata_denials_models_telemetry_ollama() -> None:
         )
     )
     assert tempo_level_blocked == len(hosts)
-
-    assert (
-        ollama_is_metadata("metadata"),
-        ollama_is_metadata("metadata."),
-        ollama_is_metadata("fd00:ec2::254"),
-    ) == (True, True, True)
 
 
 def test_pydantic_ai_ssrf_classifier_contract() -> None:

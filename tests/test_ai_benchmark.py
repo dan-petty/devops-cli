@@ -765,3 +765,21 @@ def test_an_unknown_benchmark_type_is_refused(benchmark_type: str) -> None:
         res = runner.invoke(ai_app, ["benchmark", "--type", benchmark_type, "--dry-run"])
 
     assert (res.exit_code != 0, tasks.called, embedding.called) == (True, False, False)
+
+
+def test_a_server_url_that_is_not_http_is_refused_before_the_run() -> None:
+    """Verify `--servers` takes only http and https URLs, checked as `ai.ollama_urls` checks one.
+
+    The check reads the URL only: the client of each benchmark call checks the address at the
+    connect (#2422). Before, the settings copy did not validate the URLs, so this check is the
+    only early error for the option. The command stops at the check, so no benchmark starts.
+    """
+    res = runner.invoke(
+        ai_app, ["benchmark", "--servers", "http://example.com:11434,ftp://example.com:21"]
+    )
+
+    assert (
+        res.exit_code,
+        "--servers holds 'ftp://example.com:21', which is not an http or https URL." in res.output,
+        "Starting AI Model Benchmark" in res.output,
+    ) == (1, True, False)

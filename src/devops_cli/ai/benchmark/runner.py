@@ -209,7 +209,6 @@ class BenchmarkRunner:
     ) -> LLMClient:
         """Instantiate an LLMClient for a given model override and server endpoint."""
         from devops_cli.ai.benchmark.model_spec import parse_model_spec
-        from devops_cli.core.validation import validate_url
 
         endpoint = server_url
         clean_model, explicit_endpoint = parse_model_spec(model_name)
@@ -222,11 +221,7 @@ class BenchmarkRunner:
 
         updates: dict[str, Any] = {"model": clean_model}
         if endpoint:
-            clean_endpoint = validate_url(
-                endpoint,
-                "benchmark server",
-                allow_private=self.settings.ai.allow_private_network or False,
-            )
+            clean_endpoint = endpoint.strip()
             updates["ollama_urls"] = [clean_endpoint]
             updates["api_base_url"] = clean_endpoint
 

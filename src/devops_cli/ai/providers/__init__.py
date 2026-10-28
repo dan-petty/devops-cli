@@ -83,17 +83,10 @@ def create_pydantic_ai_provider(
     """Create and configure a native Pydantic AI Provider instance.
 
     Configures endpoint URLs, API keys, and client parameters according to provider type.
-    ``base_url`` follows `validate_configured_service_url`: loopback is allowed, and any other
-    non-public host needs ``allow_private_network``.
+    A provider that takes an ``http_client`` gets a factory client at the configured level:
+    loopback, or private with ``allow_private_network``. The connect checks each address.
     """
     prov_name = provider.lower().strip()
-    if base_url is not None:
-        from devops_cli.core.validation import validate_configured_service_url
-
-        validate_configured_service_url(
-            base_url, purpose=prov_name, allow_private=allow_private_network
-        )
-
     provider_cls: Any = _PYDANTIC_PROVIDERS.get(prov_name)
     if provider_cls is None:
         from pydantic_ai.providers import infer_provider_class

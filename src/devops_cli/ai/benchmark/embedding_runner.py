@@ -259,9 +259,14 @@ class EmbeddingBenchmarkRunner:
         return is_dry_run()
 
     def _engine_for_model(self, model_name: str, server_url: str | None = None) -> EmbeddingsEngine:
-        """Instantiate an EmbeddingsEngine configured for the specified model and server."""
+        """Instantiate an EmbeddingsEngine configured for the specified model and server.
+
+        The engine's clients check each address at the connect, at the configured level. An
+        endpoint that `ai.ollama_urls` cannot hold raises ValidationError, which fails the run.
+        """
+        from pydantic import ValidationError as PydanticValidationError
+
         from devops_cli.ai.benchmark.model_spec import parse_model_spec
-        from devops_cli.core.validation import validate_url
         from devops_cli.exceptions import ValidationError
         from devops_cli.http.urls import get_url_origin
 
@@ -300,11 +305,18 @@ class EmbeddingBenchmarkRunner:
         if resolved_provider == "gateway":
             ai_kwargs["gateway_url"] = endpoint or self.settings.ai.gateway_url
         elif endpoint:
-            clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=allow_priv)
+            clean_endpoint = endpoint.strip()
             ai_kwargs["ollama_urls"] = [clean_endpoint]
             ai_kwargs["api_base_url"] = clean_endpoint
 
-        cfg = AIConfig(**ai_kwargs)
+        try:
+            cfg = AIConfig(**ai_kwargs)
+        except PydanticValidationError as exc:
+            reason = exc.errors()[0]["msg"]
+            raise ValidationError(
+                f"Embedding benchmark endpoint '{endpoint}' cannot be used: {reason}",
+                field="endpoint",
+            ) from exc
         return EmbeddingsEngine(cfg, api_key=_key_for_endpoint(self.settings, cfg))
 
     def evaluate_model(

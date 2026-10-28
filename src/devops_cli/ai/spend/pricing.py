@@ -9,7 +9,7 @@ import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
@@ -26,6 +26,9 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_review_data_path
 from devops_cli.lang import MESSAGES
+
+if TYPE_CHECKING:
+    from devops_cli.http.egress import EgressLevel
 
 logger = logging.getLogger(__name__)
 
@@ -659,35 +662,25 @@ class PricingRegistry:
 
     @staticmethod
     def _fetch_raw_pricing_payload(source_url: str | None, timeout: float) -> object:
-        """Fetch raw JSON pricing payload from local file, custom URL, or default registry."""
-        import httpx2
+        """Fetch raw JSON pricing payload from local file, custom URL, or default registry.
 
-        if source_url:
-            p = Path(source_url)
-            if p.is_file():
-                raw = json.loads(p.read_text(encoding="utf-8"))
-                if isinstance(raw, dict) and "providers" in raw:
-                    return raw["providers"]
-                return raw
-            r = httpx2.get(source_url, timeout=timeout)
-            r.raise_for_status()
-            raw = json.loads(r.content)
-            if isinstance(raw, dict) and "providers" in raw:
-                return raw["providers"]
-            return raw
+        A custom URL is fetched at the configured level: loopback, or private when
+        `ai.allow_private_network` is set. The default registry of genai-prices is a public
+        API, fetched at the public level. The connect checks each address.
+        """
+        from devops_cli.http.egress import EgressLevel, configured_level
 
-        import genai_prices
+        if source_url and Path(source_url).is_file():
+            raw = json.loads(Path(source_url).read_text(encoding="utf-8"))
+        elif source_url:
+            raw = _fetch_pricing_json(source_url, configured_level(), timeout)
+        else:
+            import genai_prices
 
-        updater = genai_prices.UpdatePrices(request_timeout=httpx2.Timeout(timeout))
-        url = getattr(updater, "url", None)
-        if url:
-            r = httpx2.get(url, timeout=timeout)
-            r.raise_for_status()
-            raw = json.loads(r.content)
-            if isinstance(raw, dict) and "providers" in raw:
-                return raw["providers"]
-            return raw
-        return updater.fetch()
+            raw = _fetch_pricing_json(genai_prices.UpdatePrices().url, EgressLevel.PUBLIC, timeout)
+        if isinstance(raw, dict) and "providers" in raw:
+            return raw["providers"]
+        return raw
 
     def update_from_remote(
         self, source_url: str | None = None, timeout: float = 15.0
@@ -745,6 +738,21 @@ class PricingRegistry:
 
 
 _GLOBAL_REGISTRY: PricingRegistry | None = None
+
+
+def _fetch_pricing_json(url: str, level: EgressLevel, timeout: float) -> object:
+    """GET `url` with a factory client at `level`, and parse the JSON reply.
+
+    `timeout` bounds each phase of the request, the connect included.
+    """
+    import httpx2
+
+    from devops_cli.http.client import new_http_client
+
+    with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+        response = client.get(url)
+        response.raise_for_status()
+    return json.loads(response.content)
 
 
 def get_pricing_registry(data_dir: Path | None = None) -> PricingRegistry:

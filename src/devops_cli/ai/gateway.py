@@ -31,8 +31,9 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_CLUSTER_URL,
 )
 from devops_cli.config.settings import AIConfig, load_settings
-from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions import ConfigurationError, ValidationError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import (
     AI_GATEWAY_FAILOVERS_TOTAL,
@@ -286,13 +287,17 @@ def _query_model_info(
     api_key: str | None,
     client: httpx2.Client | None = None,
 ) -> Any:
-    """GET the gateway's /model/info (falling back to /models); None when unreachable."""
+    """GET the gateway's /model/info (falling back to /models); None when unreachable.
+
+    Without a `client`, the query dials at the configured level: loopback, or private when
+    `allow_private` (`ai.allow_private_network`) is set. The connect checks the address.
+    """
     headers = _sanitize_api_key_header(api_key)
+    level = EgressLevel.PRIVATE if allow_private else EgressLevel.LOOPBACK
     try:
-        validate_url_egress(gateway_url, purpose="AI gateway", allow_private=allow_private)
         if client is not None:
             return _fetch_endpoint_resp(client, gateway_url, headers)
-        with httpx2.Client(timeout=2.0) as ephemeral_client:
+        with new_http_client(level=level, timeout=httpx2.Timeout(2.0)) as ephemeral_client:
             return _fetch_endpoint_resp(ephemeral_client, gateway_url, headers)
     except Exception as exc:
         logger.debug("Failed to query live models API at %s: %s", gateway_url, exc)
@@ -472,20 +477,23 @@ class GatewayRouter:
         timeout: float = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
         provider: str | None = None,
     ) -> GatewayStatus:
-        """Probe gateway health endpoint and latency with OpenTelemetry tracing."""
+        """Probe gateway health endpoint and latency with OpenTelemetry tracing.
+
+        The probe dials at the configured level of the router's AI configuration, and the connect
+        checks the address. An address that the level refuses raises SSRFBlockedError.
+        """
         if provider and provider in CONST_AI_GATEWAY_PROVIDERS:
             self.provider = provider
         raw_url = (gateway_url or self.gateway_url).rstrip("/")
-        validate_url_egress(
-            raw_url, purpose="AI gateway", allow_private=self.config.allow_private_network
-        )
         probe_base = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
 
         with trace_span(
             "ai.gateway.probe", {"gateway.url": raw_url, "gateway.provider": self.provider}
         ) as span_h:
             start = time.perf_counter()
-            with httpx2.Client(timeout=timeout) as client:
+            with new_http_client(
+                level=configured_level(self.config), timeout=httpx2.Timeout(timeout)
+            ) as client:
                 is_ok, status_code, err_msg = _probe_gateway_http(client, probe_base, self.provider)
 
             elapsed = time.perf_counter() - start
@@ -605,7 +613,11 @@ class GatewayRouter:
         backend_url: str | None = None,
         timeout: float = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
-        """Probe an individual inference backend (e.g. ollama) directly."""
+        """Probe an individual inference backend (e.g. ollama) directly.
+
+        The probe dials at the configured level of the router's AI configuration, and the connect
+        checks the address. An address that the level refuses raises SSRFBlockedError.
+        """
         clean_type = backend_type.lower()
         if clean_type not in CONST_AI_BACKENDS:
             raise ValidationError(
@@ -615,15 +627,12 @@ class GatewayRouter:
 
         resolved_url = _resolve_backend_url(self.config, clean_type, backend_url)
         raw_url = resolved_url.rstrip("/")
-        validate_url_egress(
-            raw_url,
-            purpose=f"AI backend {clean_type}",
-            allow_private=self.config.allow_private_network,
-        )
         probe_base = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
 
         start = time.perf_counter()
-        is_ok, status_code, err_msg, models = _probe_backend_http(probe_base, clean_type, timeout)
+        is_ok, status_code, err_msg, models = _probe_backend_http(
+            probe_base, clean_type, timeout, configured_level(self.config)
+        )
         latency = round((time.perf_counter() - start) * 1000, 2)
 
         return {
@@ -669,14 +678,14 @@ def _resolve_backend_url(config: AIConfig, clean_type: str, backend_url: str | N
 
 
 def _probe_backend_http(
-    probe_base: str, clean_type: str, timeout: float
+    probe_base: str, clean_type: str, timeout: float, level: EgressLevel
 ) -> tuple[bool, int, str | None, list[str]]:
-    """Execute HTTP health and model queries against an inference backend."""
+    """Execute HTTP health and model queries against an inference backend, dialling at `level`."""
     status_code = 0
     err_msg: str | None = None
     models: list[str] = []
     try:
-        with httpx2.Client(timeout=timeout) as client:
+        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(f"{probe_base}/health")
             if resp.status_code != 200:
                 resp = client.get(f"{probe_base}/v1/models")

@@ -1042,3 +1042,21 @@ def test_the_embedding_benchmark_defaults_to_the_two_candidate_models() -> None:
         "bge-m3:latest",
         "qwen3-embedding:0.6b",
     ]
+
+
+def test_an_endpoint_that_ollama_urls_cannot_hold_fails_the_run_of_that_model() -> None:
+    """Verify a `model@endpoint` whose URL is not http or https fails the run of that model.
+
+    The engine's clients check the address at the connect (#2422), so the endpoint is checked
+    only as `ai.ollama_urls` checks a URL. The error fails the run of that model, with its reason,
+    instead of the whole benchmark.
+    """
+    bench = EmbeddingBenchmarkRunner(models=["m"], provider="ollama", is_dry_run=False)
+
+    result = bench.evaluate_model("m@ftp://example.com:21", [], ["probe"])
+
+    assert (
+        result.failed,
+        "Embedding benchmark endpoint 'ftp://example.com:21' cannot be used"
+        in (result.error or ""),
+    ) == (True, True)

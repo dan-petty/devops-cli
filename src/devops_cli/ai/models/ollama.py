@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     from pydantic_ai.providers import Provider
     from pydantic_ai.providers.ollama import OllamaProvider
 
+    from devops_cli.config.settings import AIConfig
+
 from pydantic_ai.profiles import ModelProfileSpec
 from pydantic_ai.profiles.cohere import cohere_model_profile
 from pydantic_ai.profiles.deepseek import deepseek_model_profile
@@ -25,17 +27,14 @@ from pydantic_ai.profiles.qwen import qwen_model_profile
 from pydantic_ai.settings import ModelSettings, merge_model_settings
 
 from devops_cli.ai.settings import create_model_settings
-from devops_cli.exceptions import ConfigurationError, InvalidURLError, SSRFBlockedError
+from devops_cli.exceptions import ConfigurationError, InvalidURLError
 
 
-def _is_cloud_metadata_host(host: str) -> bool:
-    from devops_cli.core.validation import is_cloud_metadata_host
-
-    return is_cloud_metadata_host(host, resolve_dns=True)
-
-
-def normalize_ollama_base_url(url: str, *, allow_private: bool = True) -> str:
+def normalize_ollama_base_url(url: str) -> str:
     """Normalize Ollama base URL ensuring a clean /v1 endpoint path without duplicate segments.
+
+    The check reads the URL only: an http or https scheme and a host. The client of the provider
+    checks the address at the connect.
 
     Examples:
         - http://localhost:11434 -> http://localhost:11434/v1
@@ -61,22 +60,6 @@ def normalize_ollama_base_url(url: str, *, allow_private: bool = True) -> str:
             reason=f"Invalid Ollama URL '{clean_url}': missing host or authority",
         )
 
-    host = (parsed.hostname or "").lower()
-    if _is_cloud_metadata_host(host):
-        raise SSRFBlockedError(
-            clean_url,
-            reason="Access to cloud instance metadata service is forbidden",
-        )
-
-    from devops_cli.core.validation import validate_url
-
-    validate_url(
-        clean_url,
-        purpose="Ollama endpoint",
-        allow_private=allow_private,
-        schemes=("http", "https"),
-    )
-
     raw_path = parsed.path.rstrip("/")
     if raw_path.endswith("/v1"):
         normalized_path = raw_path
@@ -95,9 +78,15 @@ def create_ollama_provider(
     api_key: str | None = None,
     openai_client: AsyncOpenAI | None = None,
     http_client: Any | None = None,
-    allow_private: bool = True,
+    ai_config: AIConfig | None = None,
 ) -> OllamaProvider:
     """Create a native pydantic_ai.providers.ollama.OllamaProvider with cluster and auth support.
+
+    Without `openai_client` and `http_client`, the provider gets a client from
+    `new_async_http_client` at the configured level of `ai_config` (of the loaded settings when
+    None): loopback, or private when `ai.allow_private_network` is set. The connect checks each
+    address, so pydantic-ai never builds a client of its own. The client keeps the timeouts of the
+    client that pydantic-ai builds: 600 s, with a 5 s connect.
 
     Args:
         base_url: Primary Ollama HTTP endpoint URL.
@@ -105,7 +94,7 @@ def create_ollama_provider(
         api_key: Optional API key for authenticated gateways or Ollama Cloud.
         openai_client: Optional pre-configured AsyncOpenAI client instance.
         http_client: Optional custom HTTP client.
-        allow_private: Whether private network/loopback endpoints are allowed.
+        ai_config: The AI configuration whose `allow_private_network` sets the egress level.
     """
     raw_url: str | None = None
     if urls and len(urls) > 0:
@@ -121,8 +110,22 @@ def create_ollama_provider(
             key="ai.ollama_urls",
         )
 
-    normalized_url = normalize_ollama_base_url(raw_url, allow_private=allow_private)
+    normalized_url = normalize_ollama_base_url(raw_url)
     resolved_api_key = api_key or os.environ.get("OLLAMA_API_KEY")
+    if openai_client is None and http_client is None:
+        import httpx2
+        from pydantic_ai.models import DEFAULT_HTTP_TIMEOUT
+
+        from devops_cli.config.defaults import DEFAULT_AI_CONNECT_TIMEOUT_SECONDS
+        from devops_cli.http.client import new_async_http_client
+        from devops_cli.http.egress import configured_level
+
+        http_client = new_async_http_client(
+            level=configured_level(ai_config),
+            timeout=httpx2.Timeout(
+                DEFAULT_HTTP_TIMEOUT, connect=DEFAULT_AI_CONNECT_TIMEOUT_SECONDS
+            ),
+        )
 
     from pydantic_ai.providers.ollama import OllamaProvider
 
@@ -150,6 +153,7 @@ def create_ollama_model(
     timeout: float | None = None,
     openai_client: AsyncOpenAI | None = None,
     http_client: Any | None = None,
+    ai_config: AIConfig | None = None,
     **kwargs: Any,
 ) -> OllamaModel:
     """Factory creating and configuring a native Pydantic AI OllamaModel.
@@ -169,6 +173,8 @@ def create_ollama_model(
         timeout: Network request timeout in seconds.
         openai_client: Optional custom AsyncOpenAI client.
         http_client: Optional custom HTTP client.
+        ai_config: The AI configuration whose `allow_private_network` sets the egress level of
+            the client that `create_ollama_provider` builds.
         **kwargs: Additional model settings forwarded to ModelSettings.
     """
     clean_model_name = model_name.removeprefix("ollama:").strip()
@@ -183,6 +189,7 @@ def create_ollama_model(
             api_key=api_key,
             openai_client=openai_client,
             http_client=http_client,
+            ai_config=ai_config,
         )
 
     explicit_settings = create_model_settings(
