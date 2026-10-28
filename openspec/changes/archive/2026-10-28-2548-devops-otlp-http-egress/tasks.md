@@ -9,6 +9,6 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2548-devops-otlp-http-egress`
 - Pending a person: after Argo CD syncs, check that `kubectl -n devops get networkpolicy devops-default-perimeter -o yaml` names only port 4318 in the egress to `otel`.
