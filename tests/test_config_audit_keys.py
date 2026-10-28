@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app
+from devops_cli.config.constants import CONST_CONFIG_DIR, CONST_CONFIG_PATH
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -28,13 +29,29 @@ def _audit_in_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def global_config_with_a_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def write_global_config() -> Iterator[Callable[[bytes], Path]]:
+    """Write the global config file of the settings, which is in the isolated HOME of the worker.
+
+    The teardown removes the file, and the config directory when the test made it, so the
+    worker-home tripwire finds no state that stays.
+    """
+    config_dir_existed = CONST_CONFIG_DIR.exists()
+
+    def write(content: bytes) -> Path:
+        CONST_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONST_CONFIG_PATH.write_bytes(content)
+        return CONST_CONFIG_PATH
+
+    yield write
+    CONST_CONFIG_PATH.unlink(missing_ok=True)
+    if not config_dir_existed and CONST_CONFIG_DIR.exists():
+        CONST_CONFIG_DIR.rmdir()
+
+
+@pytest.fixture
+def global_config_with_a_secret(write_global_config: Callable[[bytes], Path]) -> Path:
     """The global config file of the settings, with `ai.api_key` in plaintext."""
-    global_config = tmp_path / "user-config" / "config.yaml"
-    global_config.parent.mkdir()
-    global_config.write_text("ai:\n  api_key: FAKE-2426-global-value\n", encoding="utf-8")
-    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", global_config)
-    return global_config
+    return write_global_config(b"ai:\n  api_key: FAKE-2426-global-value\n")
 
 
 def test_config_audit_keys_dry_run() -> None:
