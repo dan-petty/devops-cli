@@ -11,9 +11,9 @@
 
 ## 2. Verification and static checks
 
-- [ ] 2.1 Verify that the new test fails on the base tree
+- [x] 2.1 Verify that the new test fails on the base tree
   - Verification: `uv run devops ci fail-to-pass --base origin/main`
-- [ ] 2.2 Run the ratchets and the type check
+- [x] 2.2 Run the ratchets and the type check
   - Verification: `uv run devops ci test tests/test_swallowed_failures_ratchet.py tests/test_architectural_invariants.py` and `uv run mypy src`
 
 ## Workflow follow-up
