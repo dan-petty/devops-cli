@@ -115,7 +115,7 @@ def test_update_single_pr_cli_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_pr_details",
+        "devops_cli.commands.pr._shown_pr",
         lambda *args, **kwargs: {
             "head": {"ref": "feat/my-branch"},
             "base": {"ref": "main"},
@@ -147,7 +147,7 @@ def test_update_single_pr_cli_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     fetch_called: list[bool] = []
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_pr_details",
+        "devops_cli.commands.pr._shown_pr",
         lambda *args, **kwargs: (
             fetch_called.append(True)
             or {
@@ -177,7 +177,7 @@ def test_update_single_pr_cli_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = CliRunner()
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_pr_details",
+        "devops_cli.commands.pr._shown_pr",
         lambda *args, **kwargs: {
             "head": {"ref": "feat/my-branch"},
             "base": {"ref": "main"},
@@ -388,7 +388,7 @@ def test_update_single_pr_cli_dispatch_ci_success(monkeypatch: pytest.MonkeyPatc
         }
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr("devops_cli.commands.pr._fetch_pr_details", mock_fetch)
+    monkeypatch.setattr("devops_cli.commands.pr._shown_pr", mock_fetch)
     monkeypatch.setattr(
         "devops_cli.commands.pr._execute_update_branch",
         lambda *args, **kwargs: (True, "Updated"),
@@ -434,7 +434,7 @@ def test_update_single_pr_cli_head_sha_unchanged(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_pr_details",
+        "devops_cli.commands.pr._shown_pr",
         lambda *args, **kwargs: {
             "head": {
                 "ref": "feat/my-branch",
@@ -472,7 +472,7 @@ def test_update_single_pr_cli_fork_head(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_pr_details",
+        "devops_cli.commands.pr._shown_pr",
         lambda *args, **kwargs: {
             "head": {
                 "ref": "feat/my-branch",
@@ -515,7 +515,7 @@ def test_update_single_pr_cli_dispatch_failed(monkeypatch: pytest.MonkeyPatch) -
         }
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr("devops_cli.commands.pr._fetch_pr_details", mock_fetch)
+    monkeypatch.setattr("devops_cli.commands.pr._shown_pr", mock_fetch)
     monkeypatch.setattr(
         "devops_cli.commands.pr._execute_update_branch",
         lambda *args, **kwargs: (True, "Updated"),
@@ -546,7 +546,7 @@ def test_update_single_pr_cli_dispatch_ci_dry_run(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_pr_details",
+        "devops_cli.commands.pr._shown_pr",
         lambda *args, **kwargs: fetch_calls.append(True) or {},
     )
     monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))

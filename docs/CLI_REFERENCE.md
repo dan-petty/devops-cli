@@ -6393,7 +6393,14 @@ devops pr checks [OPTIONS] <number>
 
 ### `devops pr wait`
 
-**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+**Wait until the checks of a PR settle, then name every blocker of its merge.**
+
+Wait until the checks of a PR settle, then name every blocker of its merge.
+
+While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
+the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
+approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
+be read; 2: another blocker; 3: the timeout passed first.
 
 ```bash
 devops pr wait [OPTIONS] <number>
@@ -6418,7 +6425,14 @@ devops pr wait [OPTIONS] <number>
 
 ### `devops pr monitor`
 
-**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+**Wait until the checks of a PR settle, then name every blocker of its merge.**
+
+Wait until the checks of a PR settle, then name every blocker of its merge.
+
+While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
+the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
+approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
+be read; 2: another blocker; 3: the timeout passed first.
 
 ```bash
 devops pr monitor [OPTIONS] <number>
@@ -6489,7 +6503,12 @@ devops pr create [OPTIONS]
 
 ### `devops pr ready`
 
-**Mark a draft pull request as ready for review.**
+**Mark a draft pull request as ready for review once its checks pass.**
+
+Mark a draft pull request as ready for review once its checks pass.
+
+It exits 1 when a check failed or could not be read and 8 while one runs. Every other
+blocker of the merge-readiness verdict prints as a warning. --force skips the checks.
 
 ```bash
 devops pr ready [OPTIONS] <number>
@@ -7519,7 +7538,14 @@ devops gh pr checks [OPTIONS] <number>
 
 #### `devops gh pr wait`
 
-**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+**Wait until the checks of a PR settle, then name every blocker of its merge.**
+
+Wait until the checks of a PR settle, then name every blocker of its merge.
+
+While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
+the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
+approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
+be read; 2: another blocker; 3: the timeout passed first.
 
 ```bash
 devops gh pr wait [OPTIONS] <number>
@@ -7544,7 +7570,14 @@ devops gh pr wait [OPTIONS] <number>
 
 #### `devops gh pr monitor`
 
-**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+**Wait until the checks of a PR settle, then name every blocker of its merge.**
+
+Wait until the checks of a PR settle, then name every blocker of its merge.
+
+While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
+the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
+approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
+be read; 2: another blocker; 3: the timeout passed first.
 
 ```bash
 devops gh pr monitor [OPTIONS] <number>
@@ -7615,7 +7648,12 @@ devops gh pr create [OPTIONS]
 
 #### `devops gh pr ready`
 
-**Mark a draft pull request as ready for review.**
+**Mark a draft pull request as ready for review once its checks pass.**
+
+Mark a draft pull request as ready for review once its checks pass.
+
+It exits 1 when a check failed or could not be read and 8 while one runs. Every other
+blocker of the merge-readiness verdict prints as a warning. --force skips the checks.
 
 ```bash
 devops gh pr ready [OPTIONS] <number>

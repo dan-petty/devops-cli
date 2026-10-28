@@ -1,9 +1,11 @@
-"""The merge readiness of a pull request, as data (#998, #2442).
+"""The merge readiness of a pull request, as data (#998, #2442, #2443).
 
 `assess_merge_readiness` judges a pull request that GitHub has read: its mergeable state, its
 draft state, its checks, its review threads and the item rules of `roadmap/grounding.py`. It
-returns what blocks the merge, what only advises, the checks still running and the facts the
-item rules judged. It prints nothing and exits nothing: `devops pr check-readiness` renders it.
+returns what blocks the merge, each blocker with its kind, what only advises, the checks it read
+and the facts the item rules judged. It prints nothing and exits nothing: `devops pr
+check-readiness` renders it, and `devops pr ready` and `devops pr monitor` map its kinds to their
+own exit codes.
 
 Each `gh` call goes through `runner`, and each read of the GitHub session through `session`, so
 a caller (and a test) gives both, as `GitHubRoadmapStore` takes them.
@@ -31,7 +33,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.check_verdict import CheckBucket, read_commit_checks
+from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, read_commit_checks
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.error_classifier import gh_http_status
 from devops_cli.github.pr_threads import (
@@ -70,6 +72,32 @@ class AdvisoryLevel(StrEnum):
     INFO = "info"
 
 
+class BlockerKind(StrEnum):
+    """What keeps a pull request from merging; each command maps it to its own exit code."""
+
+    CLOSED = "closed"
+    CONFLICT = "conflict"
+    MERGEABILITY = "mergeability"
+    BRANCH_PROTECTION = "branch_protection"
+    DRAFT = "draft"
+    CHECKS_FAILING = "checks_failing"
+    CHECKS_UNREAD = "checks_unread"
+    CHECKS_PENDING = "checks_pending"
+    THREADS = "threads"
+    THREADS_UNREAD = "threads_unread"
+    GROUNDING = "grounding"
+
+
+CHECK_FAILURE_KINDS = frozenset({BlockerKind.CHECKS_FAILING, BlockerKind.CHECKS_UNREAD})
+
+
+class Blocker(NamedTuple):
+    """One thing that keeps a pull request from merging, as `check-readiness` prints it."""
+
+    kind: BlockerKind
+    text: str
+
+
 class Advisory(NamedTuple):
     """A fact a person sees beside the verdict, which blocks nothing."""
 
@@ -81,33 +109,49 @@ class Advisory(NamedTuple):
 class MergeReadiness:
     """The merge-readiness verdict of one pull request.
 
-    `blockers` is what keeps it from merging, in the order it was found. `pending_checks` names
-    the checks still running, a blocker unless `allow_pending_checks` excused them.
-    `threads_to_show` are the review threads that block it, for a caller to list. `grounding` is
-    what the item rules judged, None where they do not apply.
+    `blocking` is what keeps it from merging, in the order it was found, each with its kind.
+    `pending_checks` names the checks still running, a blocker unless `allow_pending_checks`
+    excused them. `checks` is the read of the head commit's checks, None when the payload names
+    no head commit. `threads_to_show` are the review threads that block it, for a caller to list.
+    `grounding` is what the item rules judged, None where they do not apply.
     """
 
-    blockers: tuple[str, ...] = ()
+    blocking: tuple[Blocker, ...] = ()
     advisories: tuple[Advisory, ...] = ()
     pending_checks: tuple[str, ...] = ()
+    checks: CheckVerdictSummary | None = None
     threads_to_show: tuple[ReviewThread, ...] = ()
     grounding: Grounding | None = None
 
     @property
+    def blockers(self) -> tuple[str, ...]:
+        """The text of each blocker, as `check-readiness` prints it."""
+        return tuple(blocker.text for blocker in self.blocking)
+
+    @property
+    def kinds(self) -> frozenset[BlockerKind]:
+        """The kinds of blocker the verdict holds."""
+        return frozenset(blocker.kind for blocker in self.blocking)
+
+    @property
     def is_ready(self) -> bool:
         """Whether nothing blocks the merge."""
-        return not self.blockers
+        return not self.blocking
 
 
 @dataclass
 class _Verdict:
     """The verdict being assembled, one concern at a time."""
 
-    blockers: list[str] = field(default_factory=list)
+    blocking: list[Blocker] = field(default_factory=list)
     advisories: list[Advisory] = field(default_factory=list)
     pending: list[str] = field(default_factory=list)
+    checks: CheckVerdictSummary | None = None
     threads: list[ReviewThread] = field(default_factory=list)
     grounding: Grounding | None = None
+
+    def block(self, kind: BlockerKind, text: str) -> None:
+        self.blocking.append(Blocker(kind, text))
 
     def warn(self, text: str) -> None:
         self.advisories.append(Advisory(AdvisoryLevel.WARNING, text))
@@ -117,9 +161,10 @@ class _Verdict:
 
     def frozen(self) -> MergeReadiness:
         return MergeReadiness(
-            blockers=tuple(self.blockers),
+            blocking=tuple(self.blocking),
             advisories=tuple(self.advisories),
             pending_checks=tuple(self.pending),
+            checks=self.checks,
             threads_to_show=tuple(self.threads),
             grounding=self.grounding,
         )
@@ -128,9 +173,13 @@ class _Verdict:
 def _judge_mergeable(
     verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow_blocked_state: bool
 ) -> None:
-    """Judge GitHub's mergeable state: closed, conflicting, unknown and blocked block."""
+    """Judge GitHub's mergeable state: closed, conflicting, unknown and blocked block.
+
+    `behind` blocks nothing: GitHub merges a branch behind its base unless a ruleset requires an
+    up-to-date branch, and then it reports `blocked`.
+    """
     if pr_data.get("state", "").lower() == "closed":
-        verdict.blockers.append(f"PR #{pr_num} is closed without being merged.")
+        verdict.block(BlockerKind.CLOSED, f"PR #{pr_num} is closed without being merged.")
         return
 
     mergeable = pr_data.get("mergeable")
@@ -138,20 +187,25 @@ def _judge_mergeable(
     base_ref = pr_data.get("base", {}).get("ref", "")
 
     if mergeable is False or mergeable_state in ("dirty", "conflicting"):
-        verdict.blockers.append(f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'.")
+        verdict.block(
+            BlockerKind.CONFLICT,
+            f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'.",
+        )
     elif mergeable is None or mergeable_state in ("unknown", ""):
-        verdict.blockers.append(
+        verdict.block(
+            BlockerKind.MERGEABILITY,
             f"PR #{pr_num} mergeability is unresolved or still calculating on GitHub "
-            f"(mergeable: {mergeable}, state: '{mergeable_state}')."
+            f"(mergeable: {mergeable}, state: '{mergeable_state}').",
         )
     elif mergeable_state == "blocked" and allow_blocked_state:
         verdict.warn(
             f"PR #{pr_num} merge state is currently 'blocked' by branch protection or pending checks."
         )
     elif mergeable_state == "blocked":
-        verdict.blockers.append(
+        verdict.block(
+            BlockerKind.BRANCH_PROTECTION,
             f"PR #{pr_num} merge state is blocked by GitHub branch protection or checks "
-            "(state: 'blocked')."
+            "(state: 'blocked').",
         )
 
 
@@ -166,8 +220,8 @@ def _judge_draft(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow:
     if allow:
         verdict.warn(f"PR #{pr_num} is in draft status and cannot be merged as-is.")
     else:
-        verdict.blockers.append(
-            f"PR #{pr_num} is in draft status; GitHub refuses to merge a draft."
+        verdict.block(
+            BlockerKind.DRAFT, f"PR #{pr_num} is in draft status; GitHub refuses to merge a draft."
         )
 
 
@@ -185,9 +239,11 @@ def _judge_checks(
     checks = read_commit_checks(
         owner, repo_name, head_sha, runner=reads.runner, session=reads.session
     )
+    verdict.checks = checks
     if checks.unread_reason:
-        verdict.blockers.append(
-            f"PR #{pr_num} check verification failed closed: {checks.unread_reason}"
+        verdict.block(
+            BlockerKind.CHECKS_UNREAD,
+            f"PR #{pr_num} check verification failed closed: {checks.unread_reason}",
         )
         return
 
@@ -198,8 +254,9 @@ def _judge_checks(
     )
     pending = sorted(item.name for item in checks.items if item.bucket == CheckBucket.PENDING)
     if failing:
-        verdict.blockers.append(
-            f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(failing)}."
+        verdict.block(
+            BlockerKind.CHECKS_FAILING,
+            f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(failing)}.",
         )
     verdict.pending.extend(pending)
     if not pending:
@@ -208,7 +265,7 @@ def _judge_checks(
     if reads.options.allow_pending_checks:
         verdict.warn(message)
     else:
-        verdict.blockers.append(message)
+        verdict.block(BlockerKind.CHECKS_PENDING, message)
 
 
 def _judge_threads(
@@ -223,14 +280,18 @@ def _judge_threads(
             owner, repo_name, pr_num, unresolved_only=True, runner=reads.runner
         )
     except GitHubOperationError as exc:
-        verdict.blockers.append(f"Could not retrieve review threads for PR #{pr_num}: {exc}")
+        verdict.block(
+            BlockerKind.THREADS_UNREAD,
+            f"Could not retrieve review threads for PR #{pr_num}: {exc}",
+        )
         return
     if not unresolved:
         return
     if not reads.options.allow_replied_threads:
         verdict.threads.extend(unresolved)
-        verdict.blockers.append(
-            f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."
+        verdict.block(
+            BlockerKind.THREADS,
+            f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s).",
         )
         return
     replied = [thread for thread in unresolved if has_non_opener_reply(thread)]
@@ -242,8 +303,9 @@ def _judge_threads(
         )
     if unreplied:
         verdict.threads.extend(unreplied)
-        verdict.blockers.append(
-            f"PR #{pr_num} has {len(unreplied)} unreplied review discussion thread(s)."
+        verdict.block(
+            BlockerKind.THREADS,
+            f"PR #{pr_num} has {len(unreplied)} unreplied review discussion thread(s).",
         )
 
 
@@ -386,10 +448,11 @@ def _judge_grounding(
         applies = _base_has_change_folders(pr_data, owner, repo_name, runner)
     except GitHubOperationError as exc:
         applies = True
-        verdict.blockers.append(
+        verdict.block(
+            BlockerKind.GROUNDING,
             MESSAGES.pr.grounding_changes_dir_unread.format(
                 number=pr_num, path=CONST_OPENSPEC_CHANGES_DIR, error=exc
-            )
+            ),
         )
     if not applies:
         if changed.error:
@@ -406,7 +469,8 @@ def _judge_grounding(
             closing=read_closing_issues(owner, repo_name, pr_num, runner=runner)
         )
     verdict.grounding = grounding
-    verdict.blockers.extend(grounding_blockers(grounding))
+    for text in grounding_blockers(grounding):
+        verdict.block(BlockerKind.GROUNDING, text)
 
 
 def perimeter_advisory(files: list[PullRequestFile], repo_root: Path) -> Advisory | None:
