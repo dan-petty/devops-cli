@@ -17,13 +17,16 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.defaults import (
-    DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_PROJECT_NAME,
     DEFAULT_QUANTIZATION_BITS,
 )
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
+
+# The context window that the hardware estimate of a model file assumes. It is not
+# `ai.context_window`, which is the window of the model that the LLM client calls (#2447).
+_ESTIMATE_CONTEXT_WINDOW = 32_768
 
 
 class ModelLicenseType(StrEnum):
@@ -74,7 +77,7 @@ class AIBOMComponent(BaseModel):
 def estimate_hardware_requirements(
     parameters_billion: float,
     quantization_bits: int = DEFAULT_QUANTIZATION_BITS,
-    context_window: int = DEFAULT_AI_CONTEXT_WINDOW,
+    context_window: int = _ESTIMATE_CONTEXT_WINDOW,
     *,
     is_moe: bool = False,
     active_experts: int = 1,

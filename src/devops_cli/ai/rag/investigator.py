@@ -35,8 +35,6 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_DOCS_COLLECTION,
     DEFAULT_RAG_INVESTIGATION_MAX_CHARS,
     DEFAULT_RAG_INVESTIGATION_MAX_QUERY_CHARS,
-    DEFAULT_RAG_SCORE_THRESHOLD,
-    DEFAULT_RAG_TOP_K,
 )
 from devops_cli.config.settings import Settings
 from devops_cli.lang import MESSAGES
@@ -248,19 +246,9 @@ def _get_or_create_retriever(
         code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
         docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
 
-        cfg_rag = getattr(st.ai, "rag", None)
-        cfg_top_k = getattr(cfg_rag, "top_k", None) if cfg_rag else None
-        cfg_threshold = getattr(cfg_rag, "score_threshold", None) if cfg_rag else None
-
-        eff_top_k = (
-            top_k
-            if top_k is not None
-            else (cfg_top_k if cfg_top_k is not None else DEFAULT_RAG_TOP_K)
-        )
+        eff_top_k = top_k if top_k is not None else st.ai.rag.top_k
         eff_threshold = (
-            score_threshold
-            if score_threshold is not None
-            else (cfg_threshold if cfg_threshold is not None else DEFAULT_RAG_SCORE_THRESHOLD)
+            score_threshold if score_threshold is not None else st.ai.rag.score_threshold
         )
 
         retriever = SemanticRetriever(

@@ -13,9 +13,6 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.config.constants import (
     CONST_STATUS_SUCCESS,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_DATA_DIR,
-)
 from devops_cli.telemetry.tracer import get_current_span_context
 
 
@@ -86,21 +83,21 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
         if log_file.is_symlink():
             raise SecurityError(f"Audit log destination must not be a symlink: {log_file}")
         return resolved
-    if "DEVOPS_CLI_AUDIT_LOG_DEST" in os.environ:
-        candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
-        data_dir_env = os.environ.get("DEVOPS_CLI_DATA_DIR")
-        allowed_roots = [DEFAULT_DATA_DIR.resolve()]
-        if data_dir_env:
-            allowed_roots.append(Path(data_dir_env).resolve())
-        if not any(candidate.is_relative_to(root) for root in allowed_roots):
-            raise SecurityError(
-                f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_roots[0]}; got {candidate}"
-            )
-        return candidate
     from devops_cli.config.settings import load_settings
     from devops_cli.core.repo import resolve_data_path
 
-    return resolve_data_path(load_settings().data.audit_log_path)
+    settings = load_settings()
+    if "DEVOPS_CLI_AUDIT_LOG_DEST" in os.environ:
+        candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
+        # The data directory of the loaded settings: `DEVOPS_CLI_DATA_DIR`, else `data.dir` of
+        # the config file, else its default (#2447).
+        data_dir = resolve_data_path(settings.data.dir).resolve()
+        if not candidate.is_relative_to(data_dir):
+            raise SecurityError(
+                f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {data_dir}; got {candidate}"
+            )
+        return candidate
+    return resolve_data_path(settings.data.audit_log_path)
 
 
 def stream_audit_records(destination_url: str, log_file: Path | None = None) -> int:

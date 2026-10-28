@@ -38,7 +38,6 @@ from typing import Any
 from tenacity import RetryCallState, Retrying, wait_random_exponential
 
 from devops_cli.config.constants import (
-    CONST_CACHE_DIR_NAME,
     CONST_GH_API_DEFAULT_METHOD,
     CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_API_SUBCOMMAND,
@@ -60,7 +59,6 @@ from devops_cli.config.constants import (
     CONST_GITHUB_IDENTITY_LIMITERS_KEPT,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_DATA_DIR,
     DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
@@ -1412,19 +1410,26 @@ def _save_disk_cache(cache_dir: Path, key: str, entry: _CacheEntry) -> None:
 _GLOBAL_LOCK = threading.RLock()
 
 
+@functools.lru_cache(maxsize=1)
+def _identity_cache_root() -> Path:
+    """`data.cache_dir` of the loaded settings, read once for each process, so each request of an
+    identity finds one quota ledger (#2447). `reset_github_rate_limiter` reads it again."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    return resolve_data_path(load_settings().data.cache_dir)
+
+
 def resolve_identity_cache_dir(identity: str) -> Path:
-    """The directory of the identity that the key `identity` names, under the cache dir,
-    honoring DEVOPS_CLI_DATA_DIR.
+    """The directory of the identity that the key `identity` names, under `data.cache_dir`.
 
     It is named by the first hex characters of the key's SHA-256, so no path holds a token or a
     login. gh's token is its own key, so two tokens of one account get two directories, and each
     answer's headers correct the figures. A GitHub App's key is its installation, so every
     installation token it mints keeps one directory.
     """
-    env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    base_dir = Path(env_dir) if env_dir else DEFAULT_DATA_DIR
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-    return base_dir / CONST_CACHE_DIR_NAME / digest[:CONST_GITHUB_IDENTITY_DIGEST_CHARS]
+    return _identity_cache_root() / digest[:CONST_GITHUB_IDENTITY_DIGEST_CHARS]
 
 
 def resolve_quota_cache_path() -> Path:
@@ -1442,6 +1447,7 @@ def reset_github_rate_limiter() -> None:
     """Forget every identity's rate limiter, so the next one reads its ledger from disk again."""
     with _GLOBAL_LOCK:
         _ledger_limiter.cache_clear()
+        _identity_cache_root.cache_clear()
 
 
 def identity_rate_limiter(identity: str) -> GitHubRateLimiter:

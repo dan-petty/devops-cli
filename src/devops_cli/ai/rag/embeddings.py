@@ -55,11 +55,10 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS,
     DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS,
     DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
-    DEFAULT_RAG_EMBEDDING_MODEL,
     DEFAULT_RAG_EMBEDDING_TIMEOUT,
     DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS,
 )
-from devops_cli.config.settings import AIConfig
+from devops_cli.config.settings import AIConfig, setting_default
 from devops_cli.core import clock
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
@@ -432,7 +431,7 @@ class EmbeddingsEngine:
             float(configured_timeout or DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT), 120.0
         )
         task_model = getattr(getattr(base_config.tasks, "embedding", None), "model", None)
-        self.model = task_model or DEFAULT_RAG_EMBEDDING_MODEL
+        self.model = task_model or setting_default("ai.tasks.embedding.model")
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
         self._l2 = self._init_cache_tier(valkey_client)
@@ -1170,7 +1169,7 @@ class OllamaEmbeddingModel(EmbeddingModel):
 
     def __init__(
         self,
-        model_name: str = DEFAULT_RAG_EMBEDDING_MODEL,
+        model_name: str | None = None,
         *,
         engine: EmbeddingsEngine | None = None,
         ai_config: AIConfig | None = None,
@@ -1186,12 +1185,10 @@ class OllamaEmbeddingModel(EmbeddingModel):
         else:
             resolved_cfg = ai_config.model_copy(deep=True)
 
-        resolved_model = model_name
+        # A model that is not given is the embedding task's model of the settings.
         task_model = getattr(getattr(resolved_cfg.tasks, "embedding", None), "model", None)
-        if resolved_model == DEFAULT_RAG_EMBEDDING_MODEL and task_model:
-            resolved_model = task_model
-        else:
-            resolved_cfg.tasks.embedding.model = resolved_model
+        resolved_model = model_name or task_model or setting_default("ai.tasks.embedding.model")
+        resolved_cfg.tasks.embedding.model = resolved_model
 
         self._model_name = resolved_model
         self.engine = engine or EmbeddingsEngine(resolved_cfg)

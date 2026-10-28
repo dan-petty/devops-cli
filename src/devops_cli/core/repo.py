@@ -18,10 +18,7 @@ from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
     CONST_USER_DATA_ROOT,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_REPOS_BASE_DIR,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import SecurityError
@@ -140,16 +137,17 @@ def _own_common_dir(root: Path) -> Path:
 
 def _is_under_repos(target: Path, workspace: Path) -> bool:
     """Whether `target` lies under `workspace`'s configured or default repos directory."""
-    try:
-        from devops_cli.config.settings import load_settings
+    from devops_cli.config.settings import load_settings, setting_default
 
+    default_base = setting_default("repos.base_dir")
+    try:
         configured_base = load_settings().repos.base_dir
     except OSError, TypeError, ValueError, AttributeError, RuntimeError:
-        configured_base = DEFAULT_REPOS_BASE_DIR
+        configured_base = default_base
 
     resolved_target = target.resolve()
     repos_dir = (workspace / configured_base).resolve()
-    default_dir = (workspace / "repos").resolve()
+    default_dir = (workspace / default_base).resolve()
     return (resolved_target.is_relative_to(repos_dir) and resolved_target != repos_dir) or (
         resolved_target.is_relative_to(default_dir) and resolved_target != default_dir
     )
@@ -451,14 +449,12 @@ def resolve_store_path(
     if explicit is not None:
         return Path(explicit)
 
-    from devops_cli.config.settings import load_settings
+    from devops_cli.config.settings import load_settings, setting_default
 
     try:
         data_dir = load_settings().data.dir
     except Exception:
-        from devops_cli.config.defaults import DEFAULT_DATA_DIR
-
-        data_dir = DEFAULT_DATA_DIR
+        data_dir = setting_default("data.dir")
 
     return resolve_data_path(data_dir / name, start_path=start_path)
 

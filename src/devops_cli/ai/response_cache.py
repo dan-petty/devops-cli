@@ -17,11 +17,6 @@ from devops_cli.config.constants import (
     CONST_LLM_CACHE_KEY_PREFIX,
     CONST_SHA256_HEX_LENGTH,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_LLM_CACHE_ENABLED,
-    DEFAULT_LLM_CACHE_MAX_ENTRIES,
-    DEFAULT_LLM_CACHE_TTL_SECONDS,
-)
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.models.ai import ChatMessage
 
@@ -167,17 +162,23 @@ class LLMResponseCache:
     def __init__(
         self,
         cache_dir: Path | None = None,
-        enabled: bool = DEFAULT_LLM_CACHE_ENABLED,
-        ttl_seconds: float = float(DEFAULT_LLM_CACHE_TTL_SECONDS),
-        max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES,
+        enabled: bool | None = None,
+        ttl_seconds: float | None = None,
+        max_entries: int | None = None,
     ) -> None:
-        if cache_dir is not None:
-            self.cache_dir = cache_dir
-        else:
+        """A value that is not given comes from the loaded settings: `data.cache_dir` and the
+        `ai.cache` section (#2447)."""
+        if cache_dir is None or enabled is None or ttl_seconds is None or max_entries is None:
             from devops_cli.config.constants import CONST_LLM_CACHE_DIR_NAME
             from devops_cli.config.settings import load_settings
 
-            self.cache_dir = load_settings().data.cache_dir / CONST_LLM_CACHE_DIR_NAME
+            settings = load_settings()
+            if cache_dir is None:
+                cache_dir = settings.data.cache_dir / CONST_LLM_CACHE_DIR_NAME
+            enabled = settings.ai.cache.enabled if enabled is None else enabled
+            ttl_seconds = settings.ai.cache.ttl_seconds if ttl_seconds is None else ttl_seconds
+            max_entries = settings.ai.cache.max_entries if max_entries is None else max_entries
+        self.cache_dir = cache_dir
         self.enabled = enabled
         self.ttl_seconds = float(ttl_seconds)
         self.max_entries = max_entries
@@ -499,29 +500,11 @@ def get_llm_response_cache(
     global _GLOBAL_LLM_CACHE
     with _CACHE_LOCK:
         if _GLOBAL_LLM_CACHE is None:
-            from devops_cli.config.constants import CONST_LLM_CACHE_DIR_NAME
-            from devops_cli.config.settings import load_settings
-
-            settings = load_settings()
-            resolved_cache_dir = (
-                cache_dir
-                if cache_dir is not None
-                else settings.data.cache_dir / CONST_LLM_CACHE_DIR_NAME
-            )
-            resolved_enabled = enabled if enabled is not None else settings.ai.cache.enabled
-            resolved_ttl = (
-                float(ttl_seconds)
-                if ttl_seconds is not None
-                else float(settings.ai.cache.ttl_seconds)
-            )
-            resolved_max_entries = (
-                max_entries if max_entries is not None else settings.ai.cache.max_entries
-            )
             _GLOBAL_LLM_CACHE = LLMResponseCache(
-                cache_dir=resolved_cache_dir,
-                enabled=resolved_enabled,
-                ttl_seconds=resolved_ttl,
-                max_entries=resolved_max_entries,
+                cache_dir=cache_dir,
+                enabled=enabled,
+                ttl_seconds=ttl_seconds,
+                max_entries=max_entries,
             )
         return _GLOBAL_LLM_CACHE
 

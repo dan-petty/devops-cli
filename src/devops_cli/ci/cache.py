@@ -25,7 +25,7 @@ from devops_cli.config.constants import (
     CONST_PYPROJECT_FILENAME,
     CONST_UV_LOCK_FILENAME,
 )
-from devops_cli.config.defaults import DEFAULT_DATA_DIR, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, resolve_data_path
 
@@ -72,14 +72,14 @@ def resolve_ci_cache_path(root: Path = Path(".")) -> Path:
     has its own file there, named after the worktree's root, so a gate never trusts a result
     recorded for another worktree's files and parallel worktrees do not evict each other's.
     """
-    from devops_cli.config.settings import load_settings
+    from devops_cli.config.settings import load_settings, setting_default
 
     try:
         settings = load_settings()
         cache_dir = settings.data.cache_dir
     except Exception:
         env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-        base_dir = Path(env_dir) if env_dir else DEFAULT_DATA_DIR
+        base_dir = Path(env_dir) if env_dir else setting_default("data.dir")
         cache_dir = base_dir / CONST_CACHE_DIR_NAME
     cache_dir = resolve_data_path(cache_dir, root)
     cache_dir.mkdir(parents=True, exist_ok=True)

@@ -32,7 +32,6 @@ from devops_cli.config.constants import CONST_OLLAMA_DONE_REASONS
 from devops_cli.config.defaults import (
     DEFAULT_AI_EVICT_KEEP_ALIVE,
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
-    DEFAULT_OLLAMA_MAX_PARALLEL,
 )
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.models.ai import ChatMessage
@@ -190,7 +189,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         candidate_urls = [all_urls[(start + i) % n] for i in range(n)]
         indexed_urls = list(enumerate(candidate_urls))
 
-        max_par = getattr(self._config, "ollama_max_parallel", 2)
+        max_par = self._config.ollama_max_parallel
         with ollama_active_lock:
             sorted_candidates = sorted(
                 indexed_urls,
@@ -235,7 +234,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
-        max_par = getattr(self._config, "ollama_max_parallel", DEFAULT_OLLAMA_MAX_PARALLEL)
+        max_par = self._config.ollama_max_parallel
         last_exc: Exception | None = None
         remaining_candidates = list(candidates)
 
@@ -420,7 +419,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
-        max_par = getattr(self._config, "ollama_max_parallel", DEFAULT_OLLAMA_MAX_PARALLEL)
+        max_par = self._config.ollama_max_parallel
         last_exc: Exception | None = None
         remaining_candidates = list(candidates)
 

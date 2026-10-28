@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
     CONST_CHUNK_MODULE_PREAMBLE_SYMBOL,
     CONST_RAG_MAX_CHUNK_TOKENS,
 )
-from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +198,19 @@ class SemanticChunker:
 
     def __init__(
         self,
-        chunk_size: int = DEFAULT_RAG_CHUNK_SIZE,
-        chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
         embedding_model: str | None = None,
         max_tokens: int = CONST_RAG_MAX_CHUNK_TOKENS,
     ) -> None:
+        """A size or overlap that is not given is `ai.rag.chunk_size` or `ai.rag.chunk_overlap` of
+        the loaded settings, so every chunker splits files as the configuration says (#2447)."""
+        if chunk_size is None or chunk_overlap is None:
+            from devops_cli.config.settings import load_settings
+
+            rag = load_settings().ai.rag
+            chunk_size = rag.chunk_size if chunk_size is None else chunk_size
+            chunk_overlap = rag.chunk_overlap if chunk_overlap is None else chunk_overlap
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.embedding_model = embedding_model

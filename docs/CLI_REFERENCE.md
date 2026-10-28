@@ -4522,8 +4522,8 @@ devops ai rag search [OPTIONS] <query>
 | `--project`, `-p` | `string` | - | Project / repository name override. |
 | `--language`, `-l` | `string` | - | Filter or target specific programming language. |
 | `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks). |
-| `--top-k`, `-k` | `integer` | `5` | Number of results to return. |
-| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `--top-k`, `-k` | `integer` | - | Number of results to return. The default is the `ai.rag.top_k` setting. |
+| `--min-score`, `-s` | `float` | - | Minimum similarity score (0.0 - 1.0). The default is the `ai.rag.score_threshold` setting. |
 | `--collection` | `string` | - | Target collection override. |
 | `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
 | `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
@@ -4550,8 +4550,8 @@ devops ai rag query [OPTIONS] <query>
 | `--project`, `-p` | `string` | - | Project / repository name override. |
 | `--language`, `-l` | `string` | - | Filter or target specific programming language. |
 | `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks). |
-| `--top-k`, `-k` | `integer` | `5` | Number of results to return. |
-| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `--top-k`, `-k` | `integer` | - | Number of results to return. The default is the `ai.rag.top_k` setting. |
+| `--min-score`, `-s` | `float` | - | Minimum similarity score (0.0 - 1.0). The default is the `ai.rag.score_threshold` setting. |
 | `--collection` | `string` | - | Target collection override. |
 | `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
 | `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |

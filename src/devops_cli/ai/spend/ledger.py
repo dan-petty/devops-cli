@@ -27,12 +27,9 @@ from devops_cli.config.constants import (
     CONST_SPEND_REQUEST_TYPE_EMBEDDING,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
-    DEFAULT_AI_REFERENCE_MODEL,
-    DEFAULT_AI_REFERENCE_PROVIDER,
     DEFAULT_AI_SPEND_DB_FILENAME,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import load_settings, setting_default
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -219,8 +216,10 @@ _QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
 _QueryParams = dict[str, str | None]
 
 
-def _ai_setting(name: str, default: str) -> str:
-    """A string AI setting, stripped; its default when it is blank or the settings cannot load."""
+def _ai_setting(name: str) -> str:
+    """A string AI setting, stripped; the default its field declares when it is blank or the
+    settings cannot load."""
+    default = str(setting_default(f"ai.{name}"))
     try:
         value = getattr(load_settings().ai, name)
     except Exception:
@@ -286,9 +285,9 @@ def resolve_reference_pricing(reference_model: str | None = None) -> ReferencePr
 
     given = reference_model.strip() if reference_model else ""
     chat_setting = _REFERENCE_MODEL_OPTION if given else "ai.reference_model"
-    chat_model = given or _ai_setting("reference_model", DEFAULT_AI_REFERENCE_MODEL)
-    embedding_model = _ai_setting("reference_embedding_model", DEFAULT_AI_REFERENCE_EMBEDDING_MODEL)
-    provider = _ai_setting("reference_provider", DEFAULT_AI_REFERENCE_PROVIDER)
+    chat_model = given or _ai_setting("reference_model")
+    embedding_model = _ai_setting("reference_embedding_model")
+    provider = _ai_setting("reference_provider")
     registry = get_pricing_registry()
     return ReferencePricing(
         chat_model=chat_model,

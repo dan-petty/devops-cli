@@ -24,7 +24,6 @@ from valkey.connection import Connection, SSLConnection
 
 from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
-    DEFAULT_VALKEY_TIMEOUT_SECONDS,
 )
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.exceptions.valkey import (
@@ -127,9 +126,14 @@ class ValkeyClient:
         endpoint: ValkeyEndpoint,
         *,
         password: str | None = None,
-        timeout: float = DEFAULT_VALKEY_TIMEOUT_SECONDS,
+        timeout: float | None = None,
         connection_pool: valkey.ConnectionPool | None = None,
     ) -> None:
+        if timeout is None:
+            # `valkey.timeout` of the loaded settings when the caller gives none (#2447).
+            from devops_cli.config.settings import load_settings
+
+            timeout = load_settings().valkey.timeout
         self.host, self.port, self.db = endpoint.host, endpoint.port, endpoint.db
         self.timeout = timeout
         connection: dict[str, Any] = (

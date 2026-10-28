@@ -6,11 +6,6 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.defaults import (
-    DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
-    DEFAULT_AI_REFERENCE_MODEL,
-)
-
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
 else:
@@ -181,9 +176,11 @@ class LifetimeSpendReport(BaseModel):
     providers: list[ProviderSpendSummary] = Field(default_factory=list)
     backends: list[BackendSpendSummary] = Field(default_factory=list)
     stages: list[StageSpendSummary] = Field(default_factory=list)
-    reference_model: str = DEFAULT_AI_REFERENCE_MODEL
+    # The ledger sets both reference models from the settings, or `reference_model` from the
+    # option that names it, when it builds the report (#2447).
+    reference_model: str = ""
     # The model that prices embedding tokens, which `reference_model` does not (#1623).
-    reference_embedding_model: str = DEFAULT_AI_REFERENCE_EMBEDDING_MODEL
+    reference_embedding_model: str = ""
     # The reference models that neither genai-prices nor a price override prices (#1672).
     unpriced_reference_models: list[str] = Field(default_factory=list)
     local_requests: int = 0
@@ -214,4 +211,4 @@ class HardwarePayoffSummary(BaseModel):
     remaining_usd: float = 0.0
     daily_savings_usd: float = 0.0
     estimated_days_to_payoff: float | None = None
-    reference_model: str = DEFAULT_AI_REFERENCE_MODEL
+    reference_model: str

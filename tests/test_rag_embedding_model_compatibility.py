@@ -78,7 +78,7 @@ def test_search_dimension_mismatch_raises_permanent_error_without_delete_or_crea
     client._client = mock_native
 
     with pytest.raises(EmbeddingsError) as exc_info:
-        client.search_points("devops_code", query_vector=[0.1] * 768)
+        client.search_points("devops_code", query_vector=[0.1] * 768, limit=5)
 
     err = exc_info.value
     assert (

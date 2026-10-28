@@ -13,8 +13,6 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
-    DEFAULT_RAG_SCORE_THRESHOLD,
-    DEFAULT_RAG_TOP_K,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
@@ -342,13 +340,13 @@ def search(
         typer.Option("--category", "-c", help=HELP.rag.category),
     ] = None,
     top_k: Annotated[
-        int,
+        int | None,
         typer.Option("--top-k", "-k", help=HELP.rag.top_k),
-    ] = DEFAULT_RAG_TOP_K,
+    ] = None,
     min_score: Annotated[
-        float,
+        float | None,
         typer.Option("--min-score", "-s", help=HELP.rag.min_score),
-    ] = DEFAULT_RAG_SCORE_THRESHOLD,
+    ] = None,
     collection: Annotated[
         str | None,
         typer.Option("--collection", help=HELP.rag.collection),
@@ -372,6 +370,9 @@ def search(
 
         render_explanation("rag")
         return
+    rag_settings = load_settings().ai.rag
+    top_k = rag_settings.top_k if top_k is None else top_k
+    min_score = rag_settings.score_threshold if min_score is None else min_score
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai rag query",
