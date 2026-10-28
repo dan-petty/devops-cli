@@ -17,7 +17,7 @@ from devops_cli.config.constants import CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX
 from devops_cli.config.defaults import DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS
 from devops_cli.config.settings import Settings
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def _create_fake_agent(client: LLMClient, idx: int, name: str | None = None) -> PydanticAgent[Any]:

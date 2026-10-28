@@ -31,7 +31,7 @@ from devops_cli.commands.rag import app
 from devops_cli.config.constants import CONST_RAG_KB_PROJECT
 from devops_cli.telemetry.instruments import RAG_POINTS
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 class InMemoryQdrantClient:

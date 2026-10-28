@@ -18,7 +18,7 @@ from devops_cli.config.constants import (
     CONST_HTTP_EGRESS_POLICY_EXTENSION,
     CONST_VAULT_LOGIN_KEYRING_KEY,
 )
-from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
+from devops_cli.config.os_keyring import get_keyring_secret, remember_secret
 from devops_cli.exceptions.vault import (
     VaultAuthenticationError,
     VaultKeyError,
@@ -31,9 +31,10 @@ from devops_cli.security.vault_broker import (
     parse_vault_uri,
 )
 from devops_cli.security.vault_lease import login_approle
+from tests.support.fakes.keyring import FakeKeyring
 from tests.web_fakes import StubWeb
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 
@@ -69,9 +70,7 @@ def store_login(
 ) -> None:
     """Put a `devops vault login` record in the in-process secret store for this test."""
     record = VaultStoredLogin(token=token, vault_addr=vault_addr, namespace=namespace)
-    monkeypatch.setitem(
-        _EPHEMERAL_CI_SECRETS, CONST_VAULT_LOGIN_KEYRING_KEY, record.model_dump_json()
-    )
+    remember_secret(CONST_VAULT_LOGIN_KEYRING_KEY, record.model_dump_json())
 
 
 def reply(status: int = 200, payload: Any = None) -> httpx2.Response:
@@ -281,7 +280,7 @@ def test_stored_login_for_another_vault_is_never_sent(
 
 def test_a_bare_token_entry_is_unusable(monkeypatch: pytest.MonkeyPatch) -> None:
     """A token stored before the login record existed is not sent; the user is told to log in."""
-    monkeypatch.setitem(_EPHEMERAL_CI_SECRETS, CONST_VAULT_LOGIN_KEYRING_KEY, "s.bare-token")
+    remember_secret(CONST_VAULT_LOGIN_KEYRING_KEY, "s.bare-token")
     broker = VaultSecretBroker()
 
     with pytest.raises(VaultAuthenticationError) as no_token:
@@ -303,16 +302,11 @@ def test_no_token_message_names_every_source() -> None:
 
 
 def test_a_locked_keyring_reads_as_no_stored_token(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    keyring_store: FakeKeyring, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A locked keyring hides the stored login: the broker has no token and the lock is logged."""
-    from keyring.errors import KeyringLocked
-
-    monkeypatch.setattr("devops_cli.config.settings._ensure_keyring_backend", lambda: True)
-    with (
-        patch("keyring.get_password", side_effect=KeyringLocked("locked")),
-        caplog.at_level(logging.WARNING, logger="devops_cli.config.settings"),
-    ):
+    keyring_store.locked = True
+    with caplog.at_level(logging.WARNING, logger="devops_cli.config.os_keyring"):
         broker = VaultSecretBroker()
 
     assert (broker.vault_token, broker.token_source.source) == (None, "none")
@@ -537,7 +531,7 @@ def test_sync_reads_vault_alone_and_never_writes_the_login_key(
 ) -> None:
     """Sync stores Vault's fields, skips the login record's name, and reports what it lacks."""
     store_login(monkeypatch)
-    stored_record = _EPHEMERAL_CI_SECRETS[CONST_VAULT_LOGIN_KEYRING_KEY]
+    stored_record = get_keyring_secret(CONST_VAULT_LOGIN_KEYRING_KEY)
     broker = VaultSecretBroker(vault_namespace=None)
     fields = {"api_key": "v1", "db_pass": "v2", CONST_VAULT_LOGIN_KEYRING_KEY: "s.attacker"}
 
@@ -555,7 +549,7 @@ def test_sync_reads_vault_alone_and_never_writes_the_login_key(
         ["absent"],
     )
     assert [call.args[0] for call in store.call_args_list] == ["api_key", "db_pass", "api_key"]
-    assert _EPHEMERAL_CI_SECRETS[CONST_VAULT_LOGIN_KEYRING_KEY] == stored_record
+    assert get_keyring_secret(CONST_VAULT_LOGIN_KEYRING_KEY) == stored_record
 
 
 def test_sync_of_a_path_with_no_secret_is_an_error() -> None:

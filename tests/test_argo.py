@@ -19,7 +19,7 @@ from devops_cli.main import app as main_app
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

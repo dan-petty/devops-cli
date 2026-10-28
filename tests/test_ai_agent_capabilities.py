@@ -14,7 +14,7 @@ from devops_cli.ai.agents.capabilities import (
 from devops_cli.ai.agents.context import RunContext
 from devops_cli.ai.agents.tools import Tool
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def test_system_reminders_cadence_and_condition() -> None:

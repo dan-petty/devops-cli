@@ -10,7 +10,7 @@ from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config.settings import AIConfig
 
 pytestmark = [
-    pytest.mark.usefixtures("mock_keyring"),
+    pytest.mark.usefixtures("keyring_store"),
     pytest.mark.unreachable("example.com"),
 ]
 

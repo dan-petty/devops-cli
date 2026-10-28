@@ -15,10 +15,11 @@ import devops_cli.main  # noqa: F401  # loaded here, not in a test: MCP dispatch
 from devops_cli.ai.mcp.server import vault_status
 from devops_cli.commands.vault import _validate_vault_path, app
 from devops_cli.config.constants import CONST_VAULT_LOGIN_KEYRING_KEY
-from devops_cli.config.settings import (
-    _EPHEMERAL_CI_SECRETS,
+from devops_cli.config.os_keyring import (
     KeyringLockedError,
     KeyringUnavailableError,
+    get_keyring_secret,
+    remember_secret,
 )
 from devops_cli.exceptions.vault import VaultOperationError
 from devops_cli.models.vault import (
@@ -39,7 +40,7 @@ def reset_lease_registry() -> None:
         fn()
 
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 
@@ -78,7 +79,7 @@ def _record(vault_addr: str = VAULT_ADDR, namespace: str | None = None) -> str:
 
 def store_login(monkeypatch: pytest.MonkeyPatch, vault_addr: str = VAULT_ADDR) -> None:
     """Put a login record in the in-process secret store for this test."""
-    monkeypatch.setitem(_EPHEMERAL_CI_SECRETS, CONST_VAULT_LOGIN_KEYRING_KEY, _record(vault_addr))
+    remember_secret(CONST_VAULT_LOGIN_KEYRING_KEY, _record(vault_addr))
 
 
 def reply(status: int = 200, payload: Any = None) -> httpx2.Response:
@@ -492,7 +493,7 @@ def test_login_with_no_store_checks_credentials_and_keeps_nothing(
 
     assert (res.exit_code, "did not keep the token" in res.output) == (0, True)
     write.assert_not_called()
-    assert CONST_VAULT_LOGIN_KEYRING_KEY not in _EPHEMERAL_CI_SECRETS
+    assert get_keyring_secret(CONST_VAULT_LOGIN_KEYRING_KEY) is None
 
 
 def test_login_refused_by_vault_exits_1(usable_keyring: MagicMock) -> None:

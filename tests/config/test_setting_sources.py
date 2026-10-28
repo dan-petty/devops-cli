@@ -16,7 +16,7 @@ from devops_cli.config.defaults import DEFAULT_RAG_EMBEDDING_MODEL
 from devops_cli.config.settings import Settings, load_settings, reset_settings_cache
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.security.secrets import VaultProvider, build_default_resolver, build_secret_registry
-from tests.cluster_secret_fakes import FakeKeyring
+from tests.support.fakes.keyring import FakeKeyring
 
 _DEFAULT_REFERENCE_MODEL = Settings().ai.reference_model
 
@@ -89,7 +89,7 @@ def test_a_setting_takes_the_variable_then_the_project_file_then_the_global_file
 def test_a_credential_takes_the_keyring_then_vault_then_the_variable_then_the_config_file(
     monkeypatch: pytest.MonkeyPatch,
     config: Callable[..., Path],
-    mock_keyring: FakeKeyring,
+    keyring_store: FakeKeyring,
     in_keyring: str | None,
     in_vault: str | None,
     variable: str | None,
@@ -97,7 +97,7 @@ def test_a_credential_takes_the_keyring_then_vault_then_the_variable_then_the_co
     expected: str | None,
 ) -> None:
     if in_keyring is not None:
-        mock_keyring.values["qdrant_api_key"] = in_keyring
+        keyring_store.values["qdrant_api_key"] = in_keyring
     if variable is None:
         monkeypatch.delenv("DEVOPS_CLI_QDRANT_API_KEY", raising=False)
     else:

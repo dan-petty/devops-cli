@@ -20,7 +20,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import AIConfig
 
-pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
+pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
 
 runner = CliRunner()
 PORTKEY_DIR = Path("k8s/llm/portkey")

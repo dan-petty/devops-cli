@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from tests.web_fakes import StubWeb
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 
@@ -404,7 +404,7 @@ def test_compute_ndcg_and_report_rendering() -> None:
         ("https://example.com", "Bearer sk-test-configured"),
     ],
 )
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("keyring_store")
 def test_override_endpoint_gets_no_key(
     monkeypatch: pytest.MonkeyPatch,
     stub_web: StubWeb,

@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from tests.support.config_writes import written_keys
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

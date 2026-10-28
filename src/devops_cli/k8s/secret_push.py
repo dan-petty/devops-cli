@@ -26,7 +26,7 @@ from devops_cli.config.constants import (
     CONST_KEYRING_UNLOCK_PROBE_KEY,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-from devops_cli.config.settings import (
+from devops_cli.config.os_keyring import (
     SecretStorageError,
     keyring_read,
     keyring_write,

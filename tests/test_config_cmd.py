@@ -12,9 +12,20 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app
+from devops_cli.config.os_keyring import (
+    KeyringLockedError,
+    SecretStorageError,
+    get_keyring_secret,
+    has_encrypted_backend,
+    has_keyring_secret,
+    keyring_read,
+    keyring_write,
+    store_keyring_secret,
+)
 from devops_cli.main import app as main_app
+from tests.support.fakes.keyring import FakeKeyring
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner(env={"COLUMNS": "250"})
 
@@ -276,35 +287,24 @@ def test_config_commands_comprehensive(tmp_path: Path) -> None:
             assert res_stream.exit_code == 0
 
 
-def test_ensure_keyring_backend_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _ensure_keyring_backend properly rejects FailKeyring and insecure backends."""
-    import keyring
+@pytest.mark.parametrize(
+    ("selected", "usable"),
+    [
+        pytest.param("fail", False, id="the library's fail backend"),
+        pytest.param(type("PlaintextKeyring", (), {"priority": 1})(), False, id="plaintext"),
+        pytest.param(type("CustomKeyring", (), {"priority": 0})(), False, id="zero priority"),
+        pytest.param(type("EncryptedKeyring", (), {"priority": 5})(), True, id="encrypted"),
+    ],
+)
+def test_only_an_encrypted_backend_with_a_priority_is_usable(
+    keyring_store: FakeKeyring, selected: object, usable: bool
+) -> None:
+    """The fail backend, no backend, a plaintext backend and a zero-priority one are refused."""
     from keyring.backends.fail import Keyring as FailKeyring
 
-    from devops_cli.config.settings import _ensure_keyring_backend
+    keyring_store.selected = FailKeyring() if selected == "fail" else selected
 
-    # 1. FailKeyring
-    monkeypatch.setattr(keyring, "get_keyring", lambda: FailKeyring())
-    assert _ensure_keyring_backend() is False
-
-    # 2. None
-    monkeypatch.setattr(keyring, "get_keyring", lambda: None)
-    assert _ensure_keyring_backend() is False
-
-    # 3. Plaintext backend
-    fake_plaintext = type("PlaintextKeyring", (), {"priority": 1})()
-    monkeypatch.setattr(keyring, "get_keyring", lambda: fake_plaintext)
-    assert _ensure_keyring_backend() is False
-
-    # 4. Zero priority backend
-    fake_zero_pri = type("CustomKeyring", (), {"priority": 0})()
-    monkeypatch.setattr(keyring, "get_keyring", lambda: fake_zero_pri)
-    assert _ensure_keyring_backend() is False
-
-    # 5. Valid encrypted backend
-    fake_secure = type("EncryptedKeyring", (), {"priority": 5})()
-    monkeypatch.setattr(keyring, "get_keyring", lambda: fake_secure)
-    assert _ensure_keyring_backend() is True
+    assert has_encrypted_backend() is usable
 
 
 def _chainer_of(*members: object) -> object:
@@ -314,18 +314,14 @@ def _chainer_of(*members: object) -> object:
     return type("FakeChainer", (ChainerBackend,), {"backends": list(members), "priority": 10})()
 
 
-def test_a_chainer_hiding_a_plaintext_backend_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_chainer_hiding_a_plaintext_backend_is_rejected(keyring_store: FakeKeyring) -> None:
     """The chainer writes to the next backend when one fails, so a locked Secret Service
     would hand the secret to the plaintext backend behind it."""
-    import keyring
-
-    from devops_cli.config.settings import _ensure_keyring_backend
-
     secure = type("EncryptedKeyring", (), {"priority": 5})()
     plaintext = type("PlaintextKeyring", (), {"priority": 0.5})()
-    monkeypatch.setattr(keyring, "get_keyring", lambda: _chainer_of(secure, plaintext))
+    keyring_store.selected = _chainer_of(secure, plaintext)
 
-    assert _ensure_keyring_backend() is False
+    assert has_encrypted_backend() is False
 
 
 def test_a_fake_backend_class_a_test_defines_is_not_left_for_later_tests() -> None:
@@ -376,80 +372,45 @@ def test_a_locked_backend_class_a_test_defines_is_no_viable_backend_after_it() -
     assert (during, raising in KeyringBackend.get_viable_backends()) == (True, False)
 
 
-def test_a_chainer_of_encrypted_backends_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_chainer_of_encrypted_backends_is_accepted(keyring_store: FakeKeyring) -> None:
     """Rejecting every chainer would lock out hosts with two real keyrings installed."""
-    import keyring
-
-    from devops_cli.config.settings import _ensure_keyring_backend
-
     first = type("EncryptedKeyring", (), {"priority": 5})()
     second = type("OtherEncryptedKeyring", (), {"priority": 4})()
-    monkeypatch.setattr(keyring, "get_keyring", lambda: _chainer_of(first, second))
+    keyring_store.selected = _chainer_of(first, second)
 
-    assert _ensure_keyring_backend() is True
-
-
-def _locked_keyring(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make every keyring call fail the way SecretService does on a locked collection."""
-    import keyring
-    from keyring.errors import KeyringLocked
-
-    def locked(*_: object) -> None:
-        raise KeyringLocked("Failed to unlock the collection!")
-
-    # Other tests leave secrets in the in-process fallback store, which is consulted first.
-    monkeypatch.setattr("devops_cli.config.settings._EPHEMERAL_CI_SECRETS", {})
-    monkeypatch.setattr("devops_cli.config.settings._ensure_keyring_backend", lambda: True)
-    monkeypatch.setattr(keyring, "get_password", locked)
-    monkeypatch.setattr(keyring, "set_password", locked)
+    assert has_encrypted_backend() is True
 
 
 def test_storing_into_a_locked_keyring_names_the_unlock_command(
-    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A generic storage failure gave no hint that one command would fix it."""
-    from devops_cli.config.settings import KeyringLockedError, _keyring_set
-
     monkeypatch.delenv("DEVOPS_CLI_HEADLESS_AUTH", raising=False)
-    _locked_keyring(monkeypatch)
+    keyring_store.locked = True
 
     with pytest.raises(KeyringLockedError, match="devops devcontainer unlock-keyring"):
-        _keyring_set("grafana_token", "FAKE-token")
+        store_keyring_secret("grafana_token", "FAKE-token")
 
 
 def test_reading_from_a_locked_keyring_names_the_unlock_command(
-    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The secret is there, just locked; reporting it as missing sends people to re-enter it."""
-    from devops_cli.config import settings
+    keyring_store.locked = True
 
-    _locked_keyring(monkeypatch)
-    warnings: list[str] = []
-    monkeypatch.setattr(
-        settings.logger, "warning", lambda message, *args: warnings.append(message % args)
-    )
+    with caplog.at_level(logging.WARNING, logger="devops_cli.config.os_keyring"):
+        found = (get_keyring_secret("grafana_token"), has_keyring_secret("grafana_token"))
 
-    assert (settings._keyring_get("grafana_token"), settings._keyring_has("grafana_token")) == (
-        None,
-        False,
-    )
+    warnings = [record.getMessage() for record in caplog.records]
+    assert (found, len(warnings)) == ((None, False), 2)
     assert all("devops devcontainer unlock-keyring" in warning for warning in warnings)
-    assert len(warnings) == 2
 
 
 def test_strict_keyring_access_raises_instead_of_reading_as_missing(
-    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
 ) -> None:
     """A locked or failing keyring raises in the strict helpers; nothing falls back to memory."""
-    import keyring
     from keyring.errors import KeyringError, KeyringLocked
-
-    from devops_cli.config.settings import (
-        KeyringLockedError,
-        SecretStorageError,
-        keyring_read,
-        keyring_write,
-    )
 
     class Raising:
         priority = 1
@@ -465,7 +426,7 @@ def test_strict_keyring_access_raises_instead_of_reading_as_missing(
             raise self.error
 
     backend = Raising()
-    monkeypatch.setattr(keyring, "get_keyring", lambda: backend)
+    keyring_store.selected = backend
     raised: list[type[Exception]] = []
     for error in (KeyringLocked("locked"), KeyringError("broken")):
         backend.error = error

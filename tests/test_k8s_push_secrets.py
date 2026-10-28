@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import keyring
 import pytest
 import typer
 import yaml
@@ -30,6 +29,7 @@ from devops_cli.config.env import (
     option_env_vars,
     secret_keys,
 )
+from devops_cli.config.os_keyring import set_keyring_edge
 from devops_cli.config.settings import TelemetryConfig
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
@@ -43,8 +43,8 @@ from tests.cluster_secret_fakes import (
     APP_KEY,
     APP_KEY_ENTRY,
     FakeCluster,
-    FakeKeyring,
 )
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -88,7 +88,7 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeCluster]:
 def _install(monkeypatch: pytest.MonkeyPatch, cluster: FakeCluster, **values: Any) -> FakeKeyring:
     backend = FakeKeyring(values.get("values", FULL_KEYRING), locked=values.get("locked", False))
     backend.events = cluster.events
-    monkeypatch.setattr(keyring, "get_keyring", lambda: backend)
+    set_keyring_edge(backend)
     monkeypatch.delenv("DEVOPS_CLI_HEADLESS_AUTH", raising=False)
     return backend
 
@@ -406,7 +406,7 @@ def test_the_gitea_dry_run_lists_its_secret_and_restart_with_no_value() -> None:
     ) == (0, False, True, True, True), output
 
 
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("keyring_store")
 def test_no_table_secret_is_copied_back_by_sync() -> None:
     from devops_cli.k8s.credentials import sync_k8s_credentials
 
@@ -708,9 +708,9 @@ def test_a_locked_keyring_stops_before_any_kubectl(
 
 
 def test_no_keyring_backend_stops_before_any_kubectl(
-    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+    cluster: FakeCluster, keyring_store: FakeKeyring
 ) -> None:
-    monkeypatch.setattr(keyring, "get_keyring", FailKeyring)
+    keyring_store.selected = FailKeyring()
     result = _push()
     assert (
         result.exit_code,

@@ -34,10 +34,12 @@ from devops_cli.config.defaults import (
     DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.config.settings import (
+from devops_cli.config.os_keyring import (
     SecretStorageError,
-    _keyring_get,
-    _keyring_set,
+    get_keyring_secret,
+    store_keyring_secret,
+)
+from devops_cli.config.settings import (
     get_argocd_password,
     get_argocd_token,
     get_grafana_password,
@@ -88,7 +90,7 @@ _MISSING = CredentialSync(SyncState.MISSING)
 def _store_secret(key: str, value: str, metric_service: str) -> None:
     """Store a secret in the OS keyring and count it; raise StackCredentialError when it fails."""
     try:
-        _keyring_set(key, value)
+        store_keyring_secret(key, value)
     except SecretStorageError as exc:
         raise StackCredentialError(str(exc)) from exc
     GLOBAL_METRICS.increment_counter(
@@ -681,7 +683,7 @@ def sync_k8s_credentials(
         argocd_password,
         save_to_keyring=save_to_keyring,
     )
-    grafana_password = _keyring_get("grafana_password")
+    grafana_password = get_keyring_secret("grafana_password")
     results["grafana"] = _SYNCED if grafana_password else _MISSING
     _add_token_sync(
         results,

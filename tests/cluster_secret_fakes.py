@@ -1,9 +1,9 @@
-"""A stub keyring and a recorded fake cluster for the cluster Secret push, with no network.
+"""A recorded fake cluster for the cluster Secret push, with no network.
 
 `FakeCluster` stands in for `subprocess.run` beneath `run_subprocess`, so the tests see each
 argv, stdin and environment exactly as the child would. It answers the kubectl and helm commands
 the push and deploy-stack run, and applies a server-side apply's `List` to its own
-Secrets. `FakeKeyring` is an encrypted keyring backend that can be locked. Names are generic.
+Secrets. The keyring fake is `tests/support/fakes/keyring.py`. Names are generic.
 """
 
 from __future__ import annotations
@@ -14,51 +14,9 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
-from keyring.backend import KeyringBackend
-from keyring.errors import KeyringLocked, PasswordDeleteError
-
-from devops_cli.config.constants import CONST_KEYRING_UNLOCK_PROBE_KEY
-
 # The GitHub App's private key as the keyring holds it, and the Secret key it is pushed to.
 APP_KEY_ENTRY = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
 APP_KEY = "app-private-key-value-0001"
-
-
-class FakeKeyring(KeyringBackend):
-    """An encrypted keyring backend held in memory; `locked` makes every call raise."""
-
-    priority = 1  # type: ignore[assignment]
-
-    def __init__(self, values: dict[str, str] | None = None, *, locked: bool = False) -> None:
-        super().__init__()
-        self.values = dict(values or {})
-        self.locked = locked
-        self.reads: list[str] = []
-        self.writes: dict[str, str] = {}
-        self.events: list[str] | None = None
-
-    def get_password(self, service: str, username: str) -> str | None:
-        if self.locked:
-            raise KeyringLocked("locked")
-        self.reads.append(username)
-        return self.values.get(username)
-
-    def set_password(self, service: str, username: str, password: str) -> None:
-        if self.locked:
-            raise KeyringLocked("locked")
-        self.writes[username] = password
-        self.values[username] = password
-        if self.events is not None:
-            self.events.append(f"keyring-write {username}")
-
-    def delete_password(self, service: str, username: str) -> None:
-        if username not in self.values:
-            raise PasswordDeleteError(username)
-        del self.values[username]
-
-    def secret_reads(self) -> set[str]:
-        """The entries read, without the unlock probe, which reads no secret."""
-        return set(self.reads) - {CONST_KEYRING_UNLOCK_PROBE_KEY}
 
 
 def _encode(value: str) -> str:

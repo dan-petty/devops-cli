@@ -91,7 +91,7 @@ from devops_cli.roadmap.store import (
 )
 from tests.llm_stream_fakes import route_llm_clients
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/roadmap"
 # The open milestones, planning buckets in due-date order: the first, then the second.

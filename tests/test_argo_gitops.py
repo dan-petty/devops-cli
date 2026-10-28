@@ -15,7 +15,7 @@ from devops_cli.config.settings import Settings
 from devops_cli.exceptions.k8s import GitOpsSyncError
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

@@ -23,7 +23,7 @@ from devops_cli.config.constants import (
     CONST_VAULT_TOKEN_SOURCE_NONE,
 )
 from devops_cli.config.defaults import DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS
-from devops_cli.config.settings import get_keyring_secret, set_keyring_secret
+from devops_cli.config.os_keyring import get_keyring_secret, set_keyring_secret
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.exceptions.vault import (
     VaultAuthenticationError,

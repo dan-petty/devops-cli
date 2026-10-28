@@ -9,7 +9,7 @@ import pytest
 from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def test_qdrant_is_alive() -> None:

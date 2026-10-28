@@ -250,7 +250,7 @@ def test_benchmark_runner_concurrent_execution() -> None:
         "schemeless-api-base-url-fails-closed",
     ],
 )
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("keyring_store")
 def test_benchmark_client_gets_key_only_for_configured_endpoint(
     monkeypatch: pytest.MonkeyPatch, provider: str, api_base_url: str | None, model: str, key: str
 ) -> None:

@@ -36,7 +36,7 @@ from tests.support.fakes.kubernetes import FakeCoreV1, crashlooping_pod, healthy
 from tests.support.fakes.valkey import bulk_reply, serving_valkey
 from tests.web_fakes import scripted_resolver
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 
@@ -484,10 +484,10 @@ def test_fetch_valkey_status_connects_over_tls_for_a_valkeys_url(
     ],
 )
 def test_fetch_valkey_status_authenticates_with_the_keyring_password(
-    config: Callable[..., Path], mock_keyring: Any, plaintext_password: str | None
+    config: Callable[..., Path], keyring_store: Any, plaintext_password: str | None
 ) -> None:
     """The panel sends the password `get_valkey_password` resolves, never the plaintext setting."""
-    mock_keyring.values["valkey_password"] = "keyring-password"
+    keyring_store.values["valkey_password"] = "keyring-password"
     with serving_valkey({"INFO": bulk_reply(_VALKEY_INFO_TEXT.encode())}) as (port, received):
         config(valkey={"url": f"valkey://127.0.0.1:{port}", "password": plaintext_password})
         fetch_valkey_status()

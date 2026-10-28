@@ -10,7 +10,7 @@ from devops_cli.telemetry import (
     inject_traceparent_headers,
 )
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def test_metrics_registry_counters() -> None:

@@ -1263,7 +1263,7 @@ def test_k8s_service_url_helpers() -> None:
         )
 
 
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("keyring_store")
 def test_k8s_bootstrap_openwebui() -> None:
     """Verify bootstrap-openwebui dry-run, success, and failure paths."""
     # Dry-run

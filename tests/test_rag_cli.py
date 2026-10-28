@@ -16,7 +16,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.main import _COMMAND_SPECS
 from devops_cli.main import app as main_app
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 @pytest.fixture

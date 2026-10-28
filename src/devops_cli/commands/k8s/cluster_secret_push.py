@@ -15,7 +15,7 @@ import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.commands.k8s.networking import VALID_STACKS
-from devops_cli.config.settings import SecretStorageError, require_persistent_keyring
+from devops_cli.config.os_keyring import SecretStorageError, require_persistent_keyring
 from devops_cli.dry_run import is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterSecretPushError, ClusterSecretWriteError
 from devops_cli.k8s.cluster_secrets import (

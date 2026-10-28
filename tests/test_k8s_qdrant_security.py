@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import keyring
 import pytest
 import typer
 import yaml
@@ -29,6 +28,7 @@ from click.testing import CliRunner
 
 from devops_cli.commands.k8s.stack_lifecycle import deploy_stack
 from devops_cli.config import env as env_mod
+from devops_cli.config.os_keyring import set_keyring_edge
 from devops_cli.config.settings import (
     QdrantConfig,
     Settings,
@@ -37,7 +37,8 @@ from devops_cli.config.settings import (
     get_qdrant_api_key,
 )
 from devops_cli.telemetry import tracer
-from tests.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster, FakeKeyring
+from tests.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 _deploy_app = typer.Typer()
@@ -211,23 +212,27 @@ def test_qdrant_settings_variables_and_its_api_key_credential() -> None:
     )
 
 
-def test_get_qdrant_api_key_precedence() -> None:
+def test_get_qdrant_api_key_precedence(keyring_store: FakeKeyring) -> None:
     """Verify get_qdrant_api_key prioritizes OS Keyring over settings fallback."""
     settings = Settings(qdrant=QdrantConfig(api_key="fallback-key"))
 
-    with patch("devops_cli.config.settings._keyring_get", return_value="keyring-vault-key"):
-        assert get_qdrant_api_key(settings) == "keyring-vault-key"
+    keyring_store.values["qdrant_api_key"] = "keyring-vault-key"
+    from_keyring = get_qdrant_api_key(settings)
+    del keyring_store.values["qdrant_api_key"]
 
-    with patch("devops_cli.config.settings._keyring_get", return_value=None):
-        assert get_qdrant_api_key(settings) == "fallback-key"
+    assert (from_keyring, get_qdrant_api_key(settings)) == ("keyring-vault-key", "fallback-key")
 
 
-def test_dotted_set_routes_qdrant_api_key_to_keyring() -> None:
+def test_dotted_set_routes_qdrant_api_key_to_keyring(keyring_store: FakeKeyring) -> None:
     """Verify dotted_set routes qdrant.api_key exclusively to the OS Keyring."""
     settings = Settings()
-    with patch("devops_cli.config.settings._keyring_set") as mock_set:
-        dotted_set(settings, "qdrant.api_key", "super-secret-vector-token")
-        mock_set.assert_called_once_with("qdrant_api_key", "super-secret-vector-token")
+
+    dotted_set(settings, "qdrant.api_key", "super-secret-vector-token")
+
+    assert (keyring_store.writes, settings.qdrant.api_key) == (
+        {"qdrant_api_key": "super-secret-vector-token"},
+        None,
+    )
 
 
 @pytest.fixture
@@ -259,7 +264,7 @@ def stub_keyring(monkeypatch: pytest.MonkeyPatch, cluster: FakeCluster) -> FakeK
             "cloudflare_tunnel_token": "deploy-tunnel-0001",
         }
     )
-    monkeypatch.setattr(keyring, "get_keyring", lambda: backend)
+    set_keyring_edge(backend)
     monkeypatch.delenv("DEVOPS_CLI_HEADLESS_AUTH", raising=False)
     return backend
 

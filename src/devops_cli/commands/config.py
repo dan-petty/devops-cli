@@ -30,12 +30,16 @@ from devops_cli.config.env import (
     secret_keys,
     setting_variables,
 )
+from devops_cli.config.os_keyring import (
+    SecretStorageError,
+    backend_info,
+    has_keyring_secret,
+    remember_secret,
+)
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
     _YAML_LOAD_ERRORS,
-    SecretStorageError,
     Settings,
-    _keyring_has,
     _yaml_error_location,
     config_layer_paths,
     dotted_get,
@@ -427,7 +431,7 @@ def _shown_value(settings: Settings, key: str) -> Any:
 def _is_secret_configured(key: str) -> bool:
     """Check whether a secret key is configured without retrieving the secret value."""
     entry = credential(key)
-    if _keyring_has(entry.keyring_name):
+    if has_keyring_secret(entry.keyring_name):
         return True
     return any(os.environ.get(variable) for variable in entry.env_vars)
 
@@ -567,8 +571,6 @@ def auth_headless(
     token: Annotated[str, typer.Argument(help=HELP.config.secret_token)],
 ) -> None:
     """Load secret tokens into ephemeral memory for headless CI environments lacking DBus."""
-    from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
-
     names = keyring_names()
     if key not in names:
         print_error(
@@ -578,7 +580,7 @@ def auth_headless(
         raise typer.Exit(1)
 
     keyring_field = names[key]
-    _EPHEMERAL_CI_SECRETS[keyring_field] = token
+    remember_secret(keyring_field, token)
     print_success(f"Ephemeral secret loaded into memory: {key}")
 
 
@@ -687,11 +689,9 @@ def audit_keys_cmd(
         )
         return
 
-    import keyring
-
-    active_backend = keyring.get_keyring()
-    backend_name = active_backend.__class__.__name__
-    backend_priority = getattr(active_backend, "priority", 0)
+    backend = backend_info()
+    backend_name = backend.name
+    backend_priority = backend.priority
 
     scanned_files = [
         *(path for path in config_layer_paths() if path is not None),
@@ -705,7 +705,7 @@ def audit_keys_cmd(
     key_audit_records: list[dict[str, Any]] = []
 
     for option_key, keyring_name in keyring_names().items():
-        has_keyring = _keyring_has(keyring_name)
+        has_keyring = has_keyring_secret(keyring_name)
 
         env_var = env_var_for_option(option_key)
         has_env = bool(os.environ.get(env_var)) if env_var else False

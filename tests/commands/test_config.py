@@ -202,7 +202,7 @@ _SIMILAR_TO_AN_API_KEY = "ai.api_key, firecrawl.api_key, qdrant.api_key"
     ],
 )
 def test_config_set_of_an_unknown_key_exits_1_before_any_prompt_and_names_the_similar_keys(
-    cli: Any, mock_keyring: Any, isolate_devops_cli_config: Path, args: list[str], output: str
+    cli: Any, keyring_store: Any, isolate_devops_cli_config: Path, args: list[str], output: str
 ) -> None:
     """Without a VALUE, an unknown key got the message of a known key that is no credential and
     exit 2. With a VALUE, it got the text of the error of the settings walk (#2448)."""
@@ -211,7 +211,7 @@ def test_config_set_of_an_unknown_key_exits_1_before_any_prompt_and_names_the_si
     result = cli("config", "set", *args, input="example-value\n")
 
     assert (result.exit_code, result.output) == (1, output)
-    assert mock_keyring.writes == {}
+    assert keyring_store.writes == {}
     assert isolate_devops_cli_config.read_text(encoding="utf-8") == config_before
 
 

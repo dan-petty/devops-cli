@@ -8,7 +8,7 @@ from devops_cli.ai.agents.embeddings import Embedder
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, OllamaEmbeddingModel
 from devops_cli.config.settings import AIConfig, AIEmbeddingTaskOverride, Settings
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def _settings_without_valkey(refusing_port: int) -> Settings:

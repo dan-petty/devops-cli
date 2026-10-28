@@ -54,7 +54,7 @@ from devops_cli.roadmap.refine_investigation import (
 from devops_cli.roadmap.store import ItemField
 from tests.web_fakes import StubWeb
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/roadmap"
 _FIRECRAWL_URL = "https://api.firecrawl.dev/v2/search"

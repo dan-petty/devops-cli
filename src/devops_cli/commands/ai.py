@@ -54,8 +54,8 @@ from devops_cli.config.defaults import (
     DEFAULT_TIKTOKEN_MODEL,
 )
 from devops_cli.config.env import env_var_for_option
+from devops_cli.config.os_keyring import SecretStorageError, has_keyring_secret
 from devops_cli.config.settings import (
-    SecretStorageError,
     dotted_set,
     load_settings,
     save_settings,
@@ -400,13 +400,12 @@ def config(
         import os
 
         from devops_cli.config.env import credential
-        from devops_cli.config.settings import _keyring_has
 
         ai = settings.ai
         has_key = bool(
             os.environ.get(credential("ai.api_key").env_vars[0])
             or os.environ.get("OPENAI_API_KEY")
-            or _keyring_has(credential("ai.api_key").keyring_name)
+            or has_keyring_secret(credential("ai.api_key").keyring_name)
         )
         key_display = "[green]***set***[/green]" if has_key else "[dim](not set)[/dim]"
         rows = [

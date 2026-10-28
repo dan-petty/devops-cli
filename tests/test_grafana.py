@@ -17,7 +17,7 @@ from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
 from tests.web_fakes import record_connects, scripted_resolver
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

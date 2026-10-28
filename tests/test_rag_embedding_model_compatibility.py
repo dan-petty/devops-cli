@@ -15,7 +15,7 @@ from devops_cli.ai.rag.reranker import SearchReranker
 from devops_cli.ai.rag.retriever import SemanticRetriever, reset_search_verified_models
 from devops_cli.config.constants import CONST_EXIT_FAILURE
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def test_collection_refuses_index_run_with_different_model_keeping_points(tmp_path: Path) -> None:

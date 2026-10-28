@@ -34,7 +34,7 @@ from devops_cli.security.reference_extractor import NetworkReference
 from devops_cli.security.registry import global_scanner_registry
 from tests.support.fakes.scanners import ScannerFake
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def test_osv_scanner_command_builder(tmp_path: Path) -> None:
