@@ -24,3 +24,4 @@
 - `ai/client/*`, which #1110 changes. Part 5 (#2437) removes the pre-flight check of the AI client and the clients around an injected transport.
 - `_resolve_host_ips` and `_enforce_non_private_ssrf` in `core/validation.py`. Part 5 deletes them.
 - The general statement that every HTTP client is checked at the connect. Part 5 writes it when it is true.
+- The level of a URL override. The MCP tools `ai_gateway_status`, `ai_gateway_routes` and `ai_gateway_probe_backend` take `gateway_url` or `backend_url` from the model, and the router dials the override at the configured level of the table, as it dials the configured URL. Thus, without `ai.allow_private_network`, a tool argument can reach loopback, which `validate_url_egress` refused before. The routes query also sends the AI API key to the override. A URL that a caller supplies needs its own level and no credentials, which changes the router and `fetch_model_info`, so #2480 does it.

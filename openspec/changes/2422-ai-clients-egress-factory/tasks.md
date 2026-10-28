@@ -51,4 +51,5 @@
 ## Workflow follow-up
 
 - Part 5 (#2437) removes the pre-flight check of `ai/client/*`, deletes `_resolve_host_ips` and `_enforce_non_private_ssrf`, and writes the general statement that every HTTP client is checked at the connect.
+- #2480 gives a URL override of the `devops ai gateway` MCP tools the level of a URL that a caller supplies, and sends the AI API key only to the configured gateway.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
