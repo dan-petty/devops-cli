@@ -356,6 +356,24 @@ def test_gitea_perimeter_admits_only_its_http_port_from_traefik_argocd_and_its_n
     )
 
 
+def test_devops_egress_to_otel_admits_only_otlp_http() -> None:
+    """devops-cli sends OTLP over HTTP only (#1319), so the devops perimeter opens only the
+    collector's OTLP/HTTP port, 4318, to the otel namespace, and not its gRPC port, 4317."""
+    doc = yaml.safe_load((K8S_DIR / "devops" / "networkpolicy.yaml").read_text(encoding="utf-8"))
+    otel_ports = [
+        (port["protocol"], port["port"])
+        for rule in doc["spec"]["egress"]
+        if any(
+            peer.get("namespaceSelector", {}).get("matchLabels", {})
+            == {"kubernetes.io/metadata.name": "otel"}
+            for peer in rule.get("to", [])
+        )
+        for port in rule.get("ports", [])
+    ]
+
+    assert otel_ports == [("TCP", 4318)]
+
+
 def test_otel_rule_4_admits_traefik_on_8888() -> None:
     """Verify otel rule 4 admits Traefik on 8888 for otel-metrics route (#1371)."""
     doc = yaml.safe_load((K8S_DIR / "otel" / "networkpolicy.yaml").read_text("utf-8"))

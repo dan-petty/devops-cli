@@ -222,7 +222,7 @@ def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
                 "to": [
                     {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}}}
                 ],
-                "ports": [{"protocol": "TCP", "port": 4318}, {"protocol": "TCP", "port": 4317}],
+                "ports": [{"protocol": "TCP", "port": 4318}],
             },
             {
                 "to": [

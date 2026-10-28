@@ -31,7 +31,8 @@ spec:
       ports:
         - protocol: TCP
           port: 4000
-    # 3. OpenTelemetry collector in namespace otel.
+    # 3. OpenTelemetry collector in namespace otel, on its OTLP/HTTP port only: devops-cli sends no
+    #    OTLP over gRPC (4317).
     - to:
         - namespaceSelector:
             matchLabels:
@@ -39,8 +40,6 @@ spec:
       ports:
         - protocol: TCP
           port: 4318
-        - protocol: TCP
-          port: 4317
     # 4. Public HTTPS only: no private range and no cloud metadata endpoint.
     - to:
         - ipBlock:
