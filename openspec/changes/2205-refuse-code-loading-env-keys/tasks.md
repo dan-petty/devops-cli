@@ -2,9 +2,9 @@
 
 ## 1. The guard refuses every key of the loader and shell families
 
-- [ ] Add failing tests: a caller override of `LD_AUDIT`, `LD_ORIGIN_PATH`, `DYLD_FRAMEWORK_PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, `DYLD_FALLBACK_FRAMEWORK_PATH` or `BASH_FUNC_x%%`, in upper and lower case, raises `SecurityError`; `PATH`, `HOME`, `ENVIRONMENT`, `EXAMPLE_DYLD_FLAG` and `BASH_FUNCTIONS` reach the child
+- [x] Add failing tests: a caller override of `LD_AUDIT`, `LD_ORIGIN_PATH`, `DYLD_FRAMEWORK_PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, `DYLD_FALLBACK_FRAMEWORK_PATH` or `BASH_FUNC_x%%`, in upper and lower case, raises `SecurityError`; `PATH`, `HOME`, `ENVIRONMENT`, `EXAMPLE_DYLD_FLAG` and `BASH_FUNCTIONS` reach the child
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
-- [ ] Add `CONST_CODE_LOADING_ENV_PATTERNS` with its sources to `config/constants.py`, match each override key against it in `build_subprocess_env`, and delete the local set `dangerous_env_keys`
+- [x] Add `CONST_CODE_LOADING_ENV_PATTERNS` with its sources to `config/constants.py`, match each override key against it in `build_subprocess_env`, and delete the local set `dangerous_env_keys`
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 
 ## 2. The rule pack test gives Semgrep only its own setting

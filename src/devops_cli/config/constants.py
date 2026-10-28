@@ -1572,6 +1572,23 @@ CONST_EXIT_USAGE: int = 2
 CONST_EXIT_ERROR_INFERENCE: int = 10
 # The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
 CONST_EXIT_COMMAND_NOT_FOUND: int = 127
+# The environment keys that make the dynamic loader or the shell of a child load or run code that
+# its caller did not choose, as `fnmatch` patterns of the upper-case key. `build_subprocess_env`
+# refuses a caller override that matches one (#2205). Sources: glibc ld.so(8), whose LD_AUDIT and
+# LD_PRELOAD name objects to load, LD_LIBRARY_PATH the directories to search, and LD_ORIGIN_PATH
+# the value of $ORIGIN; macOS dyld(1), whose variables all start with DYLD_; and bash(1), which
+# reads the start-up file that BASH_ENV (ENV in posix mode) names and defines a function from each
+# key that `export -f <name>` writes as BASH_FUNC_<name>%%.
+CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
+    "LD_AUDIT",
+    "LD_LIBRARY_PATH",
+    "LD_ORIGIN_PATH",
+    "LD_PRELOAD",
+    "DYLD_*",
+    "BASH_ENV",
+    "ENV",
+    "BASH_FUNC_*",
+)
 # uv's exit status for a check that ran and failed; it exits 2 when it could not run.
 CONST_UV_EXIT_FAILURE: int = 1
 # zizmor audits whose findings fail `devops scan workflows` and the `devops ci` gate (#861).
