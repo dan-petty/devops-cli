@@ -1,0 +1,26 @@
+# Tasks
+
+## 1. Only Popeye selects the kube-api network profile, and the record names the network
+
+- [ ] 1.1 Write `tests/security/test_kube_api_network_profile.py`: `test_no_other_scanner_can_select_the_kube_api_network_profile`, `test_a_popeye_request_from_another_program_cannot_select_the_profile`, `test_only_the_popeye_scanner_selects_a_network`, `test_the_direct_executor_runs_no_network_profile` and `test_the_record_of_a_run_names_the_network_of_the_tool`. Verify that `uv run devops ci test tests/security/test_kube_api_network_profile.py` fails on the base: `devops_cli.security.tool_executor` has no `KubeApiNetwork`
+- [ ] 1.2 Add `KubeApiNetwork`, the field `network` of `ToolRequest` and its validator, the field `network` of `ToolRun`, and the refusal of `DirectToolExecutor` in `src/devops_cli/security/tool_executor.py`, with the network constants in `src/devops_cli/config/constants.py`. Add `BaseSecurityScanner.tool_network` in `src/devops_cli/security/base.py` and give its value to the request of the scan, and add `PopeyeScanner.tool_network` in `src/devops_cli/security/popeye.py`. Give the record helper of `tests/test_security_sarif.py` its network. Verify that `uv run devops ci test tests/security/test_kube_api_network_profile.py tests/test_tool_executor_contract.py tests/test_security_sarif.py tests/test_review_tool_runs.py` passes
+
+## 2. A kube-api run reaches only the API server, only to read
+
+- [ ] 2.1 Write `test_a_kube_api_run_reaches_the_api_server_only_through_kubectl_proxy_and_socat`, `test_the_relay_kubeconfig_names_the_loopback_port_and_the_context_with_no_credentials`, `test_the_relay_takes_the_context_that_the_request_names`, `test_a_context_that_the_kubeconfig_does_not_have_starts_nothing`, `test_a_host_without_a_program_of_the_relay_runs_no_kube_api_request` and `test_the_sandbox_binds_the_user_database_for_popeye_only` in `tests/security/test_kube_api_network_profile.py`. Verify that `uv run devops ci test tests/security/test_kube_api_network_profile.py` fails on 1.2: the sandbox executor runs a `kube-api` request with no relay
+- [ ] 2.2 Add `src/devops_cli/sandbox/kube_api.py` (`KubeApiRelay`, `kube_api_relay`, `kube_api_programs`), the constants of the profile and its two scripts in `src/devops_cli/config/constants.py`, `/etc/passwd` for Popeye in `CONST_TOOL_HOST_READ_ONLY_PATHS`, and the `kube-api` path of `SandboxToolExecutor.command` and `SandboxToolExecutor.run`. Verify that `uv run devops ci test tests/security/test_kube_api_network_profile.py tests/test_sandbox_tool_executor.py tests/test_tool_executor_contract.py` passes
+
+## 3. Popeye runs in the sandbox in an empty directory, and `devops k8s audit` fails when Popeye did not run
+
+- [ ] 3.1 Write `tests/commands/test_k8s_audit.py`: `test_k8s_audit_runs_popeye_in_the_sandbox_with_the_kube_api_profile`, `test_k8s_audit_passes_only_when_popeye_ran_and_found_nothing` and `test_k8s_audit_fails_when_popeye_did_not_run`. Make the Popeye tests of `tests/test_secops.py` and `tests/test_builtin_tools.py` hold that Popeye starts in an empty directory that does not stay, with the `kube-api` profile, and make the patched `run_popeye_scan` of `tests/test_k8s.py` give a `ScanOutcome`. Verify that `uv run devops ci test tests/commands/test_k8s_audit.py tests/test_secops.py tests/test_builtin_tools.py tests/test_k8s.py` fails on 2.2: Popeye starts with no bubblewrap in the directory of the command, and the audit of a host that cannot start the sandbox exits 0 with a pass
+- [ ] 3.2 Make `PopeyeScanner` make a `SandboxToolExecutor` when it gets no executor. Make `run_popeye_scan` scan a new empty directory, with no `workdir`, and drop `workdir` from its callers in `src/devops_cli/commands/k8s/security_audit.py` and `src/devops_cli/ai/tools/builtin_tools.py`. Make `k8s_audit` say that the audit did not run, and exit 1, for an outcome other than `ran`, with the message `popeye_not_run`. Verify that `uv run devops ci test tests/commands/test_k8s_audit.py tests/test_secops.py tests/test_builtin_tools.py tests/test_k8s.py tests/test_scan_outcomes_and_gating.py tests/test_scanner_contract.py` passes
+
+## 4. Documents and the devcontainer image
+
+- [ ] 4.1 Install `socat` in `.devcontainer/Dockerfile`. Describe the `kube-api` profile, the `network` field of the record and the sandbox default of Popeye in `SECURITY.md` and in the docstrings of `src/devops_cli/security/tool_executor.py`. Run `uv run devops docs generate --sync-readme`. Verify that `uv run devops openspec check` passes and that `git status` shows no other generated change
+
+## Workflow follow-up
+
+- A Popeye scan with no namespace scans only the namespace of the context, but `build_popeye_cmd` says "every namespace": #2421.
+- Pending a person: run `devops k8s audit` on a host with a cluster, and see that Popeye reports through the relay.
+- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
