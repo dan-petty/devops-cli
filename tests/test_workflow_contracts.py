@@ -719,6 +719,26 @@ def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() 
     )
 
 
+def test_the_test_job_installs_the_pinned_promtool_before_the_gate() -> None:
+    """The test job puts the pinned promtool on PATH before the gate, so the rule checks and
+    rule unit tests of `tests/test_k8s_monitoring_alerting.py` run and do not skip (#2472)."""
+    steps = _steps(WORKFLOWS_DIR / "ci.yml", "test")
+    names = [step.get("name") for step in steps]
+    install = steps[names.index("Install promtool")]
+    assert (
+        install["run"].splitlines(),
+        names.index("Install promtool") < names.index("Tests & Coverage Quality Gate"),
+        "promtool" in load_tools_lock().binary,
+    ) == (
+        [
+            'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
+            "uv run devops install-tools --tool promtool --only-missing",
+        ],
+        True,
+        True,
+    )
+
+
 def test_the_static_job_starts_bandit_once() -> None:
     """The Static Analysis CI job runs Bandit once: the gate's security row covers it, and the
     scan report step skips it (#1746)."""
