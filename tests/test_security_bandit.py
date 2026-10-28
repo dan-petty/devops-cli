@@ -193,13 +193,13 @@ def _what_bandit_reports(cmd: list[str], cwd: Path) -> list[str]:
     return kept
 
 
-def test_the_scan_report_runs_bandit_on_this_repository_as_the_gate_does(
+def test_the_scan_report_runs_bandit_on_this_repository_with_the_gate_s_config(
     tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
-    """Verify `devops scan report` on this repository, which ci.yml uploads to code scanning, runs
-    Bandit as `devops ci security` does from the repository root: the same `.bandit` names the
-    targets, the threshold is the same, and neither ignores `# nosec`. Only output options differ,
-    so the upload reports exactly what the gate fails on."""
+    """Verify `devops scan report` on this repository runs Bandit with the `.bandit` that both of
+    the gate's runs read, over the targets it names, at medium severity, honouring `# nosec`. The
+    gate scans `src` at low severity as well (#1538), so it fails on a low finding in the product,
+    which the report does not show."""
     scanner_fake.script(BIN_BANDIT, ToolAnswer(stdout=_EMPTY_BANDIT_REPORT))
     sarif = tmp_path / "scan.sarif"
     result = CliRunner().invoke(
@@ -207,25 +207,24 @@ def test_the_scan_report_runs_bandit_on_this_repository_as_the_gate_does(
     )
 
     [(scan_cmd, scan_cwd)] = _bandit_runs(scanner_fake)
-    gate_cmd = get_check_spec("security").cmd
+    ini = str(REPO_ROOT / CONST_BANDIT_INI_NAME)
+    gate = [_what_bandit_reports(cmd, REPO_ROOT) for cmd in get_check_spec("security").commands]
     assert (
         result.exit_code,
         sarif.is_file(),
         scan_cwd,
         _what_bandit_reports(scan_cmd, scan_cwd),
+        gate,
     ) == (
         0,
         True,
         REPO_ROOT,
-        _what_bandit_reports(gate_cmd, REPO_ROOT),
+        ["-r", "--ini", ini, "--severity-level", "medium"],
+        [
+            ["-r", "src", "--ini", ini, "--severity-level", "low"],
+            ["-r", "tests", "--ini", ini, "--severity-level", "medium"],
+        ],
     )
-    assert _what_bandit_reports(gate_cmd, REPO_ROOT) == [
-        "-r",
-        "--ini",
-        str(REPO_ROOT / CONST_BANDIT_INI_NAME),
-        "--severity-level",
-        "medium",
-    ]
 
 
 def test_the_bandit_targets_hold_every_python_file_the_repository_tracks() -> None:

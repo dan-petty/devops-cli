@@ -34,7 +34,7 @@ Issue #1538: the security row of `devops ci` runs Bandit over `src/` and `tests/
 
 - `.bandit`, `src/devops_cli/commands/ci.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/lang/en/help.py`.
 - `src/devops_cli/ai/benchmark/runner.py`, `src/devops_cli/roadmap/intake.py`, `src/devops_cli/ai/rag/drift.py`, `src/devops_cli/github/metrics.py`, `src/devops_cli/security/vulnerability_lookup.py`, `src/devops_cli/security/sanitizer.py`, and the files that get a `# nosec` marker or lose one.
-- `tests/test_ci.py`, `tests/test_architectural_invariants.py`, `tests/test_github_metrics.py`, `tests/test_rag_drift.py`, `tests/test_roadmap_intake_checks.py`.
+- `tests/test_ci.py`, `tests/test_security_bandit.py`, `tests/test_architectural_invariants.py`, `tests/test_github_metrics.py`, `tests/test_rag_drift.py`, `tests/test_roadmap_intake_checks.py`, `tests/fixtures/swallowed_failures_ceilings.json`.
 - `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, and the documents that `devops docs generate --sync-readme` writes.
 
 ## Feasibility
