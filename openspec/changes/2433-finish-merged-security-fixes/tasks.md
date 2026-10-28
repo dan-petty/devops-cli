@@ -13,9 +13,9 @@
 
 - [x] 2.1 Add failing tests: a caller override of `GCONV_PATH`, `SHELLOPTS`, `BASHOPTS` or `PS4`, in upper and lower case, raises `SecurityError`; `DYLD_VERSIONED_LIBRARY_PATH`, `DYLD_IMAGE_SUFFIX`, `DYLD_EXAMPLE_KEY`, `BASH_FUNC_x()` and `BASH_FUNC_git%%` pin the prefix rule
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
-- [x] 2.2 Add `GCONV_PATH`, `SHELLOPTS`, `BASHOPTS` and `PS4` to `CONST_CODE_LOADING_ENV_PATTERNS`, and write its comment as one short sentence for each source
+- [x] 2.2 Add `GCONV_PATH`, `SHELLOPTS`, `BASHOPTS` and `PS4` to `CONST_CODE_LOADING_ENV_PATTERNS`, and write its comment in 25 words or fewer: the refused families and their manual pages
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_review_rules_pack.py`
-- [x] 2.3 Write the child environment bullet of `ARCHITECTURE.md` for `isolate_env` on and off, with the constant as the full list and the null byte in its own sentence
+- [x] 2.3 Write the child environment bullet of `ARCHITECTURE.md` for `isolate_env` on and off, with the families that the constant lists, the keys that it does not refuse (#2429), and the null byte in its own sentence
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## 3. The audit-keys tests assert each clause of the spec

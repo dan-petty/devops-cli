@@ -1584,17 +1584,8 @@ CONST_EXIT_USAGE: int = 2
 CONST_EXIT_ERROR_INFERENCE: int = 10
 # The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
 CONST_EXIT_COMMAND_NOT_FOUND: int = 127
-# The environment keys that make a child load or run code that its caller did not choose, as
-# `fnmatch` patterns of the upper-case key. `build_subprocess_env` refuses a caller override that
-# matches one (#2205, #2433). These are the sources:
-# - glibc ld.so(8): LD_AUDIT and LD_PRELOAD name objects to load. LD_LIBRARY_PATH names the
-#   directories to search. LD_ORIGIN_PATH sets $ORIGIN.
-# - glibc iconv(1): iconv_open(3) loads the gconv modules from the directories in GCONV_PATH.
-# - macOS dyld(1): each variable of the loader starts with DYLD_.
-# - bash(1): bash reads the start-up file that BASH_ENV names, or ENV in posix mode. It defines a
-#   function from each key that starts with BASH_FUNC_. It enables the options of SHELLOPTS and
-#   BASHOPTS at start. With xtrace on, it expands PS4 before each command, and a command
-#   substitution in PS4 runs.
+# The loader, gconv and bash keys that `build_subprocess_env` refuses from a caller, as `fnmatch`
+# patterns of the upper-case key (#2205). Sources: ld.so(8), iconv(1), dyld(1), bash(1).
 CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
