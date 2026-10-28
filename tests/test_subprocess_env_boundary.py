@@ -159,7 +159,13 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 # loader reads each DYLD_ key (dyld(1)). bash reads BASH_ENV, ENV, SHELLOPTS, BASHOPTS and PS4, and
 # defines a function from each BASH_FUNC_ key (bash(1)). DYLD_EXAMPLE_KEY, which dyld(1) does not
 # list, BASH_FUNC_x(), the export form of the patched bash of Red Hat, and two function names pin
-# the prefix rule. BASH_FUNC_git%% replaces the git command in a bash child.
+# the prefix rule. BASH_FUNC_git%% replaces the git command in a bash child. zsh reads its start-up
+# files from ZDOTDIR (zsh(1)), functions from FPATH and a command from NULLCMD and READNULLCMD
+# (zshparam(1)). The Python, Node.js, Perl, Ruby and Java keys name a file, a module, a directory
+# or an option that makes the interpreter load code (python(1), node(1), perlrun(1), ruby(1),
+# java(1), the JVM TI specification). The default env_delete table of sudo lists each zsh and
+# interpreter key but PYTHONPLATLIBDIR, PYTHONPYCACHEPREFIX, NODE_COMPILE_CACHE,
+# NODE_REPL_EXTERNAL_MODULE and JDK_JAVA_OPTIONS, and it is the source of _JAVA_OPTIONS.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
@@ -182,6 +188,30 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "BASH_FUNC_x%%",
     "BASH_FUNC_x()",
     "BASH_FUNC_git%%",
+    "ZDOTDIR",
+    "FPATH",
+    "NULLCMD",
+    "READNULLCMD",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONSTARTUP",
+    "PYTHONUSERBASE",
+    "PYTHONPLATLIBDIR",
+    "PYTHONPYCACHEPREFIX",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "NODE_COMPILE_CACHE",
+    "NODE_REPL_EXTERNAL_MODULE",
+    "PERL5OPT",
+    "PERL5LIB",
+    "PERLLIB",
+    "PERL5DB",
+    "RUBYOPT",
+    "RUBYLIB",
+    "JAVA_TOOL_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "_JAVA_OPTIONS",
+    "CLASSPATH",
 )
 
 
@@ -192,9 +222,9 @@ REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
 def test_a_caller_override_that_loads_code_into_the_child_is_refused(
     key: str, isolate_env: bool
 ) -> None:
-    """A caller override of a loader, glibc or bash variable that loads or runs code raises
-    `SecurityError` that names the key, in upper and in lower case, with isolation on and off
-    (#2151, #2205, #2433)."""
+    """A caller override of a loader, glibc, shell or interpreter variable that loads or runs
+    code raises `SecurityError` that names the key, in upper and in lower case, with isolation on
+    and off (#2151, #2205, #2433, #2429)."""
     with pytest.raises(SecurityError) as refused:
         build_subprocess_env(
             env={"EXAMPLE_FLAG": "on", key: "libexample.so"}, isolate_env=isolate_env
@@ -207,18 +237,36 @@ def test_a_caller_override_that_loads_code_into_the_child_is_refused(
     )
 
 
+def test_an_isolated_child_gets_no_refused_key_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With isolation on, no key that the guard refuses from a caller reaches the child from the
+    environment of the person, in upper or in lower case, for example `PYTHONPATH` and
+    `PYTHONHOME` (#2429)."""
+    environment_keys = [*REFUSED_OVERRIDE_KEYS, *(key.lower() for key in REFUSED_OVERRIDE_KEYS)]
+    for key in environment_keys:
+        monkeypatch.setenv(key, "example")
+
+    env = build_subprocess_env(env={"EXAMPLE_FLAG": "on"})
+
+    assert sorted(set(environment_keys) & set(env)) == []
+
+
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
 def test_a_caller_override_outside_the_refused_families_reaches_the_child(
     isolate_env: bool,
 ) -> None:
-    """A usual key, and a key that contains a refused name but does not start with it, reach the
-    child with their values (#2205)."""
+    """A usual key, a key that contains a refused name but does not start with it, and an
+    interpreter key that loads no code reach the child with their values (#2205, #2429)."""
     override = {
         "PATH": "/usr/bin",
         "HOME": "/home/example",
         "ENVIRONMENT": "staging",
         "EXAMPLE_DYLD_FLAG": "on",
         "BASH_FUNCTIONS": "off",
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "NODE_ENV": "production",
     }
 
     env = build_subprocess_env(env=override, isolate_env=isolate_env)

@@ -85,8 +85,6 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
         "LC_COLLATE",
         "TZ",
         "VIRTUAL_ENV",
-        "PYTHONPATH",
-        "PYTHONHOME",
         "PYTHONUNBUFFERED",
         "PYTHONDONTWRITEBYTECODE",
         "TRACEPARENT",

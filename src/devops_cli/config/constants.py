@@ -1546,21 +1546,53 @@ CONST_EXIT_USAGE: int = 2
 CONST_EXIT_ERROR_INFERENCE: int = 10
 # The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
 CONST_EXIT_COMMAND_NOT_FOUND: int = 127
-# The loader, gconv and bash keys that `build_subprocess_env` refuses from a caller, as `fnmatch`
-# patterns of the upper-case key (#2205). Sources: ld.so(8), iconv(1), dyld(1), bash(1).
+# `fnmatch` patterns of the upper-case keys that `build_subprocess_env` refuses from a caller
+# (#2205, #2429). Sources: the page above each family, and the sudo env_delete list.
 CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
+    # ld.so(8), iconv(1), dyld(1)
     "LD_AUDIT",
     "LD_LIBRARY_PATH",
     "LD_ORIGIN_PATH",
     "LD_PRELOAD",
     "GCONV_PATH",
     "DYLD_*",
+    # bash(1)
     "BASH_ENV",
     "ENV",
     "BASH_FUNC_*",
     "SHELLOPTS",
     "BASHOPTS",
     "PS4",
+    # zsh(1), zshparam(1)
+    "ZDOTDIR",
+    "FPATH",
+    "NULLCMD",
+    "READNULLCMD",
+    # python(1)
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONSTARTUP",
+    "PYTHONUSERBASE",
+    "PYTHONPLATLIBDIR",
+    "PYTHONPYCACHEPREFIX",
+    # node(1)
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "NODE_COMPILE_CACHE",
+    "NODE_REPL_EXTERNAL_MODULE",
+    # perlrun(1)
+    "PERL5OPT",
+    "PERL5LIB",
+    "PERLLIB",
+    "PERL5DB",
+    # ruby(1)
+    "RUBYOPT",
+    "RUBYLIB",
+    # java(1), the JVM TI specification
+    "JAVA_TOOL_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "_JAVA_OPTIONS",
+    "CLASSPATH",
 )
 # uv's exit status for a check that ran and failed; it exits 2 when it could not run.
 CONST_UV_EXIT_FAILURE: int = 1
