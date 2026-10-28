@@ -23,3 +23,10 @@ Each client of the requirement "Public API clients dial only public addresses" S
 #### Scenario: A request to the API host
 - **WHEN** one of these clients sends a request to its API host
 - **THEN** the socket gets no host name
+
+### Requirement: The cloudflare commands report a refused address
+Each `devops cloudflare` command SHALL report a refused address of the Cloudflare API host with the message of `SSRFBlockedError`, and SHALL exit with its exit code, 2, with no traceback.
+
+#### Scenario: A private answer for the Cloudflare API host
+- **WHEN** `api.cloudflare.com` answers a private address, and the user runs a command of the `cloudflare`, `dns`, `tunnel` or `access` group
+- **THEN** the command prints the refusal, exits with code 2 and sends no request to the address
