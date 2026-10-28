@@ -1,4 +1,4 @@
-"""Test suite for declarative BaseSecurityScanner and ScannerRegistry."""
+"""The base security scanner: how a scan runs, falls back and reports a failure, and the registry of scanners."""
 
 from __future__ import annotations
 
@@ -177,28 +177,47 @@ def test_a_failed_scan_masks_its_output_before_cutting_the_quote(
     )
 
 
-def test_scanner_registry_lifecycle(tmp_path: Path, scanner_fake: ScannerFake) -> None:
-    """Registry correctly registers, retrieves, lists, and executes batch scans."""
+def test_a_registered_scanner_is_found_by_name_and_listed() -> None:
+    """The registry returns the scanner it registered, and lists its name."""
     registry = ScannerRegistry()
     scanner = MockDummyScanner()
 
     registry.register(scanner)
-    assert registry.get("mock_tool") is scanner
-    assert "mock_tool" in registry.list_scanners()
 
+    assert (registry.get("mock_tool") is scanner, "mock_tool" in registry.list_scanners()) == (
+        True,
+        True,
+    )
+
+
+def test_a_batch_scan_gives_each_scanner_its_findings(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
+    """A scanner whose tool reports nothing has an empty list in the batch results."""
+    registry = ScannerRegistry()
+    registry.register(MockDummyScanner())
     scanner_fake.script("mock-tool-bin", ToolAnswer(stdout="[]"))
-    results = registry.scan_all(tmp_path)
-    assert "mock_tool" in results
-    assert results["mock_tool"] == []
 
-    # A scanner that raises is recorded as failed; only named, registered scanners run
+    assert registry.scan_all(tmp_path) == {"mock_tool": []}
+
+
+def test_a_scanner_that_raises_is_failed_and_only_named_registered_scanners_run(
+    tmp_path: Path,
+) -> None:
+    """A scanner that raises is recorded as failed with its error, a name the registry does not
+    hold is skipped, and a registered scanner that is not named does not run."""
+    registry = ScannerRegistry()
+    scanner = MockDummyScanner()
+    registry.register(scanner)
     other = MagicMock()
     other.name = "other_tool"
     registry.register(other)
+
     with patch.object(scanner, "scan", side_effect=RuntimeError("Scanner crashed")):
-        err_results = registry.scan_all(tmp_path, names=["mock_tool", "unregistered"])
+        results = registry.scan_all(tmp_path, names=["mock_tool", "unregistered"])
+
     assert (
-        {name: (o.status, o.reason) for name, o in err_results.items()},
+        {name: (o.status, o.reason) for name, o in results.items()},
         other.scan.call_count,
     ) == (
         {"mock_tool": ("failed", "Scanner crashed")},

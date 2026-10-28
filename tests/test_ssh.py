@@ -174,8 +174,23 @@ def test_list_managed_keys_filters_correctly(tmp_path: Path) -> None:
     assert names == {"id_ed25519-20240115", "custom-app-id_ed25519-20250301"}
 
 
-def test_ssh_commands(tmp_path: Path, cli: Callable[..., Any]) -> None:
-    """Verify ssh generate, status, audit, register, and rotate subcommands."""
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(
+            ["generate", "--key-dir", "{key_dir}", "--comment", "test@domain.com"], id="generate"
+        ),
+        pytest.param(["status", "--key-dir", "{key_dir}"], id="status"),
+        pytest.param(["audit", "--key-dir", "{key_dir}"], id="audit"),
+        pytest.param(["register", "--key-file", "{key_file}", "--title", "My Key"], id="register"),
+        pytest.param(["rotate", "--key-dir", "{key_dir}"], id="rotate"),
+        pytest.param(["rotate", "--key-dir", "{key_dir}", "--force"], id="rotate-force"),
+    ],
+)
+def test_each_ssh_command_succeeds_with_a_current_managed_key(
+    tmp_path: Path, cli: Callable[..., Any], argv: list[str]
+) -> None:
+    """With a ten-day-old managed key and GitHub accepting the key, each command exits 0."""
     mock_key_info = ManagedSSHKey(
         path=tmp_path / "devops-cli-id_ed25519-20240115",
         key_date=date(2024, 1, 15),
@@ -198,35 +213,29 @@ def test_ssh_commands(tmp_path: Path, cli: Callable[..., Any]) -> None:
         patch("devops_cli.github.ssh.register_key_on_github", return_value=True),
         patch("devops_cli.commands.ssh._configure_git_signing"),
     ):
-        res_gen = cli(
-            ["ssh", "generate", "--key-dir", str(tmp_path), "--comment", "test@domain.com"]
-        )
-        assert res_gen.exit_code == 0
+        result = cli(["ssh", *(arg.format(key_dir=tmp_path, key_file=priv_file) for arg in argv)])
 
-        res_stat = cli(["ssh", "status", "--key-dir", str(tmp_path)])
-        assert res_stat.exit_code == 0
-
-        res_audit = cli(["ssh", "audit", "--key-dir", str(tmp_path)])
-        assert res_audit.exit_code == 0
-
-        res_reg = cli(["ssh", "register", "--key-file", str(priv_file), "--title", "My Key"])
-        assert res_reg.exit_code == 0
-
-        res_rot = cli(["ssh", "rotate", "--key-dir", str(tmp_path)])
-        assert res_rot.exit_code == 0
-
-        res_rot_force = cli(["ssh", "rotate", "--key-dir", str(tmp_path), "--force"])
-        assert res_rot_force.exit_code == 0
+    assert result.exit_code == 0
 
 
-def test_ssh_dry_run_commands(tmp_path: Path, cli: Callable[..., Any]) -> None:
-    """Verify dry-run mode across all ssh subcommands."""
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["generate", "--key-dir", "{key_dir}"], id="generate"),
+        pytest.param(["register"], id="register"),
+        pytest.param(["rotate"], id="rotate"),
+        pytest.param(["audit"], id="audit"),
+        pytest.param(["status"], id="status"),
+    ],
+)
+def test_each_ssh_command_succeeds_in_a_dry_run(
+    tmp_path: Path, cli: Callable[..., Any], argv: list[str]
+) -> None:
+    """In a dry run, each ssh command exits 0."""
     with patch("devops_cli.dry_run.is_dry_run", return_value=True):
-        assert cli(["ssh", "generate", "--key-dir", str(tmp_path)]).exit_code == 0
-        assert cli(["ssh", "register"]).exit_code == 0
-        assert cli(["ssh", "rotate"]).exit_code == 0
-        assert cli(["ssh", "audit"]).exit_code == 0
-        assert cli(["ssh", "status"]).exit_code == 0
+        result = cli(["ssh", *(arg.format(key_dir=tmp_path) for arg in argv)])
+
+    assert result.exit_code == 0
 
 
 def test_ssh_generate_key_collision(tmp_path: Path, cli: Callable[..., Any]) -> None:
@@ -244,11 +253,10 @@ def test_ssh_generate_key_collision(tmp_path: Path, cli: Callable[..., Any]) -> 
         assert res_exist.exit_code == 1
 
 
-def test_ssh_register_error_branches(tmp_path: Path, cli: Callable[..., Any]) -> None:
-    """Verify ssh register error paths for missing key, missing pub, and API error."""
-    from devops_cli.github.ssh import SSHRegistrationError
-
-    # Missing newest key
+def test_ssh_register_without_a_managed_key_exits_1(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """With no managed key in the key directory, `ssh register` stops with exit status 1."""
     with (
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=None),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -257,16 +265,26 @@ def test_ssh_register_error_branches(tmp_path: Path, cli: Callable[..., Any]) ->
         settings.ssh.key_dir = tmp_path
         settings.ssh.key_prefix = None
         mock_load.return_value = settings
-        res_no_key = cli(["ssh", "register"])
-        assert res_no_key.exit_code == 1
 
-    # Missing .pub
+        assert cli(["ssh", "register"]).exit_code == 1
+
+
+def test_ssh_register_of_a_key_without_its_public_file_exits_1(
+    tmp_path: Path, cli: Callable[..., Any]
+) -> None:
+    """A private key file with no `.pub` beside it cannot be registered."""
     priv = tmp_path / "custom_priv"
     priv.touch()
-    res_no_pub = cli(["ssh", "register", "--key-file", str(priv)])
-    assert res_no_pub.exit_code == 1
 
-    # SSHRegistrationError in register
+    assert cli(["ssh", "register", "--key-file", str(priv)]).exit_code == 1
+
+
+def test_ssh_register_that_github_refuses_exits_1(tmp_path: Path, cli: Callable[..., Any]) -> None:
+    """A registration error from GitHub stops the command with exit status 1."""
+    from devops_cli.github.ssh import SSHRegistrationError
+
+    priv = tmp_path / "custom_priv"
+    priv.touch()
     (tmp_path / "custom_priv.pub").write_text("ssh-ed25519 AAAA", encoding="utf-8")
     with (
         patch(
@@ -278,8 +296,8 @@ def test_ssh_register_error_branches(tmp_path: Path, cli: Callable[..., Any]) ->
         settings = MagicMock()
         settings.ssh.key_prefix = None
         mock_load.return_value = settings
-        res_reg_err = cli(["ssh", "register", "--key-file", str(priv)])
-        assert res_reg_err.exit_code == 1
+
+        assert cli(["ssh", "register", "--key-file", str(priv)]).exit_code == 1
 
 
 def test_ssh_status_key_age_buckets(tmp_path: Path, cli: Callable[..., Any]) -> None:

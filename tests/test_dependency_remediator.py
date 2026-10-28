@@ -216,45 +216,59 @@ def test_build_upgrade_commands_and_branch(tmp_path: Path) -> None:
         assert mock_subproc.called
 
 
-def test_apply_action_edge_cases(tmp_path: Path) -> None:
-    """Test apply_action skipped, failed returncode, and exception branches."""
+def _upgrade_action(**overrides: Any) -> VulnerabilityFixAction:
+    return VulnerabilityFixAction(
+        **{
+            "package": "pkg",
+            "current_version": "1.0",
+            "cve_id": "CVE-2",
+            "severity": "HIGH",
+            "upgrade_command": ["false"],
+            **overrides,
+        }
+    )
+
+
+def test_an_action_with_no_upgrade_command_is_skipped(tmp_path: Path) -> None:
+    """With nothing to run, the action is skipped."""
     remediator = DependencyRemediator(target_dir=tmp_path)
 
-    # 1. Skipped when upgrade_command is empty
-    act_empty = VulnerabilityFixAction(
-        package="pkg",
-        current_version="1.0",
-        cve_id="CVE-1",
-        severity="LOW",
-        upgrade_command=[],
+    result = remediator.apply_action(
+        _upgrade_action(cve_id="CVE-1", severity="LOW", upgrade_command=[])
     )
-    res_empty = remediator.apply_action(act_empty)
-    assert res_empty.status == "SKIPPED"
 
-    # 2. Failed when subprocess fails
-    act_fail = VulnerabilityFixAction(
-        package="pkg",
-        current_version="1.0",
-        cve_id="CVE-2",
-        severity="HIGH",
-        upgrade_command=["false"],
-    )
+    assert result.status == "SKIPPED"
+
+
+def test_an_upgrade_command_that_exits_non_zero_fails_the_action_with_its_stderr(
+    tmp_path: Path,
+) -> None:
+    """A failed upgrade fails the action, and its error names what the command printed."""
+    remediator = DependencyRemediator(target_dir=tmp_path)
+
     with patch(
         "devops_cli.security.dependency_remediator.run_subprocess",
         return_value=MagicMock(returncode=1, stderr="Upgrade error", stdout=""),
     ):
-        res_fail = remediator.apply_action(act_fail)
-        assert res_fail.status == "FAILED"
-        assert "Upgrade error" in (res_fail.error_message or "")
+        result = remediator.apply_action(_upgrade_action())
 
-    # 3. Exception caught
+    assert (result.status, "Upgrade error" in (result.error_message or "")) == ("FAILED", True)
+
+
+def test_an_upgrade_command_that_raises_fails_the_action_with_the_error(tmp_path: Path) -> None:
+    """An upgrade that cannot run fails the action, and its error names the cause."""
+    remediator = DependencyRemediator(target_dir=tmp_path)
+
     with patch(
         "devops_cli.security.dependency_remediator.run_subprocess",
         side_effect=RuntimeError("Subprocess timeout"),
     ):
-        res_exc = remediator.apply_action(act_fail)
-        assert res_exc.status == "FAILED"
-        assert "Subprocess timeout" in (res_exc.error_message or "")
+        result = remediator.apply_action(_upgrade_action())
+
+    assert (result.status, "Subprocess timeout" in (result.error_message or "")) == (
+        "FAILED",
+        True,
+    )
 
 
 def test_scan_and_plan_with_osv(tmp_path: Path) -> None:

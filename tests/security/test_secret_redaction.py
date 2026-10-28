@@ -87,36 +87,37 @@ def test_mask_secrets_expanded_patterns() -> None:
     assert "<masked-huggingface-token>" in masked
 
 
-def test_mask_uri_credentials_edge_cases() -> None:
-    """Verify empty string and unparseable URI regex fallback in mask_uri_credentials."""
-    assert mask_uri_credentials("") == ""
-
-    # Valid URI with credentials
-    clean = mask_uri_credentials("https://user:secret123@example.com:8443/api")
-    assert "secret123" not in clean
-    assert "user:***@example.com:8443" in clean
-
-    # URI with missing username (Finding 3: avoid ':***@host')
-    no_user = mask_uri_credentials("http://:supersecretpass@example.com:8080/data")
-    assert "supersecretpass" not in no_user
-    assert "http://***@example.com:8080/data" == no_user
-    assert not no_user.startswith("http://:***@")
-
-    # URI where urlsplit might fail or regex fallback applies
-    fallback_uri = "custom://admin:supersecret@myhost/path"
-    res = mask_uri_credentials(fallback_uri)
-    assert "supersecret" not in res
-    assert "admin:***@" in res
-
-    # Regex fallback with missing username
-    fallback_no_user = "custom://:supersecret@myhost/path"
-    res_no_user = mask_uri_credentials(fallback_no_user)
-    assert "supersecret" not in res_no_user
-    assert "custom://***@myhost/path" == res_no_user
-
-    # URI with username but no password must not be masked
-    user_no_pass = "custom://myuser@myhost/path"
-    assert mask_uri_credentials(user_no_pass) == user_no_pass
+@pytest.mark.parametrize(
+    ("uri", "masked"),
+    [
+        pytest.param("", "", id="empty"),
+        pytest.param(
+            "https://user:secret123@example.com:8443/api",
+            "https://user:***@example.com:8443/api",
+            id="user-and-password",
+        ),
+        pytest.param(
+            "http://:supersecretpass@example.com:8080/data",
+            "http://***@example.com:8080/data",
+            id="password-without-user",
+        ),
+        pytest.param(
+            "custom://admin:supersecret@myhost/path",
+            "custom://admin:***@myhost/path",
+            id="custom-scheme",
+        ),
+        pytest.param(
+            "custom://:supersecret@myhost/path",
+            "custom://***@myhost/path",
+            id="custom-scheme-password-without-user",
+        ),
+        pytest.param("custom://myuser@myhost/path", "custom://myuser@myhost/path", id="user-only"),
+    ],
+)
+def test_a_uri_password_is_masked_and_a_user_alone_is_kept(uri: str, masked: str) -> None:
+    """Only a password is masked; with no user, the whole userinfo becomes `***` and no empty
+    user is left before it."""
+    assert mask_uri_credentials(uri) == masked
 
 
 def test_devops_cli_error_masks_message_and_details() -> None:
