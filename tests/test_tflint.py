@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
-from unittest.mock import patch
+
+import pytest
 
 from devops_cli.security.tflint import _run_native_fallback_tf_lint, run_tflint_scan
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_tflint_native_fallback(tmp_path: Path) -> None:
@@ -33,20 +35,22 @@ def test_tflint_native_fallback_clean(tmp_path: Path) -> None:
     assert findings == []
 
 
-def test_run_tflint_scan_missing_binary(tmp_path: Path) -> None:
+def test_run_tflint_scan_missing_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When tflint is missing, run_tflint_scan uses fallback."""
     tf_file = tmp_path / "main.tf"
     tf_file.write_text(
         'resource "aws_security_group" "web" { cidr_blocks = ["0.0.0.0/0"] }\n',
         encoding="utf-8",
     )
-    with patch("devops_cli.security.tflint.shutil.which", return_value=None):
-        findings = run_tflint_scan(tmp_path)
-        assert len(findings) >= 1
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
+
+    findings = run_tflint_scan(tmp_path)
+
+    assert len(findings) >= 1
 
 
-def test_run_tflint_scan_with_binary(tmp_path: Path) -> None:
-    """When tflint binary is present, runs subprocess and parses JSON output."""
+def test_run_tflint_scan_with_binary(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+    """When tflint binary is present, runs it and parses JSON output."""
     mock_tflint_output = {
         "issues": [
             {
@@ -66,50 +70,24 @@ def test_run_tflint_scan_with_binary(tmp_path: Path) -> None:
             },
         ]
     }
-    mock_proc = subprocess.CompletedProcess(
-        args=["tflint"],
-        returncode=2,
-        stdout=json.dumps(mock_tflint_output),
-        stderr="",
-    )
+    scanner_fake.script("tflint", ToolAnswer(exit_code=2, stdout=json.dumps(mock_tflint_output)))
     config_file = tmp_path / ".tflint.hcl"
     config_file.write_text("config {}", encoding="utf-8")
 
-    with (
-        patch("devops_cli.security.tflint.shutil.which", return_value="/usr/local/bin/tflint"),
-        patch("devops_cli.security.tflint.run_subprocess", return_value=mock_proc),
-    ):
-        findings = run_tflint_scan(tmp_path, config_file=config_file)
-        assert len(findings) == 3
-        assert findings[0].severity == "HIGH"
-        assert findings[1].severity == "LOW"
-        assert findings[2].severity == "MEDIUM"
+    findings = run_tflint_scan(tmp_path, config_file=config_file)
+
+    assert [f.severity for f in findings] == ["HIGH", "LOW", "MEDIUM"]
 
 
-def test_run_tflint_scan_empty_output(tmp_path: Path) -> None:
+def test_run_tflint_scan_empty_output(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     """When tflint returns empty stdout, returns empty list."""
-    mock_proc = subprocess.CompletedProcess(
-        args=["tflint"],
-        returncode=0,
-        stdout="",
-        stderr="",
-    )
-    with (
-        patch("devops_cli.security.tflint.shutil.which", return_value="/usr/local/bin/tflint"),
-        patch("devops_cli.security.tflint.run_subprocess", return_value=mock_proc),
-    ):
-        findings = run_tflint_scan(tmp_path)
-        assert findings == []
+    scanner_fake.script("tflint", ToolAnswer(stdout=""))
+
+    assert run_tflint_scan(tmp_path) == []
 
 
-def test_run_tflint_scan_exception_fallback(tmp_path: Path) -> None:
-    """When subprocess fails, falls back to native inspection."""
-    with (
-        patch("devops_cli.security.tflint.shutil.which", return_value="/usr/local/bin/tflint"),
-        patch(
-            "devops_cli.security.tflint.run_subprocess",
-            side_effect=RuntimeError("Subprocess failed"),
-        ),
-    ):
-        findings = run_tflint_scan(tmp_path)
-        assert findings == []
+def test_run_tflint_scan_exception_fallback(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+    """When tflint cannot start, falls back to native inspection."""
+    scanner_fake.fail("tflint", RuntimeError("Subprocess failed"))
+
+    assert run_tflint_scan(tmp_path) == []

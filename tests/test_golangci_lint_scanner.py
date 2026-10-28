@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.ai.review_schema import Finding
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.golangci_lint import (
@@ -120,14 +122,15 @@ def test_golangci_lint_sarif_output_conversion() -> None:
     assert finding.severity == "HIGH"
 
 
-def test_golangci_lint_missing_binary_records_unavailable(tmp_path: Path) -> None:
+def test_golangci_lint_missing_binary_records_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Missing golangci-lint binary records unavailable state."""
     (tmp_path / "go.mod").write_text("module example.com/test\ngo 1.23\n", encoding="utf-8")
     (tmp_path / "main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
 
-    scanner = GolangciLintScanner()
-    with patch("devops_cli.security.base.check_binary", return_value=False):
-        outcome = scanner.scan(tmp_path)
+    outcome = GolangciLintScanner().scan(tmp_path)
 
     assert isinstance(outcome, ScanOutcome)
     assert outcome.status == "unavailable"

@@ -3,23 +3,26 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
-from unittest.mock import patch
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.gitleaks import (
     parse_gitleaks_json,
     run_gitleaks_scan,
 )
 from devops_cli.security.sarif import to_sarif
 from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolRequest
 
 runner = CliRunner()
 
@@ -51,23 +54,36 @@ def test_parse_gitleaks_json() -> None:
     assert findings[1].severity == "CRITICAL"
 
 
-def test_run_gitleaks_scan_missing_binary(tmp_path: Path) -> None:
+def test_run_gitleaks_scan_missing_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     secret_file = tmp_path / "secret.env"
     secret_file.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
 
-    with patch("devops_cli.security.base.check_binary", return_value=False):
-        outcome = run_gitleaks_scan(secret_file)
-        assert (outcome.status, len(outcome.findings)) == ("not installed", 0)
+    outcome = run_gitleaks_scan(secret_file)
+
+    assert (outcome.status, len(outcome.findings)) == ("not installed", 0)
 
 
 def test_run_gitleaks_scan_dry_run(tmp_path: Path) -> None:
-    with patch("devops_cli.security.gitleaks.is_dry_run", return_value=True):
-        findings = run_gitleaks_scan(tmp_path / "test.py")
-        assert len(findings) == 1
-        assert "[DRY-RUN]" in findings[0].title
+    set_dry_run(True)
+
+    findings = run_gitleaks_scan(tmp_path / "test.py")
+
+    assert (len(findings), "[DRY-RUN]" in findings[0].title) == (1, True)
 
 
-def test_scan_secrets_cli(tmp_path: Path) -> None:
+def _leaks_of_its_source(make_leaks: Callable[[str], list[dict[str, Any]]]) -> Any:
+    """A Gitleaks that reports `make_leaks(source)` for the one source its command names last,
+    and exits 1 when it reports a leak."""
+
+    def answer(request: ToolRequest) -> ToolAnswer:
+        leaks = make_leaks(request.arguments[-1])
+        return ToolAnswer(exit_code=1 if leaks else 0, stdout=json.dumps(leaks))
+
+    return answer
+
+
+def test_scan_secrets_cli(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     secret_file = tmp_path / "creds.env"
     secret_file.write_text(
         "API_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz123456\n",
@@ -82,15 +98,15 @@ def test_scan_secrets_cli(tmp_path: Path) -> None:
             "Match": "ghp_1234567890abcdefghijklmnopqrstuvwxyz123456"
         }
     ]"""
-    mock_proc = subprocess.CompletedProcess(
-        args=["gitleaks"], returncode=1, stdout=fake_json, stderr=""
-    )
-    with patch("devops_cli.security.gitleaks.run_subprocess", return_value=mock_proc):
-        res_scan = runner.invoke(scan_app, ["secrets", str(secret_file)])
-        assert (res_scan.exit_code, "Gitleaks Secret Scan" in res_scan.stdout) == (0, True)
+    scanner_fake.script("gitleaks", ToolAnswer(exit_code=1, stdout=fake_json))
 
-        res_json = runner.invoke(scan_app, ["secrets", str(secret_file), "--json"])
-        assert (res_json.exit_code, "GITLEAKS" in res_json.stdout) == (0, True)
+    res_scan = runner.invoke(scan_app, ["secrets", str(secret_file)])
+    res_json = runner.invoke(scan_app, ["secrets", str(secret_file), "--json"])
+
+    assert (
+        (res_scan.exit_code, "Gitleaks Secret Scan" in res_scan.stdout),
+        (res_json.exit_code, "GITLEAKS" in res_json.stdout),
+    ) == ((0, True), (0, True))
 
 
 def test_scan_secrets_without_gitleaks_says_it_did_not_run_and_not_that_it_passed(
@@ -180,7 +196,7 @@ def test_the_agent_gitleaks_tool_reports_the_leak_that_gitleaks_found(
     )
 
 
-def test_gitleaks_binary_mocked_execution(tmp_path: Path) -> None:
+def test_gitleaks_binary_mocked_execution(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     """Verify mocked binary JSON output parsing and location extraction."""
     patterns_file = tmp_path / "all_secrets.txt"
     patterns_file.write_text("KEY=fake\n", encoding="utf-8")
@@ -194,15 +210,14 @@ def test_gitleaks_binary_mocked_execution(tmp_path: Path) -> None:
             "Match": "secret12345"
         }
     ]"""
-    mock_proc = subprocess.CompletedProcess(
-        args=["gitleaks"], returncode=0, stdout=fake_gitleaks_json, stderr=""
-    )
-    with patch("devops_cli.security.gitleaks.run_subprocess", return_value=mock_proc):
-        res_scan = run_gitleaks_scan([patterns_file])
-        assert (len(res_scan), res_scan[0].location) == (1, "config/keys.env:5")
+    scanner_fake.script("gitleaks", ToolAnswer(stdout=fake_gitleaks_json))
+
+    res_scan = run_gitleaks_scan([patterns_file])
+
+    assert (len(res_scan), res_scan[0].location) == (1, "config/keys.env:5")
 
 
-def test_run_gitleaks_scan_ignore_tests(tmp_path: Path) -> None:
+def test_run_gitleaks_scan_ignore_tests(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     """Verify ignore_tests=True filters out test fixtures and test file paths."""
     test_dir = tmp_path / "tests"
     test_dir.mkdir()
@@ -212,34 +227,37 @@ def test_run_gitleaks_scan_ignore_tests(tmp_path: Path) -> None:
     src_file = tmp_path / "src_auth.py"
     src_file.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
 
-    def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        source = cmd[-1]
-        leaks = [
-            {
-                "RuleID": "aws-key",
-                "Description": "AWS Key",
-                "File": source,
-                "StartLine": 1,
-                "Match": "AKIAIOSFODNN7EXAMPLE",
-            }
-        ]
-        return subprocess.CompletedProcess(cmd, 1, stdout=json.dumps(leaks), stderr="")
+    scanner_fake.answer_with(
+        "gitleaks",
+        _leaks_of_its_source(
+            lambda source: [
+                {
+                    "RuleID": "aws-key",
+                    "Description": "AWS Key",
+                    "File": source,
+                    "StartLine": 1,
+                    "Match": "AKIAIOSFODNN7EXAMPLE",
+                }
+            ]
+        ),
+    )
 
-    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=fake_gitleaks):
-        # Scanning test file directly with ignore_tests=True returns no findings
-        res_test_ignored = run_gitleaks_scan(test_file, ignore_tests=True)
-        assert len(res_test_ignored) == 0
+    # Scanning test file directly with ignore_tests=True returns no findings
+    res_test_ignored = run_gitleaks_scan(test_file, ignore_tests=True)
+    assert len(res_test_ignored) == 0
 
-        # Scanning test file with ignore_tests=False returns findings
-        res_test_included = run_gitleaks_scan(test_file, ignore_tests=False)
-        assert len(res_test_included) >= 1
+    # Scanning test file with ignore_tests=False returns findings
+    res_test_included = run_gitleaks_scan(test_file, ignore_tests=False)
+    assert len(res_test_included) >= 1
 
-        # Scanning list containing both ignores the test file
-        res_dir = run_gitleaks_scan([test_file, src_file], ignore_tests=True)
-        assert (len(res_dir), "src_auth.py" in res_dir[0].location) == (1, True)
+    # Scanning list containing both ignores the test file
+    res_dir = run_gitleaks_scan([test_file, src_file], ignore_tests=True)
+    assert (len(res_dir), "src_auth.py" in res_dir[0].location) == (1, True)
 
 
-def test_run_gitleaks_scan_ignore_tests_windows_paths(tmp_path: Path) -> None:
+def test_run_gitleaks_scan_ignore_tests_windows_paths(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Verify ignore_tests=True properly filters Windows paths (e.g. C:\\...:line)."""
     fake_gitleaks_json = """[
         {
@@ -257,80 +275,81 @@ def test_run_gitleaks_scan_ignore_tests_windows_paths(tmp_path: Path) -> None:
             "Match": "secret12345"
         }
     ]"""
-    mock_proc = subprocess.CompletedProcess(
-        args=["gitleaks"], returncode=0, stdout=fake_gitleaks_json, stderr=""
-    )
-    with patch("devops_cli.security.gitleaks.run_subprocess", return_value=mock_proc):
-        # With ignore_tests=True, only the src file is kept
-        res_ignored = run_gitleaks_scan(tmp_path, ignore_tests=True)
-        assert len(res_ignored) == 1
-        assert "login.py" in res_ignored[0].location
-        assert "test_login" not in res_ignored[0].location
+    scanner_fake.script("gitleaks", ToolAnswer(stdout=fake_gitleaks_json))
 
-        # With ignore_tests=False, both are kept
-        res_all = run_gitleaks_scan(tmp_path, ignore_tests=False)
-        assert len(res_all) == 2
+    # With ignore_tests=True, only the src file is kept
+    res_ignored = run_gitleaks_scan(tmp_path, ignore_tests=True)
+    assert len(res_ignored) == 1
+    assert "login.py" in res_ignored[0].location
+    assert "test_login" not in res_ignored[0].location
+
+    # With ignore_tests=False, both are kept
+    res_all = run_gitleaks_scan(tmp_path, ignore_tests=False)
+    assert len(res_all) == 2
 
 
-def test_run_gitleaks_scan_list_target_without_binary(tmp_path: Path) -> None:
+def test_run_gitleaks_scan_list_target_without_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Missing binary reports not installed with empty findings."""
     clean = tmp_path / "clean.py"
     clean.write_text("def add(a: int, b: int) -> int:\n    return a + b\n", encoding="utf-8")
     secret = tmp_path / "secret.env"
     secret.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
 
-    with patch("devops_cli.security.base.check_binary", return_value=False):
-        outcome = run_gitleaks_scan([clean, secret])
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
+
+    outcome = run_gitleaks_scan([clean, secret])
 
     assert (outcome.status, len(outcome.findings)) == ("not installed", 0)
 
 
-def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(tmp_path: Path) -> None:
+def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Gitleaks takes one source per run, so a list target runs it once per file."""
     first = tmp_path / "first.py"
     first.write_text("x = 1\n", encoding="utf-8")
     second = tmp_path / "second.env"
     second.write_text("TOKEN=redacted\n", encoding="utf-8")
-    sources: list[str] = []
+    scanner_fake.answer_with(
+        "gitleaks",
+        _leaks_of_its_source(
+            lambda source: (
+                [
+                    {
+                        "RuleID": "generic-api-key",
+                        "Description": "Generic API Key",
+                        "File": source,
+                        "StartLine": 1,
+                        "Match": "TOKEN",
+                    }
+                ]
+                if source == str(second)
+                else []
+            )
+        ),
+    )
 
-    def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        source = cmd[-1]
-        sources.append(source)
-        leaks = []
-        if source == str(second):
-            leaks = [
-                {
-                    "RuleID": "generic-api-key",
-                    "Description": "Generic API Key",
-                    "File": source,
-                    "StartLine": 1,
-                    "Match": "TOKEN",
-                }
-            ]
-        return subprocess.CompletedProcess(
-            cmd, 1 if leaks else 0, stdout=json.dumps(leaks), stderr=""
-        )
+    outcome = run_gitleaks_scan([first, second])
 
-    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=fake_gitleaks):
-        outcome = run_gitleaks_scan([first, second])
-
-    assert sources == [str(first), str(second)]
+    assert [run.argv[-1] for run in scanner_fake.runs] == [str(first), str(second)]
     assert outcome.status == "ran"
     assert [f.location for f in outcome.findings] == [f"{second}:1"]
 
 
-def test_run_gitleaks_scan_list_target_keeps_start_and_end_times_in_sarif(tmp_path: Path) -> None:
+def test_run_gitleaks_scan_list_target_keeps_start_and_end_times_in_sarif(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """A two-file list scan records execution window and propagates times to SARIF invocation."""
     first = tmp_path / "first.py"
     first.write_text("x = 1\n", encoding="utf-8")
     second = tmp_path / "second.py"
     second.write_text("y = 2\n", encoding="utf-8")
 
-    def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+    scanner_fake.script("gitleaks", ToolAnswer(stdout="[]"))
 
-    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=fake_gitleaks):
-        outcome = run_gitleaks_scan([first, second])
+    outcome = run_gitleaks_scan([first, second])
 
     assert outcome.status == "ran"
     assert outcome.started_utc is not None
