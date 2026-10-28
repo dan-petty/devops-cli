@@ -1582,6 +1582,7 @@ def _run_review_with_executor(
     """Build the orchestrator of the review with `executor` and run the review of `all_files`."""
     from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.review.checkout import read_checkout
 
     subject = review_subject(target_type, target_ref, pages)
     orchestrator = ReviewPipelineOrchestrator(
@@ -1591,6 +1592,7 @@ def _run_review_with_executor(
         concurrency=concurrency,
         parallel=parallel,
         subject=subject,
+        checkout=read_checkout(target_dir),
         full_output=full_output,
         secret_scan_files=sorted(
             {

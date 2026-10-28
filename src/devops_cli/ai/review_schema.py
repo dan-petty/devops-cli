@@ -21,6 +21,7 @@ from devops_cli.ai.text_utils import (
     unique_lines as unique_lines,
 )
 from devops_cli.config.constants import (
+    CONST_GIT_COMMIT_SHA_PATTERN,
     CONST_REVIEW_CWE_DEFECT_CLASSES,
     CONST_REVIEW_DEFECT_KEYWORDS,
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
@@ -1003,11 +1004,36 @@ class FileReviewPayload(BaseModel):
         return _filter_non_empty_findings(v)
 
 
+class ReviewCheckout(BaseModel):
+    """The commit of the checkout a review read, and whether its working tree was clean (#2415).
+
+    `review.checkout` reads it when the review starts and decides from it whether the session is
+    on merged code.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    head: str
+    clean: bool
+
+    @field_validator("head")
+    @classmethod
+    def _full_commit_name(cls, value: str) -> str:
+        # findings.json is a file on disk, and its commit goes to git as an argument, so it is a
+        # full commit name and never an option or a symbolic name.
+        if not CONST_GIT_COMMIT_SHA_PATTERN.fullmatch(value):
+            raise ValueError("The head of a review checkout must be a full commit name.")
+        return value
+
+
 class ReviewSessionPayload(BaseModel):
     generated_at: str = ""
     # What the session reviewed (`history.review_subject`); empty for a session written before
     # #607, which review history counts on its own.
     subject: dict[str, str] = Field(default_factory=dict)
+    # The checkout that holds the target, as git read it when the review started; None outside
+    # any checkout and for a session written before #2415.
+    checkout: ReviewCheckout | None = None
     findings: list[SavedFinding] = Field(default_factory=list)
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     dependency_vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
