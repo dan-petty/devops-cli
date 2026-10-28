@@ -18,7 +18,7 @@
 
 ## 3. Documentation
 
-- [ ] Name the sandbox metrics scrape among the factory clients in `README.md`
+- [x] Name the sandbox metrics scrape among the factory clients in `README.md`
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 4. Archive
