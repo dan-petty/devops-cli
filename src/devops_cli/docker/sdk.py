@@ -20,44 +20,32 @@ from typing import Any, Protocol
 
 
 class EngineContainer(Protocol):
-    """A container, as `containers.get`, `containers.create` and `containers.list` return it."""
+    """A container, as `containers.get`, `containers.create` and `containers.list` return it.
+
+    `start`, `wait`, `logs`, `stats` and `remove` take the keywords of the SDK's low-level calls
+    of the same name; `logs` and `stats` give a stream with `stream=True`.
+    """
 
     attrs: dict[str, Any]
 
     @property
-    def id(self) -> str:
-        """The full container ID."""
-        ...
+    def id(self) -> str: ...
 
     @property
-    def name(self) -> str:
-        """The container name, without the leading slash."""
-        ...
+    def name(self) -> str: ...
 
     @property
-    def status(self) -> str:
-        """The state of the container when it was last read, such as `running` or `exited`."""
-        ...
+    def status(self) -> str: ...
 
-    def start(self, **kwargs: Any) -> None:
-        """Start the container (`POST /containers/{id}/start`)."""
-        ...
+    def start(self, **kwargs: Any) -> None: ...
 
-    def reload(self) -> None:
-        """Read the container's `attrs` again (`GET /containers/{id}/json`)."""
-        ...
+    def reload(self) -> None: ...
 
-    def wait(self, **kwargs: Any) -> dict[str, Any]:
-        """Block until the container stops, and return the daemon's `StatusCode` reply."""
-        ...
+    def wait(self, **kwargs: Any) -> dict[str, Any]: ...
 
-    def logs(self, **kwargs: Any) -> Any:
-        """The container's output: bytes, or a stream of bytes with `stream=True`."""
-        ...
+    def logs(self, **kwargs: Any) -> Any: ...
 
-    def stats(self, **kwargs: Any) -> Any:
-        """A resource sample, or a stream of samples with `stream=True`."""
-        ...
+    def stats(self, **kwargs: Any) -> Any: ...
 
     def exec_run(
         self,
@@ -65,80 +53,54 @@ class EngineContainer(Protocol):
         *,
         workdir: str | None = None,
         environment: Mapping[str, str] | Sequence[str] | None = None,
-    ) -> tuple[int | None, Any]:
-        """Run a command in the running container, and return its exit code and output."""
-        ...
+    ) -> tuple[int | None, Any]: ...
 
-    def remove(self, **kwargs: Any) -> None:
-        """Remove the container (`DELETE /containers/{id}`)."""
-        ...
+    def remove(self, **kwargs: Any) -> None: ...
 
 
 class EngineContainers(Protocol):
-    """`DockerClient.containers`."""
+    """`DockerClient.containers`: `get` raises `docker.errors.NotFound` for a missing container."""
 
-    def get(self, container_id: str) -> EngineContainer:
-        """Read one container by ID or name; `docker.errors.NotFound` when there is none."""
-        ...
+    def get(self, container_id: str) -> EngineContainer: ...
 
     def list(
         self, all: bool = False, filters: Mapping[str, Any] | None = None
-    ) -> builtins.list[EngineContainer]:
-        """The running containers, or every container with `all=True`."""
-        ...
+    ) -> builtins.list[EngineContainer]: ...
 
     def create(
         self, image: str, command: str | Sequence[str] | None = None, **kwargs: Any
-    ) -> EngineContainer:
-        """Create a container from an image without starting it."""
-        ...
+    ) -> EngineContainer: ...
 
-    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Remove the stopped containers."""
-        ...
+    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]: ...
 
 
 class EngineImage(Protocol):
-    """An image, as `images.list` and `images.build` return it."""
+    """An image, as `images.list` and `images.build` return it; `short_id` keeps `sha256:`."""
 
     attrs: dict[str, Any]
 
     @property
-    def id(self) -> str:
-        """The image ID, `sha256:` and the digest."""
-        ...
+    def id(self) -> str: ...
 
     @property
-    def short_id(self) -> str:
-        """The image ID cut to 12 characters of the digest after `sha256:`."""
-        ...
+    def short_id(self) -> str: ...
 
     @property
-    def tags(self) -> list[str]:
-        """The image's tags, such as `alpine:3`."""
-        ...
+    def tags(self) -> list[str]: ...
 
 
 class EngineImages(Protocol):
-    """`DockerClient.images`."""
+    """`DockerClient.images`: `push` gives a stream of status entries with `stream=True`."""
 
     def list(
         self, name: str | None = None, all: bool = False, filters: Mapping[str, Any] | None = None
-    ) -> builtins.list[EngineImage]:
-        """The local images, or the images of one repository with `name`."""
-        ...
+    ) -> builtins.list[EngineImage]: ...
 
-    def build(self, **kwargs: Any) -> tuple[EngineImage, Iterator[dict[str, Any]]]:
-        """Build an image, and return it with the build's log entries."""
-        ...
+    def build(self, **kwargs: Any) -> tuple[EngineImage, Iterator[dict[str, Any]]]: ...
 
-    def push(self, repository: str, tag: str | None = None, **kwargs: Any) -> Any:
-        """Push an image: the reply text, or a stream of status entries with `stream=True`."""
-        ...
+    def push(self, repository: str, tag: str | None = None, **kwargs: Any) -> Any: ...
 
-    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Remove the dangling images."""
-        ...
+    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]: ...
 
 
 class EngineNetwork(Protocol):
@@ -147,133 +109,89 @@ class EngineNetwork(Protocol):
     attrs: dict[str, Any]
 
     @property
-    def id(self) -> str:
-        """The network ID."""
-        ...
+    def id(self) -> str: ...
 
     @property
-    def name(self) -> str:
-        """The network name."""
-        ...
+    def name(self) -> str: ...
 
-    def remove(self) -> None:
-        """Remove the network (`DELETE /networks/{id}`)."""
-        ...
+    def remove(self) -> None: ...
 
 
 class EngineNetworks(Protocol):
-    """`DockerClient.networks`."""
+    """`DockerClient.networks`: `get` raises `docker.errors.NotFound` for a missing network."""
 
-    def get(self, network_id: str, **kwargs: Any) -> EngineNetwork:
-        """Read one network by ID or name; `docker.errors.NotFound` when there is none."""
-        ...
+    def get(self, network_id: str, **kwargs: Any) -> EngineNetwork: ...
 
-    def create(self, name: str, **kwargs: Any) -> EngineNetwork:
-        """Create a network, such as an internal bridge with `driver` and `internal`."""
-        ...
+    def create(self, name: str, **kwargs: Any) -> EngineNetwork: ...
 
-    def list(self, **kwargs: Any) -> builtins.list[EngineNetwork]:
-        """The networks."""
-        ...
+    def list(self, **kwargs: Any) -> builtins.list[EngineNetwork]: ...
 
-    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Remove the networks that no container uses."""
-        ...
+    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]: ...
 
 
 class EngineVolume(Protocol):
-    """A volume, as `volumes.list` returns it."""
+    """A volume, as `volumes.list` returns it; its name is its ID."""
 
     attrs: dict[str, Any]
 
     @property
-    def id(self) -> str:
-        """The volume name, which is its ID."""
-        ...
+    def id(self) -> str: ...
 
     @property
-    def name(self) -> str:
-        """The volume name."""
-        ...
+    def name(self) -> str: ...
 
 
 class EngineVolumes(Protocol):
     """`DockerClient.volumes`."""
 
-    def list(self, **kwargs: Any) -> builtins.list[EngineVolume]:
-        """The volumes."""
-        ...
+    def list(self, **kwargs: Any) -> builtins.list[EngineVolume]: ...
 
-    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Remove the volumes that no container uses."""
-        ...
+    def prune(self, filters: Mapping[str, Any] | None = None) -> dict[str, Any]: ...
 
 
 class EngineApi(Protocol):
     """`DockerClient.api`: the low-level calls that take a container ID and no model."""
 
-    def stop(self, container: str, timeout: int | None = None) -> None:
-        """Stop a container."""
-        ...
+    def stop(self, container: str, timeout: int | None = None) -> None: ...
 
     def remove_container(
         self, container: str, v: bool = False, link: bool = False, force: bool = False
-    ) -> None:
-        """Remove a container."""
-        ...
+    ) -> None: ...
 
-    def prune_builds(self, **kwargs: Any) -> dict[str, Any]:
-        """Remove the build cache that no build uses."""
-        ...
+    def prune_builds(self, **kwargs: Any) -> dict[str, Any]: ...
 
 
 class EngineClient(Protocol):
-    """`docker.DockerClient`: the collections, the daemon facts and the low-level API."""
+    """`docker.DockerClient`: the collections, the daemon's facts and the low-level API.
+
+    `ping` is `GET /_ping`, `info` is `GET /info`, `version` is `GET /version` and `df` is
+    `GET /system/df`.
+    """
 
     @property
-    def containers(self) -> EngineContainers:
-        """The containers."""
-        ...
+    def containers(self) -> EngineContainers: ...
 
     @property
-    def images(self) -> EngineImages:
-        """The images."""
-        ...
+    def images(self) -> EngineImages: ...
 
     @property
-    def networks(self) -> EngineNetworks:
-        """The networks."""
-        ...
+    def networks(self) -> EngineNetworks: ...
 
     @property
-    def volumes(self) -> EngineVolumes:
-        """The volumes."""
-        ...
+    def volumes(self) -> EngineVolumes: ...
 
     @property
-    def api(self) -> EngineApi:
-        """The low-level API client."""
-        ...
+    def api(self) -> EngineApi: ...
 
-    def ping(self) -> bool:
-        """Whether the daemon answers `GET /_ping`."""
-        ...
+    def ping(self) -> bool: ...
 
-    def info(self) -> dict[str, Any]:
-        """The daemon's facts (`GET /info`)."""
-        ...
+    def info(self) -> dict[str, Any]: ...
 
-    def version(self) -> dict[str, Any]:
-        """The daemon's version and components (`GET /version`)."""
-        ...
+    def version(self) -> dict[str, Any]: ...
 
-    def df(self) -> dict[str, Any]:
-        """The daemon's disk use (`GET /system/df`)."""
-        ...
+    def df(self) -> dict[str, Any]: ...
 
-    def close(self) -> None:
-        """Close the client's connections."""
-        ...
+    def close(self) -> None: ...
 
 
 # Builds the SDK client of a resolved endpoint from its keyword arguments: `base_url`, `timeout`

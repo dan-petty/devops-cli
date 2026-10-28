@@ -12,7 +12,8 @@ by stream, its state, its listing and its removal; a running container's exec, s
 stop; the 404 of a container, a network and an image that do not exist; an internal network made,
 read, listed, refused a second time and removed; the images of a repository, the volumes and the
 disk use; each prune; a build and a push that the engine refuses. Through `DockerEngineService`,
-an engine that does not answer fails alike over the SDK client and over the fake.
+the service builds the SDK's own client of its endpoint and reads the same daemon facts as over
+the fake, and an engine that does not answer fails alike over both.
 
 Not recorded: a Podman engine, for want of one on the recording host (`set_podman` follows the
 `Components` that Podman's `/version` names); a TLS endpoint; an engine that stops in the middle
@@ -31,6 +32,7 @@ import pytest
 
 from devops_cli.docker.engine import DockerEngineService
 from devops_cli.exceptions.docker import DockerDaemonUnavailableError
+from devops_cli.models.docker import EngineSecurityInfo
 from tests.support.docker_engine_replay import (
     RecordedEngine,
     load_record,
@@ -126,6 +128,41 @@ def test_the_fake_answers_each_scenario_as_the_recorded_engine(scenario: EngineS
     )
 
 
+def _clear_endpoint_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("CONTAINER_HOST", "CONTAINER_CONNECTION", "DOCKER_CONTEXT"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _daemon_facts(service: DockerEngineService) -> tuple[EngineSecurityInfo, str, bool]:
+    """The facts in the order the `daemon_facts` scenario reads them: info, version, ping."""
+    return service.security_info(), service.kind(), service.ping()
+
+
+def test_the_service_builds_the_sdk_client_of_its_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the service, with the SDK's own client of its endpoint, reads the daemon's facts from
+    the recorded engine as it reads them from the fake."""
+    _clear_endpoint_settings(monkeypatch)
+    with RecordedEngine(scenario_exchanges("daemon_facts")) as engine:
+        monkeypatch.setenv("DOCKER_HOST", engine.base_url)
+        service = DockerEngineService()
+        try:
+            over_sdk = _daemon_facts(service)
+        finally:
+            service.close()
+    over_fake = _daemon_facts(DockerEngineService(DockerEngineFake().client_factory))
+
+    facts = (
+        EngineSecurityInfo(
+            options=("name=seccomp,profile=builtin", "name=cgroupns"), pids_limit_supported=True
+        ),
+        "Docker",
+        True,
+    )
+    assert (over_sdk, over_fake, engine.unexpected, engine.remaining) == (facts, facts, [], 0)
+
+
 @pytest.fixture
 def refusing_engine_socket() -> Iterator[Path]:
     """A socket path that this test binds and never listens on, so a connect is refused."""
@@ -150,8 +187,7 @@ def test_an_engine_that_does_not_answer_fails_alike_through_the_service(
     monkeypatch: pytest.MonkeyPatch, refusing_engine_socket: Path
 ) -> None:
     """Verify the service reports the same refusal over the SDK client and over an unreachable fake."""
-    for name in ("CONTAINER_HOST", "CONTAINER_CONNECTION", "DOCKER_CONTEXT"):
-        monkeypatch.delenv(name, raising=False)
+    _clear_endpoint_settings(monkeypatch)
     monkeypatch.setenv("DOCKER_HOST", f"unix://{refusing_engine_socket}")
     fake = DockerEngineFake()
     fake.unreachable = True

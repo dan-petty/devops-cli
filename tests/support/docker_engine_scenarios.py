@@ -19,12 +19,15 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import docker
 
-from devops_cli.docker.sdk import EngineClient
 from tests.support.fakes.docker_engine import DockerEngineFake
+
+if TYPE_CHECKING:
+    # Only a type: the fail-to-pass replay loads this plugin on a base without the module.
+    from devops_cli.docker.sdk import EngineClient
 
 PREFIX = "devops-contract"
 IMAGE = "alpine:3"
