@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -30,7 +30,6 @@ from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.agents.tools import AgentTool, Tool, ToolCall
 from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
-from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.constants import CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX
 from devops_cli.config.defaults import (
     DEFAULT_AGENT_MAX_TURNS,
@@ -47,7 +46,6 @@ class PipelineStepResult(BaseModel):
 
     agent_name: str
     content: str
-    parsed_data: Any | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
     thoughts: list[str] = Field(default_factory=list)
     passed_context: str = ""
@@ -56,29 +54,15 @@ class PipelineStepResult(BaseModel):
     context_truncated: bool = False
 
 
-class MultiAgentPipelineResult[T](BaseModel):
+class MultiAgentPipelineResult(BaseModel):
     """Aggregated output of a multi-agent pipeline execution."""
 
     final_content: str
-    final_data: T | None = None
     steps: list[PipelineStepResult] = Field(default_factory=list)
     total_turns: int = 0
     all_tool_calls: list[ToolCall] = Field(default_factory=list)
     scratchpad: ScratchpadBuffer = Field(default_factory=ScratchpadBuffer)
     memory: AgentMemory = Field(default_factory=AgentMemory)
-
-
-def _parse_pipeline_output[T](schema: type[T] | None, content: str) -> T | None:
-    """Safely extract and validate JSON content against pipeline output schema."""
-    if schema is None or not content:
-        return None
-    try:
-        json_data = extract_json_block(content)
-        if isinstance(json_data, dict):
-            return cast(T, schema.model_validate(json_data))  # type: ignore[attr-defined]
-    except Exception as exc:
-        logger.warning("Failed to validate pipeline output schema: %s", exc)
-    return None
 
 
 def _format_omitted_stage(idx: int, name: str) -> str:
@@ -162,14 +146,13 @@ def _allocate_stage_context(
     return _reconcile_stage_budget_excess(allocated, stage_outputs, budget, trim_idx)
 
 
-class MultiAgentPipeline[T]:
+class MultiAgentPipeline:
     """Orchestrates multi-agent stage pipelines with shared tools, memory, and handovers."""
 
     def __init__(
         self,
         agents: list[PydanticAgent[Any]] | None = None,
         *,
-        output_schema: type[T] | None = None,
         shared_tools: list[AgentTool | Tool | Callable[..., Any]] | None = None,
         session_id: str = "pipeline-session",
         memory: AgentMemory | None = None,
@@ -177,7 +160,6 @@ class MultiAgentPipeline[T]:
         stage_context_tokens: int = DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
     ) -> None:
         self.agents: list[PydanticAgent[Any]] = agents or []
-        self.output_schema = output_schema
         self.shared_tools = shared_tools or []
         self.stage_context_tokens = stage_context_tokens
         self.scratchpad = ScratchpadBuffer(session_id=session_id)
@@ -218,7 +200,7 @@ class MultiAgentPipeline[T]:
 
         return _allocate_stage_context(stage_outputs, self.stage_context_tokens), True
 
-    def add_agent(self, agent: PydanticAgent[Any]) -> MultiAgentPipeline[T]:
+    def add_agent(self, agent: PydanticAgent[Any]) -> MultiAgentPipeline:
         """Append a PydanticAgent to the pipeline stage sequence."""
         if self.shared_tools:
             for tool in self.shared_tools:
@@ -239,7 +221,7 @@ class MultiAgentPipeline[T]:
         skip_rag: bool = False,
         max_workers: int | None = None,
         message_history: list[ChatMessage] | None = None,
-    ) -> MultiAgentPipelineResult[T]:
+    ) -> MultiAgentPipelineResult:
         """Run the multi-agent pipeline sequentially or in parallel, passing accumulated context forward.
 
         ``message_history`` replaces each agent's own memory as the conversation sent to the model;
@@ -301,7 +283,6 @@ class MultiAgentPipeline[T]:
             step = PipelineStepResult(
                 agent_name=agent.name,
                 content=res.content,
-                parsed_data=res.data,
                 tool_calls=res.tool_calls,
                 thoughts=res.thoughts,
                 passed_context=res.content,
@@ -326,11 +307,9 @@ class MultiAgentPipeline[T]:
             stage_outputs.append((idx, agent.name, res.content))
 
         final_content = steps[-1].content if steps else ""
-        parsed_data = _parse_pipeline_output(self.output_schema, final_content)
 
-        return MultiAgentPipelineResult[T](
+        return MultiAgentPipelineResult(
             final_content=final_content,
-            final_data=parsed_data,
             steps=steps,
             total_turns=total_turns,
             all_tool_calls=all_tool_calls,
@@ -347,10 +326,10 @@ class MultiAgentPipeline[T]:
         skip_rag: bool = True,
         max_workers: int | None = None,
         message_history: list[ChatMessage] | None = None,
-    ) -> MultiAgentPipelineResult[T]:
+    ) -> MultiAgentPipelineResult:
         """Run multi-agent pipeline stages concurrently across available worker threads."""
         if not self.agents:
-            return MultiAgentPipelineResult[T](final_content="")
+            return MultiAgentPipelineResult(final_content="")
 
         from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 
@@ -370,7 +349,6 @@ class MultiAgentPipeline[T]:
             step = PipelineStepResult(
                 agent_name=agent.name,
                 content=res.content,
-                parsed_data=res.data,
                 tool_calls=res.tool_calls,
                 thoughts=res.thoughts,
                 passed_context=res.content,
@@ -397,11 +375,9 @@ class MultiAgentPipeline[T]:
             )
 
         final_content = steps[-1].content if steps else ""
-        parsed_data = _parse_pipeline_output(self.output_schema, final_content)
 
-        return MultiAgentPipelineResult[T](
+        return MultiAgentPipelineResult(
             final_content=final_content,
-            final_data=parsed_data,
             steps=steps,
             total_turns=total_turns,
             all_tool_calls=all_tool_calls,
@@ -417,7 +393,7 @@ class MultiAgentPipeline[T]:
         enable_thinking: bool = True,
         parallel: bool = False,
         skip_rag: bool = False,
-    ) -> MultiAgentPipelineResult[T]:
+    ) -> MultiAgentPipelineResult:
         """Run the multi-agent pipeline asynchronously, sequentially or in parallel."""
         if parallel:
             return await self.run_parallel_async(
@@ -446,10 +422,10 @@ class MultiAgentPipeline[T]:
         max_turns_per_agent: int = 1,
         enable_thinking: bool = False,
         skip_rag: bool = True,
-    ) -> MultiAgentPipelineResult[T]:
+    ) -> MultiAgentPipelineResult:
         """Run multi-agent stages concurrently with native concurrency limits."""
         if not self.agents:
-            return MultiAgentPipelineResult[T](final_content="")
+            return MultiAgentPipelineResult(final_content="")
 
         from pydantic_ai.concurrency import get_concurrency_context
 
@@ -467,7 +443,6 @@ class MultiAgentPipeline[T]:
                 step = PipelineStepResult(
                     agent_name=agent.name,
                     content=res.content,
-                    parsed_data=res.data,
                     tool_calls=res.tool_calls,
                     thoughts=res.thoughts,
                     passed_context=res.content,
@@ -493,11 +468,9 @@ class MultiAgentPipeline[T]:
             )
 
         final_content = steps[-1].content if steps else ""
-        parsed_data = _parse_pipeline_output(self.output_schema, final_content)
 
-        return MultiAgentPipelineResult[T](
+        return MultiAgentPipelineResult(
             final_content=final_content,
-            final_data=parsed_data,
             steps=steps,
             total_turns=total_turns,
             all_tool_calls=all_tool_calls,

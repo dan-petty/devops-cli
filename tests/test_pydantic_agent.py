@@ -3,13 +3,11 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import BaseModel
 from pydantic_ai import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.context import RunContext, _check_path_traversal
 from devops_cli.ai.agents.tools import AgentTool
-from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ModelRetry
 
@@ -88,8 +86,8 @@ def test_run_context_instance_functionality() -> None:
     assert copied.session_id == "sess-123"
 
 
-def test_pydantic_agent_advanced_dispatch_and_schema() -> None:
-    """Verify tool execution loop, memory serialization, output schema parsing, and fallback resolution."""
+def test_pydantic_agent_advanced_dispatch_and_memory() -> None:
+    """Verify tool execution loop, memory serialization, and fallback resolution."""
     from devops_cli.ai.agents.memory import AgentMemory
     from devops_cli.ai.agents.runner import (
         _create_tool_retry_message,
@@ -115,30 +113,24 @@ def test_pydantic_agent_advanced_dispatch_and_schema() -> None:
     assert "sample_fn" in retry_msg.content
     assert '"tool":"sample_fn"' in retry_msg.content
 
-    # 3. Agent with memory and output schema
+    # 3. Agent with memory
     mem = AgentMemory(session_id="test_sess", summary="Prior code review passed")
     mock_llm = MagicMock()
-    mock_llm.chat_messages.return_value = (
-        '```json\n{"summary": "Security passed", "recommendation": "APPROVE", "findings": []}\n```'
-    )
+    mock_llm.chat_messages.return_value = "Security passed"
 
     agent = PydanticAgent(
         client=mock_llm,
         name="Reviewer",
         system_prompt="Analyze code",
-        output_schema=ReviewResult,
         tools=[agent_tool],
         memory=mem,
     )
 
     sys_prompt = agent._build_system_prompt_with_tools()
-    assert "Prior code review passed" in sys_prompt
-    assert "sample_fn" in sys_prompt
-    assert "Required Response Format" in sys_prompt
+    assert ("Prior code review passed" in sys_prompt, "sample_fn" in sys_prompt) == (True, True)
 
     resp = agent.run("Generate review report")
-    assert resp.data is not None
-    assert resp.data.recommendation == "APPROVE"
+    assert (resp.content, resp.data) == ("Security passed", None)
 
 
 def test_agent_memory_and_multi_agent_pipeline() -> None:
@@ -259,50 +251,6 @@ def test_pydantic_agent_pydantic_ai_enhancements() -> None:
     assert any(n.kind == "user_prompt" for n in nodes)
     assert any(n.kind == "model_request" for n in nodes)
     assert any(n.kind == "end" for n in nodes)
-
-
-def test_pydantic_agent_output_validator_and_model_retry() -> None:
-    """Verify @agent.output_validator and ModelRetry handling from tools and validators."""
-
-    class ClusterReport(BaseModel):
-        cluster_name: str
-        node_count: int
-
-    mock_client = MagicMock()
-    mock_client.model = "test-model"
-
-    agent = PydanticAgent[ClusterReport](
-        client=mock_client,
-        name="ValidatorAgent",
-        output_schema=ClusterReport,
-    )
-
-    # 1. Output validator that enforces node_count > 0
-    @agent.output_validator
-    def validate_cluster(report: ClusterReport) -> ClusterReport:
-        if report.node_count <= 0:
-            raise ModelRetry("node_count must be greater than zero")
-        return report
-
-    # Tool that raises ModelRetry on invalid arg
-    @agent.tool
-    def query_cluster(cluster: str) -> str:
-        if cluster == "invalid":
-            raise ModelRetry("Cluster name 'invalid' not found. Available: prod, staging")
-        return f"Cluster {cluster} has 3 nodes."
-
-    # Turn 1: tool fails with ModelRetry -> Turn 2: tool succeeds -> model returns invalid node_count -> Turn 3: valid output
-    mock_client.chat_messages.side_effect = [
-        '{"tool": "query_cluster", "arguments": {"cluster": "invalid"}}',
-        '```json\n{"cluster_name": "prod", "node_count": 0}\n```',
-        '```json\n{"cluster_name": "prod", "node_count": 5}\n```',
-    ]
-
-    res = agent.run("Check cluster", max_turns=4)
-    assert res.data is not None
-    assert res.data.cluster_name == "prod"
-    assert res.data.node_count == 5
-    assert res.turns == 3
 
 
 def test_pydantic_agent_hooks() -> None:
@@ -468,7 +416,7 @@ def test_pydantic_agent_message_history() -> None:
 def test_pydantic_agent_retries_and_budget_exhaustion() -> None:
     """Verify AgentRetries limits and UnexpectedModelBehavior on budget exhaustion."""
     from devops_cli.ai.agents.context import AgentRetries
-    from devops_cli.exceptions.ai import ModelRetry, UnexpectedModelBehavior
+    from devops_cli.exceptions.ai import UnexpectedModelBehavior
 
     mock_client = MagicMock()
     mock_client.model = "test-model"
@@ -476,7 +424,7 @@ def test_pydantic_agent_retries_and_budget_exhaustion() -> None:
     agent = PydanticAgent(
         client=mock_client,
         name="StrictAgent",
-        retries=AgentRetries(tools=1, output=1),
+        retries=AgentRetries(tools=1),
     )
 
     @agent.tool
@@ -950,25 +898,16 @@ def test_resolve_pydantic_ai_model() -> None:
 
 
 def test_pydantic_agent_native_parity() -> None:
-    """Verify PydanticAgent supports output_type, output_json_schema, run_sync, and decorators."""
+    """Verify PydanticAgent supports run_sync, run_stream, to_cli and decorators."""
     from unittest.mock import MagicMock
 
     from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.review_schema import ReviewResult
 
     mock_client = MagicMock()
     mock_client.chat_messages.return_value = '{"summary": "Parity test passed"}'
     mock_client.chat_messages_stream.return_value = iter(["Parity ", "passed"])
 
-    agent = PydanticAgent[ReviewResult](
-        client=mock_client,
-        name="ParityAgent",
-        output_type=ReviewResult,
-    )
-
-    assert agent.output_type is ReviewResult
-    assert isinstance(agent.output_json_schema, dict)
-    assert "properties" in agent.output_json_schema
+    agent = PydanticAgent(client=mock_client, name="ParityAgent")
 
     # Decorator parity
     @agent.system_prompt
@@ -980,7 +919,7 @@ def test_pydantic_agent_native_parity() -> None:
     # run_sync execution
     resp = agent.run_sync("Check security")
     assert resp.content == '{"summary": "Parity test passed"}'
-    assert resp.output == resp.data if resp.data is not None else resp.content
+    assert resp.output == resp.content
 
     # run_stream execution
     tokens = list(agent.run_stream("Check stream"))
@@ -999,3 +938,29 @@ def test_agent_response_output_falls_back_to_the_text() -> None:
     resp_data = AgentResponse(content="{}", data={"key": "val"})
 
     assert (resp_text.output, resp_data.output) == ("Simple text", {"key": "val"})
+
+
+def test_an_integer_retries_is_the_tool_retry_budget() -> None:
+    """Verify an integer `retries`, on the agent or on one run, sets the tool retry budget."""
+    from devops_cli.ai.agents.context import AgentRetries
+    from devops_cli.exceptions.ai import UnexpectedModelBehavior
+
+    mock_client = MagicMock()
+    mock_client.model = "test-model"
+    agent = PydanticAgent(client=mock_client, name="Budget", retries=2)
+
+    @agent.tool
+    def strict_tool(val: str) -> str:
+        raise ModelRetry(f"Invalid val: {val}")
+
+    mock_client.chat_messages.side_effect = [
+        '{"tool": "strict_tool", "arguments": {"val": "bad1"}}',
+        '{"tool": "strict_tool", "arguments": {"val": "bad2"}}',
+    ]
+    with pytest.raises(UnexpectedModelBehavior) as exc_info:
+        agent.run("Run strict tool", max_turns=3, skip_rag=True, retries=1)
+
+    assert (agent.retries, "exceeded retry budget" in str(exc_info.value)) == (
+        AgentRetries(tools=2),
+        True,
+    )

@@ -22,6 +22,7 @@ from devops_cli.ai.client.style_request import with_style_request
 from devops_cli.ai.response_repair import repair_json
 from devops_cli.ai.schema_reflection import (
     SchemaReflectionReport,
+    build_schema_reflection_message,
     extract_schema_reflection,
 )
 from devops_cli.ai.task_loader import load_task_prompt
@@ -50,7 +51,6 @@ SchemaFailure = SchemaReflectionReport | str
 
 __all__ = [
     "StructuredOutputMixin",
-    "_build_reflection_message",
     "_extract_candidate_json",
     "_parse_json_payload",
     "_prepare_structured_messages",
@@ -154,20 +154,6 @@ def _with_reply_schema(system: str, json_schema: dict[str, Any]) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
-def _build_reflection_message(error_details: str | SchemaReflectionReport) -> ChatMessage:
-    """Construct dynamic error reflection prompt to guide model self-repair."""
-    if isinstance(error_details, SchemaReflectionReport):
-        content = error_details.format_reflection_prompt()
-    else:
-        content = (
-            "Your previous response could not be parsed or validated against the required schema.\n"
-            f"Validation Error: {error_details}\n"
-            "Please fix the error and respond with ONLY the valid JSON object matching the schema, "
-            "with no markdown explanations or extraneous commentary."
-        )
-    return ChatMessage(role="user", content=content)
-
-
 def _prepare_structured_messages(
     prompt: str | list[ChatMessage] | None,
     user: str | None,
@@ -257,7 +243,7 @@ class StructuredOutputMixin:
         """Back off, and append the reply and the reflection on its failure to the messages."""
         time.sleep(backoff_seconds * (2 ** (attempt - 1)))
         messages.append(ChatMessage(role="assistant", content=raw_text))
-        messages.append(_build_reflection_message(failure))
+        messages.append(build_schema_reflection_message(failure))
 
     def chat_structured[T: BaseModel](
         self,

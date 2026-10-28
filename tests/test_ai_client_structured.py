@@ -24,7 +24,6 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.client.structured import (
     StructuredOutputMixin,
-    _build_reflection_message,
     _extract_candidate_json,
     _parse_json_payload,
     _prepare_structured_messages,
@@ -59,12 +58,6 @@ def _create_mock_client() -> LLMClient:
         max_retries=2,
     )
     return LLMClient(config=cfg, api_key="dummy-key")
-
-
-def test_build_reflection_message() -> None:
-    """Verify reflection message formatting and bounded role definition."""
-    msg = _build_reflection_message("Field required: score")
-    assert (msg.role, "Field required: score" in msg.content) == ("user", True)
 
 
 def test_repair_and_validate_payload() -> None:

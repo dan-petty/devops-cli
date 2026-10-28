@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.concurrency import ConcurrencyLimiter
 from pydantic_ai.models.concurrency import ConcurrencyLimitedModel
@@ -49,10 +48,6 @@ async def test_pydantic_agent_concurrency_run_async() -> None:
     assert res.turns == 1
 
 
-class MockResult(BaseModel):
-    summary: str
-
-
 @pytest.mark.asyncio
 async def test_multi_agent_pipeline_concurrency_async() -> None:
     """Verify MultiAgentPipeline supports concurrency limits and run_parallel_async."""
@@ -64,26 +59,25 @@ async def test_multi_agent_pipeline_concurrency_async() -> None:
     mock_client2.chat_messages.return_value = '{"summary": "Agent 2 output"}'
     mock_client2.model = "test-model"
 
-    agent1: PydanticAgent[MockResult] = PydanticAgent(
-        client=mock_client1,
-        name="Agent1",
-        output_type=MockResult,
-    )
-    agent2: PydanticAgent[MockResult] = PydanticAgent(
-        client=mock_client2,
-        name="Agent2",
-        output_type=MockResult,
-    )
+    agent1: PydanticAgent[str] = PydanticAgent(client=mock_client1, name="Agent1")
+    agent2: PydanticAgent[str] = PydanticAgent(client=mock_client2, name="Agent2")
 
-    pipeline = MultiAgentPipeline[MockResult](
-        agents=[agent1, agent2],
-        output_schema=MockResult,
-        concurrency_limit=2,
-    )
+    pipeline = MultiAgentPipeline(agents=[agent1, agent2], concurrency_limit=2)
     assert isinstance(pipeline.concurrency_limiter, ConcurrencyLimiter)
     assert pipeline.concurrency_limiter.max_running == 2
 
     res = await pipeline.run_parallel_async("Execute parallel inspection")
-    assert len(res.steps) == 2
-    assert res.final_data is not None
-    assert "Agent" in res.final_data.summary
+    assert sorted(step.content for step in res.steps) == [
+        '{"summary": "Agent 1 output"}',
+        '{"summary": "Agent 2 output"}',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_pipeline_with_no_agents_returns_an_empty_result() -> None:
+    """Verify a pipeline with no agents returns an empty result from both parallel runs."""
+    pipeline = MultiAgentPipeline()
+
+    results = [pipeline.run_parallel("prompt"), await pipeline.run_parallel_async("prompt")]
+
+    assert [(result.final_content, result.steps) for result in results] == [("", []), ("", [])]

@@ -1281,7 +1281,7 @@ def pipeline(
     client = get_llm_client(task="chat", settings=settings)
     agent_tools = get_default_tools()
 
-    pipeline_engine: MultiAgentPipeline[Any] = MultiAgentPipeline(
+    pipeline_engine: MultiAgentPipeline = MultiAgentPipeline(
         shared_tools=agent_tools,
         stage_context_tokens=stage_context_tokens,
     )

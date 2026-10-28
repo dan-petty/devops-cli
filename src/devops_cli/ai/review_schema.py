@@ -1265,13 +1265,11 @@ def parse_review_response(response: str | Any) -> ReviewResult | None:
     """
     from devops_cli.ai.response_repair import fix_llm_response
 
-    fixed = fix_llm_response(response, schema=ReviewResult)
+    fixed = fix_llm_response(response)
     data = fixed.json_data or extract_json_block(fixed.content)
     result: ReviewResult | None = None
     if isinstance(data, dict):
         result = _review_result_from_dict(data)
-    elif isinstance(fixed.parsed_model, ReviewResult):
-        result = fixed.parsed_model
     elif isinstance(data, list):
         result = _review_result_from_list(data)
     if result is None:

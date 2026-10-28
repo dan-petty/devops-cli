@@ -7,12 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from pydantic import BaseModel, Field
-
 from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.models import LLMResponse, is_reasoning_model
-from devops_cli.ai.response_repair import _parse_schema_model, repair_json_string
+from devops_cli.ai.response_repair import repair_json_string
 from devops_cli.ai.review.defects import _SCRIPT_DOWNLOAD, _pipe_downloaded_script
 from devops_cli.ai.review.runner import _materialize_pr_head, format_pr_review_comment
 from devops_cli.ai.review_schema import (
@@ -62,24 +60,8 @@ def test_response_repair_write_file_inner_fence() -> None:
     assert repaired.get("content") == "```yaml\nkey: value\n```"
 
 
-class _CountModel(BaseModel):
-    count: int = Field(description="Must be valid integer")
-
-
-def test_parse_schema_model_reports_field_error_over_json_error() -> None:
-    """Schema reflection prioritizes field-level validation errors over generic JSON errors."""
-    data = {"count": "not_an_integer"}
-    raw_content = '{"count": "not_an_integer" defective}'
-    model, err_summary, report, _notes = _parse_schema_model(_CountModel, data, raw_content)
-    assert (
-        model is None,
-        "count" in (err_summary or "").lower(),
-        report is not None,
-    ) == (True, True, True)
-
-
 def test_plain_text_agent_makes_one_call_without_retry() -> None:
-    """An agent configured with str output returns text without schema retry errors."""
+    """An agent returns a plain text reply after one model call."""
     mock_client = MagicMock()
     mock_client.chat_messages.return_value = LLMResponse(
         content="Plain text response without JSON schema"
@@ -87,7 +69,6 @@ def test_plain_text_agent_makes_one_call_without_retry() -> None:
     mock_client.model = "test-model"
     agent: PydanticAgent[str, None] = PydanticAgent(
         client=mock_client,
-        output_type=str,
         system_prompt="Return plain text.",
     )
     result = agent.run("Hello world")
@@ -253,7 +234,7 @@ def test_shared_agent_skips_memory_when_history_empty() -> None:
     mock_client = MagicMock()
     mock_client.chat_messages.return_value = LLMResponse(content="Isolated response")
     mock_client.model = "test-model"
-    agent: PydanticAgent[str, None] = PydanticAgent(client=mock_client, output_type=str)
+    agent: PydanticAgent[str, None] = PydanticAgent(client=mock_client)
     agent.run("Review isolated file content", message_history=[])
     assert len(agent.memory.entries) == 0
 

@@ -48,7 +48,7 @@ In `devops-cli`:
 
 ## 4. Key Concepts & Core Patterns
 
-1. **`PydanticAgent`**: Core agent class coordinating LLM inference, system instructions, tool execution, and structured result parsing.
+1. **`PydanticAgent`**: Core agent class coordinating LLM inference, system instructions and tool execution. It returns the model's text.
 2. **`MCPToolset`**: Seamless integration connecting remote or in-process Model Context Protocol servers:
    ```python
    async with MCPToolset(url="http://localhost:8000/sse") as mcp:
@@ -56,7 +56,7 @@ In `devops-cli`:
        result = await agent.run("Audit Kubernetes security policies")
    ```
 3. **`AgentTool`**: Strongly typed tool definitions with runtime parameter schema validation and path traversal safety checks.
-4. **Structured Agent Returns**: Models define explicit output schemas (`output_type=ReviewOutputModel`) ensuring LLMs return valid typed instances.
+4. **Structured replies**: `LLMClient.chat_structured(system, prompt, schema)` is the one path that returns a validated Pydantic model. It sends the schema in the system message, repairs the JSON, validates it, and sends the validation errors back to the model for a bounded number of retries.
 
 ---
 

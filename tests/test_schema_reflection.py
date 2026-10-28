@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 from typing import Literal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel, Field, ValidationError
 
-from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.client.unified import LLMClient
-from devops_cli.ai.response_repair import fix_llm_response
 from devops_cli.ai.schema_reflection import (
     ArgumentRefusal,
     ArgumentViolation,
-    SchemaReflectionReport,
     SchemaViolation,
     build_schema_reflection_message,
     extract_schema_reflection,
@@ -23,7 +20,6 @@ from devops_cli.ai.schema_reflection import (
     synthesize_fix_hint,
 )
 from devops_cli.config.settings import AIConfig
-from devops_cli.exceptions.ai import UnexpectedModelBehavior
 
 
 class SampleDetail(BaseModel):
@@ -211,17 +207,6 @@ def test_build_schema_reflection_message() -> None:
     ) == ("user", True, "user", True, "user", True)
 
 
-def test_fix_llm_response_populates_schema_reflection() -> None:
-    """Verify fix_llm_response captures schema validation errors and populates reflection."""
-    raw_bad = '```json\n{"cluster_name": "prod"}\n```'
-    fixed = fix_llm_response(raw_bad, schema=SampleDetail)
-
-    assert fixed.parsed_model is None
-    assert isinstance(fixed.schema_reflection, SchemaReflectionReport)
-    assert fixed.validation_error is not None
-    assert len(fixed.repair_notes) > 0
-
-
 def test_chat_structured_single_turn_self_correction_with_reflection() -> None:
     """Verify chat_structured incorporates prescriptive reflection in retry turns."""
     client = _create_mock_client()
@@ -248,47 +233,3 @@ def test_chat_structured_single_turn_self_correction_with_reflection() -> None:
             "Field required" in reflection_content,
             "`count`" in reflection_content,
         ) == ("user", True, True)
-
-
-def test_pydantic_agent_schema_retry_with_reflection() -> None:
-    """Verify PydanticAgent triggers schema reflection retry and recovers in single turn."""
-    mock_client = MagicMock()
-    mock_client.model = "test-model"
-
-    agent = PydanticAgent[SampleDetail](
-        client=mock_client,
-        name="SchemaReflectionAgent",
-        output_schema=SampleDetail,
-    )
-
-    bad_reply = '{"code": "OK"}'  # missing count
-    good_reply = '{"code": "OK", "count": 42}'
-    mock_client.chat_messages.side_effect = [bad_reply, good_reply]
-
-    res = agent.run("Process sample", max_turns=3)
-    assert (
-        res.data is not None,
-        res.turns,
-        res.data.code if res.data else None,
-        res.data.count if res.data else None,
-    ) == (True, 2, "OK", 42)
-
-
-def test_pydantic_agent_schema_retry_budget_exhaustion() -> None:
-    """Verify PydanticAgent raises UnexpectedModelBehavior when schema retry budget is exceeded."""
-    mock_client = MagicMock()
-    mock_client.model = "test-model"
-
-    agent = PydanticAgent[SampleDetail](
-        client=mock_client,
-        name="ExhaustionAgent",
-        output_schema=SampleDetail,
-    )
-
-    bad_reply = '{"invalid_payload": true}'
-    mock_client.chat_messages.side_effect = [bad_reply, bad_reply]
-
-    with pytest.raises(
-        UnexpectedModelBehavior, match="Output validation exceeded retry budget of 1"
-    ):
-        agent.run("Process sample", max_turns=3, retries=1)

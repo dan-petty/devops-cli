@@ -27,10 +27,9 @@ class AgentUsage(BaseModel):
 
 
 class AgentRetries(BaseModel):
-    """Configures retry limits for function tools and structured output validation."""
+    """Configures the retry limit for function tools."""
 
     tools: int = 1
-    output: int = 1
 
 
 class RunContext[DepsT](NativeRunContext[DepsT]):

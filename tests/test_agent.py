@@ -110,7 +110,7 @@ def test_multi_agent_pipeline() -> None:
     agent1 = PydanticAgent(client=client1, name="DevSecOps", system_prompt="Scan code")
     agent2 = PydanticAgent(client=client2, name="Architect", system_prompt="Check design")
 
-    pipeline = MultiAgentPipeline[Any](agents=[agent1, agent2])
+    pipeline = MultiAgentPipeline(agents=[agent1, agent2])
     res = pipeline.run("Analyze workspace")
 
     assert len(res.steps) == 2
@@ -181,7 +181,7 @@ def test_multi_agent_pipeline_empty_history_sends_only_current_prompt() -> None:
     client = MagicMock(spec=LLMClient)
     client.chat_messages.side_effect = _record
     agent = PydanticAgent(client=client, name="DevSecOps", system_prompt="Scan code")
-    pipeline = MultiAgentPipeline[Any](agents=[agent])
+    pipeline = MultiAgentPipeline(agents=[agent])
 
     pipeline.run("Review file A", max_turns_per_agent=1, parallel=True)
     pipeline.run("Review file B", max_turns_per_agent=1, parallel=True)

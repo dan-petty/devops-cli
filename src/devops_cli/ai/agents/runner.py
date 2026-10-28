@@ -11,7 +11,6 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any, cast
 
-from pydantic import BaseModel
 from pydantic_ai.capabilities import AbstractCapability
 
 from devops_cli.ai.agents.capabilities import (
@@ -488,71 +487,3 @@ def _execute_stream_tool_step(
     )
     messages.append(ChatMessage(role="user", content=feedback))
     return nodes
-
-
-def _validate_agent_output(
-    output_validators: Sequence[Callable[..., Any]],
-    target_val: Any,
-    ctx: RunContext[Any] | None,
-    fixed_model: Any | None,
-) -> tuple[str | None, Any | None]:
-    """Execute output validation functions and return (retry_message, updated_model)."""
-    for val_fn in output_validators:
-        try:
-            sig = inspect.signature(val_fn)
-            val_res = (
-                val_fn(ctx, target_val)
-                if len(sig.parameters) > 1 and ctx is not None
-                else val_fn(target_val)
-            )
-            if fixed_model is not None and isinstance(val_res, BaseModel):
-                fixed_model = val_res
-        except ModelRetry as retry_exc:
-            return (str(retry_exc), fixed_model)
-        except Exception as exc:
-            return (f"Output validation failed: {exc}", fixed_model)
-    return (None, fixed_model)
-
-
-def _handle_schema_validation_retry(
-    fixed: Any,
-    response_text: str,
-    messages: list[ChatMessage],
-    turn: int,
-    max_turns: int,
-    output_retries: int,
-    output_budget: int,
-) -> tuple[bool, int]:
-    """Evaluate and handle schema validation failure with structured error reflection."""
-    if output_retries + 1 > output_budget:
-        schema_err = getattr(fixed, "validation_error", None) or "Schema validation failed"
-        err_text = f"Output validation exceeded retry budget of {output_budget}: {schema_err}"
-        from devops_cli.exceptions.ai import UnexpectedModelBehavior
-
-        raise UnexpectedModelBehavior(err_text)
-    if turn < max_turns:
-        from devops_cli.ai.schema_reflection import build_schema_reflection_message
-
-        reflection_source = (
-            getattr(fixed, "schema_reflection", None)
-            or getattr(fixed, "validation_error", None)
-            or "Output does not conform to the required JSON schema."
-        )
-        messages.append(ChatMessage(role="assistant", content=response_text))
-        messages.append(build_schema_reflection_message(reflection_source))
-        return True, output_retries + 1
-    return False, output_retries
-
-
-def is_structured_output_schema(schema: Any) -> bool:
-    """Return True if schema requires structured JSON/model validation."""
-    if schema is None or schema is str:
-        return False
-    from devops_cli.ai.output import TextOutput, unwrap_output_spec
-
-    if isinstance(schema, TextOutput):
-        return False
-    unwrapped = unwrap_output_spec(schema)
-    if unwrapped and (unwrapped[0] is str or isinstance(unwrapped[0], TextOutput)):
-        return False
-    return True
