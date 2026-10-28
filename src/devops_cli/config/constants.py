@@ -1335,6 +1335,17 @@ CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
 CONST_GITHUB_APP_PRIVATE_KEY_ENV: Final[str] = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
 # How an App installation names its quota ledger: one ledger for every token of the installation.
 CONST_GITHUB_APP_LEDGER_KEY: Final[str] = "app-installation-{installation_id}"
+# The permissions that each installation token of the App asks for: those the roadmap jobs use
+# (ADR 0015). The token carries only these, whatever the installation grants. GitHub refuses a
+# token with HTTP 422 when the installation does not grant one of them (#2473).
+CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    "issues": "write",
+    "pull_requests": "write",
+    "contents": "write",
+    "checks": "read",
+    "actions": "read",
+    "metadata": "read",
+}
 # GitHub's commit email of an account, `<id>+<login>@users.noreply.github.com`, for a bot too.
 CONST_GITHUB_NOREPLY_EMAIL: Final[str] = "{account_id}+{login}@users.noreply.github.com"
 # Hex characters of the identity key's SHA-256 that name an identity's cache directory.

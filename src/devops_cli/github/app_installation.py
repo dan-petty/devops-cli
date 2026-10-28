@@ -3,29 +3,37 @@
 A process acts as the App when its environment holds the App's private key,
 `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY`, as Secret `devops/devops-cli` gives it to the
 cluster's pods. The App's ID, its installation's ID and its slug come from `service.github_app`.
-gidgethub signs a JWT with the key and exchanges it for an installation token
-(`gidgethub.apps.get_installation_access_token`), over the session's client, so the request goes
-to GitHub's API origin only. `core.process` keeps the token, gives it to every gh and git child
-and mints a new one before it expires. The App's login is its bot's, `<slug>[bot]`: an
-installation token cannot read `GET /user`.
+gidgethub signs a JWT with the key, and the process exchanges it for an installation token at
+`POST /app/installations/<id>/access_tokens`, over the session's client, so the request goes to
+GitHub's API origin only. The request asks for `CONST_GITHUB_APP_TOKEN_PERMISSIONS` only, the
+permissions the roadmap jobs use, so the token carries no other permission that the installation
+grants (#2473). `gidgethub.apps.get_installation_access_token` sends no body, so the process
+posts the request through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
+every gh and git child and mints a new one before it expires. The App's login is its bot's,
+`<slug>[bot]`: an installation token cannot read `GET /user`.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from http import HTTPStatus
 from typing import Any
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_LEDGER_KEY,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
+    CONST_GITHUB_APP_TOKEN_PERMISSIONS,
     CONST_GITHUB_USER_AGENT,
     CONST_URL_GITHUB_API_BASE,
 )
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import ERRORS
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -80,8 +88,12 @@ def configured_app() -> GitHubApp:
 def mint_installation_token() -> tuple[str, str, datetime | None]:
     """A new installation token of the App and when it expires, or "" and why GitHub gave none.
 
+    The token carries only `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, and the log names the
+    permissions of GitHub's reply, without their levels. A reply that grants more is no error.
     The reason names the request and GitHub's status, or says that the key could not sign a JWT;
-    it never holds the key or a token.
+    it never holds the key or a token. GitHub refuses with HTTP 422 a permission that the
+    installation does not grant, and its reply does not say which, so the reason then names each
+    permission that the token asks for.
     """
     import httpx2
     from gidgethub import HTTPException
@@ -92,18 +104,41 @@ def mint_installation_token() -> tuple[str, str, datetime | None]:
     app = configured_app()
     if not _is_rsa_private_key(app.private_key):
         return "", _token_failed(app, ERRORS.git.github_app_key_unreadable), None
-    path = f"/app/installations/{app.installation_id}/access_tokens"
     try:
         answer = _exchange(app)
     except DevOpsCLIError as refusal:
         return "", _token_failed(app, refusal.message), None
     except (HTTPException, httpx2.HTTPError, ValueError, LookupError) as error:
-        failure = classify_http_error(error, method="POST", path=path)
-        return "", _token_failed(app, failure.message), None
+        failure = classify_http_error(error, method="POST", path=_token_path(app))
+        reason = failure.message
+        if failure.details.get("status") == HTTPStatus.UNPROCESSABLE_ENTITY:
+            reason = ERRORS.git.github_app_permissions_not_granted.format(
+                reason=reason, permissions=_asked_permissions()
+            )
+        return "", _token_failed(app, reason), None
     try:
-        return str(answer["token"]), "", datetime.fromisoformat(answer["expires_at"])
+        token, expires_at = str(answer["token"]), datetime.fromisoformat(answer["expires_at"])
     except KeyError, TypeError, ValueError:
         return "", _token_failed(app, ERRORS.git.github_app_answer_unreadable), None
+    granted = answer.get("permissions")
+    logger.info(
+        "GitHub App %s has a new installation token with these permissions: %s",
+        app.bot_login,
+        ", ".join(sorted(granted)) if isinstance(granted, dict) else "",
+    )
+    return token, "", expires_at
+
+
+def _token_path(app: GitHubApp) -> str:
+    """Where the App exchanges its JWT for an installation token."""
+    return f"/app/installations/{app.installation_id}/access_tokens"
+
+
+def _asked_permissions() -> str:
+    """Each permission that the token asks for, with its level, as an error names them."""
+    return ", ".join(
+        f"{name} ({level})" for name, level in sorted(CONST_GITHUB_APP_TOKEN_PERMISSIONS.items())
+    )
 
 
 def _is_rsa_private_key(pem: str) -> bool:
@@ -128,26 +163,30 @@ def _token_failed(app: GitHubApp, reason: str) -> str:
 
 
 def _exchange(app: GitHubApp) -> dict[str, Any]:
-    """GitHub's answer to the exchange of the App's JWT for an installation token.
+    """GitHub's answer to the exchange of the App's JWT for an installation token that carries
+    only `CONST_GITHUB_APP_TOKEN_PERMISSIONS`.
 
-    It runs on a loop of its own, so a caller on any thread, an event loop's included, can wait
-    for it.
+    gidgethub signs the JWT with the App's ID and key. The exchange runs on a loop of its own, so
+    a caller on any thread, an event loop's included, can wait for it.
     """
     from anyio.from_thread import start_blocking_portal
-    from gidgethub.apps import get_installation_access_token
     from gidgethub.httpx import GitHubAPI
 
     from devops_cli.github.session_transport import session_client
 
     async def exchange() -> dict[str, Any]:
         async with session_client() as client:
-            api = GitHubAPI(client, CONST_GITHUB_USER_AGENT, base_url=CONST_URL_GITHUB_API_BASE)
-            return await get_installation_access_token(
-                api,
-                installation_id=str(app.installation_id),
+            api = GitHubAPI(
+                client,
+                CONST_GITHUB_USER_AGENT,
+                base_url=CONST_URL_GITHUB_API_BASE,
                 app_id=str(app.app_id),
                 private_key=app.private_key,
             )
+            answer: dict[str, Any] = await api.post(
+                _token_path(app), data={"permissions": dict(CONST_GITHUB_APP_TOKEN_PERMISSIONS)}
+            )
+            return answer
 
     with start_blocking_portal() as portal:
         return portal.call(exchange)

@@ -51,6 +51,10 @@ class GitErrorMessages:
         "GitHub App {login} has no installation token: {reason}. Check the App ID, the "
         "installation ID and the private key in {key_env}."
     )
+    github_app_permissions_not_granted: str = (
+        "{reason} The installation must grant each permission that the token asks for: "
+        "{permissions}"
+    )
     github_app_key_unreadable: str = "the private key is not an RSA private key in PEM form"
     github_app_answer_unreadable: str = "GitHub's answer holds no token and expiry time"
 
