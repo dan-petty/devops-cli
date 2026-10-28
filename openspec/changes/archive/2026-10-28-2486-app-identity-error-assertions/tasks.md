@@ -16,7 +16,7 @@
 
 ## 3. Archive
 
-- [ ] 3.1 Archive the change
+- [x] 3.1 Archive the change
   - Verification: `uv run devops openspec archive 2486-app-identity-error-assertions`
 
 ## Workflow follow-up
