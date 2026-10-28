@@ -409,6 +409,18 @@ def test_the_hit_share_panel_divides_cached_requests_by_all_requests_over_an_hou
     )
 
 
+def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_an_hour() -> None:
+    """Verify the embedding cache hit share is the hits of the last hour over its lookups, and
+    shows 0 for an hour with lookups and no hits (#817)."""
+    panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-cli.json")}
+
+    assert _panel_queries(panels["Embedding Cache Hit Share"]) == (
+        '(sum(increase(devops_cli_embedding_cache_lookups_total{result="hit"}[1h])) '
+        "or sum(increase(devops_cli_embedding_cache_lookups_total[1h])) * 0) "
+        "/ sum(increase(devops_cli_embedding_cache_lookups_total[1h]))"
+    )
+
+
 def test_a_grouped_query_adds_no_unlabelled_zero_series() -> None:
     """Verify `or vector(0)` follows only an ungrouped result.
 

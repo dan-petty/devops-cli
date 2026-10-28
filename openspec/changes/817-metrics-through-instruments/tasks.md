@@ -9,9 +9,9 @@
 
 ## 2. The devops-cli dashboard shows the hit share
 
-- [ ] Add a failing test for the query of the panel "Embedding Cache Hit Share"
+- [x] Add a failing test for the query of the panel "Embedding Cache Hit Share"
   - Verification: `uv run devops ci test tests/test_telemetry_instruments.py`
-- [ ] Add the panel to `k8s/monitoring/dashboards/devops-cli.json`, with the limits of `increase()` in its description
+- [x] Add the panel to `k8s/monitoring/dashboards/devops-cli.json`, with the limits of `increase()` in its description
   - Verification: `uv run devops ci test tests/test_telemetry_instruments.py`
 
 ## 3. Every metric is a declared instrument sent through emit
