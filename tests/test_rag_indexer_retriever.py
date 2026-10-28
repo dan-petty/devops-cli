@@ -14,7 +14,7 @@ from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config.constants import CONST_RAG_INCOMPLETE_FILE_MARKER
 from devops_cli.config.settings import AIConfig
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 class FakeQdrantClient(QdrantClient):

@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.settings import Settings
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 
@@ -396,7 +396,7 @@ def test_ai_config_models_preload_and_chat_interactive(
     """Verify ai config, models, preload, chat interactive mode, and explain."""
     from devops_cli.ai.agents.models import AgentResponse
     from devops_cli.commands.ai import _print_chat_thought, _print_chat_tool
-    from devops_cli.config.settings import SecretStorageError
+    from devops_cli.config.os_keyring import SecretStorageError
 
     # 1. ai_main --explain
     with patch("devops_cli.ai.explain.render_explanation") as mock_exp:

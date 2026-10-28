@@ -10,7 +10,7 @@ from nacl import encoding, public
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.config.settings import get_keyring_secret
+from devops_cli.config.os_keyring import get_keyring_secret
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.security.sanitizer import mask_secrets

@@ -9,12 +9,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import keyring
 import pytest
 
+from devops_cli.config import os_keyring
 from devops_cli.config.settings import load_settings
 from devops_cli.telemetry.tracer import get_tracer
-from tests.cluster_secret_fakes import FakeKeyring
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.paths import REPO_ROOT
 
 
@@ -222,40 +222,49 @@ def test_in_process_tcp_and_unix_servers_pass(tmp_path: Path) -> None:
 def test_uncaught_and_caught_keyring_reaches_fail_and_fake_restores_deny(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Calling keyring without a fake fails naming the keyring edge even when caught, and
-    installing `FakeKeyring` in one test restores the deny backend for the next test."""
+    """A keyring or D-Bus reach through the keyring seam without a fake fails naming the keyring
+    edge even when caught, `keyring_store` in one test leaves the deny edge for the next, and
+    code that calls the `keyring` library itself meets the deny backend."""
     result = _run_with_floor(
         pytester,
         monkeypatch,
         """
         import keyring
-        from tests.cluster_secret_fakes import FakeKeyring
+        from devops_cli.config import os_keyring
 
-        def test_with_fake_keyring():
-            keyring.set_keyring(FakeKeyring())
-            keyring.set_password("devops-cli", "token", "secret-val")
-            assert keyring.get_password("devops-cli", "token") == "secret-val"
+        def test_with_fake_keyring(keyring_store):
+            os_keyring.keyring_write("token", "secret-val")
+            assert os_keyring.keyring_read("token") == "secret-val"
 
         def test_after_fake_keyring_is_denied_again():
-            keyring.get_password("devops-cli", "token")
+            os_keyring.keyring_read("token")
 
-        def test_caught_keyring_reach_fails_teardown():
+        def test_caught_bus_reach_fails_teardown():
+            try:
+                os_keyring.session_bus_running(__import__("pathlib").Path("bus"))
+            except Exception:
+                pass
+
+        def test_caught_library_reach_fails_teardown():
             try:
                 keyring.set_password("devops-cli", "token", "secret-val")
             except Exception:
                 pass
         """,
     )
-    result.assert_outcomes(passed=2, failed=1, errors=2)
+    result.assert_outcomes(passed=3, failed=1, errors=3)
     output = result.stdout.str()
-    assert "keyring edge reached without a fake: devops-cli/token" in output
+    assert (
+        "keyring edge reached without a fake: devops-cli/token" in output,
+        "keyring edge reached without a fake: session-bus/bus" in output,
+    ) == (True, True)
 
 
-def test_mock_keyring_fixture_installs_isolated_fake(mock_keyring: FakeKeyring) -> None:
-    """`mock_keyring` installs an in-memory `FakeKeyring` for the test."""
-    keyring.set_password("devops-cli", "user", "value")
-    assert keyring.get_password("devops-cli", "user") == "value"
-    assert mock_keyring.get_password("devops-cli", "user") == "value"
+def test_keyring_store_installs_an_isolated_fake(keyring_store: FakeKeyring) -> None:
+    """`keyring_store` installs an empty in-memory `FakeKeyring` through the keyring seam."""
+    os_keyring.keyring_write("user", "value")
+
+    assert (os_keyring.keyring_read("user"), keyring_store.values) == ("value", {"user": "value"})
 
 
 def test_telemetry_is_off_by_default_and_opts_in_through_config(

@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.devcontainer import app
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
@@ -1568,9 +1569,8 @@ def test_devcontainer_template_contains_no_git_daemon(minikube: bool) -> None:
     ) == (False, False, False, False)
 
 
-@pytest.mark.unreachable("bus")
 def test_post_start_starts_the_session_bus_named_by_the_container_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:
     """gnome-keyring is D-Bus activated, so gh and Python keyring need this bus to exist."""
     from devops_cli.commands.devcontainer import _start_session_bus
@@ -1578,6 +1578,7 @@ def test_post_start_starts_the_session_bus_named_by_the_container_env(
     socket_path = tmp_path / "run" / "bus"
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
     calls = _record_subprocess_calls(monkeypatch)
+    keyring_store.bus_running = False
 
     actions = _start_session_bus()
 
@@ -1591,9 +1592,8 @@ def test_post_start_starts_the_session_bus_named_by_the_container_env(
     assert kwargs["env"] == {"XDG_RUNTIME_DIR": str(socket_path.parent)}
 
 
-@pytest.mark.unreachable("bus")
 def test_the_session_bus_runtime_dir_is_private(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:
     """gnome-keyring keeps its control socket here; other users must not reach it."""
     from devops_cli.commands.devcontainer import _start_session_bus
@@ -1601,6 +1601,7 @@ def test_the_session_bus_runtime_dir_is_private(
     socket_path = tmp_path / "run" / "bus"
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
     _record_subprocess_calls(monkeypatch)
+    keyring_store.bus_running = False
 
     _start_session_bus()
 
@@ -1608,28 +1609,27 @@ def test_the_session_bus_runtime_dir_is_private(
 
 
 def test_a_running_session_bus_is_left_alone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:
     """A second daemon on the same path would unlink the live socket and orphan its clients."""
-    import socket
-
     from devops_cli.commands.devcontainer import _start_session_bus
 
     socket_path = tmp_path / "bus"
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
     calls = _record_subprocess_calls(monkeypatch)
 
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
-        listener.bind(str(socket_path))
-        listener.listen(1)
-        actions = _start_session_bus()
+    actions = _start_session_bus()
 
-    assert calls == []
-    assert actions == [f"D-Bus session bus is already running at {socket_path}"]
+    assert (calls, actions, keyring_store.bus_checks) == (
+        [],
+        [f"D-Bus session bus is already running at {socket_path}"],
+        [socket_path],
+    )
 
 
-@pytest.mark.unreachable("bus")
-def test_a_stale_bus_socket_is_replaced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stale_bus_socket_is_replaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
     """dbus-daemon refuses to bind over a leftover socket file from a stopped container."""
     import socket
 
@@ -1640,6 +1640,7 @@ def test_a_stale_bus_socket_is_replaced(tmp_path: Path, monkeypatch: pytest.Monk
     calls = _record_subprocess_calls(monkeypatch)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as abandoned:
         abandoned.bind(str(socket_path))
+    keyring_store.bus_running = False
 
     _start_session_bus()
 
@@ -1688,9 +1689,8 @@ def test_session_bus_socket_parses_addresses_with_jeepney(
     assert _session_bus_socket() is None
 
 
-@pytest.mark.unreachable("bus")
 def test_a_failed_session_bus_start_is_reported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:
     """Without the bus gh silently stores its token in plain text, so the failure must show."""
     from devops_cli.commands.devcontainer import _start_session_bus
@@ -1698,6 +1698,7 @@ def test_a_failed_session_bus_start_is_reported(
     socket_path = tmp_path / "bus"
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
     _record_subprocess_calls(monkeypatch, returncode=1, stderr="address already in use")
+    keyring_store.bus_running = False
 
     assert _start_session_bus() == [
         "Warning: Failed to start D-Bus session bus (exit 1): address already in use"
@@ -1766,8 +1767,11 @@ def test_post_create_warns_when_the_keyring_cannot_be_installed(
 
 
 @pytest.fixture
-def keyring_container(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
-    """A container with gnome-keyring installed and its bus already running."""
+def keyring_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> list[dict[str, object]]:
+    """A container with gnome-keyring installed and its bus already running; its Secret Service
+    reports the default collection unlocked until a test says otherwise."""
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
@@ -1804,7 +1808,6 @@ def test_unlock_keyring_creates_the_keyring_on_first_use(
 ) -> None:
     """The first password becomes the keyring's, so it is asked for twice."""
     prompts = _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
-    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
 
     result = runner.invoke(app, ["unlock-keyring"])
 
@@ -1829,7 +1832,6 @@ def test_unlock_keyring_keeps_the_daemon_off_the_shared_tmp(
 ) -> None:
     """VS Code points XDG_RUNTIME_DIR at /tmp, a volume other containers mount too."""
     _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
-    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
 
     runner.invoke(app, ["unlock-keyring"])
 
@@ -1842,16 +1844,17 @@ def test_unlock_keyring_asks_once_for_an_existing_keyring(
     keyring_container: list[dict[str, object]],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
 ) -> None:
     """Another container of the same identity may have created it on the shared home."""
     keyring_file = tmp_path / "data" / "keyrings" / "login.keyring"
     keyring_file.parent.mkdir(parents=True)
     keyring_file.write_bytes(b"GnomeKeyring\n\r\x00\n")
     prompts = _answer_prompts(monkeypatch, "correct-horse")
-    lock_states = iter([True, False])  # locked when asked, unlocked once the password is in
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._keyring_is_locked", lambda: next(lock_states)
-    )
+    keyring_store.lock_answers = [
+        True,
+        False,
+    ]  # locked when asked, unlocked once the password is in
 
     result = runner.invoke(app, ["unlock-keyring"])
 
@@ -1891,13 +1894,14 @@ def test_unlock_keyring_reports_a_wrong_password(
     keyring_container: list[dict[str, object]],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
 ) -> None:
     """gnome-keyring-daemon --unlock exits 0 on a wrong password, so only the lock state tells."""
     keyring_file = tmp_path / "data" / "keyrings" / "login.keyring"
     keyring_file.parent.mkdir(parents=True)
     keyring_file.write_bytes(b"GnomeKeyring\n\r\x00\n")
     _answer_prompts(monkeypatch, "wrong-horse")
-    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: True)
+    keyring_store.locked = True
 
     result = runner.invoke(app, ["unlock-keyring"])
 
@@ -1993,7 +1997,6 @@ def test_unlock_keyring_points_at_plaintext_gh_tokens_once_unlocked(
     """Right after unlocking is the one moment the move command can succeed."""
     _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
     _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
-    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
 
     result = runner.invoke(app, ["unlock-keyring"])
 
@@ -2051,7 +2054,6 @@ def test_an_already_unlocked_keyring_is_not_asked_for_again(
     pending = tmp_path / ".keyring-unlock-pending"
     pending.touch()
     prompts = _answer_prompts(monkeypatch)
-    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
 
     result = runner.invoke(app, ["unlock-keyring"])
 
@@ -2069,7 +2071,6 @@ def test_a_successful_unlock_clears_the_pending_marker(
     pending = tmp_path / ".keyring-unlock-pending"
     pending.touch()
     _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
-    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
 
     runner.invoke(app, ["unlock-keyring"])
 
@@ -2195,9 +2196,8 @@ def test_post_start_never_prompts_without_a_terminal(
     assert (result.exit_code, calls) == (0, [])
 
 
-@pytest.mark.unreachable("bus")
 def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:
     """A new bus means a new keyring daemon, and that always starts locked."""
     from devops_cli.commands.devcontainer import _start_session_bus
@@ -2205,6 +2205,7 @@ def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
     socket_path = tmp_path / "run" / "bus"
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
     _record_subprocess_calls(monkeypatch)
+    keyring_store.bus_running = False
 
     _start_session_bus()
 

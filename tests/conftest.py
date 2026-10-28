@@ -100,7 +100,8 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.security.vault_lease": ("reset_lease_registry",),
     "devops_cli.config.env": ("reset_declarations_cache",),
     "devops_cli.config.metadata": ("reset_project_metadata_cache",),
-    "devops_cli.config.settings": ("reset_settings_cache", "clear_ephemeral_ci_secrets"),
+    "devops_cli.config.os_keyring": ("clear_remembered_secrets", "reset_keyring_edge"),
+    "devops_cli.config.settings": ("reset_settings_cache",),
     "devops_cli.core.command_resolver": ("reset_command_resolver_cache",),
     "devops_cli.core.dns_names": ("reset_dns_names_cache",),
     "devops_cli.core.gitignore": ("reset_indexes",),
@@ -1025,6 +1026,34 @@ def isolate_keyring_backends(deny_real_keyring: None) -> Iterator[None]:
         yield
 
 
+class _DenyKeyringEdge:
+    """The keyring edge of a test that installs no fake: every keyring and D-Bus reach fails."""
+
+    def backend(self) -> Any:
+        return _DENY_KEYRING_INSTANCE
+
+    def session_bus_running(self, socket_path: Path) -> bool:
+        _raise_keyring_deny("session-bus", str(socket_path))
+
+    def default_collection_locked(self) -> bool | None:
+        _raise_keyring_deny("secret-service", "default-collection")
+
+
+@pytest.fixture(autouse=True)
+def deny_keyring_edge(isolate_keyring_backends: None) -> None:
+    """Install the deny edge through the keyring seam before each test (#1318).
+
+    devops-cli reaches the keyring and the Secret Service only through
+    `devops_cli.config.os_keyring`, so this edge refuses each of its reaches, D-Bus included;
+    `keyring_store` replaces it for a test. The deny backend that `deny_real_keyring` gives the
+    `keyring` library stays for third-party code, such as fastmcp's key-value store, that calls
+    the library itself. The floor resets the edge after the test.
+    """
+    from devops_cli.config.os_keyring import set_keyring_edge
+
+    set_keyring_edge(_DenyKeyringEdge())
+
+
 @pytest.fixture(autouse=True)
 def isolate_devops_cli_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unserved_side_channel_port: int
@@ -1296,18 +1325,6 @@ def review_history(tmp_path: Path, write_review_session: Callable[..., Path]) ->
         )
     (reviews / "incomplete" / "files").mkdir(parents=True)
     return reviews
-
-
-@pytest.fixture
-def mock_keyring():
-    """Install a fresh in-memory FakeKeyring for the test (#1310)."""
-    import keyring
-
-    from tests.cluster_secret_fakes import FakeKeyring
-
-    fake = FakeKeyring()
-    keyring.set_keyring(fake)
-    return fake
 
 
 @contextmanager

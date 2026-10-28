@@ -1,4 +1,4 @@
-"""Configuration settings resolution, Pydantic models, and keyring helpers."""
+"""Configuration settings resolution and Pydantic models."""
 
 from __future__ import annotations
 
@@ -34,14 +34,10 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
-    CONST_KEYRING_UNLOCK_PROBE_KEY,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
-)
-from devops_cli.config.constants import (
-    CONST_KEYRING_SERVICE as KEYRING_SERVICE,
 )
 from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_CANDIDATES as PROJECT_CONFIG_CANDIDATES,
@@ -110,6 +106,7 @@ from devops_cli.config.env import (
     secret_keys,
     setting_variables,
 )
+from devops_cli.config.os_keyring import store_keyring_secret
 from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
@@ -127,51 +124,6 @@ _SECRET_FIELDS: frozenset[str] = secret_keys()
 _KEYRING_KEYS: dict[str, str] = keyring_names()
 # The options that still decide telemetry when the rest of the settings cannot load (#956).
 _TELEMETRY_ENV_OPTIONS: tuple[str, ...] = ("telemetry.enabled", "telemetry.endpoint")
-
-
-class SecretStorageError(RuntimeError):
-    """Raised when a secret cannot be stored in the configured keyring backend."""
-
-
-class KeyringLockedError(SecretStorageError):
-    """Raised when the keyring exists but is locked, so nothing can be stored until unlocked."""
-
-
-class KeyringUnavailableError(SecretStorageError):
-    """Raised when secrets would land in no persistent, encrypted keyring.
-
-    That is no backend, an unencrypted one, or the in-memory store `DEVOPS_CLI_HEADLESS_AUTH`
-    selects, which loses every value when the process exits.
-    """
-
-
-_KEYRING_LOCKED_HINT = "the OS keyring is locked; run `devops devcontainer unlock-keyring`"
-
-
-def _is_unencrypted_backend(backend: object) -> bool:
-    """Report whether a backend keeps secrets in plain text."""
-    return "Plaintext" in type(backend).__name__ or "keyrings.alt" in type(backend).__module__
-
-
-def _ensure_keyring_backend() -> bool:
-    """Ensure keyring has a usable, encrypted backend and reject unencrypted backends."""
-    import keyring
-    from keyring.backends.chainer import ChainerBackend
-    from keyring.backends.fail import Keyring as FailKeyring
-
-    backend = keyring.get_keyring()
-    if backend is None or isinstance(backend, FailKeyring):
-        return False
-
-    # keyring picks the chainer whenever several backends are viable, and the chainer falls
-    # through to the next one when a write fails -- a locked Secret Service would hand the
-    # secret to any plaintext backend behind it. Every backend it chains must be encrypted.
-    members = list(backend.backends) if isinstance(backend, ChainerBackend) else [backend]
-    if not members or any(_is_unencrypted_backend(member) for member in members):
-        return False
-
-    priority = getattr(backend, "priority", 0)
-    return bool(priority > 0)
 
 
 _HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
@@ -1020,164 +972,6 @@ class Settings(BaseSettings):
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)
 
 
-_EPHEMERAL_CI_SECRETS: dict[str, str] = {}
-
-
-def _keyring_get(key: str) -> str | None:
-    import keyring
-    from keyring.errors import KeyringLocked, NoKeyringError
-
-    if key in _EPHEMERAL_CI_SECRETS:
-        return _EPHEMERAL_CI_SECRETS[key]
-
-    if not _ensure_keyring_backend():
-        return None
-
-    try:
-        return keyring.get_password(KEYRING_SERVICE, key)
-    except NoKeyringError:
-        return None
-    except KeyringLocked:
-        logger.warning("Cannot read a secret: %s", _KEYRING_LOCKED_HINT)
-        return None
-    except Exception as exc:
-        logger.warning("Failed to retrieve secret from OS Keyring: %s", type(exc).__name__)
-        return None
-
-
-def _keyring_has(key: str) -> bool:
-    """Check whether a secret key exists in OS keyring or ephemeral store."""
-    import keyring
-    from keyring.errors import KeyringLocked, NoKeyringError
-
-    if key in _EPHEMERAL_CI_SECRETS:
-        return True
-
-    if not _ensure_keyring_backend():
-        return False
-
-    try:
-        val = keyring.get_password(KEYRING_SERVICE, key)
-        return bool(val is not None)
-    except KeyringLocked:
-        logger.warning("Cannot check for a secret: %s", _KEYRING_LOCKED_HINT)
-        return False
-    except (NoKeyringError, Exception) as exc:
-        logger.debug("Keyring check failed: %s", type(exc).__name__)
-        return False
-
-
-def _keyring_set(key: str, value: str) -> None:
-    import keyring
-    from keyring.errors import KeyringLocked, NoKeyringError
-
-    if _headless_auth_enabled():
-        _EPHEMERAL_CI_SECRETS[key] = value
-        return
-
-    if not _ensure_keyring_backend():
-        _EPHEMERAL_CI_SECRETS[key] = value
-        return
-
-    try:
-        keyring.set_password(KEYRING_SERVICE, key, value)
-    except NoKeyringError:
-        _EPHEMERAL_CI_SECRETS[key] = value
-    except KeyringLocked as exc:
-        raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
-    except Exception as exc:
-        raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
-
-
-def _headless_auth_enabled() -> bool:
-    """Report whether `DEVOPS_CLI_HEADLESS_AUTH` keeps secrets in the in-memory store."""
-    import os
-
-    return os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes")
-
-
-def require_persistent_keyring() -> None:
-    """Raise unless an encrypted OS keyring is in use and unlocked.
-
-    For commands that must never take a locked keyring for a missing entry, nor keep a value
-    only in memory: a locked keyring raises `KeyringLockedError`; no encrypted backend, or the
-    headless in-memory store, raises `KeyringUnavailableError`. The lock is probed by looking
-    up an entry that is never stored, so no secret is read.
-    """
-    import keyring
-
-    if _headless_auth_enabled():
-        raise KeyringUnavailableError(
-            "DEVOPS_CLI_HEADLESS_AUTH keeps secrets in memory only, so a value stored now would "
-            "be lost when the command exits; unset it to use the OS keyring"
-        )
-    if not _ensure_keyring_backend():
-        backend = type(keyring.get_keyring())
-        backend_name = f"{backend.__module__}.{backend.__qualname__}"
-        raise KeyringUnavailableError(
-            f"no encrypted OS keyring backend is available (found {backend_name}); install and "
-            "start one, such as gnome-keyring"
-        )
-    keyring_read(CONST_KEYRING_UNLOCK_PROBE_KEY)
-
-
-def keyring_read(key: str) -> str | None:
-    """Read a keyring entry, raising `KeyringLockedError` instead of returning None when locked."""
-    import keyring
-    from keyring.errors import KeyringError, KeyringLocked
-
-    try:
-        return keyring.get_keyring().get_password(KEYRING_SERVICE, key)
-    except KeyringLocked as exc:
-        raise KeyringLockedError(f"Cannot read {key}: {_KEYRING_LOCKED_HINT}") from exc
-    except KeyringError as exc:
-        raise SecretStorageError(f"Cannot read {key}: {type(exc).__name__}") from exc
-
-
-def keyring_write(key: str, value: str) -> None:
-    """Store a keyring entry in the OS keyring itself, never in the in-memory store."""
-    import keyring
-    from keyring.errors import KeyringError, KeyringLocked
-
-    try:
-        keyring.get_keyring().set_password(KEYRING_SERVICE, key, value)
-    except KeyringLocked as exc:
-        raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
-    except KeyringError as exc:
-        raise SecretStorageError(f"Cannot store {key}: {type(exc).__name__}") from exc
-
-
-def keyring_delete(key: str) -> bool:
-    """Delete a keyring entry from the OS keyring itself, returning False when there was none."""
-    import keyring
-    from keyring.errors import KeyringError, KeyringLocked, PasswordDeleteError
-
-    try:
-        keyring.get_keyring().delete_password(KEYRING_SERVICE, key)
-    except PasswordDeleteError:
-        return False
-    except KeyringLocked as exc:
-        raise KeyringLockedError(f"Cannot delete {key}: {_KEYRING_LOCKED_HINT}") from exc
-    except KeyringError as exc:
-        raise SecretStorageError(f"Cannot delete {key}: {type(exc).__name__}") from exc
-    return True
-
-
-def get_keyring_secret(key: str) -> str | None:
-    """Public helper to retrieve a secret from OS Keyring or ephemeral store."""
-    return _keyring_get(key)
-
-
-def set_keyring_secret(key: str, value: str) -> bool:
-    """Public helper to store a secret in OS Keyring or ephemeral store."""
-    try:
-        _keyring_set(key, value)
-        return True
-    except Exception as exc:
-        logger.warning("Failed to set secret in OS Keyring: %s", type(exc).__name__)
-        return False
-
-
 def _key_field(key: str) -> FieldInfo:
     """The settings field that the dotted `key` of a declared setting names."""
     model: type[BaseModel] = Settings
@@ -1456,11 +1250,6 @@ def reset_settings_cache() -> None:
     """Discard parsed configuration so the next load reads the files from disk again."""
     with _CONFIG_CACHE_LOCK:
         _CONFIG_CACHE.clear()
-
-
-def clear_ephemeral_ci_secrets() -> None:
-    """Clear the in-process ephemeral CI secrets store."""
-    _EPHEMERAL_CI_SECRETS.clear()
 
 
 def load_settings() -> Settings:
@@ -1828,7 +1617,7 @@ def dotted_set(settings: Settings, key: str, value: Any) -> None:
     ConfigurationError rather than setting nothing.
     """
     if key in _SECRET_FIELDS:
-        _keyring_set(_KEYRING_KEYS[key], value)
+        store_keyring_secret(_KEYRING_KEYS[key], value)
         return
     *path, field_name = _canonical_key(key).split(".")
     if not path:

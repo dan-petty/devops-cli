@@ -20,7 +20,7 @@ from devops_cli.security.sanitizer import (
 from devops_cli.security.vault_broker import VaultSecretBroker
 from tests.support.paths import REPO_ROOT
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 # The only source files that may name a header of a gateway reply.
 _GATEWAY_HEADER_FILES = ("config/constants.py", "ai/client/network.py")

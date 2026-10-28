@@ -12,10 +12,12 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.config import app as config_app
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.config.settings import SecretStorageError, Settings
+from devops_cli.config.os_keyring import SecretStorageError
+from devops_cli.config.settings import Settings
 from devops_cli.exceptions.config import ConfigurationError
+from tests.support.fakes.keyring import FakeKeyring
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 
@@ -91,16 +93,15 @@ def test_config_set_command(tmp_path: Path) -> None:
         assert res_inv.exit_code == 1
 
 
-def test_config_set_prompts_hidden_for_a_credential_without_a_value() -> None:
+def test_config_set_prompts_hidden_for_a_credential_without_a_value(
+    keyring_store: FakeKeyring,
+) -> None:
     """A credential typed at the hidden prompt goes to the keyring and is never echoed."""
-    with (
-        patch("devops_cli.commands.config.save_settings"),
-        patch("devops_cli.config.settings._keyring_set") as keyring_set,
-    ):
+    with patch("devops_cli.commands.config.save_settings"):
         result = runner.invoke(config_app, ["set", "ai.api_key"], input="x\n")
-    assert (result.exit_code, keyring_set.call_args.args, "x" in result.output) == (
+    assert (result.exit_code, keyring_store.writes, "x" in result.output) == (
         0,
-        ("ai_api_key", "x"),
+        {"ai_api_key": "x"},
         False,
     )
 
@@ -123,7 +124,7 @@ def _shows_the_secret(*captured: str) -> bool:
 
 def test_config_set_stores_a_multi_line_secret_from_a_file_byte_for_byte(
     cli: Any,
-    mock_keyring: Any,
+    keyring_store: Any,
     isolate_devops_cli_config: Path,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -136,19 +137,19 @@ def test_config_set_stores_a_multi_line_secret_from_a_file_byte_for_byte(
     result = cli("config", "set", "ai.api_key", "--from-file", str(key_file))
 
     config_text = isolate_devops_cli_config.read_text(encoding="utf-8")
-    assert (result.exit_code, mock_keyring.writes) == (0, {"ai_api_key": _PEM_SHAPED_SECRET})
+    assert (result.exit_code, keyring_store.writes) == (0, {"ai_api_key": _PEM_SHAPED_SECRET})
     assert not _shows_the_secret(result.output, caplog.text, config_text)
 
 
 def test_config_set_stores_a_multi_line_secret_from_stdin_byte_for_byte(
-    cli: Any, mock_keyring: Any, caplog: pytest.LogCaptureFixture
+    cli: Any, keyring_store: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """`--from-file -` reads stdin to its end, so a piped key reaches the keyring whole."""
     caplog.set_level(logging.DEBUG)
 
     result = cli("config", "set", "ai.api_key", "--from-file", "-", input=_PEM_SHAPED_SECRET)
 
-    assert (result.exit_code, mock_keyring.writes) == (0, {"ai_api_key": _PEM_SHAPED_SECRET})
+    assert (result.exit_code, keyring_store.writes) == (0, {"ai_api_key": _PEM_SHAPED_SECRET})
     assert not _shows_the_secret(result.output, caplog.text)
 
 
@@ -204,7 +205,7 @@ def _secret_file(tmp_path: Path, content: bytes, *args: str) -> list[str]:
 )
 def test_config_set_from_file_refuses_an_unusable_source_and_stores_nothing(
     cli: Any,
-    mock_keyring: Any,
+    keyring_store: Any,
     isolate_devops_cli_config: Path,
     tmp_path: Path,
     argv_for: Any,
@@ -214,7 +215,7 @@ def test_config_set_from_file_refuses_an_unusable_source_and_stores_nothing(
 
     result = cli("config", "set", *argv_for(tmp_path))
 
-    assert (result.exit_code, mock_keyring.writes) == (2, {})
+    assert (result.exit_code, keyring_store.writes) == (2, {})
     assert named_problem in result.output
     assert isolate_devops_cli_config.read_text(encoding="utf-8") == config_before
     assert not _shows_the_secret(result.output)

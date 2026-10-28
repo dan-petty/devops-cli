@@ -28,11 +28,12 @@ from devops_cli.telemetry.instruments import EMBEDDING_CACHE_LOOKUPS_TOTAL
 from devops_cli.telemetry.tracer import get_recent_spans
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.telemetry_capture import Captured
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def _fixed_vectors(width: int, value: float = 0.5) -> Any:
@@ -1690,3 +1691,16 @@ def test_a_text_that_only_valkey_holds_counts_as_a_valkey_hit(
     )
 
     assert _lookups(captured) == [({"result": "hit", "tier": "valkey"}, 1.0)]
+
+
+def test_an_openai_engine_without_a_key_reads_it_from_the_keyring(
+    keyring_store: FakeKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    keyring_store.values["ai_api_key"] = "sk-from-keyring"
+
+    engine = EmbeddingsEngine(
+        AIConfig(provider="openai", allow_private_network=True), valkey_client=None
+    )
+
+    assert engine.api_key == "sk-from-keyring"

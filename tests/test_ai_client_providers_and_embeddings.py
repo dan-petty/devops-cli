@@ -48,7 +48,7 @@ from tests.llm_stream_fakes import (
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 @pytest.fixture(autouse=True)

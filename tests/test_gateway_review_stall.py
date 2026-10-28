@@ -38,7 +38,7 @@ from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError
 from devops_cli.telemetry.tracer import reset_tracer
 from tests.llm_stream_fakes import as_requested, route_client
 
-pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
+pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
 
 runner = CliRunner()
 

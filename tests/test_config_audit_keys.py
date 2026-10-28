@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.config import app
 from devops_cli.config.constants import CONST_CONFIG_DIR, CONST_CONFIG_PATH
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

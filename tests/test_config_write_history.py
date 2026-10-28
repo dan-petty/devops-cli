@@ -140,7 +140,7 @@ def test_config_set_records_its_command_and_writes_the_key_it_changed_alone(
 
 
 def test_config_set_of_a_credential_writes_no_config_file(
-    cli: Any, isolate_devops_cli_config: Path, isolate_data_dir: Path, mock_keyring: Any
+    cli: Any, isolate_devops_cli_config: Path, isolate_data_dir: Path, keyring_store: Any
 ) -> None:
     """The credential goes to the keyring, and the config file stays as it is."""
     before = isolate_devops_cli_config.read_text(encoding="utf-8")

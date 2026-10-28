@@ -12,7 +12,7 @@ from devops_cli.commands.ai import _try_retrieve_rag_context
 from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

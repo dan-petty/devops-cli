@@ -17,6 +17,7 @@ from typing import Annotated
 import typer
 
 from devops_cli.ai.instruction_generator import scaffold_agent_instructions
+from devops_cli.config import os_keyring
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_CLAUDE_MCP_JSON_NAME,
@@ -1210,19 +1211,6 @@ def _session_bus_socket() -> Path | None:
     return None
 
 
-def _is_session_bus_running(socket_path: Path) -> bool:
-    """Check whether a D-Bus daemon accepts connections on the socket."""
-    import socket
-
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.2)
-        try:
-            sock.connect(str(socket_path))
-        except OSError:
-            return False
-    return True
-
-
 def _start_session_bus(*, dry_run: bool = False) -> list[str]:
     """Ensure the session bus that gnome-keyring is D-Bus activated on is running.
 
@@ -1234,7 +1222,7 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
     socket_path = _session_bus_socket()
     if socket_path is None or not shutil.which("dbus-daemon"):
         return actions
-    if _is_session_bus_running(socket_path):
+    if os_keyring.session_bus_running(socket_path):
         actions.append(f"D-Bus session bus is already running at {socket_path}")
         return actions
 
@@ -1321,19 +1309,6 @@ def _login_keyring_file() -> Path:
     """Return the file gnome-keyring keeps the login keyring in."""
     data_home = os.getenv("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(data_home) / "keyrings" / "login.keyring"
-
-
-def _keyring_is_locked() -> bool | None:
-    """Report whether the default Secret Service collection is locked; None if it is missing."""
-    import contextlib
-
-    import secretstorage
-
-    try:
-        with contextlib.closing(secretstorage.dbus_init()) as connection:
-            return bool(secretstorage.get_default_collection(connection).is_locked())
-    except secretstorage.exceptions.SecretStorageException:
-        return None
 
 
 # =============================================================================
@@ -1423,7 +1398,7 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
 
     first_time = not _login_keyring_file().exists()
     # Checked only for an existing keyring: probing a missing one asks gnome-keyring to prompt.
-    if not first_time and _keyring_is_locked() is False:
+    if not first_time and os_keyring.default_collection_locked() is False:
         pending.unlink(missing_ok=True)
         print_info(MESSAGES.devcontainer.keyring_already_unlocked, prefix=False)
         return True
@@ -1464,7 +1439,7 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
         check=False,
         quiet=True,
     )
-    locked = _keyring_is_locked()
+    locked = os_keyring.default_collection_locked()
     if locked is None:
         print_error(ERRORS.devcontainer.keyring_not_created)
         return False

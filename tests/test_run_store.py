@@ -35,7 +35,6 @@ from devops_cli.ai.run_store import (
 )
 from devops_cli.commands import ai_gateway
 from devops_cli.commands import review as review_commands
-from devops_cli.config import settings as settings_module
 from devops_cli.config.settings import (
     AITaskOverride,
     get_runs_index_password,
@@ -46,7 +45,7 @@ from devops_cli.k8s import node_port
 from devops_cli.main import app
 from tests.support.config_writes import written_keys
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -259,7 +258,6 @@ def test_connect_finds_the_index_saves_it_and_indexes_local_runs(
     monkeypatch.setattr(RunIndex, "connect", classmethod(connect))
     # Secrets go to an in-memory store, never a keyring the test machine may hold.
     monkeypatch.setenv("DEVOPS_CLI_HEADLESS_AUTH", "true")
-    monkeypatch.setattr(settings_module, "_EPHEMERAL_CI_SECRETS", {})
     save_run(new_run(Mechanism.GATEWAY_TUNE, setup={}, subject={}, results={}))
 
     result = cli.invoke(app, ["ai", "runs", "connect"])

@@ -18,7 +18,7 @@ from devops_cli.ai.agents.capabilities import (
 )
 from devops_cli.ai.review_schema import ReviewResult
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 class MathCapability(BaseCapability):

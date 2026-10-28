@@ -21,7 +21,7 @@ from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.config.settings import Settings
 from tests.support.fakes.clock import ClockFake
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 @pytest.fixture(autouse=True)

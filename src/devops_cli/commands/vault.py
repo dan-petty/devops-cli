@@ -16,7 +16,7 @@ from devops_cli.config.constants import (
     CONST_VAULT_TOKEN_REJECTED_STATUSES,
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
-from devops_cli.config.settings import (
+from devops_cli.config.os_keyring import (
     SecretStorageError,
     keyring_delete,
     keyring_read,

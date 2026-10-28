@@ -93,7 +93,7 @@ from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import StubWeb
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/roadmap"
 # An open planning bucket: a milestone with any title, which no job reads as a version.

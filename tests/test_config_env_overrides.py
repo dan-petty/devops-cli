@@ -11,7 +11,7 @@ from devops_cli.ai.review.runner import _make_review_clients
 from devops_cli.config import settings
 from devops_cli.exceptions import ConfigurationError
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def test_load_settings_applies_env_overrides_for_non_secret_fields(

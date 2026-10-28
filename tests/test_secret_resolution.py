@@ -38,8 +38,9 @@ from devops_cli.security.vault_lease import (
     login_kubernetes,
     read_service_account_token,
 )
+from tests.support.fakes.keyring import FakeKeyring
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 @pytest.fixture(autouse=True)
@@ -108,13 +109,13 @@ def test_default_chain_order_is_keyring_vault_environment_settings() -> None:
     assert [p.name for p in resolver.providers] == ["keyring", "vault", "environment", "settings"]
 
 
-def test_keyring_outranks_environment_and_settings() -> None:
+def test_keyring_outranks_environment_and_settings(keyring_store: FakeKeyring) -> None:
     """The OS keyring is canonical and wins over every other source."""
     settings = SimpleNamespace(section=SimpleNamespace(value="from-settings"))
     resolver = build_default_resolver(settings_source=lambda: settings)
+    keyring_store.values["test_secret"] = "from-keyring"
 
     with (
-        patch("devops_cli.config.settings.get_keyring_secret", return_value="from-keyring"),
         patch.dict("os.environ", {"TEST_SECRET": "from-env"}),
         patch.object(VaultProvider, "get", return_value=None),
     ):
@@ -127,7 +128,6 @@ def test_environment_outranks_settings() -> None:
     resolver = build_default_resolver(settings_source=lambda: settings)
 
     with (
-        patch("devops_cli.config.settings.get_keyring_secret", return_value=None),
         patch.dict("os.environ", {"TEST_SECRET": "from-env"}),
         patch.object(VaultProvider, "get", return_value=None),
     ):
@@ -140,7 +140,6 @@ def test_settings_answer_only_as_last_resort() -> None:
     resolver = build_default_resolver(settings_source=lambda: settings)
 
     with (
-        patch("devops_cli.config.settings.get_keyring_secret", return_value=None),
         patch.dict("os.environ", {"TEST_SECRET": ""}),
         patch.object(VaultProvider, "get", return_value=None),
     ):
@@ -158,7 +157,6 @@ def test_cached_resolver_never_serves_a_stale_settings_snapshot() -> None:
     second = SimpleNamespace(section=SimpleNamespace(value="second-config"))
 
     with (
-        patch("devops_cli.config.settings.get_keyring_secret", return_value=None),
         patch.dict("os.environ", {"TEST_SECRET": ""}),
         patch.object(VaultProvider, "get", return_value=None),
     ):
@@ -290,7 +288,9 @@ def test_provider_failures_are_contained() -> None:
     broker.read_secret.side_effect = VaultUnreachableError("vault unreachable")
     assert VaultProvider(broker=broker).get(_ref()) is None
 
-    with patch("devops_cli.config.settings.get_keyring_secret", side_effect=RuntimeError("locked")):
+    with patch(
+        "devops_cli.config.os_keyring.get_keyring_secret", side_effect=RuntimeError("locked")
+    ):
         assert KeyringProvider().get(_ref()) is None
 
 

@@ -137,7 +137,7 @@ class KeyringProvider:
         """Look the secret up by its keyring key, when it defines one."""
         if not ref.keyring_key:
             return None
-        from devops_cli.config.settings import get_keyring_secret
+        from devops_cli.config.os_keyring import get_keyring_secret
 
         try:
             return get_keyring_secret(ref.keyring_key)

@@ -1017,7 +1017,7 @@ _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True)
 """A level, by whether a loopback answer and an RFC 1918 answer reached the dial."""
 
 
-@pytest.mark.usefixtures("mock_keyring", "process_fake")
+@pytest.mark.usefixtures("keyring_store", "process_fake")
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
 @pytest.mark.parametrize("caller", list(_expected_levels(False)))
 def test_each_caller_dials_at_its_level(
@@ -1055,7 +1055,7 @@ def test_each_caller_dials_at_its_level(
 _METADATA_ADDRESS = "169.254.169.254"
 
 
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("keyring_store")
 @pytest.mark.parametrize("caller", list(_ai_service_levels(False)))
 def test_each_ai_service_caller_dials_the_address_it_checked(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caller: str
@@ -1067,7 +1067,7 @@ def test_each_ai_service_caller_dials_the_address_it_checked(
     Now the connect resolves the name once and dials the address it checked; a later connect
     resolves again and refuses the metadata answer. Neither the name nor the metadata address
     reaches the socket. The engines that the embedding benchmark builds read the Valkey password
-    from the keyring, which `mock_keyring` fakes.
+    from the keyring, which `keyring_store` fakes.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
     scripted_resolver(
@@ -1081,7 +1081,7 @@ def test_each_ai_service_caller_dials_the_address_it_checked(
     assert [host for host, _ in recorder.dialled if host in unvetted] == []
 
 
-@pytest.mark.usefixtures("mock_keyring", "process_fake")
+@pytest.mark.usefixtures("keyring_store", "process_fake")
 @pytest.mark.parametrize("caller", list(_k8s_service_calls()))
 def test_each_k8s_service_caller_dials_the_address_it_checked(
     monkeypatch: pytest.MonkeyPatch, caller: str

@@ -1193,7 +1193,7 @@ def test_cloudflare_client_request_does_not_retry_403() -> None:
         assert len(sleep_calls) == 0
 
 
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("keyring_store")
 @pytest.mark.parametrize(
     "argv",
     [

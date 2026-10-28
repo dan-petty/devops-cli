@@ -29,7 +29,7 @@ from devops_cli.models.library import (
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

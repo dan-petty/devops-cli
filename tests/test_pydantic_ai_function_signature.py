@@ -31,7 +31,7 @@ from devops_cli.ai.function_signature import (
     signature_from_tool,
 )
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 class VulnerabilityReport(BaseModel):

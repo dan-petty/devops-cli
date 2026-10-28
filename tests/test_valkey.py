@@ -211,7 +211,7 @@ _REFUSED_URLS = [
 _ADDRESS_FLAGS = frozenset({"--url", "--host", "--port", "-p"})
 
 
-@pytest.mark.usefixtures("mock_keyring")
+@pytest.mark.usefixtures("keyring_store")
 class TestValkeyUrl:
     """One rule validates each Valkey URL: `valkey.url`, `runs.index_url` and the `--url` option.
 
@@ -933,7 +933,7 @@ def test_valkey_cli_error_and_edge_cases() -> None:
 
 
 def test_ai_runs_connect_brackets_ipv6_host(
-    monkeypatch: pytest.MonkeyPatch, mock_keyring: None
+    monkeypatch: pytest.MonkeyPatch, keyring_store: None
 ) -> None:
     """Verify devops ai runs connect brackets IPv6 host in the Valkey index URL."""
     from devops_cli.commands.ai_runs import app as ai_runs_app

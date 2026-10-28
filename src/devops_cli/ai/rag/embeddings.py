@@ -419,7 +419,7 @@ class EmbeddingsEngine:
             "copilot",
             CONST_AI_GATEWAY_PROVIDER,
         ):
-            from devops_cli.config.settings import get_keyring_secret
+            from devops_cli.config.os_keyring import get_keyring_secret
 
             self.api_key = os.environ.get("OPENAI_API_KEY") or get_keyring_secret("ai_api_key")
         task_timeout = (

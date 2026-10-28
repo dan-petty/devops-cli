@@ -14,7 +14,7 @@ from devops_cli.ai.review.history import review_subject
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.commands.review import app as review_app
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

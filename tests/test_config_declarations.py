@@ -14,7 +14,7 @@ from devops_cli.config import env
 from devops_cli.config.settings import Settings, dotted_get
 from devops_cli.security.secrets import build_secret_registry
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 # Every variable that set a setting or a credential before the declaration moved onto the fields
 # (origin/main 22654249): the option map, the variables of each credential and the spec list.

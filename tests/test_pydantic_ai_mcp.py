@@ -34,7 +34,7 @@ from devops_cli.ai.mcp.toolset import (
 )
 from devops_cli.ai.tools.mcp_bridge import get_devops_mcp_toolset, get_mcp_agent_tools
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def test_native_mcp_type_reexports() -> None:

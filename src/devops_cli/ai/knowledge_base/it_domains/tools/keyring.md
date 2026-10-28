@@ -20,12 +20,13 @@ The Python `keyring` library provides a unified, cross-platform interface to the
 
 ## 2. Usage Information & Architecture
 
-- **Zero-Trust Storage Architecture**: `src/devops_cli/config/settings.py` prioritizes OS Keyring for all sensitive credentials (`grafana.token`, `ai.api_key`, `minikube.password`). GitHub's token is not among them: it is gh's own login, which gh keeps in the same system keyring.
+- **Zero-Trust Storage Architecture**: `src/devops_cli/config/os_keyring.py` is the one module that reaches the OS keyring and the Secret Service. Every sensitive credential (`grafana.token`, `ai.api_key`, `minikube.password`) is stored there. GitHub's token is not among them: it is gh's own login, which gh keeps in the same system keyring.
 - **Service Namespace**: All stored credentials are isolated under the `CONST_KEYRING_SERVICE = "devops-cli"` namespace.
-- **Fallback Hierarchy**:
-  1. Environment variable override (e.g. `DEVOPS_CLI_GRAFANA_TOKEN`).
-  2. OS Keyring secure lookup via `keyring.get_password(CONST_KEYRING_SERVICE, key)`.
-  3. Plaintext configuration file lookup (`config.yaml`).
+- **Fallback Hierarchy** (`security.secrets.build_default_resolver`):
+  1. OS Keyring lookup through `os_keyring.get_keyring_secret`.
+  2. Vault.
+  3. Environment variable (e.g. `DEVOPS_CLI_GRAFANA_TOKEN`).
+  4. Configuration file (`config.yaml`).
 - **CLI Commands**: `devops config set <key> <val>` automatically routes secrets to Keyring.
 
 ---

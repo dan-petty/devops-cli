@@ -10,7 +10,7 @@ import pytest
 
 from devops_cli.k8s.service_proxy import ServiceRef, resolve_proxy_connection
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 CLUSTER_URL = "k8s://llm/qdrant:6333"
 DIRECT_URL = "http://qdrant.internal:6333"

@@ -497,9 +497,9 @@ def bootstrap_openwebui(
     if ok:
         print_success(f"Open-WebUI admin account ready: [bold]{display_email}[/bold]")
         if created:
-            from devops_cli.config.settings import _keyring_set
+            from devops_cli.config.os_keyring import store_keyring_secret
 
-            _keyring_set("openwebui_admin_password", effective_password)
+            store_keyring_secret("openwebui_admin_password", effective_password)
             if was_generated:
                 if show_password:
                     print_success(

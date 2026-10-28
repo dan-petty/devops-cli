@@ -16,7 +16,7 @@ from typing import Any
 
 from devops_cli.config.commands import BIN_COSIGN, build_cosign_sign_cmd, build_cosign_verify_cmd
 from devops_cli.config.defaults import DEFAULT_COSIGN_TIMEOUT_SECONDS
-from devops_cli.config.settings import get_keyring_secret
+from devops_cli.config.os_keyring import get_keyring_secret
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.docker import CosignError, CosignVerificationError
 from devops_cli.exceptions.tools import DependencyError

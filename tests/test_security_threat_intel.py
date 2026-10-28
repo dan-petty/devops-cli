@@ -14,7 +14,7 @@ from devops_cli.security.vulnerability_lookup import CloudflareRadarClient
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 @pytest.fixture(autouse=True)

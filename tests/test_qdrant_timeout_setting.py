@@ -31,7 +31,7 @@ def _configure_qdrant(config: Path, timeout: float) -> None:
 
 
 @pytest.fixture
-def no_secrets(monkeypatch: pytest.MonkeyPatch, mock_keyring: object) -> None:
+def no_secrets(monkeypatch: pytest.MonkeyPatch, keyring_store: object) -> None:
     """Resolve the API keys without the keyring, and the Valkey password from an empty keyring.
 
     An embeddings engine reads the Valkey password when it builds its Valkey cache tier.

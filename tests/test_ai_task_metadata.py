@@ -23,7 +23,7 @@ from tests.support.fakes.github import (
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 
 

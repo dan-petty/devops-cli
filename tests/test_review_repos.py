@@ -13,7 +13,7 @@ import pytest
 from devops_cli.ai.review.runner import _detect_base_branch, _is_allowed_review_boundary
 from devops_cli.config.settings import Settings
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 class TestReviewReposSubdirectories:

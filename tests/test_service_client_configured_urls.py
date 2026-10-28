@@ -14,7 +14,7 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.main import app
 from tests.llm_stream_fakes import as_requested
 
-pytestmark = pytest.mark.usefixtures("mock_keyring")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
 

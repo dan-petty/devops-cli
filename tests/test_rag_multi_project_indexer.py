@@ -31,7 +31,7 @@ CONST_RAG_PAYLOAD_INDEXES = getattr(
 )
 
 pytestmark = [
-    pytest.mark.usefixtures("mock_keyring"),
+    pytest.mark.usefixtures("keyring_store"),
     pytest.mark.unreachable("example.com"),
 ]
 

@@ -21,7 +21,7 @@ import pytest
 
 from devops_cli.k8s.gitea_doctor import run_gitea_checks
 from devops_cli.models.k8s import DoctorCheck
-from tests.cluster_secret_fakes import FakeKeyring
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.web_fakes import StubWeb
 
@@ -192,10 +192,10 @@ def _basic_auth() -> str:
 
 
 @pytest.fixture
-def keyring_with_password(mock_keyring: FakeKeyring) -> FakeKeyring:
+def keyring_with_password(keyring_store: FakeKeyring) -> FakeKeyring:
     """The keyring that holds the Gitea admin password, as `devops config set` stores it."""
-    mock_keyring.values["gitea_admin_password"] = PASSWORD
-    return mock_keyring
+    keyring_store.values["gitea_admin_password"] = PASSWORD
+    return keyring_store
 
 
 def _run(
@@ -656,7 +656,7 @@ def test_an_empty_ssh_url_passes_the_clone_url_check(
 
 
 def test_without_the_admin_password_no_repository_is_made(
-    process_fake: ProcessFake, stub_web: StubWeb, mock_keyring: FakeKeyring
+    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
 ) -> None:
     """An empty keyring fails the clone-URL check, names the setting, and sends no create."""
     checks, _ = _run(process_fake, stub_web)
@@ -668,7 +668,7 @@ def test_without_the_admin_password_no_repository_is_made(
         )
     }
     assert [r.method for r in stub_web.sent] == ["GET", "GET", "GET"]
-    assert "gitea_admin_password" in mock_keyring.reads
+    assert "gitea_admin_password" in keyring_store.reads
 
 
 @pytest.mark.usefixtures("keyring_with_password")
@@ -778,14 +778,14 @@ def test_the_command_prints_a_table_and_exits_2_when_a_check_fails(
 def test_the_dry_run_lists_the_requests_and_makes_none(
     process_fake: ProcessFake,
     stub_web: StubWeb,
-    mock_keyring: FakeKeyring,
+    keyring_store: FakeKeyring,
     cli: Callable[..., Any],
 ) -> None:
     """The dry run lists every kubectl call and HTTP request, and reads no keyring entry."""
     result = cli("k8s", "doctor", "--stack", "gitea", "--dry-run", "--context", "lab")
 
     assert result.exit_code == 0
-    assert (process_fake.calls, stub_web.sent, mock_keyring.secret_reads()) == ([], [], set())
+    assert (process_fake.calls, stub_web.sent, keyring_store.secret_reads()) == ([], [], set())
     get = "kubectl --context lab get"
     assert result.stdout.splitlines() == [
         "Planned Gitea Stack Checks:",
