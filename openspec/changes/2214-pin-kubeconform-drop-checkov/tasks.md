@@ -1,0 +1,18 @@
+# Tasks
+
+## 1. kubeconform
+
+- [ ] 1.1 Pin kubeconform 0.8.0 in `src/devops_cli/tools_lock/tools.lock`. Record its run with the command of the adapter over a manifest with two invalid resources and one resource with no schema into `tests/fixtures/scanner_runs/runs_with_findings.json`, and its `-verbose -skip ConfigMap` run into `tests/fixtures/scanner_runs/kubeconform_verbose_run.json`. Write the failing tests: the recorded run gives three HIGH findings at their objects, the verbose run gives none for `statusValid` and `statusSkipped`, a missing kubeconform is `unavailable` with no findings (`tests/test_security_kubeconform.py`), each run with findings is of the locked version and no pinned scanner of the registry has built-in patterns (`tests/test_scanner_contract.py`), `devops k8s validate` exits 1 when kubeconform did not run (`tests/commands/test_k8s_validate.py`), and `k8s_validate_manifests` replies with the outcome (`tests/test_builtin_tools.py`). Verify with `uv run devops ci test tests/test_security_kubeconform.py tests/test_scanner_contract.py tests/commands/test_k8s_validate.py tests/test_builtin_tools.py`
+- [ ] 1.2 Rewrite the parser of `src/devops_cli/security/kubeconform.py` for the `resources` of the report, and delete `_parse_kubeconform_line`, the fallback and its tests. Make `devops k8s validate` report a validation that did not run, give its tests in `tests/test_k8s.py` the outcome of a scan, and make `k8s_validate_manifests` run the adapter. Give the kubeconform samples of `tests/test_consolidation_security_scanner_base.py` the shape that kubeconform writes. Verify with `uv run devops ci test tests/test_security_kubeconform.py tests/test_scanner_contract.py tests/commands/test_k8s_validate.py tests/test_k8s.py tests/test_k8s_manifest_validation.py tests/test_builtin_tools.py tests/test_consolidation_security_scanner_base.py`
+- [ ] 1.3 Name the pinned version in `src/devops_cli/ai/knowledge_base/it_domains/tools/kubeconform.md`. Verify with `uv run devops ci test tests/test_kb_manuals_metadata.py`
+
+## 2. Checkov
+
+- [ ] 2.1 Write the failing tests: the registry holds `trivy-config` and no `checkov`, and `trivy-config` starts `trivy config` (`tests/test_consolidation_security_scanner_base.py`, `tests/test_secops.py`), `scan_iac` runs Trivy's misconfiguration scan (`tests/test_builtin_tools.py`), and `devops scan` has no `iac` command (`tests/test_scan.py`). Verify with `uv run devops ci test tests/test_consolidation_security_scanner_base.py tests/test_secops.py tests/test_builtin_tools.py tests/test_scan.py`
+- [ ] 2.2 Add `TrivyConfigScanner` to `src/devops_cli/security/trivy.py` and put it in the registry in the place of `CheckovScanner`. Make `scan_iac` run it. Delete `src/devops_cli/security/checkov.py`, `devops scan iac`, their help and message strings, the constants that only the Checkov fallback read, and `tests/test_security_checkov.py`. Move the refused-program and process-JSON tests to a scanner that the registry holds. Verify with `uv run devops ci test tests/test_consolidation_security_scanner_base.py tests/test_secops.py tests/test_builtin_tools.py tests/test_scan.py tests/test_suite_refuses_real_programs.py tests/test_consolidation_process_json.py tests/test_kb_manuals_metadata.py`
+- [ ] 2.3 Delete the knowledge base page of Checkov and its index entries, and correct `docs/DEVCONTAINER_USAGE.md` and `.github/labels.yml`. Regenerate the documents. Verify with `uv run devops docs generate --sync-readme` and `uv run devops docs check`
+
+## Workflow follow-up
+
+- tflint and dive are in the scanner registry and not in `tools.lock`, and the tflint adapter keeps a hand-written fallback: #FOLLOWUP.
+- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
