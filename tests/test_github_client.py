@@ -9,6 +9,7 @@ import subprocess
 import time
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlencode
 
 import httpx2
 import pytest
@@ -26,11 +27,14 @@ from devops_cli.github.client import (
     PullRequestFile,
     RepoInfo,
 )
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from tests.support.fakes.github import (
+    API,
     github_json,
     github_redirect,
     github_text,
+    quota_headers,
 )
 from tests.support.paths import FIXTURES
 
@@ -624,3 +628,66 @@ def test_gh_cli_client_api_paginate() -> None:
             quiet=True,
             timeout=DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS,
         )
+
+
+_SEARCHED_REPO = "octo/repo"
+_SEARCHED_PHRASE = "devops-review-finding"
+
+
+def _search_page_path(page: int) -> str:
+    """The search request of page `page` for the phrase in the bodies of the repository's issues."""
+    query = f'"{_SEARCHED_PHRASE}" in:body is:issue repo:{_SEARCHED_REPO}'
+    return f"/search/issues?{urlencode({'q': query, 'per_page': 100, 'page': page})}"
+
+
+def _search_answer(numbers: range, *, total: int, incomplete: bool = False) -> httpx2.Response:
+    """A page of issue search results, one open issue for each number, with the search quota."""
+    items = [{"number": n, "state": "open", "state_reason": None, "body": f"#{n}"} for n in numbers]
+    payload = {"total_count": total, "incomplete_results": incomplete, "items": items}
+    return github_json(payload, headers=quota_headers(29, resource="search", limit=30))
+
+
+@pytest.fixture
+def search_quota(github_api: GitHubApiFake) -> GitHubApiFake:
+    """The fake GitHub API with a fresh search quota, so pacing never refreshes it through gh."""
+    get_github_rate_limiter().update_quota(
+        "search", remaining=30, limit=30, reset_epoch=time.time() + 60.0
+    )
+    return github_api
+
+
+def test_an_issue_search_is_read_from_every_page(search_quota: GitHubApiFake) -> None:
+    """101 results come as a page of 100 and a page of 1, and both pages are read (#2419)."""
+    search_quota.route("GET", _search_page_path(1), _search_answer(range(1, 101), total=101))
+    search_quota.route("GET", _search_page_path(2), _search_answer(range(101, 102), total=101))
+
+    hits = _client().search_issue_bodies(_SEARCHED_REPO, _SEARCHED_PHRASE)
+
+    assert (
+        [hit.number for hit in hits],
+        {(hit.state, hit.state_reason) for hit in hits},
+        search_quota.requested,
+    ) == (
+        list(range(1, 102)),
+        {("open", None)},
+        [f"GET {API}{_search_page_path(1)}", f"GET {API}{_search_page_path(2)}"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("total", "incomplete"),
+    [(1, True), (1001, False)],
+    ids=["incomplete", "past_the_result_cap"],
+)
+def test_an_issue_search_that_is_not_complete_is_unread(
+    search_quota: GitHubApiFake, total: int, incomplete: bool
+) -> None:
+    """A page GitHub marks incomplete, or more results than search returns, is never read as all
+    of them (#2419)."""
+    answer = _search_answer(range(1, 2), total=total, incomplete=incomplete)
+    search_quota.route("GET", _search_page_path(1), answer)
+
+    with pytest.raises(GitHubUnreadError) as raised:
+        _client().search_issue_bodies(_SEARCHED_REPO, _SEARCHED_PHRASE)
+
+    assert (raised.value.details["path"], len(search_quota.requested)) == (_search_page_path(1), 1)
