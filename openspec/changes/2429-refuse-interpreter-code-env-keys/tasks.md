@@ -11,7 +11,7 @@
 
 - [x] 2.1 Add a failing test: with each refused key in the environment, the isolated child environment holds none of them
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
-- [ ] 2.2 Remove `PYTHONPATH` and `PYTHONHOME` from `DEFAULT_ALLOWED_ENV_VARS`
+- [x] 2.2 Remove `PYTHONPATH` and `PYTHONHOME` from `DEFAULT_ALLOWED_ENV_VARS`
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_ci.py tests/test_cli_startup_imports.py`
 - [ ] 2.3 Write the child environment bullet of `ARCHITECTURE.md` and the purpose of the `subprocess-environment` spec for the zsh and interpreter keys, and name the git keys (#2483)
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
