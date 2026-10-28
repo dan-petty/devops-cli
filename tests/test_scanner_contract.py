@@ -95,12 +95,14 @@ def test_each_recording_is_of_the_version_the_tools_lock_pins(scanner_fake: Scan
 
 
 def test_each_run_with_findings_is_of_the_version_the_tools_lock_pins() -> None:
-    """A tool bumped in the lock has its run with findings recorded again (#2214)."""
+    """A tool bumped in the lock has its run with findings recorded again (#2214). The images pin
+    uv, and the tools lock does not (#2106), so the test does not compare the run of uv."""
     runs = json.loads((FIXTURES / "scanner_runs" / "runs_with_findings.json").read_text())
     locked = load_tools_lock().tools()
+    pinned_by_the_lock = [tool for tool in runs if tool != "uv"]
 
-    assert {tool: run["version"] for tool, run in runs.items()} == {
-        tool: locked[tool].version for tool in runs
+    assert {tool: runs[tool]["version"] for tool in pinned_by_the_lock} == {
+        tool: locked[tool].version for tool in pinned_by_the_lock
     }
 
 
