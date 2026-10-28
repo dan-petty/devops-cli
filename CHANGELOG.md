@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.3](https://github.com/dan-petty/devops-cli/compare/v0.8.2...v0.8.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **ai:** the gateway sweep's URL error names no credential ([#2400](https://github.com/dan-petty/devops-cli/issues/2400)) ([2e6f1fd](https://github.com/dan-petty/devops-cli/commit/2e6f1fdb3bcbfaecc882f72c47607d59f3f9ad83)), closes [#909](https://github.com/dan-petty/devops-cli/issues/909)
+* **config:** exit 1 when audit-keys finds a plaintext secret ([#2401](https://github.com/dan-petty/devops-cli/issues/2401)) ([ad0114f](https://github.com/dan-petty/devops-cli/commit/ad0114f39ab61ec6630109f0c658ad8eea13fadf)), closes [#1469](https://github.com/dan-petty/devops-cli/issues/1469)
+* **security:** drop the Go ignores that the pinned gh build does not need ([#2402](https://github.com/dan-petty/devops-cli/issues/2402)) ([6052083](https://github.com/dan-petty/devops-cli/commit/605208329b8f29e1f35254e9f62a12048df13974)), closes [#1492](https://github.com/dan-petty/devops-cli/issues/1492)
+* **security:** refuse every loader and shell key that loads code into a child ([#2405](https://github.com/dan-petty/devops-cli/issues/2405)) ([86d5bce](https://github.com/dan-petty/devops-cli/commit/86d5bce9971664d6247e5665eacb5e5d1e380b5e)), closes [#2205](https://github.com/dan-petty/devops-cli/issues/2205)
+
 ## [0.8.2](https://github.com/dan-petty/devops-cli/compare/v0.8.1...v0.8.2) (2026-10-28)
 
 
