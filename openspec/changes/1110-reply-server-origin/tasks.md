@@ -20,7 +20,7 @@
 
 - [x] Add failing tests: `devops ai cost report --by backend` shows `example.com:11434` for `http://user:pw@example.com:11434` and for `example.com:11434`, and `unknown` for `example.com:`; the review benchmark shows `example.com` for `u:pw@example.com:11434` and `unknown` for `example.com:`
   - Verification: `uv run devops ci test tests/test_ai_served_by.py tests/test_review_profile.py`
-- [ ] Add `served_by_authority` next to the label helper, show its label in the cost report and its host in the review benchmark, and delete the `urlparse` and `urlsplit` reads of served_by
+- [x] Add `served_by_authority` next to the label helper, show its label in the cost report and its host in the review benchmark, and delete the `urlparse` and `urlsplit` reads of served_by
   - Verification: `uv run devops ci test tests/test_ai_served_by.py tests/test_review_profile.py`
 
 ## 4. Archive
