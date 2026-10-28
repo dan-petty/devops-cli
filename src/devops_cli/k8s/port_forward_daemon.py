@@ -37,6 +37,40 @@ def process_start_ticks(pid: int) -> int | None:
     return int(stat[stat.rindex(b")") + 2 :].split()[19])
 
 
+def process_is_running(pid: int, start_ticks: int | None) -> bool:
+    """Whether the process started as `pid` at `start_ticks` still runs.
+
+    Where /proc can be read, the pid must still carry the start time recorded at launch, so a
+    pid the kernel has since handed to another process does not count. Elsewhere the pid only
+    has to exist.
+    """
+    if (_PROC_ROOT / "self" / "stat").is_file():
+        return start_ticks is not None and process_start_ticks(pid) == start_ticks
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+@contextmanager
+def state_file_lock(state_file: Path) -> Iterator[None]:
+    """Hold the exclusive lock on the `.lock` file beside `state_file`.
+
+    Not reentrant: the lock belongs to an open file, so taking it again, even within one
+    process, waits on itself.
+    """
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = os.open(
+        state_file.with_suffix(".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600
+    )
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(lock_fd)
+
+
 class PortForwardInfo(BaseModel):
     """Metadata tracking a running background port-forward process."""
 
@@ -53,21 +87,8 @@ class PortForwardInfo(BaseModel):
 
     @property
     def is_alive(self) -> bool:
-        """Check whether the recorded forward is still running.
-
-        Where /proc can be read, the pid must still carry the start time recorded at launch,
-        so a pid the kernel has since handed to another process does not count. Elsewhere the
-        pid only has to exist.
-        """
-        if (_PROC_ROOT / "self" / "stat").is_file():
-            return self.start_ticks is not None and (
-                process_start_ticks(self.pid) == self.start_ticks
-            )
-        try:
-            os.kill(self.pid, 0)
-            return True
-        except OSError:
-            return False
+        """Check whether the recorded forward is still running."""
+        return process_is_running(self.pid, self.start_ticks)
 
 
 def _running(forwards: list[PortForwardInfo]) -> list[PortForwardInfo]:
@@ -97,20 +118,9 @@ class PortForwardDaemonManager:
 
     @contextmanager
     def locked(self) -> Iterator[None]:
-        """Hold the exclusive lock on the state file's sibling `.lock` file.
-
-        Not reentrant: the lock belongs to an open file, so taking it again, even within one
-        process, waits on itself.
-        """
-        self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        lock_fd = os.open(
-            self.state_file.with_suffix(".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600
-        )
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        """Hold the exclusive lock on the state file (`state_file_lock`)."""
+        with state_file_lock(self.state_file):
             yield
-        finally:
-            os.close(lock_fd)
 
     def _read(self) -> list[PortForwardInfo]:
         """Return every recorded forward, running or not."""

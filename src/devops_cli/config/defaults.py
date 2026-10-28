@@ -479,6 +479,9 @@ DEFAULT_CERT_COMMON_NAME: str = "homelab.local"
 DEFAULT_K8S_LOGS_TAIL: int = 100
 DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS: float = 0.8
 DEFAULT_REST_HOST: str = "127.0.0.1"
+# The local port of `devops k8s tunnel`, which forwards the Kubernetes API route of the
+# Cloudflare tunnel (k8s/README.md, "The Kubernetes API at k8s.<domain>").
+DEFAULT_K8S_TUNNEL_PORT: int = 16443
 DEFAULT_REST_PORT: int = 8000
 DEFAULT_MCP_PORT: int = 8000
 DEFAULT_ARGOCD_PORT: int = 8080

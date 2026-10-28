@@ -7,7 +7,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Literal
 
 from devops_cli.config.defaults import (
     DEFAULT_K8S_CACHE_TTL_SECONDS,
@@ -22,11 +22,14 @@ from devops_cli.k8s.api import (
     KubernetesApis,
     KubernetesApiSource,
     KubernetesClientSource,
+    api_error_type,
 )
 from devops_cli.k8s.context import resolve_context
 from devops_cli.security.sanitizer import mask_secrets
 
 logger = logging.getLogger(__name__)
+
+_VersionProbe = Literal["ok", "refused", "down"]
 
 
 def _extract_line(buffer: str, max_line_chars: int) -> tuple[str | None, str]:
@@ -165,6 +168,22 @@ class KubernetesService:
             context, "Cannot reach the Kubernetes API server to manipulate custom resources"
         ).custom_objects
 
+    def _probe_version(self, context: str | None, timeout: float) -> tuple[_VersionProbe, Any]:
+        """Ask the API server of `context` for `/version`.
+
+        "ok" with the version info; "refused" when the API server answered with an error status,
+        such as 401 for a refused credential; "down" when no answer came.
+        """
+        if not self.load_config(context=context) or self._apis is None:
+            return "down", None
+        try:
+            return "ok", self._apis.version.get_code(_request_timeout=timeout)
+        except api_error_type():
+            return "refused", None
+        except Exception as exc:
+            logger.debug("Cluster reachability probe failed: %s", exc)
+            return "down", None
+
     def is_cluster_reachable(
         self,
         context: str | None = None,
@@ -176,30 +195,37 @@ class KubernetesService:
         if cached is not None:
             return bool(cached)
 
-        if not self.load_config(context=context) or self._apis is None:
+        outcome, info = self._probe_version(context, timeout)
+        if outcome != "ok":
             self._set_cached(cache_key, False, ttl=2.0)
             return False
-
-        try:
-            info = self._apis.version.get_code(_request_timeout=timeout)
-            version_str = (
-                getattr(info, "git_version", "")
-                or (info.get("git_version") if isinstance(info, dict) else "")
-                or ""
+        version_str = (
+            getattr(info, "git_version", "")
+            or (info.get("git_version") if isinstance(info, dict) else "")
+            or ""
+        )
+        self._set_cached(cache_key, True, ttl=self._cache_ttl)
+        if version_str:
+            self._set_cached(
+                f"server_version:{context or 'default'}",
+                version_str,
+                ttl=self._cache_ttl,
             )
-            self._set_cached(cache_key, True, ttl=self._cache_ttl)
-            if version_str:
-                self._set_cached(
-                    f"server_version:{context or 'default'}",
-                    version_str,
-                    ttl=self._cache_ttl,
-                )
-            return True
-        except Exception as exc:
-            logger.debug("Cluster reachability probe failed: %s", exc)
+        return True
 
-        self._set_cached(cache_key, False, ttl=2.0)
-        return False
+    def api_server_answers(
+        self,
+        context: str | None = None,
+        timeout: float = DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
+    ) -> bool:
+        """Whether the API server of `context` answers `GET /version` with any HTTP status.
+
+        A 401 or a 403 counts: the request reached the API server, which refused the
+        credential. A connection that fails or times out does not count. Nothing is cached, so
+        each call asks again.
+        """
+        outcome, _ = self._probe_version(context, timeout)
+        return outcome != "down"
 
     def server_version(
         self,

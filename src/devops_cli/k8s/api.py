@@ -212,3 +212,15 @@ __all__ = [
     "KubernetesClientSource",
     "VersionApi",
 ]
+
+
+def api_error_type() -> type[Exception]:
+    """The client's error for an HTTP reply of the API server, `kubernetes.client.ApiException`.
+
+    The client raises it for every status it does not take as success; a connection that fails
+    raises urllib3's errors instead.
+    """
+    from kubernetes import client as k8s_client
+
+    error: type[Exception] = k8s_client.ApiException
+    return error

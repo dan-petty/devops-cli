@@ -34,6 +34,12 @@ class KubernetesContextError(KubernetesError, ValueError):
     error_code = "K8S_CONTEXT_ERROR"
 
 
+class KubernetesTunnelError(KubernetesError):
+    """Raised when `devops k8s tunnel` cannot start, find or stop its forward (#1641)."""
+
+    error_code = "K8S_TUNNEL_ERROR"
+
+
 class ArgoCDGateError(KubernetesError):
     """Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343)."""
 

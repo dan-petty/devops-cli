@@ -746,6 +746,62 @@ devops k8s doctor [OPTIONS]
 
 ---
 
+## `devops k8s tunnel`
+
+**Keep the local end of the Kubernetes API route at k8s.\<domain\> running: one 'cloudflared access tcp' forward, for the tunnel kubeconfig context off the home network.**
+
+```bash
+devops k8s tunnel COMMAND [ARGS]...
+```
+
+### `devops k8s tunnel start`
+
+**Log in to Cloudflare Access, then start the forward to k8s.tunnel_host in the background and wait until its port accepts connections. When a recorded forward runs, report it and start no other.**
+
+```bash
+devops k8s tunnel start [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--port`, `-p` | `integer` | `16443` | Local port of the forward. |
+| `--context` | `boolean` | - | Add or update the kubeconfig cluster and context \<cluster\>-tunnel, which reach the API server through the forward. |
+| `--from-context` | `string` | - | Kubeconfig context whose cluster, user and CA data the tunnel context copies (default: k8s.context). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops k8s tunnel stop`
+
+**Stop the recorded forward and its process group, and remove its record.**
+
+```bash
+devops k8s tunnel stop [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops k8s tunnel status`
+
+**Show the recorded forward, whether its port accepts connections, and whether the API server of the tunnel context answers. A 401 or 403 counts as an answer.**
+
+```bash
+devops k8s tunnel status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--port`, `-p` | `integer` | - | Local port of the forward. |
+| `--context`, `-c` | `string` | - | Kubeconfig context to check the API server through (default: the context that 'start --context' wrote). |
+
+---
+
 ## `devops k8s volume`
 
 **Move a local-path claim to a volume on another node, and reclaim orphaned PersistentVolumes.**

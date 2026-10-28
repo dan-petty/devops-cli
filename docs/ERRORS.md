@@ -69,6 +69,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `KubernetesDeployError` | `K8S_DEPLOY_ERROR` | `1` | K8s | Raised when deploying manifests or Helm charts fails. |
 | `KubernetesError` | `K8S_ERROR` | `1` | K8s | Base exception for Kubernetes operations. |
 | `KubernetesLoggingError` | `K8S_LOGGING_ERROR` | `1` | K8s | Raised when querying cluster logs or Loki fails. |
+| `KubernetesTunnelError` | `K8S_TUNNEL_ERROR` | `1` | K8s | Raised when `devops k8s tunnel` cannot start, find or stop its forward (#1641). |
 | `LLMInferenceError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Base exception for LLM provider invocation failures. |
 | `LibraryIngestionError` | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
 | `LibraryNotFoundError` | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package could not be loaded or found in the environment. |

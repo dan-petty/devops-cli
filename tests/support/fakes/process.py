@@ -35,6 +35,8 @@ class ProcessCall:
     local_read: bool = False
     stdin: str | bytes | None = None
     check: bool = False
+    # Started with `spawn_detached`: in a session of its own, with nothing to wait for.
+    detached: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,21 @@ class ProcessAnswer:
         | Callable[[ProcessCall], subprocess.CompletedProcess[str]]
         | None
     ) = None
+    # The child that `spawn_detached` answers with, such as a process the test started itself,
+    # or a callable that takes the call and returns that child.
+    process: Any = None
+
+
+@dataclass(frozen=True)
+class EndedProcess:
+    """A detached child that ended at once with `returncode`, as a program that fails at start."""
+
+    returncode: int = 0
+    pid: int = -1
+
+    def poll(self) -> int | None:
+        """The return code: the child has ended."""
+        return self.returncode
 
 
 class ProcessFake:
@@ -177,6 +194,28 @@ class ProcessFake:
                 res.returncode, res.args, output=res.stdout, stderr=res.stderr
             )
         return res
+
+    def spawn_detached(
+        self,
+        cmd: Sequence[str] | list[str],
+        *,
+        isolate_env: bool = True,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+    ) -> Any:
+        """Record a detached start and answer with the scripted answer's `process`.
+
+        With no `process` scripted, the child has ended at once with the answer's return code.
+        """
+        call = ProcessCall(argv=tuple(cmd), capture_output=False, detached=True)
+        self.calls.append(call)
+        ans = self._match_answer(call)
+        if isinstance(ans.side_effect, BaseException):
+            raise ans.side_effect
+        if isinstance(ans.side_effect, type) and issubclass(ans.side_effect, BaseException):
+            raise ans.side_effect()
+        if ans.process is None:
+            return EndedProcess(ans.returncode)
+        return ans.process(call) if callable(ans.process) else ans.process
 
     async def run_async(
         self,

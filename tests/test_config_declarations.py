@@ -131,6 +131,13 @@ _VARIABLES_ADDED = frozenset(
     }
 )
 
+# Settings added after the declaration moved onto the fields: each has its variable by the rule.
+_VARIABLES_OF_LATER_SETTINGS = frozenset(
+    {
+        "DEVOPS_CLI_K8S_TUNNEL_HOST",  # #1641
+    }
+)
+
 _KEYRING_BEFORE = {
     "ai.api_key": "ai_api_key",
     "argocd.password": "argocd_password",
@@ -156,8 +163,12 @@ def _variables_read() -> set[str]:
     return set(env.setting_variables().values()) | credential_variables | specs
 
 
-def test_the_variables_are_those_before_and_one_for_each_read_option_that_had_none() -> None:
-    assert sorted(_variables_read()) == sorted(_VARIABLES_BEFORE | _VARIABLES_ADDED)
+def test_the_variables_are_those_before_one_for_each_read_option_that_had_none_and_later_ones() -> (
+    None
+):
+    assert sorted(_variables_read()) == sorted(
+        _VARIABLES_BEFORE | _VARIABLES_ADDED | _VARIABLES_OF_LATER_SETTINGS
+    )
 
 
 def test_the_keyring_entries_and_the_secret_keys_are_those_before() -> None:

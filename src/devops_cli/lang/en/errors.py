@@ -86,6 +86,30 @@ class K8sErrorMessages:
     resource_lookup_failed: str = "Failed to lookup Kubernetes {resource}: {exc}"
     port_forward_failed: str = "Port-forwarding to {service}:{port} failed: {exc}"
     volume_not_found: str = "PersistentVolume '{name}' not found."
+    tunnel_host_unset: str = (
+        "Set k8s.tunnel_host to the hostname of the Kubernetes API route, for example "
+        "'devops config set k8s.tunnel_host k8s.example.com'."
+    )
+    tunnel_cloudflared_missing: str = (
+        "cloudflared is not on PATH. Install it with 'devops install-tools --tool cloudflared'."
+    )
+    tunnel_login_failed: str = (
+        "The Cloudflare Access login for {host} failed with exit code {code}."
+    )
+    tunnel_port_in_use: str = (
+        "Another program listens on {listener}. Stop it, or give another port with --port."
+    )
+    tunnel_exited: str = (
+        "cloudflared stopped with exit code {code} before {listener} accepted connections. Read "
+        "its log: {log}"
+    )
+    tunnel_not_listening: str = (
+        "{listener} did not accept connections in {seconds:g} s, so the forward was stopped. Read "
+        "the cloudflared log: {log}"
+    )
+    tunnel_context_unread: str = (
+        "The kubeconfig context {context} gives no cluster, user or CA data to copy."
+    )
     volume_not_orphaned_phase: str = (
         "PersistentVolume '{name}' phase is '{phase}' (must be Released or Failed)."
     )

@@ -454,6 +454,33 @@ class K8sCommandHelp:
         "Move a local-path claim to a volume on another node, and reclaim orphaned "
         "PersistentVolumes."
     )
+    tunnel_app: str = (
+        "Keep the local end of the Kubernetes API route at k8s.<domain> running: one "
+        "'cloudflared access tcp' forward, for the tunnel kubeconfig context off the home network."
+    )
+    tunnel_start: str = (
+        "Log in to Cloudflare Access, then start the forward to k8s.tunnel_host in the background "
+        "and wait until its port accepts connections. When a recorded forward runs, report it and "
+        "start no other."
+    )
+    tunnel_stop: str = "Stop the recorded forward and its process group, and remove its record."
+    tunnel_status: str = (
+        "Show the recorded forward, whether its port accepts connections, and whether the API "
+        "server of the tunnel context answers. A 401 or 403 counts as an answer."
+    )
+    tunnel_port: str = "Local port of the forward."
+    tunnel_add_context: str = (
+        "Add or update the kubeconfig cluster and context <cluster>-tunnel, which reach the API "
+        "server through the forward."
+    )
+    tunnel_from_context: str = (
+        "Kubeconfig context whose cluster, user and CA data the tunnel context copies (default: "
+        "k8s.context)."
+    )
+    tunnel_status_context: str = (
+        "Kubeconfig context to check the API server through (default: the context that 'start "
+        "--context' wrote)."
+    )
     volume_reclaim: str = (
         "Safely reclaim an orphaned PersistentVolume verified to have no active claims or mounts."
     )
