@@ -35,6 +35,7 @@ from devops_cli.config.settings import (
     SecretStorageError,
     Settings,
     _keyring_has,
+    config_layer_paths,
     dotted_get,
     dotted_set,
     get_active_config_path,
@@ -682,7 +683,7 @@ def audit_keys_cmd(
     backend_priority = getattr(active_backend, "priority", 0)
 
     scanned_files = [
-        get_active_config_path(),
+        *(path for path in config_layer_paths() if path is not None),
         Path.cwd() / "config.yaml",
         Path.cwd() / ".devops" / "config.yaml",
     ]
