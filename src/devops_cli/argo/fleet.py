@@ -14,7 +14,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.http.validation import validate_service_url
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import configured_level
 from devops_cli.models.argo import ArgoFleetAppTarget, ArgoFleetSyncResult
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
@@ -36,9 +37,10 @@ def _execute_cluster_sync(
     prune: bool = False,
     force: bool = False,
 ) -> None:
-    """Execute live ArgoCD REST API sync against target cluster."""
-    import httpx2
+    """Execute live ArgoCD REST API sync against target cluster.
 
+    The client dials the configured level: loopback, or private with `ai.allow_private_network`.
+    """
     settings = load_settings()
     from devops_cli.config.settings import get_argocd_token
     from devops_cli.k8s.credentials import get_or_mint_argocd_token
@@ -46,7 +48,6 @@ def _execute_cluster_sync(
     if not settings.argocd.url:
         raise ConfigurationError("ArgoCD URL is not configured in settings", key="argocd.url")
 
-    validate_service_url(settings.argocd.url, "ArgoCD", allow=settings.ai.allow_private_network)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
     if token and not token.startswith("*"):
@@ -57,7 +58,7 @@ def _execute_cluster_sync(
     url = f"{base}/api/v1/applications/{target_app}/sync"
     payload = build_sync_request_body(prune=prune, force=force, app_namespace="argocd")
 
-    with httpx2.Client() as client:
+    with new_http_client(level=configured_level(settings.ai)) as client:
         resp = client.post(
             url,
             headers=headers,

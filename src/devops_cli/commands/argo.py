@@ -1,7 +1,8 @@
 """Argo command group: cd (ArgoCD REST), workflows and rollouts (native Argo CRDs).
 
 Security & Input Validation:
-- ArgoCD REST calls validate target server URL via `validate_service_url()`.
+- ArgoCD REST calls dial `argocd.url` through the egress factory at the configured level, which
+  checks each address at the connect.
 - Workflow and Rollout arguments (`name`, `namespace`) are strictly validated against the RFC 1123
   label regex before reaching the Kubernetes API.
 """
@@ -34,11 +35,15 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_command, is_dry_run
+from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.exceptions.argo import ArgoError
-from devops_cli.http.validation import validate_service_url
+from devops_cli.exceptions.k8s import StackCredentialError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import configured_level
+from devops_cli.http.urls import service_base_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState, ArgoWorkflowState
 from devops_cli.output import (
@@ -72,7 +77,8 @@ cd_app.add_typer(fleet_app, name="fleet")
 app.add_typer(gitops_app, name="gitops")
 cd_app.add_typer(gitops_app, name="gitops")
 
-cd_apps_app = new_typer(help=HELP.argo.cd)
+# A refusal at the connect ends each command with its message and no traceback.
+cd_apps_app = new_typer(help=HELP.argo.cd, exit_on=SSRFBlockedError)
 cd_app.add_typer(cd_apps_app, name="apps")
 
 
@@ -163,24 +169,36 @@ def _rollout_status_table(state: ArgoRolloutState) -> TablePayload:
 
 
 def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
+    """Return (base_url, headers) for Argo CD API requests.
+
+    The URL check reads only the URL, and it runs before the token mint. A failed mint, also one
+    whose address the egress level refused, ends the command with its cause. The client of
+    `_argocd_client` checks the address at the connect.
+    """
     from devops_cli.argo.credentials import resolve_argocd_server_and_token
 
-    url, token = resolve_argocd_server_and_token(settings)
-    if not url:
+    if not settings.argocd.url:
         print_error(
             MESSAGES.argo.url_not_configured,
             prefix=False,
         )
         raise typer.Exit(1)
     try:
-        validate_service_url(url, "ArgoCD", allow=settings.ai.allow_private_network)
+        base = service_base_url(settings.argocd.url, "argocd.url")
     except ValueError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
+    with exit_on_error(StackCredentialError):
+        _, token = resolve_argocd_server_and_token(settings)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return url, headers
+    return base, headers
+
+
+def _argocd_client(settings: Any) -> httpx2.Client:
+    """An Argo CD client that dials the configured level: loopback, or private with the flag."""
+    return new_http_client(level=configured_level(settings.ai))
 
 
 # =============================================================================
@@ -209,7 +227,7 @@ def cd_apps_list(
         base, headers = _argocd(settings)
         rows: list[list[str]] = []
         try:
-            with httpx2.Client() as client:
+            with _argocd_client(settings) as client:
                 resp = client.get(
                     f"{base}/api/v1/applications",
                     headers=headers,
@@ -262,7 +280,7 @@ def cd_apps_sync(
     settings = load_settings()
     base, headers = _argocd(settings)
 
-    with httpx2.Client() as c:
+    with _argocd_client(settings) as c:
         resp = c.post(
             f"{base}/api/v1/applications/{name}/sync",
             headers=headers,
@@ -291,7 +309,7 @@ def cd_apps_status(
         settings = load_settings()
         base, headers = _argocd(settings)
         try:
-            with httpx2.Client() as client:
+            with _argocd_client(settings) as client:
                 resp = client.get(
                     f"{base}/api/v1/applications/{name}",
                     headers=headers,

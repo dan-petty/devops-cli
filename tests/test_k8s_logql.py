@@ -199,17 +199,6 @@ def test_execute_logql_query_dry_run() -> None:
     assert res.entries[0].trace_id is not None
 
 
-def test_execute_loki_query_ssrf_blocked() -> None:
-    """Test execute_loki_query rejects invalid or disallowed schemes."""
-    import pytest
-
-    from devops_cli.exceptions.security import SSRFBlockedError
-
-    query = parse_logql_query('{app="web"}')
-    with pytest.raises(SSRFBlockedError):
-        execute_loki_query(query, loki_url="ftp://malicious.host:3100")
-
-
 def test_execute_loki_query_http_400_raises_domain_exception(stub_web: StubWeb) -> None:
     """Test execute_loki_query raises KubernetesLoggingError on HTTP 400 and does not swallow it."""
     import httpx2

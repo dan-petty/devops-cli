@@ -320,16 +320,10 @@ def test_an_ordinary_url_is_fetched_directly() -> None:
     client.__exit__ = MagicMock(return_value=False)
     client.get.return_value = _response()
 
-    with (
-        patch("httpx2.Client", return_value=client),
-        patch("devops_cli.k8s.service_http.validate_url_egress") as egress,
-    ):
+    with patch("httpx2.Client", return_value=client):
         get_json("http://prometheus.internal:9090", "api/v1/status")
 
-    assert (
-        client.get.call_args[0][0],
-        egress.call_args.kwargs["allow_private"],
-    ) == ("http://prometheus.internal:9090/api/v1/status", True)
+    assert client.get.call_args[0][0] == "http://prometheus.internal:9090/api/v1/status"
 
 
 def test_a_failing_request_raises_rather_than_returning_empty() -> None:

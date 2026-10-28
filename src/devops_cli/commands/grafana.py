@@ -26,7 +26,10 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.http.validation import validate_service_url
+from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import configured_level
+from devops_cli.http.urls import service_base_url
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.grafana import (
     DashboardLintReport,
@@ -46,9 +49,10 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
-app = new_typer(help=HELP.grafana.app, no_args_is_help=True)
+# A refusal at the connect ends each command with its message and no traceback.
+app = new_typer(help=HELP.grafana.app, no_args_is_help=True, exit_on=SSRFBlockedError)
 
-dashboards_app = new_typer(help=HELP.grafana.dashboards)
+dashboards_app = new_typer(help=HELP.grafana.dashboards, exit_on=SSRFBlockedError)
 app.add_typer(dashboards_app, name="dashboards")
 
 
@@ -58,9 +62,10 @@ app.add_typer(dashboards_app, name="dashboards")
 
 
 def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
-    """Return (base_url, headers) for Grafana API requests."""
-    from devops_cli.k8s.credentials import get_or_mint_grafana_auth
+    """Return (base_url, headers) for Grafana API requests.
 
+    The URL check reads only the URL. The client of `_client` checks the address at the connect.
+    """
     if not settings.grafana.url:
         print_error(
             MESSAGES.grafana.url_not_configured,
@@ -68,9 +73,7 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
         )
         raise typer.Exit(1)
     try:
-        validate_service_url(
-            settings.grafana.url, "Grafana", allow=settings.ai.allow_private_network
-        )
+        base = service_base_url(settings.grafana.url, "grafana.url")
     except ValueError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
@@ -86,7 +89,12 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
             headers["Authorization"] = f"Bearer {minted_token}"
         elif basic_auth:
             headers["Authorization"] = basic_auth
-    return settings.grafana.url.rstrip("/"), headers
+    return base, headers
+
+
+def _client(settings: Settings) -> httpx2.Client:
+    """A Grafana client that dials the configured level: loopback, or private with the flag."""
+    return new_http_client(level=configured_level(settings.ai))
 
 
 # =============================================================================
@@ -113,7 +121,7 @@ def dashboards_list(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/search",
             headers=headers,
@@ -165,7 +173,7 @@ def dashboards_export(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/dashboards/uid/{uid}",
             headers=headers,
@@ -230,7 +238,7 @@ def dashboards_import(
         )
         return
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.post(
             f"{base}/api/dashboards/db",
             headers=headers,
@@ -303,9 +311,15 @@ def _post_dashboard(
 def _sync_dashboard_file(
     http_client: httpx2.Client, base: str, headers: dict[str, str], dash_file: Path
 ) -> DashboardSyncOutcome:
-    """Sync one dashboard file, reporting a failure without stopping the run."""
+    """Sync one dashboard file, reporting a failure without stopping the run.
+
+    A refused address stops the run: the refusal applies to each file, and the `exit_on` of the
+    app reports it.
+    """
     try:
         return _post_dashboard(http_client, base, headers, dash_file)
+    except SSRFBlockedError:
+        raise
     except Exception as exc:
         print_error(ERRORS.grafana.sync_failed.format(file=dash_file.name, exc=exc), prefix=False)
         return DashboardSyncOutcome.FAILED
@@ -349,7 +363,7 @@ def dashboards_sync(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         outcomes = Counter(
             _sync_dashboard_file(http_client, base, headers, dash_file) for dash_file in json_files
         )
@@ -475,7 +489,7 @@ def search(
     base, headers = _client_args(settings)
     params = {"query": query} if query else {}
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/search",
             headers=headers,
@@ -515,7 +529,7 @@ def datasources() -> None:
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/datasources",
             headers=headers,
@@ -552,7 +566,7 @@ def alerts() -> None:
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as http_client:
+    with _client(settings) as http_client:
         response = http_client.get(
             f"{base}/api/v1/provisioning/alert-rules",
             headers=headers,

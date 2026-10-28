@@ -23,6 +23,7 @@ import pytest
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.k8s import KubernetesError
+from devops_cli.http.egress import EgressLevel
 from devops_cli.k8s.credentials import (
     fetch_argocd_password,
     fetch_grafana_password,
@@ -34,7 +35,7 @@ from devops_cli.k8s.credentials import (
 )
 from tests.cluster_secret_fakes import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.web_fakes import StubWeb
+from tests.web_fakes import StubWeb, scripted_resolver
 
 ARGOCD = "https://argocd.example.com"
 GRAFANA = "https://grafana.example.com"
@@ -47,6 +48,7 @@ GRAFANA_TOKENS = f"{GRAFANA_ACCOUNTS}/7/tokens"
 ARGOCD_SECRET_READ = ("kubectl", "get", "secret", "argocd-initial-admin-secret")
 NOT_FOUND = 'Error from server (NotFound): secrets "argocd-initial-admin-secret" not found'
 KEPT = "; the stored token stays in the keyring"
+LOOPBACK = EgressLevel.LOOPBACK
 
 pytestmark = pytest.mark.usefixtures("mock_keyring", "public_dns")
 
@@ -700,6 +702,34 @@ def test_an_accepted_token_that_the_keyring_cannot_store_reports_the_cause(
     )
 
 
+def test_a_private_address_without_the_flag_fails_the_check_and_keeps_the_stored_token(
+    process_fake: ProcessFake,
+    stub_web: StubWeb,
+    mock_keyring: FakeKeyring,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Old vs new (#2424): the check dials at the configured level, as the Grafana commands do.
+
+    Before, the sync checked the URL as if `ai.allow_private_network` were set, and sent the
+    stored token to a private address. Now the connect refuses the address before a request,
+    and the refusal is a failed check with its cause.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    scripted_resolver(monkeypatch, {"grafana.example.com": [["10.0.0.1"]]})
+    _cluster_password(process_fake, None)
+    mock_keyring.values["grafana_token"] = "stored-token"
+
+    state, cause = _sync()["grafana_token"]
+
+    assert (
+        state,
+        (cause or "").startswith(f"The Grafana token check at {GRAFANA_ORG} failed: SSRFBlocked"),
+        (cause or "").endswith(KEPT),
+        stub_web.sent,
+        mock_keyring.values["grafana_token"],
+    ) == ("failed", True, True, [], "stored-token")
+
+
 def test_a_service_with_no_url_gets_no_token_step(
     process_fake: ProcessFake, stub_web: StubWeb, mock_keyring: FakeKeyring
 ) -> None:
@@ -756,7 +786,7 @@ def test_a_failed_mint_raises_its_cause(stub_web: StubWeb) -> None:
     stub_web.respond("POST", ARGOCD_SESSION, 401, {"error": "Invalid username or password"})
 
     with pytest.raises(KubernetesError) as caught:
-        mint_argocd_token(ARGOCD, "wrong-pw")
+        mint_argocd_token(ARGOCD, "wrong-pw", level=LOOPBACK)
 
     assert str(caught.value) == (
         f"Argo CD refused the admin session at {ARGOCD_SESSION} with HTTP 401"
@@ -765,9 +795,9 @@ def test_a_failed_mint_raises_its_cause(stub_web: StubWeb) -> None:
 
 def test_mint_tokens_refuse_a_url_with_no_scheme(stub_web: StubWeb) -> None:
     with pytest.raises(ConfigurationError) as argocd_error:
-        mint_argocd_token("argocd.example.com", "admin-pw")
+        mint_argocd_token("argocd.example.com", "admin-pw", level=LOOPBACK)
     with pytest.raises(ConfigurationError) as grafana_error:
-        mint_grafana_token("grafana.example.com", "admin-pw")
+        mint_grafana_token("grafana.example.com", "admin-pw", level=LOOPBACK)
 
     assert (
         "argocd.url" in str(argocd_error.value),
@@ -781,8 +811,12 @@ def test_mint_tokens_use_a_lowercase_scheme(stub_web: StubWeb, mock_keyring: Fak
     _serve_grafana_mint(stub_web, [])
 
     tokens = (
-        mint_argocd_token("HTTPS://argocd.example.com", "admin-pw", save_to_keyring=False),
-        mint_grafana_token("HTTPS://grafana.example.com/", "admin-pw", save_to_keyring=False),
+        mint_argocd_token(
+            "HTTPS://argocd.example.com", "admin-pw", level=LOOPBACK, save_to_keyring=False
+        ),
+        mint_grafana_token(
+            "HTTPS://grafana.example.com/", "admin-pw", level=LOOPBACK, save_to_keyring=False
+        ),
     )
 
     assert (tokens, _requests(stub_web), mock_keyring.writes) == (
