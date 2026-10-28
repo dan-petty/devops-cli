@@ -6,6 +6,8 @@ private key is an RSA key each test run generates. Settings come from the `confi
 
 from __future__ import annotations
 
+import json
+import logging
 import subprocess
 import time
 from collections.abc import Callable
@@ -32,6 +34,15 @@ APP_SETTINGS = {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}
 BOT_LOGIN = "devops-roadmap[bot]"
 MINT = "/app/installations/42/access_tokens"
 REPO = "/repos/example-org/app"
+# The permissions the roadmap jobs use (ADR 0015), which each token asks for.
+ROADMAP_PERMISSIONS = {
+    "issues": "write",
+    "pull_requests": "write",
+    "contents": "write",
+    "checks": "read",
+    "actions": "read",
+    "metadata": "read",
+}
 
 
 @pytest.fixture(scope="module")
@@ -66,10 +77,16 @@ def app_identity(
     return github_api
 
 
-def _installation_token(token: str, expires_in: timedelta) -> httpx2.Response:
-    """GitHub's answer to the exchange: the token, and when it expires."""
+def _installation_token(
+    token: str, expires_in: timedelta, permissions: dict[str, str] | None = None
+) -> httpx2.Response:
+    """GitHub's answer to the exchange: the token, when it expires and, when given, the
+    permissions it carries."""
     expires_at = (datetime.now(UTC) + expires_in).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return github_json({"token": token, "expires_at": expires_at}, status=201)
+    answer: dict[str, Any] = {"token": token, "expires_at": expires_at}
+    if permissions is not None:
+        answer["permissions"] = permissions
+    return github_json(answer, status=201)
 
 
 def _finished(*_args: Any, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -101,6 +118,59 @@ def test_the_app_mints_an_installation_token_and_a_new_one_before_it_expires(
         [f"POST {API}{MINT}"] * 2,
         ("bearer", "1001"),
     )
+
+
+def test_the_token_request_asks_only_for_the_permissions_the_roadmap_jobs_use(
+    app_identity: GitHubApiFake,
+) -> None:
+    """The installation may grant more, but the exchange's body names only the roadmap jobs'
+    permissions, so the token carries no other one (#2473)."""
+    app_identity.route("POST", MINT, _installation_token("ghs_first", timedelta(hours=1)))
+    github_token()
+    assert json.loads(app_identity.sent[0].content) == {"permissions": ROADMAP_PERMISSIONS}
+
+
+def test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_names(
+    app_identity: GitHubApiFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """GitHub's reply names the token's permissions. A reply that grants one more is no error,
+    and the log names the permissions but not their levels or the token."""
+    granted = {**ROADMAP_PERMISSIONS, "administration": "write"}
+    app_identity.route(
+        "POST", MINT, _installation_token("ghs_first", timedelta(hours=1), permissions=granted)
+    )
+    with caplog.at_level(logging.INFO, logger="devops_cli.github.app_installation"):
+        token = github_token()
+    names = "actions, administration, checks, contents, issues, metadata, pull_requests"
+    logged = [r.getMessage() for r in caplog.records if r.name.endswith("app_installation")]
+    assert (
+        token,
+        [message.endswith(names) for message in logged],
+        [any(word in message for word in ("ghs_first", "write", "read")) for message in logged],
+    ) == ("ghs_first", [True], [False])
+
+
+def test_an_installation_without_a_requested_permission_fails_naming_the_permissions(
+    app_identity: GitHubApiFake,
+) -> None:
+    """GitHub refuses a permission that the installation does not grant with HTTP 422, and its
+    reply does not say which one, so the error names each permission that the token asks for."""
+    app_identity.route(
+        "POST",
+        MINT,
+        github_json(
+            {"message": "The permissions requested are not granted to this installation."},
+            status=422,
+        ),
+    )
+    with pytest.raises(GitHubUnauthenticatedError) as raised:
+        github_token()
+    assert (
+        BOT_LOGIN in raised.value.message,
+        "HTTP 422" in raised.value.message,
+        "actions (read), checks (read), contents (write), issues (write), metadata (read), "
+        "pull_requests (write)" in raised.value.message,
+    ) == (True, True, True)
 
 
 def test_the_apps_login_is_its_bot_and_no_get_user_is_sent(app_identity: GitHubApiFake) -> None:
