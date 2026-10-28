@@ -18,6 +18,6 @@
 
 ## 3. Archive
 
-- [ ] 3.1 Archive the change
+- [x] 3.1 Archive the change
   - Verification: `uv run devops openspec archive 2471-call-check-one-line`
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
