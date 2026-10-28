@@ -13,7 +13,7 @@
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 - [x] 2.2 Remove `PYTHONPATH` and `PYTHONHOME` from `DEFAULT_ALLOWED_ENV_VARS`
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_ci.py tests/test_cli_startup_imports.py`
-- [ ] 2.3 Write the child environment bullet of `ARCHITECTURE.md` and the purpose of the `subprocess-environment` spec for the zsh and interpreter keys, and name the git keys (#2483)
+- [x] 2.3 Write the child environment bullet of `ARCHITECTURE.md` and the purpose of the `subprocess-environment` spec for the zsh and interpreter keys, and name the git keys (#2483)
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops docs check`
 
 ## Workflow follow-up

@@ -1,7 +1,7 @@
 # subprocess-environment Specification
 
 ## Purpose
-Which caller overrides of the environment of a child process devops-cli refuses, because they make the dynamic loader or the shell of the child load or run code that the caller did not choose, and what a refusal reports.
+Which caller overrides of the environment of a child process devops-cli refuses, and what a refusal reports. Each refused key makes the dynamic loader, the shell or the interpreter of the child load or run code that the caller did not choose. An isolated child does not get a refused key from the environment.
 
 ## Requirements
 
