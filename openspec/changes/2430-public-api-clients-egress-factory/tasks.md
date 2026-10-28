@@ -2,7 +2,7 @@
 
 ## 1. The level test has a row for each public API client
 
-- [ ] Add failing rows to `test_each_caller_dials_at_its_level` for the OSV, Shodan InternetDB, Cloudflare Radar and Cloudflare API clients, with and without `ai.allow_private_network`, with the test resolving `api.osv.dev`, `internetdb.shodan.io` and `api.cloudflare.com`
+- [x] Add failing rows to `test_each_caller_dials_at_its_level` for the OSV, Shodan InternetDB, Cloudflare Radar and Cloudflare API clients, with and without `ai.allow_private_network`, with the test resolving `api.osv.dev`, `internetdb.shodan.io` and `api.cloudflare.com`
   - Verification: `uv run devops ci test tests/test_http_egress.py`
 
 ## 2. The OSV, Shodan InternetDB and Cloudflare Radar clients

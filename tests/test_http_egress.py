@@ -35,6 +35,7 @@ from devops_cli.ai.spend.pricing import PricingRegistry
 from devops_cli.argo.fleet import sync_single_target
 from devops_cli.argo.gitops import trigger_argocd_sync
 from devops_cli.argo.rollouts import evaluate_rollout_gate
+from devops_cli.cloudflare.client import CloudflareClient
 from devops_cli.commands import ai_gateway, argo, grafana, prometheus
 from devops_cli.commands.install_tools import _download
 from devops_cli.config.defaults import (
@@ -67,6 +68,11 @@ from devops_cli.sandbox.metrics import scrape_prometheus_metrics
 from devops_cli.sandbox.probe import probe_http, probe_tcp
 from devops_cli.security.vault_broker import VaultSecretBroker
 from devops_cli.security.vault_lease import _post
+from devops_cli.security.vulnerability_lookup import (
+    CloudflareRadarClient,
+    OSVClient,
+    ShodanInternetDBClient,
+)
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
 from devops_cli.telemetry.waterfall import query_tempo_trace
@@ -894,7 +900,7 @@ def _k8s_service_calls() -> dict[str, Callable[[], Any]]:
 
 
 def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
-    """Each caller #898, #2422, #2424 and #2431 move, invoked against example.com or an API host."""
+    """Each caller that a change moved to the factory, against example.com or its fixed API host."""
     return {
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
@@ -910,6 +916,7 @@ def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
         **_ai_service_calls(flag, tmp_path),
         **_k8s_service_calls(),
+        **_public_api_calls(),
     }
 
 
@@ -954,7 +961,7 @@ def _k8s_service_levels(flag: bool) -> dict[str, EgressLevel]:
 
 
 def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
-    """The level tables of #898, #2422, #2424 and #2431, for the callers those changes move."""
+    """The level table of each change that moved callers to the factory, for those callers."""
     return {
         "tool download": PUBLIC,
         "vault": PRIVATE,
@@ -970,10 +977,41 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "statuspage": PUBLIC,
         **_ai_service_levels(flag),
         **_k8s_service_levels(flag),
+        **_public_api_levels(),
     }
 
 
-_CALLER_HOSTS = ("example.com", "api.firecrawl.dev", "raw.githubusercontent.com")
+_PUBLIC_API_HOSTS = ("api.osv.dev", "internetdb.shodan.io", "api.cloudflare.com")
+
+
+def _public_api_calls() -> dict[str, Callable[[], Any]]:
+    """Each client of a fixed public API that #2430 moves, invoked against its API host.
+
+    InternetDB and Radar send a request only for a target they ask about
+    (`classify_network_target`): a public address, and a domain that is neither an example nor
+    local.
+    """
+    return {
+        "osv": lambda: OSVClient().query_package("requests", version="2.0.0", ecosystem="PyPI"),
+        "shodan internetdb": lambda: ShodanInternetDBClient().check_ip(PUBLIC_ADDRESS),
+        "cloudflare radar": lambda: CloudflareRadarClient(
+            token="cf-test", valkey_client=None
+        ).check_domain("service-domain.org"),
+        "cloudflare api": lambda: CloudflareClient(token="cf-test").verify_token(),
+    }
+
+
+def _public_api_levels() -> dict[str, EgressLevel]:
+    """The level table of #2430: public, whatever `ai.allow_private_network` says."""
+    return dict.fromkeys(_public_api_calls(), PUBLIC)
+
+
+_CALLER_HOSTS = (
+    "example.com",
+    "api.firecrawl.dev",
+    "raw.githubusercontent.com",
+    *_PUBLIC_API_HOSTS,
+)
 
 _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True): PRIVATE}
 """A level, by whether a loopback answer and an RFC 1918 answer reached the dial."""
@@ -989,11 +1027,12 @@ def test_each_caller_dials_at_its_level(
 
     The caller runs twice, its host answering 127.0.0.1 and then 10.0.0.1: a public-level client
     dials neither, a loopback-level one only the first, a private-level one both. Only the URLs
-    that come from configuration follow the flag; the tool downloads, the documentation crawler
-    and the default pricing registry do not widen with it. A caller host name never reaches the
-    dial: a client that hands the socket the name lets it resolve the name again after the check
-    (#2422, #2424). Only dials to the answer or a caller host count: the test configuration's
-    telemetry exporter may dial its collector from a background thread meanwhile.
+    that come from configuration follow the flag; the tool downloads, the documentation crawler,
+    the default pricing registry and the clients of fixed public APIs (OSV, Shodan InternetDB,
+    Cloudflare Radar and the Cloudflare API) do not widen with it. A caller host name never
+    reaches the dial: a client that hands the socket the name lets it resolve the name again
+    after the check (#2422, #2424). Only dials to the answer or a caller host count: the test
+    configuration's telemetry exporter may dial its collector from a background thread meanwhile.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
     call = _caller_calls(flag, tmp_path)[caller]
