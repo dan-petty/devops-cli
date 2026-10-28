@@ -191,6 +191,8 @@ def build_popeye_cmd(context: str | None = None, namespace: str | None = None) -
     cmd = [BIN_POPEYE, "-o", "json", "-l", "warn"]
     if namespace:
         cmd.extend(["-n", namespace])
+    else:
+        cmd.append("-A")
     if context:
         cmd.extend(["--context", context])
     return cmd

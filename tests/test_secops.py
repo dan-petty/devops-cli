@@ -439,4 +439,6 @@ def test_popeye_scans_the_whole_cluster_when_it_gets_no_namespace(
 
     run_popeye_scan(workdir=tmp_path)
 
-    assert scanner_fake.runs == [ScannerRun(["popeye", "-o", "json", "-l", "warn"], str(tmp_path))]
+    assert scanner_fake.runs == [
+        ScannerRun(["popeye", "-o", "json", "-l", "warn", "-A"], str(tmp_path))
+    ]

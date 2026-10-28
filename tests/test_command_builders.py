@@ -82,8 +82,13 @@ def test_command_builders(tmp_path: Path) -> None:
         "json",
         "--quiet",
     ]
-    assert (build_popeye_cmd("k3s"), build_popeye_cmd("k3s", namespace="argocd")) == (
-        [BIN_POPEYE, "-o", "json", "-l", "warn", "--context", "k3s"],
+    assert (
+        build_popeye_cmd(),
+        build_popeye_cmd("k3s"),
+        build_popeye_cmd("k3s", namespace="argocd"),
+    ) == (
+        [BIN_POPEYE, "-o", "json", "-l", "warn", "-A"],
+        [BIN_POPEYE, "-o", "json", "-l", "warn", "-A", "--context", "k3s"],
         [BIN_POPEYE, "-o", "json", "-l", "warn", "-n", "argocd", "--context", "k3s"],
     )
     assert (
