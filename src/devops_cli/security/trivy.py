@@ -139,6 +139,8 @@ class TrivyScanner(BaseSecurityScanner):
         ScannerConfigFile("--config", "trivy.yaml", CONST_REVIEW_SCAN_TRIVY_CONFIG),
         ScannerConfigFile("--ignorefile", ".trivyignore", ""),
     )
+    # The scan, `trivy <scan_type>`, of a run that names no scan type, as a registry run does.
+    scan_type: ClassVar[str] = DEFAULT_TRIVY_SCAN_TYPE
 
     def data_dirs(self) -> tuple[ToolDataDir, ...]:
         """The cache of Trivy, which holds the checks bundle and the vulnerability database that
@@ -152,7 +154,7 @@ class TrivyScanner(BaseSecurityScanner):
         target_path: Any,
         cwd: Path,
         *,
-        scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
+        scan_type: str | None = None,
         **kwargs: Any,
     ) -> tuple[Path, ...]:
         """The metadata file of what Trivy scans with, if Trivy has fetched it already (#772).
@@ -163,7 +165,7 @@ class TrivyScanner(BaseSecurityScanner):
         """
         kind = (
             CONST_TRIVY_CHECKS_METADATA
-            if scan_type == CONST_TRIVY_CONFIG_SCAN_TYPE
+            if (scan_type or self.scan_type) == CONST_TRIVY_CONFIG_SCAN_TYPE
             else CONST_TRIVY_DB_METADATA
         )
         metadata = _trivy_cache_dir().joinpath(*kind)
@@ -172,12 +174,14 @@ class TrivyScanner(BaseSecurityScanner):
     def build_command(
         self,
         target_path: Path,
-        scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
+        scan_type: str | None = None,
         severity: str = DEFAULT_TRIVY_SEVERITIES,
         **kwargs: Any,
     ) -> list[str]:
         """Build argument command list for invoking Trivy."""
-        return build_trivy_scan_cmd(target_path, scan_type=scan_type, severity=severity)
+        return build_trivy_scan_cmd(
+            target_path, scan_type=scan_type or self.scan_type, severity=severity
+        )
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Trivy JSON payload into Finding models."""
@@ -197,6 +201,15 @@ class TrivyScanner(BaseSecurityScanner):
                 confidence_score=None,
             )
         ]
+
+
+class TrivyConfigScanner(TrivyScanner):
+    """Trivy's misconfiguration scan, `trivy config`, of the IaC files of the target: Dockerfiles,
+    Kubernetes manifests, Helm charts, Terraform, CloudFormation, Azure ARM templates and Ansible
+    (#2214). It runs the Trivy that `tools.lock` pins with the checks bundle of Trivy."""
+
+    name: str = "trivy-config"
+    scan_type: ClassVar[str] = CONST_TRIVY_CONFIG_SCAN_TYPE
 
 
 def run_trivy_scan(

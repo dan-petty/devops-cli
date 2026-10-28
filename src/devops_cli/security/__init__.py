@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from devops_cli.security.bandit import BanditScanner, run_bandit_scan
     from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
-    from devops_cli.security.checkov import CheckovScanner, run_checkov_scan
     from devops_cli.security.dive import DiveScanner, run_dive_analysis, run_dive_scan
     from devops_cli.security.gitleaks import GitleaksScanner, run_gitleaks_scan
     from devops_cli.security.kubeconform import (
@@ -44,7 +43,7 @@ if TYPE_CHECKING:
     )
     from devops_cli.security.semgrep import SemgrepScanner, run_semgrep_scan
     from devops_cli.security.tflint import TflintScanner, run_tflint_scan
-    from devops_cli.security.trivy import TrivyScanner, run_trivy_scan
+    from devops_cli.security.trivy import TrivyConfigScanner, TrivyScanner, run_trivy_scan
     from devops_cli.security.vulnerability_lookup import (
         CloudflareRadarClient,
         OSVClient,
@@ -56,8 +55,6 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "run_bandit_scan": ("devops_cli.security.bandit", "run_bandit_scan"),
     "BaseSecurityScanner": ("devops_cli.security.base", "BaseSecurityScanner"),
     "ScanOutcome": ("devops_cli.security.base", "ScanOutcome"),
-    "CheckovScanner": ("devops_cli.security.checkov", "CheckovScanner"),
-    "run_checkov_scan": ("devops_cli.security.checkov", "run_checkov_scan"),
     "DiveScanner": ("devops_cli.security.dive", "DiveScanner"),
     "run_dive_analysis": ("devops_cli.security.dive", "run_dive_analysis"),
     "run_dive_scan": ("devops_cli.security.dive", "run_dive_scan"),
@@ -124,6 +121,7 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "run_semgrep_scan": ("devops_cli.security.semgrep", "run_semgrep_scan"),
     "TflintScanner": ("devops_cli.security.tflint", "TflintScanner"),
     "run_tflint_scan": ("devops_cli.security.tflint", "run_tflint_scan"),
+    "TrivyConfigScanner": ("devops_cli.security.trivy", "TrivyConfigScanner"),
     "TrivyScanner": ("devops_cli.security.trivy", "TrivyScanner"),
     "run_trivy_scan": ("devops_cli.security.trivy", "run_trivy_scan"),
     "CloudflareRadarClient": ("devops_cli.security.vulnerability_lookup", "CloudflareRadarClient"),
@@ -147,7 +145,6 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "BanditScanner",
     "BaseSecurityScanner",
-    "CheckovScanner",
     "CloudflareRadarClient",
     "DiveScanner",
     "GitleaksScanner",
@@ -162,6 +159,7 @@ __all__ = [
     "SemgrepScanner",
     "ShodanInternetDBClient",
     "TflintScanner",
+    "TrivyConfigScanner",
     "TrivyScanner",
     "deduplicate_network_references",
     "extract_network_references",
@@ -179,7 +177,6 @@ __all__ = [
     "mask_uri_credentials",
     "redact_text",
     "run_bandit_scan",
-    "run_checkov_scan",
     "run_dive_analysis",
     "run_dive_scan",
     "run_gitleaks_scan",
