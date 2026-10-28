@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,10 +28,11 @@ from devops_cli.config.constants import (
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
 )
-from devops_cli.config.defaults import DEFAULT_SERVICE_MAX_FAILED_ROUNDS
+from devops_cli.config.defaults import DEFAULT_GH_MAX_RETRIES, DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
+from devops_cli.github import rate_limiter, session_transport
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -56,6 +58,10 @@ START = datetime(2026, 10, 9, 12, tzinfo=UTC)
 _QUIET_SECONDS = 0.5
 """How long a test waits to see that nothing more starts."""
 SUSPENDED = "gh: Sorry. Your account was suspended. (HTTP 403)"
+SECONDARY = (
+    "gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try "
+    "again. (HTTP 403)"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -378,6 +384,72 @@ def test_a_secondary_limit_one_worker_meets_holds_the_requests_of_every_worker_u
     assert github_api.waits == [60.0]
     assert github_api.paced[-1] == pytest.approx(60.0, abs=0.5)
     assert len(github_api.sent) == 3
+
+
+def _read_through_the_session(batch: TriggerBatch) -> None:
+    """A round that reads one listing through the GitHub session."""
+    get_github_session().rest("GET", f"/repos/{batch.repo}/issues")
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        pytest.param(_read_through_the_session, id="the-session"),
+        pytest.param(_comment_through_gh, id="gh"),
+    ],
+)
+def test_the_last_rate_limit_of_a_request_holds_every_worker_until_its_wait_ends(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    clock: ClockFake,
+    monkeypatch: pytest.MonkeyPatch,
+    job: Callable[[TriggerBatch], None],
+) -> None:
+    """The worker of REPO_A meets a secondary limit at each attempt of its request, through the
+    session or through gh, so its round fails when its retries are spent. GitHub asked for at
+    least 60 s with no request, so the request of REPO_B's worker that comes next waits too
+    (#2523). Each wait moves the clock, as in production, so only the wait that the last refusal
+    asks for can hold the request of REPO_B."""
+    api, gh = github_api_and_gh
+    api.route(
+        "GET",
+        f"/repos/{REPO_A}/issues",
+        github_json(
+            {"message": "You have exceeded a secondary rate limit."},
+            status=403,
+            headers={"retry-after": "60", **quota_headers(4000)},
+        ),
+    )
+    api.route("GET", f"/repos/{REPO_B}/issues", github_json([]))
+    gh.answer(lambda call: "POST" in call.argv, ProcessAnswer(returncode=1, stderr=SECONDARY))
+
+    async def wait(_api: object, seconds: float) -> None:
+        clock.sleep(seconds)
+
+    monkeypatch.setattr(rate_limiter, "time", time)
+    monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", wait)
+    held: list[float] = []
+
+    def lane(batch: TriggerBatch) -> None:
+        if batch.repo == REPO_A:
+            job(batch)
+            return
+        start = time.time()
+        _read_through_the_session(batch)
+        held.append(time.time() - start)
+
+    manager = _manager({"lane": lane}, clock=_Clock())
+    try:
+        for repo in (REPO_A, REPO_B):
+            manager.enqueue_trigger(repo, "webhook", "issues", "labeled")
+            assert manager.workers[(repo, "lane")].wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    finally:
+        _stop(manager)
+
+    attempts = [r for r in api.sent if r.url.path == f"/repos/{REPO_A}/issues"]
+    attempts += [call for call in gh.calls if "POST" in call.argv]
+    assert len(attempts) == DEFAULT_GH_MAX_RETRIES + 1
+    assert len(held) == 1
+    assert held[0] >= 59.0
 
 
 # ── A job that fails each round ─────────────────────────────────────────────────────────────

@@ -12,7 +12,8 @@ synchronous caller's request runs on that portal's loop.
 again before it expires, and charges the quota the answer reports to the resource GitHub
 names. gidgethub's `handle_rate_limit_error` hook retries a rate limit, and a read GitHub failed
 with a 5xx, up to `DEFAULT_GH_MAX_RETRIES` times, waiting what the ledger's `retry_delay` gives;
-a rate limit's wait holds every request of the identity, from any thread, until it ends (#2474).
+a rate limit's wait holds every request of the identity, from any thread, until it ends, also
+when the request is not sent again (#2474, #2523).
 A write that got a 5xx may have been applied, so it is not sent again; a refused connect and a
 refused origin are not retried either. Every use of the ledger runs in a worker thread, since its
 lock may be held through another thread's quota refresh. What still fails is raised as the error
@@ -189,14 +190,18 @@ def retry_wait(
     error: HTTPException, *, method: str, url: str, attempt: int, identity: str
 ) -> float | None:
     """The wait before sending a failed request again, recorded as a throttle on the identity's
-    ledger, or None when it is not sent again. A 5xx waits from a shorter floor than a rate limit.
-    A rate limit's wait holds every request of the identity, from any thread, until it ends
-    (#2474). Raises GitHubRateLimitError, naming the request, for a wait past
-    `max_rate_limit_wait`."""
+    ledger, or None when it is not sent again: a failure that is not retried, or any failure after
+    `DEFAULT_GH_MAX_RETRIES` retries. A 5xx waits from a shorter floor than a rate limit. A rate
+    limit's wait holds every request of the identity, from any thread, until it ends. The last
+    rate limit holds them too, because GitHub asked for that wait with no request (#2474, #2523).
+    Raises GitHubRateLimitError, naming the request, for a wait past `max_rate_limit_wait`."""
     command = _gh_api_command(url)
     if not _is_retried(error, method, command[1]):
         return None
     rate_limited = is_rate_limited(error)
+    sent_again = attempt <= DEFAULT_GH_MAX_RETRIES
+    if not (sent_again or rate_limited):
+        return None
     floor = None if rate_limited else DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS
     limiter = identity_rate_limiter(identity)
     try:
@@ -208,9 +213,11 @@ def retry_wait(
         )
     except GitHubRateLimitError as refusal:
         raise refused_retry(refusal, error, method=method, path=command[1]) from refusal
-    limiter.record_throttle(wait, resource=gh_request_resource(command))
     if rate_limited:
         limiter.hold_requests(wait)
+    if not sent_again:
+        return None
+    limiter.record_throttle(wait, resource=gh_request_resource(command))
     return wait
 
 
@@ -259,9 +266,8 @@ class SessionGitHubAPI(GitHubAPI):
     async def handle_rate_limit_error(
         self, *, method: str, url: str, exception: HTTPException, attempt: int
     ) -> bool:
-        """Wait and retry a rate limit, or a read's 5xx, up to `DEFAULT_GH_MAX_RETRIES` times."""
-        if attempt > DEFAULT_GH_MAX_RETRIES:
-            return False
+        """Wait and retry a rate limit, or a read's 5xx, up to `DEFAULT_GH_MAX_RETRIES` times. The
+        last rate limit is not retried, but its wait still holds the identity's requests."""
         wait = await anyio.to_thread.run_sync(
             partial(
                 retry_wait,

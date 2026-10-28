@@ -1717,20 +1717,25 @@ def _handle_attempt_backoff(
     target_resource: str,
 ) -> bool:
     """Evaluate and sleep backoff if rate limited, returning True if backoff performed. The
-    backoff holds every request of the identity, from any thread, until it ends (#2474).
+    backoff holds every request of the identity, from any thread, until it ends. The last attempt
+    sleeps no backoff, but its backoff still holds the requests: GitHub asked for that wait with
+    no request (#2474, #2523).
 
     Whether gh was rate-limited is read from its stderr alone, where gh writes a failure; its
     stdout holds GitHub's answer, which may carry item titles. The wait also reads stdout, for
     the Retry-After header `gh api -i` prints there.
     """
     combined_err = (proc.stderr or "") + " " + (proc.stdout or "")
-    if not limiter.is_rate_limit_error(proc.stderr or "") or attempt >= max_retries:
+    if not limiter.is_rate_limit_error(proc.stderr or ""):
         return False
 
     backoff = limiter.calculate_backoff_delay(
         combined_err, attempt=attempt + 1, subcommand=target_resource
     )
     if backoff <= 0.0:
+        return False
+    limiter.hold_requests(backoff)
+    if attempt >= max_retries:
         return False
     logger.warning(
         "[RateLimit] Rate limit encountered on attempt %d for '%s'. Pausing %.2fs",
@@ -1739,7 +1744,6 @@ def _handle_attempt_backoff(
         backoff,
     )
     limiter.record_throttle(backoff, resource=target_resource)
-    limiter.hold_requests(backoff)
     time.sleep(backoff)
     return True
 

@@ -635,8 +635,9 @@ serverFiles:
       # from before the hour adds none of its earlier count (#2505).
       - name: roadmap-service
         rules:
-          # A refusal stops every round until the pod restarts, and /healthz stays healthy. The
-          # counter stays at 1 for as long, so the alert holds while the Service is stopped.
+          # A refusal stops every round, also after a restart, until a person removes the halt
+          # record, and /healthz stays healthy. A start that finds the record counts the refusal
+          # again, so the counter stays at 1 and the alert holds while the Service is stopped.
           - alert: RoadmapServiceIdentityRefused
             expr: max by (identity) (devops_cli_service_identity_refused_total{job="roadmap-service"}) > 0
             for: 0m
