@@ -549,6 +549,18 @@ kubectl -n devops logs -f job/<name>
 10. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
 11. The Service keeps three files in `/home/devops/.data/roadmap/` on volume `roadmap-service-home`, beside the `schedule.json` of each repository: `service-halt.json` (GitHub refused the identity), `service-budget.json` (the GitHub requests of the last hour) and `service-failures.json` (the jobs that failed rounds in a row). A restart reads them back, so a restart does not clear a halt, the budget or a suspended job. A rate limit that one request gets stops the requests of all workers until its wait ends. When GitHub refuses the identity, for example because the App's installation is suspended, the Service halts and logs `GitHub refused the identity`. To clear the halt after you fix the cause, remove the file and restart the Service: `kubectl -n devops exec deploy/roadmap-service -- rm /home/devops/.data/roadmap/service-halt.json`, then `kubectl -n devops delete pod -l app.kubernetes.io/name=roadmap-service`.
 
+#### Webhook route
+
+The Ingress `devops/roadmap-service` publishes `POST /webhooks/github` at `https://hooks.<domain>`. The route refuses a delivery before it reads the body when:
+
+- the Service drains: 503;
+- the content type is not `application/json`: 415;
+- the `X-GitHub-Event` or `X-GitHub-Delivery` header is missing: 400;
+- the `X-Hub-Signature-256` header is missing or empty: 401 `missing signature`;
+- the `Content-Length` is more than 25 MiB: 413.
+
+Then the route reads the body. It refuses a body of more than 25 MiB (413), a signature that no secret in `service.webhook_secrets` made (401 `invalid signature`), a payload that does not validate (400), and a repository that is not in `service.repos` or that did not sign the body (401). Each refusal counts under the outcome `rejected` of `devops_cli_service_webhook_deliveries_total`. `RoadmapServiceWebhooksRejected` fires when the route rejects more than 20 deliveries in 15 minutes (Alerts).
+
 #### Alerts
 
 The rule group `roadmap-service` in `monitoring/prometheus-values.yaml` watches the Service (#2472). Each description of a rule points to this section. Each `devops_cli_` series is selected with `job="roadmap-service"`: the scrape of the pod's `/metrics` and the OTLP export both give the Service's series that job, so the same series of a workstation (`job="devops-cli"`) does not count. The failed jobs and the GitHub and model requests of the last hour count a series that starts in the hour from zero, so they also count its first sample (#2505). kube-state-metrics gives the restarts and the replicas.

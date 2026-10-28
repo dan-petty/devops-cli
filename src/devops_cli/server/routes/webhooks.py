@@ -240,11 +240,7 @@ def _declares_more_than_the_cap(declared: str) -> bool:
 
 
 async def _read_capped_body(request: Request) -> bytes | None:
-    """Read the request body, or None once it passes the size cap, by the length it declares or
-    by the bytes it streams."""
-    if _declares_more_than_the_cap(request.headers.get("content-length", "")):
-        return None
-
+    """Read the request body, or None once the bytes it streams pass the size cap."""
     body_chunks: list[bytes] = []
     total_bytes = 0
     async for chunk in request.stream():
@@ -256,16 +252,24 @@ async def _read_capped_body(request: Request) -> bytes | None:
 
 
 def _refuse_before_reading(
-    request: Request, service_manager: ServiceManager, delivery: _Delivery
+    request: Request,
+    provider: WebhookProvider,
+    service_manager: ServiceManager,
+    delivery: _Delivery,
 ) -> _Reply | None:
-    """Refuse a delivery while draining, one that is not JSON, or one without its event name or
-    delivery id, before its body is read."""
+    """Refuse a delivery while draining, one that is not JSON, one without its event name,
+    delivery id or signature, or one that declares a length above the size cap, before its body
+    is read. An unsigned or oversized flood thus costs no read and no digest."""
     if service_manager.is_draining():
         return _rejected(503, "service is draining")
     if not request.headers.get("content-type", "").startswith("application/json"):
         return _rejected(415, "unsupported media type")
     if not delivery.event or not delivery.delivery:
         return _rejected(400, "missing event or delivery header")
+    if not request.headers.get(provider.verifier.header):
+        return _rejected(401, "missing signature")
+    if _declares_more_than_the_cap(request.headers.get("content-length", "")):
+        return _rejected(413, "payload too large")
     return None
 
 
@@ -286,8 +290,6 @@ def _authenticated_payload(
     or the 401 or 400 that refuses it. It validates only a body that was signed, so a sender
     without a secret learns nothing of the schema."""
     signature = request.headers.get(provider.verifier.header)
-    if not signature:
-        return _rejected(401, "missing signature")
     signers = provider.verifier.signers(body, signature, service_manager.secrets)
     if not signers:
         return _rejected(401, "invalid signature")
@@ -369,9 +371,9 @@ def _receiver(
             delivery=request.headers.get(provider.delivery_header, ""),
             declared_events=declared_events,
         )
-        reply = _refuse_before_reading(request, service_manager, delivery) or await _read_and_route(
-            request, provider, service_manager, taking, delivery
-        )
+        reply = _refuse_before_reading(
+            request, provider, service_manager, delivery
+        ) or await _read_and_route(request, provider, service_manager, taking, delivery)
         delivery.conclude(reply.outcome)
         return JSONResponse(status_code=reply.status, content=reply.body)
 
