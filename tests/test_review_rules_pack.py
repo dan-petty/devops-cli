@@ -30,6 +30,7 @@ from devops_cli.review.rules_pack import (
     verify_rules_lock,
 )
 from devops_cli.security.semgrep import _files_command, parse_semgrep_json
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 RECALL_SET_PATH = FIXTURES / "review_recall" / "recall_set.json"
@@ -211,6 +212,29 @@ def test_rules_test_fails_when_semgrep_test_fails_and_dry_run_is_pure(
         str(RULE_PACK_DIR) in cmd,
         parsed[0].title.startswith(f"[{RULE_ID}]"),
     ) == (0, [], 2, RULE_ID, True, True)
+
+
+def test_semgrep_gets_only_its_own_setting_and_not_the_environment_of_the_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """`semgrep --version` and `semgrep --test` get only `SEMGREP_ENABLE_VERSION_CHECK=0` as the
+    caller override, so an exported bash function or a token of the person neither reaches
+    Semgrep nor trips the guard on loader and shell keys (#2205)."""
+    pack_copy = tmp_path / "rules"
+    shutil.copytree(RULE_PACK_DIR, pack_copy)
+    monkeypatch.setenv("BASH_FUNC_which%%", '() {  /usr/bin/which "$@"\n}')
+    monkeypatch.setenv("GITHUB_TOKEN", "example-token")
+    process_fake.answer(
+        lambda call: "--version" in call.argv,
+        ProcessAnswer(stdout=f"{pinned_semgrep_version()}\n"),
+    )
+
+    run_rule_pack_tests(pack_copy)
+
+    assert [(call.argv[1], call.env) for call in process_fake.calls] == [
+        ("--version", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
+        ("--test", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
+    ]
 
 
 def test_ci_workflow_runs_rule_pack_tests_when_rules_change() -> None:

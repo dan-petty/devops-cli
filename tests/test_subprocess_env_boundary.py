@@ -154,14 +154,22 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 
 
 # Each of these variables makes the dynamic loader or the shell of a child load code that the
-# child did not ask for, so no caller can set one.
+# child did not ask for, so no caller can set one: the glibc loader by LD_AUDIT, LD_LIBRARY_PATH,
+# LD_ORIGIN_PATH and LD_PRELOAD (ld.so(8)), the macOS loader by each DYLD_ key (dyld(1)), and bash
+# by BASH_ENV, ENV and each exported function, BASH_FUNC_<name>%%.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
-    "LD_PRELOAD",
+    "LD_AUDIT",
     "LD_LIBRARY_PATH",
+    "LD_ORIGIN_PATH",
+    "LD_PRELOAD",
     "DYLD_INSERT_LIBRARIES",
     "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+    "DYLD_FALLBACK_LIBRARY_PATH",
+    "DYLD_FALLBACK_FRAMEWORK_PATH",
     "BASH_ENV",
     "ENV",
+    "BASH_FUNC_x%%",
 )
 
 
@@ -173,7 +181,7 @@ def test_a_caller_override_that_loads_code_into_the_child_is_refused(
     key: str, isolate_env: bool
 ) -> None:
     """A caller override of a loader or shell start-up variable raises `SecurityError` that names
-    the key, in upper and in lower case, with isolation on and off (#2151)."""
+    the key, in upper and in lower case, with isolation on and off (#2151, #2205)."""
     with pytest.raises(SecurityError) as refused:
         build_subprocess_env(
             env={"EXAMPLE_FLAG": "on", key: "libexample.so"}, isolate_env=isolate_env
@@ -184,6 +192,25 @@ def test_a_caller_override_that_loads_code_into_the_child_is_refused(
         CONST_EXIT_FAILURE,
         CONST_ERROR_CODE_SECURITY,
     )
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_a_caller_override_outside_the_refused_families_reaches_the_child(
+    isolate_env: bool,
+) -> None:
+    """A usual key, and a key that contains a refused name but does not start with it, reach the
+    child with their values (#2205)."""
+    override = {
+        "PATH": "/usr/bin",
+        "HOME": "/home/example",
+        "ENVIRONMENT": "staging",
+        "EXAMPLE_DYLD_FLAG": "on",
+        "BASH_FUNCTIONS": "off",
+    }
+
+    env = build_subprocess_env(env=override, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in override} == override
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])

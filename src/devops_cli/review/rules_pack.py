@@ -233,7 +233,7 @@ def run_rule_pack_tests(
     """Run `semgrep --test` on `rules_dir` and write (or `--check` verify) `rules.lock`."""
     if is_dry_run():
         return build_rules_lock(rules_dir)
-    env = {**os.environ, "SEMGREP_ENABLE_VERSION_CHECK": "0"}
+    env = {"SEMGREP_ENABLE_VERSION_CHECK": "0"}
     binary = _resolve_semgrep_binary()
     version = _detect_semgrep_version(binary, env)
     res = run_subprocess(

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from devops_cli.config.constants import (
+    CONST_CODE_LOADING_ENV_PATTERNS,
     CONST_EXIT_COMMAND_NOT_FOUND,
     CONST_GH_AUTH_SUBCOMMAND,
     CONST_GH_CLI,
@@ -131,7 +132,7 @@ DEFAULT_DENIED_ENV_PATTERNS: tuple[str, ...] = (
 def _is_env_var_denied(
     key: str, denied_patterns: tuple[str, ...] = DEFAULT_DENIED_ENV_PATTERNS
 ) -> bool:
-    """Predicate determining if an environment variable key matches sensitive credential patterns."""
+    """Whether the upper-case key matches one of `denied_patterns`, by default the credentials."""
     upper_key = key.upper()
     return any(fnmatch.fnmatchcase(upper_key, pat) for pat in denied_patterns)
 
@@ -181,16 +182,8 @@ def build_subprocess_env(
     if env:
         from devops_cli.exceptions.security import SecurityError
 
-        dangerous_env_keys = {
-            "LD_PRELOAD",
-            "LD_LIBRARY_PATH",
-            "DYLD_INSERT_LIBRARIES",
-            "DYLD_LIBRARY_PATH",
-            "BASH_ENV",
-            "ENV",
-        }
         for k, v in env.items():
-            if k.upper() in dangerous_env_keys:
+            if _is_env_var_denied(k, CONST_CODE_LOADING_ENV_PATTERNS):
                 raise SecurityError(f"Prohibited dangerous environment variable override: '{k}'")
             if "\x00" in k or "\x00" in str(v):
                 raise SecurityError(f"Null byte in environment variable prohibited: '{k}'")
