@@ -10,7 +10,7 @@ import pytest
 import yaml
 from packaging.version import Version
 
-from tests.support.k8s_tree import chart_values, manifests, pod_spec, value_at
+from tests.support.k8s_tree import chart_values, manifests, pinned_charts, pod_spec, value_at
 from tests.support.paths import REPO_ROOT
 
 # The Proxy Read Timeout of the Cloudflare edge, which only an Enterprise zone can change.
@@ -173,12 +173,13 @@ def _alloy_collectors(values: dict[str, Any]) -> tuple[TokenSite, ...]:
 
 
 # The pods of each chart that an Application installs, with the values that make them and that
-# turn their token off, read from the chart at the version the Application pins. A callable entry
-# reads the pods from the values. Argo CD runs the hook Jobs and never the test pods of a chart.
+# turn their token off. A key is the chart and the version that the entry was read from, which is
+# the version that the Application pins. A callable entry reads the pods from the values. Argo CD
+# runs the hook Jobs and never the test pods of a chart.
 CHART_TOKENS: dict[
-    str, tuple[TokenSite, ...] | Callable[[dict[str, Any]], tuple[TokenSite, ...]]
+    tuple[str, str], tuple[TokenSite, ...] | Callable[[dict[str, Any]], tuple[TokenSite, ...]]
 ] = {
-    "argo-cd": (
+    ("argo-cd", "10.9.6"): (
         TokenSite(
             "application-controller",
             _token("controller.automountServiceAccountToken", True),
@@ -223,21 +224,23 @@ CHART_TOKENS: dict[
             "ClusterRole argocd-server",
         ),
     ),
-    "argo-workflows": (
+    ("argo-workflows", "2.0.13"): (
         TokenSite("server", _when(("server.enabled", True)), "ClusterRole argo-workflows-server"),
         TokenSite("workflow-controller", _when(), "Role argo-workflows-workflow-controller"),
     ),
-    "argocd-image-updater": (TokenSite("controller", _when(), "ClusterRole argocd-image-updater"),),
+    ("argocd-image-updater", "1.3.1"): (
+        TokenSite("controller", _when(), "ClusterRole argocd-image-updater"),
+    ),
     # Chart 4.8.4 mounts the token only for pod labels, pod UIDs or DRA, which the values leave off.
-    "dcgm-exporter": (
+    ("dcgm-exporter", "4.8.4"): (
         TokenSite("dcgm-exporter", _token("serviceAccount.automountServiceAccountToken", False)),
     ),
-    "gitea": (TokenSite("gitea", _gitea),),
+    ("gitea", "12.7.0"): (TokenSite("gitea", _gitea),),
     # The dashboards sidecar lists the dashboard ConfigMaps.
-    "grafana": (
+    ("grafana", "14.0.1"): (
         TokenSite("grafana", _token("automountServiceAccountToken", True), "Role grafana"),
     ),
-    "k8s-monitoring": lambda values: (
+    ("k8s-monitoring", "4.5.2"): lambda values: (
         TokenSite("alloy-operator", _when(), "ClusterRole k8s-monitoring-alloy-operator"),
         TokenSite(
             "kube-state-metrics",
@@ -260,7 +263,7 @@ CHART_TOKENS: dict[
     ),
     # The chart binds the ClusterRole loki-clusterrole, which has no rules while the rules sidecar
     # is off. The canary and the gateway have token values of their own.
-    "loki": (
+    ("loki", "20.0.2"): (
         TokenSite("loki", _loki),
         TokenSite(
             "canary",
@@ -271,14 +274,14 @@ CHART_TOKENS: dict[
             _token("gateway.automountServiceAccountToken", False, ("gateway.enabled", True)),
         ),
     ),
-    "open-webui": (
+    ("open-webui", "16.6.0"): (
         TokenSite("open-webui", _token("serviceAccount.automountServiceAccountToken", False)),
     ),
-    "opentelemetry-collector": (
+    ("opentelemetry-collector", "0.175.0"): (
         TokenSite("collector", _token("serviceAccount.automountServiceAccountToken", True)),
     ),
-    "prometheus-operator-crds": (),
-    "prometheus": (
+    ("prometheus-operator-crds", "32.0.1"): (),
+    ("prometheus", "29.35.0"): (
         TokenSite(
             "alertmanager",
             _token(
@@ -291,11 +294,13 @@ CHART_TOKENS: dict[
         TokenSite("server", _when(), "ClusterRole prometheus-server"),
     ),
     # Storage v2 finds the members of the cluster through the API.
-    "pyroscope": (TokenSite("pyroscope", _when(), "Role pyroscope-discovery"),),
+    ("pyroscope", "2.3.1"): (TokenSite("pyroscope", _when(), "Role pyroscope-discovery"),),
     # Chart 1.19.1 has no token value.
-    "qdrant": (TokenSite("qdrant", _when()),),
-    "tempo": (TokenSite("tempo", _token("serviceAccount.automountServiceAccountToken", True)),),
-    "traefik": (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
+    ("qdrant", "1.19.1"): (TokenSite("qdrant", _when()),),
+    ("tempo", "3.1.0"): (
+        TokenSite("tempo", _token("serviceAccount.automountServiceAccountToken", True)),
+    ),
+    ("traefik", "41.6.0"): (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
 }
 
 # The pods that mounted a token they did not use before #1652, so that a reader that finds no pod
@@ -355,8 +360,8 @@ def mounts_token(
 
 
 def _chart_sites(chart: str, values: dict[str, Any]) -> tuple[TokenSite, ...]:
-    """The pods of a chart for these values."""
-    sites = CHART_TOKENS[chart]
+    """The pods of a chart for these values. The table names each chart at one version."""
+    (sites,) = (sites for (name, _), sites in CHART_TOKENS.items() if name == chart)
     return sites(values) if callable(sites) else sites
 
 
@@ -464,9 +469,13 @@ def test_a_token_volume_mounts_a_token_when_the_field_is_off(
     assert mounts_token(pod, None, frozenset({"robot-token"})) is mounts
 
 
-def test_every_chart_an_application_installs_states_its_pods() -> None:
-    """A chart with no entry in CHART_TOKENS could mount a token that no check sees."""
-    assert sorted({chart for chart, _, _ in chart_values()} - CHART_TOKENS.keys()) == []
+def test_the_chart_table_names_each_chart_at_the_version_that_an_application_pins() -> None:
+    """A chart with no entry in CHART_TOKENS could mount a token that no check sees. A chart
+    release can move the value that sets the pod field, as Loki 20.0.2 did (#1632), so an entry
+    names the version that it was read from. A chart bump fails here until the entry is read
+    again from the new version, and an entry for a chart that no Application installs fails too.
+    """
+    assert sorted(pinned_charts() ^ CHART_TOKENS.keys(), key=str) == []
 
 
 def test_the_pods_that_do_not_call_the_api_mount_no_token() -> None:

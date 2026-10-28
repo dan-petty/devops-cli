@@ -47,20 +47,34 @@ def yaml_documents(path: Path) -> tuple[dict[str, Any], ...]:
     )
 
 
-def chart_values() -> Iterator[tuple[str, str, dict[str, Any]]]:
-    """Each chart an Application installs, its values file and the values, in file order."""
+def application_sources() -> Iterator[dict[str, Any]]:
+    """Each source of each Application, in file order."""
     for application_file in sorted(APPLICATIONS.glob("*.yaml")):
         for application in yaml_documents(application_file):
             if application.get("kind") != "Application":
                 continue
             spec = application["spec"]
-            for source in spec.get("sources") or [spec.get("source")]:
-                if not source or "chart" not in source:
-                    continue
-                for value_file in source.get("helm", {}).get("valueFiles", []):
-                    relative = value_file.removeprefix(VALUES_PREFIX)
-                    (values,) = yaml_documents(REPO_ROOT / relative)
-                    yield source["chart"], relative, values
+            yield from (source for source in spec.get("sources") or [spec.get("source")] if source)
+
+
+def pinned_charts() -> frozenset[tuple[str, str]]:
+    """Each chart an Application installs, with the version that the Application pins."""
+    return frozenset(
+        (source["chart"], str(source["targetRevision"]))
+        for source in application_sources()
+        if "chart" in source
+    )
+
+
+def chart_values() -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Each chart an Application installs, its values file and the values, in file order."""
+    for source in application_sources():
+        if "chart" not in source:
+            continue
+        for value_file in source.get("helm", {}).get("valueFiles", []):
+            relative = value_file.removeprefix(VALUES_PREFIX)
+            (values,) = yaml_documents(REPO_ROOT / relative)
+            yield source["chart"], relative, values
 
 
 def manifests() -> Iterator[tuple[str, dict[str, Any]]]:

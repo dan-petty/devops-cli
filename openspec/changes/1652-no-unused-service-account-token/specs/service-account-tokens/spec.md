@@ -16,8 +16,8 @@ Each pod that a manifest under `k8s/` declares, and each pod that a chart of an 
 - **THEN** each pod that mounts a token and is not an exception has a role
 
 #### Scenario: An Application installs a chart that the test does not know
-- **WHEN** an Application installs a chart that has no entry in the test's table of chart pods
-- **THEN** the test fails and names the chart
+- **WHEN** an Application installs a chart that has no entry in the test's table of chart pods, or pins a chart version other than the version of the entry
+- **THEN** the test fails and names the chart and the version
 
 #### Scenario: An exception is stale
 - **WHEN** an exception names a pod that the test does not find, or a pod that mounts no token, or a pod with a role
