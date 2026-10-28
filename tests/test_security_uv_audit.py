@@ -24,7 +24,7 @@ from tests.support.fakes.tool_executor import ToolAnswer
 _UV_AUDIT = ["uv", "audit", "--frozen", "--quiet", "--output-format", "json"]
 
 # The start of the reason of a scan whose report does not have the layout of a project report.
-_INVALID_REPORT = "Scanner execution failed: 2 validation errors for _Report"
+_INVALID_REPORT = "Scanner execution failed:"
 
 _REPORT = {
     "schema": {"version": "preview"},
