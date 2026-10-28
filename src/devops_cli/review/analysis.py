@@ -54,8 +54,6 @@ from devops_cli.config.constants import (
     CONST_SEVERITY_ORDER,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AI_TEMPERATURE,
-    DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_ANCHOR_CONTEXT_LINES,
     DEFAULT_ANALYSIS_PYTHON_FLOOR,
     DEFAULT_ANALYSIS_REFERENCE_BUDGET_CHARS,
@@ -196,9 +194,18 @@ class GroupAnalysisOutput(_StrictModel):
 class SamplingRecord(_StrictModel):
     """Recorded sampling configuration for reproducible group analysis (#1070)."""
 
-    temperature: float = DEFAULT_AI_TEMPERATURE
-    top_p: float = DEFAULT_AI_TOP_P
+    temperature: float
+    top_p: float
     seed: int = DEFAULT_ANALYSIS_SAMPLING_SEED
+
+
+def configured_sampling() -> SamplingRecord:
+    """The sampling that the client of the `analysis` task sends: `ai.tasks.analysis`, else the
+    `ai` section of the loaded settings, so the record names what the model got (#2447)."""
+    from devops_cli.config.settings import load_settings
+
+    task = load_settings().ai.for_task("analysis")
+    return SamplingRecord(temperature=task.temperature, top_p=task.top_p)
 
 
 class RatioRecord(_StrictModel):
@@ -1488,7 +1495,7 @@ def run_group_analysis(
     """Group admitted findings, run model jobs, compute cross-group correlations and plan the review."""
     contents = file_contents or {}
     groups = group_findings_for_analysis(findings, file_contents=contents)
-    eff_sampling = sampling or SamplingRecord()
+    eff_sampling = sampling or configured_sampling()
     eff_env = environment or default_environment_facts(findings)
     admitted_findings = [f for f in findings if f.state != FindingState.SUPPRESSED]
     admitted_ids = {f.fingerprint_v2 for f in admitted_findings}

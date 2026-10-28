@@ -22,8 +22,6 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_DOCS_COLLECTION,
     DEFAULT_RAG_MAX_CHARS,
     DEFAULT_RAG_MAX_CHUNKS_PER_FILE,
-    DEFAULT_RAG_SCORE_THRESHOLD,
-    DEFAULT_RAG_TOP_K,
 )
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.telemetry import ContextPropagatingThread, trace_span
@@ -363,10 +361,20 @@ class SemanticRetriever:
         *,
         code_collection: str = DEFAULT_RAG_COLLECTION,
         docs_collection: str = DEFAULT_RAG_DOCS_COLLECTION,
-        default_top_k: int = DEFAULT_RAG_TOP_K,
-        default_score_threshold: float = DEFAULT_RAG_SCORE_THRESHOLD,
+        default_top_k: int | None = None,
+        default_score_threshold: float | None = None,
         reranker: SearchReranker | None = None,
     ) -> None:
+        """A default that is not given is `ai.rag.top_k` or `ai.rag.score_threshold` of the
+        loaded settings (#2447)."""
+        if default_top_k is None or default_score_threshold is None:
+            from devops_cli.config.settings import load_settings
+
+            rag = load_settings().ai.rag
+            default_top_k = rag.top_k if default_top_k is None else default_top_k
+            default_score_threshold = (
+                rag.score_threshold if default_score_threshold is None else default_score_threshold
+            )
         self.qdrant = qdrant
         self.embedder = embedder
         self.code_collection = code_collection

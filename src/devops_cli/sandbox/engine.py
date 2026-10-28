@@ -20,7 +20,6 @@ from devops_cli.config.constants import (
     CONST_X11_SOCKET_DIR,
     CONST_XDG_RUNTIME_DIR_ENV_VAR,
 )
-from devops_cli.config.defaults import DEFAULT_SANDBOX_EXCLUDE_HOME
 from devops_cli.docker.engine import DockerEngineService, get_engine
 from devops_cli.exceptions.docker import DockerEngineError, DockerError
 from devops_cli.exceptions.sandbox import (
@@ -234,12 +233,12 @@ class WorkloadSandboxEngine:
             self.exclude_home_dir = exclude_home_dir
         else:
             try:
-                from devops_cli.config.settings import load_settings
+                from devops_cli.config.settings import load_settings, setting_default
 
                 self.exclude_home_dir = load_settings().sandbox.exclude_home_dir
             except Exception as exc:
                 logger.debug("Failed loading settings for sandbox.exclude_home_dir: %s", exc)
-                self.exclude_home_dir = DEFAULT_SANDBOX_EXCLUDE_HOME
+                self.exclude_home_dir = setting_default("sandbox.exclude_home_dir")
 
     def validate_workspace_dir(self, workspace_dir: Path) -> Path:
         """Enforce strict security boundaries preventing host system root or secret mounts."""

@@ -1636,7 +1636,7 @@ def _analyze_plan(client: LLMClient) -> tuple[Any, list[str], bool]:
         correlation_table=[],
         group_records=[],
         llm_client=client,
-        sampling=SamplingRecord(),
+        sampling=SamplingRecord(temperature=0.1, top_p=0.95),
         environment=default_environment_facts([finding]),
     )
 

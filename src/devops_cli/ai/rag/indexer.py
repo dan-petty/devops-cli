@@ -29,8 +29,6 @@ from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_RAG_CACHE_DIR,
-    DEFAULT_RAG_CHUNK_OVERLAP,
-    DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
 )
@@ -604,8 +602,8 @@ class WorkspaceIndexer:
         code_collection: str = DEFAULT_RAG_COLLECTION,
         docs_collection: str = DEFAULT_RAG_DOCS_COLLECTION,
         cache_dir: Path = DEFAULT_RAG_CACHE_DIR,
-        chunk_size: int = DEFAULT_RAG_CHUNK_SIZE,
-        chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
     ) -> None:
         if qdrant is None:
             self.qdrant = resolve_qdrant_client()

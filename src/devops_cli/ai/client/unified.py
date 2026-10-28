@@ -42,7 +42,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
-    DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
@@ -138,26 +137,14 @@ def _set_response_span_attributes(
 
 
 def _resolve_llm_cache(config: AIConfig | None, cache_enabled: bool | None) -> Any:
-    cache_cfg = getattr(config, "cache", None)
-    if cache_enabled is None:
-        cache_enabled = getattr(cache_cfg, "enabled", True) if cache_cfg is not None else True
-    if not isinstance(cache_enabled, bool):
-        cache_enabled = True
-    cache_ttl = getattr(cache_cfg, "ttl_seconds", 86400 * 7) if cache_cfg is not None else 86400 * 7
-    if not isinstance(cache_ttl, (int, float)):
-        cache_ttl = 86400 * 7
-    cache_max = getattr(cache_cfg, "max_entries", 1000) if cache_cfg is not None else 1000
-    if not isinstance(cache_max, int):
-        cache_max = 1000
-
+    """The shared response cache, or a disabled one when `cache_enabled` or the client's
+    `ai.cache.enabled` turns it off. Its other values come from the settings (#2447)."""
     from devops_cli.ai.response_cache import LLMResponseCache, get_llm_response_cache
 
-    if not cache_enabled:
-        return LLMResponseCache(
-            enabled=False,
-            ttl_seconds=cache_ttl,
-            max_entries=cache_max,
-        )
+    if cache_enabled is None and config is not None:
+        cache_enabled = config.cache.enabled
+    if cache_enabled is False:
+        return LLMResponseCache(enabled=False)
     return get_llm_response_cache()
 
 
@@ -331,12 +318,7 @@ class LLMClient(
         """Return the effective token context window for the configured model/task."""
         cfg = self._config.for_task(task) if task else self._config
         self._validate_resolved_config(cfg)
-        win = (
-            getattr(cfg, "num_ctx", None)
-            or getattr(cfg, "context_window", None)
-            or DEFAULT_AI_CONTEXT_WINDOW
-        )
-        return int(win)
+        return int(cfg.num_ctx or cfg.context_window)
 
     @staticmethod
     def _strip_think_blocks(text: str) -> str:

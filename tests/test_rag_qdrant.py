@@ -115,7 +115,7 @@ def test_qdrant_search_dimension_mismatch_raises_permanent_error() -> None:
     client._build_client = lambda: mock_native
 
     with pytest.raises(EmbeddingsError) as exc_info:
-        client.search_points("devops_code", query_vector=[0.1] * 1024)
+        client.search_points("devops_code", query_vector=[0.1] * 1024, limit=5)
 
     assert exc_info.value.is_transient is False
     assert "768" in str(exc_info.value)

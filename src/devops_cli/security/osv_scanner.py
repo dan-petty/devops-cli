@@ -30,8 +30,7 @@ from devops_cli.config.constants import (
     CONST_OSV_OFFLINE_DB_TTL_SECONDS,
     CONST_SEVERITY_ALIASES,
 )
-from devops_cli.config.defaults import DEFAULT_CACHE_DATA_DIR
-from devops_cli.core.repo import list_repo_files
+from devops_cli.core.repo import list_repo_files, resolve_data_path
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, ToolDataDir
 
@@ -114,8 +113,15 @@ def _save_snapshot_digest(stamp_file: Path, digest: str, timestamp: float) -> No
 
 
 def get_or_compute_snapshot_digest(cache_dir: Path | None = None) -> str:
-    """Retrieve or compute the OSV offline database snapshot SHA-256 digest with 24h TTL (#1146)."""
-    base = cache_dir or (DEFAULT_CACHE_DATA_DIR / "osv_db")
+    """Retrieve or compute the OSV offline database snapshot SHA-256 digest with 24h TTL (#1146).
+
+    With no `cache_dir`, it is `osv_db` under `data.cache_dir` of the loaded settings (#2447).
+    """
+    if cache_dir is None:
+        from devops_cli.config.settings import load_settings
+
+        cache_dir = resolve_data_path(load_settings().data.cache_dir) / "osv_db"
+    base = cache_dir
     stamp_file = base / ".snapshot_digest"
     now = time.time()
     cached = _read_cached_snapshot_digest(stamp_file, now)

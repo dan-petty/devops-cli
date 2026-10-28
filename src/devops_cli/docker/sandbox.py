@@ -17,7 +17,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SANDBOX_CPUS,
-    DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SANDBOX_IMAGE,
     DEFAULT_SANDBOX_MEMORY,
     DEFAULT_SANDBOX_NETWORK,
@@ -151,11 +150,11 @@ class WorkloadSandboxRunner:
             self.exclude_home_dir = exclude_home_dir
         else:
             try:
-                from devops_cli.config.settings import load_settings
+                from devops_cli.config.settings import load_settings, setting_default
 
                 self.exclude_home_dir = load_settings().sandbox.exclude_home_dir
             except Exception:
-                self.exclude_home_dir = DEFAULT_SANDBOX_EXCLUDE_HOME
+                self.exclude_home_dir = setting_default("sandbox.exclude_home_dir")
 
     def build_dry_run_details(self) -> dict[str, Any]:
         """Construct structured summary for dry-run inspection."""

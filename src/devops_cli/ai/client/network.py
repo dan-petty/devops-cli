@@ -28,7 +28,6 @@ from devops_cli.config.defaults import (
 from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_SLOT_TIMEOUT_SECONDS,
-    DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS,
     DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
 )
@@ -384,7 +383,7 @@ def _observe_ollama_slot_wait(started: float, priority: RequestPriority, outcome
 @contextmanager
 def acquire_ollama_slot(
     candidates: list[str],
-    max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL,
+    max_parallel: int,
     timeout: float | None = None,
     priority: RequestPriority | str | None = None,
 ) -> Generator[str]:
@@ -486,7 +485,7 @@ def acquire_gateway_slot() -> Generator[float]:
 @contextmanager
 def track_ollama_url(
     url: str,
-    max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL,
+    max_parallel: int,
     priority: RequestPriority | str | None = None,
 ) -> Generator[None]:
     """Acquire concurrency slot and track active in-flight requests per Ollama server node."""

@@ -18,9 +18,7 @@ from devops_cli.config.defaults import (
     DEFAULT_QDRANT_DISTANCE,
     DEFAULT_QDRANT_QUANTIZATION_ENABLED,
     DEFAULT_QDRANT_QUANTIZATION_QUANTILE,
-    DEFAULT_QDRANT_TIMEOUT_SECONDS,
     DEFAULT_QDRANT_URL,
-    DEFAULT_RAG_TOP_K,
 )
 from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
@@ -183,7 +181,7 @@ class QdrantClient:
         *,
         api_key: str | None = None,
         allow_private_network: bool = True,
-        timeout: float = DEFAULT_QDRANT_TIMEOUT_SECONDS,
+        timeout: float | None = None,
     ) -> None:
         parsed = urllib.parse.urlparse(base_url)
         if not parsed.scheme or not parsed.netloc:
@@ -201,8 +199,13 @@ class QdrantClient:
                 )
                 self.api_key = None
         self.allow_private_network = allow_private_network
-        # Each caller passes `qdrant.timeout`, which searches and indexing writes both wait. The
-        # native client takes whole seconds, so it is sent rounded up, never down to 0.
+        # `qdrant.timeout`, which searches and indexing writes both wait, from the loaded settings
+        # when the caller gives none (#2447). The native client takes whole seconds, so it is sent
+        # rounded up, never down to 0.
+        if timeout is None:
+            from devops_cli.config.settings import load_settings
+
+            timeout = load_settings().qdrant.timeout
         self.timeout = timeout
 
         # Validate URL for SSRF protection. A k8s:// address names a Service rather than a
@@ -507,7 +510,7 @@ class QdrantClient:
         name: str,
         query_vector: list[float],
         *,
-        limit: int = DEFAULT_RAG_TOP_K,
+        limit: int,
         score_threshold: float | None = None,
         filter_payload: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
