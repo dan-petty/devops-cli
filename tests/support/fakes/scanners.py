@@ -37,8 +37,9 @@ directories, the bytes of each file in that directory as the run started.
 
 Each recorded run is the real tool's, at the version `tools.lock` pins, started through its
 adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
-that finds nothing. Semgrep's was recorded again on 2026-10-24, offline, with a rule file in
-place of the registry's `p/default`, which a recording cannot fetch. Gitleaks' was recorded again
+that finds nothing. Semgrep's was recorded again on 2026-10-28, offline, with a rule file in
+place of the registry's `p/default`, which a recording cannot fetch, and with the rules that a
+review leaves out (#1024). Gitleaks' was recorded again
 on 2026-10-25, with the command that writes its report on stdout (#1434). They are kept in
 `tests/fixtures/scanner_runs/recorded_runs.json`, each with its command, in which `{tree}` stands
 for the scanned tree, `{workdir}` for the directory the scanner ran in and `{rule_pack}` for

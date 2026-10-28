@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from itertools import batched
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_SEMGREP, build_semgrep_cmd
@@ -48,6 +49,24 @@ _SEMGREP_SEVERITY_MAP: dict[str, str] = {
     "INFO": "LOW",
     "INVENTORY": "INFO",
 }
+
+
+# The registry rules that a review's Semgrep scan leaves out, by rule id only, each with its
+# reason (#1024). The rule text stays in the registry, whose licence does not let the repository
+# copy it. Any other scan runs every rule of its config.
+_REVIEW_EXCLUDED_RULES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "python.lang.security.audit.non-literal-import.non-literal-import": (
+            "It flags each import of a name held in a variable. On this repository the names "
+            "came from literals, static maps or `__getattr__`, and each of its findings in the "
+            "labelled reviews was false."
+        ),
+        "python.lang.security.audit.exec-detected.exec-detected": (
+            "It flags each `exec`. Its one finding in the labelled reviews of this repository, a "
+            "test that runs a documented snippet of the repository, was false."
+        ),
+    }
+)
 
 
 def _format_semgrep_location(path_str: str, start_line: int | None, end_line: int | None) -> str:
@@ -155,18 +174,23 @@ def rules_configs(
 
 
 def semgrep_scan_command(
-    targets: Sequence[Path | str], configs: Sequence[str], exclude_paths: Sequence[str] = ()
+    targets: Sequence[Path | str],
+    configs: Sequence[str],
+    exclude_paths: Sequence[str] = (),
+    exclude_rules: Sequence[str] = (),
 ) -> list[str]:
     """The Semgrep scan of `targets` with `configs` and devops-cli's rule pack, which runs with
     whatever configs a scan names (#1144)."""
     from devops_cli.review.rules_pack import RULE_PACK_DIR
 
-    return build_semgrep_cmd(targets, [*configs, str(RULE_PACK_DIR)], exclude_paths)
+    return build_semgrep_cmd(targets, [*configs, str(RULE_PACK_DIR)], exclude_paths, exclude_rules)
 
 
-def _files_command(names: list[str], configs: list[str]) -> list[str] | None:
+def _files_command(
+    names: list[str], configs: list[str], exclude_rules: Sequence[str] = ()
+) -> list[str] | None:
     """The command that scans the named files; None when none is named."""
-    return semgrep_scan_command(names, configs) if names else None
+    return semgrep_scan_command(names, configs, exclude_rules=exclude_rules) if names else None
 
 
 def _build_scan_command(
@@ -174,9 +198,13 @@ def _build_scan_command(
     config: str,
     ruleset: CachedRuleset | None = None,
 ) -> list[str] | None:
-    """Construct subprocess command for materialized targets, a file list or a directory."""
+    """Construct subprocess command for materialized targets, a file list or a directory.
+
+    Only a review's isolated scan materializes its targets, so only it leaves out the rules of
+    `_REVIEW_EXCLUDED_RULES`."""
     if isinstance(target, MaterializedTargets):
-        return _files_command(target.names, rules_configs(config, ruleset, in_workdir=True))
+        configs = rules_configs(config, ruleset, in_workdir=True)
+        return _files_command(target.names, configs, tuple(_REVIEW_EXCLUDED_RULES))
     configs = rules_configs(config, ruleset)
     if isinstance(target, list):
         return _files_command([str(p.resolve()) for p in _scannable_files(target)], configs)

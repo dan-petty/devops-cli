@@ -1,0 +1,509 @@
+{
+  "about": "The scanner candidates of the review sessions S3 (20261002-180320), S4 (20261002-200610) and S5 (20261002-205520) of release/v0.2.25, and the two persona candidates S5 labelled valid, trimmed from each session's candidates.json for the replay of #1024. A Semgrep candidate names its rule id in its title; a kube-linter candidate of that time names no check, so its check is read from kube-linter's message: 'no pods found matching service labels' is dangling-service, and 'does not specify inter pod anti-affinity' is no-anti-affinity. Each label is the one that .data/review-evaluation-20261002-s5.md gives, and `source` names its section: 3.1 labels each S5 candidate, and 6.3 D says which rules had no valid finding across S3-S5. A candidate that the evaluation labels 'opinion, or valid' is counted as valid.",
+  "candidates": [
+    {
+      "session": "20261002-180320",
+      "candidate": 43,
+      "producer": "kube-linter",
+      "rule": "no-anti-affinity",
+      "location": "k8s/cloudflared/deployment.yaml:Deployment/cloudflared",
+      "label": "valid-lenient",
+      "source": "6.3 A: flagged in every session; counted as valid, as in S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 50,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/prometheus",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 51,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-kube-prome-prometheus",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 52,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-grafana",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 53,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/pyroscope",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 57,
+      "producer": "semgrep",
+      "rule": "package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown",
+      "location": "pyproject.toml:133-134",
+      "label": "opinion",
+      "source": "3.3: the uv cooldown is an opinion"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 58,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/ai/__init__.py:12",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 94,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/ci.py:93",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 95,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/commands/config.py:514",
+      "label": "valid-lenient",
+      "source": "6.3 D: its only true positive across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 101,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/release.py:60",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 108,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/workspace.py:43",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 109,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/config/settings.py:19",
+      "label": "false",
+      "source": "6.3 D: not its one true positive"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 110,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/config/settings.py:19",
+      "label": "false",
+      "source": "6.3 D: not its one true positive"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 112,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/docs/generator.py:818",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 124,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/main.py:84",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 136,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "tests/test_all_commands_help_dryrun.py:99",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-180320",
+      "candidate": 168,
+      "producer": "semgrep",
+      "rule": "generic.secrets.security.detected-github-token.detected-github-token",
+      "location": "tests/test_pr_cmd.py:1589",
+      "label": "false",
+      "source": "3.1: the label of S5 [35], the same rule and file"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 50,
+      "producer": "kube-linter",
+      "rule": "no-anti-affinity",
+      "location": "k8s/cloudflared/deployment.yaml:Deployment/cloudflared",
+      "label": "valid-lenient",
+      "source": "6.3 A: flagged in every session; counted as valid, as in S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 57,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/prometheus",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 58,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-kube-prome-prometheus",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 59,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-grafana",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 60,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/pyroscope",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 64,
+      "producer": "semgrep",
+      "rule": "package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown",
+      "location": "pyproject.toml:133-134",
+      "label": "opinion",
+      "source": "3.3: the uv cooldown is an opinion"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 65,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/ai/__init__.py:12",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 107,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/ci.py:93",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 108,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/commands/config.py:514",
+      "label": "valid-lenient",
+      "source": "6.3 D: its only true positive across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 119,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/release.py:60",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 126,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/workspace.py:43",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 127,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/config/settings.py:19",
+      "label": "false",
+      "source": "6.3 D: not its one true positive"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 128,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/config/settings.py:19",
+      "label": "false",
+      "source": "6.3 D: not its one true positive"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 130,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/docs/generator.py:818",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 143,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/main.py:84",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 160,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "tests/test_all_commands_help_dryrun.py:99",
+      "label": "false",
+      "source": "6.3 D: no valid finding across S3-S5"
+    },
+    {
+      "session": "20261002-200610",
+      "candidate": 193,
+      "producer": "semgrep",
+      "rule": "generic.secrets.security.detected-github-token.detected-github-token",
+      "location": "tests/test_pr_cmd.py:1589",
+      "label": "false",
+      "source": "3.1: the label of S5 [35], the same rule and file"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 2,
+      "producer": "kube-linter",
+      "rule": "no-anti-affinity",
+      "location": "k8s/cloudflared/deployment.yaml:Deployment/cloudflared",
+      "label": "valid-lenient",
+      "source": "3.1: opinion, or valid [judgment]; counted as valid here"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 3,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/prometheus",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 4,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-kube-prome-prometheus",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 5,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-grafana",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 6,
+      "producer": "kube-linter",
+      "rule": "dangling-service",
+      "location": "k8s/monitoring/service-aliases.yaml:Service/pyroscope",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 7,
+      "producer": "semgrep",
+      "rule": "package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown",
+      "location": "pyproject.toml:133-134",
+      "label": "opinion",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 8,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/ai/__init__.py:12",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 11,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/ai/rag/indexer.py:12",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 12,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/ai/rag/qdrant.py:18",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 13,
+      "producer": "persona",
+      "rule": null,
+      "location": "src/devops_cli/ai/spend/pricing.py:55",
+      "label": "valid-lenient",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 14,
+      "producer": "persona",
+      "rule": null,
+      "location": "src/devops_cli/ai/spend/pricing.py:65",
+      "label": "valid-lenient",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 17,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/ci.py:93",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 18,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/commands/config.py:514",
+      "label": "valid-lenient",
+      "source": "3.1: valid, lenient [judgment]"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 19,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/release.py:60",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 20,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/commands/workspace.py:43",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 21,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/config/settings.py:19",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 22,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
+      "location": "src/devops_cli/config/settings.py:19",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 23,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/docs/generator.py:823",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 29,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "src/devops_cli/main.py:84",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 32,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.non-literal-import.non-literal-import",
+      "location": "tests/test_all_commands_help_dryrun.py:99",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 35,
+      "producer": "semgrep",
+      "rule": "generic.secrets.security.detected-github-token.detected-github-token",
+      "location": "tests/test_pr_cmd.py:1589",
+      "label": "false",
+      "source": "3.1"
+    },
+    {
+      "session": "20261002-205520",
+      "candidate": 38,
+      "producer": "semgrep",
+      "rule": "python.lang.security.audit.exec-detected.exec-detected",
+      "location": "tests/test_review_prompt_consistency.py:439",
+      "label": "false",
+      "source": "3.1"
+    }
+  ]
+}

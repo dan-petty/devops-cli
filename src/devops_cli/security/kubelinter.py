@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, ClassVar, Final
+
+import yaml
 
 from devops_cli.ai.review_schema import DefectClass, Finding, defect_class
 from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
-from devops_cli.config.constants import CONST_REVIEW_SCAN_KUBELINTER_CONFIG
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
 )
@@ -21,6 +24,21 @@ if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
+
+# The default checks that a review's kube-linter scan leaves out, by name, each with its reason
+# (#1024). Any other scan runs every default check.
+_REVIEW_EXCLUDED_CHECKS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "dangling-service": (
+            "A review scans one manifest at a time, so kube-linter does not see the pods of a "
+            "sibling file or of a Helm release that the Service selects. Each of its findings in "
+            "the labelled reviews of this repository was false (#1024, #1045)."
+        ),
+    }
+)
+# The config that a review hands kube-linter in place of any in its working directory or the
+# reviewed tree (#972): kube-linter's default checks, less the ones a review leaves out.
+_REVIEW_CONFIG: Final[str] = yaml.safe_dump({"checks": {"exclude": list(_REVIEW_EXCLUDED_CHECKS)}})
 
 
 def manifest_location(target_path: str) -> str:
@@ -101,7 +119,7 @@ class KubelinterScanner(BaseSecurityScanner):
     has_builtin_patterns: ClassVar[bool] = False
     # kube-linter reads `.kube-linter.yaml` from its working directory without `--config`.
     isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
-        ScannerConfigFile("--config", "kube-linter.yaml", CONST_REVIEW_SCAN_KUBELINTER_CONFIG),
+        ScannerConfigFile("--config", "kube-linter.yaml", _REVIEW_CONFIG),
     )
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
