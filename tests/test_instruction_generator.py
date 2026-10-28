@@ -604,6 +604,7 @@ def test_generate_agents_md_root_cause_and_premise_rules() -> None:
         "add a check that fails when the problem returns",
         "Check the premise first.",
         "write no compensating code",
+        "Close issues as rejected if their functionality has been superseded by newer issues or code changes.",
     )
     ingestion_rules = (
         "Automatic Roadmap Ingestion",

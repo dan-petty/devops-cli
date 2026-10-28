@@ -178,6 +178,16 @@ def test_agents_md_stays_within_character_budget(tmp_path: Path) -> None:
     ) == (True, True, True)
 
 
+def test_agents_md_premise_rule_closes_superseded_issues() -> None:
+    """Verify AGENTS.md instructs agents to close issues as rejected if their functionality has
+    been superseded by newer issues or code changes."""
+    content = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert (
+        "Close issues as rejected if their functionality has been superseded by newer issues or code changes."
+        in content
+    )
+
+
 def _inline_hrefs(text: str) -> list[str]:
     """The target of every link in a fragment of Markdown, such as the text of a table cell."""
     return [

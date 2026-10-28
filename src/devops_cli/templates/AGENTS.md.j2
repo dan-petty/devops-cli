@@ -9,7 +9,7 @@ It runs on Python `{{ requires_python }}`{% if entry_point %}, and its entry poi
 ## Rules for every task
 
 1. **One issue, one pull request.** Work on a topic branch. Topic PRs target the default branch. The PR title is a Conventional Commit, and the PR body closes its one issue (`Closes #<issue>`).
-2. **Check the premise first.** Confirm it against the real system: upstream documents, library source or command output. If the item cannot be built as written, write no compensating code: comment the evidence on the issue and stop.
+2. **Check the premise first.** Confirm it against the real system: upstream documents, library source or command output. If the item cannot be built as written, write no compensating code: comment the evidence on the issue and stop. Close issues as rejected if their functionality has been superseded by newer issues or code changes.
 3. **Use an open tool or library before you build one.**
 4. **Write the failing test first.** A fix pull request shows that its new tests fail on the base with `devops ci fail-to-pass --base <ref>`.
 5. **Run the checks before each push:** {% for command in check_commands %}`{{ command }}`{% if not loop.last %}, {% endif %}{% endfor %}. Push only when they pass. Never lower a threshold unless the owner allows it.
