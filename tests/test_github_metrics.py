@@ -47,6 +47,7 @@ from devops_cli.telemetry.instruments import PROJECT_ITEM_LABELS, PROJECT_ITEMS
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
 REPO = "example/test-repo"
@@ -93,26 +94,34 @@ def test_parse_tag_datetime_valid_and_invalid() -> None:
     assert isinstance(fallback, datetime.datetime)
 
 
-def test_get_git_tag_entries_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Verify git tag discovery and chronological sorting."""
-    raw_output = "v0.2.20|2026-09-19T10:00:00Z\nv0.2.21|2026-09-20T10:00:00Z\n"
-    mock_run = MagicMock(
-        return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=raw_output)
+def test_get_git_tag_entries_success(process_fake: ProcessFake, tmp_path: Path) -> None:
+    """Verify git tag discovery, as a local read in the root, and chronological sorting."""
+    raw_output = "v0.2.21|2026-09-20T10:00:00Z\nv0.2.20|2026-09-19T10:00:00Z\n"
+    process_fake.answer(["git", "tag"], ProcessAnswer(stdout=raw_output))
+
+    entries = _get_git_tag_entries(tmp_path)
+
+    call = process_fake.calls[0]
+    assert ([tag for tag, _ in entries], call.argv[:3], call.cwd, call.local_read) == (
+        ["v0.2.20", "v0.2.21"],
+        ("git", "tag", "-l"),
+        tmp_path,
+        True,
     )
-    monkeypatch.setattr(subprocess, "run", mock_run)
-
-    entries = _get_git_tag_entries(tmp_path)
-    assert len(entries) == 2
-    assert (entries[0][0], entries[1][0]) == ("v0.2.20", "v0.2.21")
 
 
-def test_get_git_tag_entries_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Verify git tag discovery handles subprocess failures gracefully."""
-    mock_run = MagicMock(side_effect=subprocess.SubprocessError("git error"))
-    monkeypatch.setattr(subprocess, "run", mock_run)
+def test_get_git_tag_entries_without_git_logs_the_missing_program(
+    process_fake: ProcessFake, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A missing `git` gives no tags, and the warning names the program (#1538)."""
+    process_fake.answer(
+        "git", ProcessAnswer(returncode=127, stderr="Executable 'git' not found in PATH")
+    )
 
-    entries = _get_git_tag_entries(tmp_path)
-    assert entries == []
+    with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
+        entries = _get_git_tag_entries(tmp_path)
+
+    assert (entries, "Executable 'git' not found" in caplog.text) == ([], True)
 
 
 def test_count_bullet_commits() -> None:
@@ -128,20 +137,29 @@ def test_count_bullet_commits() -> None:
     assert count == 3
 
 
-def test_extract_commits_and_prs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Verify calculation of commit counts and unique PR numbers between tags."""
+def test_extract_commits_and_prs(process_fake: ProcessFake, tmp_path: Path) -> None:
+    """Verify calculation of commit counts and unique PR numbers between tags, from local reads
+    of git in the root."""
+    process_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
+    body = "* feat(core): item 1 (#101)\n* fix(core): item 2 (#102)\n* fix(core): item 3 (#101)\n"
+    process_fake.answer(["git", "log"], ProcessAnswer(stdout=body))
 
-    def fake_subprocess_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if "rev-list" in cmd:
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="1\n")
-        body = (
-            "* feat(core): item 1 (#101)\n* fix(core): item 2 (#102)\n* fix(core): item 3 (#101)\n"
-        )
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=body)
-
-    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
     commits, prs = _extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21")
-    assert (commits, prs) == (3, 2)
+
+    assert (
+        (commits, prs),
+        [call.argv[:2] for call in process_fake.calls],
+        {(call.cwd, call.local_read) for call in process_fake.calls},
+    ) == ((3, 2), [("git", "rev-list"), ("git", "log")], {(tmp_path, True)})
+
+
+def test_extract_commits_and_prs_without_git(process_fake: ProcessFake, tmp_path: Path) -> None:
+    """A missing `git` counts one commit and no pull request, as a failed read did (#1538)."""
+    process_fake.answer(
+        "git", ProcessAnswer(returncode=127, stderr="Executable 'git' not found in PATH")
+    )
+
+    assert _extract_commits_and_prs(tmp_path, "v0.2.20", "v0.2.21") == (1, 0)
 
 
 def test_get_release_cadence_metrics(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

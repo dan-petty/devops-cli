@@ -15,7 +15,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,6 +33,8 @@ from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_GIT_MAIN_BRANCH,
     CONST_PYPROJECT_FILENAME,
+    CONST_SOURCE_ROOT_DIR,
+    CONST_TESTS_ROOT_DIR,
     CONST_TOOLS_LOCK_REPO_DIR,
 )
 from devops_cli.config.defaults import (
@@ -99,6 +101,11 @@ class FileOrSubcommandGroup(TyperGroup):
 
 
 app = new_typer(cls=FileOrSubcommandGroup, help=HELP.ci.app)
+
+# The severity the security row scans `src/` at: every Bandit finding in the product needs a fix or
+# a reviewed nosec marker that names its rules and a reason (#1538). `tests/` keeps
+# DEFAULT_BANDIT_SEVERITY.
+_BANDIT_SOURCE_SEVERITY: Final[str] = "low"
 
 
 def _get_project_root() -> Path:
@@ -647,14 +654,11 @@ def _resolve_pytest_cmd() -> list[str]:
     ]
 
 
-def _bandit_cmd(severity: str) -> list[str]:
-    """Bandit over the targets the repository's `.bandit` names, walking each directory among
-    them, reporting `severity` and above, under `nice`: in the full gate it runs beside the test
-    row's workers, the gate's critical path, and takes the CPU they leave idle (#1725).
-
-    `devops scan report` on this tree runs Bandit with the same file and threshold, so the
-    code-scanning upload reports what this check fails on.
-    """
+def _bandit_cmd(target: str, severity: str) -> list[str]:
+    """Bandit over `target`, walking its directories, with the repository's `.bandit` and
+    reporting `severity` and above, under `nice`: in the full gate it runs beside the test row's
+    workers, the gate's critical path, and takes the CPU they leave idle (#1725). A target on the
+    command line replaces the targets of `.bandit`, which still applies its skips."""
     return [
         "uv",
         "run",
@@ -663,10 +667,21 @@ def _bandit_cmd(severity: str) -> list[str]:
         str(DEFAULT_CI_BANDIT_NICENESS),
         "bandit",
         "-r",
+        target,
         "--ini",
         CONST_BANDIT_INI_NAME,
         "--severity-level",
         severity.lower(),
+    ]
+
+
+def _bandit_cmds(tests_severity: str) -> list[list[str]]:
+    """The security row's Bandit runs: `src` at low severity and above, so a new low finding in
+    the product fails the gate, then `tests` at `tests_severity` (#1538). Each file is scanned once,
+    as one run over both targets scanned it."""
+    return [
+        _bandit_cmd(CONST_SOURCE_ROOT_DIR, _BANDIT_SOURCE_SEVERITY),
+        _bandit_cmd(CONST_TESTS_ROOT_DIR, tests_severity),
     ]
 
 
@@ -744,7 +759,8 @@ def get_check_specs() -> list[CheckSpec]:
         CheckSpec(
             name="security",
             display_title=MESSAGES.ci.bandit_scan,
-            cmd=_bandit_cmd(DEFAULT_BANDIT_SEVERITY),
+            cmd=_bandit_cmds(DEFAULT_BANDIT_SEVERITY)[0],
+            also_cmds=_bandit_cmds(DEFAULT_BANDIT_SEVERITY)[1:],
             span_name="ci.step.security",
             metric_step="security",
             heavy=True,
@@ -1972,12 +1988,13 @@ def security(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run bandit static security analysis over src/ and tests/, the targets .bandit names."""
+    """Run bandit static security analysis over src/ at low severity and over tests/ at --severity."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(_bandit_cmd(severity)):
+    passed = [_run(cmd) for cmd in _bandit_cmds(severity)]
+    if not all(passed):
         raise typer.Exit(1)
 
 

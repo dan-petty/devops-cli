@@ -328,7 +328,7 @@ class InMemoryDocumentTokenizer:
             cat = self._infer_category(c.heading, c.text)
             cat_to_indices.setdefault(cat, []).append(c_i)
 
-        rng = random.Random(random_seed)
+        rng = random.Random(random_seed)  # nosec B311 # a seeded sample that must repeat; it guards nothing
         selected_indices: list[int] = []
         # Sample evenly across all detected categories first
         cats = list(cat_to_indices.keys())

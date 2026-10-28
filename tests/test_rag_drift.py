@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +12,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.rag.drift import RAGDriftDetector, RAGDriftReport
 from devops_cli.main import app
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -232,3 +234,42 @@ def test_drift_detector_defensive_boundaries(tmp_path: Path) -> None:
     stale_large, new_large = [], []
     _scan_file_drift(mock_large, tmp_path, "proj", {}, stale_large, new_large)
     assert (stale_large, new_large) == ([], [])
+
+
+def test_drift_reads_the_head_commit_with_git_through_the_process_seam(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """The head commit is a local read of `git rev-parse HEAD` in the root, through the process
+    seam (#1538)."""
+    process_fake.answer(["git", "rev-parse", "HEAD"], ProcessAnswer(stdout="abc123\n"))
+
+    report = RAGDriftDetector(root_dir=tmp_path).detect_drift(
+        current_cache={}, last_indexed_commit="abc123"
+    )
+
+    call = process_fake.calls[0]
+    assert (report.current_head_commit, call.argv, call.cwd, call.local_read) == (
+        "abc123",
+        ("git", "rev-parse", "HEAD"),
+        tmp_path,
+        True,
+    )
+
+
+def test_drift_without_git_has_no_head_commit_and_logs_the_missing_program(
+    tmp_path: Path, process_fake: ProcessFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A missing `git` gives no head commit, and the log line names the program (#1538)."""
+    process_fake.answer(
+        "git", ProcessAnswer(returncode=127, stderr="Executable 'git' not found in PATH")
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.drift"):
+        report = RAGDriftDetector(root_dir=tmp_path).detect_drift(
+            current_cache={}, last_indexed_commit="abc123"
+        )
+
+    assert (report.current_head_commit, "Executable 'git' not found" in caplog.text) == (
+        None,
+        True,
+    )

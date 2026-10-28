@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import configparser
 import os
 import re
 import shlex
@@ -257,8 +258,14 @@ def test_ci_security_command(monkeypatch) -> None:
     monkeypatch.setattr("subprocess.run", mock_run)
 
     result = runner.invoke(app, ["security", "-s", "high"])
-    assert result.exit_code == 0
-    assert any("bandit" in c and c[-2:] == ["--severity-level", "high"] for c in called)
+    bandit_runs = [c[c.index("bandit") :] for c in called if "bandit" in c]
+    assert (result.exit_code, bandit_runs) == (
+        0,
+        [
+            ["bandit", "-r", "src", "--ini", CONST_BANDIT_INI_NAME, "--severity-level", "low"],
+            ["bandit", "-r", "tests", "--ini", CONST_BANDIT_INI_NAME, "--severity-level", "high"],
+        ],
+    )
 
 
 def test_the_gate_starts_bandit_below_the_test_row_s_priority(
@@ -271,17 +278,61 @@ def test_the_gate_starts_bandit_below_the_test_row_s_priority(
     for row in ("security", "test"):
         asyncio.run(ci_module._execute_check_async(get_check_spec(row)))
 
-    gate_security, gate_test = (spawn.argv for spawn in spawns)
-    run_at, bandit_at = gate_security.index("run"), gate_security.index("bandit")
+    *gate_security, gate_test = (spawn.argv for spawn in spawns)
+    niced = ["nice", "-n", str(DEFAULT_CI_BANDIT_NICENESS)]
     assert (
-        gate_security[run_at + 1 : bandit_at],
-        gate_security[bandit_at:],
+        [argv[argv.index("run") + 1 : argv.index("bandit")] for argv in gate_security],
+        [argv[argv.index("bandit") :] for argv in gate_security],
         "nice" in gate_test,
     ) == (
-        ["nice", "-n", str(DEFAULT_CI_BANDIT_NICENESS)],
-        ["bandit", "-r", "--ini", CONST_BANDIT_INI_NAME, "--severity-level", "medium"],
+        [niced, niced],
+        [
+            ["bandit", "-r", "src", "--ini", CONST_BANDIT_INI_NAME, "--severity-level", "low"],
+            ["bandit", "-r", "tests", "--ini", CONST_BANDIT_INI_NAME, "--severity-level", "medium"],
+        ],
         False,
     )
+
+
+def test_the_security_row_scans_the_targets_that_bandit_s_config_names() -> None:
+    """The gate names its Bandit targets on the command line, so it holds them to the targets of
+    `.bandit`, which `devops scan report` and a person's `bandit -r --ini .bandit` read (#1538)."""
+    config = configparser.ConfigParser()
+    config.read(REPO_ROOT / CONST_BANDIT_INI_NAME, encoding="utf-8")
+    targets = [argv[argv.index("-r") + 1] for argv in get_check_spec("security").commands]
+    assert targets == config.get("bandit", "targets").split(",")
+
+
+def test_bandit_s_config_skips_only_the_low_rules_that_need_no_decision() -> None:
+    """B404 and B603 are list-form process calls without a shell, which a CLI that runs tools has;
+    the swallowed-failures ratchet counts B110 and B112 through Ruff. All four are low severity, so
+    the medium run over `tests/` is the same with or without them (#1538)."""
+    config = configparser.ConfigParser()
+    config.read(REPO_ROOT / CONST_BANDIT_INI_NAME, encoding="utf-8")
+    skips = config.get("bandit", "skips", fallback="")
+    assert sorted(rule.strip() for rule in skips.split(",") if rule.strip()) == [
+        "B110",
+        "B112",
+        "B404",
+        "B603",
+    ]
+
+
+def test_ci_security_runs_every_command_of_its_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`devops ci security` runs both Bandit runs of the row, and the second after a failed
+    first, so one run shows every finding (#1538)."""
+    executed: list[list[str]] = []
+
+    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> subprocess.CompletedProcess[str]:
+        executed.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1, "", "")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    monkeypatch.setattr(ci_module, "run_subprocess", mock_run)
+
+    result = runner.invoke(app, ["security"])
+    expected = [ci_module._with_uv_preview(cmd) for cmd in get_check_spec("security").commands]
+    assert (result.exit_code, [c for c in executed if "bandit" in c]) == (1, expected)
 
 
 def test_ci_actionlint_command(monkeypatch) -> None:

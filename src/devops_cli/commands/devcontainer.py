@@ -577,7 +577,7 @@ def _ensure_mount_permissions(
     target_path: Path, mount_type: str, *, dry_run: bool = False
 ) -> str | None:
     """Ensure directory creation, ownership, and mode permissions for a volume mount."""
-    if target_path in CONST_SYSTEM_TEMP_DIRS:  # nosec B108
+    if target_path in CONST_SYSTEM_TEMP_DIRS:  # nosec B108 # compares a path with the system temp directories; writes nothing
         if not dry_run:
             _safe_chmod_path(target_path, 0o1777, "1777")
         return MESSAGES.devcontainer.temp_dir_permissions_configured.format(path=target_path)
@@ -1038,7 +1038,7 @@ def _spawn_background_k8s_bootstrap(
             timestamp_str = datetime.now(UTC).isoformat()
             log_handle.write(f"\n# --- Background K8s Bootstrap spawned at {timestamp_str} ---\n")
             log_handle.flush()
-            subprocess.Popen(  # nosec B603
+            subprocess.Popen(
                 cmd,
                 cwd=str(workspace_dir),
                 stdout=log_handle,

@@ -703,7 +703,7 @@ class CICommandHelp:
     check_all: str = (
         "Run in check-only mode without automatically applying formatting or lint fixes."
     )
-    min_severity: str = "Minimum severity threshold (low, medium, high)."
+    min_severity: str = "Minimum severity for tests/ (low, medium, high); src/ is scanned at low."
     fix_all: str = "Auto-fix lint/format before reporting status."
     fix_sync: str = "Automatically synchronize dependencies and lockfile."
     maintain: str = (

@@ -57,8 +57,9 @@ In `devops-cli`:
 
 ### Running Security Audits via CLI
 ```bash
-# Execute Bandit over src/ and tests/, the targets .bandit names, as devops ci security does
-uv run bandit -r --ini .bandit --severity-level medium
+# Execute Bandit as devops ci security does: src/ at low severity, tests/ at medium
+uv run bandit -r src --ini .bandit --severity-level low
+uv run bandit -r tests --ini .bandit --severity-level medium
 
 # Execute Actionlint against all GitHub Actions workflow definitions
 uv run actionlint

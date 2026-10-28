@@ -215,7 +215,7 @@ def fetch_argocd_password(
     save_to_keyring: bool = True,
 ) -> str | None:
     """Fetch initial ArgoCD admin password from Kubernetes and store in keyring."""
-    pw = fetch_secret_field(
+    pw = fetch_secret_field(  # nosec B106 # the name of a Kubernetes Secret, not its value
         secret_name="argocd-initial-admin-secret",
         field="password",
         namespace=namespace,

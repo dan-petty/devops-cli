@@ -277,7 +277,7 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 |  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 |  | `devops ci typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
 |  | `devops ci audit [OPTIONS]` | Run uv audit and npm audit to check for known package vulnerabilities. |
-|  | `devops ci security [OPTIONS]` | Run bandit static security analysis over src/ and tests/, the targets .bandit names. |
+|  | `devops ci security [OPTIONS]` | Run bandit static security analysis over src/ at low severity and over tests/ at --severity. |
 |  | `devops ci actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci uv-check [OPTIONS]` | Run uv check for fast static type checking and project validation. |

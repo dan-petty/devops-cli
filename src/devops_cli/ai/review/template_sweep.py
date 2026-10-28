@@ -36,7 +36,7 @@ from devops_cli.ai.review.samples import (
 )
 from devops_cli.ai.run_store import Mechanism, SavedRun, record_run
 
-STATUS_PASS = "PASS"
+STATUS_PASS = "PASS"  # nosec B105 # a sweep status label, not a credential
 STATUS_FAIL = "FAIL"
 STATUS_NOT_RUN = "NOT_RUN"
 

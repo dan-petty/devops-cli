@@ -533,7 +533,7 @@ class DefectClass(StrEnum):
     INJECTION = "injection"
     PATH_TRAVERSAL = "path_traversal"
     SSRF = "ssrf"
-    SECRET_EXPOSURE = "secret_exposure"
+    SECRET_EXPOSURE = "secret_exposure"  # nosec B105 # a finding category, not a credential
     INFORMATION_EXPOSURE = "information_exposure"
     ACCESS_CONTROL = "access_control"
     AUTHENTICATION = "authentication"

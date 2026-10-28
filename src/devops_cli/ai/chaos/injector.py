@@ -156,7 +156,7 @@ class ModelChaosInjector:
     def _dispatch_fault(self, mode: ChaosMode) -> ChaosFaultResult:
         """Dispatch fault injection according to specified mode."""
         if self.config.error_rate <= 0.0 or (
-            self.config.error_rate < 1.0 and random.random() > self.config.error_rate
+            self.config.error_rate < 1.0 and random.random() > self.config.error_rate  # nosec B311 # a chaos fault rate; it guards nothing
         ):
             return ChaosFaultResult(
                 mode=mode,

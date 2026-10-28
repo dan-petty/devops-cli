@@ -90,7 +90,7 @@ def _calculate_backoff_delay(
 ) -> float:
     """Compute exponential backoff delay with bounded jitter."""
     exp_delay = min(max_delay, base * (2**attempt))
-    jitter = random.uniform(0.0, 0.1 * exp_delay)
+    jitter = random.uniform(0.0, 0.1 * exp_delay)  # nosec B311 # retry jitter; it guards nothing
     return float(round(exp_delay + jitter, 4))
 
 
@@ -333,7 +333,7 @@ def _compute_retry_delay(attempt: int, res: httpx2.Response | None = None) -> fl
         if retry_after and retry_after.isdigit():
             return min(30.0, float(retry_after))
     base = min(10.0, 0.5 * (2 ** (attempt - 1)))
-    return float(base + random.uniform(0.1, 0.5))
+    return float(base + random.uniform(0.1, 0.5))  # nosec B311 # retry jitter; it guards nothing
 
 
 def _probe_ollama_show_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:

@@ -26,7 +26,7 @@
   "src/devops_cli/ai/mcp/dispatcher.py": 6,
   "src/devops_cli/ai/mcp/server.py": 2,
   "src/devops_cli/ai/personas/__init__.py": 1,
-  "src/devops_cli/ai/rag/drift.py": 4,
+  "src/devops_cli/ai/rag/drift.py": 3,
   "src/devops_cli/ai/rag/embeddings.py": 8,
   "src/devops_cli/ai/rag/indexer.py": 8,
   "src/devops_cli/ai/rag/investigator.py": 2,

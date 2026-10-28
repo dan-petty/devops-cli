@@ -44,7 +44,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Feature / PR Lifecycle** | Remote Branch Audit & Pruning | Step 8 | `git fetch --prune origin` | Prunes merged, closed, or superseded remote tracking branches | Zero orphan remote branches on origin |
 | **Release (a person)** | Release Pull Request Merge | Step 1 | GitHub web UI | A person reads the version and changelog of the release-please pull request and squash-merges it; `release.yml` then publishes. Agents have no step ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)) | GitHub release, tag, packages and images published |
 | **Security & Audits** | Dependency Security Audit | Weekly | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the lockfile of each Node tool in `tools.lock` for known vulnerabilities | 0 known vulnerabilities |
-| **Security & Audits** | Static Security Scan (SAST) | Weekly | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
+| **Security & Audits** | Static Security Scan (SAST) | Weekly | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 issues in `src/`; 0 high/medium issues in `tests/` |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint` / `devops k8s check-deprecated` / `devops scan trivy <dir> --type config` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
 | **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check --config pyproject.toml .` && `uv run devops ci test tests/test_architectural_invariants.py tests/test_ruff_complexity_cap.py` | Ruff `C901` enforces complexity <= 10 and the tests hold its configuration; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
 | **Observability & Diagnostics** | Command Output, Logs, Metrics & Trace Audit | Continuous / On Execution | `devops telemetry status` / `devops telemetry logfire` | Comprehensive review of command outputs, application logs (`.data/logs/`), metrics, and tracing spans for latency, misconfigurations, and warnings | Nominal latencies, zero unhandled errors/warnings |
@@ -239,8 +239,8 @@ Executed weekly, or when dependencies are updated.
 #### 2. Static Application Security Testing (SAST - `bandit`)
 - **Frequency**: Pre-commit / CI gate.
 - **Methodology**: Analyzes AST for common security pitfalls (unsafe subshell calls, hardcoded passwords, weak crypto).
-- **Scope**: `src/` and `tests/`, the targets `.bandit` names, at medium severity and above. `devops scan report` on the repository, which CI uploads to code scanning, runs the same scan.
-- **Command**: `uv run devops ci security` or `uv run bandit -r --ini .bandit --severity-level medium`.
+- **Scope**: `src/` at low severity and above, and `tests/` at medium and above: the targets `.bandit` names, with the four low rules it skips (B404, B603, B110, B112) and the reasons it gives. A `# nosec` in `src/` names its rules and, after a second `#`, the reason.
+- **Command**: `uv run devops ci security`, or `uv run bandit -r src --ini .bandit --severity-level low` and `uv run bandit -r tests --ini .bandit --severity-level medium`.
 
 #### 3. Kubernetes & IaC Security Scans
 - **Frequency**: Whenever `k8s/` or `tf/` manifests are modified.

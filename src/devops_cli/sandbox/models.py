@@ -492,7 +492,7 @@ class SandboxPolicy(BaseModel):
     pids_limit: int = DEFAULT_SANDBOX_PIDS_LIMIT
     read_only: bool = True
     tmpfs: dict[str, str] = Field(
-        default_factory=lambda: {"/tmp": "size=64m,noexec"}  # nosec B108
+        default_factory=lambda: {"/tmp": "size=64m,noexec"}  # nosec B108 # a private tmpfs inside the container, not the host's /tmp
     )
     system_dirs: tuple[str, ...] = CONST_HOST_SANDBOX_SYSTEM_DIRS
     system_symlinks: tuple[str, ...] = CONST_HOST_SANDBOX_SYSTEM_SYMLINKS
@@ -664,7 +664,7 @@ class ProbeProtocol(StrEnum):
 class ProbeStatus(StrEnum):
     """Outcome status for individual probes and aggregated report."""
 
-    PASS = "pass"
+    PASS = "pass"  # nosec B105 # a probe status, not a credential
     FAIL = "fail"
     TIMEOUT = "timeout"
     SKIPPED = "skipped"

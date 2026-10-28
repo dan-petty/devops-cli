@@ -185,7 +185,7 @@ class LeaseRegistry:
         """Build authenticated Vault request headers."""
         return _token_headers(self.token, self.namespace)
 
-    def track(
+    def track(  # nosec B107 # a Vault path default, not a credential
         self, lease_id: str, duration: int, renewable: bool, secret_path: str = ""
     ) -> VaultLease:
         """Register a newly issued lease for lifecycle management."""
@@ -199,7 +199,9 @@ class LeaseRegistry:
         self._leases[lease_id] = lease
         return lease
 
-    def track_auth(self, auth: VaultAuthResult, secret_path: str = "auth/token") -> VaultLease:
+    def track_auth(  # nosec B107 # a Vault path default, not a credential
+        self, auth: VaultAuthResult, secret_path: str = "auth/token"
+    ) -> VaultLease:
         """Register the lease backing an authentication token."""
         return self.track(
             auth.accessor or auth.client_token,

@@ -1270,7 +1270,7 @@ def _inject(
         return None
     # Seeded per file, so adding a file does not change the injections in the others. The
     # template is drawn first, so frequent patterns do not crowd out rarer ones.
-    rng = random.Random(f"{seed}:{rel}")
+    rng = random.Random(f"{seed}:{rel}")  # nosec B311 # a seeded draw that must repeat; it guards nothing
     template, sites = rng.choice(candidates)
     site = rng.choice(sites)
     target = files_dir / rel

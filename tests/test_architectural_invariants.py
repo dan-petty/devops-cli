@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_GITIGNORE_PATTERN_STYLE,
     CONST_PRESENCE_CHECK_NAMES,
     CONST_PYTHON_FILE_SUFFIX,
+    CONST_SOURCE_ROOT_DIR,
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
 )
@@ -111,6 +112,11 @@ CONST_NOQA_RULE_CODE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Z0-9]+")
 CONST_NOSEC_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
     r"(?:^|[^\S\n])#[^\S\n]*nosec\b", re.IGNORECASE
 )
+# A `# nosec` in src names its Bandit rules and, after a second `#`, why (#1538). Bandit reads the
+# rules up to that `#`, so the reason never reaches its rule list.
+CONST_NOSEC_WITH_REASON_RE: Final[re.Pattern[str]] = re.compile(
+    r"#[^\S\n]*nosec[^\S\n]+B\d{3}(?:[^\S\n]*,[^\S\n]*B\d{3})*[^\S\n]+#[^\S\n]*\S"
+)
 CONST_PRAGMA_NO_COVER_COMMENT_RE: Final[re.Pattern[str]] = re.compile(
     r"(?:^|[^\S\n])#[^\S\n]*pragma[^\S\n]*:[^\S\n]*no[^\S\n]+cover\b", re.IGNORECASE
 )
@@ -172,7 +178,9 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src noqa: F401": 15,
     "src noqa: SIM115": 1,
     "src noqa: UP036": 1,
-    "src nosec": 13,
+    # #1538: each Bandit finding in src that only looks like a credential or a security use of
+    # random carries a reviewed marker, and the gate scans src at low severity.
+    "src nosec": 23,
     "src pragma: no cover": 1,
     "src pragma: no mutate": 0,
     "src file-level directive": 0,
@@ -2442,6 +2450,46 @@ def _suppression_ceiling_breaches(
                 "(openspec/changes/<issue>-<slug>/proposal.md)."
             )
     return breaches
+
+
+def _bare_nosec_markers(project: Path) -> list[str]:
+    """Each `# nosec` comment under `src` that does not name its rules and a reason, as
+    `<path>:<line>`."""
+    bare: list[str] = []
+    for py_file in sorted((project / CONST_SOURCE_ROOT_DIR).rglob("*.py")):
+        text = py_file.read_text(encoding="utf-8")
+        if "nosec" not in text:
+            continue
+        bare += [
+            f"{py_file.relative_to(project).as_posix()}:{tok.start[0]}"
+            for tok in tokenize.generate_tokens(io.StringIO(text).readline)
+            if tok.type == tokenize.COMMENT
+            and CONST_NOSEC_COMMENT_RE.search(tok.string)
+            and not CONST_NOSEC_WITH_REASON_RE.search(tok.string)
+        ]
+    return bare
+
+
+def test_every_nosec_in_src_names_its_rules_and_a_reason() -> None:
+    """A reviewed Bandit finding in the product says which rules it silences and why (#1538)."""
+    assert _bare_nosec_markers(REPO_ROOT) == []
+
+
+@pytest.mark.parametrize(
+    ("line", "reported"),
+    [
+        ('x = "a"  # nosec\n', True),
+        ('x = "a"  # nosec B105\n', True),
+        ('x = "a"  # nosec B105 # a label, not a credential\n', False),
+        ('x = "a"  # nosec B105, B106 # a label, not a credential\n', False),
+    ],
+)
+def test_the_nosec_check_reports_a_marker_without_its_rules_and_a_reason(
+    tmp_path: Path, line: str, reported: bool
+) -> None:
+    (tmp_path / CONST_SOURCE_ROOT_DIR).mkdir()
+    (tmp_path / CONST_SOURCE_ROOT_DIR / "mod.py").write_text(line, encoding="utf-8")
+    assert bool(_bare_nosec_markers(tmp_path)) is reported
 
 
 def test_suppressions_stay_under_their_ceilings() -> None:
