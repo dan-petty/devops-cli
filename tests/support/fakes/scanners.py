@@ -14,7 +14,9 @@ of each scanner of the global registry. So every scan that gets no executor of i
 fake, and no sandbox starts. A request for any other tool goes on to the `run` that the fixture
 replaced: git runs, and the floor of the suite refuses a real scanner and a real sandbox. The fake
 records each run as the direct executor does: a checkout that git cannot read has no commit, and a
-file that it cannot digest has the digest `unavailable`.
+file that it cannot digest has the digest `unavailable`. It records the network profile of the
+request, else `none`, as the sandbox executor does, also for a run that it answers in place of the
+direct executor, whose record names `host`.
 
 A review runs the canary of each tool before its scans, in a working directory named with
 `CONST_CANARY_WORKDIR_PREFIX`, on the tool executor of the review (#1978). The fake answers each

@@ -468,12 +468,18 @@ def record_tool_run(
 
     Every executor builds its record here. So every executor refuses a request, and reads its
     digests and its commit, in the same way. The network is the network profile of the request,
-    else `none`, unless `network` names another: the direct executor gives the network of the host.
-    A checkout that git cannot read raises `SandboxError`, unless `require_commit` is false. Then
-    the record holds no commit. A config file or a ruleset file that cannot be read as a regular
-    file raises `SandboxValidationError`, unless `require_files` is false. Then its digest is
-    `unavailable`.
+    else `none`. An executor that gives every tool a network of its own names it in `network`: the
+    direct executor gives the network of the host. Such an executor cannot run a network profile,
+    so a request that selects one raises `SandboxError`. A checkout that git cannot read raises
+    `SandboxError`, unless `require_commit` is false. Then the record holds no commit. A config
+    file or a ruleset file that cannot be read as a regular file raises `SandboxValidationError`,
+    unless `require_files` is false. Then its digest is `unavailable`.
     """
+    if network is not None and request.network is not None:
+        raise SandboxError(
+            f"The {executor} executor gives {request.tool} the network {network}, so it cannot run "
+            f"the network profile {request.network.name}"
+        )
     targets = _resolved_targets(request)
     root = request.workdir.resolve()
     profile = request.network.name if request.network else CONST_TOOL_NETWORK_NONE
@@ -563,15 +569,10 @@ class DirectToolExecutor:
         """Start the tool of `request` and answer how it ended and what ran.
 
         A target outside the tree raises `SandboxError` before anything starts. So does a request
-        that selects a network profile: a child process has the whole network of the host, so a
-        run here would give the tool more network than the profile. The tool starts from the
-        program of the request, else by its name on the PATH of the host.
+        that selects a network profile (`record_tool_run`): a child process has the whole network
+        of the host, so a run here would give the tool more network than the profile. The tool
+        starts from the program of the request, else by its name on the PATH of the host.
         """
-        if request.network is not None:
-            raise SandboxError(
-                f"The direct executor gives {request.tool} the whole network of the host, so it "
-                f"cannot run the network profile {request.network.name}"
-            )
         version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
         run = record_tool_run(
             request,
