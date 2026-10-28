@@ -19,6 +19,7 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.client.network import (
     StreamUsage,
+    reply_schema,
     stream_finish_reason,
     stream_usage,
 )
@@ -123,10 +124,16 @@ def _build_anthropic_kwargs(
         "messages": [m.to_dict() for m in messages],
     }
 
+    output_config: dict[str, Any] = {}
     if use_adaptive:
         kwargs["thinking"] = {"type": "adaptive"}
-        effort = getattr(config, "reasoning_effort", None) or "medium"
-        kwargs["output_config"] = {"effort": effort}
+        output_config["effort"] = getattr(config, "reasoning_effort", None) or "medium"
+    schema = reply_schema.get()
+    output_format = schema.anthropic_output_format(clean_model) if schema is not None else None
+    if output_format is not None:
+        output_config["format"] = output_format
+    if output_config:
+        kwargs["output_config"] = output_config
 
     send_sampling = (
         _capabilities_support_sampling(caps)

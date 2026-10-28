@@ -25,6 +25,7 @@ from devops_cli.ai.client.models import (
     provider_finish_reason,
 )
 from devops_cli.ai.client.network import (
+    ReplySchema,
     StreamUsage,
     _read_limited_body,
     _response_size_error,
@@ -193,12 +194,24 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         self._apply_sampling_and_limits(params, enable_thinking=enable_thinking)
 
         schema = reply_schema.get()
-        if schema is not None and self._config.provider == CONST_AI_GATEWAY_PROVIDER:
-            params["response_format"] = {
+        response_format = self._reply_format(schema) if schema is not None else None
+        if response_format is not None:
+            params["response_format"] = response_format
+        return params
+
+    def _reply_format(self, schema: ReplySchema) -> dict[str, Any] | None:
+        """The constraint a structured reply gets. The gateway gets the schema as its backends
+        take it, an OpenAI model gets the form of its pydantic-ai profile, and Copilot gets none:
+        no profile or probe shows that its API honours one, so it keeps the schema in the system
+        message only."""
+        if self._config.provider == CONST_AI_GATEWAY_PROVIDER:
+            return {
                 "type": "json_schema",
                 "json_schema": {"name": schema.name, "schema": schema.json_schema},
             }
-        return params
+        if self._config.provider == "openai":
+            return schema.openai_response_format(str(self._config.model))
+        return None
 
     @staticmethod
     def _extract_inline_thinking(content: str, thinking_str: str | None) -> tuple[str, str | None]:

@@ -191,10 +191,43 @@ def limit_completion_tokens(limit: int) -> Generator[None]:
 
 @dataclass(frozen=True)
 class ReplySchema:
-    """The JSON Schema a structured call's reply must validate against, and the schema's name."""
+    """The JSON Schema a structured call's reply must validate against, and the schema's name.
+
+    A provider gets the schema as its native constraint only where the pydantic-ai profile of its
+    model supports JSON-schema output, in the form pydantic-ai's `NativeOutput` sends (#1419).
+    """
 
     name: str
     json_schema: dict[str, Any]
+
+    def openai_response_format(self, model: str) -> dict[str, Any] | None:
+        """The `response_format` for an OpenAI model, or None when its profile has no JSON-schema
+        output. The profile's transformer adapts the schema, and `strict` is true only when the
+        schema fits OpenAI's strict mode."""
+        from pydantic_ai.profiles.openai import openai_model_profile
+
+        profile = openai_model_profile(model)
+        transformer_class = profile.get("json_schema_transformer")
+        if not profile.get("supports_json_schema_output") or transformer_class is None:
+            return None
+        transformer = transformer_class(self.json_schema, strict=None)
+        json_schema: dict[str, Any] = {"name": self.name, "schema": transformer.walk()}
+        if profile.get("openai_supports_strict_tool_definition", True):
+            json_schema["strict"] = transformer.is_strict_compatible
+        return {"type": "json_schema", "json_schema": json_schema}
+
+    def anthropic_output_format(self, model: str) -> dict[str, Any] | None:
+        """The `output_config.format` for a Claude model, or None when its profile has no
+        JSON-schema output. The schema goes through the Anthropic transform, which keeps the
+        subset the API compiles and moves the other constraints into descriptions."""
+        from pydantic_ai.profiles.anthropic import anthropic_model_profile
+        from pydantic_ai.providers.anthropic import AnthropicJsonSchemaTransformer
+
+        profile = anthropic_model_profile(model)
+        if profile is None or not profile.get("supports_json_schema_output"):
+            return None
+        schema = AnthropicJsonSchemaTransformer(self.json_schema, strict=True).walk()
+        return {"type": "json_schema", "schema": schema}
 
 
 # The schema the replies of the calls made inside `constrain_reply` must match. It travels with

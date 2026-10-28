@@ -16,6 +16,8 @@ from unittest.mock import patch
 import httpx2
 import pytest
 from pydantic import BaseModel, Field
+from pydantic_ai.profiles.openai import OpenAIJsonSchemaTransformer
+from pydantic_ai.providers.anthropic import AnthropicJsonSchemaTransformer
 
 from devops_cli.ai.client.models import (
     AIClientError,
@@ -37,7 +39,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.roadmap.refine import RefinementProposal
 from devops_cli.telemetry.tracer import get_tracer
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import make_anthropic_model_info_payload, route_client
 
 
 class DemoReport(BaseModel):
@@ -277,6 +279,7 @@ _CONFIGS = {
     "ollama": AIConfig(
         provider="ollama", model="demo-model", ollama_urls=["http://example.com:11434"]
     ),
+    "copilot": AIConfig(provider="copilot", model="demo-model"),
 }
 
 
@@ -328,8 +331,9 @@ def _cached_texts(tmp_path: Path) -> list[str]:
 def test_each_provider_is_sent_the_schema_and_only_its_own_constraint(
     monkeypatch: pytest.MonkeyPatch, public_dns: str
 ) -> None:
-    """Verify the schema ends the system message for every provider, the gateway alone gets
-    response_format without strict, ollama alone gets format, and openai gets neither."""
+    """Verify the schema ends the system message for every provider. The gateway gets
+    response_format without strict, ollama gets format, openai gets the response_format of its
+    model's pydantic-ai profile, and copilot gets none (#1419)."""
     bodies: dict[str, Any] = {}
     for provider in _CONFIGS:
         client = _structured_client(provider)
@@ -355,7 +359,18 @@ def test_each_provider_is_sent_the_schema_and_only_its_own_constraint(
                 "json_schema": {"name": "RefinementProposal", "schema": schema},
             }
         },
-        "openai": compat,
+        "openai": compat
+        | {
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "RefinementProposal",
+                    "schema": OpenAIJsonSchemaTransformer(schema, strict=None).walk(),
+                    "strict": False,
+                },
+            }
+        },
+        "copilot": compat,
         "ollama": {
             "model": "demo-model",
             "stream": False,
@@ -364,6 +379,69 @@ def test_each_provider_is_sent_the_schema_and_only_its_own_constraint(
             "format": schema,
         },
     }
+
+
+def _claude_answering(model: str, text: str, *, adaptive_thinking: bool) -> Any:
+    """A transport handler answering the Models API lookup of `model` and each Messages call."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == f"/v1/models/{model}":
+            info = make_anthropic_model_info_payload(model, adaptive_thinking=adaptive_thinking)
+            return httpx2.Response(200, json=info)
+        message = {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": model,
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        return httpx2.Response(200, json=message)
+
+    return answer
+
+
+@pytest.mark.parametrize(
+    ("model", "thinking", "output_config"),
+    [
+        ("claude-sonnet-4-6", False, "format"),
+        ("claude-sonnet-4-6", True, "effort and format"),
+        ("claude-example-1", False, None),
+    ],
+)
+def test_claude_gets_the_output_format_its_models_profile_supports(
+    monkeypatch: pytest.MonkeyPatch,
+    public_dns: str,
+    model: str,
+    thinking: bool,
+    output_config: str | None,
+) -> None:
+    """Verify a Claude model whose pydantic-ai profile supports JSON-schema output gets the
+    schema in `output_config.format`, through the Anthropic transform and beside the effort of
+    adaptive thinking, and a model that its profile does not name gets no format (#1419)."""
+    client = LLMClient(AIConfig(provider="claude", model=model), api_key="sk-ant")
+    sent = route_client(
+        client, monkeypatch, _claude_answering(model, _VALID, adaptive_thinking=True)
+    )
+
+    client.chat_structured(
+        _SYSTEM, _PROMPT, RefinementProposal, use_cache=False, enable_thinking=thinking
+    )
+
+    body = json.loads(next(r for r in sent if r.url.path == "/v1/messages").content)
+    output_format = {
+        "type": "json_schema",
+        "schema": AnthropicJsonSchemaTransformer(
+            RefinementProposal.model_json_schema(), strict=True
+        ).walk(),
+    }
+    expected = {
+        "format": {"format": output_format},
+        "effort and format": {"effort": "medium", "format": output_format},
+        None: None,
+    }[output_config]
+    assert (body["system"], body.get("output_config")) == (_sent_system(), expected)
 
 
 def test_a_reply_that_fails_the_schema_gets_the_reflection_and_is_never_cached(
