@@ -234,6 +234,21 @@ def test_a_caller_override_that_loads_code_into_the_child_is_refused(
     )
 
 
+def test_an_isolated_child_gets_no_refused_key_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With isolation on, no key that the guard refuses from a caller reaches the child from the
+    environment of the person, in upper or in lower case, for example `PYTHONPATH` and
+    `PYTHONHOME` (#2429)."""
+    environment_keys = [*REFUSED_OVERRIDE_KEYS, *(key.lower() for key in REFUSED_OVERRIDE_KEYS)]
+    for key in environment_keys:
+        monkeypatch.setenv(key, "example")
+
+    env = build_subprocess_env(env={"EXAMPLE_FLAG": "on"})
+
+    assert sorted(set(environment_keys) & set(env)) == []
+
+
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
 def test_a_caller_override_outside_the_refused_families_reaches_the_child(
     isolate_env: bool,

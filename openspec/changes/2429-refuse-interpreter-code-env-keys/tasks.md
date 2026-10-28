@@ -9,7 +9,7 @@
 
 ## 2. An isolated child gets no refused key from the environment
 
-- [ ] 2.1 Add a failing test: with each refused key in the environment, the isolated child environment holds none of them
+- [x] 2.1 Add a failing test: with each refused key in the environment, the isolated child environment holds none of them
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
 - [ ] 2.2 Remove `PYTHONPATH` and `PYTHONHOME` from `DEFAULT_ALLOWED_ENV_VARS`
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_ci.py tests/test_cli_startup_imports.py`
