@@ -1077,7 +1077,7 @@ class TestMonitorPR:
                 return_value=_CopilotTimeline(event="reviewed"),
             ),
             patch(
-                "devops_cli.github.check_verdict._fetch_checks_from_rest",
+                "devops_cli.github.check_verdict.read_commit_checks",
                 return_value=CheckVerdictSummary(
                     items=[
                         PRCheckItem(
@@ -1125,7 +1125,7 @@ class TestMonitorPR:
                 return_value=_CopilotTimeline(event="reviewed"),
             ),
             patch(
-                "devops_cli.github.check_verdict._fetch_checks_from_rest",
+                "devops_cli.github.check_verdict.read_commit_checks",
                 return_value=CheckVerdictSummary(
                     items=[
                         PRCheckItem(
@@ -1164,7 +1164,7 @@ class TestMonitorPR:
                 return_value=_CopilotTimeline(event="reviewed"),
             ),
             patch(
-                "devops_cli.github.check_verdict._fetch_checks_from_rest",
+                "devops_cli.github.check_verdict.read_commit_checks",
                 return_value=CheckVerdictSummary(
                     unread_reason="GitHub commit status API error: HTTP 500"
                 ),

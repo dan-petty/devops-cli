@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -14,6 +16,9 @@ from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
+
+GhRun = Callable[..., subprocess.CompletedProcess[str]]
+"""Runs one `gh` command the way `run_gh` does: the edge a thread read takes a fake through."""
 
 
 class ReviewComment(BaseModel):
@@ -84,9 +89,12 @@ def graphql_args(query: str, variables: dict[str, Any]) -> list[str]:
     return ["api", "graphql", "-f", f"query={query}", *_build_graphql_args(variables)]
 
 
-def _run_graphql(args: list[str]) -> dict[str, Any]:
-    """Run a `gh api graphql` call with rate limiting and backoff, and parse its answer."""
-    proc = run_gh(args, check=False)
+def _run_graphql(args: list[str], runner: GhRun | None = None) -> dict[str, Any]:
+    """Run a `gh api graphql` call with rate limiting and backoff, and parse its answer.
+
+    The call goes through `runner`, or `run_gh` when none is given.
+    """
+    proc = (runner or run_gh)(args, check=False)
     if proc.returncode != 0 or not proc.stdout:
         err = proc.stderr.strip() if proc.stderr else f"Exit code {proc.returncode}"
         raise GitHubOperationError(f"GitHub GraphQL query failed: {err}")
@@ -283,14 +291,14 @@ def _parse_review_thread(node: dict[str, Any]) -> ReviewThread:
     )
 
 
-def _later_comments(thread_id: str, cursor: str) -> list[ReviewComment]:
+def _later_comments(thread_id: str, cursor: str, runner: GhRun | None) -> list[ReviewComment]:
     """The comments of review thread `thread_id` after `cursor`, every page of them."""
     comments: list[ReviewComment] = []
     after: str | None = cursor
     for _ in range(DEFAULT_GH_MAX_PAGINATED_PAGES):
         if not after:
             break
-        data = _run_graphql(thread_comments_args(thread_id, after))
+        data = _run_graphql(thread_comments_args(thread_id, after), runner)
         page = ((data.get("data") or {}).get("node") or {}).get("comments") or {}
         nodes = page.get("nodes") or []
         comments.extend(_parse_review_comment(c) for c in nodes if isinstance(c, dict))
@@ -299,14 +307,14 @@ def _later_comments(thread_id: str, cursor: str) -> list[ReviewComment]:
     return comments
 
 
-def _read_thread(node: dict[str, Any]) -> ReviewThread:
+def _read_thread(node: dict[str, Any], runner: GhRun | None) -> ReviewThread:
     """A review thread node, with the comments past its first page read too."""
     thread = _parse_review_thread(node)
     info = (node.get("comments") or {}).get("pageInfo") or {}
     cursor = info.get("endCursor") if info.get("hasNextPage") else None
     if not cursor:
         return thread
-    later = _later_comments(thread.id, str(cursor))
+    later = _later_comments(thread.id, str(cursor), runner)
     return thread.model_copy(update={"comments": [*thread.comments, *later]})
 
 
@@ -314,14 +322,17 @@ def _list_pr_review_threads_graphql(
     owner: str,
     repo_name: str,
     pr_number: int,
-    unresolved_only: bool = False,
+    unresolved_only: bool,
+    runner: GhRun | None,
 ) -> list[ReviewThread]:
     """Execute paginated GraphQL query to retrieve PR review threads."""
     threads: list[ReviewThread] = []
     cursor: str | None = None
 
     while True:
-        data = _run_graphql(review_threads_args(owner, repo_name, pr_number, cursor or None))
+        data = _run_graphql(
+            review_threads_args(owner, repo_name, pr_number, cursor or None), runner
+        )
         pr_data = (
             data.get("data", {})
             .get("repository", {})
@@ -329,7 +340,7 @@ def _list_pr_review_threads_graphql(
             .get("reviewThreads", {})
         )
         raw_nodes = pr_data.get("nodes", [])
-        threads.extend(_read_thread(n) for n in raw_nodes if isinstance(n, dict))
+        threads.extend(_read_thread(n, runner) for n in raw_nodes if isinstance(n, dict))
 
         page_info = pr_data.get("pageInfo", {})
         if not page_info.get("hasNextPage"):
@@ -348,13 +359,16 @@ def list_pr_review_threads(
     repo: str,
     pr_number: int,
     unresolved_only: bool = False,
+    *,
+    runner: GhRun | None = None,
 ) -> list[ReviewThread]:
     """Retrieve PR review discussion threads via GitHub GraphQL API with cursor pagination.
 
     Honors GraphQL rate limits with adaptive pacing and progressive backoff without REST fallback.
+    Each `gh` call goes through `runner`, or `run_gh` when none is given.
     """
     repo_name = repo.split("/")[-1]
-    return _list_pr_review_threads_graphql(owner, repo_name, pr_number, unresolved_only)
+    return _list_pr_review_threads_graphql(owner, repo_name, pr_number, unresolved_only, runner)
 
 
 def reply_pr_review_thread(thread_id: str, body: str) -> ReviewComment:
