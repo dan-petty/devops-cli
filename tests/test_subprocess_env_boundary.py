@@ -160,11 +160,12 @@ def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch
 # defines a function from each BASH_FUNC_ key (bash(1)). DYLD_EXAMPLE_KEY, which dyld(1) does not
 # list, BASH_FUNC_x(), the export form of the patched bash of Red Hat, and two function names pin
 # the prefix rule. BASH_FUNC_git%% replaces the git command in a bash child. zsh reads its start-up
-# files from ZDOTDIR, functions from FPATH and a command from NULLCMD and READNULLCMD (zsh(1)). The
-# Python, Node.js, Perl, Ruby and Java keys name a file, a module or a directory that the
-# interpreter loads code from (python(1), node(1), perlrun(1), ruby(1), java(1)). The default
-# env_delete table of sudo lists each zsh and interpreter key but PYTHONPYCACHEPREFIX and
-# JDK_JAVA_OPTIONS.
+# files from ZDOTDIR (zsh(1)), functions from FPATH and a command from NULLCMD and READNULLCMD
+# (zshparam(1)). The Python, Node.js, Perl, Ruby and Java keys name a file, a module, a directory
+# or an option that makes the interpreter load code (python(1), node(1), perlrun(1), ruby(1),
+# java(1), the JVM TI specification). The default env_delete table of sudo lists each zsh and
+# interpreter key but PYTHONPYCACHEPREFIX and JDK_JAVA_OPTIONS, and it is the source of
+# _JAVA_OPTIONS.
 REFUSED_OVERRIDE_KEYS: tuple[str, ...] = (
     "LD_AUDIT",
     "LD_LIBRARY_PATH",

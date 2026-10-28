@@ -4,7 +4,7 @@
 
 - [x] 1.1 Add failing tests: a caller override of each zsh, Python, Node.js, Perl, Ruby and Java key of the design, in upper and lower case, raises `SecurityError` with isolation on and off; `PYTHONUNBUFFERED`, `PYTHONDONTWRITEBYTECODE` and `NODE_ENV` reach the child
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py`
-- [ ] 1.2 Add the keys to `CONST_CODE_LOADING_ENV_PATTERNS`, with the manual page of each family in a comment
+- [x] 1.2 Add the keys to `CONST_CODE_LOADING_ENV_PATTERNS`, with the manual page of each family in a comment
   - Verification: `uv run devops ci test tests/test_subprocess_env_boundary.py tests/test_review_rules_pack.py`
 
 ## 2. An isolated child gets no refused key from the environment
