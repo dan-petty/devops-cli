@@ -71,13 +71,12 @@ from devops_cli.lang import ERRORS
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
 )
-from devops_cli.telemetry import (
-    record_metric,
-    trace_span,
-)
+from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import (
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
+    RAG_EMBEDDING_BATCH_RESIZES_TOTAL,
+    RAG_EMBEDDING_BATCH_SIZE,
     emit,
 )
 from devops_cli.valkey.cache import ValkeyCacheTier, configured_cache_tier
@@ -373,6 +372,12 @@ def _apply_model_prefix(text: str, model: str, *, is_query: bool = False) -> str
     return text
 
 
+def _count_batch_resize(batch_size: int, action: str) -> None:
+    """Record the batch size after a change of it, and count the change by its action."""
+    emit(RAG_EMBEDDING_BATCH_SIZE, float(batch_size))
+    emit(RAG_EMBEDDING_BATCH_RESIZES_TOTAL, 1.0, {"action": action})
+
+
 def _count_cache_lookups(*, memory: int, valkey: int, misses: int) -> None:
     """Add each lookup result that has texts to the embedding cache lookup counter."""
     for count, attributes in (
@@ -510,12 +515,7 @@ class EmbeddingsEngine:
                 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
                 int(self._current_batch_size * CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR),
             )
-            record_metric("rag.embedding.batch_size", self._current_batch_size)
-            record_metric(
-                "rag.embedding.aimd_action",
-                1,
-                attributes={"action": "multiplicative_decrease"},
-            )
+            _count_batch_resize(self._current_batch_size, "multiplicative_decrease")
             logger.debug(
                 "AIMD multiplicative decrease applied: batch_size=%d (configured=%d)",
                 self._current_batch_size,
@@ -544,12 +544,7 @@ class EmbeddingsEngine:
                 self._configured_batch_size,
                 self._current_batch_size + CONST_AIMD_ADDITIVE_INCREASE_STEP,
             )
-            record_metric("rag.embedding.batch_size", self._current_batch_size)
-            record_metric(
-                "rag.embedding.aimd_action",
-                1,
-                attributes={"action": "additive_increase"},
-            )
+            _count_batch_resize(self._current_batch_size, "additive_increase")
             logger.debug(
                 "AIMD additive increase applied: batch_size=%d (configured=%d)",
                 self._current_batch_size,

@@ -669,31 +669,24 @@ def test_cli_sandbox_metrics_help_metrics_timeout() -> None:
 
 
 def test_telemetry_tracing_instrumentation(tmp_path: Path) -> None:
-    """Test OpenTelemetry tracing and metric recording in CLI and engine."""
+    """Test OpenTelemetry tracing in CLI and engine."""
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
 
-    # Test CLI command emits trace span and metric
+    # Test CLI command emits trace span
     with patch("devops_cli.commands.sandbox.trace_span") as mock_cli_span:
-        with patch("devops_cli.commands.sandbox.record_metric") as mock_cli_metric:
-            mock_cli_span.return_value.__enter__.return_value = MagicMock()
-            result = runner.invoke(app, ["sandbox", "metrics", "test-inst", "--dry-run"])
-            assert result.exit_code == 0
-            mock_cli_span.assert_called_once_with(
-                "sandbox.metrics",
-                attributes={
-                    "sandbox.identifier": "test-inst",
-                    "sandbox.prom_endpoint": "/metrics",
-                    "sandbox.dry_run": True,
-                },
-            )
-            mock_cli_metric.assert_called_once_with(
-                "devops_cli.sandbox.metrics_invoked",
-                1.0,
-                unit="1",
-                attributes={"dry_run": True},
-            )
+        mock_cli_span.return_value.__enter__.return_value = MagicMock()
+        result = runner.invoke(app, ["sandbox", "metrics", "test-inst", "--dry-run"])
+        assert result.exit_code == 0
+        mock_cli_span.assert_called_once_with(
+            "sandbox.metrics",
+            attributes={
+                "sandbox.identifier": "test-inst",
+                "sandbox.prom_endpoint": "/metrics",
+                "sandbox.dry_run": True,
+            },
+        )
 
-    # Test Engine metrics() emits trace span and metric
+    # Test Engine metrics() emits trace span
     engine = WorkloadSandboxEngine()
     mock_inst = SandboxInstance(
         instance_id="inst-tracer",
@@ -708,7 +701,6 @@ def test_telemetry_tracing_instrumentation(tmp_path: Path) -> None:
     with (
         patch.object(engine.registry, "get_instance", return_value=mock_inst),
         patch("devops_cli.sandbox.engine.trace_span") as mock_eng_span,
-        patch("devops_cli.sandbox.engine.record_metric") as mock_eng_metric,
         patch("devops_cli.sandbox.metrics.collect_sandbox_metrics") as mock_collect,
     ):
         mock_collect.return_value = SandboxMetricsSnapshot(
@@ -729,12 +721,6 @@ def test_telemetry_tracing_instrumentation(tmp_path: Path) -> None:
                 "sandbox.container_id": "cont-tracer",
                 "sandbox.prom_endpoint": "/metrics",
             },
-        )
-        mock_eng_metric.assert_called_once_with(
-            "devops_cli.sandbox.metrics_collected",
-            1.0,
-            unit="1",
-            attributes={"healthy": True},
         )
 
 

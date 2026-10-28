@@ -9,10 +9,10 @@ import pytest
 from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.client.unified import _set_response_span_attributes
 from devops_cli.config.settings import TelemetryConfig
+from devops_cli.telemetry.instruments import COMMAND_TOTAL, emit
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
-    record_metric,
     reset_tracer,
     trace_span,
 )
@@ -30,7 +30,7 @@ def test_telemetry_disabled() -> None:
     with client.span("test_span") as span_id:
         assert span_id == ""
     # Should not raise
-    client.record_metric("test_metric", 1.0)
+    client.record_gauge("test_metric", 1.0)
 
 
 def test_telemetry_span_and_metric(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -41,7 +41,7 @@ def test_telemetry_span_and_metric(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with client.span("pipeline_stage", {"persona": "devsecops"}) as span_id:
         assert len(span_id) == 16  # 8 bytes hex = 16 hex chars
-        client.record_metric("findings_count", 3, unit="1", attributes={"severity": "HIGH"})
+        client.record_gauge("findings_count", 3, unit="1", attributes={"severity": "HIGH"})
     client.flush()
 
     assert len(sent_payloads) == 2
@@ -78,7 +78,7 @@ def test_global_trace_helpers(monkeypatch: pytest.MonkeyPatch, config: Any) -> N
     monkeypatch.setattr(tracer, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
 
     with trace_span("helper_span", {"env": "test"}):
-        record_metric("helper_metric", 42.0)
+        emit(COMMAND_TOTAL, 1.0, {"command": "helper", "status": "ok"})
     tracer.flush()
 
     assert len(sent_payloads) == 2

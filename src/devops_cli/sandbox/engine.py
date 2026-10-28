@@ -46,7 +46,7 @@ from devops_cli.sandbox.models import (
 )
 from devops_cli.sandbox.ports import allocate_ports
 from devops_cli.sandbox.registry import SandboxRegistry
-from devops_cli.telemetry import get_tracer, record_metric, trace_span
+from devops_cli.telemetry import get_tracer, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -602,12 +602,6 @@ class WorkloadSandboxEngine:
             if snapshot.cgroup is not None:
                 self._prior_samples[prior_key] = (now, snapshot.cgroup)
 
-            record_metric(
-                "devops_cli.sandbox.metrics_collected",
-                1.0,
-                unit="1",
-                attributes={"healthy": snapshot.is_healthy},
-            )
             return snapshot
 
     def traces(
@@ -666,20 +660,6 @@ class WorkloadSandboxEngine:
             line_callback=line_callback,
             follow=follow,
         )
-
-        record_metric(
-            "devops.sandbox.logs.lines",
-            float(total_count),
-            unit="1",
-            attributes={"instance_id": inst.instance_id},
-        )
-        if incidents:
-            record_metric(
-                "devops.sandbox.logs.panics",
-                float(len(incidents)),
-                unit="1",
-                attributes={"instance_id": inst.instance_id},
-            )
 
         return SandboxLogsReport(
             instance_id=inst.instance_id,

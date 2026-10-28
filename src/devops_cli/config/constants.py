@@ -663,7 +663,6 @@ CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 # subdirectories that `devops workspace clean` prunes, holds one lock file for each slot.
 CONST_CI_GATE_SLOTS_DIRNAME: Final[str] = "ci-gate-slots"
 CONST_CI_GATE_SLOT_FILENAME: Final[str] = "slot-{index}.lock"
-CONST_CI_GATE_SLOT_WAIT_METRIC: Final[str] = "ci.gate_slot_wait_seconds"
 # The branch form `<type>/<issue>-<slug>` (CONTRIBUTING.md, Naming). The types are those of
 # `release-please-config.json`, and the form is the one the `branch-name` pre-commit hook accepts;
 # `tests/test_branch_form.py` fails when either disagrees with these (#2337).
@@ -1567,9 +1566,6 @@ CONST_ERROR_CODE_CAPABILITY_DEGRADATION = "CAPABILITY_DEGRADATION"
 CONST_MAX_ERROR_DETAIL_LENGTH = 256
 
 # ── AI Client Structured Output Metric Invariants ─────────────────────────────
-CONST_METRIC_AI_STRUCTURED_SUCCESS = "ai.client.structured_success"
-CONST_METRIC_AI_STRUCTURED_RETRY_COUNT = "ai.client.structured_retry_count"
-CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE = "ai.client.structured_validation_failure"
 CONST_JSON_REPAIR_SOURCE_REPAIR_JSON_STRING: Final[str] = "repair_json_string"
 CONST_JSON_REPAIR_SOURCE_EXTRACT_JSON_BLOCK: Final[str] = "extract_json_block"
 CONST_JSON_REPAIR_SOURCE_CHAT_STRUCTURED: Final[str] = "chat_structured"

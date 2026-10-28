@@ -16,13 +16,13 @@
 
 ## 3. Every metric is a declared instrument sent through emit
 
-- [ ] Add the failing instrument check: it fails on a call of a metric method outside `emit()` other than on `GLOBAL_METRICS`, and on an `emit()` of an instrument that `INSTRUMENTS` does not hold; a test shows that it names both kinds of call
+- [x] Add the failing instrument check: it fails on a call of a metric method outside `emit()` other than on `GLOBAL_METRICS`, and on an `emit()` of an instrument that `INSTRUMENTS` does not hold; a test shows that it names both kinds of call
   - Verification: `uv run devops ci test tests/test_telemetry_instruments.py`
-- [ ] Declare the instruments of the design's table, move each call site to `emit()`, and delete the sites that the table deletes, with the constants of their names
+- [x] Declare the instruments of the design's table, move each call site to `emit()`, and delete the sites that the table deletes, with the constants of their names
   - Verification: `uv run devops ci test tests/test_telemetry_instruments.py tests/test_otel_command_coverage.py tests/test_ci_gate_admission.py tests/test_ci.py tests/test_ai_prewarm.py tests/test_sandbox_metrics.py tests/test_telemetry.py`
-- [ ] Delete `record_metric` and `record_gauge` from `telemetry/tracer.py`, the method `OTelTelemetryClient.record_metric`, and their export from `telemetry/__init__.py`; the tests that patched `record_metric` read the captured metrics or patch nothing
+- [x] Delete `record_metric` and `record_gauge` from `telemetry/tracer.py`, the method `OTelTelemetryClient.record_metric`, and their export from `telemetry/__init__.py`; the tests that patched `record_metric` read the captured metrics or patch nothing
   - Verification: `uv run devops ci test tests/test_telemetry.py tests/test_ci.py tests/test_ai_prewarm.py tests/test_sandbox_metrics.py`
-- [ ] Name the new gate wait metric in `CONTRIBUTING.md`, say there that a metric is an `INSTRUMENTS` entry sent with `emit()`, rename the subprocess and subcommand metrics in the knowledge base, and regenerate the documentation
+- [x] Name the new gate wait metric in `CONTRIBUTING.md`, say there that a metric is an `INSTRUMENTS` entry sent with `emit()`, rename the subprocess and subcommand metrics in the knowledge base, and regenerate the documentation
   - Verification: `uv run devops docs generate --sync-readme && uv run devops docs check`
 
 ## 4. Archive

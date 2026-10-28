@@ -78,7 +78,7 @@ def test_otel_typer_subcommand_span_and_metrics(
 
     assert len(metric_payloads) >= 1
     metric_data = metric_payloads[0]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
-    assert metric_data["name"] == "devops_cli_subcommand_seconds"
+    assert metric_data["name"] == "devops_cli_subcommand_duration_seconds"
 
 
 def test_otel_typer_subcommand_error_span(
@@ -510,7 +510,7 @@ def test_subprocess_span_and_metrics(
         for p in metric_payloads
         for m in p["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
     ]
-    assert "devops_cli_subprocess_seconds" in metric_names
+    assert "devops_cli_subprocess_duration_seconds" in metric_names
 
 
 def test_subprocess_error_span_and_metrics(

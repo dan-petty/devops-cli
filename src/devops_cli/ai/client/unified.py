@@ -48,7 +48,8 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.ai import LLMInferenceError
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
-from devops_cli.telemetry import get_tracer, record_metric, trace_span
+from devops_cli.telemetry import get_tracer, trace_span
+from devops_cli.telemetry.instruments import AI_CHAT_DURATION, emit
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -450,12 +451,7 @@ class LLMClient(
             )
 
         duration = time.perf_counter() - start
-        record_metric(
-            "devops_cli_llm_inference_seconds",
-            duration,
-            unit="s",
-            attributes={"provider": p, "model": self._config.model},
-        )
+        emit(AI_CHAT_DURATION, duration, {"provider": p, "model": self._config.model})
         return res
 
     def _invoke_provider_messages(

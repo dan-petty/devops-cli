@@ -41,7 +41,8 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import Settings
 from devops_cli.lang import MESSAGES
 from devops_cli.security.sanitizer import redact_text
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import RAG_INVESTIGATIONS_TOTAL, RAG_STOPS_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ def _stop_rag_for_run(model: str, exc: EmbeddingsError) -> None:
         if _RAG_STOPPED.is_set():
             return
         _RAG_STOPPED.set()
-    record_metric("ai.rag.investigation.stopped", 1)
+    emit(RAG_STOPS_TOTAL, 1.0)
     logger.warning(MESSAGES.rag.stopped_for_run.format(model=model, error=exc.message))
 
 
@@ -379,15 +380,14 @@ def _investigation_attributes(
 def _recorded_results(
     ctx: RAGContext, r_span: Any, clean_query: str, start_time: float
 ) -> RAGContext | None:
-    """Record a retrieval's duration and hits; the context when it found any, else None."""
+    """Count a finished retrieval as found or empty; the context when it found any, else None."""
     duration_ms = (time.perf_counter() - start_time) * 1000.0
-    record_metric("ai.rag.investigation.duration_ms", duration_ms)
     if not ctx.has_results:
-        record_metric("ai.rag.investigation.empty", 1)
+        emit(RAG_INVESTIGATIONS_TOTAL, 1.0, {"outcome": "empty"})
         return None
     r_span.set_attribute("rag.results_count", len(ctx.results))
     r_span.set_attribute("rag.total_chars", ctx.total_chars)
-    record_metric("ai.rag.investigation.hits", len(ctx.results))
+    emit(RAG_INVESTIGATIONS_TOTAL, 1.0, {"outcome": "found"})
     logger.debug(
         "RAG investigation retrieved %d chunks in %.1fms for query: %.50s",
         len(ctx.results),

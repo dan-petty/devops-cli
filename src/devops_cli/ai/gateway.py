@@ -33,7 +33,13 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions import ConfigurationError, ValidationError
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import (
+    AI_GATEWAY_FAILOVERS_TOTAL,
+    AI_GATEWAY_HEALTHY,
+    AI_GATEWAY_PROBE_DURATION,
+    emit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -482,7 +488,8 @@ class GatewayRouter:
             with httpx2.Client(timeout=timeout) as client:
                 is_ok, status_code, err_msg = _probe_gateway_http(client, probe_base, self.provider)
 
-            latency = round((time.perf_counter() - start) * 1000, 2)
+            elapsed = time.perf_counter() - start
+            latency = round(elapsed * 1000, 2)
             # A healthy probe keeps a failover route: LiteLLM, not this route table, moves the
             # live traffic, so only a reset restores the default route (#1986).
             failover = _failover_virtual_models(self._active_routes)
@@ -500,8 +507,8 @@ class GatewayRouter:
             ]
             _save_gateway_state(self.state_file, self._circuit_breaker_active, self._active_routes)
 
-            record_metric("ai.gateway.latency_ms", latency)
-            record_metric("ai.gateway.healthy", 1 if is_ok else 0)
+            emit(AI_GATEWAY_PROBE_DURATION, elapsed)
+            emit(AI_GATEWAY_HEALTHY, 1.0 if is_ok else 0.0)
             span_h.set_attribute("ai.gateway.healthy", is_ok)
             span_h.set_attribute("ai.gateway.latency_ms", latency)
 
@@ -538,7 +545,11 @@ class GatewayRouter:
             "ai.gateway.failover",
             {"virtual_model": virtual_model, "simulate": simulate, "force": force},
         ):
-            record_metric("ai.gateway.failover_events", 1)
+            emit(
+                AI_GATEWAY_FAILOVERS_TOTAL,
+                1.0,
+                {"virtual_model": virtual_model, "simulate": str(simulate).lower()},
+            )
             fallback_target = MODEL_FAILOVER_PAIRS.get(virtual_model, "direct-ollama")
             target_m, b_type, b_url = _resolve_fallback_physical_route(
                 virtual_model, fallback_target, self._active_routes

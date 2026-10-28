@@ -54,10 +54,10 @@ with trace_span("k8s.deploy_stack", {"stack.name": "monitoring"}):
 ```
 
 ### Automatic Prometheus Metrics
-Exposed by `devops serve` on `GET /metrics` for Prometheus scraping:
+Sent over OTLP to the OpenTelemetry Collector, which writes them to Prometheus (`docs/TELEMETRY.md` lists every metric):
 - `devops_cli_command_total`: Counter tracking command executions by command name and status.
 - `devops_cli_command_duration_seconds`: Histogram tracking command execution duration.
-- `devops_cli_subprocess_seconds`: Subprocess runtime latency by binary.
+- `devops_cli_subprocess_duration_seconds`: Histogram of subprocess runtime by binary and status.
 
 ### Common Commands
 ```bash

@@ -79,7 +79,8 @@ from devops_cli.output import (
     write_text_file,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
-from devops_cli.telemetry.tracer import record_metric, trace_span
+from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL, emit
+from devops_cli.telemetry.tracer import trace_span
 
 app = new_typer(
     help=HELP.ai.app,
@@ -830,10 +831,14 @@ def prewarm(
             output_format=output_format,
             json_output=json_output,
         )
-        record_metric(
-            "ai.prewarm.success",
-            1.0 if success else 0.0,
-            attributes={"model": str(target_model), "evict": str(evict)},
+        emit(
+            AI_PREWARMS_TOTAL,
+            1.0,
+            {
+                "model": str(target_model),
+                "evict": str(evict).lower(),
+                "outcome": "ok" if success else "failed",
+            },
         )
         if not success:
             raise typer.Exit(1)

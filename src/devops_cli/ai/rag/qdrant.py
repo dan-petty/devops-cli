@@ -24,7 +24,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import QDRANT_RETRIES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
@@ -539,7 +539,6 @@ class QdrantClient:
                 q_span.set_attribute("db.response.returned_points", len(hits))
                 if hits:
                     q_span.set_attribute("db.response.top_score", hits[0]["score"])
-                record_metric("qdrant.search_hits_count", float(len(hits)), unit="1")
                 return hits
             except Exception as exc:
                 err_str = str(exc).lower()

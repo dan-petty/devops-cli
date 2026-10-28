@@ -38,10 +38,10 @@ from devops_cli.output import (
     render_dry_run_result,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
+from devops_cli.telemetry.instruments import TELEMETRY_TESTS_TOTAL, emit
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
-    record_metric,
     trace_span,
 )
 from devops_cli.telemetry.waterfall import (
@@ -284,7 +284,7 @@ def telemetry_test_cmd(
     start = time.perf_counter()
 
     with trace_span(name, attributes={"test": True, "cli": "devops-cli"}) as span_id:
-        record_metric("devops_cli.test_counter", 1.0, unit="1", attributes={"test": True})
+        emit(TELEMETRY_TESTS_TOTAL, 1.0)
         if logfire:
             from devops_cli.telemetry.logfire import logfire_agent_turn
 
