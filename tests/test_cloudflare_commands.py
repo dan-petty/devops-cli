@@ -1211,7 +1211,10 @@ def test_cli_cloudflare_refused_address_is_reported(
 
     The client dials only public addresses (#2430), so the token never reaches 10.0.0.1. A
     command of each Cloudflare command group prints the message of `SSRFBlockedError` and exits
-    with its exit code, 2, with no traceback.
+    with its exit code, 2, with no traceback. The socket gets neither 10.0.0.1 nor the API host
+    name: a client that gives the socket the name lets the socket resolve it to 10.0.0.1 with no
+    check. Only dials to these two count, because the telemetry exporter of the test
+    configuration can dial its collector from a background thread.
     """
     scripted_resolver(monkeypatch, {"api.cloudflare.com": [["10.0.0.1"]]})
     recorder = record_connects(monkeypatch, [])
@@ -1222,5 +1225,5 @@ def test_cli_cloudflare_refused_address_is_reported(
         result.exit_code,
         type(result.exception),
         "SSRF blocked" in result.output,
-        [address for address, _ in recorder.dialled if address == "10.0.0.1"],
+        [host for host, _ in recorder.dialled if host in {"10.0.0.1", "api.cloudflare.com"}],
     ) == (2, SystemExit, True, [])
