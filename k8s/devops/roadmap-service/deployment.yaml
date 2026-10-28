@@ -7,10 +7,10 @@ metadata:
     app.kubernetes.io/name: roadmap-service
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  # Held at 0: the Service acts as a GitHub App (ADR 0015), which cannot reach the
-  # project board of a personal account. Do not raise it until a separate item moves
-  # the roadmap state to labels and milestones.
-  replicas: 0
+  # One pod. The Service acts as GitHub App devops-cli-service (ADR 0015) on each repository
+  # in service.repos. Argo CD self-heals this value, so a scale by hand does not stay. To stop
+  # the Service, do the stop switch in k8s/README.md, "Roadmap service".
+  replicas: 1
   strategy:
     type: Recreate
   selector:

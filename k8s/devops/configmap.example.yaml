@@ -17,6 +17,9 @@ data:
       gateway_url: http://llm-gateway.llm.svc.cluster.local:4000/v1
       allow_private_network: true
       model: devops-background
+      # devops-background serves one request at a time, so a model call is sent at most two
+      # times (k8s/README.md, LLM Gateway).
+      max_retries: 1
       tasks:
         analysis:
           model: devops-background

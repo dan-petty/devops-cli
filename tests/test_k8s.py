@@ -2814,7 +2814,7 @@ def test_infra_stack_applies_the_perimeter_before_and_the_template_after_every_c
 ) -> None:
     """The WorkflowTemplate needs the CRD its chart installs, so it applies after every Helm
     release; the perimeter applies before them. The stack restarts no service: the `devops` stack
-    owns the restart of `roadmap-service`, which #1562 holds at no replicas (#1535)."""
+    owns the restart of `roadmap-service` (#1535)."""
     cluster = _Cluster(applications_repo, argo=False)
     with patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}):
         res = _deploy(cluster, "--stack", "infra", "--k8s-dir", "k8s")
