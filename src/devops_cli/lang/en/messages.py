@@ -1558,14 +1558,14 @@ class ServeMessages:
         "{identity}, so no round starts. When the cause is fixed, remove the file and restart "
         "the Service."
     )
-    # Logged at the error level when the Service can't write what a restart must keep (#2474).
+    # Logged at the error level when the Service cannot write what a restart must keep (#2474).
     state_unkept: str = (
         "Could not write {record}, so a restart of the Service does not keep what it holds: "
         "{kind}: {error}"
     )
-    # Raised when the Service starts and can't read what it kept before it stopped (#2474).
+    # Raised when the Service starts and cannot read what it kept before it stopped (#2474).
     state_unreadable: str = (
-        "The Service can't read {record}, which it keeps across a restart: {reason}. Repair or "
+        "The Service cannot read {record}, which it keeps across a restart: {reason}. Repair or "
         "remove the file, then start the Service again."
     )
     # Logged once each time the hourly GitHub request budget holds the rounds (#2161).

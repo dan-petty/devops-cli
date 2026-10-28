@@ -115,7 +115,7 @@ before it."""
 
 def read_state_record[T](record: Path, adapter: TypeAdapter[T], empty: T) -> T:
     """What the Service kept in `record` before it last stopped, or `empty` when there is no
-    record. A record that can't be read raises, naming it and the remedy, rather than reading as
+    record. A record that cannot be read raises, naming it and the remedy, rather than reading as
     empty: an empty one would let the Service send what the record holds back (#2474)."""
     if not record.exists():
         return empty
@@ -130,7 +130,7 @@ def read_state_record[T](record: Path, adapter: TypeAdapter[T], empty: T) -> T:
 
 
 def keep_state_record(record: Path, payload: object) -> None:
-    """Write `payload` to `record` atomically. A record that can't be written is one error log
+    """Write `payload` to `record` atomically. A record that cannot be written is one error log
     line: the Service goes on with what it holds in memory, which a restart does not keep."""
     from devops_cli.output.file_writer import write_json_file
 
