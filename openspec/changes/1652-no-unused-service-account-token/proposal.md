@@ -9,10 +9,11 @@ Issue #1652: most workloads that the repository deploys mount a Kubernetes API t
 - Add a test to `tests/invariants/test_k8s_manifests.py`. Each pod that a manifest under `k8s/` declares, or that a chart of an Argo CD Application makes, mounts no ServiceAccount token, or the pod's ServiceAccount is bound to a role that it uses, or the pod is a named exception with a reason. The test fails on a chart or a chart version that it does not know, and on a stale exception. It also fails when an Application gives a chart values that are not in its values files, or when a kustomization patches an object that the test reads, because the test reads the files only.
 - Add `automountServiceAccountToken: false` to the pod templates of `cloudflared`, `gpu-feature-discovery`, `llm-gateway`, `portkey`, `valkey`, `valkey-runs` and the nine Ollama tiers.
 - Turn the token off in the chart values of the pods that do not call the API: Loki (`defaults.automountServiceAccountToken` for the pods and `serviceAccount.automountServiceAccountToken` for the ServiceAccount), Tempo and the OpenTelemetry collector (the same key), Alertmanager (`alertmanager.automountServiceAccountToken`), the Argo CD repo server and Redis (`repoServer.` and `redis.automountServiceAccountToken`), and Gitea (`serviceAccount.create: true`, whose ServiceAccount has no token).
-- Add `CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS` to `src/devops_cli/config/constants.py`, with a reason for each entry: Qdrant, whose chart has no value for the token (qdrant/qdrant-helm#506 asks for it), and the CoreDNS patch, whose Deployment k3s owns.
+- Add the table `_TOKEN_EXCEPTIONS` to the test, with a reason for each entry: Qdrant, whose chart has no value for the token (qdrant/qdrant-helm#506 asks for it), and the CoreDNS patch, whose Deployment k3s owns. The issue asks for the table in `src/devops_cli/config/constants.py`. CONTRIBUTING.md now puts a table that one module reads beside that module, so the table goes into the test.
+- Move `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS` from `src/devops_cli/config/constants.py` to `_CONTROL_PLANE_CLAIM_EXEMPTIONS` in `tests/test_k8s_local_path_placement.py`, its one reader, which the change edits.
 - Move the readers of the `k8s/` tree that `tests/test_k8s_local_path_placement.py` holds into `tests/support/k8s_tree.py`, so that the two tests share them.
 - Document the rule and the exceptions in `k8s/README.md`, Service Account Tokens.
-- The manifests and the chart values are observable behavior, so the change has a spec delta: the new capability `service-account-tokens`.
+- The manifests and the chart values are observable behavior, so the change has a spec delta: the new capability `service-account-tokens`. The requirement of `local-path-volume-placement` names its table of exemptions, so that capability changes too.
 - The change fits in one pull request.
 
 ## Capabilities
@@ -23,13 +24,13 @@ Issue #1652: most workloads that the repository deploys mount a Kubernetes API t
 
 ### Modified Capabilities
 
-None.
+- `local-path-volume-placement`: the requirement names the table of exemptions in the test, not a constant in `src/devops_cli/config/constants.py`.
 
 ## Impact
 
 - `k8s/cloudflared/deployment.yaml`, `k8s/gpu-feature-discovery/daemonset.yaml`, `k8s/llm/gateway/deployment.yaml`, `k8s/llm/portkey/deployment.yaml`, `k8s/llm/valkey.yaml`, `k8s/llm/valkey-runs.yaml`, `k8s/llm/profiles/ollama-profiles.yaml`.
 - `k8s/logging/loki-values.yaml` (only the `defaults` and `serviceAccount` keys), `k8s/otel/tempo-values.yaml`, `k8s/otel/values.yaml`, `k8s/monitoring/prometheus-values.yaml`, `k8s/argocd/values.yaml`, `k8s/gitea/values.yaml`.
-- `src/devops_cli/config/constants.py`.
+- `src/devops_cli/config/constants.py`: the table `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS` goes.
 - `tests/invariants/test_k8s_manifests.py`, `tests/support/k8s_tree.py`, `tests/test_k8s_local_path_placement.py`.
 - `k8s/README.md`.
 - The live cluster after the merge: Argo CD tracks `main` with prune and self-heal, so it syncs each changed Application and restarts the pods whose template changes. Argo CD syncs its own Application too, which restarts its repo server and Redis.

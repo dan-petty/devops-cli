@@ -11,7 +11,7 @@ The checks read files only and render no chart. `CHART_CLAIMS` names, for each c
 Argo CD Application installs, which values turn on a claim and where the values set the affinity
 of the pod that mounts it. A chart that an Application installs and `CHART_CLAIMS` does not name
 fails the test, so a new chart states its claims. A pod that must stay on the control-plane node
-is in `CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS`, with its reason.
+is in `_CONTROL_PLANE_CLAIM_EXEMPTIONS`, with its reason.
 """
 
 from __future__ import annotations
@@ -22,11 +22,27 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS
 from tests.support.k8s_tree import chart_values, manifests, pod_spec, value_at
 
 CONTROL_PLANE_LABEL = "node-role.kubernetes.io/control-plane"
 OFF_CONTROL_PLANE = {"key": CONTROL_PLANE_LABEL, "operator": "DoesNotExist"}
+
+# The pods on a local-path claim that may run on the control-plane node, each with its reason. A key
+# is `<values file>:<pod>` for a chart pod or `<manifest>:<kind>/<name>` for a manifest pod.
+_CONTROL_PLANE_CLAIM_EXEMPTIONS: dict[str, str] = {
+    "k8s/logging/loki-values.yaml:singleBinary": (
+        "Volume storage-loki-0 is still on the control-plane node; with the affinity, the pod "
+        "cannot start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
+    ),
+    "k8s/monitoring/grafana-values.yaml:grafana": (
+        "Volume grafana is still on the control-plane node; with the affinity, the pod cannot "
+        "start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
+    ),
+    "k8s/monitoring/prometheus-values.yaml:server": (
+        "Volume prometheus-server is still on the control-plane node; with the affinity, the pod "
+        "cannot start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -253,7 +269,7 @@ def test_every_chart_pod_on_a_claim_keeps_off_the_control_plane_node() -> None:
         sorted(
             pod
             for pod, affinity in pods.items()
-            if pod not in CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS
+            if pod not in _CONTROL_PLANE_CLAIM_EXEMPTIONS
             and not keeps_off_the_control_plane(affinity)
         ),
     ) == ([], [])
@@ -267,7 +283,7 @@ def test_every_manifest_pod_on_a_claim_keeps_off_the_control_plane_node() -> Non
         sorted(
             pod
             for pod, affinity in pods.items()
-            if pod not in CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS
+            if pod not in _CONTROL_PLANE_CLAIM_EXEMPTIONS
             and not keeps_off_the_control_plane(affinity)
         ),
     ) == ([], [])
@@ -282,7 +298,7 @@ def test_every_exemption_names_a_pod_on_a_claim_that_stays_on_any_node() -> None
     assert (
         sorted(
             exempt
-            for exempt in CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS
+            for exempt in _CONTROL_PLANE_CLAIM_EXEMPTIONS
             if exempt not in pods or keeps_off_the_control_plane(pods[exempt])
         )
         == []

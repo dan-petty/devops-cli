@@ -5,7 +5,7 @@ Which pods of the cluster mount a Kubernetes API token: only a pod that calls th
 ## ADDED Requirements
 
 ### Requirement: A pod that does not call the Kubernetes API mounts no ServiceAccount token
-Each pod that a manifest under `k8s/` declares, and each pod that a chart of an Argo CD Application makes with its values file, SHALL mount no ServiceAccount token, unless a Role or ClusterRole binds its ServiceAccount. A pod in `CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS` SHALL be the only other pod with a token, and each exception SHALL have a reason.
+Each pod that a manifest under `k8s/` declares, and each pod that a chart of an Argo CD Application makes with its values file, SHALL mount no ServiceAccount token, unless a Role or ClusterRole binds its ServiceAccount. A pod in the test's table of exceptions SHALL be the only other pod with a token, and each exception SHALL have a reason.
 
 #### Scenario: A manifest pod mounts a token
 - **WHEN** a test reads each workload under `k8s/`, with the ServiceAccounts, RoleBindings and ClusterRoleBindings under `k8s/`

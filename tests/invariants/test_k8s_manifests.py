@@ -107,8 +107,8 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
 # Kubernetes mounts a token of the pod's ServiceAccount into each pod, unless the pod spec, or the
 # ServiceAccount when the pod spec does not set it, has `automountServiceAccountToken: false`. A
 # pod that does not call the API mounts no token. A pod keeps its token when a Role or ClusterRole
-# binds its ServiceAccount, or when CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS names it with a
-# reason. The checks read files only and render no chart.
+# binds its ServiceAccount, or when _TOKEN_EXCEPTIONS names it with a reason. The checks read files
+# only and render no chart.
 
 # What a pod does with its token: it mounts none, it mounts one that a role binds, or it mounts
 # one that no role binds.
@@ -185,7 +185,7 @@ def _alloy_collectors(values: dict[str, Any]) -> tuple[TokenSite, ...]:
 # turn their token off. A key is the chart and the version that the entry was read from, which is
 # the version that the Application pins. A callable entry reads the pods from the values. Argo CD
 # runs the hook Jobs and never the test pods of a chart.
-CHART_TOKENS: dict[
+_CHART_TOKENS: dict[
     tuple[str, str], tuple[TokenSite, ...] | Callable[[dict[str, Any]], tuple[TokenSite, ...]]
 ] = {
     ("argo-cd", "10.9.6"): (
@@ -312,9 +312,25 @@ CHART_TOKENS: dict[
     ("traefik", "41.6.0"): (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
 }
 
+# The pods that mount a ServiceAccount token that no role in the tree or in their chart binds,
+# each with its reason. A key is `<values file>:<pod>` for a chart pod or
+# `<manifest>:<kind>/<name>` for a manifest pod.
+_TOKEN_EXCEPTIONS: dict[str, str] = {
+    "k8s/coredns/deployment-patch.yaml:Deployment/coredns": (
+        "k3s makes the CoreDNS Deployment, its ServiceAccount coredns and the ClusterRoleBinding "
+        "system:coredns, and CoreDNS reads Services and EndpointSlices through the API. The file "
+        "patches only the resources of that Deployment, so the tree does not show the binding."
+    ),
+    "k8s/llm/values-qdrant.yaml:qdrant": (
+        "Qdrant does not call the API, but chart 1.19.1 sets automountServiceAccountToken on "
+        "neither its pod nor its ServiceAccount and has no value for it. qdrant/qdrant-helm#506 "
+        "asks for the value. Remove this entry when a chart release adds it."
+    ),
+}
+
 # The pods that mounted a token they did not use before #1652, so that a reader that finds no pod
 # cannot pass.
-EXPECTED_TOKENLESS_PODS = frozenset(
+_EXPECTED_TOKENLESS_PODS = frozenset(
     {
         "k8s/argocd/values.yaml:redis",
         "k8s/argocd/values.yaml:repo-server",
@@ -370,7 +386,7 @@ def mounts_token(
 
 def _chart_sites(chart: str, values: dict[str, Any]) -> tuple[TokenSite, ...]:
     """The pods of a chart for these values. The table names each chart at one version."""
-    (sites,) = (sites for (name, _), sites in CHART_TOKENS.items() if name == chart)
+    (sites,) = (sites for (name, _), sites in _CHART_TOKENS.items() if name == chart)
     return sites(values) if callable(sites) else sites
 
 
@@ -479,29 +495,27 @@ def test_a_token_volume_mounts_a_token_when_the_field_is_off(
 
 
 def test_the_chart_table_names_each_chart_at_the_version_that_an_application_pins() -> None:
-    """A chart with no entry in CHART_TOKENS could mount a token that no check sees. A chart
+    """A chart with no entry in _CHART_TOKENS could mount a token that no check sees. A chart
     release can move the value that sets the pod field, as Loki 20.0.2 did (#1632), so an entry
     names the version that it was read from. A chart bump fails here until the entry is read
     again from the new version, and an entry for a chart that no Application installs fails too.
     """
-    assert sorted(pinned_charts() ^ CHART_TOKENS.keys(), key=str) == []
+    assert sorted(pinned_charts() ^ _CHART_TOKENS.keys(), key=str) == []
 
 
 def test_the_pods_that_do_not_call_the_api_mount_no_token() -> None:
     """Each pod that mounted a token it did not use before #1652 mounts none."""
     use = _manifest_token_use() | _chart_token_use()
-    assert sorted(pod for pod in EXPECTED_TOKENLESS_PODS if use.get(pod) != "none") == []
+    assert sorted(pod for pod in _EXPECTED_TOKENLESS_PODS if use.get(pod) != "none") == []
 
 
 def test_every_manifest_pod_with_a_token_has_a_role_or_a_named_exception() -> None:
     """Each manifest pod mounts no token, or a role binds its ServiceAccount, or it is named."""
-    from devops_cli.config.constants import CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS
-
     assert (
         sorted(
             pod
             for pod, use in _manifest_token_use().items()
-            if use == "unbound" and pod not in CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS
+            if use == "unbound" and pod not in _TOKEN_EXCEPTIONS
         )
         == []
     )
@@ -509,13 +523,11 @@ def test_every_manifest_pod_with_a_token_has_a_role_or_a_named_exception() -> No
 
 def test_every_chart_pod_with_a_token_has_a_role_or_a_named_exception() -> None:
     """Each chart pod mounts no token, or the chart binds a role to it, or it is named."""
-    from devops_cli.config.constants import CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS
-
     assert (
         sorted(
             pod
             for pod, use in _chart_token_use().items()
-            if use == "unbound" and pod not in CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS
+            if use == "unbound" and pod not in _TOKEN_EXCEPTIONS
         )
         == []
     )
@@ -525,18 +537,10 @@ def test_every_exception_names_a_pod_with_a_token_that_no_role_binds() -> None:
     """An exception names a pod that the checks find, and that pod still mounts a token with no
     role. A stale entry, for a pod that has gone or that lost its token, would hide a later change.
     """
-    from devops_cli.config.constants import CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS
-
     use = _manifest_token_use() | _chart_token_use()
     assert (
-        sorted(
-            pod for pod in CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS if use.get(pod) != "unbound"
-        ),
-        sorted(
-            pod
-            for pod, reason in CONST_K8S_SERVICE_ACCOUNT_TOKEN_EXCEPTIONS.items()
-            if not reason.strip()
-        ),
+        sorted(pod for pod in _TOKEN_EXCEPTIONS if use.get(pod) != "unbound"),
+        sorted(pod for pod, reason in _TOKEN_EXCEPTIONS.items() if not reason.strip()),
     ) == ([], [])
 
 
