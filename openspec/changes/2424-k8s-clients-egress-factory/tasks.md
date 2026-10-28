@@ -12,7 +12,7 @@
 
 ## 3. The Argo CD fleet sync, the GitOps sync and the rollout metric gate
 
-- [ ] Give the fleet sync, the GitOps sync and the rollout metric gate factory clients at the configured level, and delete their `validate_service_url` calls
+- [x] Give the fleet sync, the GitOps sync and the rollout metric gate factory clients at the configured level, and delete their `validate_service_url` calls
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_argo_fleet.py tests/test_argo_gitops.py tests/argo/test_gitops_fuzzing.py tests/test_argo.py`
 
 ## 4. The token mint and the token check

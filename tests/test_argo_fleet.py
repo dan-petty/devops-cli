@@ -327,7 +327,6 @@ def test_execute_cluster_sync_live() -> None:
     with (
         patch("devops_cli.argo.fleet.load_settings", return_value=mock_settings),
         patch("devops_cli.config.settings.get_argocd_token", return_value="test-token"),
-        patch("devops_cli.argo.fleet.validate_service_url"),
         patch("httpx2.Client") as mock_client_cls,
     ):
         mock_client = MagicMock()
@@ -361,7 +360,6 @@ def test_execute_cluster_sync_masked_token() -> None:
     with (
         patch("devops_cli.argo.fleet.load_settings", return_value=mock_settings),
         patch("devops_cli.config.settings.get_argocd_token", return_value="******"),
-        patch("devops_cli.argo.fleet.validate_service_url"),
         patch("httpx2.Client") as mock_client_cls,
     ):
         mock_client = MagicMock()
@@ -415,7 +413,6 @@ def test_fetch_metric_value_branches() -> None:
     mock_settings.ai.allow_private_network = True
     with (
         patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
-        patch("devops_cli.http.validation.validate_service_url"),
         patch("httpx2.Client") as mock_client_cls,
     ):
         mock_client = MagicMock()
@@ -429,11 +426,11 @@ def test_fetch_metric_value_branches() -> None:
         val = _fetch_metric_value("rate(http_requests[1m])")
         assert val == 3.14
 
-    # Case 3: exception during request returns None
-    with (
-        patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
-        patch("devops_cli.http.validation.validate_service_url", side_effect=ValueError("bad url")),
-    ):
+    # Case 3: an address that the configured level refuses returns None
+    mock_settings_private = MagicMock()
+    mock_settings_private.prometheus.url = "http://10.0.0.1:9090"
+    mock_settings_private.ai.allow_private_network = False
+    with patch("devops_cli.config.settings.load_settings", return_value=mock_settings_private):
         assert _fetch_metric_value("rate(http_requests[1m])") is None
 
 

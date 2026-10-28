@@ -30,7 +30,8 @@ from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.git.operations import git_show_toplevel
-from devops_cli.http.validation import validate_service_url
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import configured_level
 from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from devops_cli.security.sanitizer import mask_secrets
@@ -372,8 +373,6 @@ def trigger_argocd_sync(
         )
 
     with trace_span("argo.gitops.sync", {"app": app_name, "mode": sync_mode}):
-        import httpx2
-
         settings = load_settings()
         if not settings.argocd.url:
             return GitOpsSyncTriggerResult(
@@ -388,9 +387,6 @@ def trigger_argocd_sync(
             )
 
         try:
-            validate_service_url(
-                settings.argocd.url, "ArgoCD", allow=settings.ai.allow_private_network
-            )
             base = settings.argocd.url.rstrip("/")
             url, headers, payload = _build_sync_request_params(
                 app_name, base, sync_mode, prune, force
@@ -399,7 +395,7 @@ def trigger_argocd_sync(
             if token and not token.startswith("*"):
                 headers["Authorization"] = f"Bearer {token}"
 
-            with httpx2.Client() as client:
+            with new_http_client(level=configured_level(settings.ai)) as client:
                 resp = client.post(
                     url,
                     headers=headers,
