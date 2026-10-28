@@ -299,6 +299,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     panels chart command p50, p95 and p99, review p50 and p95, RAG p50 and p95 of whole queries
     and RAG p95 of each stage (#975). Qdrant retries are charted by operation and error type.
     AI requests and tokens are charted by operation, so chat and embeddings are told apart (#1623).
+    The Ollama slot wait is charted at p95 by priority (#815).
     """
     wanted = {
         ("devops_cli_command_duration_seconds", "command"),
@@ -310,6 +311,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
         ("devops_cli_qdrant_retries_total", "error_type"),
         ("devops_cli_ai_requests_total", "operation"),
         ("devops_cli_ai_tokens_total", "operation"),
+        ("devops_cli_ai_ollama_slot_wait_seconds", "priority"),
     }
     queries = _all_queries()
     grouped = {
@@ -328,6 +330,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
             "devops_cli_review_duration_seconds": {0.5, 0.95},
             "devops_cli_rag_query_duration_ms": {0.5, 0.95},
             "devops_cli_project_release_interval_days": {0.5, 0.95},
+            "devops_cli_ai_ollama_slot_wait_seconds": {0.95},
         },
     )
 

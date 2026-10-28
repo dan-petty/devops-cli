@@ -33,7 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
 )
 from devops_cli.telemetry import trace_span
-from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, emit
+from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, AI_OLLAMA_SLOT_WAIT, emit
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -338,6 +338,15 @@ def _release_ollama_slot(leased_url: str | None) -> None:
         ollama_slot_condition.notify_all()
 
 
+def _observe_ollama_slot_wait(started: float, priority: RequestPriority, outcome: str) -> None:
+    """Observe the seconds since `started` as one wait for an Ollama slot."""
+    emit(
+        AI_OLLAMA_SLOT_WAIT,
+        time.monotonic() - started,
+        {"priority": priority.value, "outcome": outcome},
+    )
+
+
 @contextmanager
 def acquire_ollama_slot(
     candidates: list[str],
@@ -352,6 +361,9 @@ def acquire_ollama_slot(
     leases on one URL. This is by design. A lease across processes would add a hidden queue in
     front of the queue of Ollama itself (`OLLAMA_NUM_PARALLEL` 1), as the gateway caps did
     before #467. Ollama queues the excess calls itself.
+
+    Each call observes its wait once, as `devops_cli_ai_ollama_slot_wait_seconds` by priority
+    and outcome (ok once it holds a slot, or timeout), after it leaves the condition.
     """
     if not candidates:
         raise AIClientError("No candidate Ollama servers provided for slot leasing.")
@@ -368,17 +380,25 @@ def acquire_ollama_slot(
         else (timeout if timeout is not None else DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS)
     )
 
-    deadline = time.monotonic() + eff_timeout
+    started = time.monotonic()
+    deadline = started + eff_timeout
     leased_url: str | None = None
 
-    with ollama_slot_condition:
-        waiting_priority_requests[resolved_p] = waiting_priority_requests.get(resolved_p, 0) + 1
-        try:
-            leased_url = _wait_for_slot(candidates, max_parallel, resolved_p, deadline, eff_timeout)
-        finally:
-            waiting_priority_requests[resolved_p] = max(
-                0, waiting_priority_requests.get(resolved_p, 0) - 1
-            )
+    try:
+        with ollama_slot_condition:
+            waiting_priority_requests[resolved_p] = waiting_priority_requests.get(resolved_p, 0) + 1
+            try:
+                leased_url = _wait_for_slot(
+                    candidates, max_parallel, resolved_p, deadline, eff_timeout
+                )
+            finally:
+                waiting_priority_requests[resolved_p] = max(
+                    0, waiting_priority_requests.get(resolved_p, 0) - 1
+                )
+    except AIClientError:
+        _observe_ollama_slot_wait(started, resolved_p, "timeout")
+        raise
+    _observe_ollama_slot_wait(started, resolved_p, "ok")
 
     try:
         yield leased_url

@@ -93,6 +93,13 @@ AI_GATEWAY_SLOT_WAIT = Instrument(
     "Time a chat call to the LLM gateway waited in this process for one of the gateway's backend "
     "slots, by outcome: ok once it held one, or timeout",
 )
+AI_OLLAMA_SLOT_WAIT = Instrument(
+    "devops_cli_ai_ollama_slot_wait_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Time a call to Ollama waited in this process for a slot on one of its nodes, by priority "
+    "(high, normal or as_available) and outcome: ok once it held one, or timeout",
+)
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
@@ -222,6 +229,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_SPEND_USD_TOTAL,
     AI_JSON_REPAIRS_TOTAL,
     AI_GATEWAY_SLOT_WAIT,
+    AI_OLLAMA_SLOT_WAIT,
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
@@ -277,6 +285,7 @@ def backend_name(served_by: str | None) -> str:
 __all__ = [
     "AI_GATEWAY_SLOT_WAIT",
     "AI_JSON_REPAIRS_TOTAL",
+    "AI_OLLAMA_SLOT_WAIT",
     "AI_REQUESTS_TOTAL",
     "AI_SPEND_USD_TOTAL",
     "AI_TOKENS_TOTAL",
