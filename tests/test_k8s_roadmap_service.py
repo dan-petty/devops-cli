@@ -264,7 +264,7 @@ def test_monitoring_networkpolicy_has_egress_rule_to_devops_on_8000() -> None:
     ) == (1, [{"protocol": "TCP", "port": 8000}])
 
 
-def test_configmap_validates_as_settings_with_repos_and_machine_account() -> None:
+def test_configmap_validates_as_settings_with_repos_and_the_github_app() -> None:
     target = DEVOPS_DIR / "configmap.example.yaml"
     cm = yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
     raw = yaml.safe_load(cm["data"]["devops-cli.yaml"])
@@ -272,7 +272,7 @@ def test_configmap_validates_as_settings_with_repos_and_machine_account() -> Non
 
     assert (
         bool(settings.service.repos),
-        bool(settings.service.machine_account),
+        bool(settings.service.github_app.bot_login),
         settings.telemetry.enabled,
         settings.telemetry.endpoint,
         settings.ai.tasks.analysis.context_window,

@@ -214,6 +214,15 @@ def _get_session_login() -> str:
     return get_github_session().login
 
 
+def _commit_author() -> tuple[str, str]:
+    """The name and email the job clone commits as: the session's login, and the email GitHub
+    links to that account, `<id>+<login>@users.noreply.github.com` (a GitHub App's bot too)."""
+    from devops_cli.github.session import get_github_session
+
+    session = get_github_session()
+    return session.login, session.commit_email
+
+
 def _current_actor(store: RoadmapStore) -> str | None:
     """The actor whose writes should be dropped from triggers to prevent self-triggering."""
     actor = getattr(store, "actor", None) or getattr(store, "_actor", None)
@@ -279,7 +288,8 @@ def ensure_checkout(
       branch (origin's HEAD, read again with `remote set-head --auto`); a tracked change a failed
       job left in the clone is discarded (`checkout --force`). Branches and origin's HEAD are read
       as full ref names, so no tag can shadow them.
-    - `user.name` and `user.email` are the session's login.
+    - `user.name` is the session's login, and `user.email` the email GitHub links to that
+      account, `<id>+<login>@users.noreply.github.com`.
     - A git command that exits non-zero raises `GitOperationError` naming the command and git's
       reason, credentials masked. A timeout or a missing `git` binary propagates as
       `run_subprocess` raises it.
@@ -291,12 +301,12 @@ def ensure_checkout(
         if not (clone_dir / ".git").exists():
             run_subprocess([CONST_GIT_CLI, "clone", url, str(clone_dir)], check=True, quiet=True)
         branch = _default_branch(clone_dir)
-        login = _get_session_login()
+        name, email = _commit_author()
         for step in (
             ("checkout", "--force", "-B", branch, f"refs/remotes/origin/{branch}"),
             ("reset", "--hard", f"refs/remotes/origin/{branch}"),
-            ("config", "user.name", login),
-            ("config", "user.email", f"{login}@users.noreply.github.com"),
+            ("config", "user.name", name),
+            ("config", "user.email", email),
         ):
             run_subprocess([CONST_GIT_CLI, *step], cwd=clone_dir, check=True, quiet=True)
     except subprocess.CalledProcessError as exc:
@@ -842,7 +852,7 @@ def service_pause_until(exc: Exception) -> datetime | None:
     """The time before which the Service starts no round after one failed with `exc`: the reset
     a GraphQL budget refusal names plus the bound on how late GitHub still reports the window
     that ended, so the first round after it meets the new window; None for any other error. The
-    budget is the machine account's, which every repository's rounds spend (#1400)."""
+    budget is the identity's, which every repository's rounds spend (#1400)."""
     reset = _refused_reset(exc)
     if reset is None:
         return None

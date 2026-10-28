@@ -26,7 +26,10 @@ def test_deploy_stack_dry_run_lists_config_writes_when_settings_empty(
         "service:\n"
         "  repos:\n"
         "    - owner/repo\n"
-        "  machine_account: devops-bot\n",
+        "  github_app:\n"
+        "    app_id: 1001\n"
+        "    installation_id: 42\n"
+        "    slug: devops-roadmap\n",
         encoding="utf-8",
     )
     result = runner.invoke(app, ["k8s", "deploy-stack", "--stack", "all", "--dry-run"])
@@ -50,7 +53,10 @@ def test_deploy_stack_dry_run_does_not_overwrite_configured_urls(
         "service:\n"
         "  repos:\n"
         "    - owner/repo\n"
-        "  machine_account: devops-bot\n"
+        "  github_app:\n"
+        "    app_id: 1001\n"
+        "    installation_id: 42\n"
+        "    slug: devops-roadmap\n"
         "ai:\n"
         "  gateway_url: https://custom-ai.example.com/v1\n"
         "qdrant:\n"

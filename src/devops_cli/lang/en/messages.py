@@ -524,10 +524,6 @@ class K8sMessages:
         "--dry-run lists the requests without making any."
     )
     push_plan_sources: str = "the keyring and the cluster"
-    push_plan_sources_github: str = (
-        "the keyring, gh's record of its machine account (gh checks the token on github.com) "
-        "and the cluster"
-    )
     push_dry_run_heading: str = (
         "Dry run: no request was made. A push would make these requests, in order:"
     )
@@ -1455,6 +1451,14 @@ class ServeMessages:
     openapi_json: str = "  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]"
     health_endpoint: str = "  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]"
     metrics_endpoint: str = "  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n"
+    # The Service acts as the GitHub App (ADR 0015), so it does not start without the App.
+    github_app_unset: str = (
+        "Configuration error: the Service acts as a GitHub App, so {settings} must be configured."
+    )
+    github_app_key_missing: str = (
+        "Configuration error: the Service acts as GitHub App {login}, but the environment holds "
+        "no {key_env}. Secret devops/devops-cli gives the key to the Service's pod."
+    )
     # Logged once for each webhook delivery, whatever came of it; its record carries the provider,
     # event, action, delivery, repository and outcome (#1386).
     webhook_delivery: str = "Webhook delivery handled."

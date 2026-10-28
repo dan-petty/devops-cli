@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 import devops_cli.config.options as opt
+from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.config.defaults import (
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
@@ -77,7 +78,6 @@ ENV_RUNS_INDEX_PASSWORD = "DEVOPS_CLI_RUNS_INDEX_PASSWORD"
 ENV_GITEA_ADMIN_PASSWORD = "DEVOPS_CLI_GITEA_ADMIN_PASSWORD"
 ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
 ENV_K8S_DOMAIN = "DEVOPS_CLI_K8S_DOMAIN"
-ENV_K8S_GITHUB_ACCOUNT = "DEVOPS_CLI_K8S_GITHUB_ACCOUNT"
 ENV_CLOUDFLARE_DOMAIN = "DEVOPS_CLI_CLOUDFLARE_DOMAIN"
 ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
 ENV_CLOUDFLARE_ACCOUNT_ID = "DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID"
@@ -104,7 +104,10 @@ ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
 ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
 
 ENV_SERVICE_REPOS = "DEVOPS_CLI_SERVICE_REPOS"
-ENV_SERVICE_MACHINE_ACCOUNT = "DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT"
+ENV_SERVICE_GITHUB_APP_APP_ID = "DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID"
+ENV_SERVICE_GITHUB_APP_INSTALLATION_ID = "DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID"
+ENV_SERVICE_GITHUB_APP_SLUG = "DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG"
+ENV_SERVICE_GITHUB_APP_PRIVATE_KEY = CONST_GITHUB_APP_PRIVATE_KEY_ENV
 ENV_SERVICE_POLL_INTERVAL_SECONDS = "DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS"
 ENV_SERVICE_DRAIN_TIMEOUT_SECONDS = "DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS"
 ENV_SERVICE_WEBHOOK_SECRETS = "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS"
@@ -165,7 +168,6 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.GITEA_ADMIN_PASSWORD: ENV_GITEA_ADMIN_PASSWORD,
     opt.K8S_CONTEXT: ENV_K8S_CONTEXT,
     opt.K8S_DOMAIN: ENV_K8S_DOMAIN,
-    opt.K8S_GITHUB_ACCOUNT: ENV_K8S_GITHUB_ACCOUNT,
     opt.CLOUDFLARE_DOMAIN: ENV_CLOUDFLARE_DOMAIN,
     opt.CLOUDFLARE_TUNNEL: ENV_CLOUDFLARE_TUNNEL,
     opt.CLOUDFLARE_ACCOUNT_ID: ENV_CLOUDFLARE_ACCOUNT_ID,
@@ -188,7 +190,10 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
     opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
     opt.SERVICE_REPOS: ENV_SERVICE_REPOS,
-    opt.SERVICE_MACHINE_ACCOUNT: ENV_SERVICE_MACHINE_ACCOUNT,
+    opt.SERVICE_GITHUB_APP_APP_ID: ENV_SERVICE_GITHUB_APP_APP_ID,
+    opt.SERVICE_GITHUB_APP_INSTALLATION_ID: ENV_SERVICE_GITHUB_APP_INSTALLATION_ID,
+    opt.SERVICE_GITHUB_APP_SLUG: ENV_SERVICE_GITHUB_APP_SLUG,
+    opt.SERVICE_GITHUB_APP_PRIVATE_KEY: ENV_SERVICE_GITHUB_APP_PRIVATE_KEY,
     opt.SERVICE_POLL_INTERVAL_SECONDS: ENV_SERVICE_POLL_INTERVAL_SECONDS,
     opt.SERVICE_DRAIN_TIMEOUT_SECONDS: ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
     opt.SERVICE_WEBHOOK_SECRETS: ENV_SERVICE_WEBHOOK_SECRETS,
@@ -522,13 +527,6 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Base or root domain name for homelab ingress routes and tunnel services",
         ),
         EnvVarSpec(
-            ENV_K8S_GITHUB_ACCOUNT,
-            opt.K8S_GITHUB_ACCOUNT,
-            False,
-            "Login of the machine account whose gh token `devops k8s push-secrets` writes to the "
-            "cluster as GH_TOKEN",
-        ),
-        EnvVarSpec(
             ENV_CLOUDFLARE_DOMAIN,
             opt.CLOUDFLARE_DOMAIN,
             False,
@@ -672,10 +670,29 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Target repository list for service mode",
         ),
         EnvVarSpec(
-            ENV_SERVICE_MACHINE_ACCOUNT,
-            opt.SERVICE_MACHINE_ACCOUNT,
+            ENV_SERVICE_GITHUB_APP_APP_ID,
+            opt.SERVICE_GITHUB_APP_APP_ID,
             False,
-            "GitHub username of the machine account to ignore events from",
+            "ID of the GitHub App that the roadmap Service and the cluster jobs act as",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_GITHUB_APP_INSTALLATION_ID,
+            opt.SERVICE_GITHUB_APP_INSTALLATION_ID,
+            False,
+            "ID of the GitHub App's installation on the account that owns the managed repositories",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_GITHUB_APP_SLUG,
+            opt.SERVICE_GITHUB_APP_SLUG,
+            False,
+            "Slug of the GitHub App; its bot's login is `<slug>[bot]`",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_GITHUB_APP_PRIVATE_KEY,
+            opt.SERVICE_GITHUB_APP_PRIVATE_KEY,
+            True,
+            "PEM private key of the GitHub App (stored in OS keyring). A process whose "
+            "environment holds it acts as the App",
         ),
         EnvVarSpec(
             ENV_SERVICE_POLL_INTERVAL_SECONDS,

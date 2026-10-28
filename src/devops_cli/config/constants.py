@@ -1372,7 +1372,14 @@ CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_TOKEN_ENV, "GITHUB_T
 CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
     {"GH_CONFIG_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS"}
 )
-# Hex characters of the token's SHA-256 that name an identity's cache directory.
+# The variable that holds a GitHub App's private key. A process whose environment holds it acts
+# as the App (ADR 0015), as Secret devops/devops-cli gives it to the cluster's pods.
+CONST_GITHUB_APP_PRIVATE_KEY_ENV: Final[str] = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
+# How an App installation names its quota ledger: one ledger for every token of the installation.
+CONST_GITHUB_APP_LEDGER_KEY: Final[str] = "app-installation-{installation_id}"
+# GitHub's commit email of an account, `<id>+<login>@users.noreply.github.com`, for a bot too.
+CONST_GITHUB_NOREPLY_EMAIL: Final[str] = "{account_id}+{login}@users.noreply.github.com"
+# Hex characters of the identity key's SHA-256 that name an identity's cache directory.
 CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
 # Identities whose rate limiters a process keeps in memory at once; a process acts as one, and a
 # second session with another token adds one more. Older ones are read from disk again.
@@ -1424,6 +1431,8 @@ CONST_SERVICE_DELIVERY_LRU_CAPACITY: Final[int] = 10_000
 CONST_SERVICE_SOURCE_WEBHOOK: Final[str] = "webhook"
 CONST_SERVICE_SOURCE_POLL: Final[str] = "poll"
 CONST_SERVICE_PING_EVENT: Final[str] = "ping"
+# The status of a delivery the GitHub App's own bot sent: the roadmap does not answer its own write.
+CONST_SERVICE_STATUS_OWN_WRITE: Final[str] = "ignored_own_write"
 
 
 class WebhookProviderName(StrEnum):
@@ -2895,7 +2904,7 @@ CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
 CONST_ROADMAP_MODEL_PRIORITIES: Final[tuple[str, ...]] = ("P1-High", "P2-Medium", "P3-Low")
 # The Value and Effort options (`.github/project-template.json`).
 CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
-# An author with write access, the machine account included, as GitHub's author_association says.
+# An author with write access, as GitHub's author_association says.
 CONST_ROADMAP_TRUSTED_AUTHORS: Final[frozenset[str]] = frozenset(
     {"OWNER", "MEMBER", "COLLABORATOR"}
 )

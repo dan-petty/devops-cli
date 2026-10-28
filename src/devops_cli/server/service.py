@@ -190,8 +190,8 @@ class RoundPause:
     and one count of the refusal metric. An hourly request budget holds the rounds too.
 
     A failed round can name a time to wait for, which `reader` reads from its error: the roadmap
-    Service names a GraphQL budget refusal's reset, because the budget is the machine account's
-    and every repository's rounds spend it. Triggers keep coalescing meanwhile, so each lane of
+    Service names a GraphQL budget refusal's reset, because the budget is the identity's, the
+    GitHub App's installation, and every repository's rounds spend it. Triggers keep coalescing meanwhile, so each lane of
     each repository runs one round with all of them once the time passes.
     """
 
@@ -490,7 +490,7 @@ class ServiceManager:
         self.clock = clock
         self.sleep_func = sleep_func
         self.managed_repos: set[str] = set(config.repos)
-        self.machine_account: str | None = config.machine_account
+        self.bot_login: str | None = config.github_app.bot_login
         self.delivery_cache = DeliveryLRUCache()
         self.budget = RequestBudget(clock, config.github_requests_per_hour, request_counter)
         self.pause = RoundPause(
@@ -498,7 +498,7 @@ class ServiceManager:
             pause_until,
             identity_refused,
             self.budget,
-            identity=config.machine_account or "unknown",
+            identity=config.github_app.bot_login or "unknown",
         )
         self.workers: dict[tuple[str, str], RepoWorker] = {
             (repo, lane): RepoWorker(repo, lane, job, clock, self.pause)

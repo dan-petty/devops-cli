@@ -12,6 +12,8 @@ import subprocess
 import threading
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -25,10 +27,12 @@ from devops_cli.config.constants import (
     CONST_GH_TOKEN_ENV,
     CONST_GH_TOKEN_ENV_VARS,
     CONST_GIT_CLI,
+    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
 )
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
     DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
+    DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS,
     DEFAULT_SHELL_STOP_GRACE_SECONDS,
     DEFAULT_SHELL_STOP_POLL_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -236,11 +240,49 @@ def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
 
 
 # The process's one GitHub identity (#767): None until a lookup finds a token, then that token.
-# A lookup that finds none is not kept, so a later call looks again; when and why it last failed
-# is kept, for the error and for git, which waits before looking again.
+# gh's token is kept for the life of the process. A GitHub App's installation token keeps when it
+# expires, and the next call after it comes within DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS of that
+# time mints a new one (ADR 0015). A lookup that finds none is not kept, so a later call looks
+# again; when and why it last failed is kept, for the error and for git, which waits before
+# looking again.
 _github_token: str | None = None
+_github_token_expires_at: datetime | None = None
 _github_lookup_failure: tuple[float, str] | None = None
 _GITHUB_TOKEN_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class GitHubIdentity:
+    """Who the process's GitHub calls act as.
+
+    `key` names the identity's quota ledger and session: gh's token itself, or the App's
+    installation, so every token of one installation shares them. It is never shown. `login` is
+    the identity's login when the identity names it without a request: the App's bot login.
+    """
+
+    key: str = field(repr=False)
+    login: str | None = None
+
+
+def acts_as_github_app() -> bool:
+    """Whether the process acts as the GitHub App: its environment holds the App's private key.
+
+    Secret `devops/devops-cli` gives the key to the cluster's pods. A workstation keeps the key
+    in the OS keyring only, for `devops k8s push-secrets`, so it keeps the gh login of its person,
+    as gh lets GH_TOKEN take precedence over a stored login.
+    """
+    return bool(os.environ.get(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "").strip())
+
+
+def github_identity() -> GitHubIdentity:
+    """The process's GitHub identity: the App's installation and bot login when the process acts
+    as the App, which mints no token; otherwise gh's token, looked up as `github_token` does."""
+    if acts_as_github_app():
+        from devops_cli.github.app_installation import configured_app
+
+        app = configured_app()
+        return GitHubIdentity(key=app.ledger_key, login=app.bot_login)
+    return GitHubIdentity(key=github_token())
 
 
 def _lookup_github_token() -> tuple[str, str]:
@@ -274,15 +316,38 @@ def _lookup_github_token() -> tuple[str, str]:
     return "", ERRORS.git.github_unauthenticated.format(status=proc.returncode)
 
 
-def _session_github_token(*, retry_now: bool) -> tuple[str, str]:
-    """The session's token, looked up on first use; or "" and why gh gave none.
+def _lookup_session_token() -> tuple[str, str, datetime | None]:
+    """A new token for the session, the reason when there is none, and when the token expires.
 
-    A found token is kept for the life of the process. Without one, `retry_now` looks again at
-    once (gh); otherwise a lookup that failed within the retry interval stands (git).
+    The App mints an installation token; otherwise `gh auth token` prints gh's token, which does
+    not expire within the process.
     """
-    global _github_token, _github_lookup_failure
+    if acts_as_github_app():
+        from devops_cli.github.app_installation import mint_installation_token
+
+        return mint_installation_token()
+    token, why = _lookup_github_token()
+    return token, why, None
+
+
+def _renewal_due(expires_at: datetime | None) -> bool:
+    """Whether a token that expires at `expires_at` is close enough to it to mint a new one."""
+    if expires_at is None:
+        return False
+    left = expires_at - datetime.now(UTC)
+    return left <= timedelta(seconds=DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS)
+
+
+def _session_github_token(*, retry_now: bool) -> tuple[str, str]:
+    """The session's token, looked up on first use; or "" and why there is none.
+
+    gh's token is kept for the life of the process, and an App's installation token until its
+    renewal is due. Without one, `retry_now` looks again at once (gh); otherwise a lookup that
+    failed within the retry interval stands (git).
+    """
+    global _github_token, _github_token_expires_at, _github_lookup_failure
     with _GITHUB_TOKEN_LOCK:
-        if _github_token:
+        if _github_token and not _renewal_due(_github_token_expires_at):
             return _github_token, ""
         failure = _github_lookup_failure
         if (
@@ -291,16 +356,18 @@ def _session_github_token(*, retry_now: bool) -> tuple[str, str]:
             and time.monotonic() - failure[0] < DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS
         ):
             return "", failure[1]
-        token, why = _lookup_github_token()
+        token, why, expires_at = _lookup_session_token()
         if token:
-            _github_token, _github_lookup_failure = token, None
+            _github_token, _github_token_expires_at = token, expires_at
+            _github_lookup_failure = None
         else:
             _github_lookup_failure = (time.monotonic(), why)
         return token, why
 
 
 def github_token() -> str:
-    """The session's GitHub token, raising the unauthenticated error when gh has none."""
+    """The session's current GitHub token, raising the unauthenticated error when there is none:
+    gh's token, or the App's installation token, minted again before it expires."""
     token, why = _session_github_token(retry_now=True)
     if not token:
         raise GitHubUnauthenticatedError(why)
@@ -308,10 +375,10 @@ def github_token() -> str:
 
 
 def reset_github_token() -> None:
-    """Forget the looked-up token, so the next GitHub call runs `gh auth token` again."""
-    global _github_token, _github_lookup_failure
+    """Forget the token, so the next GitHub call looks it up or mints it again."""
+    global _github_token, _github_token_expires_at, _github_lookup_failure
     with _GITHUB_TOKEN_LOCK:
-        _github_token, _github_lookup_failure = None, None
+        _github_token, _github_token_expires_at, _github_lookup_failure = None, None, None
 
 
 def is_local_gh_command(gh_args: list[str]) -> bool:

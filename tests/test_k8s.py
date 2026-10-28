@@ -239,7 +239,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
         0,
         [
             "cloudflared/cloudflared-token: token",
-            "devops/devops-cli: GH_TOKEN, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_TAVILY_API_KEY (if namespace devops exists)",
+            "devops/devops-cli: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_TAVILY_API_KEY (if namespace devops exists)",
             "monitoring/grafana-admin: admin-user, admin-password",
         ],
         [],
@@ -2097,11 +2097,14 @@ class _Cluster:
 
 
 def _configure_service(config_path: Path) -> None:
-    """The active config names the repositories and machine account the service works for."""
+    """The active config names the repositories the service works for and its GitHub App."""
     from devops_cli.config.settings import reset_settings_cache
 
     with config_path.open("a", encoding="utf-8") as config:
-        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+        config.write(
+            "service:\n  repos:\n    - owner/repo\n"
+            "  github_app:\n    app_id: 1001\n    installation_id: 42\n    slug: devops-roadmap\n"
+        )
     reset_settings_cache()
 
 
@@ -2179,12 +2182,12 @@ def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each
         res.exit_code,
         cluster.writes(),
         config_map["metadata"]["name"],
-        (service["repos"], service["machine_account"]),
+        (service["repos"], service["github_app"]["slug"]),
     ) == (
         0,
         [_APPLY_STDIN, _DEVOPS_HOSTS, _INGRESS_HOSTS],
         "devops-cli-config",
-        (["owner/repo"], "devops-bot"),
+        (["owner/repo"], "devops-roadmap"),
     )
 
 

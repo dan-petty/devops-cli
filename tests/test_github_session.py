@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_USER_AGENT,
 )
 from devops_cli.core import process
+from devops_cli.core.process import GitHubIdentity
 from devops_cli.exceptions.git import (
     GitHubUnauthenticatedError,
     GitHubUnreadError,
@@ -364,6 +365,7 @@ import time
 import httpx2
 
 from devops_cli.core import process
+from devops_cli.core.process import GitHubIdentity
 from devops_cli.github import session
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from tests.support.fakes.github import GitHubApiFake, github_json
@@ -497,14 +499,17 @@ def test_the_ledger_is_only_read_and_charged_off_the_event_loop(github_api: GitH
 
 
 def test_two_sessions_charge_their_own_identities_ledgers(github_api: GitHubApiFake) -> None:
-    """A session paces and charges the ledger of its own token, not the process identity's."""
+    """A session paces and charges the ledger of its own identity, not the process identity's."""
     github_api.route("GET", "/user", github_json({"login": "a"}, headers=quota_headers(11)))
     github_api.route("GET", "/user/keys", github_json([], headers=quota_headers(22)))
     for token in ("token-a", "token-b"):
         rate_limiter.identity_rate_limiter(token).update_quota(
             "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
         )
-    first, second = GitHubSession("token-a"), GitHubSession("token-b")
+    first, second = (
+        GitHubSession(GitHubIdentity("token-a")),
+        GitHubSession(GitHubIdentity("token-b")),
+    )
     try:
         first.rest("GET", "/user")
         second.rest("GET", "/user/keys")
@@ -810,7 +815,10 @@ def test_a_session_over_another_token_sends_no_etag_for_the_same_url(
         rate_limiter.identity_rate_limiter(token).update_quota(
             "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
         )
-    first, second = GitHubSession("token-a"), GitHubSession("token-b")
+    first, second = (
+        GitHubSession(GitHubIdentity("token-a")),
+        GitHubSession(GitHubIdentity("token-b")),
+    )
     try:
         first.rest("GET", "/user")
         second.rest("GET", "/user")

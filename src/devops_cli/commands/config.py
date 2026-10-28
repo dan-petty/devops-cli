@@ -131,7 +131,6 @@ def show() -> None:
     _secret_row(opt.AI_API_KEY, _is_secret_configured(opt.AI_API_KEY))
     _row(opt.K8S_CONTEXT, settings.k8s.context)
     _row(opt.K8S_DOMAIN, settings.k8s.domain)
-    _row(opt.K8S_GITHUB_ACCOUNT, settings.k8s.github_account)
     _row(opt.CLOUDFLARE_DOMAIN, settings.cloudflare.domain)
     _row(opt.CLOUDFLARE_TUNNEL, settings.cloudflare.tunnel)
     _row(opt.CLOUDFLARE_ACCOUNT_ID, settings.cloudflare.account_id)

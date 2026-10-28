@@ -38,7 +38,7 @@ from devops_cli.config.settings import (
     get_qdrant_api_key,
 )
 from devops_cli.telemetry import tracer
-from tests.cluster_secret_fakes import MACHINE_LOGIN, MACHINE_TOKEN, FakeCluster, FakeKeyring
+from tests.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster, FakeKeyring
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 _deploy_app = typer.Typer()
@@ -318,15 +318,15 @@ def test_deploy_stack_pushes_secrets_after_namespaces_and_before_manifests_and_h
 def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
     cluster: FakeCluster, stub_keyring: FakeKeyring, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("DEVOPS_CLI_K8S_GITHUB_ACCOUNT", MACHINE_LOGIN)
+    stub_keyring.values["service_github_app_private_key"] = APP_KEY
     without = (_deploy("--stack", "infra").exit_code, _pushed(cluster), cluster.commands("gh"))
     cluster.calls.clear()
     cluster.namespaces.add("devops")
     with_devops = (_deploy("--stack", "infra").exit_code, _pushed(cluster))
-    assert (without, with_devops, cluster.live_data("devops", "devops-cli")["GH_TOKEN"]) == (
+    assert (without, with_devops, cluster.live_data("devops", "devops-cli")[APP_KEY_ENTRY]) == (
         (0, ["cloudflared/cloudflared-token"], []),
         (0, ["cloudflared/cloudflared-token", "devops/devops-cli"]),
-        MACHINE_TOKEN,
+        APP_KEY,
     )
 
 

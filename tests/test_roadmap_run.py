@@ -209,10 +209,11 @@ def child_argvs(
 ) -> Iterator[list[list[str]]]:
     """Run git for real and answer the session's login lookup through the session fake.
 
-    Every child's argv is recorded. `GET /user` returns `test-bot`, and any gh command fails
-    the test instead of reaching GitHub.
+    Every child's argv is recorded. `GET /user` returns `test-bot`, `GET /users/test-bot` its
+    account ID, and any gh command fails the test instead of reaching GitHub.
     """
     github_api.route("GET", "/user", github_json({"login": "test-bot"}))
+    github_api.route("GET", "/users/test-bot", github_json({"id": 4242, "login": "test-bot"}))
     get_github_rate_limiter().update_quota(
         "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
     )
@@ -579,7 +580,10 @@ def test_service_wiring(
     round names (#1400), to create_service_app. Each lane's job opens the store and runs its own
     rows in its own clone (#1532)."""
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", f'["{REPO}"]')
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "devops-cli")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID", "1001")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID", "42")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG", "devops-roadmap")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY", "test-app-private-key")
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", f'{{"{REPO}":"secret-1"}}')
 
     with patch("uvicorn.run") as mock_uvicorn:
@@ -687,7 +691,7 @@ def test_checkouts_git_management(
     ) == (
         True,
         "test-bot",
-        "test-bot@users.noreply.github.com",
+        "4242+test-bot@users.noreply.github.com",
         (new_rev, "main"),
         ["intake"],
         ("metrics", "refine"),
@@ -959,6 +963,11 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     stub_web.page(
         f"{API}/user",
         json.dumps({"login": "test-bot"}),
+        headers={"content-type": "application/json"},
+    )
+    stub_web.page(
+        f"{API}/users/test-bot",
+        json.dumps({"id": 4242, "login": "test-bot"}),
         headers={"content-type": "application/json"},
     )
     seeded_store.seed_issue("feat: export", labels=("type/feature",), on_board=True)

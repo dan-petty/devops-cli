@@ -34,6 +34,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_OUTCOME_REJECTED,
     CONST_SERVICE_PING_EVENT,
     CONST_SERVICE_SOURCE_WEBHOOK,
+    CONST_SERVICE_STATUS_OWN_WRITE,
     WebhookExposure,
     WebhookProviderName,
 )
@@ -132,7 +133,7 @@ WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
 
 def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     """The roadmap jobs' consumer: each event their batch keys name runs a round in every lane of
-    its repository, except the machine account's own writes. Its delivery target is
+    its repository, except the writes of the GitHub App's own bot. Its delivery target is
     `ServiceManager.enqueue_trigger`, the one seam between the router and the lane workers."""
 
     def deliver(repo: str, event: str, action: str) -> None:
@@ -142,17 +143,17 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
         )
 
-    def refuse_machine_account(payload: GitHubWebhookPayload) -> str | None:
-        account, sender = service_manager.machine_account, payload.sender
-        own_write = account and sender and sender.login.lower() == account.lower()
-        return "ignored_machine_account" if own_write else None
+    def refuse_own_write(payload: GitHubWebhookPayload) -> str | None:
+        bot, sender = service_manager.bot_login, payload.sender
+        own_write = bot and sender and sender.login.lower() == bot.lower()
+        return CONST_SERVICE_STATUS_OWN_WRITE if own_write else None
 
     return WebhookConsumer(
         name="roadmap",
         provider=WebhookProviderName.GITHUB,
         events=CONST_ROADMAP_WEBHOOK_EVENTS,
         deliver=deliver,
-        refusal=refuse_machine_account,
+        refusal=refuse_own_write,
     )
 
 

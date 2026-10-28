@@ -412,13 +412,6 @@ class KubernetesConfig(BaseModel):
         default=None,
         description="Default addressing mode for cluster services: nodeport, proxy, or fqdn.",
     )
-    github_account: str | None = Field(
-        default=None,
-        description=(
-            "Login of the machine account whose gh token `devops k8s push-secrets` writes to the "
-            "cluster as GH_TOKEN; `--github-account` overrides it"
-        ),
-    )
 
 
 class CloudflareAccessConfig(BaseModel):
@@ -739,11 +732,45 @@ _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
 }
 
 
+class GitHubAppConfig(BaseModel):
+    """The GitHub App that the roadmap Service and the cluster jobs act as (ADR 0015).
+
+    Its private key is the managed credential `service.github_app.private_key`. A process acts as
+    the App only when its environment holds that key, as Secret `devops/devops-cli` gives it to
+    the cluster's pods; a workstation keeps the gh login of its person.
+    """
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    app_id: int | None = Field(
+        default=None,
+        gt=0,
+        description="ID of the GitHub App that the roadmap Service and the cluster jobs act as",
+    )
+    installation_id: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "ID of the App's installation on the account that owns the managed repositories"
+        ),
+    )
+    slug: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Slug of the GitHub App; its bot's login is `<slug>[bot]`",
+    )
+
+    @property
+    def bot_login(self) -> str | None:
+        """The login GitHub gives the App's bot, `<slug>[bot]`, or None without a slug."""
+        return f"{self.slug}[bot]" if self.slug else None
+
+
 class ServiceConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     repos: list[str] = Field(default_factory=list)
-    machine_account: str | None = None
+    github_app: GitHubAppConfig = Field(default_factory=GitHubAppConfig)
     poll_interval_seconds: int = Field(default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS, ge=60)
     drain_timeout_seconds: int = Field(default=DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS, gt=0)
     github_requests_per_hour: int = Field(default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR, gt=0)

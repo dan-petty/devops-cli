@@ -64,7 +64,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
-from devops_cli.core.process import github_token, is_local_gh_command, run_subprocess
+from devops_cli.core.process import github_identity, is_local_gh_command, run_subprocess
 from devops_cli.exceptions.git import (
     GitHubOperationError,
     GitHubRateLimitError,
@@ -1385,22 +1385,24 @@ def _save_disk_cache(cache_dir: Path, key: str, entry: _CacheEntry) -> None:
 _GLOBAL_LOCK = threading.RLock()
 
 
-def resolve_identity_cache_dir(token: str) -> Path:
-    """The directory of the identity `token` is, under the cache dir, honoring DEVOPS_CLI_DATA_DIR.
+def resolve_identity_cache_dir(identity: str) -> Path:
+    """The directory of the identity that the key `identity` names, under the cache dir,
+    honoring DEVOPS_CLI_DATA_DIR.
 
-    It is named by the first hex characters of the token's SHA-256, so no path holds the token
-    or the login. Two tokens of one account get two directories; each answer's headers correct
-    the figures.
+    It is named by the first hex characters of the key's SHA-256, so no path holds a token or a
+    login. gh's token is its own key, so two tokens of one account get two directories, and each
+    answer's headers correct the figures. A GitHub App's key is its installation, so every
+    installation token it mints keeps one directory.
     """
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     base_dir = Path(env_dir) if env_dir else DEFAULT_DATA_DIR
-    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
     return base_dir / CONST_CACHE_DIR_NAME / digest[:CONST_GITHUB_IDENTITY_DIGEST_CHARS]
 
 
 def resolve_quota_cache_path() -> Path:
     """The session identity's quota ledger; its response cache sits beside it."""
-    return resolve_identity_cache_dir(github_token()) / CONST_GH_QUOTA_CACHE_FILENAME
+    return resolve_identity_cache_dir(github_identity().key) / CONST_GH_QUOTA_CACHE_FILENAME
 
 
 @functools.lru_cache(maxsize=CONST_GITHUB_IDENTITY_LIMITERS_KEPT)
@@ -1415,11 +1417,12 @@ def reset_github_rate_limiter() -> None:
         _ledger_limiter.cache_clear()
 
 
-def identity_rate_limiter(token: str) -> GitHubRateLimiter:
-    """The rate limiter of the identity `token` is: its quota ledger and the pacing of its requests,
-    one per identity, which `run_gh` and that identity's session share."""
+def identity_rate_limiter(identity: str) -> GitHubRateLimiter:
+    """The rate limiter of the identity that the key `identity` names: its quota ledger and the
+    pacing of its requests, one per identity, which `run_gh` and that identity's session share."""
     with _GLOBAL_LOCK:
-        return _ledger_limiter(resolve_identity_cache_dir(token) / CONST_GH_QUOTA_CACHE_FILENAME)
+        ledger = resolve_identity_cache_dir(identity) / CONST_GH_QUOTA_CACHE_FILENAME
+        return _ledger_limiter(ledger)
 
 
 def get_github_rate_limiter() -> GitHubRateLimiter:

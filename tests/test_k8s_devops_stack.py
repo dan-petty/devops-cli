@@ -22,6 +22,10 @@ from tests.support.paths import REPO_ROOT
 runner = CliRunner()
 
 
+# The GitHub App the Service acts as, in config.yaml (ADR 0015).
+_GITHUB_APP = "  github_app:\n    app_id: 1001\n    installation_id: 42\n    slug: devops-roadmap\n"
+
+
 def test_devops_stack_registration_and_resolution() -> None:
     """Verify devops stack is registered and resolved in stack all and stack devops."""
     assert (
@@ -80,7 +84,7 @@ def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
     from devops_cli.config.settings import reset_settings_cache
 
     with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
-        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+        config.write("service:\n  repos:\n    - owner/repo\n" + _GITHUB_APP)
     reset_settings_cache()
     set_dry_run(True)
     try:
@@ -147,7 +151,7 @@ def test_deploy_stack_domain_option_in_dry_run(isolate_devops_cli_config: Path) 
     from devops_cli.config.settings import reset_settings_cache
 
     with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
-        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+        config.write("service:\n  repos:\n    - owner/repo\n" + _GITHUB_APP)
     reset_settings_cache()
     set_dry_run(True)
     try:

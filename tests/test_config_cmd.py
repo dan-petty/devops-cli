@@ -59,7 +59,9 @@ def test_config_output_json_view() -> None:
 
 
 def test_github_token_is_not_a_config_option() -> None:
-    """GitHub's identity comes only from `gh auth token`: no option, keyring key or variable holds it."""
+    """A person's GitHub identity comes only from `gh auth token`: no option, keyring key or
+    variable holds a gh token. The one GitHub credential devops-cli keeps is the private key of
+    the roadmap's GitHub App, a managed secret under `service.github_app` (ADR 0015)."""
     from devops_cli.config import options as opt
     from devops_cli.config.env import get_all_env_var_specs
 
@@ -73,8 +75,13 @@ def test_github_token_is_not_a_config_option() -> None:
     ) == (
         ["github.default_org"],
         [],
-        # k8s.github_account names the machine account's login for push-secrets (#741).
-        [("DEVOPS_CLI_GITHUB_DEFAULT_ORG", False), ("DEVOPS_CLI_K8S_GITHUB_ACCOUNT", False)],
+        [
+            ("DEVOPS_CLI_GITHUB_DEFAULT_ORG", False),
+            ("DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID", False),
+            ("DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID", False),
+            ("DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG", False),
+            ("DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY", True),
+        ],
     )
 
 

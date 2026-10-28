@@ -652,6 +652,9 @@ DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS: float = 5.0
 # After `gh auth token` printed no token, git runs without one and looks again only this much later;
 # gh calls look again every time, since they cannot run without one.
 DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS: float = 60.0
+# A GitHub App installation token expires one hour after GitHub makes it. The process mints a new
+# one when less than this is left, so a gh or git child that starts with the token can finish.
+DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS: float = 600.0
 DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
@@ -819,7 +822,8 @@ DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05
 DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 300
 DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS: Final[int] = 120
 # The GitHub requests the Service sends in any one hour, all repositories together (#2161). GitHub
-# suspended the machine account at 800 to 1,700 requests an hour, so the default stays under that.
+# suspended the roadmap's former machine account at 800 to 1,700 requests an hour, so the default
+# stays under that.
 DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR: Final[int] = 500
 # How many rounds in a row a roadmap job may fail before the Service stops running it until its
 # input changes (#2161).

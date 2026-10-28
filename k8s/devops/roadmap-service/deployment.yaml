@@ -7,8 +7,9 @@ metadata:
     app.kubernetes.io/name: roadmap-service
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  # Held at 0 while the machine account is suspended (#1562). Do not raise it until
-  # the account is reinstated or the jobs act as a GitHub App.
+  # Held at 0: the Service acts as a GitHub App (ADR 0015), which cannot reach the
+  # project board of a personal account. Do not raise it until a separate item moves
+  # the roadmap state to labels and milestones.
   replicas: 0
   strategy:
     type: Recreate

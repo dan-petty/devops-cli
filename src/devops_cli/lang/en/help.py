@@ -337,9 +337,6 @@ class K8sCommandHelp:
         "Push the Secrets of one stack: base, infra, llm, logging, devops, gitea, or all (default)."
     )
     push_only: str = "Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack."
-    push_github_account: str = (
-        "Machine account whose gh token becomes GH_TOKEN (default: k8s.github_account)."
-    )
     push_rotate: str = "Replace live values that differ from the keyring's."
     push_restart: str = (
         "Restart the workloads of each existing Secret whose data changed; "
@@ -350,9 +347,8 @@ class K8sCommandHelp:
         "with placeholders for every value. Wins over --plan."
     )
     push_plan: str = (
-        "Read the keyring, the live Secrets and, for the machine account's token, gh's own "
-        "record of the account (read-only; gh checks the token on github.com); print each "
-        "key's state and the workloads a change would restart, and write nothing."
+        "Read the keyring and the live Secrets (read-only); print each key's state and the "
+        "workloads a change would restart, and write nothing."
     )
     deploy_dry_run: str = (
         "Print the releases, manifests and Secrets (key names only) a deploy would apply, and "

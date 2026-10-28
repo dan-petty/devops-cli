@@ -164,7 +164,7 @@ devops gh milestones list
 
 ## 5. Security Recommendations & Zero-Trust Policies
 
-- **Zero-Plaintext Credentials**: The GitHub token is gh's own login, which `gh auth token` returns once per process (`GH_TOKEN` overrides it); devops-cli keeps no copy, and never hardcodes or logs it.
+- **Zero-Plaintext Credentials**: On a workstation, the GitHub token is gh's own login, which `gh auth token` returns once per process (`GH_TOKEN` overrides it); devops-cli keeps no copy, and never hardcodes or logs it. In the cluster, the roadmap acts as GitHub App `devops-roadmap`, whose private key reaches the pod from Secret `devops/devops-cli` (ADR 0015).
 - **Granular Token Scopes**:
   - Labels, Milestones, Issues, and Pages require standard `repo` scope.
   - Projects v2 mutations require `project` or `read:project` scopes. When scopes are restricted, `devops gh` falls back gracefully with clear instructions (`gh auth refresh -s project,read:project`) and preserves read-only/offline functionality.

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from devops_cli.config.settings import Settings
+from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.configmap import (
     render_active_devops_configmap,
@@ -40,16 +40,21 @@ data:
     service:
       repos:
         - owner/repo
-      machine_account: devops-bot
+      github_app:
+        app_id: 1
+        installation_id: 1
+        slug: devops-roadmap
 """
 
+APP = GitHubAppConfig(app_id=1001, installation_id=42, slug="devops-roadmap")
 
-def test_render_devops_configmap_substitutes_repos_and_account() -> None:
-    """Verify render_devops_configmap_content substitutes repos and machine account."""
+
+def test_render_devops_configmap_substitutes_repos_and_the_github_app() -> None:
+    """The rendered config names the repositories and the App, and keeps the template's rest."""
     rendered = render_devops_configmap_content(
         SAMPLE_TEMPLATE,
         repos=["example-org/repo-one", "example-org/repo-two"],
-        machine_account="custom-bot",
+        github_app=APP,
     )
     doc = yaml.safe_load(rendered)
     inner = yaml.safe_load(doc["data"]["devops-cli.yaml"])
@@ -57,31 +62,36 @@ def test_render_devops_configmap_substitutes_repos_and_account() -> None:
 
     assert (
         settings.service.repos,
-        settings.service.machine_account,
+        settings.service.github_app,
         settings.ai.provider,
         settings.telemetry.enabled,
+        doc["metadata"]["name"],
     ) == (
         ["example-org/repo-one", "example-org/repo-two"],
-        "custom-bot",
+        APP,
         "gateway",
         True,
+        "devops-cli-config",
     )
 
 
-@pytest.mark.parametrize(("repos", "account"), [([], "devops-bot"), (["owner/repo"], " ")])
-def test_the_config_map_needs_a_repository_and_an_account(repos: list[str], account: str) -> None:
+@pytest.mark.parametrize(
+    ("repos", "github_app"),
+    [([], APP), (["owner/repo"], GitHubAppConfig(app_id=1001, installation_id=42))],
+)
+def test_the_config_map_needs_a_repository_and_the_github_app(
+    repos: list[str], github_app: GitHubAppConfig
+) -> None:
     """No placeholder stands in for a value the service needs."""
-    with pytest.raises(
-        KubernetesContextError, match="at least one repository and a machine account"
-    ):
-        render_devops_configmap_content(SAMPLE_TEMPLATE, repos=repos, machine_account=account)
+    with pytest.raises(KubernetesContextError, match="at least one repository and the GitHub App"):
+        render_devops_configmap_content(SAMPLE_TEMPLATE, repos=repos, github_app=github_app)
 
 
 def test_render_devops_configmap_invalid_template_raises() -> None:
     """Verify KubernetesContextError is raised if service block is missing."""
     with pytest.raises(KubernetesContextError, match="standard service configuration block"):
         render_devops_configmap_content(
-            "apiVersion: v1\nkind: ConfigMap\n", repos=["owner/repo"], machine_account="devops-bot"
+            "apiVersion: v1\nkind: ConfigMap\n", repos=["owner/repo"], github_app=APP
         )
 
 
@@ -90,7 +100,7 @@ def test_render_devops_configmap_with_timeouts_and_poll() -> None:
     rendered = render_devops_configmap_content(
         SAMPLE_TEMPLATE,
         repos=["example/repo"],
-        machine_account="bot",
+        github_app=APP,
         drain_timeout_seconds=90,
         poll_interval_seconds=180,
     )
@@ -110,27 +120,27 @@ def test_render_active_devops_configmap_success(tmp_path: Path) -> None:
     devops_dir.mkdir(parents=True)
     (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
 
-    class DummySettings:
-        service = type(
-            "Service",
-            (),
-            {
-                "repos": ["active/repo"],
-                "machine_account": "active-bot",
-                "drain_timeout_seconds": 75,
-                "poll_interval_seconds": 150,
-            },
-        )()
+    settings = Settings(
+        service=ServiceConfig(
+            repos=["active/repo"],
+            github_app=APP,
+            drain_timeout_seconds=75,
+            poll_interval_seconds=150,
+        )
+    )
 
-    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=DummySettings())
+    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=settings)
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
 
-    assert (
-        "active/repo" in rendered,
-        "active-bot" in rendered,
-        "drain_timeout_seconds: 75" in rendered,
-        "poll_interval_seconds: 150" in rendered,
-        (devops_dir / "configmap.yaml").exists(),
-    ) == (True, True, True, True, False)
+    assert (inner["service"], (devops_dir / "configmap.yaml").exists()) == (
+        {
+            "repos": ["active/repo"],
+            "github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"},
+            "drain_timeout_seconds": 75,
+            "poll_interval_seconds": 150,
+        },
+        False,
+    )
 
 
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:
@@ -148,12 +158,8 @@ def _template_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _settings(repos: list[str], account: str | None, github_account: str | None = None) -> object:
-    class _Settings:
-        service = type("Service", (), {"repos": repos, "machine_account": account})()
-        k8s = type("K8s", (), {"github_account": github_account})()
-
-    return _Settings()
+def _settings(repos: list[str], github_app: GitHubAppConfig) -> Settings:
+    return Settings(service=ServiceConfig(repos=repos, github_app=github_app))
 
 
 def test_the_active_config_map_without_repositories_is_refused_naming_the_setting(
@@ -161,29 +167,19 @@ def test_the_active_config_map_without_repositories_is_refused_naming_the_settin
 ) -> None:
     """A deploy never ships the template's placeholder repository."""
     with pytest.raises(KubernetesContextError, match=r"service\.repos"):
-        render_active_devops_configmap(
-            k8s_dir=_template_dir(tmp_path), settings=_settings([], "bot")
-        )
+        render_active_devops_configmap(k8s_dir=_template_dir(tmp_path), settings=_settings([], APP))
 
 
-def test_the_active_config_map_without_an_account_is_refused_naming_the_settings(
+def test_the_active_config_map_without_the_github_app_is_refused_naming_each_setting(
     tmp_path: Path,
 ) -> None:
-    """A deploy never ships the template's placeholder machine account."""
-    with pytest.raises(
-        KubernetesContextError, match=r"service\.machine_account.*k8s\.github_account"
-    ):
+    """A deploy never ships the template's placeholder App."""
+    with pytest.raises(KubernetesContextError) as raised:
         render_active_devops_configmap(
-            k8s_dir=_template_dir(tmp_path), settings=_settings(["owner/repo"], None)
+            k8s_dir=_template_dir(tmp_path),
+            settings=_settings(["owner/repo"], GitHubAppConfig(slug="devops-roadmap")),
         )
-
-
-def test_the_machine_account_falls_back_to_the_configured_github_account(tmp_path: Path) -> None:
-    rendered = render_active_devops_configmap(
-        k8s_dir=_template_dir(tmp_path), settings=_settings(["owner/repo"], None, "devops-bot")
-    )
-    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-    assert (inner["service"]["repos"], inner["service"]["machine_account"]) == (
-        ["owner/repo"],
-        "devops-bot",
+    assert raised.value.message == (
+        "The roadmap service acts as a GitHub App, so set 'service.github_app.app_id', "
+        "'service.github_app.installation_id' in config.yaml."
     )

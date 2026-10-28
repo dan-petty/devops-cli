@@ -144,7 +144,6 @@ Kubernetes context, ingress domain, and service addressing settings.
 | `context` | `str` | `minikube` | `DEVOPS_CLI_K8S_CONTEXT` | Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context) |
 | `domain` | `Union` | - | `DEVOPS_CLI_K8S_DOMAIN` | Base domain name for homelab ingress routes and tunnel services (e.g. example.com) |
 | `addressing` | `Union` | - | - | Default addressing mode for cluster services: nodeport, proxy, or fqdn. |
-| `github_account` | `Union` | - | `DEVOPS_CLI_K8S_GITHUB_ACCOUNT` | Login of the machine account whose gh token `devops k8s push-secrets` writes to the cluster as GH_TOKEN; `--github-account` overrides it |
 
 ## Cloudflare Configuration (`cloudflare`)
 
@@ -248,7 +247,7 @@ In-cluster webhook receiver and background job runner settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `repos` | `list` | `[]` | `DEVOPS_CLI_SERVICE_REPOS` | - |
-| `machine_account` | `Union` | - | `DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT` | - |
+| `github_app` | `GitHubAppConfig` | `app_id=None installation_id=None slug=None` | - | - |
 | `poll_interval_seconds` | `int` | `300` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | - |
 | `drain_timeout_seconds` | `int` | `120` | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | - |
 | `github_requests_per_hour` | `int` | `500` | - | - |

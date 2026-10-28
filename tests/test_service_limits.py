@@ -22,7 +22,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
 )
 from devops_cli.config.defaults import DEFAULT_SERVICE_MAX_FAILED_ROUNDS
-from devops_cli.config.settings import ServiceConfig
+from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -86,7 +86,7 @@ def _manager(
     manager = ServiceManager(
         config=ServiceConfig(
             repos=[REPO_A, REPO_B],
-            machine_account="bot-account",
+            github_app=GitHubAppConfig(app_id=1001, installation_id=42, slug="bot-account"),
             poll_interval_seconds=poll_interval,
             github_requests_per_hour=per_hour,
         ),
@@ -110,7 +110,7 @@ def _stop(manager: ServiceManager) -> None:
 
 def _refusal_metric() -> float:
     return GLOBAL_METRICS.get_counter_value(
-        CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": "bot-account"}
+        CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": "bot-account[bot]"}
     )
 
 

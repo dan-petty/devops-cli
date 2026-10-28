@@ -459,7 +459,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `llm/valkey-runs-auth` | `password` | keyring `runs_index_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-runs` |
 | `llm/valkey-auth` | `VALKEY_PASSWORD` | keyring `valkey_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey`, `statefulset/open-webui` |
 | `cloudflared/cloudflared-token` | `token` | keyring `cloudflare_tunnel_token` | no | adopt the live value; else skip with a warning | base | `deployment/cloudflared` |
-| `devops/devops-cli` | `GH_TOKEN` | gh account | yes | fail | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` | keyring `service_github_app_private_key` | yes | adopt the live value; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_TAVILY_API_KEY` | keyring `tavily_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
@@ -471,11 +471,11 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
 - Typed values are stored at a hidden prompt: `devops config set cloudflare.tunnel_token` or `devops config set gitea.admin_password`.
-- `GH_TOKEN` is the token gh keeps in the OS keyring for the machine account named by `--github-account` or `devops config set k8s.github_account <login>`. The push takes gh's word for it: `gh auth status` must list the login with its token in the keyring and its own check of the token passing, then `gh auth token --user <login>` reads it. devops-cli never calls GitHub with the machine token itself, so a run keeps the one GitHub identity it has (#767).
+- `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` is the private key of GitHub App `devops-roadmap`, which the roadmap Service and the cluster Jobs act as ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Store it with `devops config set service.github_app.private_key --from-file <key.pem>`. A pod whose environment holds the key acts as the App: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as GH_TOKEN. A workstation keeps the key only in the keyring, so a workstation run keeps the gh login of its person.
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
 - `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.
 - Secrets are server-side applied from stdin under field manager `devops-cli`, labelled `app.kubernetes.io/managed-by: devops-cli`, with values in `data`: never in argv, a file, an annotation or the output. A Secret still carrying a client-side apply's `kubectl.kubernetes.io/last-applied-configuration` loses it.
-- `--plan` reads the keyring, the live Secrets and, for `devops/devops-cli`, the machine account's token from gh (`gh auth status`, which checks the token on github.com, then `gh auth token`), says so, and prints each key's state (`would adopt`, `unchanged`, `differs`, ...) and the workloads a change would restart, writing nothing. `--dry-run` makes no request at all, not even those reads: it prints the requests a push would make, in order, with `<placeholders>` for every value and the condition under which each later request runs.
+- `--plan` reads the keyring and the live Secrets, says so, and prints each key's state (`would adopt`, `unchanged`, `differs`, ...) and the workloads a change would restart, writing nothing. `--dry-run` makes no request at all, not even those reads: it prints the requests a push would make, in order, with `<placeholders>` for every value and the condition under which each later request runs.
 - A Secret whose data changed has its workloads restarted (`kubectl rollout restart`); `--no-restart` prints the commands instead. Open WebUI keeps the gateway connection in its database, so a changed gateway key is also updated under Admin Panel > Settings > Connections.
 
 Rotation: a live value that differs from the keyring stops the push. Either replace the live value with the keyring's, or adopt the live value by removing the keyring entry:
@@ -492,9 +492,12 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 
 ```bash
 devops config set service.repos <owner/name>             # the repositories the service works for
-devops config set k8s.github_account <machine-login>     # push-secrets needs it, even with service.machine_account set
+devops config set service.github_app.app_id <app-id>    # the GitHub App the jobs act as (ADR 0015)
+devops config set service.github_app.installation_id <installation-id>
+devops config set service.github_app.slug devops-roadmap
+devops config set service.github_app.private_key --from-file <key.pem>
 devops k8s deploy-stack --stack devops --context <context>
-devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
+devops k8s push-secrets --context <context> --plan       # reads the keyring and the cluster: key names and states, never a value
 devops k8s push-secrets --context <context>
 devops k8s run-job --context <context> -- --version      # follows the log, exits with the Job's exit code
 devops k8s run-job --context <context> --no-wait -- ai gateway status --format json
@@ -508,17 +511,17 @@ kubectl -n devops logs -f job/<name>
 
 ### Roadmap service
 
-> **Suspended ([#1562](https://github.com/dan-petty/devops-cli/issues/1562)).** GitHub suspended the machine account, and `deployment/roadmap-service` is held at `replicas: 0`. Do not run the steps below, scale the deployment, or rotate its secrets until #1562's revert merges. Disable each managed repository's webhook meanwhile.
+> **Held at `replicas: 0`.** The Service acts as GitHub App `devops-roadmap`, which the personal account owns ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). An App installation cannot reach the project board of a personal account, so `deployment/roadmap-service` stays at `replicas: 0` until a separate item moves the roadmap state to labels and milestones. Do not scale the deployment until then, and keep each managed repository's webhook disabled. Steps 1 to 3 can run now.
 
-1. `uv run devops config set service.repos <owner/name>` (each repository the service works for), then `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret). deploy-stack refuses the devops stack until `service.repos` and the machine account (step 2) are set.
-2. `uv run devops k8s push-secrets --stack devops`, with the machine account's login in `k8s.github_account` (#741). deploy-stack also pushes it once namespace `devops` exists.
-3. Invite the machine account as a Write collaborator on each repo and board.
+1. Create the GitHub App on the personal account (Settings > Developer settings > GitHub Apps > New GitHub App): name `devops-roadmap`, webhook off, "Only on this account". Give it these repository permissions: Issues read and write, Pull requests read and write, Contents read and write, Checks read, Actions read, Metadata read. Install it on each managed repository, and generate a private key. The App page shows the App ID, and the installation's settings page has the installation ID at the end of its URL.
+2. `uv run devops config set service.repos <owner/name>` (each repository the service works for), then `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret). Set the App with `uv run devops config set service.github_app.app_id <app-id>`, `service.github_app.installation_id <installation-id>`, `service.github_app.slug devops-roadmap` and `service.github_app.private_key --from-file <key.pem>`, then delete the downloaded key file. deploy-stack refuses the devops stack until `service.repos` and the App's settings are set.
+3. `uv run devops k8s push-secrets --stack devops`. It writes the App's private key to Secret `devops/devops-cli`. deploy-stack also pushes it once namespace `devops` exists.
 4. Check that the GHCR `service` package is public (#741 made it so): `DOCKER_CONFIG=$(mktemp -d) docker pull ghcr.io/dan-petty/devops-cli/service:<tag>`.
 5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
 6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
 7. `devops k8s deploy-stack --stack devops` (or `--stack all`).
 8. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and only the Issues event. The Service acknowledges an event with no subscriber, a push included, and starts no round for it, so a hook that sends every event or only pushes is harmless, but only an issue that opens or reopens starts a round before the next poll ([ADR 0009](../docs/adr/0009-one-webhook-router-delivers-each-event-to-the-consumers-subscribed-to-it.md), #1386).
-9. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
+9. To rotate a credential, update it in the keyring: `uv run devops config set service.webhook_secrets`, or, for the App, generate a new private key and run `uv run devops config set service.github_app.private_key --from-file <key.pem>`. Then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`. Delete the old private key on the App's page after the restart.
 10. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
 
 ### Agent sessions
@@ -709,7 +712,7 @@ This repository is public, so it holds no homelab value. Ingress hosts sit under
 | Value | Source | Where it lives | Supplied by |
 | :--- | :--- | :--- | :--- |
 | Secrets | the OS keyring (`devops k8s push-secrets`) | Secrets in the cluster | every stack's deploy, for its Secrets |
-| `service.repos`, `service.machine_account` (or `k8s.github_account`), `service.poll_interval_seconds`, `service.drain_timeout_seconds` | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
+| `service.repos`, `service.github_app.app_id`, `service.github_app.installation_id`, `service.github_app.slug`, `service.poll_interval_seconds`, `service.drain_timeout_seconds` | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
 | Hosts under the configured domain | `--domain`, else `k8s.domain`, `cloudflare.domain`, `DEVOPS_CLI_K8S_DOMAIN` or `DEVOPS_CLI_DOMAIN` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` | `--stack devops` or `all` (both Applications), `--stack infra` or `gitea` (`ingress` only) |
 
 The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `k8s/devops/configmap.example.yaml` in the checkout deploy-stack runs from (`--k8s-dir`, default `./k8s`), so run it from a checkout of `main`, the revision the cluster runs.

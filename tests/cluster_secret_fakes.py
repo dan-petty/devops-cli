@@ -1,8 +1,8 @@
 """A stub keyring and a recorded fake cluster for the cluster Secret push, with no network.
 
 `FakeCluster` stands in for `subprocess.run` beneath `run_subprocess`, so the tests see each
-argv, stdin and environment exactly as the child would. It answers the kubectl, gh and helm
-commands the push and deploy-stack run, and applies a server-side apply's `List` to its own
+argv, stdin and environment exactly as the child would. It answers the kubectl and helm commands
+the push and deploy-stack run, and applies a server-side apply's `List` to its own
 Secrets. `FakeKeyring` is an encrypted keyring backend that can be locked. Names are generic.
 """
 
@@ -19,8 +19,9 @@ from keyring.errors import KeyringLocked, PasswordDeleteError
 
 from devops_cli.config.constants import CONST_KEYRING_UNLOCK_PROBE_KEY
 
-MACHINE_LOGIN = "machine-account"
-MACHINE_TOKEN = "ghp-machine-token-value-0001"
+# The GitHub App's private key as the keyring holds it, and the Secret key it is pushed to.
+APP_KEY_ENTRY = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
+APP_KEY = "app-private-key-value-0001"
 
 
 class FakeKeyring(KeyringBackend):
@@ -75,15 +76,11 @@ class Call:
 
 @dataclass
 class FakeCluster:
-    """Namespaces, Secrets, workloads and gh accounts, answering the commands run against them."""
+    """Namespaces, Secrets and workloads, answering the commands run against them."""
 
     namespaces: set[str] = field(default_factory=lambda: {"llm", "cloudflared", "devops"})
     secrets: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     workloads: set[tuple[str, str]] = field(default_factory=set)
-    gh_accounts: dict[str, tuple[str, str]] = field(
-        default_factory=lambda: {MACHINE_LOGIN: (MACHINE_TOKEN, "keyring")}
-    )
-    gh_state: str = "success"
     fail: set[str] = field(default_factory=set)
     calls: list[Call] = field(default_factory=list)
     events: list[str] = field(default_factory=list)
@@ -144,8 +141,6 @@ class FakeCluster:
             argv = [*argv[:2], *argv[2].split("/", 1), *argv[3:]]
         if argv[0] in self.fail:
             return 1, ""
-        if argv[0] == "gh":
-            return self._gh(argv, kwargs.get("env") or {})
         if argv[:2] == ["helm", "version"]:
             return 0, "v3.17.0"
         if argv[:2] == ["kubectl", "get"]:
@@ -183,27 +178,3 @@ class FakeCluster:
                     "fieldsV1": {"f:data": {f"f:{k}": {} for k in item["data"]}},
                 }
             )
-
-    def _gh(self, argv: list[str], env: dict[str, str]) -> tuple[int, str]:
-        if argv[1:3] == ["auth", "status"]:
-            stored = [
-                {
-                    "login": login,
-                    "tokenSource": source,
-                    "state": self.gh_state,
-                    "host": "github.com",
-                }
-                for login, (_, source) in self.gh_accounts.items()
-            ]
-            # gh lists an ambient GH_TOKEN first, as the active account, under its owner's login.
-            ambient = [
-                {"login": login, "tokenSource": "GH_TOKEN", "state": "success", "active": True}
-                for login, (token, _) in self.gh_accounts.items()
-                if token == env.get("GH_TOKEN")
-            ]
-            return 0, json.dumps({"hosts": {"github.com": ambient + stored}})
-        if argv[1:3] == ["auth", "token"]:
-            login = argv[argv.index("--user") + 1]
-            account = self.gh_accounts.get(login)
-            return (0, account[0] + "\n") if account else (1, "")
-        return 1, ""

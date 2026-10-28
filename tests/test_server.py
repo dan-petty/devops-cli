@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 
 from devops_cli import __version__
 from devops_cli.commands.serve import app as serve_app
+from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.server.app import create_app
 from devops_cli.server.json_logs import service_log_config
 
@@ -272,42 +273,61 @@ def test_serve_service_mode_flags_rejected() -> None:
     ) == (2, True, 2, True)
 
 
+def _set_github_app(monkeypatch: pytest.MonkeyPatch, *, key: bool = True) -> None:
+    """The Service's GitHub App settings, and its private key in the environment unless `key` is
+    False, as Secret devops/devops-cli gives it to the pod (ADR 0015)."""
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID", "1001")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID", "42")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG", "devops-roadmap")
+    if key:
+        monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "test-app-private-key")
+    else:
+        monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
+
+
 def test_serve_service_mode_config_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test --service enforces repos, machine_account, and valid JSON webhook secrets."""
+    """--service needs repos, the GitHub App's settings and key, and valid JSON webhook secrets."""
     # 1. Missing repos
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", "[]")
     res_repos = runner.invoke(serve_app, ["--service"])
 
-    # 2. Missing machine_account
+    # 2. Missing GitHub App settings
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
-    monkeypatch.delenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", raising=False)
-    res_account = runner.invoke(serve_app, ["--service"])
+    res_app = runner.invoke(serve_app, ["--service"])
 
-    # 3. Missing webhook_secrets
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    # 3. The App's settings, but no private key in the environment
+    _set_github_app(monkeypatch, key=False)
+    res_key = runner.invoke(serve_app, ["--service"])
+
+    # 4. Missing webhook_secrets
+    _set_github_app(monkeypatch)
     monkeypatch.delenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", raising=False)
     res_no_secrets = runner.invoke(serve_app, ["--service"])
 
-    # 4. Invalid JSON webhook_secrets
+    # 5. Invalid JSON webhook_secrets
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", "not-a-json-object")
     res_bad_secrets = runner.invoke(serve_app, ["--service"])
 
     assert (
         res_repos.exit_code,
         "service.repos" in res_repos.output,
-        res_account.exit_code,
-        "service.machine_account" in res_account.output,
+        res_app.exit_code,
+        "service.github_app.app_id, service.github_app.installation_id, "
+        "service.github_app.slug" in " ".join(res_app.output.split()),
+        res_key.exit_code,
+        CONST_GITHUB_APP_PRIVATE_KEY_ENV in " ".join(res_key.output.split()),
+        "devops-roadmap[bot]" in " ".join(res_key.output.split()),
         res_no_secrets.exit_code,
         "service.webhook_secrets" in res_no_secrets.output,
         res_bad_secrets.exit_code,
         "service.webhook_secrets" in res_bad_secrets.output,
-    ) == (1, True, 1, True, 1, True, 1, True)
+    ) == (1, True, 1, True, 1, True, True, 1, True, 1, True)
 
 
 def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test valid --service invocation starts uvicorn without banner."""
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    _set_github_app(monkeypatch)
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
 
     with patch("uvicorn.run") as mock_uvicorn:
@@ -332,7 +352,7 @@ def test_serve_service_mode_leaves_logging_to_the_server(
     saw a `devops_cli` record.
     """
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    _set_github_app(monkeypatch)
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
 
     with patch("uvicorn.run"):
@@ -351,7 +371,7 @@ def test_serve_service_mode_builds_the_app_after_the_server_applies_its_logging(
     command called uvicorn, that warning had no handler yet and came out as plain text on stderr.
     """
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1", "example-org/repo2"]')
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    _set_github_app(monkeypatch)
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
 
     def missing_secret_warnings() -> list[str]:

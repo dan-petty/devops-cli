@@ -39,7 +39,6 @@ from devops_cli.k8s.secret_push import (
     execute_push,
     plan_push,
     preview_restarts,
-    reads_github,
     secret_line,
 )
 from devops_cli.lang import HELP, MESSAGES
@@ -156,13 +155,10 @@ def run_push(
         raise _fail(str(exc)) from exc
     if plan_only:
         context = f" (context {options.context})" if options.context else ""
-        sources = (
-            MESSAGES.k8s.push_plan_sources_github
-            if reads_github(plan)
-            else MESSAGES.k8s.push_plan_sources
-        )
         print_info(
-            MESSAGES.k8s.push_plan_read.format(sources=sources, context=context),
+            MESSAGES.k8s.push_plan_read.format(
+                sources=MESSAGES.k8s.push_plan_sources, context=context
+            ),
             prefix=False,
             safe=True,
         )
@@ -189,10 +185,6 @@ def push_secrets(
     only: Annotated[
         list[str] | None, typer.Option("--only", help=HELP.k8s.push_only, metavar="NS/NAME")
     ] = None,
-    github_account: Annotated[
-        str | None,
-        typer.Option("--github-account", help=HELP.k8s.push_github_account, metavar="LOGIN"),
-    ] = None,
     rotate: Annotated[bool, typer.Option("--rotate", help=HELP.k8s.push_rotate)] = False,
     restart: Annotated[
         bool, typer.Option("--restart/--no-restart", help=HELP.k8s.push_restart)
@@ -214,7 +206,6 @@ def push_secrets(
     selected = _select(stack, only or [])
     options = PushOptions(
         context=effective_context,
-        github_account=github_account,
         rotate=rotate,
         restart=restart,
         strict_namespaces=bool(only),

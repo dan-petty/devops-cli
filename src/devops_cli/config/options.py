@@ -83,7 +83,6 @@ GITEA_ADMIN_PASSWORD = "gitea.admin_password"
 # Kubernetes Cluster & Minikube Configuration
 K8S_CONTEXT = "k8s.context"
 K8S_DOMAIN = "k8s.domain"
-K8S_GITHUB_ACCOUNT = "k8s.github_account"
 
 # Cloudflare Zero Trust & Tunnel Configuration
 CLOUDFLARE_DOMAIN = "cloudflare.domain"
@@ -124,7 +123,10 @@ SANDBOX_EXCLUDE_HOME_DIR = "sandbox.exclude_home_dir"
 
 # Service Mode Configuration
 SERVICE_REPOS = "service.repos"
-SERVICE_MACHINE_ACCOUNT = "service.machine_account"
+SERVICE_GITHUB_APP_APP_ID = "service.github_app.app_id"
+SERVICE_GITHUB_APP_INSTALLATION_ID = "service.github_app.installation_id"
+SERVICE_GITHUB_APP_SLUG = "service.github_app.slug"
+SERVICE_GITHUB_APP_PRIVATE_KEY = "service.github_app.private_key"
 SERVICE_POLL_INTERVAL_SECONDS = "service.poll_interval_seconds"
 SERVICE_DRAIN_TIMEOUT_SECONDS = "service.drain_timeout_seconds"
 SERVICE_WEBHOOK_SECRETS = "service.webhook_secrets"
@@ -214,7 +216,6 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     GITEA_ADMIN_PASSWORD,
     K8S_CONTEXT,
     K8S_DOMAIN,
-    K8S_GITHUB_ACCOUNT,
     CLOUDFLARE_DOMAIN,
     CLOUDFLARE_TUNNEL,
     CLOUDFLARE_ACCOUNT_ID,
@@ -228,7 +229,10 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     CLOUDFLARE_ACCESS_BYPASS_IPS,
     CLOUDFLARE_ACCESS_PUBLIC_IP_BYPASS,
     SERVICE_REPOS,
-    SERVICE_MACHINE_ACCOUNT,
+    SERVICE_GITHUB_APP_APP_ID,
+    SERVICE_GITHUB_APP_INSTALLATION_ID,
+    SERVICE_GITHUB_APP_SLUG,
+    SERVICE_GITHUB_APP_PRIVATE_KEY,
     SERVICE_POLL_INTERVAL_SECONDS,
     SERVICE_DRAIN_TIMEOUT_SECONDS,
     SERVICE_WEBHOOK_SECRETS,
@@ -251,6 +255,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         CLOUDFLARE_API_TOKEN,
         CLOUDFLARE_TUNNEL_TOKEN,
         SERVICE_WEBHOOK_SECRETS,
+        SERVICE_GITHUB_APP_PRIVATE_KEY,
         TAVILY_API_KEY,
     }
 )
@@ -269,5 +274,6 @@ KEYRING_KEYS: dict[str, str] = {
     CLOUDFLARE_API_TOKEN: "cloudflare_api_token",
     CLOUDFLARE_TUNNEL_TOKEN: "cloudflare_tunnel_token",
     SERVICE_WEBHOOK_SECRETS: "service_webhook_secrets",
+    SERVICE_GITHUB_APP_PRIVATE_KEY: "service_github_app_private_key",
     TAVILY_API_KEY: "tavily_api_key",
 }

@@ -8,7 +8,8 @@ the event loop it first runs on, so the transport owns one anyio blocking portal
 synchronous caller's request runs on that portal's loop.
 
 `SessionGitHubAPI._request` paces each attempt on the ledger of the session's own identity, as
-`run_gh` paces `gh api <path>`, and charges the quota the answer reports to the resource GitHub
+`run_gh` paces `gh api <path>`, sends it with the process's current token, which a GitHub App
+mints again before it expires, and charges the quota the answer reports to the resource GitHub
 names. gidgethub's `handle_rate_limit_error` hook retries a rate limit, and a read GitHub failed
 with a 5xx, up to `DEFAULT_GH_MAX_RETRIES` times, waiting what the ledger's `retry_delay` gives.
 A write that got a 5xx may have been applied, so it is not sent again; a refused connect and a
@@ -68,6 +69,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_GH_SESSION_ETAG_CACHE_SIZE,
 )
+from devops_cli.core.process import github_token
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubRateLimitError, GitHubUnreadError
 from devops_cli.github.error_classifier import (
@@ -149,24 +151,24 @@ def _gh_api_command(url: str) -> list[str]:
     return [CONST_GH_API_SUBCOMMAND, httpx2.URL(url).path]
 
 
-def pace_request(method: str, url: str, token: str) -> str:
-    """Wait for the request's turn on the ledger of `token`'s identity, as `run_gh` waits for
-    `gh api <path>`, a write as a write; return the rate-limit resource it spends."""
+def pace_request(method: str, url: str, identity: str) -> str:
+    """Wait for the request's turn on the ledger of the identity `identity` names, as `run_gh`
+    waits for `gh api <path>`, a write as a write; return the rate-limit resource it spends."""
     command = _gh_api_command(url)
     resource = gh_request_resource(command)
     if gh_request_is_paced(command):
         is_mutation = is_write_request(GitHubRequest(method, command[1]))
-        identity_rate_limiter(token).acquire(subcommand=resource, is_mutation=is_mutation)
+        identity_rate_limiter(identity).acquire(subcommand=resource, is_mutation=is_mutation)
     return resource
 
 
-def charge_response(headers: Mapping[str, str], resource: str, token: str) -> None:
-    """Record the quota an answer reports on the ledger of `token`'s identity, for the resource
-    GitHub names or else the one the request was paced on."""
+def charge_response(headers: Mapping[str, str], resource: str, identity: str) -> None:
+    """Record the quota an answer reports on the ledger of the identity `identity` names, for the
+    resource GitHub names or else the one the request was paced on."""
     quota = sansio.RateLimit.from_http(headers)
     if quota is None:
         return
-    identity_rate_limiter(token).update_quota(
+    identity_rate_limiter(identity).update_quota(
         headers.get(CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE) or resource,
         remaining=quota.remaining,
         limit=quota.limit,
@@ -183,7 +185,7 @@ def _is_retried(error: HTTPException, method: str, path: str) -> bool:
 
 
 def retry_wait(
-    error: HTTPException, *, method: str, url: str, attempt: int, token: str
+    error: HTTPException, *, method: str, url: str, attempt: int, identity: str
 ) -> float | None:
     """The wait before sending a failed request again, recorded as a throttle on the identity's
     ledger, or None when it is not sent again. A 5xx waits from a shorter floor than a rate limit.
@@ -192,7 +194,7 @@ def retry_wait(
     if not _is_retried(error, method, command[1]):
         return None
     floor = None if is_rate_limited(error) else DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS
-    limiter = identity_rate_limiter(token)
+    limiter = identity_rate_limiter(identity)
     try:
         wait = limiter.retry_delay(
             retry_after_seconds(error),
@@ -207,32 +209,39 @@ def retry_wait(
 
 
 class SessionGitHubAPI(GitHubAPI):
-    """gidgethub's httpx2 adapter, paced, charged and retried on its identity's ledger."""
+    """gidgethub's httpx2 adapter, paced, charged and retried on its identity's ledger, and sent
+    with the process's current token."""
 
-    def __init__(self, client: httpx2.AsyncClient, token: str) -> None:
+    def __init__(self, client: httpx2.AsyncClient, identity: str) -> None:
         self._stored: LRUCache[str, StoredAnswer] = LRUCache(
             maxsize=DEFAULT_GH_SESSION_ETAG_CACHE_SIZE
         )
         super().__init__(
             client,
             CONST_GITHUB_USER_AGENT,
-            oauth_token=token,
             cache=self._stored,
             base_url=CONST_URL_GITHUB_API_BASE,
         )
-        self._identity = token
+        self._identity = identity
+
+    def _pace(self, method: str, url: str) -> tuple[str, str]:
+        """Wait for the attempt's turn on the ledger, then read the token to send it with: a
+        GitHub App's token is minted again when it nears its expiry during the wait."""
+        return pace_request(method, url, self._identity), github_token()
 
     async def _request(
         self, method: str, url: str, headers: Mapping[str, str], body: bytes = b""
     ) -> tuple[int, Mapping[str, str], bytes]:
-        """Send one attempt once the ledger allows it, and charge what its answer reports.
+        """Send one attempt once the ledger allows it, with the current token, and charge what
+        its answer reports.
 
         The pacing wait may run until the quota resets, so a close does not wait it out.
         """
-        resource = await anyio.to_thread.run_sync(
-            pace_request, method, url, self._identity, abandon_on_cancel=True
+        resource, token = await anyio.to_thread.run_sync(
+            self._pace, method, url, abandon_on_cancel=True
         )
-        answer = await super()._request(method, url, headers, body)
+        sent = {**headers, "authorization": f"token {token}"}
+        answer = await super()._request(method, url, sent, body)
         self._last_body_empty = (answer[2] == b"") and bool(answer[1].get("content-type"))
         await anyio.to_thread.run_sync(charge_response, answer[1], resource, self._identity)
         return answer
@@ -254,7 +263,7 @@ class SessionGitHubAPI(GitHubAPI):
                 method=method,
                 url=url,
                 attempt=attempt,
-                token=self._identity,
+                identity=self._identity,
             )
         )
         if wait is None:
@@ -353,14 +362,14 @@ class RestTransport:
     interpreter would wait forever on a thread that no longer runs.
     """
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, identity: str) -> None:
         with ExitStack() as resources:
             portal = resources.enter_context(start_blocking_portal())
             resources.callback(portal.call, portal.stop, True)
             client = session_client()
             resources.callback(portal.call, client.aclose)
             self._portal = portal
-            self._api = SessionGitHubAPI(client, token)
+            self._api = SessionGitHubAPI(client, identity)
             self._close = weakref.finalize(self, resources.pop_all().close)
 
     def send(self, method: str, path: str, *, accept: str | None = None, body: Any = None) -> Any:

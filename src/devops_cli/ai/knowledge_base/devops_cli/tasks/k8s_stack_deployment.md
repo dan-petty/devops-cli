@@ -52,12 +52,13 @@ devops k8s deploy-stack --stack infra
 devops k8s deploy-stack --stack llm
 
 # 5. Preview a deploy: releases, manifests, and the Secrets it pushes (key names only).
-#    The devops stack needs service.repos and a machine account in config.yaml first.
+#    The devops stack needs service.repos and the GitHub App (service.github_app) in
+#    config.yaml first.
 devops k8s deploy-stack --stack all --dry-run
 
 # 6. Write or check the cluster Secrets from the keyring alone
 devops k8s push-secrets --dry-run    # no request: the requests a push would make, in order
-devops k8s push-secrets --plan       # reads the keyring, gh and the cluster: each key's state
+devops k8s push-secrets --plan       # reads the keyring and the cluster: each key's state
 devops k8s push-secrets --only llm/qdrant-api-key
 
 # 7. Run one devops command as a Job in the cluster (after `devops k8s deploy-stack --stack devops`)
