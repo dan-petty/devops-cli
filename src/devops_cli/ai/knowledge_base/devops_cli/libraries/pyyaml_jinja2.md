@@ -59,15 +59,33 @@ In `devops-cli`:
 ## 5. Common & Advanced Usage Examples
 
 ### Safe YAML Parsing
+
+The message of a PyYAML error quotes the line where the parser stopped, and the `buffer` of its `problem_mark` holds the full text of the document. The safe loader also raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value that it cannot build, such as `!!int <text>`, and the message quotes the value. It raises `RecursionError` for a document that nests too deep. A file can hold a credential, so the error that you raise names the type of the error and its position, and quotes no text. Catch these error types by name: a blind `except Exception` is a swallowed failure that `tests/test_swallowed_failures_ratchet.py` refuses. Let an `OSError` go up, because it names only the file. Read the position in a helper function, so that no frame of the traceback holds the mark. Raise the error after the `except` block: then it has no cause and no context that holds the first error. `config/settings.py::_read_config_file` reads the config files this way.
+
 ```python
+from pathlib import Path
+from typing import Any
+
 import yaml
 
+from devops_cli.exceptions import ConfigurationError
 
-def load_k8s_manifest(manifest_text: str) -> dict:
+
+# UnicodeDecodeError is a ValueError; KeyError and IndexError are LookupErrors.
+_YAML_LOAD_ERRORS = (yaml.YAMLError, ValueError, LookupError, AttributeError, RecursionError)
+
+
+def load_yaml_file(path: Path) -> Any:
     try:
-        return yaml.safe_load(manifest_text) or {}
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid YAML syntax: {exc}")
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except _YAML_LOAD_ERRORS as exc:
+        error_type, where = type(exc).__name__, _error_location(exc)
+    raise ConfigurationError(f"{path} is not valid YAML ({error_type}){where}.")
+
+
+def _error_location(exc: Exception) -> str:
+    mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
+    return f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
 ```
 
 ### Rendering a Dynamic DevContainer Configuration

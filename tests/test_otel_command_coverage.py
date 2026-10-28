@@ -477,6 +477,45 @@ def test_a_usage_error_counts_as_a_failed_command(usage_error: SimpleNamespace) 
     ]
 
 
+def test_a_command_that_reports_its_failure_counts_once_and_records_its_exit_code(
+    clean_tracer: list[tuple[str, dict[str, Any]]],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A command that prints its own error and exits 2 is counted one time with the status
+    `error`, its span records the exit code 2, and `_delegate` exits with 2 and logs no record.
+    Raised inside the `try`, that exit went to `except Exception`, which counted the command a
+    second time, recorded the exit code 1 and logged the exit with a traceback (#1468)."""
+    dummy_app = new_typer()
+
+    @dummy_app.callback()
+    def dummy_cb() -> None:
+        pass
+
+    @dummy_app.command(name="fail")
+    def dummy_fail() -> None:
+        raise typer.Exit(2)
+
+    monkeypatch.setattr(
+        "devops_cli.main.import_module", lambda _path: SimpleNamespace(app=dummy_app)
+    )
+
+    with pytest.raises(typer.Exit) as raised:
+        _delegate("devops_cli.commands.dummy", "dummy", ["fail"])
+
+    sink = Captured()
+    for path, payload in clean_tracer:
+        sink(path, payload)
+    command_span = _spans_by_name([payload for _path, payload in clean_tracer])["cli.dummy"]
+    assert (
+        raised.value.exit_code,
+        sink.points("devops_cli_command_total"),
+        command_span.get("cli.exit_code"),
+        command_span.get("cli.status"),
+        [record.getMessage() for record in caplog.records if record.name == "devops_cli.main"],
+    ) == (2, [({"command": "dummy", "status": "error"}, 1.0)], "2", "error", [])
+
+
 def test_subprocess_span_and_metrics(
     clean_tracer: list[tuple[str, dict[str, Any]]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

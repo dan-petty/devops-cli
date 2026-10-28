@@ -11,7 +11,6 @@ import pytest
 import yaml
 
 from devops_cli.config.settings import reset_settings_cache
-from devops_cli.exceptions import ConfigurationError
 from tests.support.config_writes import written_keys
 from tests.support.fakes.clock import ClockFake
 
@@ -76,7 +75,11 @@ def test_config_unset_removes_a_key_that_stops_every_command_from_loading_the_se
     result = cli("config", "unset", "ai.vllm_url")
     loaded = cli("config", "get", "ai.provider")
 
-    assert (refused.exit_code, type(refused.exception)) == (1, ConfigurationError)
+    assert (refused.exit_code, refused.output) == (
+        1,
+        f"✗ Unknown configuration key 'ai.vllm_url' at {isolate_devops_cli_config}:7. "
+        "Release 0.2.34 removed it. Remove it with: devops config unset ai.vllm_url\n",
+    )
     assert (result.exit_code, result.output) == (
         0,
         f"Removed ai.vllm_url from {isolate_devops_cli_config}:7.\n"
@@ -87,6 +90,29 @@ def test_config_unset_removes_a_key_that_stops_every_command_from_loading_the_se
     )
     assert backup.read_text(encoding="utf-8") == _WITH_REMOVED_KEY
     assert (loaded.exit_code, loaded.output) == (0, "ollama\n")
+
+
+def test_config_get_reports_a_config_file_that_is_not_yaml_on_one_line_with_no_file_text(
+    cli: Any, isolate_devops_cli_config: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`devops config get` printed the error and the traceback of PyYAML, which quote the line
+    that does not parse, value included (#1468).
+
+    A settings load that fails leaves telemetry off, so no handler is on the root logger, and
+    Python prints a record with its traceback on stderr. Thus the command logs no record with a
+    traceback, also not for its own exit 1."""
+    _use(isolate_devops_cli_config, "ai:\n  api_key: FAKE-value: x\n")
+
+    result = cli("config", "get", "ai.provider")
+
+    assert (result.exit_code, type(result.exception), result.output) == (
+        1,
+        SystemExit,
+        f"✗ Cannot load the settings: {isolate_devops_cli_config} is not valid YAML "
+        "(ScannerError) at line 2, column 22.\n",
+    )
+    assert [record.getMessage() for record in caplog.records if record.exc_info] == []
+    assert "FAKE-value" not in caplog.text
 
 
 def test_config_unset_of_a_key_that_the_file_does_not_hold_exits_1_and_changes_nothing(

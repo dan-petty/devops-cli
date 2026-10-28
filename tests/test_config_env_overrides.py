@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
 from devops_cli.ai import run_store
 from devops_cli.ai.review.runner import _make_review_clients
@@ -254,13 +253,12 @@ def test_the_otel_standard_endpoint_is_only_the_fallback(
 
 
 @pytest.mark.parametrize(
-    ("body", "broken_variable", "load_error"),
+    ("body", "broken_variable"),
     [
-        pytest.param("telemetry: [\n", None, yaml.YAMLError, id="malformed-configuration"),
+        pytest.param("telemetry: [\n", None, id="malformed-configuration"),
         pytest.param(
             "telemetry:\n  enabled: false\n",
             ("DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL", "abc"),
-            ConfigurationError,
             id="unrelated-variable-cannot-apply",
         ),
     ],
@@ -270,7 +268,6 @@ def test_the_telemetry_variables_hold_when_the_settings_cannot_load(
     monkeypatch: pytest.MonkeyPatch,
     body: str,
     broken_variable: tuple[str, str] | None,
-    load_error: type[Exception],
 ) -> None:
     """Settings that cannot load still leave `DEVOPS_CLI_TELEMETRY_ENABLED` and
     `DEVOPS_CLI_TELEMETRY_ENDPOINT` deciding. With neither switch set, export stays off, since the
@@ -288,7 +285,7 @@ def test_the_telemetry_variables_hold_when_the_settings_cannot_load(
     monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENABLED")
     unset = _tracer_switch_and_endpoint()
 
-    with pytest.raises(load_error):
+    with pytest.raises(ConfigurationError):
         settings.load_settings()
     assert (switched_off, switched_on, unset) == (
         (False, "http://127.0.0.1:4319"),

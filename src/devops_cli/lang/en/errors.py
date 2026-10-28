@@ -70,6 +70,8 @@ class ConfigErrorMessages:
         "litellm_params or the Ollama tag."
     )
     key_not_in_file: str = "The config file {path} does not hold the key '{key}'. Nothing changed."
+    not_yaml: str = "Cannot load the settings: {path} is not valid YAML ({error_type}){location}."
+    not_yaml_location: str = " at line {line}, column {column}"
 
 
 @dataclass(frozen=True)
