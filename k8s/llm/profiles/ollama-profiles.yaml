@@ -68,7 +68,7 @@ spec:
                     values: ["16Gi", "20Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -94,7 +94,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -212,7 +212,7 @@ spec:
                     values: ["24Gi", "28Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -238,7 +238,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -351,7 +351,7 @@ spec:
                     values: ["32Gi", "36Gi", "40Gi", "44Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -377,7 +377,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -497,7 +497,7 @@ spec:
                     values: ["48Gi", "52Gi", "56Gi", "60Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -523,7 +523,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -643,7 +643,7 @@ spec:
                     values: ["48Gi", "52Gi", "56Gi", "60Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -669,7 +669,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -788,7 +788,7 @@ spec:
                     values: ["64Gi", "68Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -814,7 +814,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -933,7 +933,7 @@ spec:
                     values: ["72Gi", "76Gi", "80Gi", "84Gi", "88Gi", "92Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -959,7 +959,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -1084,7 +1084,7 @@ spec:
                       ]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -1110,7 +1110,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -1225,7 +1225,7 @@ spec:
                     values: ["128Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -1251,7 +1251,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.34.4
+          image: ollama/ollama:0.40.12
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
