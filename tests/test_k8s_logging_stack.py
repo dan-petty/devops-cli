@@ -40,7 +40,7 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
         local_loki_url,
     ) == (
         ("loki",),
-        ("grafana",),
+        ("grafana-community",),
         True,
         "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
     )
@@ -50,6 +50,53 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
         True,
         True,
     )
+
+
+def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729() -> None:
+    """`grafana/loki` in grafana.github.io/helm-charts became the Grafana Enterprise Logs chart,
+    and its newest version still runs Loki 3.6. CVE-2026-21729 affects Loki before 3.7.0: one
+    `detected_fields` request with a very large limit makes Loki allocate memory until it stops.
+    The open-source chart moved to grafana-community/helm-charts, and its 20.0.2 runs Loki 3.7.9
+    (#1632). The Argo CD Application, its project and the logging stack of deploy-stack name the
+    same repository, chart and version. The values keep no `monitoring.selfMonitoring`, which
+    that chart removed in 9.0.0."""
+    application = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "argocd" / "apps" / "loki.yaml").read_text(encoding="utf-8")
+    )
+    projects = {
+        doc["metadata"]["name"]: doc["spec"]
+        for doc in yaml.safe_load_all(
+            (REPO_ROOT / "k8s" / "argocd" / "apps" / "projects.yaml").read_text(encoding="utf-8")
+        )
+        if doc
+    }
+    values = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
+    )
+    chart_source = next(source for source in application["spec"]["sources"] if "chart" in source)
+    (release,) = _HELM_RELEASES_BY_STACK["logging"]
+    alias = release["chart"].split("/")[0]
+
+    assert {
+        "argocd": (chart_source["repoURL"], chart_source["chart"], chart_source["targetRevision"]),
+        "project admits the repository": chart_source["repoURL"]
+        in projects[application["spec"]["project"]]["sourceRepos"],
+        "deploy-stack": (
+            _HELM_REPOS_BY_STACK["logging"].get(alias),
+            release["chart"],
+            release["version"],
+        ),
+        "monitoring.selfMonitoring": values.get("monitoring", {}).get("selfMonitoring"),
+    } == {
+        "argocd": ("https://grafana-community.github.io/helm-charts", "loki", "20.0.2"),
+        "project admits the repository": True,
+        "deploy-stack": (
+            "https://grafana-community.github.io/helm-charts",
+            "grafana-community/loki",
+            "20.0.2",
+        ),
+        "monitoring.selfMonitoring": None,
+    }
 
 
 def test_monitoring_network_policy_alloy_egress_rules() -> None:

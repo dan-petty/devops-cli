@@ -70,13 +70,14 @@ def _on(*switches: tuple[str, Any]) -> Callable[[dict[str, Any]], bool]:
 
 
 def _loki_mode(values: dict[str, Any]) -> bool:
-    """Loki's single binary mounts a claim in SingleBinary mode (chart default: SimpleScalable).
+    """Loki's single binary mounts a claim in Monolithic mode, the default of the
+    grafana-community chart, which also takes SingleBinary as the old name of that mode.
 
     The other modes run write and backend StatefulSets with claims of their own, which this table
     does not name, so the test fails on them until it does.
     """
-    mode = _get(values, "deploymentMode", "SimpleScalable")
-    if mode != "SingleBinary":
+    mode = _get(values, "deploymentMode", "Monolithic")
+    if mode not in ("Monolithic", "SingleBinary"):
         pytest.fail(f"Loki deploymentMode {mode}: name its claims in CHART_CLAIMS")
     return bool(_get(values, "singleBinary.persistence.enabled", True))
 
