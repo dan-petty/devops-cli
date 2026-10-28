@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.git.worktree_inventory import inventory_worktrees, prune_worktrees
 from devops_cli.output import format_bytes
 from tests.support.fakes.github import github_json
 
@@ -268,3 +269,63 @@ def test_add_succeeds_when_merged_worktree_file_is_deleted_during_reclaim(
 
     assert result.exit_code == 0
     assert new_dir.is_dir()
+
+
+def test_prune_reports_a_parallel_removed_worktree_as_removed(
+    repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake
+) -> None:
+    """A worktree that a parallel run already removed is reported as removed, not failed (#2408).
+
+    `add` inventories the worktrees, then removes each merged one. Between the two, a run in
+    parallel removes one: its record and its directory are gone. `git worktree remove` of it fails
+    with `is not a working tree`; the run reports it as `removed`, so it counts as done, not as a
+    failed reclaim.
+    """
+    merged = tmp_path / "wt_merged"
+    request = _merged(github_api, _worktree(git, repo, "fix/2100-old", merged))
+    entries = inventory_worktrees(repo)
+    git(repo, "worktree", "remove", str(merged))
+
+    report = prune_worktrees(repo, entries, repo="example-org/app", confirm=True)
+
+    item = next(i for i in report.items if Path(i.path).name == "wt_merged")
+    assert item.status == "removed"
+    assert (report.removed_count, report.failed_count) == (1, 0)
+    assert (github_api.requested, merged.exists()) == ([request], False)
+
+
+def test_add_says_nothing_of_a_failed_reclaim_when_a_parallel_run_removed_the_worktree(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    tmp_path: Path,
+    github_api: GitHubApiFake,
+    new_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When a run in parallel removes a merged worktree while `add` reclaims, `add` reports it as
+    removed, not as a failed reclaim, and creates the new worktree (#2408)."""
+    merged = tmp_path / "wt_merged"
+    _merged(github_api, _worktree(git, repo, "fix/2100-old", merged))
+    real_lstat = os.lstat
+
+    def removing_lstat(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if str(path).startswith(str(merged) + os.sep) and merged.exists():
+            subprocess.run(
+                ["git", "-C", str(repo), "worktree", "remove", str(merged)],
+                check=True,
+                capture_output=True,
+            )
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", removing_lstat)
+    result = _add(cli, repo, "--json")
+
+    report = json.loads(result.stdout)
+    assert result.exit_code == 0, result.output
+    assert [(Path(i["path"]).name, i["status"]) for i in report["reclaimed"]] == [
+        ("wt_merged", "removed")
+    ]
+    assert report["reclaim_error"] is None
+    assert new_dir.is_dir()
+    assert "not reclaimed" not in " ".join(result.output.split())
