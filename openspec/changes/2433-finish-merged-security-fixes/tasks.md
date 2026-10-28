@@ -27,9 +27,9 @@
 
 - [x] 4.1 Move the two tests of `tests/test_service_image_gh.py` and `test_service_dockerfile_base_images_pinned_by_digest` with its helpers into `tests/invariants/test_service_image.py`, and delete the flat file
   - Verification: `uv run devops ci test tests/invariants/test_service_image.py tests/test_architectural_invariants.py`
-- [x] 4.2 Add a failing test of the gh release finder with a quoted URL and a URL after another character
+- [x] 4.2 Add failing tests of the gh release finder with a quoted URL, a URL after another character, a `latest` URL and a base URL
   - Verification: `uv run devops ci test tests/invariants/test_service_image.py`
-- [x] 4.3 Make the finder search the Dockerfile text for each gh release URL
+- [x] 4.3 Make the finder search the Dockerfile text for each gh release path, and make the pin test accept only the two tagged downloads
   - Verification: `uv run devops ci test tests/invariants/test_service_image.py`
 - [x] 4.4 Add `test_service_image.py` to the subject files of `tests/invariants/` in `docs/TESTING.md`
   - Verification: `uv run devops docs check`

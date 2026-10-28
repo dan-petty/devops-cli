@@ -14,7 +14,7 @@ from tests.support.paths import REPO_ROOT
 
 # A gh release URL, wherever it stands in the Dockerfile text: bare, in quotes or after `=`. Its
 # path after `releases/` stops at white space, a quote or a backslash.
-GH_RELEASE_URL = re.compile(r"github\.com/cli/cli/releases/(?P<path>download/[^\s\"'\\]+)")
+GH_RELEASE_URL = re.compile(r"github\.com/cli/cli/releases/(?P<path>[^\s\"'\\]*)")
 # The one release path that the pin test accepts: one asset of one tag.
 GH_RELEASE_DOWNLOAD_PATH = re.compile(r"download/(?P<tag>[^/]+)/(?P<asset>[^/]+)")
 

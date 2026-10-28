@@ -19,7 +19,7 @@ Issue #2433: a person merged the pull requests of #1469, #1492 and #2205 before 
 - `tests/test_subprocess_env_boundary.py` refuses the new keys, and it pins the prefix rule with `DYLD_` and `BASH_FUNC_` keys that no fixed list names, and with two function names.
 - The child environment bullet of `ARCHITECTURE.md` describes `isolate_env` on and off, names the constant as the full list, and puts the null byte in its own sentence.
 - `tests/test_config_audit_keys.py` asserts the success line of a compliant table, and the name of the leak in the security alert.
-- The invariants of the Service image move into `tests/invariants/test_service_image.py`: the two gh tests, and the digest test from `tests/test_architectural_invariants.py`. The gh pin test finds each gh release URL in the Dockerfile text, also in quotes or after another character. `docs/TESTING.md` lists the new subject file.
+- The invariants of the Service image move into `tests/invariants/test_service_image.py`: the two gh tests, and the digest test from `tests/test_architectural_invariants.py`. The gh pin test finds each gh release URL in the Dockerfile text, also in quotes or after another character, and it fails on a release path that is not a tagged download. `docs/TESTING.md` lists the new subject file.
 - The change fits one pull request.
 
 ## Capabilities
