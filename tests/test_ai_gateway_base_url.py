@@ -62,18 +62,18 @@ def test_task_switching_provider_does_not_inherit_global_api_base_url() -> None:
 @pytest.mark.parametrize(
     ("model", "expected"),
     [
-        ("litellm:devops-coder", ("openai-chat:devops-coder", GATEWAY_URL, "ai.gateway_url")),
+        ("litellm:devops-coder", ("openai-chat:devops-coder", GATEWAY_URL)),
         (
             "portkey:devops-coder",
-            ("openai-chat:devops-coder", "http://portkey.example.com:8787/v1", "ai.portkey_url"),
+            ("openai-chat:devops-coder", "http://portkey.example.com:8787/v1"),
         ),
-        ("openai:gpt-4o", ("openai:gpt-4o", OPENAI_URL, "ai.api_base_url")),
-        ("devops-coder", ("openai-chat:devops-coder", OPENAI_URL, "ai.api_base_url")),
-        ("qwen3-coder:30b", ("openai-chat:qwen3-coder:30b", OPENAI_URL, "ai.api_base_url")),
+        ("openai:gpt-4o", ("openai:gpt-4o", OPENAI_URL)),
+        ("devops-coder", ("openai-chat:devops-coder", OPENAI_URL)),
+        ("qwen3-coder:30b", ("openai-chat:qwen3-coder:30b", OPENAI_URL)),
     ],
 )
 def test_bridge_gateway_prefixes_use_their_configured_urls(
-    model: str, expected: tuple[str, str, str]
+    model: str, expected: tuple[str, str]
 ) -> None:
     """Verify gateway prefixes go to their configured gateways, others to api_base_url.
 

@@ -28,9 +28,9 @@
 
 ## 5. The pydantic-ai Ollama model and provider
 
-- [ ] Give the Ollama provider a client from `new_async_http_client` at the configured level of the settings in use, and delete `_is_cloud_metadata_host`, the `validate_url` call and the `allow_private` parameters
+- [x] Give the Ollama provider a client from `new_async_http_client` at the configured level of the settings in use, and delete `_is_cloud_metadata_host`, the `validate_url` call and the `allow_private` parameters
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_pydantic_ai_ollama.py`
-- [ ] Delete the `validate_configured_service_url` call of `create_pydantic_ai_provider` and the `ConfigurationError` branch of the bridge for an address refusal
+- [x] Delete the `validate_configured_service_url` call of `create_pydantic_ai_provider` and the `ConfigurationError` branch of the bridge for an address refusal
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_pydantic_ai_profiles_and_providers.py`
 
 ## 6. The benchmark endpoints

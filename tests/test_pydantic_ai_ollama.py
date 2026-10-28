@@ -82,47 +82,47 @@ def test_normalize_ollama_base_url() -> None:
     assert normalize_ollama_base_url("  http://127.0.0.1:11434  ") == "http://127.0.0.1:11434/v1"
 
 
-def test_normalize_ollama_base_url_ssrf_and_invalid_schemes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify normalize_ollama_base_url rejects non-http/https schemes and cloud metadata IP."""
-    import pytest
+def test_normalize_ollama_base_url_refuses_other_schemes() -> None:
+    """Verify normalize_ollama_base_url refuses a URL whose scheme is not http or https.
 
-    from devops_cli.ai.models.ollama import create_ollama_provider, normalize_ollama_base_url
-    from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
+    The check reads the URL only. The address, cloud metadata among them, is the connect's to check.
+    """
+    from devops_cli.ai.models.ollama import normalize_ollama_base_url
+    from devops_cli.exceptions import InvalidURLError
 
-    # Invalid schemes
-    with pytest.raises(InvalidURLError, match="Invalid Ollama URL scheme"):
-        normalize_ollama_base_url("ftp://example.com:11434")
+    refused = []
+    for url in ("ftp://example.com:11434", "file:///etc/passwd"):
+        with pytest.raises(InvalidURLError, match="Invalid Ollama URL scheme"):
+            normalize_ollama_base_url(url)
+        refused.append(url)
 
-    with pytest.raises(InvalidURLError, match="Invalid Ollama URL scheme"):
-        normalize_ollama_base_url("file:///etc/passwd")
+    assert refused == ["ftp://example.com:11434", "file:///etc/passwd"]
 
-    # Cloud metadata IP and trailing-dot hostnames (SSRF)
-    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
-        normalize_ollama_base_url("http://169.254.169.254/latest/meta-data")
 
-    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
-        normalize_ollama_base_url("http://metadata.google.internal./computeMetadata/v1")
+@pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
+def test_the_ollama_provider_dials_at_the_configured_level(flag: bool) -> None:
+    """Verify the provider gets a factory client at the configured level of its AI configuration.
 
-    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
-        normalize_ollama_base_url("http://metadata.google.internal/computeMetadata/v1")
+    Without a client of its own, pydantic-ai would build one that resolves the host again at the
+    socket. The factory client checks each address at the connect: loopback, or private with
+    `ai.allow_private_network`.
+    """
+    from devops_cli.ai.models.ollama import create_ollama_model, create_ollama_provider
+    from devops_cli.config.settings import AIConfig
+    from devops_cli.http.egress import EgressLevel
+    from tests.web_fakes import egress_level_of
 
-    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
-        create_ollama_provider(base_url="http://169.254.169.254/latest/meta-data")
+    ai_config = AIConfig(allow_private_network=flag)
+    provider = create_ollama_provider(base_url="http://example.com:11434", ai_config=ai_config)
+    model = create_ollama_model(
+        "qwen3-coder:30b", base_url="http://example.com:11434", ai_config=ai_config
+    )
 
-    # Hostnames resolving to metadata via DNS mock
-    with patch("devops_cli.core.validation._resolve_host_ips") as mock_dns:
-        import ipaddress
-
-        mock_dns.return_value = [ipaddress.ip_address("169.254.169.254")]
-        with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
-            normalize_ollama_base_url("http://example.com:11434")
-
-    # Private network policy enforcement when allow_private=False
-    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    with pytest.raises(SSRFBlockedError):
-        normalize_ollama_base_url("http://10.0.0.5:11434", allow_private=False)
+    expected = EgressLevel.PRIVATE if flag else EgressLevel.LOOPBACK
+    assert (
+        egress_level_of(provider.client._client._transport),
+        egress_level_of(model.client._client._transport),
+    ) == (expected, expected)
 
 
 def test_create_ollama_provider() -> None:

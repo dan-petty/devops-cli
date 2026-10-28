@@ -14,7 +14,6 @@ import pytest
 from hypothesis import HealthCheck, Phase, example, given, settings
 from hypothesis import strategies as st
 
-from devops_cli.ai.models.ollama import _is_cloud_metadata_host as _ollama_is_metadata
 from devops_cli.core.paths import (
     safe_resolve_subpath,
     validate_no_path_traversal,
@@ -326,9 +325,9 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
 ) -> None:
     """Property: Unified cloud metadata superset is rejected with 1.0 containment at every site.
 
-    The sandbox probe and Tempo no longer keep checks of their own: both dial through the
-    connect-time policy (`devops_cli.http.egress`), which refuses every target here at the loopback
-    level Tempo uses. The probe's private level admits the link-local host gateways among them,
+    The sandbox probe, Tempo and the pydantic-ai Ollama model no longer keep checks of their own:
+    each dials through the connect-time policy (`devops_cli.http.egress`), which refuses every
+    target here at the loopback level Tempo uses. The probe's private level admits the link-local host gateways among them,
     as `test_link_local_host_gateways_are_admitted_only_at_the_private_level` pins.
     """
     clean_host = target.strip("[]").rstrip(".")
@@ -365,9 +364,6 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
     )
     models_host_blocked = _check_raises(_resolve_local_host, target, expected_exc=ValueError)
 
-    # 7. ai/models/ollama.py: _is_cloud_metadata_host
-    ollama_blocked = _ollama_is_metadata(target)
-
     assert (
         pred_meta,
         pred_priv,
@@ -375,5 +371,4 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
         connect_blocked,
         whitelist_blocked,
         models_host_blocked,
-        ollama_blocked,
-    ) == (True, True, True, True, True, True, True)
+    ) == (True, True, True, True, True, True)

@@ -254,12 +254,24 @@ def test_dive_analysis_refuses_symlink_binary(
 
 
 # 14. Provider base_url validation (Finding 12)
-def test_create_pydantic_ai_provider_validates_base_url() -> None:
-    """Verify create_pydantic_ai_provider rejects malicious or invalid URL schemes."""
+def test_create_pydantic_ai_provider_never_reads_a_file_base_url() -> None:
+    """Verify a provider on a `file://` base URL reads no file.
+
+    The provider's factory client sends only http and https: it refuses the scheme at the
+    request, before any connect.
+    """
+    import asyncio
+
+    import httpx2
+    from openai import APIConnectionError
+
     from devops_cli.ai.providers import create_pydantic_ai_provider
 
-    with pytest.raises((ValueError, SecurityError)):
-        create_pydantic_ai_provider("ollama", base_url="file:///etc/passwd")
+    provider = create_pydantic_ai_provider("ollama", base_url="file:///etc/passwd")
+    with pytest.raises(APIConnectionError) as caught:
+        asyncio.run(provider.client.with_options(max_retries=0).models.list())
+
+    assert isinstance(caught.value.__cause__, httpx2.UnsupportedProtocol)
 
 
 # 15. Helm diff secret masking (Finding 13)
