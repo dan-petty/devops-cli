@@ -22,6 +22,7 @@ from devops_cli.config.constants import CONST_GIT_MAIN_BRANCH, CONST_GIT_REMOTE_
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import nearest_checkout
 from devops_cli.exceptions import GitOperationError
+from devops_cli.lang import MESSAGES
 
 # `git merge-base --is-ancestor` exits 1 when the first commit is not an ancestor of the second.
 _NOT_AN_ANCESTOR = 1
@@ -61,15 +62,31 @@ def read_checkout(target: Path) -> ReviewCheckout | None:
     return ReviewCheckout(head=head, clean=not changes)
 
 
-def is_on_merged_code(session: ReviewSessionPayload, repository: Path) -> bool:
-    """Whether `session` reviewed a path in a clean tree at a commit that `origin/main` holds.
+def is_clean_path_review(session: ReviewSessionPayload) -> bool:
+    """Whether `session` reviewed a path in a clean tree: the part of the merged-code test that
+    needs no git."""
+    checkout = session.checkout
+    return session.subject.get("type") == "path" and checkout is not None and checkout.clean
+
+
+def why_not_on_merged_code(session: ReviewSessionPayload, repository: Path) -> str | None:
+    """Why `session` is not on merged code, or None when it reviewed a path in a clean tree at a
+    commit that `origin/main` holds.
 
     `repository` is the checkout whose `origin/main` decides it. A commit that the repository
     does not hold raises `GitOperationError`: the repository cannot tell, so the answer is not no.
     """
+    texts = MESSAGES.review
+    target = session.subject.get("type")
+    if not target:
+        return texts.merged_reason_no_subject
+    if target != "path":
+        return texts.merged_reason_target.format(type=target)
     checkout = session.checkout
-    if session.subject.get("type") != "path" or checkout is None or not checkout.clean:
-        return False
+    if checkout is None:
+        return texts.merged_reason_no_checkout
+    if not checkout.clean:
+        return texts.merged_reason_dirty
     main = f"{CONST_GIT_REMOTE_ORIGIN}/{CONST_GIT_MAIN_BRANCH}"
     code, _ = _git(
         repository,
@@ -79,4 +96,10 @@ def is_on_merged_code(session: ReviewSessionPayload, repository: Path) -> bool:
         main,
         accepted=(0, _NOT_AN_ANCESTOR),
     )
-    return code == 0
+    return None if code == 0 else texts.merged_reason_not_on_main.format(head=checkout.head)
+
+
+def is_on_merged_code(session: ReviewSessionPayload, repository: Path) -> bool:
+    """Whether `session` reviewed a path in a clean tree at a commit that `origin/main` holds,
+    as `why_not_on_merged_code` decides it."""
+    return why_not_on_merged_code(session, repository) is None

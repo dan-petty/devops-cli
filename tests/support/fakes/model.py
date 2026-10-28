@@ -369,6 +369,11 @@ class ModelFake(Model):
         text_list = [texts] if isinstance(texts, str) else list(texts)
         return [deterministic_embedding(item, dimension=dimension) for item in text_list]
 
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        """Embed as the `Embedder` protocol of roadmap intake asks, so a test passes the fake as
+        the embedder of `GatewayIntakeModel`; `is_query` changes nothing."""
+        return self.embed(texts)
+
     def chat(
         self,
         system_prompt: str = "",

@@ -216,6 +216,31 @@ devops review verify [OPTIONS] <session>
 
 ---
 
+## `devops review intake`
+
+**Hand the qualifying findings of a session on merged code to roadmap intake, one candidate for each finding. A finding that an issue already carries is left out.**
+
+```bash
+devops review intake [OPTIONS] <session>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository to file the items in, as owner/name (default: the origin of this checkout). |
+| `--dry-run` | `boolean` | - | Make no request and call no model: print the candidates, the issue search and the requests intake makes for each candidate. |
+| `--plan` | `boolean` | - | Read GitHub and call the model for each candidate, and write nothing. The default. |
+| `--confirm` | `boolean` | - | File and place each candidate as roadmap intake does. |
+
+---
+
 ## `devops review stats`
 
 **Compute and display review accuracy statistics across saved sessions.**

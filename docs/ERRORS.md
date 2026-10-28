@@ -87,6 +87,7 @@ The Exit Code column is the exception's `exit_code` attribute. Only `devops clou
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
+| `ReviewHandOffRefusedError` | `REVIEW_HAND_OFF_REFUSED` | `1` | Ai | Raised when `devops review intake` refuses a session that is not on merged code. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `ReviewSessionExistsError` | `REVIEW_SESSION_EXISTS` | `1` | Ai | Raised when a review is published under the name of a session that is already published. |
 | `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Devops_cli.review.state | Exception raised for invalid review finding state or state transition. |

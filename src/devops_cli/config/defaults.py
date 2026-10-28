@@ -690,6 +690,8 @@ DEFAULT_ROADMAP_INTAKE_SHORTLIST: int = 5
 DEFAULT_ROADMAP_INTAKE_TEXT_CHARS: int = 4000
 DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS: int = 600
 DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
+# `devops review intake` (#2420): the longest title of a candidate made from a review finding.
+DEFAULT_REVIEW_INTAKE_TITLE_CHARS: int = 200
 DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 60
 # How often refine is due on its own, besides its cross-job trigger (#1515).
 DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 60

@@ -10,6 +10,8 @@ import hashlib
 import re
 
 _WHITESPACE_RE = re.compile(r"\s+")
+# A fingerprint v2 as `compute_fingerprint_v2` gives it: a SHA-256 in lowercase hex.
+FINGERPRINT_V2 = re.compile(r"[0-9a-f]{64}")
 
 
 def extract_enclosing_symbol(file_content: str, start_line: int) -> str:
@@ -93,8 +95,15 @@ def compute_fingerprint_v2(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def is_fingerprint_v2(value: str) -> bool:
+    """Whether `value` has the form of a fingerprint v2: 64 lowercase hex characters."""
+    return FINGERPRINT_V2.fullmatch(value) is not None
+
+
 __all__ = [
+    "FINGERPRINT_V2",
     "compute_fingerprint_v2",
     "compute_window_hash",
     "extract_enclosing_symbol",
+    "is_fingerprint_v2",
 ]

@@ -16,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_LLM_INFERENCE,
     CONST_ERROR_CODE_MODEL_BUNDLE,
     CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
+    CONST_ERROR_CODE_REVIEW_HAND_OFF_REFUSED,
     CONST_ERROR_CODE_REVIEW_POOL,
     CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
     CONST_EXIT_ERROR_INFERENCE,
@@ -214,6 +215,17 @@ class ReviewSessionExistsError(DevOpsCLIError):
             f"exists. The review's files are in {bounded_staging}.",
             error_code=CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
             details={"session": bounded_name, "staging": bounded_staging},
+        )
+
+
+class ReviewHandOffRefusedError(DevOpsCLIError):
+    """Raised when `devops review intake` refuses a session that is not on merged code."""
+
+    def __init__(self, message: str, *, session: str) -> None:
+        super().__init__(
+            message,
+            error_code=CONST_ERROR_CODE_REVIEW_HAND_OFF_REFUSED,
+            details={"session": session[:CONST_MAX_ERROR_DETAIL_LENGTH]},
         )
 
 

@@ -266,6 +266,16 @@ def test_deterministic_embedding_contract() -> None:
     assert len(direct_embed) == 32
 
 
+def test_the_fake_embeds_through_the_embedder_protocol_of_intake() -> None:
+    """`fake.embed_texts(...)` gives the vectors `fake.embed(...)` gives, query or not (#2420)."""
+    fake = ModelFake()
+
+    assert (
+        fake.embed_texts(["a", "b"]),
+        fake.embed_texts(["a"], is_query=True),
+    ) == (fake.embed(["a", "b"]), fake.embed(["a"]))
+
+
 def test_list_models_and_llm_client_duck_typing() -> None:
     """`ModelFake` presents compatible properties and helpers for `LLMClient` consumers."""
     fake = ModelFake(available_models=["fake-1", "fake-2"])

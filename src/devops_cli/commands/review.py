@@ -15,7 +15,9 @@ if TYPE_CHECKING:
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
     from devops_cli.github.client import PullRequest
+    from devops_cli.review.handoff import HandOff
     from devops_cli.review.score import Agreement, ScoreReport
+    from devops_cli.roadmap.intake_requests import SpendMeter
 
 import typer
 
@@ -1274,6 +1276,104 @@ def verify_finding(
         print_error(MESSAGES.review.session_write_failed.format(error=exc), prefix=False)
         raise typer.Exit(1) from None
     print_success(done)
+
+
+# =============================================================================
+# Command: devops review intake
+# =============================================================================
+
+
+def _intake_target(repo: str | None, checkout: Path) -> str:
+    """The repository the hand-off files in: `--repo`, or the origin of the checkout."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name(checkout)
+    if not target or "/" not in target:
+        print_error(MESSAGES.review.hand_off_no_repo, prefix=False)
+        raise typer.Exit(1)
+    return target
+
+
+def _render_hand_off_dry_run(hand_off: HandOff, repo: str) -> None:
+    from devops_cli.output import write_stdout
+    from devops_cli.roadmap.request_plan import render_dry_run
+
+    texts = MESSAGES.review
+    titles = [f"  {n}. {c.title}" for n, c in enumerate(hand_off.candidates, start=1)]
+    heading = texts.hand_off_dry_run_candidates.format(count=len(hand_off.candidates))
+    write_stdout("\n".join([heading, *titles, ""]) + "\n")
+    notes = [texts.hand_off_dry_run_note]
+    render_dry_run("review intake", repo, hand_off.requests, hand_off.writes, notes=notes)
+
+
+def _run_hand_off(hand_off: HandOff, repo: str, meter: SpendMeter, *, confirm: bool) -> None:
+    """Hand the candidates to intake and print the report; a confirmed run that skipped a
+    candidate exits 1."""
+    from devops_cli.output import write_stdout
+    from devops_cli.review.handoff import run_hand_off
+    from devops_cli.roadmap import store as roadmap_store
+    from devops_cli.roadmap.intake_model import build_intake_model
+
+    with exit_on_error(DevOpsCLIError):
+        store = roadmap_store.get_roadmap_store(repo)
+        model = build_intake_model()
+        report = run_hand_off(
+            hand_off, repo=repo, store=store, model=model, confirm=confirm, meter=meter
+        )
+    write_stdout(report.render(confirm=confirm))
+    if confirm and report.skipped:
+        raise typer.Exit(1)
+
+
+@app.command("intake", help=HELP.review.intake_cmd)
+def intake(
+    session: Annotated[str | None, typer.Argument(help=HELP.review.session)] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.review.intake_repo)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.review.intake_dry_run)] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.review.intake_plan)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.review.intake_confirm)] = False,
+) -> None:
+    """Hand the qualifying findings of a session on merged code to roadmap intake.
+
+    The session is on merged code when it reviewed a path in a clean tree at a commit that
+    `origin/main` of this checkout holds. A finding qualifies when admission gave it a
+    fingerprint v2 and no verdict invalidated or mitigated it. A finding that an issue already
+    carries is left out. `--dry-run` makes no request; `--plan`, the default, reads GitHub and
+    calls the model for each candidate, and writes nothing; `--confirm` files and places each.
+    """
+    if sum((dry_run, plan_only, confirm)) > 1:
+        modes = "--dry-run, --plan and --confirm"
+        print_error(MESSAGES.roadmap.plan_modes_exclusive.format(modes=modes), prefix=False)
+        raise typer.Exit(1)
+    from devops_cli.core.repo import nearest_checkout
+    from devops_cli.review.handoff import prepare_hand_off
+    from devops_cli.roadmap.intake_requests import SpendMeter
+
+    session_dir = _require_session_dir(session)
+    checkout = nearest_checkout(Path.cwd().resolve())
+    if checkout is None:
+        print_error(MESSAGES.review.hand_off_no_checkout, prefix=False)
+        raise typer.Exit(1)
+    target = _intake_target(repo, checkout)
+    planned = dry_run or is_dry_run()
+    # Counts from here what the run spends: the issue search, then intake's requests.
+    meter = SpendMeter()
+    with exit_on_error(DevOpsCLIError):
+        hand_off = prepare_hand_off(session_dir, checkout, repo=target, dry_run=planned)
+    texts = MESSAGES.review
+    if not hand_off.qualifying:
+        print_info(texts.hand_off_none.format(session=hand_off.session), prefix=False)
+        return
+    if planned:
+        _render_hand_off_dry_run(hand_off, target)
+        return
+    if hand_off.settled:
+        print_info(texts.hand_off_settled.format(count=hand_off.settled), prefix=False)
+    if not hand_off.candidates:
+        done = texts.hand_off_all_filed.format(count=hand_off.qualifying, session=hand_off.session)
+        print_info(done, prefix=False)
+        return
+    _run_hand_off(hand_off, target, meter, confirm=confirm)
 
 
 # =============================================================================
