@@ -38,7 +38,7 @@ An installation token of a GitHub App expires after one hour, cannot read `GET /
   *Rejected alternative:* mint one token for each request.
   *Evidence for rejection:* each mint is one more request, and it puts the App's JWT in use for each call.
 - **Decision: the identity keys the session and the ledger, and the session reads the current token for each request.**
-  *Choice:* `GitHubIdentity(key, login)`. The key is gh's token for a gh login, and `app-installation-<installation_id>` for the App. `SessionGitHubAPI._request` paces each attempt on the ledger, then reads `github_token()` and sends it.
+  *Choice:* `GitHubIdentity(key, login, renews)`. The key is gh's token for a gh login, and `app-installation-<installation_id>` for the App. `SessionGitHubAPI._request` paces each attempt on the ledger, then reads `GitHubIdentity.token()` and sends it: the App's current token from `github_token()`, or gh's token, which is the key. A session that a caller holds after the process's token was reset keeps the token of its own identity, as `test_a_process_that_sent_a_request_exits_without_closing_its_session` shows.
   *Rejected alternative:* replace the session when the token changes, as before.
   *Evidence for rejection:* `get_github_session()` closes the replaced session's transport, so a listing in progress, in the same thread or in the other lane of the Service, fails with `unread_after_close` once an hour. A ledger keyed by the token also starts empty for each new token, and its first pacing would ask gh for the quota.
 - **Decision: the login comes from `service.github_app.slug`.**

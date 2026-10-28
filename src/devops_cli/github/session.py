@@ -5,7 +5,7 @@ call; that command applies GH_TOKEN, then GITHUB_TOKEN, then gh's stored login. 
 environment holds a GitHub App's private key acts as that App instead, with an installation token
 it mints again before the token expires (ADR 0015). The lookup, the renewal and the pin that gives
 every gh and git child the current token live in `core.process`, which does not import `github/`;
-the session reads the current token from there for each request. Its quota ledger and response
+an App's session reads the current token from there for each request. Its quota ledger and response
 cache are the identity's directory under the cache dir, named by the identity's key: gh's token,
 or the App's installation, so each new installation token keeps them. The typed client of its
 calls is built here, from the session, and nowhere else.
@@ -29,7 +29,6 @@ from devops_cli.config.defaults import DEFAULT_GH_MAX_PAGINATED_PAGES
 from devops_cli.core.process import (
     GitHubIdentity,
     github_identity,
-    github_token,
     reset_github_token,
 )
 from devops_cli.github.error_classifier import listing_past_page_cap
@@ -62,8 +61,9 @@ class GitHubSession:
 
     @property
     def token(self) -> str:
-        """The token the process's GitHub calls are made with now."""
-        return github_token()
+        """The token the session's calls are made with now: gh's token, or the App's current
+        installation token."""
+        return self._identity.token()
 
     @property
     def cache_dir(self) -> Path:
@@ -150,7 +150,7 @@ class GitHubSession:
 
         with self._rest_lock:
             if self._rest is None:
-                self._rest = RestTransport(self._identity.key)
+                self._rest = RestTransport(self._identity)
             return self._rest
 
 

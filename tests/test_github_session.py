@@ -365,7 +365,6 @@ import time
 import httpx2
 
 from devops_cli.core import process
-from devops_cli.core.process import GitHubIdentity
 from devops_cli.github import session
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from tests.support.fakes.github import GitHubApiFake, github_json

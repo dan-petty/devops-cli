@@ -258,10 +258,17 @@ class GitHubIdentity:
     `key` names the identity's quota ledger and session: gh's token itself, or the App's
     installation, so every token of one installation shares them. It is never shown. `login` is
     the identity's login when the identity names it without a request: the App's bot login.
+    `renews` is True for the App, whose token the process mints again before it expires.
     """
 
     key: str = field(repr=False)
     login: str | None = None
+    renews: bool = False
+
+    def token(self) -> str:
+        """The token to send as this identity: the App's current installation token, minted again
+        before it expires, or gh's token, which is the identity's own key."""
+        return github_token() if self.renews else self.key
 
 
 def acts_as_github_app() -> bool:
@@ -281,7 +288,7 @@ def github_identity() -> GitHubIdentity:
         from devops_cli.github.app_installation import configured_app
 
         app = configured_app()
-        return GitHubIdentity(key=app.ledger_key, login=app.bot_login)
+        return GitHubIdentity(key=app.ledger_key, login=app.bot_login, renews=True)
     return GitHubIdentity(key=github_token())
 
 

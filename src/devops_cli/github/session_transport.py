@@ -8,8 +8,8 @@ the event loop it first runs on, so the transport owns one anyio blocking portal
 synchronous caller's request runs on that portal's loop.
 
 `SessionGitHubAPI._request` paces each attempt on the ledger of the session's own identity, as
-`run_gh` paces `gh api <path>`, sends it with the process's current token, which a GitHub App
-mints again before it expires, and charges the quota the answer reports to the resource GitHub
+`run_gh` paces `gh api <path>`, sends it with the identity's token, which a GitHub App mints
+again before it expires, and charges the quota the answer reports to the resource GitHub
 names. gidgethub's `handle_rate_limit_error` hook retries a rate limit, and a read GitHub failed
 with a 5xx, up to `DEFAULT_GH_MAX_RETRIES` times, waiting what the ledger's `retry_delay` gives.
 A write that got a 5xx may have been applied, so it is not sent again; a refused connect and a
@@ -69,7 +69,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_GH_SESSION_ETAG_CACHE_SIZE,
 )
-from devops_cli.core.process import github_token
+from devops_cli.core.process import GitHubIdentity
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubRateLimitError, GitHubUnreadError
 from devops_cli.github.error_classifier import (
@@ -210,9 +210,9 @@ def retry_wait(
 
 class SessionGitHubAPI(GitHubAPI):
     """gidgethub's httpx2 adapter, paced, charged and retried on its identity's ledger, and sent
-    with the process's current token."""
+    with the identity's token."""
 
-    def __init__(self, client: httpx2.AsyncClient, identity: str) -> None:
+    def __init__(self, client: httpx2.AsyncClient, identity: GitHubIdentity) -> None:
         self._stored: LRUCache[str, StoredAnswer] = LRUCache(
             maxsize=DEFAULT_GH_SESSION_ETAG_CACHE_SIZE
         )
@@ -227,7 +227,7 @@ class SessionGitHubAPI(GitHubAPI):
     def _pace(self, method: str, url: str) -> tuple[str, str]:
         """Wait for the attempt's turn on the ledger, then read the token to send it with: a
         GitHub App's token is minted again when it nears its expiry during the wait."""
-        return pace_request(method, url, self._identity), github_token()
+        return pace_request(method, url, self._identity.key), self._identity.token()
 
     async def _request(
         self, method: str, url: str, headers: Mapping[str, str], body: bytes = b""
@@ -243,7 +243,7 @@ class SessionGitHubAPI(GitHubAPI):
         sent = {**headers, "authorization": f"token {token}"}
         answer = await super()._request(method, url, sent, body)
         self._last_body_empty = (answer[2] == b"") and bool(answer[1].get("content-type"))
-        await anyio.to_thread.run_sync(charge_response, answer[1], resource, self._identity)
+        await anyio.to_thread.run_sync(charge_response, answer[1], resource, self._identity.key)
         return answer
 
     async def sleep(self, seconds: float) -> None:
@@ -263,7 +263,7 @@ class SessionGitHubAPI(GitHubAPI):
                 method=method,
                 url=url,
                 attempt=attempt,
-                identity=self._identity,
+                identity=self._identity.key,
             )
         )
         if wait is None:
@@ -362,7 +362,7 @@ class RestTransport:
     interpreter would wait forever on a thread that no longer runs.
     """
 
-    def __init__(self, identity: str) -> None:
+    def __init__(self, identity: GitHubIdentity) -> None:
         with ExitStack() as resources:
             portal = resources.enter_context(start_blocking_portal())
             resources.callback(portal.call, portal.stop, True)
