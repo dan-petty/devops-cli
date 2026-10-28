@@ -12,11 +12,11 @@ from packaging.version import Version
 
 from tests.support.paths import REPO_ROOT
 
-# A gh release URL, wherever it stands in the Dockerfile text: bare, in quotes or after `=`. The tag
-# and the asset name stop at white space, a quote or a backslash.
-GH_RELEASE_DOWNLOAD_URL = re.compile(
-    r"github\.com/cli/cli/releases/download/(?P<tag>[^/\s\"'\\]+)/(?P<asset>[^\s\"'\\]+)"
-)
+# A gh release URL, wherever it stands in the Dockerfile text: bare, in quotes or after `=`. Its
+# path after `releases/` stops at white space, a quote or a backslash.
+GH_RELEASE_URL = re.compile(r"github\.com/cli/cli/releases/(?P<path>download/[^\s\"'\\]+)")
+# The one release path that the pin test accepts: one asset of one tag.
+GH_RELEASE_DOWNLOAD_PATH = re.compile(r"download/(?P<tag>[^/]+)/(?P<asset>[^/]+)")
 
 # gh v2.102.1 is the first GitHub CLI release that cli/cli builds with Go 1.27.2 or later
 # (`toolchain go1.27.3` in its go.mod) and with golang.org/x/net v0.60.0 (#1492).
@@ -62,11 +62,9 @@ def test_service_dockerfile_base_images_pinned_by_digest() -> None:
     assert unpinned == []
 
 
-def _gh_release_downloads(dockerfile: str) -> list[tuple[str, str]]:
-    """Return the release tag and the asset name of each gh release URL in the Dockerfile text."""
-    return [
-        (match["tag"], match["asset"]) for match in GH_RELEASE_DOWNLOAD_URL.finditer(dockerfile)
-    ]
+def _gh_release_paths(dockerfile: str) -> list[str]:
+    """Return the path after `releases/` of each gh release URL in the Dockerfile text."""
+    return [match["path"] for match in GH_RELEASE_URL.finditer(dockerfile)]
 
 
 def test_the_gh_release_finder_sees_a_url_in_quotes_or_after_another_character() -> None:
@@ -82,11 +80,27 @@ def test_the_gh_release_finder_sees_a_url_in_quotes_or_after_another_character()
         f"ENV GH_URL={release}/v2.101.0/gh_2.101.0_linux_arm64.tar.gz\n"
     )
 
-    assert _gh_release_downloads(dockerfile) == [
-        ("v2.102.1", "gh_2.102.1_linux_amd64.tar.gz"),
-        ("v2.102.0", "gh_2.102.0_linux_amd64.tar.gz"),
-        ("v2.101.0", "gh_2.101.0_linux_arm64.tar.gz"),
+    assert _gh_release_paths(dockerfile) == [
+        "download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz",
+        "download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz",
+        "download/v2.101.0/gh_2.101.0_linux_arm64.tar.gz",
     ]
+
+
+def test_the_gh_release_finder_sees_a_release_path_that_names_no_tag() -> None:
+    """Verify that the finder returns each gh release path, also one that is not a tagged download.
+
+    Regression test (#2433): the finder saw only the `releases/download/` URLs. A `RUN curl` of
+    `releases/latest/download/`, or a base URL that a later line completes, then passed the pin
+    test.
+    """
+    release = "https://github.com/cli/cli/releases"
+    dockerfile = (
+        f'RUN curl -fsSLo /tmp/gh.tgz "{release}/latest/download/gh_linux_amd64.tar.gz"\n'
+        f"ENV GH_BASE={release}/download\n"
+    )
+
+    assert _gh_release_paths(dockerfile) == ["latest/download/gh_linux_amd64.tar.gz", "download"]
 
 
 def test_service_image_installs_a_gh_release_built_with_go_1_27_2_or_later() -> None:
@@ -95,14 +109,15 @@ def test_service_image_installs_a_gh_release_built_with_go_1_27_2_or_later() -> 
     Regression test (#1492): gh v2.102.0 is built with Go 1.27.1, and Trivy fails the image on
     its HIGH denial-of-service findings in `net/http`, `crypto/tls` and HTTP/2.
     """
-    tags_and_assets = _gh_release_downloads((REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"))
+    paths = _gh_release_paths((REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"))
 
-    tags = {tag for tag, _ in tags_and_assets}
-    assert len(tags) == 1, f"the Dockerfile fetches gh from more than one release: {sorted(tags)}"
+    downloads = [GH_RELEASE_DOWNLOAD_PATH.fullmatch(path) for path in paths]
+    tags = {download["tag"] for download in downloads if download}
+    assert len(tags) == 1, f"the Dockerfile does not fetch gh from one release tag: {paths}"
     version = tags.pop().removeprefix("v")
-    assert sorted(asset for _, asset in tags_and_assets) == [
-        f"gh_{version}_linux_amd64.tar.gz",
-        f"gh_{version}_linux_arm64.tar.gz",
+    assert sorted(paths) == [
+        f"download/v{version}/gh_{version}_linux_amd64.tar.gz",
+        f"download/v{version}/gh_{version}_linux_arm64.tar.gz",
     ]
     assert Version(version) >= GH_FIRST_SAFE_VERSION
 
