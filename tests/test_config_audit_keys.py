@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,16 @@ _UNPARSABLE_CONFIG = "ai:\n  api_key: FAKE-1022-value: x\n"
 def _audit_in_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run each audit in a tmp dir, so a developer's own config.yaml is never scanned."""
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture
+def global_config_with_a_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The global config file of the settings, with `ai.api_key` in plaintext."""
+    global_config = tmp_path / "user-config" / "config.yaml"
+    global_config.parent.mkdir()
+    global_config.write_text("ai:\n  api_key: FAKE-2426-global-value\n", encoding="utf-8")
+    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", global_config)
+    return global_config
 
 
 def test_config_audit_keys_dry_run() -> None:
@@ -120,6 +131,43 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_json_report(
     assert data["is_compliant"] is False
     assert data["plaintext_leaks"] == [f"{config_file.name}:grafana.token"]
     assert data["unaudited_config_files"] == []
+
+
+@pytest.mark.parametrize("walk_finds_the_project_file", [False, True])
+def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_global_config_file(
+    walk_finds_the_project_file: bool,
+    cli: Callable[..., Any],
+    global_config_with_a_secret: Path,
+    isolate_devops_cli_config: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The settings merge the global config file and the project file, so the audit scans both.
+
+    The project file holds no secret. `DEVOPS_CLI_CONFIG` names it, or the directory walk finds it
+    as `.devcontainer/config.yaml` in the current directory (#2426).
+    """
+    project_file = isolate_devops_cli_config
+    if walk_finds_the_project_file:
+        project_file = tmp_path / ".devcontainer" / "config.yaml"
+        project_file.parent.mkdir()
+        shutil.copyfile(isolate_devops_cli_config, project_file)
+        monkeypatch.delenv("DEVOPS_CLI_CONFIG")
+
+    result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (
+        result.exit_code,
+        data["is_compliant"],
+        data["plaintext_leaks"],
+        sorted(data["scanned_config_files"]),
+    ) == (
+        1,
+        False,
+        ["config.yaml:ai.api_key"],
+        sorted([str(global_config_with_a_secret.resolve()), str(project_file.resolve())]),
+    )
 
 
 def test_config_audit_keys_canonical_secret_leak_detected(
