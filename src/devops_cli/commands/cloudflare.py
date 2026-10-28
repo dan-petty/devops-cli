@@ -19,6 +19,7 @@ from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import Settings, get_cloudflare_api_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, mark_dry_run_invocation
+from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.exceptions.cloudflare import CloudflareAuthError, CloudflareError
 from devops_cli.lang import HELP
 from devops_cli.models.cloudflare import CloudflareDNSRecord, CloudflareTunnelIngressRule
@@ -35,10 +36,14 @@ from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
-app = new_typer(help=HELP.cloudflare.app, no_args_is_help=True)
-dns_app = new_typer(help=HELP.cloudflare.dns, no_args_is_help=True)
-tunnel_app = new_typer(help=HELP.cloudflare.tunnel, no_args_is_help=True)
-access_app = new_typer(help="Cloudflare Zero Trust Access management", no_args_is_help=True)
+# The client dials only public addresses, and a refused address raises SSRFBlockedError at the
+# connect (#2430). Each command reports it with its message and exit code, with no traceback.
+app = new_typer(help=HELP.cloudflare.app, no_args_is_help=True, exit_on=SSRFBlockedError)
+dns_app = new_typer(help=HELP.cloudflare.dns, no_args_is_help=True, exit_on=SSRFBlockedError)
+tunnel_app = new_typer(help=HELP.cloudflare.tunnel, no_args_is_help=True, exit_on=SSRFBlockedError)
+access_app = new_typer(
+    help="Cloudflare Zero Trust Access management", no_args_is_help=True, exit_on=SSRFBlockedError
+)
 
 app.add_typer(dns_app, name="dns")
 app.add_typer(tunnel_app, name="tunnel")
