@@ -1545,11 +1545,28 @@ class ServeMessages:
         "for it: {kind}: {error}"
     )
     # Logged once, at the error level, when GitHub refuses the Service's identity: no round
-    # starts and no GitHub request goes out until a person restarts the Service (#2161).
+    # starts and no GitHub request goes out, also after a restart, until a person removes the
+    # Service's halt record and restarts it (#2161, #2474).
     identity_refused: str = (
         "GitHub refused the identity {identity} ({kind}: {error}) in the round for {repo}. The "
-        "Service stops every job for every repository and sends no GitHub request until a "
-        "person restarts it."
+        "Service stops every job for every repository and sends no GitHub request, also after a "
+        "restart, until a person removes its halt record and restarts it."
+    )
+    # Logged once, at the error level, when the Service starts and finds its halt record (#2474).
+    identity_refused_kept: str = (
+        "The Service stays halted: {record} records that GitHub refused the identity "
+        "{identity}, so no round starts. When the cause is fixed, remove the file and restart "
+        "the Service."
+    )
+    # Logged at the error level when the Service can't write what a restart must keep (#2474).
+    state_unkept: str = (
+        "Could not write {record}, so a restart of the Service does not keep what it holds: "
+        "{kind}: {error}"
+    )
+    # Raised when the Service starts and can't read what it kept before it stopped (#2474).
+    state_unreadable: str = (
+        "The Service can't read {record}, which it keeps across a restart: {reason}. Repair or "
+        "remove the file, then start the Service again."
     )
     # Logged once each time the hourly GitHub request budget holds the rounds (#2161).
     budget_spent: str = (

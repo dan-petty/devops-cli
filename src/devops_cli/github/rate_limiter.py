@@ -7,6 +7,11 @@ A reset that has passed ends its window. GitHub's reset is whole seconds and it 
 the ended window for a moment, so a request at a passed reset waits until a second past it; a
 reset GitHub reports further behind the local clock than the clocks may differ fails closed.
 
+A rate limit that one request meets holds every request of the identity until the wait before
+its retry ends, whichever thread sends it (#2474): GitHub asks a client to send nothing more
+until then, and its documentation says that requests sent while rate-limited can get the
+integration banned.
+
 No initial quotas, no hardcoded default windows, default request rate, or bursting.
 """
 
@@ -839,6 +844,8 @@ class GitHubRateLimiter:
         self._last_disk_prune_epoch: float = 0.0
         self._total_throttles: int = 0
         self._total_wait_seconds: float = 0.0
+        # The time before which no request of the identity goes, after a rate limit (#2474).
+        self._held_until: float = 0.0
         self._quotas: dict[str, QuotaState] = {}
         if persist_path:
             self._sync_from_disk_locked()
@@ -883,6 +890,12 @@ class GitHubRateLimiter:
             self._total_wait_seconds += wait
             self._persist_to_disk_locked()
         emit(GITHUB_THROTTLE_WAIT, wait, {"resource": resource})
+
+    def hold_requests(self, wait_seconds: float) -> None:
+        """Hold every request this limiter paces, on any resource and from any thread, until
+        `wait_seconds` from now: the wait before the retry of a request GitHub rate-limited."""
+        with self._lock:
+            self._held_until = max(self._held_until, time.time() + wait_seconds)
 
     def get_total_throttles(self) -> int:
         """Return total tracked rate limit throttle events across processes."""
@@ -1084,8 +1097,9 @@ class GitHubRateLimiter:
             prev_scheduled = now
 
         # The resource's own schedule follows its quota alone; only the write itself moves to
-        # the write slot, so reads after it are never held by another resource's write.
-        paced_time = max(now, prev_scheduled) + delay
+        # the write slot, so reads after it are never held by another resource's write. A rate
+        # limit holds every resource.
+        paced_time = max(max(now, prev_scheduled) + delay, self._held_until)
         scheduled_time = self._write_slot_locked(paced_time) if is_mutation else paced_time
         sleep_duration = max(0.0, scheduled_time - now)
 
@@ -1702,7 +1716,8 @@ def _handle_attempt_backoff(
     max_retries: int,
     target_resource: str,
 ) -> bool:
-    """Evaluate and sleep backoff if rate limited, returning True if backoff performed.
+    """Evaluate and sleep backoff if rate limited, returning True if backoff performed. The
+    backoff holds every request of the identity, from any thread, until it ends (#2474).
 
     Whether gh was rate-limited is read from its stderr alone, where gh writes a failure; its
     stdout holds GitHub's answer, which may carry item titles. The wait also reads stdout, for
@@ -1724,6 +1739,7 @@ def _handle_attempt_backoff(
         backoff,
     )
     limiter.record_throttle(backoff, resource=target_resource)
+    limiter.hold_requests(backoff)
     time.sleep(backoff)
     return True
 

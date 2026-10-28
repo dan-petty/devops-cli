@@ -1,9 +1,13 @@
-"""What stops the roadmap Service's GitHub requests: a refused identity, a spent hourly budget and
-a job that fails every round (#2161).
+"""What stops the roadmap Service's GitHub requests: a refused identity, a spent hourly budget, a
+job that fails every round (#2161), and a rate limit that one worker meets (#2474). A restart
+keeps the halt, the budget window and the failure ledger, which the Service keeps on its volume
+(#2474).
 
-All tests run in memory. The jobs and the request counter are the process edges the tests
-replace; the engine, the budget and the ledger are real. A conditional read of an unchanged
-listing is covered where the session keeps its ETags (`tests/test_github_session.py`).
+The jobs and the request counter are the process edges the tests replace; the engine, the
+budget and the ledger are real, and the volume is a directory under `tmp_path`. A job that sends
+a GitHub request sends it through the real session and `run_gh`, to the fake GitHub API and the
+process fake. A conditional read of an unchanged listing is covered where the session keeps its
+ETags (`tests/test_github_session.py`).
 """
 
 from __future__ import annotations
@@ -18,13 +22,17 @@ from typing import Any
 import pytest
 
 from devops_cli.config.constants import (
+    CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_BUDGET_WINDOW_SECONDS,
+    CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
 )
 from devops_cli.config.defaults import DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
+from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     FailureLedger,
@@ -32,10 +40,15 @@ from devops_cli.roadmap.run import (
     build_stub_table,
     identity_refused,
     run_due_jobs,
+    service_jobs,
+    service_state_dir,
 )
 from devops_cli.server.service import RequestBudget, ServiceManager, TriggerBatch
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import reset_tracer
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.github import GitHubApiFake, github_json, quota_headers
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 REPO_A, REPO_B = "example-org/repo1", "example-org/repo2"
@@ -82,6 +95,7 @@ def _manager(
     requests: _Requests | None = None,
     per_hour: int = 500,
     poll_interval: int = 300,
+    volume: Path | None = None,
 ) -> ServiceManager:
     manager = ServiceManager(
         config=ServiceConfig(
@@ -96,6 +110,7 @@ def _manager(
         sleep_func=asyncio.sleep,
         identity_refused=identity_refused,
         request_counter=requests or _Requests(),
+        state_dir=volume,
     )
     for worker in manager.workers.values():
         worker.start()
@@ -208,6 +223,50 @@ def test_a_refusal_ends_the_round_before_the_next_job_sends_a_request(tmp_path: 
     assert ran == ["intake"]
 
 
+def _comment_through_gh(batch: TriggerBatch) -> None:
+    """A round that writes one comment through `gh`, as the roadmap store writes."""
+    GitHubRoadmapStore(batch.repo).comment(1, "A note.")
+
+
+def _comment_through_the_session(batch: TriggerBatch) -> None:
+    """A round that writes one comment through the GitHub session."""
+    get_github_session().rest("POST", f"/repos/{batch.repo}/issues/1/comments", body={"body": "x"})
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        pytest.param(_comment_through_gh, id="gh-says-the-installation-is-suspended"),
+        pytest.param(_comment_through_the_session, id="a-write-refused-with-no-quota-headers"),
+    ],
+)
+def test_a_suspended_installation_halts_the_service(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    job: Callable[[TriggerBatch], None],
+) -> None:
+    """GitHub refuses a suspended installation's token with HTTP 403 "This installation has been
+    suspended", which gh relays on stderr. GitHub counts a refused identity's request against no
+    quota, so its 403 to a write carries no `x-ratelimit-*` header (#2474)."""
+    api, gh = github_api_and_gh
+    gh.answer(
+        lambda call: "POST" in call.argv,
+        ProcessAnswer(returncode=1, stderr="gh: This installation has been suspended (HTTP 403)"),
+    )
+    api.route(
+        "POST",
+        f"/repos/{REPO_A}/issues/1/comments",
+        github_json({"message": "Forbidden"}, status=403),
+    )
+    manager = _manager({"lane": job}, clock=_Clock())
+    try:
+        manager.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
+        assert wait_until(manager.pause.halted)
+    finally:
+        _stop(manager)
+
+    assert _refusal_metric() == 1
+
+
 # ── The budget ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -288,6 +347,39 @@ def test_the_manager_polls_at_the_derived_interval() -> None:
         _stop(manager)
 
 
+# ── A rate limit ────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_secondary_limit_one_worker_meets_holds_the_requests_of_every_worker_until_it_ends(
+    github_api: GitHubApiFake, clock: ClockFake
+) -> None:
+    """The worker of REPO_A meets a secondary limit that asks for 60 s. The worker of REPO_B
+    sends its request after that, and it waits too, until the 60 s end (#2474). The clock stands
+    still, so each pause the rate limiter asks for is the time to its turn."""
+    secondary = github_json(
+        {"message": "You have exceeded a secondary rate limit."},
+        status=403,
+        headers={"retry-after": "60", **quota_headers(4000)},
+    )
+    github_api.route("GET", f"/repos/{REPO_A}/issues", secondary, github_json([]))
+    github_api.route("GET", f"/repos/{REPO_B}/issues", github_json([]))
+
+    def job(batch: TriggerBatch) -> None:
+        get_github_session().rest("GET", f"/repos/{batch.repo}/issues")
+
+    manager = _manager({"lane": job}, clock=_Clock())
+    try:
+        for repo in (REPO_A, REPO_B):
+            manager.enqueue_trigger(repo, "webhook", "issues", "labeled")
+            assert manager.workers[(repo, "lane")].wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    finally:
+        _stop(manager)
+
+    assert github_api.waits == [60.0]
+    assert github_api.paced[-1] == pytest.approx(60.0, abs=0.5)
+    assert len(github_api.sent) == 3
+
+
 # ── A job that fails each round ─────────────────────────────────────────────────────────────
 
 
@@ -349,3 +441,90 @@ def test_a_success_clears_the_record_of_failed_rounds() -> None:
     assert ledger.suspended(REPO_A, "intake", "a")
     assert not ledger.suspended(REPO_A, "intake", "b")
     assert not ledger.suspended(REPO_B, "intake", "a")
+
+
+# ── A restart ───────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_restart_keeps_the_halt_the_budget_window_and_the_failure_ledger(
+    tmp_path: Path,
+) -> None:
+    """The first Service sends 60 requests in a round that GitHub refuses, and a job fails its
+    limit of rounds. The pod restarts over the same volume: the new process counts its requests
+    from zero, and it still holds the halt, the 60 requests of the window and the suspended job
+    (#2474). It counts the kept refusal once, so the alert on the counter holds through the
+    restart."""
+    clock, requests = _Clock(), _Requests()
+    volume = service_state_dir(tmp_path)
+
+    def refused(batch: TriggerBatch) -> None:
+        requests.count += 60
+        raise _suspended()
+
+    first = _manager({"lane": refused}, clock=clock, requests=requests, volume=volume)
+    try:
+        first.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
+        assert first.workers[(REPO_A, "lane")].wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    finally:
+        _stop(first)
+
+    calls: list[str] = []
+    table = _failing_table(calls)
+    ledger = volume / CONST_SERVICE_FAILURES_FILENAME
+    for step in range(DEFAULT_SERVICE_MAX_FAILED_ROUNDS):
+        with pytest.raises(RoadmapRunError):
+            run_due_jobs(
+                REPO_A,
+                InMemoryRoadmapStore(),
+                _WEBHOOK if step == 0 else _POLL,
+                table=table,
+                data_dir=tmp_path,
+                now=START + timedelta(minutes=step),
+                failures=FailureLedger(record=ledger),
+            )
+
+    # The new process's metrics start empty.
+    GLOBAL_METRICS.reset()
+    restarted = _manager({"lane": refused}, clock=clock, requests=_Requests(), volume=volume)
+    _stop(restarted)
+    run_due_jobs(
+        REPO_A,
+        InMemoryRoadmapStore(),
+        _POLL,
+        table=table,
+        data_dir=tmp_path,
+        now=START + timedelta(minutes=10),
+        failures=FailureLedger(record=ledger),
+    )
+
+    assert (
+        restarted.pause.halted(),
+        _refusal_metric(),
+        restarted.budget.spent(),
+        len(calls),
+    ) == (True, 1, 60, DEFAULT_SERVICE_MAX_FAILED_ROUNDS)
+
+
+@pytest.mark.parametrize(
+    ("name", "start"),
+    [
+        pytest.param(
+            CONST_SERVICE_BUDGET_FILENAME,
+            lambda volume: _manager({"lane": lambda batch: None}, clock=_Clock(), volume=volume),
+            id="budget",
+        ),
+        pytest.param(CONST_SERVICE_FAILURES_FILENAME, service_jobs, id="ledger"),
+    ],
+)
+def test_a_record_that_cannot_be_read_stops_the_start_and_names_the_file(
+    tmp_path: Path, name: str, start: Callable[[Path], object]
+) -> None:
+    """Read as empty, the record would let the Service send again what it held back (#2474)."""
+    volume = service_state_dir(tmp_path)
+    volume.mkdir(parents=True)
+    (volume / name).write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(RoadmapRunError) as raised:
+        start(volume)
+
+    assert raised.value.details == {"path": str(volume / name)}
