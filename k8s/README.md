@@ -903,6 +903,7 @@ Expose homelab Kubernetes services securely to the internet without public ports
    ```bash
    kubectl apply -k k8s/cloudflared/
    ```
+   The two replicas prefer different nodes: a preferred `podAntiAffinity` term on `kubernetes.io/hostname` places them apart when it can, and still starts a replica while only one node can take it. PodDisruptionBudget `cloudflared` (`minAvailable: 1`) keeps one replica up through a drain. A pod that is not ready never blocks a drain (`unhealthyPodEvictionPolicy: AlwaysAllow`).
 3. Ingress Controller (Traefik):
    Stock k3s ships its own Traefik HelmChart; ensure k3s runs with `--disable traefik` so `devops k8s deploy-stack --stack infra` deploys the pinned Traefik release with `k8s/ingress/traefik-values.yaml` (configured with `service.type: ClusterIP`).
 4. Core Ingress definitions:
@@ -956,6 +957,7 @@ k8s/
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
+│   ├── pdb.yaml              # PodDisruptionBudget: a drain keeps one tunnel replica up
 │   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
 ├── gitea/                    # Gitea, the internal forge and container registry (#1081); not in the root kustomization
 │   ├── kustomization.yaml    # The perimeter, as Application gitea-manifests syncs it

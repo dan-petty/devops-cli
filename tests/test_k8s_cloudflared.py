@@ -20,6 +20,7 @@ def test_cloudflared_manifest_files_exist() -> None:
     """Verify all expected cloudflared Kubernetes manifests exist."""
     expected_files = [
         CLOUDFLARED_DIR / "deployment.yaml",
+        CLOUDFLARED_DIR / "pdb.yaml",
         CLOUDFLARED_DIR / "networkpolicy.yaml",
         CLOUDFLARED_DIR / "kustomization.yaml",
     ]
@@ -117,3 +118,65 @@ def test_cloudflared_tools_lock_installs_a_release_that_rejects_the_compromised_
         )
         for platform, artifact in cloudflared.platforms.items()
     } == dict.fromkeys(("linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"), True)
+
+
+def _kustomized_documents() -> list[dict]:
+    """Every document that `k8s/cloudflared/kustomization.yaml` lists as a resource."""
+    kustomization = yaml.safe_load(
+        (CLOUDFLARED_DIR / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    return [
+        doc
+        for resource in kustomization["resources"]
+        for doc in yaml.safe_load_all((CLOUDFLARED_DIR / resource).read_text(encoding="utf-8"))
+        if doc
+    ]
+
+
+def _pod_labels() -> dict[str, str]:
+    deployment = yaml.safe_load((CLOUDFLARED_DIR / "deployment.yaml").read_text(encoding="utf-8"))
+    return deployment["spec"]["template"]["metadata"]["labels"]
+
+
+def test_cloudflared_replicas_prefer_different_nodes() -> None:
+    """Verify the pod template asks the scheduler to put the two replicas on different nodes.
+
+    Regression test (#1023): with no anti-affinity, both tunnel connectors could land on one node,
+    and the loss or drain of that node cut all external ingress. The term is preferred, not
+    required, so a replica still starts while only one node can take it.
+    """
+    deployment = yaml.safe_load((CLOUDFLARED_DIR / "deployment.yaml").read_text(encoding="utf-8"))
+    anti_affinity = (
+        deployment["spec"]["template"]["spec"].get("affinity", {}).get("podAntiAffinity", {})
+    )
+    preferred = anti_affinity.get("preferredDuringSchedulingIgnoredDuringExecution", [])
+    terms = [entry["podAffinityTerm"] for entry in preferred]
+    labels = _pod_labels()
+
+    assert (
+        deployment["spec"]["replicas"] >= 2,
+        [term["topologyKey"] for term in terms],
+        [term["labelSelector"]["matchLabels"].items() <= labels.items() for term in terms],
+        [term["labelSelector"]["matchLabels"].get("app.kubernetes.io/name") for term in terms],
+        "requiredDuringSchedulingIgnoredDuringExecution" in anti_affinity,
+    ) == (True, ["kubernetes.io/hostname"], [True], ["cloudflared"], False)
+
+
+def test_cloudflared_drain_keeps_one_tunnel_replica_available() -> None:
+    """Verify the kustomization applies a PodDisruptionBudget that keeps one replica up.
+
+    Regression test (#1023): with no PodDisruptionBudget, a drain could evict both tunnel
+    connectors at once and cut all external ingress. A pod that is not ready never blocks a
+    drain (`unhealthyPodEvictionPolicy: AlwaysAllow`), because it serves no traffic.
+    """
+    budgets = [doc for doc in _kustomized_documents() if doc.get("kind") == "PodDisruptionBudget"]
+
+    assert [
+        (
+            budget["apiVersion"],
+            budget["spec"].get("minAvailable"),
+            budget["spec"].get("unhealthyPodEvictionPolicy"),
+            budget["spec"]["selector"]["matchLabels"].items() <= _pod_labels().items(),
+        )
+        for budget in budgets
+    ] == [("policy/v1", 1, "AlwaysAllow", True)]
