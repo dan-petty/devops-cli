@@ -32,7 +32,7 @@ from devops_cli.config.constants import (
 from devops_cli.core.repo import find_repo_root
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.check_verdict import CheckBucket, read_commit_checks
-from devops_cli.github.client import GitHubClient, PullRequestFile
+from devops_cli.github.client import PullRequestFile
 from devops_cli.github.error_classifier import gh_http_status
 from devops_cli.github.pr_threads import (
     GhRun,
@@ -259,7 +259,7 @@ def read_changed_files(
 ) -> ChangedFilesRead:
     """Read the files a pull request changes, every page, keeping a failure for the caller."""
     try:
-        client = GitHubClient(session or get_github_session())
+        client = (session or get_github_session()).client
         return ChangedFilesRead(client.get_pull_files(f"{owner}/{repo_name}", pr_num))
     except GitHubOperationError as exc:
         return ChangedFilesRead([], str(exc))
