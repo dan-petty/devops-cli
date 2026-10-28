@@ -2,12 +2,12 @@
 
 ## 1. The egress tests have a row for each Grafana, Prometheus, Argo CD and Loki caller
 
-- [x] Add failing rows to `test_each_caller_dials_at_its_level` for each caller of the table, with and without `ai.allow_private_network`, and make the test fail when a caller host name reaches the dial; add `test_each_k8s_service_caller_dials_the_address_it_checked`, where each host answers a public address and then cloud metadata; add `test_loki_and_a_direct_service_url_look_up_their_host_once`; add the failing tests of the sync refusal and the Prometheus URL errors
-  - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_k8s_credentials.py tests/test_prometheus.py`
+- [x] Add failing rows to `test_each_caller_dials_at_its_level` for each caller of the table, with and without `ai.allow_private_network`, and make the test fail when a caller host name reaches the dial; add `test_each_k8s_service_caller_dials_the_address_it_checked`, where each host answers a public address and then cloud metadata; add `test_loki_and_a_direct_service_url_look_up_their_host_once`; add the failing tests of the sync refusal, the Prometheus URL errors, the dashboard sync refusal, and the Argo CD token mint and URL errors
+  - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_k8s_credentials.py tests/test_prometheus.py tests/test_grafana.py tests/test_argo.py`
 
 ## 2. The Grafana, Prometheus and Argo CD commands
 
-- [x] Move `_clean_service_base_url` to `devops_cli.http.urls` as `service_base_url`, give the `devops grafana`, `devops prometheus` and `devops argo cd apps` commands factory clients at the configured level, delete their `validate_service_url` calls, check the URL with `service_base_url`, and report `SSRFBlockedError` with `exit_on`
+- [x] Move `_clean_service_base_url` to `devops_cli.http.urls` as `service_base_url`, give the `devops grafana`, `devops prometheus` and `devops argo cd apps` commands factory clients at the configured level, delete their `validate_service_url` calls, check the URL with `service_base_url` (in `_argocd` before the token mint), report `SSRFBlockedError` with `exit_on`, let it out of the per-file handler of `dashboards sync`, and report a failed Argo CD token mint with `exit_on_error`
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_grafana.py tests/test_grafana_dashboards.py tests/test_prometheus.py tests/test_argo.py`
 
 ## 3. The Argo CD fleet sync, the GitOps sync and the rollout metric gate
