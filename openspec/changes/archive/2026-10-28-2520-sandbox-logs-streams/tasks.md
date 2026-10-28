@@ -13,7 +13,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2520-sandbox-logs-streams`
 - Pending a person: run `devops sandbox logs <sandbox>` on a running sandbox and see its stdout and stderr lines.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
