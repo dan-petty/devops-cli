@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx2
@@ -13,6 +15,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.grafana import app as grafana_app
 from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
+from tests.web_fakes import record_connects, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -292,3 +295,41 @@ def test_grafana_client_args_masked_token_fallback() -> None:
             headers.get("Authorization"),
             mock_mint.called,
         ) == ("http://example.com:3000", "Bearer minted-token", True)
+
+
+def test_a_refused_grafana_address_ends_the_dashboard_sync_with_the_refusal(
+    cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Old vs new (#2424): a refused address ends the sync with the refusal, not as a failed file.
+
+    The connect refuses the private answer without the flag. The refusal applies to each file, so
+    the sync stops at the first file and exits with the status of `SSRFBlockedError`
+    (`SSRF_BLOCKED`, docs/ERRORS.md). Before, each file reported the refusal as a failed file, and
+    the sync exited 1.
+    """
+    for uid in ("a", "b"):
+        (tmp_path / f"{uid}.json").write_text(
+            json.dumps({"uid": uid, "title": f"Dashboard {uid}", "panels": []}), encoding="utf-8"
+        )
+    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    recorder = record_connects(monkeypatch, [])
+
+    result = cli(
+        "grafana",
+        "dashboards",
+        "sync",
+        "--dir",
+        str(tmp_path),
+        env={
+            "DEVOPS_CLI_GRAFANA_URL": "http://example.com:3000",
+            "DEVOPS_CLI_GRAFANA_TOKEN": "glsa-test",
+            "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "false",
+        },
+    )
+
+    assert (
+        result.exit_code,
+        type(result.exception),
+        result.output.count("the loopback egress level refuses"),
+        recorder.dialled,
+    ) == (2, SystemExit, 1, [])

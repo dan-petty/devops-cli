@@ -312,9 +312,15 @@ def _post_dashboard(
 def _sync_dashboard_file(
     http_client: httpx2.Client, base: str, headers: dict[str, str], dash_file: Path
 ) -> DashboardSyncOutcome:
-    """Sync one dashboard file, reporting a failure without stopping the run."""
+    """Sync one dashboard file, reporting a failure without stopping the run.
+
+    A refused address stops the run: the refusal applies to each file, and the `exit_on` of the
+    app reports it.
+    """
     try:
         return _post_dashboard(http_client, base, headers, dash_file)
+    except SSRFBlockedError:
+        raise
     except Exception as exc:
         print_error(ERRORS.grafana.sync_failed.format(file=dash_file.name, exc=exc), prefix=False)
         return DashboardSyncOutcome.FAILED
