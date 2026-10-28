@@ -20,6 +20,7 @@ from devops_cli.github.client import PullRequestFile
 from devops_cli.github.merge_readiness import (
     Advisory,
     AdvisoryLevel,
+    BlockerKind,
     MergeReadiness,
     ReadinessOptions,
     assess_merge_readiness,
@@ -313,6 +314,71 @@ def test_checks_that_failed_or_still_run_block(
         advisories,
         pending,
     )
+
+
+@pytest.mark.parametrize(
+    ("setup", "overrides", "kinds"),
+    [
+        (None, {"state": "closed"}, [BlockerKind.CLOSED]),
+        (None, {"mergeable": False, "mergeable_state": "dirty"}, [BlockerKind.CONFLICT]),
+        (None, {"mergeable": None, "mergeable_state": "unknown"}, [BlockerKind.MERGEABILITY]),
+        (None, {"mergeable_state": "blocked"}, [BlockerKind.BRANCH_PROTECTION]),
+        (None, {"draft": True}, [BlockerKind.DRAFT]),
+        (lambda g: g.checks(_run("CodeQL", "failure")), {}, [BlockerKind.CHECKS_FAILING]),
+        (lambda g: g.answer(_STATUS, _SERVER_ERROR), {}, [BlockerKind.CHECKS_UNREAD]),
+        (
+            lambda g: g.checks(_run("Tests & Coverage", None, "in_progress")),
+            {},
+            [BlockerKind.CHECKS_PENDING],
+        ),
+        (lambda g: g.threads(_thread("PRRT_1", "copilot")), {}, [BlockerKind.THREADS]),
+        (lambda g: g.answer(_THREADS, _SERVER_ERROR), {}, [BlockerKind.THREADS_UNREAD]),
+        (lambda g: g.closing(_issue(labels=())), {}, [BlockerKind.GROUNDING]),
+        (None, {"mergeable_state": "behind"}, []),
+    ],
+    ids=[
+        "closed",
+        "conflict",
+        "mergeability",
+        "branch-protection",
+        "draft",
+        "checks-failing",
+        "checks-unread",
+        "checks-pending",
+        "threads",
+        "threads-unread",
+        "grounding",
+        "behind",
+    ],
+)
+def test_each_blocker_keeps_its_kind(
+    github: _GitHub,
+    tmp_path: Path,
+    setup: Any,
+    overrides: dict[str, object],
+    kinds: list[BlockerKind],
+) -> None:
+    """A command maps each kind to its own exit code, and prints the same text check-readiness
+    prints. GitHub merges a branch behind its base when the ruleset does not require an
+    up-to-date branch, so `behind` blocks nothing."""
+    if setup is not None:
+        setup(github)
+    verdict = _assess(tmp_path, _pr(**overrides))
+    assert ([blocker.kind for blocker in verdict.blocking], len(verdict.blockers)) == (
+        kinds,
+        len(kinds),
+    )
+
+
+def test_the_verdict_keeps_the_checks_it_read(github: _GitHub, tmp_path: Path) -> None:
+    """The monitor shows its check table from the verdict's own read, with no second read."""
+    github.checks(_run("CodeQL", "failure"), _run("CI"))
+    checks = _assess(tmp_path).checks
+    assert checks is not None
+    assert sorted((item.name, item.bucket) for item in checks.items) == [
+        ("CI", CheckBucket.PASS),
+        ("CodeQL", CheckBucket.FAIL),
+    ]
 
 
 def test_a_commit_with_no_check_and_no_status_is_still_running(
