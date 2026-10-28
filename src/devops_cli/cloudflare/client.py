@@ -32,7 +32,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core import clock
 from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
-from devops_cli.http.client import request_timeout
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.models.cloudflare import (
     CloudflareAccessApplication,
     CloudflareAccessPolicy,
@@ -357,13 +358,16 @@ class CloudflareClient:
         params: dict[str, Any] | None = None,
         include_info: bool = False,
     ) -> Any:
-        """Execute HTTP request against Cloudflare API with error handling and retries."""
+        """Execute HTTP request against Cloudflare API with error handling and retries.
+
+        The client dials only public addresses, whatever `ai.allow_private_network` says. A
+        refused address raises SSRFBlockedError at the connect, and the request is not retried.
+        """
         url = f"{self._base_url}/{path.lstrip('/')}"
         headers = _build_auth_headers(self._token)
-        timeout = request_timeout(read=30.0)
 
         def make_request() -> httpx2.Response:
-            with httpx2.Client(timeout=timeout) as client:
+            with new_http_client(level=EgressLevel.PUBLIC, read_timeout=30.0) as client:
                 try:
                     return client.request(
                         method, url, headers=headers, json=json_data, params=params
