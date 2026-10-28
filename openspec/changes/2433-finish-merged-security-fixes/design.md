@@ -1,0 +1,20 @@
+# Design
+
+## Decisions
+
+- **Archive the three merged changes as they merged.** Each archive records what its pull request did. This change records the later fixes, for example the move of the gh pin tests. Thus the archived proposal of #1492 still names `tests/test_service_image_gh.py`, and the archived design of #2205 still names `GCONV_PATH` as a non-goal.
+- **Archive first, then plan.** The archive of #2205 creates the `subprocess-environment` spec. The delta of this change modifies its requirement, and `openspec validate` needs the spec. Thus the three archive commits come before the commit that adds this change folder.
+- **`GCONV_PATH` is a glibc key that loads code.** #2205 asks for "`LD_AUDIT` with the other glibc keys that load code". The `iconv(1)` page says that `iconv_open(3)` loads the gconv modules from the directories that `GCONV_PATH` names, and the probe ran the constructor of such a module. glibc removes `GETCONF_DIR` too in secure-execution mode, but `getconf -v` ran no program from that directory on glibc 2.43. Thus the change adds only `GCONV_PATH`.
+- **`SHELLOPTS`, `BASHOPTS` and `PS4` are bash keys that run code.** The scope of #2205 is the bash family, and the comment of the constant says that it covers the shell of a child. `PS4` runs a command substitution when `xtrace` is on, and `SHELLOPTS` or `BASHOPTS` turn `xtrace` on from the environment. The guard refuses all three, because each one alone is half of the attack and a caller has no reason to set one. `POSIXLY_CORRECT` only selects posix mode, in which bash reads `ENV` for an interactive shell. The guard already refuses `ENV`, so it does not add `POSIXLY_CORRECT`.
+- **The prefix rule has its own test keys.** The refused keys of the test add `DYLD_VERSIONED_LIBRARY_PATH` and `DYLD_IMAGE_SUFFIX` from `dyld(1)`, `DYLD_EXAMPLE_KEY`, which no page lists, and `BASH_FUNC_x()`, the export form of the patched bash of Red Hat. A pattern that lists names, or that needs the `%%` suffix, then fails the test.
+- **The comment names one source in each sentence.** The constant comment is a list of short sentences, one for each source, so that it obeys the STE rules. The `ARCHITECTURE.md` bullet names the constant as the full list in place of "and more".
+- **The gh release finder searches the text.** The pin test finds each `github.com/cli/cli/releases/<path>` in the Dockerfile text with a regular expression. It stops at white space, a quote and a backslash. A URL in quotes, after `=` or after another character is then found. A URL that is not `download/<tag>/<asset>` gives a tag that is not a version, and the test fails. The finder has its own test with a quoted URL and a prefixed URL.
+- **The Service image has one subject file.** `tests/invariants/test_service_image.py` holds the digest test of the base images, the gh pin test and the `.trivyignore` test, as docs/TESTING.md says. The digest test and its helpers move without a change.
+
+## Rejected alternatives
+
+- **Change the archived records of #1492 and #2205 to the later state.** An archive is the record of its pull request. A second record of the same work in two places can disagree.
+- **Narrow the comment and `ARCHITECTURE.md` to the keys that the guard refuses, and file the bash keys as a new issue.** The probe shows that the bash keys run code, and they are in the bash family that #2205 covers. A narrower comment keeps the defect.
+- **Refuse `ZDOTDIR` and the interpreter keys, for example `PYTHONPATH` and `NODE_OPTIONS`, in this change.** They are outside the families of #2205. `DEFAULT_ALLOWED_ENV_VARS` lets the ambient `PYTHONPATH` and `PYTHONHOME` reach an isolated child, so that work needs a decision of its own. #2429 tracks it.
+- **Parse the Dockerfile with `tree-sitter-dockerfile`.** The parser gives the shell text of a `RUN` instruction as one string, so the test still needs a text search inside it. One text search over the file covers every instruction.
+- **Check the `--checksum` of each gh `ADD`.** #1492 and its proposal do not ask for it, and Trivy scans the image that the build makes.
