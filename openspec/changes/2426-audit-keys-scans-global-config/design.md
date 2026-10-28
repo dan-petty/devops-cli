@@ -2,7 +2,7 @@
 
 ## Context
 
-See proposal.md for the background. `load_settings` merges the global config file and the project config file (`_read_config_layers`). `audit_keys_cmd` scans `get_active_config_path()`, which is one of these two files, and `config.yaml` and `.devops/config.yaml` in the current directory. When a project file exists, the audit does not scan the global file.
+See proposal.md for the background. `load_settings` merges the global config file and the project config file (`_config_layers`, `setting_sources`). `audit_keys_cmd` scans `get_active_config_path()`, which is one of these two files, and `config.yaml` and `.devops/config.yaml` in the current directory. When a project file exists, the audit does not scan the global file.
 
 ## Goals / Non-Goals
 
@@ -19,7 +19,7 @@ See proposal.md for the background. `load_settings` merges the global config fil
 ## Decisions
 
 ### 1. One public function gives the files that the settings merge
-- Decision: `config_layer_paths()` in `src/devops_cli/config/settings.py` gives the global file and the project file (or `None`), in the merge order. `_merged_config_data` gets its files from this function and gives them to `_read_config_layers`. The error of an unknown key in `load_settings` (#2201) gets the same files from it. `audit_keys_cmd` scans each file of the function that is not `None`.
+- Decision: `config_layer_paths()` in `src/devops_cli/config/settings.py` gives the global file and the project file (or `None`). `_config_layers` gets its files from this function, and `load_settings` builds the settings from these layers. The error of an unknown key in `load_settings` (#2201) names the files of the same layers. `audit_keys_cmd` scans each file of the function that is not `None`.
 - Rationale: The defect is that the audit has its own rule for the files of the settings. With one function, a new layer of the load is also a file of the audit.
 - Alternative considered: Add `CONFIG_PATH` to the list in `audit_keys_cmd`, as the issue proposes.
   - Rejected: The audit then still keeps a copy of the rule of the load. The copy became wrong once, when the load got the project layer, and it can become wrong again. The function costs the same lines and removes the copy.
