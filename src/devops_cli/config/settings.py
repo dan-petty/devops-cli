@@ -1121,14 +1121,39 @@ def _stamps_are_settled(stamps: tuple[_FileStamp, _FileStamp]) -> bool:
     return all(mtime_ns < cutoff_ns for _, mtime_ns, _ in stamps)
 
 
+def _read_config_file(path: Path) -> Any:
+    """The YAML document of the config file `path`, or `{}` for an empty file.
+
+    A file that is not valid YAML raises ConfigurationError that names the file, the type of the
+    YAML error, and its line and column. The error of PyYAML quotes the line where the parser
+    stopped, and the `buffer` of its mark holds the full text of the file, which can hold a
+    credential. So the message holds no text of the file, and the error is raised after the
+    `except` block: it has no cause and no context that holds the error of PyYAML (#1468).
+    """
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        error_type, location = type(exc).__name__, _yaml_error_location(exc)
+    raise ConfigurationError(
+        ERRORS.config.not_yaml.format(path=path, error_type=error_type, location=location)
+    )
+
+
+def _yaml_error_location(exc: yaml.YAMLError) -> str:
+    """` at line <n>, column <n>` where PyYAML stopped, counted from 1, or "" with no mark."""
+    mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
+    if mark is None:
+        return ""
+    return ERRORS.config.not_yaml_location.format(line=mark.line + 1, column=mark.column + 1)
+
+
 def _read_config_layers(project_path: Path | None) -> dict[str, Any]:
     """Merge the global configuration file with the project layer, the project winning."""
     raw: dict[str, Any] = {}
     if CONFIG_PATH.exists():
-        raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+        raw = _read_config_file(CONFIG_PATH)
     if project_path and project_path.exists():
-        project_raw: dict[str, Any] = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
-        _deep_merge(raw, project_raw)
+        _deep_merge(raw, _read_config_file(project_path))
     return raw
 
 

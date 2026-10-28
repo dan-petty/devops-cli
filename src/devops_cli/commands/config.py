@@ -181,7 +181,8 @@ def get_value(
             "Secret keys cannot be retrieved with 'get'. Use 'config show'.", prefix=False
         )
         raise typer.Exit(1)
-    settings = load_settings()
+    with exit_on_error(ConfigurationError):
+        settings = load_settings()
     try:
         value = dotted_get(settings, key)
         print_info(str(value) if value is not None else "[dim](not set)[/dim]", prefix=False)

@@ -177,8 +177,6 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 },
             )
             emit(COMMAND_DURATION, dur, {"command": command_name})
-            if exit_code != 0:
-                raise typer.Exit(exit_code)
         except typer.TyperException as exc:
             # Typer has its own copy of Click, and its usage errors (`UsageError`, `BadParameter`,
             # `NoSuchOption`) come from `typer.TyperException`, not from `click.ClickException`.
@@ -244,6 +242,12 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 "Command '%s' failed: %s", command_name, exc, exc_info=True
             )
             raise
+        else:
+            # The command already reported its failure and the span and metrics above hold its
+            # exit code. Raised inside the `try`, this exit fell into `except Exception`, which
+            # counted the command a second time and logged the exit with a traceback (#1468).
+            if exit_code != 0:
+                raise typer.Exit(exit_code)
         finally:
             from devops_cli.telemetry.tracer import get_tracer
 
