@@ -24,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_GIT_LOCKED_TOKEN,
     CONST_GIT_MAIN_BRANCH,
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
+    CONST_GIT_NOT_A_WORKTREE_TOKEN,
     CONST_GIT_PRUNABLE_TOKEN,
     CONST_GIT_WORKTREE_PREFIX,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -473,6 +474,8 @@ def prune_worktrees(
     Every worktree is decided before any is removed, so a failed GitHub read ends the run with
     nothing removed. Without `confirm` the run removes nothing and reports `would remove`. A
     removal that git refuses is reported as `failed`, with git's message, and its directory stays.
+    A worktree that a parallel run already removed cannot be removed again: git reports `is not a
+    working tree`, and the run reports the worktree as `removed`, so it counts as done, not failed.
     """
 
     def merged_pull(tip: str) -> int | None:
@@ -507,7 +510,7 @@ def prune_worktrees(
             if force:
                 cmd.append("--force")
             proc = run_subprocess([*cmd, path], check=False, quiet=True)
-            if proc.returncode == 0:
+            if proc.returncode == 0 or CONST_GIT_NOT_A_WORKTREE_TOKEN in git_message(proc):
                 items.append(WorktreePruneItem(path=path, status="removed", size_bytes=size))
             else:
                 items.append(

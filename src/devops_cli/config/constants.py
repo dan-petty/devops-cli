@@ -1234,6 +1234,8 @@ CONST_GIT_LOCKED_TOKEN: Final[str] = "locked"
 CONST_GIT_PRUNABLE_TOKEN: Final[str] = "prunable"
 CONST_GIT_DETACHED_TOKEN: Final[str] = "detached"
 CONST_GIT_BARE_TOKEN: Final[str] = "bare"
+# `git worktree remove` fails with this when a run in parallel already removed the worktree.
+CONST_GIT_NOT_A_WORKTREE_TOKEN: Final[str] = "is not a working tree"
 # The same, from a pull request file's `status` in the GitHub REST API (its documented enum).
 CONST_GITHUB_PR_FILE_CHANGE_TYPES: Final[dict[str, str]] = {
     "added": "added",
