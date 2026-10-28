@@ -131,7 +131,7 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_table(
     assert result.exit_code == 1
     assert "LEAK DETECTED" in result.output
     alert = result.output[result.output.index("Security Alert") :]
-    assert f"{config_file.name}:grafana.token" in alert
+    assert f"{config_file.resolve()}:grafana.token" in alert
     assert "verified free of plaintext secrets" not in result.output
 
 
@@ -146,7 +146,7 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_json_report(
     assert result.exit_code == 1
     data = json.loads(result.stdout)
     assert data["is_compliant"] is False
-    assert data["plaintext_leaks"] == [f"{config_file.name}:grafana.token"]
+    assert data["plaintext_leaks"] == [f"{config_file.resolve()}:grafana.token"]
     assert data["unaudited_config_files"] == []
 
 
@@ -182,9 +182,30 @@ def test_config_audit_keys_fails_on_a_plaintext_secret_in_the_global_config_file
     ) == (
         1,
         False,
-        ["config.yaml:ai.api_key"],
+        [f"{global_config_with_a_secret.resolve()}:ai.api_key"],
         sorted([str(global_config_with_a_secret.resolve()), str(project_file.resolve())]),
     )
+
+
+def test_config_audit_keys_table_names_the_path_of_the_global_config_file_that_holds_a_secret(
+    cli: Callable[..., Any],
+    global_config_with_a_secret: Path,
+    isolate_devops_cli_config: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The global file and the project file both have the name `config.yaml`, so the alert of the
+    table names the full path of the file that holds the secret (#2426)."""
+    project_file = tmp_path / ".devcontainer" / "config.yaml"
+    project_file.parent.mkdir()
+    shutil.copyfile(isolate_devops_cli_config, project_file)
+    monkeypatch.delenv("DEVOPS_CLI_CONFIG")
+
+    result = cli("config", "audit-keys")
+
+    assert result.exit_code == 1
+    alert = result.output[result.output.index("Security Alert") :]
+    assert f"'{global_config_with_a_secret.resolve()}:ai.api_key'" in alert
 
 
 _LOADER_CREDENTIAL = "FAKE-2426-value"
