@@ -520,7 +520,6 @@ class TestK8sLLMGatewayManifests:
             {m.get("model_info", {}).get("mode") for m in embedding_deployments},
         ) == (
             [
-                "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
                 "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
                 "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
             ],
@@ -531,6 +530,40 @@ class TestK8sLLMGatewayManifests:
                 (2, "http://ollama-48gib-slow.llm.svc.cluster.local:11434"),
             ],
             {"embedding"},
+        )
+
+    def test_qwen_and_chat_groups_exclude_16gib_tier(self) -> None:
+        """Verify qwen3.8:27b and devops-chat exclude the 16gib tier and IQ3_S model (#2368).
+
+        The 16gib tier lacks sufficient VRAM for 27B parameters with 48k context, causing heavy
+        CPU offloading and high latency. Furthermore, the GGUF IQ3_S chat template fails on
+        requests without a user query, returning HTTP 500 on multi-turn tool interaction requests.
+        Both groups route only to tiers with at least 48 GiB of VRAM."""
+        chat_deployments = _deployments("devops-chat")
+        qwen_deployments = _deployments("qwen3.8:27b")
+
+        assert (
+            [m["litellm_params"]["model"] for m in chat_deployments],
+            [m["litellm_params"]["api_base"] for m in chat_deployments],
+            [m["litellm_params"]["model"] for m in qwen_deployments],
+            [m["litellm_params"]["api_base"] for m in qwen_deployments],
+        ) == (
+            [
+                "ollama_chat/qwen3.8:27b",
+                "ollama_chat/qwen3.8:27b",
+            ],
+            [
+                "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
+            ],
+            [
+                "ollama_chat/qwen3.8:27b",
+                "ollama_chat/qwen3.8:27b",
+            ],
+            [
+                "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
+            ],
         )
 
     def test_every_embedding_deployment_holds_the_largest_rag_chunk(self) -> None:
@@ -623,7 +656,7 @@ class TestK8sLLMGatewayManifests:
             pytest.param(
                 _gateway_readme(
                     "Also `ollama/qwen3-embedding:0.6b`, `ollama_chat/qwen3-coder:30b`, `qwen3.8:27b`,"
-                    " `hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S`, `model_info.mode: embedding`"
+                    " `deepseek-r1:70b`, `model_info.mode: embedding`"
                     " and `devops-review`."
                 ),
                 [],

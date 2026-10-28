@@ -43,16 +43,16 @@ The LiteLLM AI Gateway (`llm-gateway`) routes incoming API requests using virtua
 model_list:
   - model_name: devops-chat
     litellm_params:
-      model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
-      api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-      model_info:
-        max_input_tokens: 48000
-  - model_name: devops-chat
-    litellm_params:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
       model_info:
         max_input_tokens: 128000
+  - model_name: devops-chat
+    litellm_params:
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
+      model_info:
+        max_input_tokens: 160000
 
   - model_name: devops-coder
     litellm_params:
