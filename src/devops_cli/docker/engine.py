@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import logging
 import os
+import struct
 import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from devops_cli.config.constants import (
     CONST_DOCKER_BUILD_CACHE_TYPES,
@@ -210,6 +211,69 @@ def build_cache_report(entries: list[dict[str, Any]]) -> BuildCacheReport:
     )
 
 
+# The header of each frame of the Engine API's multiplexed stream: the stream (1 is stdout, 2 is
+# stderr), three zero bytes, and the length of the frame's bytes ("Stream format" of the Engine
+# API reference). A container with a TTY sends its output with no headers.
+_LOG_FRAME_HEADER = struct.Struct(">BxxxL")
+
+
+def container_log_frames(
+    client: EngineClient,
+    container: EngineContainer,
+    *,
+    tail: int | str = "all",
+    timestamps: bool = False,
+    follow: bool = False,
+) -> Iterator[tuple[bytes | None, bytes | None]]:
+    """Read a container's log as `(stdout, stderr)` frames, each with the bytes of one stream.
+
+    The docker SDK's `logs` drops the stream of each frame, so the request goes through the SDK
+    client's own session (`client.api`) with the query that `logs` sends. The request is sent
+    before this returns, so a refused one raises the SDK's error here; the frames come from a
+    generator that closes the reply when it ends. A followed log has no read timeout, as the SDK's
+    own followed log has none.
+    """
+    from docker.errors import create_api_error_from_http_exception  # type: ignore[import-untyped]
+    from requests.exceptions import HTTPError
+
+    api = client.api
+    response = api.get(
+        f"{api.base_url}/v{api.api_version}/containers/{quote(container.id, safe='')}/logs",
+        params={
+            "stdout": 1,
+            "stderr": 1,
+            "timestamps": int(timestamps),
+            "follow": int(follow),
+            "tail": tail if tail == "all" or (isinstance(tail, int) and tail >= 0) else "all",
+        },
+        stream=True,
+        timeout=(api.timeout, None) if follow else api.timeout,
+    )
+    try:
+        response.raise_for_status()
+    except HTTPError as exc:
+        response.close()
+        raise create_api_error_from_http_exception(exc) from exc
+    return _log_frames(response, tty=bool(_section(container.attrs, "Config").get("Tty")))
+
+
+def _log_frames(response: Any, *, tty: bool) -> Iterator[tuple[bytes | None, bytes | None]]:
+    """The frames of a log reply; with a TTY, each chunk of the one raw stream is stdout."""
+    from docker.utils.socket import demux_adaptor  # type: ignore[import-untyped]
+
+    try:
+        if tty:
+            for chunk in response.iter_content(chunk_size=None):
+                yield chunk, None
+            return
+        while header := response.raw.read(_LOG_FRAME_HEADER.size):
+            stream, length = _LOG_FRAME_HEADER.unpack(header)
+            if length:
+                yield demux_adaptor(stream, response.raw.read(length))
+    finally:
+        response.close()
+
+
 def _podman_rootless_socket_path() -> Path:
     """Derive the rootless Podman socket path from XDG_RUNTIME_DIR or the /run/user base."""
     xdg = os.environ.get("XDG_RUNTIME_DIR")
@@ -369,7 +433,7 @@ class DockerEngineService:
         """Normalise the raw daemon endpoint via docker-py's parse_host."""
         import docker.constants  # type: ignore[import-untyped]
         import docker.utils
-        from docker.errors import DockerException  # type: ignore[import-untyped]
+        from docker.errors import DockerException
 
         try:
             return str(
@@ -729,18 +793,12 @@ class DockerEngineService:
         tail: int | str = "all",
         timestamps: bool = False,
         follow: bool = False,
-    ) -> Any:
-        """Open a demultiplexed Engine API log stream preserving stdout/stderr separation."""
+    ) -> Iterator[tuple[bytes | None, bytes | None]]:
+        """Open a container's log as `(stdout, stderr)` frames, in the order the engine sent them."""
         container = self.get_container(container_id)
         try:
-            return container.logs(
-                stdout=True,
-                stderr=True,
-                stream=follow,
-                follow=follow,
-                tail=tail,
-                timestamps=timestamps,
-                demux=True,
+            return container_log_frames(
+                self.client(), container, tail=tail, timestamps=timestamps, follow=follow
             )
         except Exception as exc:
             raise DockerEngineError(
@@ -856,6 +914,7 @@ def get_engine() -> DockerEngineService:
 __all__ = [
     "DockerEngineService",
     "build_cache_report",
+    "container_log_frames",
     "decode_stream",
     "get_engine",
     "project_container_state",

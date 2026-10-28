@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from typer.testing import CliRunner
 
 from devops_cli.commands.sandbox import app
 from devops_cli.exceptions.docker import DockerEngineError
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
 from devops_cli.exceptions.security import SecurityError
-from devops_cli.sandbox.engine import WorkloadSandboxEngine
+from devops_cli.sandbox.engine import MAX_FOLLOW_BUFFER_LINES, WorkloadSandboxEngine
 from devops_cli.sandbox.logs import (
     archive_incident,
     detect_panics,
@@ -28,6 +28,7 @@ from devops_cli.sandbox.models import (
     SandboxLogsReport,
     SandboxStatus,
 )
+from tests.support.fakes.docker_engine import LOG_TIME, DockerEngineFake
 
 runner = CliRunner()
 
@@ -47,6 +48,13 @@ def _make_dummy_instance(
         workspace_dir="/workspace",
         created_at="2026-09-12T20:00:00Z",
     )
+
+
+def _sandbox_with_log(fake: DockerEngineFake, frames: list[tuple[str, bytes]]) -> SandboxInstance:
+    """A sandbox whose container on the fake engine wrote these `(stream, bytes)` frames."""
+    container_id = fake.add_container("web-svc", running=False)
+    fake.script_run("web-svc", frames=frames)
+    return _make_dummy_instance(container_id=container_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -224,34 +232,35 @@ def test_parse_docker_log_line_with_timestamp() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_engine_logs_success(tmp_path: Path, docker_engine: Any) -> None:
+def test_engine_logs_success(tmp_path: Path, docker_daemon: DockerEngineFake) -> None:
     """Verify WorkloadSandboxEngine.logs retrieves and parses logs with incidents."""
-    inst = _make_dummy_instance()
+    inst = _sandbox_with_log(
+        docker_daemon,
+        [
+            (
+                "stdout",
+                b"Traceback (most recent call last):\n"
+                b'  File "app.py", line 2, in <module>\n'
+                b"ZeroDivisionError: division by zero\n",
+            )
+        ],
+    )
     engine = WorkloadSandboxEngine()
     engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
 
-    mock_container = MagicMock()
-    mock_container.logs.return_value = (
-        b"Traceback (most recent call last):\n"
-        b'  File "app.py", line 2, in <module>\n'
-        b"ZeroDivisionError: division by zero\n"
+    report = engine.logs(
+        identifier=inst.instance_id,
+        tail=50,
+        detect_panics_flag=True,
+        incident_dir=tmp_path,
     )
 
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-    with docker_engine(mock_client):
-        report = engine.logs(
-            identifier=inst.instance_id,
-            tail=50,
-            detect_panics_flag=True,
-            incident_dir=tmp_path,
-        )
-
-        assert report.instance_id == inst.instance_id
-        assert report.total_lines == 3
-        assert report.panics_detected == 1
-        assert len(report.incidents) == 1
-        assert report.incidents[0].panic_type == PanicType.PYTHON_TRACEBACK
+    assert (
+        report.instance_id,
+        report.total_lines,
+        report.panics_detected,
+        [incident.panic_type for incident in report.incidents],
+    ) == (inst.instance_id, 3, 1, [PanicType.PYTHON_TRACEBACK])
 
 
 def test_engine_logs_not_found() -> None:
@@ -347,36 +356,28 @@ def test_cli_sandbox_logs_panic_alert_display(tmp_path: Path) -> None:
         assert "python_traceback" in res.stdout or "CRITICAL" in res.stdout
 
 
-def test_engine_logs_surface_daemon_failure(docker_engine: Any) -> None:
+def test_engine_logs_surface_daemon_failure(docker_daemon: DockerEngineFake) -> None:
     """An Engine API log retrieval failure is surfaced rather than retried via the CLI."""
-    inst = _make_dummy_instance()
+    inst = _sandbox_with_log(docker_daemon, [("stdout", b"never read\n")])
+    engine = WorkloadSandboxEngine()
+    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+    docker_daemon.fail("api.get", requests.exceptions.ConnectionError("engine went away"))
+
+    with pytest.raises(DockerEngineError, match="Container log stream failed"):
+        engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
+
+
+def test_engine_logs_generator_stream(docker_daemon: DockerEngineFake) -> None:
+    """Verify engine reads a followed log frame by frame."""
+    inst = _sandbox_with_log(
+        docker_daemon, [("stdout", b"stream chunk 1\n"), ("stdout", b"stream chunk 2\n")]
+    )
     engine = WorkloadSandboxEngine()
     engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
 
-    mock_container = MagicMock()
-    mock_container.logs.side_effect = RuntimeError("No such container")
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
+    report = engine.logs(identifier=inst.instance_id, follow=True)
 
-    with docker_engine(mock_client):
-        with pytest.raises(DockerEngineError, match="Container log stream failed"):
-            engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
-
-
-def test_engine_logs_generator_stream(docker_engine: Any) -> None:
-    """Verify engine handles generator byte chunks from container logs."""
-    inst = _make_dummy_instance()
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
-
-    mock_container = MagicMock()
-    mock_container.logs.return_value = [b"stream chunk 1\n", b"stream chunk 2\n"]
-
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-    with docker_engine(mock_client):
-        report = engine.logs(identifier=inst.instance_id, follow=True)
-        assert report.total_lines == 2
+    assert [line.content for line in report.lines] == ["stream chunk 1", "stream chunk 2"]
 
 
 def test_resolve_incident_dir_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -557,45 +558,46 @@ def test_detect_rust_panic_symbolic_frames() -> None:
     assert len(incidents[0].stacktrace) >= 4
 
 
-def test_engine_logs_demux_stream_preservation(docker_engine: Any) -> None:
-    """Verify Docker demux response preserves stdout vs stderr streams."""
-    inst = _make_dummy_instance()
+def test_engine_logs_demux_stream_preservation(docker_daemon: DockerEngineFake) -> None:
+    """Verify each log line keeps the stream it was written to, in the engine's order (#2520)."""
+    inst = _sandbox_with_log(
+        docker_daemon,
+        [
+            ("stdout", b"stdout log message\n"),
+            ("stderr", b"stderr log message\n"),
+            ("stdout", b"stdout again\n"),
+        ],
+    )
     engine = WorkloadSandboxEngine()
     engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
 
-    mock_container = MagicMock()
-    mock_container.logs.return_value = (
-        b"2026-09-12T20:00:00Z stdout log message\n",
-        b"2026-09-12T20:00:01Z stderr log message\n",
+    report = engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
+
+    stamp = LOG_TIME.decode().strip()
+    assert [(line.timestamp, line.stream, line.content) for line in report.lines] == [
+        (stamp, "stdout", "stdout log message"),
+        (stamp, "stderr", "stderr log message"),
+        (stamp, "stdout", "stdout again"),
+    ]
+
+
+def test_engine_logs_follow_bounded_buffer(docker_daemon: DockerEngineFake) -> None:
+    """Verify follow mode bounds memory retention to MAX_FOLLOW_BUFFER_LINES."""
+    inst = _sandbox_with_log(
+        docker_daemon, [("stdout", f"line {i}\n".encode()) for i in range(1500)]
+    )
+    engine = WorkloadSandboxEngine()
+    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+
+    report = engine.logs(
+        identifier=inst.instance_id, follow=True, tail="all", detect_panics_flag=False
     )
 
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-    with docker_engine(mock_client):
-        report = engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
-        assert report.total_lines == 2
-        streams = [line.stream for line in report.lines]
-        assert "stdout" in streams
-        assert "stderr" in streams
-
-
-def test_engine_logs_follow_bounded_buffer(docker_engine: Any) -> None:
-    """Verify follow mode bounds memory retention to MAX_FOLLOW_BUFFER_LINES."""
-    inst = _make_dummy_instance()
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
-
-    # Stream 1500 lines
-    chunks = [f"line {i}\n".encode() for i in range(1500)]
-    mock_container = MagicMock()
-    mock_container.logs.return_value = iter(chunks)
-
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-    with docker_engine(mock_client):
-        report = engine.logs(identifier=inst.instance_id, follow=True, detect_panics_flag=False)
-        assert report.total_lines == 1500
-        assert len(report.lines) <= 1000
+    assert (report.total_lines, len(report.lines), report.lines[-1].content) == (
+        1500,
+        MAX_FOLLOW_BUFFER_LINES,
+        "line 1499",
+    )
 
 
 def test_cli_sandbox_logs_rich_escaping_and_secret_masking() -> None:
