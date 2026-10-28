@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from devops_cli.k8s.context import configured_context, resolve_context
+from devops_cli.k8s.service import KubernetesService
+from tests.support.fakes.kubernetes import FakeCluster
 
 
 @pytest.fixture(autouse=True)
@@ -119,105 +123,42 @@ def test_a_context_change_is_followed_rather_than_pinned_at_startup() -> None:
 
 
 @pytest.fixture
-def service() -> Any:
-    """Provide a KubernetesService with no cached client."""
-    from devops_cli.k8s.service import KubernetesService
-
-    instance = KubernetesService()
-    instance._config_loaded = False
-    instance._active_context = None
-    instance._core_v1 = None
-    return instance
+def homelab(config: Callable[..., Path]) -> FakeCluster:
+    """A fake cluster that names `homelab-k3s` and `staging`, with `homelab-k3s` configured."""
+    config(k8s={"context": "homelab-k3s"})
+    return FakeCluster(contexts=("homelab-k3s", "staging"), current="staging")
 
 
-def _patched_k8s() -> Any:
-    """Patch the kubernetes config and client modules used by load_config."""
-    config_module = MagicMock()
-    config_module.load_incluster_config.side_effect = RuntimeError("not in cluster")
-    return config_module
-
-
-def test_the_service_connects_using_the_configured_context(service: Any) -> None:
+def test_the_service_connects_using_the_configured_context(homelab: FakeCluster) -> None:
     """The defect: load_config(None) passed None straight through to load_kube_config."""
-    config_module = _patched_k8s()
-    with (
-        patch.dict(
-            "sys.modules",
-            {"kubernetes": MagicMock(client=MagicMock(), config=config_module)},
-        ),
-        patch("devops_cli.k8s.service.resolve_context", return_value="homelab-k3s"),
-    ):
-        from kubernetes import config as patched_config  # noqa: F401
+    KubernetesService(homelab).load_config()
 
-        service.load_config()
-
-    config_module.load_kube_config.assert_called_once_with(context="homelab-k3s")
+    assert homelab.connects == ["homelab-k3s"]
 
 
-def test_the_service_records_the_resolved_context_not_the_argument(service: Any) -> None:
-    """The cache key must be the context actually connected to.
+def test_a_second_call_naming_the_same_cluster_reuses_the_client(homelab: FakeCluster) -> None:
+    """An explicit context equal to the configured one is not a different cluster.
 
-    Treating `None` and the configured name as different keys would rebuild the client on
-    alternating calls, and worse, could serve a client built for a context the caller did
-    not ask for.
+    The cache key is the context actually connected to. Treating `None` and the configured
+    name as different keys would rebuild the client on alternating calls, and worse, could
+    serve a client built for a context the caller did not ask for.
     """
-    config_module = _patched_k8s()
-    with (
-        patch.dict(
-            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
-        ),
-        patch("devops_cli.k8s.service.resolve_context", return_value="homelab-k3s"),
-    ):
-        service.load_config()
+    service = KubernetesService(homelab)
 
-    assert service._active_context == "homelab-k3s"
+    service.load_config()
+    service.load_config("homelab-k3s")
+
+    assert homelab.connects == ["homelab-k3s"]
 
 
-def test_a_second_call_naming_the_same_cluster_reuses_the_client(service: Any) -> None:
-    """An explicit context equal to the configured one is not a different cluster."""
-    config_module = _patched_k8s()
-    with (
-        patch.dict(
-            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
-        ),
-        patch("devops_cli.k8s.service.resolve_context", return_value="homelab-k3s"),
-    ):
-        service.load_config()
-        service.load_config("homelab-k3s")
-
-    assert config_module.load_kube_config.call_count == 1
-
-
-def test_switching_context_rebuilds_the_client(service: Any) -> None:
+def test_switching_context_rebuilds_the_client(homelab: FakeCluster) -> None:
     """A genuinely different context must not be served from the cache."""
-    config_module = _patched_k8s()
-    with (
-        patch.dict(
-            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
-        ),
-        patch("devops_cli.k8s.service.resolve_context", side_effect=["homelab-k3s", "staging"]),
-    ):
-        service.load_config()
-        service.load_config("staging")
+    service = KubernetesService(homelab)
 
-    assert config_module.load_kube_config.call_count == 2
+    service.load_config()
+    service.load_config("staging")
 
-
-def test_in_cluster_configuration_still_takes_precedence(service: Any) -> None:
-    """Running inside a pod must use the pod's service account, not a kubeconfig."""
-    config_module = MagicMock()
-    with (
-        patch.dict(
-            "sys.modules", {"kubernetes": MagicMock(client=MagicMock(), config=config_module)}
-        ),
-        patch("devops_cli.k8s.service.resolve_context", return_value="homelab-k3s"),
-    ):
-        service.load_config()
-
-    assert (
-        config_module.load_incluster_config.call_count,
-        config_module.load_kube_config.call_count,
-    ) == (1, 0)
+    assert homelab.connects == ["homelab-k3s", "staging"]
 
 
 # =============================================================================

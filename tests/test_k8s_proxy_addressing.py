@@ -9,32 +9,14 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.k8s.service_proxy import discover_service
+from tests.support.fakes.kubernetes import FakeCluster, api_exception, service
 
 runner = CliRunner()
 
 
-def _port(number: int, name: str = "") -> Any:
-    """Build a Service port stub."""
-    port = MagicMock()
-    port.port = number
-    port.name = name
-    return port
-
-
-def _service(name: str, ports: list[Any]) -> Any:
-    """Build a Service stub."""
-    service = MagicMock()
-    service.metadata.name = name
-    service.spec.ports = ports
-    return service
-
-
-def _listing(*services: Any) -> Any:
-    """Patch KubernetesService so it lists the given services."""
-    api = MagicMock()
-    api.load_config.return_value = True
-    api._core_v1.list_namespaced_service.return_value = MagicMock(items=list(services))
-    return patch("devops_cli.k8s.service.KubernetesService.get_instance", return_value=api)
+def _listing(cluster: FakeCluster, *services: Any) -> None:
+    """Make the fake cluster list the given services in the `monitoring` and `otel` namespaces."""
+    cluster.core.answers["list_namespaced_service"] = list(services)
 
 
 # =============================================================================
@@ -42,84 +24,79 @@ def _listing(*services: Any) -> Any:
 # =============================================================================
 
 
-def test_a_chart_renamed_service_is_still_found() -> None:
+def test_a_chart_renamed_service_is_still_found(cluster: FakeCluster) -> None:
     """Charts rarely install a service under the bare name an operator thinks in.
 
     Prometheus server ships as `prometheus-server`, so an exact-name lookup
     for `prometheus` finds nothing and the endpoint silently falls back to a hand-written localhost URL.
     """
-    with _listing(_service("prometheus-server", [_port(9090, "http")])):
-        ref = discover_service("monitoring", ("prometheus-server", "prometheus"), ("9090",))
+    _listing(cluster, service("prometheus-server", "monitoring", ports=[(9090, "http")]))
+    ref = discover_service("monitoring", ("prometheus-server", "prometheus"), ("9090",))
     assert (ref is not None, ref.describe() if ref else None) == (
         True,
         "k8s://monitoring/prometheus-server:9090",
     )
 
 
-def test_the_most_specific_pattern_wins() -> None:
+def test_the_most_specific_pattern_wins(cluster: FakeCluster) -> None:
     """Callers order patterns most-specific first, and that order must be honoured.
 
     A loose `prometheus` would otherwise match the node exporter or the operator.
     """
-    with _listing(
-        _service("prometheus-node-exporter", [_port(9100)]),
-        _service("prometheus-server", [_port(9090, "http")]),
-    ):
-        ref = discover_service("monitoring", ("prometheus-server", "prometheus"), ("9090",))
+    _listing(
+        cluster,
+        service("prometheus-node-exporter", "monitoring", ports=[(9100, None)]),
+        service("prometheus-server", "monitoring", ports=[(9090, "http")]),
+    )
+    ref = discover_service("monitoring", ("prometheus-server", "prometheus"), ("9090",))
     assert (ref is not None, ref.service if ref else None) == (True, "prometheus-server")
 
 
-def test_a_hinted_port_is_preferred_over_the_first() -> None:
+def test_a_hinted_port_is_preferred_over_the_first(cluster: FakeCluster) -> None:
     """A Service commonly exposes several; Prometheus publishes a reloader port too."""
-    with _listing(_service("prometheus", [_port(8080, "reloader"), _port(9090, "web")])):
-        ref = discover_service("monitoring", ("prometheus",), ("9090", "web"))
-    assert ref is not None
-    assert ref.port == "9090"
+    _listing(
+        cluster, service("prometheus", "monitoring", ports=[(8080, "reloader"), (9090, "web")])
+    )
+    ref = discover_service("monitoring", ("prometheus",), ("9090", "web"))
+    assert (ref.port if ref else None) == "9090"
 
 
-def test_a_port_is_matched_by_name_as_well_as_number() -> None:
+def test_a_port_is_matched_by_name_as_well_as_number(cluster: FakeCluster) -> None:
     """Port numbers vary between installations; names are more stable."""
-    with _listing(_service("tempo", [_port(4317), _port(3200, "prom-metrics")])):
-        ref = discover_service("otel", ("tempo",), ("prom-metrics",))
-    assert ref is not None
-    assert ref.port == "3200"
+    _listing(cluster, service("tempo", "otel", ports=[(4317, None), (3200, "prom-metrics")]))
+    ref = discover_service("otel", ("tempo",), ("prom-metrics",))
+    assert (ref.port if ref else None) == "3200"
 
 
-def test_the_first_port_is_used_when_no_hint_matches() -> None:
+def test_the_first_port_is_used_when_no_hint_matches(cluster: FakeCluster) -> None:
     """A best guess beats refusing to address the service at all."""
-    with _listing(_service("grafana", [_port(3000)])):
-        ref = discover_service("monitoring", ("grafana",), ("80", "http"))
-    assert ref is not None
-    assert ref.port == "3000"
+    _listing(cluster, service("grafana", "monitoring", ports=[(3000, None)]))
+    ref = discover_service("monitoring", ("grafana",), ("80", "http"))
+    assert (ref.port if ref else None) == "3000"
 
 
-def test_a_service_with_no_ports_is_skipped() -> None:
+def test_a_service_with_no_ports_is_skipped(cluster: FakeCluster) -> None:
     """An address without a port cannot be proxied."""
-    with _listing(_service("headless", [])):
-        assert discover_service("monitoring", ("headless",)) is None
+    _listing(cluster, service("headless", "monitoring", ports=[]))
+    assert discover_service("monitoring", ("headless",)) is None
 
 
-def test_no_matching_service_returns_nothing() -> None:
+def test_no_matching_service_returns_nothing(cluster: FakeCluster) -> None:
     """A stack component that is not installed is not an error."""
-    with _listing(_service("grafana", [_port(80)])):
-        assert discover_service("monitoring", ("prometheus",)) is None
+    _listing(cluster, service("grafana", "monitoring", ports=[(80, None)]))
+    assert discover_service("monitoring", ("prometheus",)) is None
 
 
-def test_an_unreachable_cluster_returns_nothing() -> None:
+def test_an_unreachable_cluster_returns_nothing(cluster: FakeCluster) -> None:
     """Discovery must not raise when the cluster cannot be contacted."""
-    api = MagicMock()
-    api.load_config.return_value = False
-    with patch("devops_cli.k8s.service.KubernetesService.get_instance", return_value=api):
-        assert discover_service("monitoring", ("prometheus",)) is None
+    cluster.context_names.clear()
+    assert discover_service("monitoring", ("prometheus",)) is None
 
 
-def test_a_failed_listing_returns_nothing() -> None:
+def test_a_failed_listing_returns_nothing(cluster: FakeCluster) -> None:
     """A namespace the credentials cannot read is not a crash."""
-    api = MagicMock()
-    api.load_config.return_value = True
-    api._core_v1.list_namespaced_service.side_effect = RuntimeError("forbidden")
-    with patch("devops_cli.k8s.service.KubernetesService.get_instance", return_value=api):
-        assert discover_service("monitoring", ("prometheus",)) is None
+    cluster.core.answers["list_namespaced_service"] = api_exception(403, "Forbidden")
+    assert discover_service("monitoring", ("prometheus",)) is None
 
 
 # =============================================================================

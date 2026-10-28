@@ -41,6 +41,7 @@ from devops_cli.k8s.service_proxy import (
 from devops_cli.sandbox.models import ProbeProtocol
 from devops_cli.sandbox.probe import _dispatch_probes_for_port, _parse_target_endpoint
 from devops_cli.telemetry.collector import collector_endpoint
+from tests.support.fakes.kubernetes import FakeCluster, node, service
 
 runner = CliRunner()
 
@@ -79,24 +80,18 @@ def test_ipv6_builders_and_bracketing() -> None:
     lb_url = _extract_service_ingress_or_nodeport(lb_svc_data, [])
 
     # 3. k8s/service.py list_nodes node address and LoadBalancer ingress
-    mgr = KubernetesService()
-    mgr._core_v1 = MagicMock()
-    mock_node = MagicMock()
-    mock_node.status.addresses = [MagicMock(type="InternalIP", address="2001:db8::1")]
-    mgr.list_nodes = MagicMock(return_value=[mock_node])  # type: ignore[method-assign]
-    mgr.load_config = MagicMock(return_value=True)  # type: ignore[method-assign]
+    mgr = KubernetesService(FakeCluster(contexts=("ipv6",), current="ipv6"))
+    fake_core = mgr.core_api("ipv6")
+    fake_core.answers["list_node"] = [node("node-a", addresses={"InternalIP": "2001:db8::1"})]
+    fake_core.answers["list_namespaced_service"] = [
+        service("prom", "monitoring", port=9090, node_port=30080, load_balancer="2001:db8::1")
+    ]
+    k8s_lb_url = mgr.resolve_service_endpoint("prom", "monitoring", context="ipv6")
 
-    mock_svc = MagicMock()
-    mock_svc.status.load_balancer.ingress = [MagicMock(ip="2001:db8::1", hostname=None)]
-    mock_svc.spec.ports = [MagicMock(port=9090, node_port=30080)]
-    mgr._core_v1.read_namespaced_service.return_value = mock_svc
-    k8s_lb_url = mgr.resolve_service_endpoint("prom", "monitoring")
-
-    mock_svc_nodeport = MagicMock()
-    mock_svc_nodeport.status.load_balancer.ingress = []
-    mock_svc_nodeport.spec.ports = [MagicMock(port=9090, node_port=30080)]
-    mgr._core_v1.read_namespaced_service.return_value = mock_svc_nodeport
-    k8s_np_url = mgr.resolve_service_endpoint("prom", "monitoring")
+    fake_core.answers["list_namespaced_service"] = [
+        service("prom", "monitoring", port=9090, node_port=30080)
+    ]
+    k8s_np_url = mgr.resolve_service_endpoint("prom", "monitoring", context="ipv6")
 
     # 4. telemetry/collector.py endpoint
     with patch(

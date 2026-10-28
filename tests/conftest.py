@@ -51,11 +51,9 @@ pytest_plugins = ("tests.support.bootstrap",)
 def isolate_kubeconfig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     """Point KUBECONFIG at a throwaway file for the whole run.
 
-    `KubernetesService.switch_context` rewrites the kubeconfig on disk, so a test that
-    exercises context switching without mocking it silently repoints the developer's real
-    kubectl at another cluster -- which is exactly what was happening. Isolating the path
-    once, for every test, removes the possibility rather than relying on each test to
-    remember to mock it.
+    A test whose code loads the kubeconfig, or runs a kubectl stand-in that edits it, reads
+    and writes this file, never the developer's own. Isolating the path once, for every
+    test, removes the possibility rather than relying on each test to remember it.
     """
     kubeconfig = tmp_path_factory.mktemp("kube") / "config"
     kubeconfig.write_text(

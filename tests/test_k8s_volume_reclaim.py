@@ -20,7 +20,7 @@ from devops_cli.k8s.volume import (
     reclaim_volume,
     verify_volume_orphaned,
 )
-from tests.k8s_fakes import FakeCoreV1, client, pod
+from tests.support.fakes.kubernetes import FakeCoreV1, client, pod
 
 CONST_K8S_PV_PHASE_BOUND: str = "Bound"
 

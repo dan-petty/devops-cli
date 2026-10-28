@@ -104,7 +104,7 @@ class ResourceInformer:
         if not self._service.load_config():
             raise KubernetesContextError("Kubernetes client is not configured.")
 
-        core_v1 = self._service._core_v1
+        core_v1 = self._service.core_api()
         w = watch.Watch()
         # Publish the watcher so stop() can interrupt the blocking stream immediately
         # instead of waiting out the server-side resync timeout.
@@ -199,7 +199,7 @@ class ResourceInformer:
 
     def _fetch_pod_list(self) -> Any:
         """Fetch list of pods from the Kubernetes API server."""
-        core_v1 = self._service._core_v1
+        core_v1 = self._service.core_api()
         kwargs: dict[str, Any] = {}
         if self.label_selector:
             kwargs["label_selector"] = self.label_selector

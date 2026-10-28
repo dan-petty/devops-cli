@@ -16,6 +16,7 @@ from devops_cli.commands.argo import app as argo_app
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.main import app as main_app
+from tests.support.fakes.kubernetes import FakeCluster
 from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
@@ -419,133 +420,93 @@ def test_argo_rollout_state_from_manifest_safe_step() -> None:
     assert (state_invalid.current_step,) == (None,)
 
 
-def test_argo_workflows_logs_without_follow() -> None:
+def _workflow(
+    cluster: FakeCluster, *, annotations: dict[str, str] | None, node: dict[str, Any]
+) -> None:
+    """Make the fake cluster hold the workflow `my-wf` in `argocd`, with one pod node."""
+    metadata: dict[str, Any] = {"name": "my-wf", "namespace": "argocd"}
+    if annotations:
+        metadata["annotations"] = annotations
+    cluster.custom_objects.objects[("argoproj.io", "v1alpha1", "workflows")] = [
+        {"metadata": metadata, "status": {"phase": "Succeeded", "nodes": {"node-pod-1": node}}}
+    ]
+
+
+_V1_NAMES = {"workflows.argoproj.io/pod-name-format": "v1"}
+
+
+def test_argo_workflows_logs_without_follow(cluster: FakeCluster) -> None:
     """Verify argo workflows logs without --follow prints framed lines after pod header."""
-    mock_crd_api = MagicMock()
-    mock_crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {
-            "name": "my-wf",
-            "namespace": "argocd",
-            "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
-        },
-        "status": {"phase": "Succeeded", "nodes": {"node-pod-1": {"type": "Pod"}}},
-    }
-    svc = KubernetesService.get_instance()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b"a\nb\n"]
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = mock_resp
+    _workflow(cluster, annotations=_V1_NAMES, node={"type": "Pod"})
+    cluster.core.answers["read_namespaced_pod_log"] = {("argocd", "node-pod-1"): [b"a\nb\n"]}
 
-    with (
-        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
-        patch.object(svc, "load_config", return_value=True),
-    ):
-        svc._core_v1 = mock_core
-        res = runner.invoke(argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd"])
-        assert (res.exit_code, res.stdout) == (0, "── node-pod-1 ──\na\nb\n")
-        assert mock_core.read_namespaced_pod_log.call_args.kwargs["container"] == "main"
+    res = runner.invoke(argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd"])
+
+    assert (res.exit_code, res.stdout, cluster.core.calls[-1][1]["container"]) == (
+        0,
+        "── node-pod-1 ──\na\nb\n",
+        "main",
+    )
 
 
-def test_argo_workflows_logs_with_custom_container() -> None:
+def test_argo_workflows_logs_with_custom_container(cluster: FakeCluster) -> None:
     """Verify argo workflows logs passes --container to pod log reader."""
-    mock_crd_api = MagicMock()
-    mock_crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {
-            "name": "my-wf",
-            "namespace": "argocd",
-            "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
-        },
-        "status": {"phase": "Succeeded", "nodes": {"node-pod-1": {"type": "Pod"}}},
-    }
-    svc = KubernetesService.get_instance()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b"log output\n"]
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = mock_resp
+    _workflow(cluster, annotations=_V1_NAMES, node={"type": "Pod"})
+    cluster.core.answers["read_namespaced_pod_log"] = {("argocd", "node-pod-1"): [b"log output\n"]}
 
-    with (
-        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
-        patch.object(svc, "load_config", return_value=True),
-    ):
-        svc._core_v1 = mock_core
-        res = runner.invoke(
-            argo_app,
-            ["workflows", "logs", "my-wf", "--namespace", "argocd", "--container", "wait"],
-        )
-        assert (res.exit_code, res.stdout) == (0, "── node-pod-1 ──\nlog output\n")
-        assert mock_core.read_namespaced_pod_log.call_args.kwargs["container"] == "wait"
+    res = runner.invoke(
+        argo_app,
+        ["workflows", "logs", "my-wf", "--namespace", "argocd", "--container", "wait"],
+    )
+
+    assert (res.exit_code, res.stdout, cluster.core.calls[-1][1]["container"]) == (
+        0,
+        "── node-pod-1 ──\nlog output\n",
+        "wait",
+    )
 
 
-def test_argo_workflows_logs_falls_back_to_v1_on_404() -> None:
+def test_argo_workflows_logs_falls_back_to_v1_on_404(cluster: FakeCluster) -> None:
     """Verify argo workflows logs falls back to v1 naming when v2 pod returns 404."""
-    mock_crd_api = MagicMock()
-    mock_crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "my-wf", "namespace": "argocd"},
-        "status": {
+    _workflow(
+        cluster,
+        annotations=None,
+        node={
+            "id": "node-pod-1",
+            "name": "my-wf[0].step1",
+            "templateName": "step1-tmpl",
+            "type": "Pod",
             "phase": "Succeeded",
-            "nodes": {
-                "node-pod-1": {
-                    "id": "node-pod-1",
-                    "name": "my-wf[0].step1",
-                    "templateName": "step1-tmpl",
-                    "type": "Pod",
-                    "phase": "Succeeded",
-                }
-            },
         },
+    )
+    cluster.core.answers["read_namespaced_pod_log"] = {
+        ("argocd", "node-pod-1"): [b"fallback logs\n"]
     }
-    svc = KubernetesService.get_instance()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b"fallback logs\n"]
 
-    class _MockApiError(Exception):
-        status = 404
+    res = runner.invoke(argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd"])
 
-    def _mock_read(**kwargs: Any) -> Any:
-        if kwargs.get("name") == "node-pod-1":
-            return mock_resp
-        raise _MockApiError("pod not found")
-
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.side_effect = _mock_read
-
-    with (
-        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
-        patch.object(svc, "load_config", return_value=True),
-    ):
-        svc._core_v1 = mock_core
-        res = runner.invoke(argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd"])
-        assert (res.exit_code, res.stdout) == (0, "── node-pod-1 ──\nfallback logs\n")
-        assert mock_core.read_namespaced_pod_log.call_args.kwargs["container"] == "main"
+    assert (
+        res.exit_code,
+        res.stdout,
+        [call[1]["name"] == "node-pod-1" for call in cluster.core.calls],
+        cluster.core.calls[-1][1]["container"],
+    ) == (0, "── node-pod-1 ──\nfallback logs\n", [False, True], "main")
 
 
-def test_argo_workflows_logs_with_follow() -> None:
+def test_argo_workflows_logs_with_follow(cluster: FakeCluster) -> None:
     """Verify argo workflows logs with --follow prints framed lines across chunk boundaries."""
-    mock_crd_api = MagicMock()
-    mock_crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {
-            "name": "my-wf",
-            "namespace": "argocd",
-            "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
-        },
-        "status": {"phase": "Succeeded", "nodes": {"node-pod-1": {"type": "Pod"}}},
-    }
-    svc = KubernetesService.get_instance()
-    mock_resp = MagicMock()
-    mock_resp.stream.return_value = [b"a\nb", b"c\n"]
-    mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = mock_resp
+    _workflow(cluster, annotations=_V1_NAMES, node={"type": "Pod"})
+    cluster.core.answers["read_namespaced_pod_log"] = {("argocd", "node-pod-1"): [b"a\nb", b"c\n"]}
 
-    with (
-        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
-        patch.object(svc, "load_config", return_value=True),
-    ):
-        svc._core_v1 = mock_core
-        res = runner.invoke(
-            argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd", "--follow"]
-        )
-        assert (res.exit_code, res.stdout) == (0, "── node-pod-1 ──\na\nbc\n")
-        assert mock_core.read_namespaced_pod_log.call_args.kwargs["container"] == "main"
+    res = runner.invoke(
+        argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd", "--follow"]
+    )
+
+    assert (res.exit_code, res.stdout, cluster.core.calls[-1][1]["container"]) == (
+        0,
+        "── node-pod-1 ──\na\nbc\n",
+        "main",
+    )
 
 
 def test_cd_apps_sync_payload_structure() -> None:
