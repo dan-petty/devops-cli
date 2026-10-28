@@ -11,9 +11,9 @@
 
 ## 2. A test holds each whitespace class
 
-- [ ] 2.1 Add a pair with the line break between the keyword and its separator for the `password`, `token`, `aws_secret_access_key`, `client_secret` and `api_key` rules, and a pair with the line break after `token` before a `secret_` word
+- [x] 2.1 Add a pair with the line break between the keyword and its separator for the `password`, `token`, `aws_secret_access_key`, `client_secret` and `api_key` rules, and a pair with the line break after `token` before a `secret_` word
   - Verification: `uv run devops ci test tests/test_consolidation_security_sanitizer.py`
-- [ ] 2.2 Compare the one-line result of each pair with its whole expected text, with a space, a tab or a no-break space between the two parts
+- [x] 2.2 Compare the one-line result of each pair with its whole expected text, with a space, a tab or a no-break space between the two parts
   - Verification: `uv run devops ci test tests/test_consolidation_security_sanitizer.py`
 
 ## 3. Archive
