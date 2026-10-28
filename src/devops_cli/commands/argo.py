@@ -35,12 +35,10 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_command, is_dry_run
-from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.exceptions.argo import ArgoError
-from devops_cli.exceptions.k8s import StackCredentialError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
 from devops_cli.http.urls import service_base_url
@@ -78,7 +76,7 @@ app.add_typer(gitops_app, name="gitops")
 cd_app.add_typer(gitops_app, name="gitops")
 
 # A refusal at the connect ends each command with its message and no traceback.
-cd_apps_app = new_typer(help=HELP.argo.cd, exit_on=SSRFBlockedError)
+cd_apps_app = new_typer(help=HELP.argo.cd)
 cd_app.add_typer(cd_apps_app, name="apps")
 
 
@@ -188,8 +186,7 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
     except ValueError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
-    with exit_on_error(StackCredentialError):
-        _, token = resolve_argocd_server_and_token(settings)
+    _, token = resolve_argocd_server_and_token(settings)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

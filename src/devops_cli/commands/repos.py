@@ -24,13 +24,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import load_settings
-from devops_cli.core.cli import exit_on_error, new_typer, repo_label
+from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubOperationError, GitOperationError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
 from devops_cli.git.worktree_add import ReclaimResult, add_worktree, reclaim_merged_worktrees
@@ -65,8 +64,7 @@ def _require_client() -> GitHubClient:
     """The session's client, exiting with the unauthenticated error when gh has no token."""
     from devops_cli.github.session import get_github_session
 
-    with exit_on_error(GitHubOperationError):
-        session = get_github_session()
+    session = get_github_session()
     return session.client
 
 
@@ -185,13 +183,12 @@ def clone_org(
     org_dir = _resolve_safe_org_dir(root, org_name)
     client = _require_client()
 
-    with exit_on_error(GitHubOperationError):
-        repos = client.get_org_repos(
-            org_name,
-            include_private=private,
-            include_forks=forks,
-            include_archived=False,
-        )
+    repos = client.get_org_repos(
+        org_name,
+        include_private=private,
+        include_forks=forks,
+        include_archived=False,
+    )
     org_dir.mkdir(parents=True, exist_ok=True)
 
     print_info(
@@ -296,8 +293,7 @@ def clone(
     dest_dir.mkdir(parents=True, exist_ok=True)
     masked_url = mask_secrets(url)
     print_info(MESSAGES.repos.cloning_repo.format(url=masked_url, dest=dest), prefix=False)
-    with exit_on_error(GitOperationError):
-        clone_repo(url, dest)
+    clone_repo(url, dest)
     _sync_and_reload_workspace(root, settings.workspace.file)
     print_success(MESSAGES.repos.done, prefix=False)
 
@@ -584,15 +580,14 @@ def worktrees_add(
     root = (repo_dir or find_repo_root()).resolve()
     resolved = resolve_format(output_format, json_output=json_output)
     is_plan = dry_run or is_dry_run()
-    with exit_on_error(DevOpsCLIError):
-        reclaimed = reclaim_merged_worktrees(root, dry_run=is_plan) if reclaim else ReclaimResult()
-        if resolved == CONST_OUTPUT_FORMAT_TABLE:
-            # Each removal is shown before a later refusal can hide it.
-            for item in reclaimed.removed:
-                _render_prune_item(item)
-        report = add_worktree(
-            root, issue=issue, type_=branch_type, slug=slug, dry_run=is_plan, reclaim=reclaimed
-        )
+    reclaimed = reclaim_merged_worktrees(root, dry_run=is_plan) if reclaim else ReclaimResult()
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
+        # Each removal is shown before a later refusal can hide it.
+        for item in reclaimed.removed:
+            _render_prune_item(item)
+    report = add_worktree(
+        root, issue=issue, type_=branch_type, slug=slug, dry_run=is_plan, reclaim=reclaimed
+    )
 
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(report.model_dump(), resolved)
@@ -635,11 +630,10 @@ def worktrees_prune(
     root = (repo_dir or find_repo_root()).resolve()
     entries = inventory_worktrees(root)
     origin = get_repo_origin_name(root)
-    with exit_on_error(DevOpsCLIError):
-        if is_plan:
-            report = plan_prune(entries, repo=origin, force=force)
-        else:
-            report = prune_worktrees(root, entries, repo=origin, force=force, confirm=confirm)
+    if is_plan:
+        report = plan_prune(entries, repo=origin, force=force)
+    else:
+        report = prune_worktrees(root, entries, repo=origin, force=force, confirm=confirm)
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

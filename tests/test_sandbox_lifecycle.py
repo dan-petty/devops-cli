@@ -290,25 +290,21 @@ _SANDBOX_RUNNERS: dict[str, tuple[Any, type[Exception]]] = {
 }
 
 
-def _run_docker_sandbox_dry_run(workspace: Path, tmp_path: Path) -> None:
-    """Run `devops docker sandbox --dry-run`."""
+def _run_docker_sandbox_dry_run(workspace: Path, tmp_path: Path) -> Any:
+    """Run `devops docker sandbox --dry-run` and return its result."""
     from devops_cli.commands.docker import app as docker_app
 
-    CliRunner().invoke(
-        docker_app,
-        ["sandbox", "--dry-run", "--workspace", str(workspace), "true"],
-        catch_exceptions=False,
+    return CliRunner().invoke(
+        docker_app, ["sandbox", "--dry-run", "--workspace", str(workspace), "true"]
     )
 
 
-def _run_test_sandbox_dry_run(workspace: Path, tmp_path: Path) -> None:
-    """Run `devops test sandbox --dry-run`."""
+def _run_test_sandbox_dry_run(workspace: Path, tmp_path: Path) -> Any:
+    """Run `devops test sandbox --dry-run` and return its result."""
     from devops_cli.commands.test_cmd import app as test_app
 
-    CliRunner().invoke(
-        test_app,
-        ["sandbox", "--dry-run", "--workspace", str(workspace), "true"],
-        catch_exceptions=False,
+    return CliRunner().invoke(
+        test_app, ["sandbox", "--dry-run", "--workspace", str(workspace), "true"]
     )
 
 
@@ -551,7 +547,8 @@ def test_sandbox_dry_runs_refuse_invalid_workspaces(
     docker_engine: Any,
 ) -> None:
     """Both devops docker sandbox --dry-run and devops test sandbox --dry-run refuse invalid
-    workspaces before making any engine calls (#1383)."""
+    workspaces before making any engine calls (#1383). The command reports the refusal, which
+    names the workspace and the protected directory, and exits with its status (#2487)."""
     run, refusal = _SANDBOX_DRY_RUNNERS[runner_name]
     runtime_dir = tmp_path_factory.mktemp("rt")
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
@@ -560,15 +557,16 @@ def test_sandbox_dry_runs_refuse_invalid_workspaces(
         monkeypatch.setenv(name, value)
     client = MagicMock()
 
-    with docker_engine(client), pytest.raises(refusal) as refused:
-        run(workspace, tmp_path)
+    with docker_engine(client):
+        result = run(workspace, tmp_path)
 
-    message = str(refused.value)
-    assert (str(workspace) in message, str(protected) in message, client.mock_calls) == (
-        True,
-        True,
-        [],
-    )
+    assert (
+        result.exit_code,
+        type(result.exception),
+        str(workspace) in result.output,
+        str(protected) in result.output,
+        client.mock_calls,
+    ) == (refusal("").exit_code, SystemExit, True, True, [])
 
 
 @pytest.mark.parametrize("subcommand", ["docker-sandbox", "test-sandbox"])

@@ -546,7 +546,6 @@ def telemetry_semconv_refresh_cmd(
     ] = False,
 ) -> None:
     """Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot."""
-    from devops_cli.exceptions import DevOpsCLIError
     from devops_cli.telemetry.semconv import (
         GENAI_SNAPSHOT_PATH,
         refresh_genai_snapshot,
@@ -561,11 +560,7 @@ def telemetry_semconv_refresh_cmd(
             details={"argv": weaver_package_argv("weaver", commit, Path("<tmp>/package"))},
         )
         return
-    try:
-        snapshot = refresh_genai_snapshot(commit, snapshot_path=GENAI_SNAPSHOT_PATH)
-    except DevOpsCLIError as exc:
-        print_error(exc.message, prefix=False)
-        raise typer.Exit(exc.exit_code) from exc
+    snapshot = refresh_genai_snapshot(commit, snapshot_path=GENAI_SNAPSHOT_PATH)
     print_success(
         MESSAGES.telemetry.semconv_refreshed.format(
             path=GENAI_SNAPSHOT_PATH,

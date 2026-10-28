@@ -106,24 +106,16 @@ logger = logging.getLogger(__name__)
 
 # Every `devops gh` command reports a GitHub failure, an unauthenticated one included, as its
 # error rather than a traceback.
-app = new_typer(help=HELP.gh.app, no_args_is_help=True, exit_on=GitHubOperationError)
-labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True, exit_on=GitHubOperationError)
-milestones_app = new_typer(
-    help=HELP.gh.milestones_app, no_args_is_help=True, exit_on=GitHubOperationError
-)
-project_app = new_typer(
-    help=HELP.gh.project_app, no_args_is_help=True, exit_on=GitHubOperationError
-)
-views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True, exit_on=GitHubOperationError)
-pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True, exit_on=GitHubOperationError)
-issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True, exit_on=GitHubOperationError)
-runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True, exit_on=GitHubOperationError)
-branch_protection_app = new_typer(
-    help=HELP.gh.branch_protection_app, no_args_is_help=True, exit_on=GitHubOperationError
-)
-secrets_app = new_typer(
-    help=HELP.gh.secrets_app, no_args_is_help=True, exit_on=GitHubOperationError
-)
+app = new_typer(help=HELP.gh.app, no_args_is_help=True)
+labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True)
+milestones_app = new_typer(help=HELP.gh.milestones_app, no_args_is_help=True)
+project_app = new_typer(help=HELP.gh.project_app, no_args_is_help=True)
+views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
+pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
+issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
+runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True)
+branch_protection_app = new_typer(help=HELP.gh.branch_protection_app, no_args_is_help=True)
+secrets_app = new_typer(help=HELP.gh.secrets_app, no_args_is_help=True)
 
 app.add_typer(labels_app, name="labels")
 app.add_typer(milestones_app, name="milestones")

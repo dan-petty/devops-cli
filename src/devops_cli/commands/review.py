@@ -37,11 +37,10 @@ from devops_cli.config.defaults import (
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_TABLE_FORMAT,
 )
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
 from devops_cli.dry_run import PlannedRequest, is_dry_run, render_request_plan, set_dry_run
-from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format, resolve_format
@@ -888,8 +887,7 @@ def pr(
     )
     from devops_cli.github.session import get_github_session
 
-    with exit_on_error(GitHubOperationError):
-        get_github_session()
+    get_github_session()
 
     try:
         clients = (
@@ -908,37 +906,34 @@ def pr(
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent)
-        with exit_on_error(GitHubOperationError):
-            pages, title, pull, repo_name, base_revision = _prepare_pr_content(
-                number, repo, head_dir=head_dir
-            )
-        with exit_on_error(GitHubOperationError):
-            reviews = _run_pr_review_workflow(
-                pages,
-                title,
-                pull,
-                number,
-                head_dir,
-                base_revision,
-                summary,
-                clients,
-                stage_flags,
-                concurrency,
-                parallel,
-                full,
-                session_id,
-                repo_arg=repo,
-            )
+        pages, title, pull, repo_name, base_revision = _prepare_pr_content(
+            number, repo, head_dir=head_dir
+        )
+        reviews = _run_pr_review_workflow(
+            pages,
+            title,
+            pull,
+            number,
+            head_dir,
+            base_revision,
+            summary,
+            clients,
+            stage_flags,
+            concurrency,
+            parallel,
+            full,
+            session_id,
+            repo_arg=repo,
+        )
 
     if post_comment and reviews:
-        with exit_on_error(GitHubOperationError):
-            _post_pr_review_comment(
-                reviews=reviews,
-                pages=pages,
-                head_dir=head_dir,
-                repo_name=repo_name,
-                number=number,
-            )
+        _post_pr_review_comment(
+            reviews=reviews,
+            pages=pages,
+            head_dir=head_dir,
+            repo_name=repo_name,
+            number=number,
+        )
 
 
 # =============================================================================
@@ -1314,12 +1309,11 @@ def _run_hand_off(hand_off: HandOff, repo: str, meter: SpendMeter, *, confirm: b
     from devops_cli.roadmap import store as roadmap_store
     from devops_cli.roadmap.intake_model import build_intake_model
 
-    with exit_on_error(DevOpsCLIError):
-        store = roadmap_store.get_roadmap_store(repo)
-        model = build_intake_model()
-        report = run_hand_off(
-            hand_off, repo=repo, store=store, model=model, confirm=confirm, meter=meter
-        )
+    store = roadmap_store.get_roadmap_store(repo)
+    model = build_intake_model()
+    report = run_hand_off(
+        hand_off, repo=repo, store=store, model=model, confirm=confirm, meter=meter
+    )
     write_stdout(report.render(confirm=confirm))
     if confirm and report.skipped:
         raise typer.Exit(1)
@@ -1358,8 +1352,7 @@ def intake(
     planned = dry_run or is_dry_run()
     # Counts from here what the run spends: the issue search, then intake's requests.
     meter = SpendMeter()
-    with exit_on_error(DevOpsCLIError):
-        hand_off = prepare_hand_off(session_dir, checkout, repo=target, dry_run=planned)
+    hand_off = prepare_hand_off(session_dir, checkout, repo=target, dry_run=planned)
     texts = MESSAGES.review
     if not hand_off.qualifying:
         print_info(texts.hand_off_none.format(session=hand_off.session), prefix=False)
@@ -2806,20 +2799,15 @@ def rules_fetch(
 
     if dry_run:
         set_dry_run(True)
-    with exit_on_error(DevOpsCLIError):
-        if is_dry_run():
-            paths = registry_cache_paths(ruleset)
-            render_request_plan(
-                MESSAGES.review.rules_fetch_dry_run_heading,
-                [PlannedRequest(method="GET", target=registry_ruleset_url(ruleset))],
-                [
-                    MESSAGES.review.rules_fetch_dry_run_writes.format(
-                        rules=paths.rules, etag=paths.etag
-                    )
-                ],
-            )
-            return
-        cached = fetch_registry_ruleset(ruleset)
+    if is_dry_run():
+        paths = registry_cache_paths(ruleset)
+        render_request_plan(
+            MESSAGES.review.rules_fetch_dry_run_heading,
+            [PlannedRequest(method="GET", target=registry_ruleset_url(ruleset))],
+            [MESSAGES.review.rules_fetch_dry_run_writes.format(rules=paths.rules, etag=paths.etag)],
+        )
+        return
+    cached = fetch_registry_ruleset(ruleset)
     template = (
         MESSAGES.review.rules_fetch_current
         if cached is None

@@ -50,9 +50,9 @@ from devops_cli.output import (
 from devops_cli.output.serialization import emit_serialized, resolve_format
 
 # A refusal at the connect ends each command with its message and no traceback.
-app = new_typer(help=HELP.grafana.app, no_args_is_help=True, exit_on=SSRFBlockedError)
+app = new_typer(help=HELP.grafana.app, no_args_is_help=True)
 
-dashboards_app = new_typer(help=HELP.grafana.dashboards, exit_on=SSRFBlockedError)
+dashboards_app = new_typer(help=HELP.grafana.dashboards)
 app.add_typer(dashboards_app, name="dashboards")
 
 

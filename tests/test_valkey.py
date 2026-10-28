@@ -684,8 +684,10 @@ class TestValkeyCliCommands:
         mock_resolve.return_value = mock_client
 
         res = runner.invoke(app, ["ping"])
-        assert res.exit_code != 0
-        assert "Valkey ping failed" in res.output
+        assert (res.exit_code, res.output) == (
+            ValkeyConnectionError("").exit_code,
+            "✗ Connection refused\n",
+        )
 
     @patch("devops_cli.commands.valkey._resolve_client")
     def test_cli_info(self, mock_resolve: MagicMock) -> None:
@@ -782,6 +784,41 @@ class TestValkeyCliCommands:
         assert res.exit_code == 0
         assert "Flushed Valkey database 0" in res.output
 
+    @patch("devops_cli.commands.valkey._resolve_client")
+    def test_cli_flush_all_flushes_every_database(self, mock_resolve: MagicMock) -> None:
+        mock_client = MagicMock()
+        mock_resolve.return_value = mock_client
+
+        res = runner.invoke(app, ["flush", "--all"])
+
+        assert (
+            res.exit_code,
+            res.output,
+            mock_client.flushall.call_count,
+            mock_client.flushdb.call_count,
+        ) == (0, "✓ Flushed all Valkey databases.\n", 1, 0)
+
+    @patch("devops_cli.commands.valkey._resolve_client")
+    def test_cli_without_a_command_names_the_server_and_runs_nothing(
+        self, mock_resolve: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.host = "valkey.example.com"
+        mock_client.port = 6379
+        mock_resolve.return_value = mock_client
+
+        res = runner.invoke(app, ["cli"])
+
+        assert (
+            res.exit_code,
+            "valkey.example.com:6379" in res.output,
+            mock_client.execute.called,
+        ) == (
+            0,
+            True,
+            False,
+        )
+
     def test_cli_flush_dry_run(self) -> None:
         res = runner.invoke(app, ["flush", "--dry-run"])
         assert res.exit_code == 0
@@ -852,8 +889,7 @@ def test_valkey_cli_error_and_edge_cases() -> None:
         mock_client.info.side_effect = ValkeyError("info failure", details={"code": 500})
         mock_res.return_value = mock_client
         res = runner.invoke(app, ["info"])
-        assert res.exit_code != 0
-        assert "Valkey info retrieval failed" in res.output
+        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ info failure\n")
 
     # 3. Stats raising ValkeyError
     with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
@@ -861,8 +897,7 @@ def test_valkey_cli_error_and_edge_cases() -> None:
         mock_client.info.side_effect = ValkeyError("stats failure", details={"cause": "err"})
         mock_res.return_value = mock_client
         res = runner.invoke(app, ["stats"])
-        assert res.exit_code != 0
-        assert "Failed collecting Valkey statistics" in res.output
+        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ stats failure\n")
 
     # 4. Get raising ValkeyError
     with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
@@ -870,8 +905,7 @@ def test_valkey_cli_error_and_edge_cases() -> None:
         mock_client.get.side_effect = ValkeyError("get failure")
         mock_res.return_value = mock_client
         res = runner.invoke(app, ["get", "mykey"])
-        assert res.exit_code != 0
-        assert "Failed to get key" in res.output
+        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ get failure\n")
 
     # 5. Set raising ValkeyError
     with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
@@ -879,8 +913,7 @@ def test_valkey_cli_error_and_edge_cases() -> None:
         mock_client.set.side_effect = ValkeyError("set failure")
         mock_res.return_value = mock_client
         res = runner.invoke(app, ["set", "mykey", "myval"])
-        assert res.exit_code != 0
-        assert "Failed to set key" in res.output
+        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ set failure\n")
 
     # 6. Flush raising ValkeyError
     with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
@@ -888,8 +921,7 @@ def test_valkey_cli_error_and_edge_cases() -> None:
         mock_client.flushdb.side_effect = ValkeyError("flush failure")
         mock_res.return_value = mock_client
         res = runner.invoke(app, ["flush"])
-        assert res.exit_code != 0
-        assert "Valkey flush failed" in res.output
+        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ flush failure\n")
 
     # 7. Backup raising ValkeyError
     with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
@@ -897,8 +929,7 @@ def test_valkey_cli_error_and_edge_cases() -> None:
         mock_client.bgsave.side_effect = ValkeyError("backup failure")
         mock_res.return_value = mock_client
         res = runner.invoke(app, ["backup"])
-        assert res.exit_code != 0
-        assert "Failed to initiate Valkey backup" in res.output
+        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ backup failure\n")
 
 
 def test_ai_runs_connect_brackets_ipv6_host(

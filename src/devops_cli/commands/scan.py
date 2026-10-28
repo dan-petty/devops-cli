@@ -611,11 +611,7 @@ def scan_sbom(
     if output_file:
         print_muted(f"Generating {norm_format.upper()} SBOM for {target_abs}...")
 
-    try:
-        sbom_output = run_trivy_sbom(target=target_abs, format_type=trivy_format)
-    except ToolExecutionError as exc:
-        print_error(f"Failed to generate SBOM: {exc}", prefix=False)
-        raise typer.Exit(exc.exit_code or 1) from exc
+    sbom_output = run_trivy_sbom(target=target_abs, format_type=trivy_format)
 
     if output_file:
         out_path = output_file.resolve()

@@ -16,7 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_BENCHMARK_SAMPLES,
     DEFAULT_BENCHMARK_TYPE,
 )
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import ERRORS, HELP
 from devops_cli.output import print_error, print_success, write_stdout, write_text_file
@@ -153,8 +153,7 @@ def _execute_embedding_benchmark(
         code_path=code,
         sample_count=samples,
     )
-    with exit_on_error(ValidationError):
-        embed_report = embed_runner.run()
+    embed_report = embed_runner.run()
 
     failed_cnt = (
         embed_report.failed_count
@@ -356,10 +355,9 @@ def run_benchmark(
         render_explanation("benchmark")
         return
 
-    with exit_on_error(ValidationError):
-        _validate_benchmark_type(benchmark_type)
-        _validate_corpus_choice(document, code)
-        server_list = _parse_server_list(servers)
+    _validate_benchmark_type(benchmark_type)
+    _validate_corpus_choice(document, code)
+    server_list = _parse_server_list(servers)
 
     from devops_cli.ai.endpoints import resolve_ai_endpoint
     from devops_cli.config.settings import load_settings

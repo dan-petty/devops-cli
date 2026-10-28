@@ -139,13 +139,9 @@ def _handle_lazy_proxy_dry_run(target: str, cmd_name: str, args: list[str]) -> N
 class OTelTyper(typer.Typer):
     """Subclass of Typer that wraps every registered command in an OpenTelemetry trace span and supports lazy string module paths.
 
-    With `exit_on`, each of its commands reports that error as `exit_on_error` does, without a
-    traceback.
+    It is the one exit seam of the CLI (#2487): each of its commands and callbacks reports a
+    `DevOpsCLIError` that it raises as `_report_devops_error` does, without a traceback.
     """
-
-    def __init__(self, *args: Any, exit_on: type[DevOpsCLIError] | None = None, **kwargs: Any):
-        super().__init__(*args, **kwargs)
-        self._exit_on = exit_on
 
     def add_typer(
         self,
@@ -197,12 +193,25 @@ class OTelTyper(typer.Typer):
 
             @functools.wraps(f)
             def traced_fn(*f_args: Any, **f_kwargs: Any) -> Any:
-                if self._exit_on is None:
-                    return _execute_traced_cli_command(f, f_args, f_kwargs, cmd_name)
-                with exit_on_error(self._exit_on):
+                with _report_devops_error():
                     return _execute_traced_cli_command(f, f_args, f_kwargs, cmd_name)
 
             decorator(traced_fn)
+            return f
+
+        return wrapper
+
+    def callback(self, *args: Any, **kwargs: Any) -> Callable[[_CommandFunc], _CommandFunc]:
+        decorator = super().callback(*args, **kwargs)
+
+        def wrapper(f: _CommandFunc) -> _CommandFunc:
+            # A callback with `invoke_without_command=True` is the body of its command.
+            @functools.wraps(f)
+            def reported_fn(*f_args: Any, **f_kwargs: Any) -> Any:
+                with _report_devops_error():
+                    return f(*f_args, **f_kwargs)
+
+            decorator(reported_fn)
             return f
 
         return wrapper
@@ -221,15 +230,15 @@ def repo_label(repo_dir: Path) -> str:
 
 
 @contextmanager
-def exit_on_error(error_type: type[DevOpsCLIError]) -> Iterator[None]:
-    """Report an `error_type` raised in the block as the command's error and exit with its status.
+def _report_devops_error() -> Iterator[None]:
+    """Report a `DevOpsCLIError` raised in the block as the command's error and exit with its status.
 
     The error's own message is the report, printed without a traceback and with any Rich markup
     in it escaped, since it can quote a remote service's reply.
     """
     try:
         yield
-    except error_type as exc:
+    except DevOpsCLIError as exc:
         from devops_cli.output import print_error
 
         print_error(exc.message, safe=True)

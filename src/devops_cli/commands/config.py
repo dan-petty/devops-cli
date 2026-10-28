@@ -45,9 +45,8 @@ from devops_cli.config.settings import (
     similar_config_keys,
 )
 from devops_cli.core.binaries import check_binary
-from devops_cli.core.cli import exit_on_error
+from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.exceptions import ConfigurationError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -64,7 +63,7 @@ logger = logging.getLogger(__name__)
 # Turns a settings value, such as a path or a list of them, into its JSON form for `config show`.
 _JSON_VALUE: TypeAdapter[Any] = TypeAdapter(Any)
 
-app = typer.Typer(help=HELP.config.app, no_args_is_help=True)
+app = new_typer(help=HELP.config.app, no_args_is_help=True)
 
 
 # =============================================================================
@@ -177,8 +176,7 @@ def get_value(
             "Secret keys cannot be retrieved with 'get'. Use 'config show'.", prefix=False
         )
         raise typer.Exit(1)
-    with exit_on_error(ConfigurationError):
-        settings = load_settings()
+    settings = load_settings()
     try:
         value = dotted_get(settings, key)
         print_info(str(value) if value is not None else "[dim](not set)[/dim]", prefix=False)
@@ -305,8 +303,7 @@ def unset_value(
     that the file does not hold exits 1. A credential in the OS keyring stays.
     """
     preview = dry_run or is_dry_run()
-    with exit_on_error(ConfigurationError):
-        removal = remove_config_key(key, dry_run=preview)
+    removal = remove_config_key(key, dry_run=preview)
     if preview:
         render_dry_run_result(
             command=CONST_CONFIG_UNSET_COMMAND,

@@ -658,10 +658,9 @@ def test_cli_sandbox_logs_nonexistent_identifier_clean_exit() -> None:
         mock_engine_cls.return_value = mock_eng
 
         res = runner.invoke(app, ["logs", "nonexistent-id"])
-        assert res.exit_code == 1
-        assert (
-            "Sandbox instance 'nonexistent-id' not found" in res.output
-            or "Failed to fetch logs" in res.output
+        assert (res.exit_code, res.output) == (
+            1,
+            "✗ Sandbox instance 'nonexistent-id' not found.\n",
         )
 
 

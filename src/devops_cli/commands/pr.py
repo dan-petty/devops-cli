@@ -62,7 +62,6 @@ logger = logging.getLogger(__name__)
 app = new_typer(
     help=HELP.pr.app,
     no_args_is_help=True,
-    exit_on=GitHubOperationError,
 )
 
 
@@ -1950,7 +1949,6 @@ def hardening_report_cmd(
 threads_app = new_typer(
     help=HELP.pr.threads_app,
     no_args_is_help=True,
-    exit_on=GitHubOperationError,
 )
 app.add_typer(threads_app, name="threads")
 

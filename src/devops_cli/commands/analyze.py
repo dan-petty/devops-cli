@@ -24,14 +24,13 @@ from devops_cli.config.defaults import (
     DEFAULT_MATCH_ALL_PATTERN,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import (
     find_repo_root,
     get_repo_origin_name,
     list_repo_files,
 )
 from devops_cli.dry_run import is_dry_run
-from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
@@ -503,8 +502,7 @@ def analyze_pr(  # noqa: C901
     from devops_cli.github.session import get_github_session
 
     repo = find_repo_root()
-    with exit_on_error(GitHubOperationError):
-        session = get_github_session()
+    session = get_github_session()
 
     ai_client = None
     if enhanced:
@@ -529,9 +527,8 @@ def analyze_pr(  # noqa: C901
         print_error(MESSAGES.analyze.github_origin_failed, prefix=False)
         raise typer.Exit(1)
 
-    with exit_on_error(GitHubOperationError):
-        pull = session.client.get_pull(repo_name, pr_number)
-        pull_files = session.client.get_pull_files(repo_name, pr_number)
+    pull = session.client.get_pull(repo_name, pr_number)
+    pull_files = session.client.get_pull_files(repo_name, pr_number)
     file_metas: list[FileAnalysisMeta] = []
 
     for f_file in pull_files:
