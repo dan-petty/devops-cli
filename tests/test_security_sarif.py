@@ -1663,15 +1663,15 @@ def test_every_emitted_document_conforms_to_the_sarif_schema(
     _assert_valid_sarif(document)
 
 
-def test_the_report_command_records_why_scanners_did_not_run(tmp_path: Path) -> None:
+def test_the_report_command_records_why_scanners_did_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Scanners missing from the workstation become notifications, never empty runs."""
     destination = tmp_path / "out.sarif"
-    with (
-        patch(
-            "devops_cli.security.registry.ScannerRegistry.list_scanners",
-            return_value=["bandit", "gitleaks"],
-        ),
-        patch("devops_cli.security.base.check_binary", return_value=False),
+    monkeypatch.setenv("PATH", str(tmp_path / "no-programs"))
+    with patch(
+        "devops_cli.security.registry.ScannerRegistry.list_scanners",
+        return_value=["bandit", "gitleaks"],
     ):
         result = runner.invoke(scan_app, ["report", str(tmp_path), "--sarif", str(destination)])
     document = json.loads(destination.read_text(encoding="utf-8"))

@@ -14,7 +14,6 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.security.base import (
     BaseSecurityScanner,
     ScannerConfigFile,

@@ -19,10 +19,9 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,8 +30,12 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings, load_settings, reset_settings_cache
-from tests.support.fakes.scanners import recorded_canary_answers
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import CACHED_RULESET_WORKDIR_NAME
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolRequest
 
 # The gateway the repository under review names, and the one the user's own config names.
 _PLANTED_GATEWAY = "http://example.com:4000"
@@ -353,13 +356,19 @@ spec:
 """
 
 
-def _kube_linter(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
+def _command(request: ToolRequest) -> list[str]:
+    """The command a tool request starts: the tool, then its arguments."""
+    return [request.tool, *request.arguments]
+
+
+def _kube_linter(request: ToolRequest) -> ToolAnswer:
     """kube-linter as measured: it reads `--config`, or else `.kube-linter.yaml` in its working
     directory, and a config with `doNotAutoAddDefaults: true` and no checks reports nothing."""
+    cmd = _command(request)
     if "lint" not in cmd:
-        return subprocess.CompletedProcess(cmd, 0, "", "")
+        return ToolAnswer()
     named = Path(cmd[cmd.index("--config") + 1]) if "--config" in cmd else None
-    config = named or Path(cwd or ".") / ".kube-linter.yaml"
+    config = named or (request.cwd or request.workdir) / ".kube-linter.yaml"
     no_checks = config.is_file() and "doNotAutoAddDefaults: true" in config.read_text()
     reports = [
         {
@@ -369,10 +378,12 @@ def _kube_linter(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
         }
         for check in ([] if no_checks else _KUBE_LINTER_CHECKS)
     ]
-    return subprocess.CompletedProcess(cmd, 1 if reports else 0, json.dumps({"Reports": reports}))
+    return ToolAnswer(exit_code=1 if reports else 0, stdout=json.dumps({"Reports": reports}))
 
 
-def test_a_scanner_config_the_repository_commits_changes_no_finding(hostile_repo: Path) -> None:
+def test_a_scanner_config_the_repository_commits_changes_no_finding(
+    hostile_repo: Path, scanner_fake: ScannerFake
+) -> None:
     """Review scanners ran in the reviewed file's directory with no config of devops-cli's own.
     A committed `.kube-linter.yaml` (`checks: {doNotAutoAddDefaults: true}`) took a privileged
     `nginx:latest` Deployment from 7 findings to 0 with the real kube-linter 0.8.3."""
@@ -384,8 +395,10 @@ def test_a_scanner_config_the_repository_commits_changes_no_finding(hostile_repo
         "checks:\n  doNotAutoAddDefaults: true\n", encoding="utf-8"
     )
 
-    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=_kube_linter)):
-        findings = _scan_kubernetes_manifests([manifest], {})
+    scanner_fake.answer_with("kube-linter", _kube_linter)
+    scanner_fake.script("pluto", ToolAnswer())
+
+    findings = _scan_kubernetes_manifests([manifest], {})
 
     assert sorted(f.description.partition(" for ")[0] for f in findings) == list(
         _KUBE_LINTER_CHECKS
@@ -419,17 +432,37 @@ def scanned_tree(hostile_repo: Path) -> Path:
 # The flags through which a scanner is handed a config or ignore file.
 _FILE_FLAGS = ("--config", "--ignorefile", "--gitleaks-ignore-path", "--ini")
 
+# The programs a review starts for the files of `scanned_tree`.
+_REVIEW_PROGRAMS = ("bandit", "gitleaks", "kube-linter", "osv-scanner", "pluto", "semgrep", "trivy")
+
+
+def _review_static_scanners(
+    tree: Path,
+    files: list[str],
+    scanner_fake: ScannerFake,
+    answer: Callable[[ToolRequest], ToolAnswer],
+    **orchestrator: Any,
+) -> Any:
+    """Run the review's static scanners over `files` of `tree`, each review program answered by
+    `answer` on `scanner_fake`, and return what the review found."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
+    for program in _REVIEW_PROGRAMS:
+        scanner_fake.answer_with(program, answer)
+    return ReviewPipelineOrchestrator(
+        target_dir=tree, llm_client=MagicMock(), tool_executor=scanner_fake, **orchestrator
+    )._run_static_scanners(files)
+
 
 def _review_scanner_calls(
-    tree: Path, session_dir: Path
+    tree: Path, session_dir: Path, scanner_fake: ScannerFake
 ) -> list[tuple[str, Path, dict[str, Path], dict[str, str]]]:
     """Run the review's static scanners over `tree` and return, per scanner run, the binary,
     its working directory, the files its flags named and their text while it ran."""
-    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-
     calls: list[tuple[str, Path, dict[str, Path], dict[str, str]]] = []
 
-    def scanner(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
+    def scanner(request: ToolRequest) -> ToolAnswer:
+        cmd = _command(request)
         # Semgrep's configs name the rule pack, a directory, or a file written in its working
         # directory by a relative path (#1144): none is a file handed from outside.
         named = {flag: Path(cmd[cmd.index(flag) + 1]) for flag in _FILE_FLAGS if flag in cmd}
@@ -437,28 +470,28 @@ def _review_scanner_calls(
             flag: path for flag, path in named.items() if path.is_absolute() and path.is_file()
         }
         texts = {flag: path.read_text(encoding="utf-8") for flag, path in handed.items()}
-        calls.append((Path(cmd[0]).name, Path(cwd or ".").resolve(), handed, texts))
-        return subprocess.CompletedProcess(cmd, 0, "{}", "")
+        workdir = (request.cwd or request.workdir).resolve()
+        calls.append((Path(request.tool).name, workdir, handed, texts))
+        return ToolAnswer(stdout="{}")
 
-    orchestrator = ReviewPipelineOrchestrator(
+    _review_static_scanners(
+        tree,
+        ["app.py", "deploy.yaml", "Dockerfile"],
+        scanner_fake,
+        scanner,
         session_id="scan",
-        target_dir=tree,
         session_dir=session_dir,
-        llm_client=MagicMock(),
-        tool_executor=recorded_canary_answers(),
     )
-    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
-        orchestrator._run_static_scanners(["app.py", "deploy.yaml", "Dockerfile"])
     return calls
 
 
 def test_every_review_scanner_runs_from_a_temporary_directory_outside_the_tree(
-    scanned_tree: Path, tmp_path: Path
+    scanned_tree: Path, tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
     """Each review scanner ran in the reviewed file's directory, where it found the config and
     ignore files the tree committed. Each now runs from a temporary directory outside the tree,
     which is gone once the scanner returns."""
-    calls = _review_scanner_calls(scanned_tree, tmp_path / "session")
+    calls = _review_scanner_calls(scanned_tree, tmp_path / "session", scanner_fake)
 
     in_the_tree_or_left = {
         name: any(
@@ -474,7 +507,7 @@ def test_every_review_scanner_runs_from_a_temporary_directory_outside_the_tree(
 
 
 def test_review_scanners_are_handed_devops_owned_config_and_ignore_files(
-    scanned_tree: Path, tmp_path: Path
+    scanned_tree: Path, tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
     """A scanner that reads a config or ignore file from its working directory or the scanned
     tree is handed devops-cli's own, outside the tree: the default configuration, less the checks
@@ -487,7 +520,7 @@ def test_review_scanners_are_handed_devops_owned_config_and_ignore_files(
         CONST_REVIEW_SCAN_TRIVY_CONFIG,
     )
 
-    calls = _review_scanner_calls(scanned_tree, tmp_path / "session")
+    calls = _review_scanner_calls(scanned_tree, tmp_path / "session", scanner_fake)
 
     handed = {
         binary: (texts, any(path.is_relative_to(scanned_tree) for path in paths.values()))
@@ -515,31 +548,25 @@ _PLANTED_SEMGREP_RULE = (
 
 
 def _semgrep_runs(
-    tree: Path, files: list[str], record: Callable[[list[str], Path], Any]
+    tree: Path,
+    files: list[str],
+    record: Callable[[list[str], Path], Any],
+    scanner_fake: ScannerFake,
 ) -> list[Any]:
     """Run the review's static scanners over `files` of `tree` and return what `record` saw of
     each Semgrep run, from its command and working directory while it ran."""
-    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-
     seen: list[Any] = []
 
-    def scanner(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
-        if Path(cmd[0]).name == "semgrep":
-            seen.append(record(cmd, Path(cwd or ".")))
-        return subprocess.CompletedProcess(cmd, 0, "{}", "")
+    def scanner(request: ToolRequest) -> ToolAnswer:
+        if Path(request.tool).name == "semgrep":
+            seen.append(record(_command(request), request.cwd or request.workdir))
+        return ToolAnswer(stdout="{}")
 
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="semgrep",
-        target_dir=tree,
-        llm_client=MagicMock(),
-        tool_executor=recorded_canary_answers(),
-    )
-    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
-        orchestrator._run_static_scanners(files)
+    _review_static_scanners(tree, files, scanner_fake, scanner, session_id="semgrep")
     return seen
 
 
-def _planted_semgrep_runs(tree: Path) -> list[Any]:
+def _planted_semgrep_runs(tree: Path, scanner_fake: ScannerFake) -> list[Any]:
     """Plant Semgrep rules in `tree`, as `.semgrep.yml` and a `.semgrep/` directory, and return
     the files and the first `--config` of each Semgrep run of a review of `tree`."""
     (tree / ".semgrep.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
@@ -550,16 +577,20 @@ def _planted_semgrep_runs(tree: Path) -> list[Any]:
         files = sorted(path.relative_to(workdir).as_posix() for path in workdir.rglob("*"))
         return files, cmd[cmd.index("--config") + 1]
 
-    return _semgrep_runs(tree, ["app.py", "deploy.yaml", "Dockerfile"], workdir_files_and_rules)
+    return _semgrep_runs(
+        tree, ["app.py", "deploy.yaml", "Dockerfile"], workdir_files_and_rules, scanner_fake
+    )
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
-def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(scanned_tree: Path) -> None:
+def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(
+    scanned_tree: Path, scanner_fake: ScannerFake
+) -> None:
     """Semgrep runs on its targets linked or copied under its working directory (#1079). Only
     the targets and the cached registry ruleset are there: the tree's `.semgrepignore`,
     `.semgrep.yml` and `.semgrep/` rule stay out, and the rules still come from `--config`
     alone (#1144)."""
-    runs = _planted_semgrep_runs(scanned_tree)
+    runs = _planted_semgrep_runs(scanned_tree, scanner_fake)
 
     assert runs == [
         (
@@ -570,17 +601,17 @@ def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(scanned_tree:
 
 
 def test_semgrep_without_the_cached_ruleset_takes_its_rules_from_the_rule_pack_alone(
-    scanned_tree: Path,
+    scanned_tree: Path, scanner_fake: ScannerFake
 ) -> None:
     from devops_cli.review.rules_pack import RULE_PACK_DIR
 
-    runs = _planted_semgrep_runs(scanned_tree)
+    runs = _planted_semgrep_runs(scanned_tree, scanner_fake)
 
     assert runs == [(["Dockerfile", "app.py", "deploy.yaml"], str(RULE_PACK_DIR))]
 
 
 def test_no_symlink_in_the_tree_takes_semgrep_outside_it(
-    hostile_repo: Path, tmp_path: Path
+    hostile_repo: Path, tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
     """A reviewed file that is a link out of the tree reached Semgrep as the path it pointed to,
     so Semgrep read a file outside the tree. Semgrep now reads only files inside it: a link to a
@@ -599,7 +630,10 @@ def test_no_symlink_in_the_tree_takes_semgrep_outside_it(
         return names, any(path.is_relative_to(outside) for path in read)
 
     runs = _semgrep_runs(
-        hostile_repo, ["app.py", "leak.py", "linked/secret.py", "alias.py"], named_and_read
+        hostile_repo,
+        ["app.py", "leak.py", "linked/secret.py", "alias.py"],
+        named_and_read,
+        scanner_fake,
     )
 
     assert runs == [([os.path.join(os.curdir, "app.py")], False)]
@@ -612,24 +646,24 @@ _OPTION_LIKE_NAMES = ("-", "-a", "--autofix", "--version", "--config=planted.yml
 
 
 def test_a_file_the_tree_names_like_an_option_is_only_a_file_to_semgrep(
-    hostile_repo: Path,
+    hostile_repo: Path, scanner_fake: ScannerFake
 ) -> None:
     """A review named each materialized target by its bare path in the tree, so a root file
     named like an option reached Semgrep's command line as that option, and one named `-` made
     it read its stdin, under `devops mcp` the client's request stream (#1079). Each target is
-    now named `./<its path>`: Semgrep takes none as an option, each finding lands on the file
-    it was found in, and no scanner of the review gets the caller's stdin."""
+    now named `./<its path>`: Semgrep takes none as an option, and each finding lands on the file
+    it was found in. No scanner of the review gets the caller's stdin: each runs through the
+    tool executor, which gives every tool an empty stdin."""
     (hostile_repo / "planted.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
     for name in _OPTION_LIKE_NAMES:
         (hostile_repo / name).write_text("x = 1\n", encoding="utf-8")
     reviewed = ["app.py", "planted.yml", *_OPTION_LIKE_NAMES]
     targets: list[str] = []
-    stdins: set[str | None] = set()
 
-    def scanner(cmd: list[str], cwd: Path | None = None, **kwargs: Any) -> Any:
-        stdins.add(kwargs.get("input"))
-        if Path(cmd[0]).name != "semgrep":
-            return subprocess.CompletedProcess(cmd, 0, "{}", "")
+    def scanner(request: ToolRequest) -> ToolAnswer:
+        if Path(request.tool).name != "semgrep":
+            return ToolAnswer(stdout="{}")
+        cmd = _command(request)
         named = cmd[cmd.index("--quiet") + 1 :]
         targets.extend(named)
         results = [
@@ -642,29 +676,20 @@ def test_a_file_the_tree_names_like_an_option_is_only_a_file_to_semgrep(
             }
             for name in named
         ]
-        return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": results}), "")
+        return ToolAnswer(stdout=json.dumps({"results": results}))
 
-    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-
-    orchestrator = ReviewPipelineOrchestrator(
-        session_id="semgrep",
-        target_dir=hostile_repo,
-        llm_client=MagicMock(),
-        tool_executor=recorded_canary_answers(),
+    findings = _review_static_scanners(
+        hostile_repo, reviewed, scanner_fake, scanner, session_id="semgrep"
     )
-    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
-        findings = orchestrator._run_static_scanners(reviewed)
 
     assert (
         [name for name in targets if name.startswith("-")],
         sorted(os.path.normpath(name) for name in targets),
         sorted(finding.location for found in findings.values() for finding in found),
-        stdins,
     ) == (
         [],
         sorted(reviewed),
         sorted(f"{name}:1" for name in reviewed),
-        {""},
     )
 
 

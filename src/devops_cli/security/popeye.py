@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_POPEYE, build_popeye_cmd
 from devops_cli.config.constants import CONST_POPEYE_RESOURCE_GROUPS, CONST_POPEYE_SCAN_DIR_PREFIX
-from devops_cli.core.process import run_subprocess  # noqa: F401
-from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 if TYPE_CHECKING:

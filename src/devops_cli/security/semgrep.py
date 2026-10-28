@@ -21,8 +21,6 @@ from devops_cli.config.defaults import (
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_SEMGREP_REVIEW_BATCH_FILES,
 )
-from devops_cli.core.process import run_subprocess  # noqa: F401
-from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.lang import MESSAGES
 from devops_cli.security.base import (
     BaseSecurityScanner,

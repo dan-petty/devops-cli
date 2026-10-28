@@ -10,6 +10,8 @@ import pytest
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.scan import scan_trivy as scan_main
+from devops_cli.config.commands import BIN_KUBELINTER
+from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter_scan
 from devops_cli.security.pluto import parse_pluto_json, run_pluto_scan
 from devops_cli.security.popeye import run_popeye_scan
@@ -149,12 +151,8 @@ def test_devops_scan_dry_run() -> None:
     assert res.status == "DRY_RUN"
 
 
-def test_kubelinter_scanner_execution(tmp_path: Path) -> None:
-    """Verify kubelinter subprocess execution and exit 127 handling."""
-    import json
-    import subprocess
-    from unittest.mock import patch
-
+def test_kubelinter_scanner_execution(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+    """Verify kubelinter execution and exit 127 handling."""
     kl_json = json.dumps(
         {
             "Reports": [
@@ -172,33 +170,28 @@ def test_kubelinter_scanner_execution(tmp_path: Path) -> None:
             ]
         }
     )
-    mock_kl_proc = subprocess.CompletedProcess(
-        args=["kube-linter"], returncode=0, stdout=kl_json, stderr=""
-    )
-    with patch("devops_cli.security.kubelinter.run_subprocess", return_value=mock_kl_proc):
-        kl_findings = run_kubelinter_scan(tmp_path)
-        assert len(kl_findings) == 1
-        assert "run-as-non-root" in kl_findings[0].title
+    scanner_fake.script(BIN_KUBELINTER, ToolAnswer(stdout=kl_json))
+    kl_findings = run_kubelinter_scan(tmp_path)
 
-    mock_127 = subprocess.CompletedProcess(
-        args=["cmd"], returncode=127, stdout="", stderr="not found"
+    scanner_fake.script(BIN_KUBELINTER, ToolAnswer(exit_code=127, stderr="not found"))
+    after_127 = run_kubelinter_scan(tmp_path)
+
+    assert (len(kl_findings), "run-as-non-root" in kl_findings[0].title, after_127) == (
+        1,
+        True,
+        [],
     )
-    with patch("devops_cli.security.kubelinter.run_subprocess", return_value=mock_127):
-        assert run_kubelinter_scan(tmp_path) == []
 
 
 def test_secops_scanners_dry_run(tmp_path: Path) -> None:
     """Verify dry run branches for kubelinter, pluto, and popeye."""
-    from unittest.mock import patch
+    set_dry_run(True)
 
-    with patch("devops_cli.security.kubelinter.is_dry_run", return_value=True):
-        assert len(run_kubelinter_scan(tmp_path)) == 1
-
-    with patch("devops_cli.security.pluto.is_dry_run", return_value=True):
-        assert len(run_pluto_scan(tmp_path)) == 1
-
-    with patch("devops_cli.security.popeye.is_dry_run", return_value=True):
-        assert len(run_popeye_scan()) == 1
+    assert (
+        len(run_kubelinter_scan(tmp_path)),
+        len(run_pluto_scan(tmp_path)),
+        len(run_popeye_scan()),
+    ) == (1, 1, 1)
 
 
 def test_kubelinter_locations_are_relative_to_the_nested_worktree(

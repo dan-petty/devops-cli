@@ -8,7 +8,6 @@ Gitleaks fell back to its built-in patterns. A reader took that for a clean scan
 from __future__ import annotations
 
 import os
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -28,11 +27,13 @@ from devops_cli.ai.review.pipeline import (
 from devops_cli.ai.review.profile import ReviewProfile, profiling, summarize_profiles
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands import review as review_commands
+from devops_cli.config.constants import CONST_SANDBOX_TIMEOUT_EXIT_CODE
 from devops_cli.review.session import ReviewSession
 from devops_cli.security import is_kubernetes_manifest
 from devops_cli.security.base import ScanOutcome
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import CACHED_RULESET_DIGEST, CACHED_RULESET_WORKDIR_NAME
 
 _ONLY_BANDIT = {
@@ -230,10 +231,9 @@ def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
     """Verify a token a failing scanner printed instead of JSON never reaches review.md (#915)."""
     token = "ghp_" + "Q7rT2xW9yB4nM6kP1sD8fG3hJ5lZ0cV2aE7u"
     (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
-    failed = subprocess.CompletedProcess(
-        ["bandit"], 1, stdout=f"fatal: could not authenticate with {token}\n", stderr=""
+    scanner_fake.script(
+        "bandit", ToolAnswer(exit_code=1, stdout=f"fatal: could not authenticate with {token}\n")
     )
-    monkeypatch.setattr("devops_cli.security.bandit.run_subprocess", MagicMock(return_value=failed))
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
     for scan in ("_scan_secrets", "_scan_semgrep"):
@@ -268,9 +268,8 @@ def test_a_scanner_timeout_reads_timed_out_in_the_report_and_the_profile(
     )
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles", "_scan_secrets"):
         monkeypatch.setattr(pipeline, scan, lambda *_, **__: [])
-    monkeypatch.setattr(
-        "devops_cli.security.base.run_subprocess",
-        MagicMock(side_effect=subprocess.TimeoutExpired(["semgrep", "scan"], 300.0)),
+    scanner_fake.script(
+        "semgrep", ToolAnswer(exit_code=CONST_SANDBOX_TIMEOUT_EXIT_CODE, timed_out=True)
     )
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
     orchestrator = ReviewPipelineOrchestrator(

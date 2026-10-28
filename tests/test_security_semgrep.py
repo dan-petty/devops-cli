@@ -8,8 +8,8 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -19,6 +19,8 @@ from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.profile import profiling
 from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.config.constants import CONST_SANDBOX_TIMEOUT_EXIT_CODE
+from devops_cli.dry_run.state import set_dry_run
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from devops_cli.security.base import MaterializedTargets, ScanOutcome
 from devops_cli.security.registry import global_scanner_registry
@@ -30,12 +32,16 @@ from devops_cli.security.semgrep import (
 from devops_cli.security.semgrep_registry import cached_ruleset
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import (
     CACHED_RULESET,
     CACHED_RULESET_FILE_NAME,
     CACHED_RULESET_WORKDIR_NAME,
     REPLACED_RULESET,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.security.tool_executor import ToolRequest
 
 runner = CliRunner()
 
@@ -92,7 +98,7 @@ def test_parse_semgrep_json() -> None:
     assert MESSAGES.scan.semgrep_default_message in findings_no_msg[0].title
 
 
-def test_run_semgrep_scan_subprocess_mock(tmp_path: Path) -> None:
+def test_run_semgrep_scan_subprocess_mock(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     test_file = tmp_path / "app.py"
     test_file.write_text("import pickle\npickle.loads(b'...')\n", encoding="utf-8")
 
@@ -113,21 +119,21 @@ def test_run_semgrep_scan_subprocess_mock(tmp_path: Path) -> None:
         }
     )
 
-    with patch("devops_cli.security.semgrep.run_subprocess") as mock_proc:
-        mock_proc.return_value = subprocess.CompletedProcess(
-            args=["semgrep"], returncode=0, stdout=mock_stdout, stderr=""
-        )
-        findings = run_semgrep_scan(test_file)
-        assert len(findings) == 1
-        assert "[avoid-pickle]" in findings[0].title
-        assert findings[0].location == f"{test_file}:2"
+    scanner_fake.script("semgrep", ToolAnswer(stdout=mock_stdout))
+
+    findings = run_semgrep_scan(test_file)
+
+    assert [(f.title.startswith("[avoid-pickle]"), f.location) for f in findings] == [
+        (True, f"{test_file}:2")
+    ]
 
 
 def test_run_semgrep_scan_dry_run(tmp_path: Path) -> None:
-    with patch("devops_cli.security.semgrep.is_dry_run", return_value=True):
-        findings = run_semgrep_scan(tmp_path / "main.py")
-        assert len(findings) == 1
-        assert "[DRY-RUN]" in findings[0].title
+    set_dry_run(True)
+
+    findings = run_semgrep_scan(tmp_path / "main.py")
+
+    assert (len(findings), "[DRY-RUN]" in findings[0].title) == (1, True)
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
@@ -225,9 +231,19 @@ def reviewed_checkout(checkout_of_333_files: Path, monkeypatch: pytest.MonkeyPat
     return checkout_of_333_files
 
 
-def _named_targets(cmd: list[str]) -> list[str]:
+def _named_targets(request: ToolRequest) -> list[str]:
     """The targets a review's Semgrep command names, after its last flag."""
+    cmd = list(request.arguments)
     return cmd[cmd.index("--quiet") + 1 :]
+
+
+# Semgrep's answer when it runs out of time: the executor ends it with the timeout exit code.
+_TIMED_OUT = ToolAnswer(exit_code=CONST_SANDBOX_TIMEOUT_EXIT_CODE, timed_out=True)
+
+
+def _answered(report: dict[str, Any]) -> ToolAnswer:
+    """Semgrep's answer that prints `report` and exits 0."""
+    return ToolAnswer(stdout=json.dumps(report))
 
 
 def _a_regular_file_under(workdir: Path, name: str) -> bool:
@@ -256,17 +272,17 @@ def _semgrep_result(name: str, line: int) -> dict[str, Any]:
 
 def _review_scan(
     tree: Path,
-    semgrep: Callable[..., subprocess.CompletedProcess[str]],
+    semgrep: Callable[[ToolRequest], ToolAnswer],
     tool_executor: ScannerFake,
     files: list[str] = _REVIEWED_FILES,
 ) -> dict[str, list[SavedFinding]]:
-    """Run the review's static scanners over `files` with `semgrep` as the binary, and the canaries
-    of the review on `tool_executor`."""
+    """Run the review's static scanners over `files` on `tool_executor`, which answers each
+    Semgrep run with `semgrep`."""
+    tool_executor.answer_with("semgrep", semgrep)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="semgrep", target_dir=tree, tool_executor=tool_executor
     )
-    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)):
-        return orchestrator._run_static_scanners(list(files))
+    return orchestrator._run_static_scanners(list(files))
 
 
 def test_a_reviews_semgrep_scan_names_only_targets_under_its_working_directory(
@@ -280,10 +296,12 @@ def test_a_reviews_semgrep_scan_names_only_targets_under_its_working_directory(
     directory, led by `./`, and every reviewed file is named once."""
     named: list[tuple[str, bool]] = []
 
-    def semgrep(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
-        workdir = Path(cwd or ".")
-        named.extend((name, _a_regular_file_under(workdir, name)) for name in _named_targets(cmd))
-        return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": []}), "")
+    def semgrep(request: ToolRequest) -> ToolAnswer:
+        workdir = request.cwd or request.workdir
+        named.extend(
+            (name, _a_regular_file_under(workdir, name)) for name in _named_targets(request)
+        )
+        return _answered({"results": []})
 
     _review_scan(reviewed_checkout, semgrep, scanner_fake)
 
@@ -301,12 +319,13 @@ def test_semgrep_findings_carry_the_reviewed_trees_paths_and_lines(
     reviewed tree. The fake Semgrep runs out of time when a target lies outside its working
     directory, as the real one did in the 11 reviews."""
 
-    def semgrep(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
-        names = _named_targets(cmd)
-        if not all(_a_regular_file_under(Path(cwd or "."), name) for name in names):
-            raise subprocess.TimeoutExpired(cmd, 300.0)
+    def semgrep(request: ToolRequest) -> ToolAnswer:
+        names = _named_targets(request)
+        workdir = request.cwd or request.workdir
+        if not all(_a_regular_file_under(workdir, name) for name in names):
+            return _TIMED_OUT
         results = [_semgrep_result(name, 3) for name in names if name.endswith("/mod_7.py")]
-        return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": results}), "")
+        return _answered({"results": results})
 
     findings = _review_scan(reviewed_checkout, semgrep, scanner_fake, _REVIEWED_FILES[:12])
 
@@ -327,20 +346,20 @@ def test_a_semgrep_timeout_loses_only_its_batch(
     monkeypatch.setattr("devops_cli.security.semgrep.DEFAULT_SEMGREP_REVIEW_BATCH_FILES", 4)
     batch_sizes: list[int] = []
 
-    def semgrep(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
-        names = [os.path.normpath(name) for name in _named_targets(cmd)]
+    def semgrep(request: ToolRequest) -> ToolAnswer:
+        names = [os.path.normpath(name) for name in _named_targets(request)]
         batch_sizes.append(len(names))
         if "pkg0/mod_0.py" in names:
-            raise subprocess.TimeoutExpired(cmd, 300.0)
+            return _TIMED_OUT
         kept = ("pkg1/mod_1.py", "pkg7/mod_7.py", "pkg0/mod_9.py")
         results = [_semgrep_result(name, 3) for name in names if name in kept]
-        return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": results}), "")
+        return _answered({"results": results})
 
+    scanner_fake.answer_with("semgrep", semgrep)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="semgrep", target_dir=reviewed_checkout, tool_executor=scanner_fake
     )
-    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)):
-        findings = orchestrator._run_static_scanners(_REVIEWED_FILES[:10])
+    findings = orchestrator._run_static_scanners(_REVIEWED_FILES[:10])
 
     assert (
         batch_sizes,
@@ -355,7 +374,9 @@ def test_a_semgrep_timeout_loses_only_its_batch(
     )
 
 
-def test_semgrep_findings_carry_paths_relative_to_scan_root(tmp_path: Path) -> None:
+def test_semgrep_findings_carry_paths_relative_to_scan_root(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
     """Semgrep findings carry paths relative to scan root rather than absolute paths."""
 
     fixture_tree = tmp_path / "tree"
@@ -378,11 +399,9 @@ def test_semgrep_findings_carry_paths_relative_to_scan_root(tmp_path: Path) -> N
             }
         ]
     }
-    with patch("devops_cli.security.semgrep.run_subprocess") as mock_proc:
-        mock_proc.return_value = subprocess.CompletedProcess(
-            args=["semgrep"], returncode=0, stdout=json.dumps(fake_output), stderr=""
-        )
-        outcome = run_semgrep_scan([x_file], reviewed_tree=fixture_tree)
+    scanner_fake.script("semgrep", ToolAnswer(stdout=json.dumps(fake_output)))
+
+    outcome = run_semgrep_scan([x_file], reviewed_tree=fixture_tree)
 
     assert len(outcome) == 1
     f = outcome[0]
@@ -915,18 +934,17 @@ def test_a_review_shows_the_files_semgrep_left_out_in_its_coverage_and_analyzer_
     left_out = {"pkg2/mod_2.py", "pkg3/mod_3.py"}
     count_text = "Files not scanned: 2. The Coverage section lists them."
 
-    def semgrep(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
-        scanned = [os.path.normpath(name) for name in _named_targets(cmd)]
-        report = {"results": [], "paths": {"scanned": [n for n in scanned if n not in left_out]}}
-        return subprocess.CompletedProcess(cmd, 0, json.dumps(report), "")
+    def semgrep(request: ToolRequest) -> ToolAnswer:
+        scanned = [os.path.normpath(name) for name in _named_targets(request)]
+        return _answered(
+            {"results": [], "paths": {"scanned": [n for n in scanned if n not in left_out]}}
+        )
 
+    scanner_fake.answer_with("semgrep", semgrep)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="semgrep", target_dir=reviewed_checkout, tool_executor=scanner_fake
     )
-    with (
-        profiling() as profiler,
-        patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=semgrep)),
-    ):
+    with profiling() as profiler:
         orchestrator._run_static_scanners(files)
     profile = profiler.build(session_id="semgrep", target=str(reviewed_checkout))
     coverage = "\n".join(orchestrator._build_coverage_section())
