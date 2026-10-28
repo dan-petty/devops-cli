@@ -252,6 +252,31 @@ class TestBench:
         }
         assert sorted(imported - sys.stdlib_module_names) == []
 
+    def test_refused_backend_url_reaches_the_sweep_without_its_credentials(self) -> None:
+        """Verify a refused backend URL's error names neither its userinfo nor its query (#909)."""
+        level = bench.run_level(
+            "ftp://user:s3cr3t@example.com/x?token=t0k3n",
+            "m",
+            "prompt",
+            5,
+            concurrency=1,
+            total=1,
+            timeout=1.0,
+        )
+
+        error = level["last_error"]
+        assert (
+            level["errors"],
+            error.startswith("ValueError: "),
+            "s3cr3t" in error,
+            "t0k3n" in error,
+        ) == (
+            1,
+            True,
+            False,
+            False,
+        )
+
     def test_measure_runs_fixed_length_capacity_levels_then_a_natural_cost_pass(self) -> None:
         """Verify capacity levels send concurrency x rounds fixed-length requests, then cost."""
         sent: list[bool] = []

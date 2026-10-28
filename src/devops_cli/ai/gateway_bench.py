@@ -60,7 +60,11 @@ def _validate_http_url(url: str) -> None:
     """Validate that url is a well-formed http or https endpoint."""
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError(f"Invalid HTTP URL scheme or destination: {url!r}")
+        # The standard library's ValueError, not InvalidURLError: this module runs in a container
+        # without devops_cli, and `_get_text` and `run_level` catch the error. Its text goes into
+        # the sweep's `last_error`, so it does not name the URL, whose userinfo or query can hold
+        # a credential.
+        raise ValueError("Backend URL is not an http or https URL with a host.")
 
 
 def _get_text(url: str, timeout: float) -> tuple[int, str]:
