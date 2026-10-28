@@ -45,7 +45,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 from urllib.parse import quote, urlencode
 
 import anyio
@@ -55,6 +55,9 @@ import pytest
 from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE
 from devops_cli.http.egress import EgressLevel
 from tests.web_fakes import egress_level_of, install_async_client_fake, vetted_handler
+
+if TYPE_CHECKING:
+    from tests.support.fakes.process import ProcessFake
 
 API = "https://api.github.com"
 JSON_TYPE = "application/json; charset=utf-8"
@@ -444,6 +447,29 @@ def github_api(
     api = GitHubApiFake()
     serve_github_api(monkeypatch, api)
     return api
+
+
+@pytest.fixture
+def github_api_and_gh(
+    github_api: GitHubApiFake, process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> tuple[GitHubApiFake, ProcessFake]:
+    """GitHub's API faked for every GitHub session, and each gh command the rate limiter runs
+    answered by `process_fake`, for code that reads GitHub both ways: merge readiness reads a
+    pull request's checks and files through the session, and its review threads and the issues
+    it closes through gh.
+
+    `github_api` refuses gh because a real gh would send the pinned token to GitHub. Here no gh
+    starts: `process_fake` answers the process edge that `run_gh` reaches. The `graphql` quota is
+    fresh too, so pacing never runs `gh api rate_limit`.
+    """
+    from devops_cli.core import process
+    from devops_cli.github import rate_limiter
+
+    monkeypatch.setattr(rate_limiter, "run_subprocess", process.run_subprocess)
+    rate_limiter.get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    return github_api, process_fake
 
 
 class RunnerSession:

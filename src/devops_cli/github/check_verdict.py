@@ -22,7 +22,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.github.session import get_github_session
+from devops_cli.github.session import GitHubSession, get_github_session
 
 logger = logging.getLogger(__name__)
 
@@ -305,17 +305,18 @@ def _parse_rest_commit_statuses_payload(
 
 
 def _fetch_check_runs_from_rest(
-    owner: str, repo_name: str, head_sha: str
+    owner: str, repo_name: str, head_sha: str, session: GitHubSession | None
 ) -> tuple[list[PRCheckItem], str]:
-    """Read every page of a commit's check runs through the GitHub session, returning (items,
-    unread_reason). A page that can't be read, or holds no list of runs, leaves no items and
-    the reason, never a shorter list."""
+    """Read every page of a commit's check runs through the GitHub session, the process's own
+    unless `session` is given, returning (items, unread_reason). A page that can't be read, or
+    holds no list of runs, leaves no items and the reason, never a shorter list."""
     check_runs = (
         f"/repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page="
         f"{DEFAULT_GH_REST_PER_PAGE}"
     )
     try:
-        runs = list(get_github_session().paginate(check_runs, iterable_key="check_runs"))
+        listing = session or get_github_session()
+        runs = list(listing.paginate(check_runs, iterable_key="check_runs"))
     except GitHubOperationError as err:
         return [], f"GitHub check-runs API error: {str(err)[:CONST_MAX_ERROR_DETAIL_LENGTH]}"
     readable = [run for run in runs if isinstance(run, dict)]
@@ -369,17 +370,24 @@ def _synthesize_check_items(
     return all_items
 
 
-def _fetch_checks_from_rest(
+def read_commit_checks(
     owner: str,
     repo_name: str,
     head_sha: str,
+    *,
     runner: Any = run_gh,
+    session: GitHubSession | None = None,
 ) -> CheckVerdictSummary:
-    """Fetch and parse check runs and commit statuses from GitHub REST API."""
+    """Read and classify a commit's check runs and commit statuses, failing closed.
+
+    The check runs are read through `session` (the process's GitHub session by default) and the
+    commit statuses through `runner`, which runs `gh` as `run_gh` does. A read that fails leaves
+    no items and the reason, so no caller judges part of the checks.
+    """
     if not head_sha:
         return CheckVerdictSummary(unread_reason="PR head commit SHA is missing for checks query")
 
-    check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha)
+    check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha, session)
     if check_err:
         return CheckVerdictSummary(unread_reason=check_err)
 
@@ -471,4 +479,4 @@ def fetch_pr_check_verdicts(
             unread_reason=f"Failed to read checks and cannot resolve head commit SHA: {err_msg}"
         )
 
-    return _fetch_checks_from_rest(owner, repo_name, sha, runner=gh_runner)
+    return read_commit_checks(owner, repo_name, sha, runner=gh_runner)

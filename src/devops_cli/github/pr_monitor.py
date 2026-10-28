@@ -473,9 +473,9 @@ def _copilot_review_status(
 
 def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
     """Fetch check runs and commit status contexts via GitHub REST API."""
-    from devops_cli.github.check_verdict import _fetch_checks_from_rest
+    from devops_cli.github.check_verdict import read_commit_checks
 
-    verdict = _fetch_checks_from_rest(owner, repo, head_sha, runner=run_gh)
+    verdict = read_commit_checks(owner, repo, head_sha, runner=run_gh)
     if verdict.unread_reason:
         return [
             PRCheckRun(

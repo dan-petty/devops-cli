@@ -4,32 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
-from collections.abc import Callable
-from http import HTTPStatus
-from typing import Annotated, Any, NamedTuple, cast
-from urllib.parse import urlencode
+from typing import Annotated, Any, cast
 
 import typer
-from pydantic import AliasPath, BaseModel, ConfigDict, Field
-from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
     CONST_CI_WORKFLOW_FILE,
     CONST_GH_CLI,
-    CONST_ISSUE_STATE_OPEN,
-    CONST_MAX_ERROR_DETAIL_LENGTH,
-    CONST_OPENSPEC_ARCHIVE_DIR,
-    CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
-    CONST_OPENSPEC_CHANGE_FOLDER_RE,
-    CONST_OPENSPEC_CHANGES_DIR,
-    CONST_OPENSPEC_SPECS_DIR,
     CONST_PR_API_STATE_MAP,
-    CONST_PR_CLOSING_ISSUE_LABELS_PAGE,
-    CONST_PR_CLOSING_ISSUES_PAGE,
-    CONST_PR_FILE_ADDED_STATUSES,
-    CONST_PR_FILE_REMOVED_STATUS,
     CONST_PR_UPDATE_AUTHOR,
 )
 from devops_cli.config.defaults import (
@@ -44,15 +27,19 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.client import PullRequestFile
 from devops_cli.github.defect_classifier import (
     PRHardeningAudit,
     audit_pr_hardening,
     classify_defect_pr,
 )
-from devops_cli.github.error_classifier import gh_http_status, is_gh_rate_limited
+from devops_cli.github.error_classifier import is_gh_rate_limited
+from devops_cli.github.merge_readiness import (
+    AdvisoryLevel,
+    MergeReadiness,
+    ReadinessOptions,
+    assess_merge_readiness,
+)
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
-from devops_cli.github.pr_threads import graphql_args
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -1195,630 +1182,6 @@ def _render_threads_table(threads: list[Any]) -> None:
     )
 
 
-def _check_mergeable_blocker(
-    pr_data: dict[str, Any], pr_num: int, allow_blocked_state: bool = False
-) -> str | None:
-    """Evaluate whether PR mergeable state represents a merge blocker."""
-    if pr_data.get("merged") is True:
-        return None
-    if pr_data.get("state", "").lower() == "closed":
-        return f"PR #{pr_num} is closed without being merged."
-
-    mergeable = pr_data.get("mergeable")
-    mergeable_state = pr_data.get("mergeable_state", "")
-    base_ref = pr_data.get("base", {}).get("ref", "")
-
-    if mergeable is False or mergeable_state in ("dirty", "conflicting"):
-        return f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'."
-    if mergeable is None or mergeable_state in ("unknown", ""):
-        return (
-            f"PR #{pr_num} mergeability is unresolved or still calculating on GitHub "
-            f"(mergeable: {mergeable}, state: '{mergeable_state}')."
-        )
-    if mergeable_state == "blocked":
-        if allow_blocked_state:
-            print_warning(
-                f"PR #{pr_num} merge state is currently 'blocked' by branch protection or pending checks."
-            )
-            return None
-        return (
-            f"PR #{pr_num} merge state is blocked by GitHub branch protection or checks "
-            "(state: 'blocked')."
-        )
-    return None
-
-
-def _evaluate_threads_blockers(
-    unresolved: list[Any],
-    pr_num: int,
-    allow_replied_threads: bool,
-) -> list[str]:
-    """Evaluate unresolved review threads and return blocker error messages."""
-    if not unresolved:
-        return []
-
-    if allow_replied_threads:
-        from devops_cli.github.pr_threads import has_non_opener_reply
-
-        unreplied = [t for t in unresolved if not has_non_opener_reply(t)]
-        replied = [t for t in unresolved if has_non_opener_reply(t)]
-        if replied:
-            print_info(
-                f"PR #{pr_num} has {len(replied)} review discussion thread(s) with replies awaiting reviewer resolution."
-            )
-        if unreplied:
-            _render_threads_table(unreplied)
-            return [f"PR #{pr_num} has {len(unreplied)} unreplied review discussion thread(s)."]
-        return []
-
-    _render_threads_table(unresolved)
-    return [f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."]
-
-
-def _classify_check_run(run: Any) -> tuple[str | None, str | None]:
-    """Classify a single check run into (failing_name, pending_name)."""
-    if not isinstance(run, dict):
-        return None, None
-    name = str(run.get("name") or "check")
-    if run.get("status") != "completed":
-        return None, name
-    from devops_cli.github.check_verdict import CheckBucket, classify_check_item
-
-    item = classify_check_item(
-        name=name,
-        conclusion=run.get("conclusion"),
-        status=run.get("status"),
-    )
-    if item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD):
-        return item.name, None
-    return None, None
-
-
-def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list[str], list[str]]:
-    """Return the names of concluded-failing and still-running checks and statuses for a commit."""
-    from devops_cli.github.check_verdict import CheckBucket, _fetch_checks_from_rest
-
-    verdict = _fetch_checks_from_rest(owner, repo_name, head_sha, runner=run_gh)
-    if verdict.unread_reason:
-        raise RuntimeError(verdict.unread_reason)
-
-    failing = [
-        item.name
-        for item in verdict.items
-        if item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD)
-    ]
-    pending = [item.name for item in verdict.items if item.bucket == CheckBucket.PENDING]
-    return failing, pending
-
-
-def _check_run_blockers(
-    pr_data: dict[str, Any],
-    pr_num: int,
-    owner: str,
-    repo_name: str,
-    allow_pending_checks: bool,
-) -> list[str]:
-    """Report failing checks as blockers, and pending ones unless explicitly allowed."""
-    head_sha = str(pr_data.get("head", {}).get("sha") or "")
-    if not head_sha:
-        return []
-
-    try:
-        failing, pending = _failing_check_runs(owner, repo_name, head_sha)
-    except RuntimeError as err:
-        return [f"PR #{pr_num} check verification failed closed: {err}"]
-
-    blockers = (
-        [f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(sorted(failing))}."]
-        if failing
-        else []
-    )
-
-    if pending:
-        message = (
-            f"PR #{pr_num} has {len(pending)} check(s) still running: {', '.join(sorted(pending))}."
-        )
-        if allow_pending_checks:
-            print_warning(message)
-        else:
-            blockers.append(message)
-    return blockers
-
-
-class _ChangedFilesRead(NamedTuple):
-    """The files a pull request changes, or why they could not be read."""
-
-    files: list[PullRequestFile]
-    error: str = ""
-
-
-def _gh_failure(res: Any) -> str:
-    """Name a failed `gh` call by its own message, bounded for the blocker that repeats it."""
-    return ((res.stderr or "").strip() or f"exit code {res.returncode}")[
-        :CONST_MAX_ERROR_DETAIL_LENGTH
-    ]
-
-
-def _read_pr_files(pr_num: int, owner: str, repo_name: str) -> _ChangedFilesRead:
-    """Read the changed files once per readiness run, keeping a failure for the caller to judge."""
-    from devops_cli.github.session import get_github_session
-
-    try:
-        files = get_github_session().client.get_pull_files(f"{owner}/{repo_name}", pr_num)
-        return _ChangedFilesRead(files)
-    except GitHubOperationError as exc:
-        return _ChangedFilesRead([], str(exc))
-
-
-def _check_pr_perimeter_changes(changed: _ChangedFilesRead) -> None:
-    """Warn when the PR changes a file a review.toml suppression of this repository covers."""
-    from devops_cli.ai.review.path_classes import load_review_config
-    from devops_cli.core.repo import find_repo_root
-    from devops_cli.review.suppression import (
-        covering_suppressions,
-        format_covering_suppressions,
-        load_review_suppressions,
-    )
-
-    if not changed.files:
-        return
-    config = load_review_config(repo_root=find_repo_root())
-    covering = covering_suppressions(
-        [entry.filename for entry in changed.files], load_review_suppressions(config)
-    )
-    if covering:
-        print_warning(format_covering_suppressions(covering))
-
-
-def _branch_ref(pr_data: dict[str, Any], side: str) -> str:
-    """The branch name on one side (`head` or `base`) of a pull request."""
-    return str((pr_data.get(side) or {}).get("ref") or "")
-
-
-def _default_branch(pr_data: dict[str, Any]) -> str:
-    """The default branch of the PR's base repository; empty when the payload names none."""
-    base = pr_data.get("base") or {}
-    return str((base.get("repo") or {}).get("default_branch") or "")
-
-
-def _base_has_change_folders(pr_data: dict[str, Any], owner: str, repo_name: str) -> bool:
-    """Whether the base commit holds the OpenSpec change directory, raising when GitHub can't say.
-
-    A 404 means the repository keeps no change folders. Only the answer matters, so `--silent`
-    drops the listing.
-    """
-    base = pr_data.get("base") or {}
-    query = urlencode({"ref": str(base.get("sha") or base.get("ref") or "")})
-    res = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            "--silent",
-            f"repos/{owner}/{repo_name}/contents/{CONST_OPENSPEC_CHANGES_DIR}?{query}",
-        ],
-        check=False,
-        quiet=True,
-    )
-    if res.returncode == 0:
-        return True
-    if gh_http_status(res.stderr or "") == HTTPStatus.NOT_FOUND:
-        return False
-    raise GitHubOperationError(_gh_failure(res))
-
-
-def _grounding_scope(
-    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str
-) -> tuple[bool, list[str]]:
-    """Whether grounding applies to this PR, and the blocker that leads its checks.
-
-    It applies where the base holds the change directory. A lookup that fails for any reason but
-    a 404 can't rule grounding out, so the check still applies and the failure is a blocker.
-    """
-    try:
-        return _base_has_change_folders(pr_data, owner, repo_name), []
-    except GitHubOperationError as exc:
-        blocker = MESSAGES.pr.grounding_changes_dir_unread.format(
-            number=pr_num, path=CONST_OPENSPEC_CHANGES_DIR, error=exc
-        )
-        return True, [blocker]
-
-
-class _GraphModel(BaseModel):
-    """A GraphQL payload model: GitHub may add fields, so unknown ones are ignored."""
-
-    model_config = ConfigDict(frozen=True, populate_by_name=True)
-
-
-class _Label(_GraphModel):
-    name: str
-
-
-class _Labels(_GraphModel):
-    nodes: list[_Label] = Field(default_factory=list)
-
-
-class _IssueRepository(_GraphModel):
-    name_with_owner: str = Field(alias="nameWithOwner")
-
-
-class _ClosingIssue(_GraphModel):
-    """An issue GitHub closes when the pull request merges, with its labels."""
-
-    number: int
-    state: str
-    repository: _IssueRepository
-    labels: _Labels = Field(default_factory=_Labels)
-
-    def is_of(self, repo: str) -> bool:
-        """Whether the issue belongs to repository `repo` (`owner/name`)."""
-        return self.repository.name_with_owner.lower() == repo.lower()
-
-    def reference(self, repo: str) -> str:
-        """`#N` for an issue of `repo`, `owner/name#N` for one of another repository."""
-        prefix = "" if self.is_of(repo) else self.repository.name_with_owner
-        return f"{prefix}#{self.number}"
-
-    def is_item(self) -> bool:
-        """Whether the issue is a roadmap Item: it holds a `priority/*` label (ADR 0016)."""
-        from devops_cli.roadmap.store import FIELD_VALUES, ItemField, field_label
-
-        priorities = {
-            field_label(ItemField.PRIORITY, value) for value in FIELD_VALUES[ItemField.PRIORITY]
-        }
-        return any(label.name.lower() in priorities for label in self.labels.nodes)
-
-
-class _ClosingReferences(_GraphModel):
-    total_count: int = Field(alias="totalCount")
-    nodes: list[_ClosingIssue] = Field(default_factory=list)
-
-
-class _ClosingIssuesPayload(_GraphModel):
-    references: _ClosingReferences = Field(
-        validation_alias=AliasPath("data", "repository", "pullRequest", "closingIssuesReferences")
-    )
-
-
-class _ClosingRead(NamedTuple):
-    """The issues GitHub closes when the PR merges, and how many there are, or why they could
-    not be read."""
-
-    issues: tuple[_ClosingIssue, ...] = ()
-    total: int = 0
-    error: str = ""
-
-
-# GitHub fills `closingIssuesReferences` from the closing keywords of a PR into the default
-# branch and from the issues linked to it by hand; it closes each one when the PR merges.
-_CLOSING_ISSUES_QUERY = (
-    "query($owner: String!, $name: String!, $number: Int!, $issues: Int!, $labels: Int!) {"
-    " repository(owner: $owner, name: $name) { pullRequest(number: $number) {"
-    " closingIssuesReferences(first: $issues) { totalCount nodes { number state"
-    " repository { nameWithOwner } labels(first: $labels) { nodes { name } } } } } } }"
-)
-
-
-def closing_issues_args(owner: str, repo_name: str, pr_num: int) -> list[str]:
-    """The `gh api graphql` arguments that read the issues PR `pr_num` closes when it merges."""
-    variables = {
-        "owner": owner,
-        "name": repo_name,
-        "number": pr_num,
-        "issues": CONST_PR_CLOSING_ISSUES_PAGE,
-        "labels": CONST_PR_CLOSING_ISSUE_LABELS_PAGE,
-    }
-    return [CONST_GH_CLI, *graphql_args(_CLOSING_ISSUES_QUERY, variables)]
-
-
-def _graphql_error(reply: Any) -> str:
-    """The first error a GraphQL reply names; empty when it names none."""
-    errors = reply.get("errors") if isinstance(reply, dict) else None
-    if not isinstance(errors, list) or not errors:
-        return ""
-    first = errors[0]
-    message = first.get("message") if isinstance(first, dict) else first
-    return str(message or "GraphQL error")[:CONST_MAX_ERROR_DETAIL_LENGTH]
-
-
-def _read_closing_issues(owner: str, repo_name: str, pr_num: int) -> _ClosingRead:
-    """Read the issues the PR closes when it merges, in one GraphQL request."""
-    res = run_gh(closing_issues_args(owner, repo_name, pr_num), check=False, quiet=True)
-    if res.returncode != 0:
-        return _ClosingRead(error=_gh_failure(res))
-    try:
-        reply = json.loads(res.stdout or "null")
-        if error := _graphql_error(reply):
-            return _ClosingRead(error=error)
-        references = _ClosingIssuesPayload.model_validate(reply).references
-    except (json.JSONDecodeError, MalformedPayloadError) as exc:
-        return _ClosingRead(error=f"malformed reply: {exc}"[:CONST_MAX_ERROR_DETAIL_LENGTH])
-    return _ClosingRead(tuple(references.nodes), references.total_count)
-
-
-class _Grounding(NamedTuple):
-    """What the grounding checks judge: the PR's base and its repository's default branch, the
-    files it changes, and the issues it closes with their labels, read only into the default
-    branch."""
-
-    pr_num: int
-    owner: str
-    repo: str
-    base: str
-    default: str
-    changed: _ChangedFilesRead
-    closing: _ClosingRead | None = None
-
-    @property
-    def into_default(self) -> bool:
-        """Whether the PR targets its repository's default branch."""
-        return self.default != "" and self.base == self.default
-
-    @property
-    def issue(self) -> _ClosingIssue | None:
-        """The one issue the PR closes; None unless it closes exactly one, read."""
-        closing = self.closing
-        if closing is None or closing.error or closing.total != 1 or len(closing.issues) != 1:
-            return None
-        return closing.issues[0]
-
-    @property
-    def own_issue(self) -> _ClosingIssue | None:
-        """The one issue the PR closes when it is an issue of the PR's repository."""
-        issue = self.issue
-        return issue if issue is not None and issue.is_of(self.repo) else None
-
-
-def _targets_the_default_branch(grounding: _Grounding) -> str | None:
-    """The PR targets the default branch, where GitHub closes its issue when it merges."""
-    texts, number = MESSAGES.pr, grounding.pr_num
-    if grounding.into_default:
-        return None
-    if not grounding.default:
-        return texts.grounding_no_default_branch.format(number=number, repo=grounding.repo)
-    return texts.grounding_not_into_default.format(
-        number=number, base=grounding.base, default=grounding.default
-    )
-
-
-def _closing_issues_were_read(grounding: _Grounding) -> str | None:
-    """The issues the PR closes were read, so the issue checks have something to judge."""
-    closing = grounding.closing
-    if closing is None or not closing.error:
-        return None
-    return MESSAGES.pr.grounding_closing_unread.format(number=grounding.pr_num, error=closing.error)
-
-
-def _closes_one_issue(grounding: _Grounding) -> str | None:
-    """The PR closes exactly one issue when it merges."""
-    closing, texts, number = grounding.closing, MESSAGES.pr, grounding.pr_num
-    if closing is None or closing.error or closing.total == 1:
-        return None
-    if closing.total == 0:
-        return texts.grounding_closes_no_issue.format(number=number)
-    issues = ", ".join(issue.reference(grounding.repo) for issue in closing.issues)
-    return texts.grounding_closes_several_issues.format(
-        number=number, count=closing.total, issues=issues
-    )
-
-
-def _closes_an_issue_of_its_repository(grounding: _Grounding) -> str | None:
-    """The one issue the PR closes is an issue of the PR's repository, whose change it archives."""
-    issue = grounding.issue
-    if issue is None or grounding.own_issue is not None:
-        return None
-    return MESSAGES.pr.grounding_closes_foreign_issue.format(
-        number=grounding.pr_num, issue=issue.reference(grounding.repo), repo=grounding.repo
-    )
-
-
-def _closes_an_open_issue(grounding: _Grounding) -> str | None:
-    """The one issue the PR closes is open."""
-    issue = grounding.own_issue
-    if issue is None or issue.state.lower() == CONST_ISSUE_STATE_OPEN:
-        return None
-    return MESSAGES.pr.grounding_closes_closed_issue.format(
-        number=grounding.pr_num, issue=issue.number
-    )
-
-
-def _closes_an_item(grounding: _Grounding) -> str | None:
-    """The one issue the PR closes is a roadmap Item: it holds a `priority/*` label."""
-    issue = grounding.own_issue
-    if issue is None or issue.is_item():
-        return None
-    return MESSAGES.pr.grounding_issue_not_item.format(number=grounding.pr_num, issue=issue.number)
-
-
-def _changed_files_were_read(grounding: _Grounding) -> str | None:
-    """The files the PR changes were read, so the change-folder checks have something to judge."""
-    if not grounding.changed.error:
-        return None
-    return MESSAGES.pr.grounding_files_unread.format(
-        number=grounding.pr_num, error=grounding.changed.error
-    )
-
-
-def _archives(changed: PullRequestFile, issue: int) -> bool:
-    """Whether this change adds a file to an archived change folder of `issue`."""
-    match = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, changed.filename)
-    return (
-        match is not None
-        and int(match.group("issue")) == issue
-        and changed.status in CONST_PR_FILE_ADDED_STATUSES
-    )
-
-
-def _change_named_by(changed: PullRequestFile) -> re.Match[str] | None:
-    """The change folder that `changed` leaves in the PR's head: an active folder it does not
-    remove, or an archived folder it adds. None for any other file."""
-    if changed.status in CONST_PR_FILE_ADDED_STATUSES:
-        archived = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, changed.filename)
-        return archived or re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, changed.filename)
-    if changed.status == CONST_PR_FILE_REMOVED_STATUS:
-        return None
-    return re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, changed.filename)
-
-
-def _its_change(files: list[PullRequestFile], issue: int) -> str:
-    """The name of the change of `issue` that the PR leaves in its head, or the placeholder
-    `<issue>-<slug>` when it leaves none."""
-    matches = (match for changed in files if (match := _change_named_by(changed)))
-    names = (match.group("change") for match in matches if int(match.group("issue")) == issue)
-    return next(names, f"{issue}-<slug>")
-
-
-def _archived_folder(change: str) -> str:
-    """The folder `openspec archive` moves `change` to, its date left as a placeholder."""
-    return f"{CONST_OPENSPEC_ARCHIVE_DIR}/<date>-{change}/"
-
-
-def _archives_its_change(grounding: _Grounding) -> str | None:
-    """The PR adds the archived change folder of the one issue it closes."""
-    issue = grounding.own_issue
-    if issue is None or grounding.changed.error:
-        return None
-    files = grounding.changed.files
-    if any(_archives(changed, issue.number) for changed in files):
-        return None
-    change = _its_change(files, issue.number)
-    return MESSAGES.pr.grounding_change_not_archived.format(
-        number=grounding.pr_num, folder=_archived_folder(change), issue=issue.number, change=change
-    )
-
-
-def _is_a_record_of_another_change(path: str, issue: int, archives_its_own: bool) -> bool:
-    """Whether `path` is in the living specs or the archive, outside what the archive of the
-    change of `issue` writes."""
-    if path.startswith(f"{CONST_OPENSPEC_SPECS_DIR}/"):
-        return not archives_its_own
-    if not path.startswith(f"{CONST_OPENSPEC_ARCHIVE_DIR}/"):
-        return False
-    match = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, path)
-    return match is None or int(match.group("issue")) != issue
-
-
-def _writes_only_its_own_record(grounding: _Grounding) -> str | None:
-    """Only the archive of the change of the issue the PR closes writes the living specs and
-    the archive."""
-    issue = grounding.own_issue
-    if issue is None or grounding.changed.error:
-        return None
-    files = grounding.changed.files
-    archives_its_own = any(_archives(changed, issue.number) for changed in files)
-    written = [
-        changed.filename
-        for changed in files
-        if _is_a_record_of_another_change(changed.filename, issue.number, archives_its_own)
-    ]
-    if not written:
-        return None
-    return MESSAGES.pr.grounding_record_written.format(
-        number=grounding.pr_num,
-        paths=", ".join(written)[:CONST_MAX_ERROR_DETAIL_LENGTH],
-        issue=issue.number,
-        specs=CONST_OPENSPEC_SPECS_DIR,
-        archive=CONST_OPENSPEC_ARCHIVE_DIR,
-        folder=_archived_folder(_its_change(files, issue.number)),
-    )
-
-
-# Each check names what is missing, or returns None. A check that needs what an earlier one
-# found missing returns None, so each failure is one blocker. A new rule is one more entry.
-_GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
-    _targets_the_default_branch,
-    _closing_issues_were_read,
-    _closes_one_issue,
-    _closes_an_issue_of_its_repository,
-    _closes_an_open_issue,
-    _closes_an_item,
-    _changed_files_were_read,
-    _archives_its_change,
-    _writes_only_its_own_record,
-)
-
-
-def _read_grounding(
-    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
-) -> _Grounding:
-    """What the checks judge, read lazily: the closing issues only into the default branch."""
-    repo = f"{owner}/{repo_name}"
-    base, default = _branch_ref(pr_data, "base"), _default_branch(pr_data)
-    grounding = _Grounding(pr_num, owner, repo, base, default, changed)
-    if not grounding.into_default:
-        return grounding
-    return grounding._replace(closing=_read_closing_issues(owner, repo_name, pr_num))
-
-
-def _grounding_blockers(
-    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
-) -> list[str]:
-    """Hold a PR to the one item it delivers: it targets the default branch and closes exactly
-    one open issue of its repository that is a roadmap Item, with a `priority/*` label, and it
-    archives that issue's change.
-
-    It applies where the base holds `openspec/changes/`. Where it does not apply, an unread file
-    list is a warning, since only the perimeter warning reads it.
-    """
-    applies, blockers = _grounding_scope(pr_data, pr_num, owner, repo_name)
-    if not applies:
-        if changed.error:
-            print_warning(
-                MESSAGES.pr.changed_files_unread.format(number=pr_num, error=changed.error)
-            )
-        return []
-    grounding = _read_grounding(pr_data, pr_num, owner, repo_name, changed)
-    return blockers + [found for check in _GROUNDING_CHECKS if (found := check(grounding))]
-
-
-def _evaluate_pr_blockers(
-    pr_data: dict[str, Any],
-    pr_num: int,
-    owner: str,
-    repo_name: str,
-    allow_draft: bool = False,
-    allow_blocked_state: bool = False,
-    allow_replied_threads: bool = False,
-    allow_pending_checks: bool = False,
-) -> list[str]:
-    """Inspect PR data, checks, discussion threads and grounding for merge blockers."""
-    if pr_data.get("merged") is True:
-        return []
-
-    from devops_cli.github.pr_threads import list_pr_review_threads
-
-    blockers: list[str] = []
-    is_draft = pr_data.get("draft", False)
-
-    merge_err = _check_mergeable_blocker(pr_data, pr_num, allow_blocked_state=allow_blocked_state)
-    if merge_err:
-        blockers.append(merge_err)
-
-    # A draft cannot be merged, so it is a blocker rather than a warning. GitHub still
-    # reports `mergeable_state: clean` for one, which is how a draft passed this check and
-    # was reported ready.
-    if is_draft and not allow_draft:
-        blockers.append(f"PR #{pr_num} is in draft status; GitHub refuses to merge a draft.")
-    elif is_draft:
-        print_warning(f"PR #{pr_num} is in draft status and cannot be merged as-is.")
-
-    blockers.extend(_check_run_blockers(pr_data, pr_num, owner, repo_name, allow_pending_checks))
-
-    try:
-        unresolved = list_pr_review_threads(owner, repo_name, pr_num, unresolved_only=True)
-    except GitHubOperationError as exc:
-        blockers.append(f"Could not retrieve review threads for PR #{pr_num}: {exc}")
-    else:
-        blockers.extend(
-            _evaluate_threads_blockers(
-                unresolved, pr_num, allow_replied_threads=allow_replied_threads
-            )
-        )
-    changed = _read_pr_files(pr_num, owner, repo_name)
-    blockers.extend(_grounding_blockers(pr_data, pr_num, owner, repo_name, changed))
-    _check_pr_perimeter_changes(changed)
-    return blockers
-
-
 def _resolve_readiness_target(repo: str | None, number: int | None) -> tuple[str, str, int, str]:
     """Resolve repository owner, name, target PR number, and target repo string."""
     from devops_cli.core.repo import get_repo_origin_name
@@ -1861,6 +1224,19 @@ def _auto_resolve_replied_threads(owner: str, repo_name: str, pr_num: int) -> No
     count = sum(1 for r in resolved if r.success and r.is_resolved)
     if count > 0:
         print_success(f"Auto-resolved {count} replied review discussion thread(s).")
+
+
+def _render_merge_readiness(verdict: MergeReadiness, pr_num: int) -> None:
+    """Print the verdict's advisories, the threads that block it, and then its blockers or the
+    success line, exiting with code 1 if anything blocks."""
+    for advisory in verdict.advisories:
+        if advisory.level is AdvisoryLevel.INFO:
+            print_info(advisory.text)
+        else:
+            print_warning(advisory.text)
+    if verdict.threads_to_show:
+        _render_threads_table(list(verdict.threads_to_show))
+    _emit_readiness_status(list(verdict.blockers), pr_num)
 
 
 def _emit_readiness_status(blockers: list[str], pr_num: int) -> None:
@@ -1935,17 +1311,15 @@ def check_readiness(
     if auto_resolve:
         _auto_resolve_replied_threads(owner, repo_name, pr_num)
 
-    blockers = _evaluate_pr_blockers(
-        pr_data,
-        pr_num,
-        owner,
-        repo_name,
+    options = ReadinessOptions(
         allow_draft=allow_draft,
         allow_blocked_state=allow_blocked_state,
         allow_replied_threads=allow_replied_threads,
         allow_pending_checks=allow_pending_checks,
     )
-    _emit_readiness_status(blockers, pr_num)
+    _render_merge_readiness(
+        assess_merge_readiness(pr_data, owner, repo_name, pr_num, options=options), pr_num
+    )
 
 
 # =============================================================================

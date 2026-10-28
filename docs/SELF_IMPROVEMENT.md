@@ -95,7 +95,7 @@ A false positive that recurs is prevented by a commit: a `[[suppressions]]` entr
 a rule-pack rule. A suppression's `path` is the code its reason holds for, so a branch or pull
 request review, and `devops pr check-readiness`, list the unexpired suppressions whose path the
 change touches (`review/suppression.py:95-125`, `ai/review/runner.py:2123`,
-`commands/pr.py:1415`).
+`perimeter_advisory` in `github/merge_readiness.py`).
 
 ### The Feedback Dataset
 
