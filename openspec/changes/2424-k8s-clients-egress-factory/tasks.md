@@ -27,7 +27,7 @@
 
 ## 6. Documentation
 
-- [ ] Name the moved clients in `README.md`, `SECURITY.md` and `docs/KNOWN_ISSUES.md`
+- [x] Name the moved clients in `README.md`, `SECURITY.md` and `docs/KNOWN_ISSUES.md`
   - Verification: `uv run devops docs generate --sync-readme` and `uv run devops ci docs`
 
 ## 7. Archive
