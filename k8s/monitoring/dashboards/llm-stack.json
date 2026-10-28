@@ -1286,6 +1286,188 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Power draw of each GPU as a share of the power limit that the driver enforces after all limiters (DCGM_FI_DEV_ENFORCED_POWER_LIMIT). At 100 % the driver lowers the clocks to keep the draw at the limit, and the panel GPU Clock Event Reasons shows power_cap. Every card in the cluster reports both fields.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisSoftMax": 100,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 90
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "id": 31,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "GPU Power against Enforced Limit (%)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * max by (hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE) / max by (hostname, gpu, modelName) (DCGM_FI_DEV_ENFORCED_POWER_LIMIT)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "For each GPU, the samples in the last 5 minutes in which the driver held the clocks down for each reason (DCGM_EXP_CLOCK_EVENTS_COUNT, counted by the exporter). DCGM takes one sample every 30 seconds, so 10 means the reason held for the whole window. power_cap is the power limit; sw_thermal and hw_thermal are heat; hw_slowdown and hw_power_brake are hardware protection; clocks_setting and display_clocks are configuration. gpu_idle, the normal state of an idle GPU, is left out. A GeForce RTX 5070 Ti reports only a reason that the exporter does not name, so it has no line.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "stepAfter"
+          },
+          "decimals": 0,
+          "min": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
+      "id": 32,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "GPU Clock Event Reasons (Samples in 5 Minutes)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (hostname, gpu, modelName, clock_event) (DCGM_EXP_CLOCK_EVENTS_COUNT{clock_event!=\"gpu_idle\"})",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}}) {{clock_event}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Bytes per second that each GPU receives from the PCIe bus and sends to it, protocol headers included (DCGM profiling fields DCGM_FI_PROF_PCIE_RX_BYTES and DCGM_FI_PROF_PCIE_TX_BYTES). Only a card with DCGM profiling support reports them: in the cluster, the Tesla PG500-216 and the GeForce RTX 5070 Ti. The Quadro P6000 and the GeForce RTX 3090 have no line.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth"
+          },
+          "min": 0,
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "GPU PCIe Throughput",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (hostname, gpu, modelName) (DCGM_FI_PROF_PCIE_RX_BYTES)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}}) receive",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (hostname, gpu, modelName) (DCGM_FI_PROF_PCIE_TX_BYTES)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}}) transmit",
+          "refId": "B"
+        }
+      ]
+    },
+    {
       "id": 26,
       "type": "row",
       "title": "Qdrant",
@@ -1294,7 +1476,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 76
       },
       "panels": []
     },
@@ -1320,7 +1502,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "id": 27,
       "options": {
@@ -1378,7 +1560,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 69
+        "y": 77
       },
       "id": 28,
       "options": {
@@ -1427,7 +1609,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 69
+        "y": 77
       },
       "id": 29,
       "options": {

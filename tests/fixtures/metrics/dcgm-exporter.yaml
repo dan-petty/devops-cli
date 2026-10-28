@@ -8,11 +8,17 @@
 exporter: NVIDIA DCGM exporter
 image: nvcr.io/nvidia/k8s/dcgm-exporter:4.6.1-4.8.4-distroless
 chart: nvidia-dcgm/dcgm-exporter 4.8.4
-captured: "2026-10-01"
+captured: "2026-10-28"
 taken_from: >-
-  One dcgm-exporter pod's /metrics on the homelab cluster, on a node whose GPU reports the
-  profiling (DCGM_FI_PROF_*) fields, read in the plain text format (version 0.0.4) through
-  the Kubernetes API service proxy.
+  The /metrics of the dcgm-exporter pod on each of the four GPU nodes of the homelab cluster
+  (Quadro P6000, GeForce RTX 3090, Tesla PG500-216 and GeForce RTX 5070 Ti), read in the plain
+  text format (version 0.0.4) through kubectl port-forward; the Tesla PG500-216 and the
+  GeForce RTX 5070 Ti report the profiling (DCGM_FI_PROF_*) fields. With them, the /metrics of
+  a temporary pod of the same image on each node, which read the counter list of
+  k8s/monitoring/dcgm-exporter-values.yaml without its profiling fields (the profiling module
+  serves one client per GPU, and the deployed pod is that client): it gave
+  DCGM_FI_DEV_ENFORCED_POWER_LIMIT on all four cards and DCGM_EXP_CLOCK_EVENTS_COUNT on all
+  but the GeForce RTX 5070 Ti (#821).
 scraped_by: >-
   The k8s-monitoring dcgm-exporter integration (integrations.dcgm-exporter in
   k8s/monitoring/k8s-monitoring-values.yaml), run by Alloy (k8s-monitoring 4.5.2), which
@@ -20,8 +26,10 @@ scraped_by: >-
   pod's node.
 target_labels: [cluster, instance, job, node]
 families:
+  DCGM_EXP_CLOCK_EVENTS_COUNT: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, clock_event, device, gpu, hostname, modelName, pci_bus_id, window_size_in_ms]}
   DCGM_FI_DEV_DEC_UTIL: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}
   DCGM_FI_DEV_ENC_UTIL: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}
+  DCGM_FI_DEV_ENFORCED_POWER_LIMIT: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}
   DCGM_FI_DEV_FB_FREE: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}
   DCGM_FI_DEV_FB_RESERVED: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}
   DCGM_FI_DEV_FB_USED: {type: gauge, labels: [DCGM_FI_DRIVER_VERSION, UUID, device, gpu, hostname, modelName, pci_bus_id]}
