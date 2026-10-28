@@ -18,6 +18,7 @@ from devops_cli.core.repo import find_worktree_root
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
 from devops_cli.telemetry.instruments import CI_GATE_SLOT_WAIT
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessFake
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 
@@ -110,12 +111,12 @@ def test_a_gate_with_a_heavy_check_waits_for_a_free_slot(
 
 
 def test_the_wait_is_recorded_and_is_not_part_of_the_gate_time(
-    held_slot: HeldSlot, captured: Any
+    held_slot: HeldSlot, otlp: FakeCollector
 ) -> None:
     result = runner.invoke(app, ["--only", "typecheck", "--check", "--no-cache"])
 
     assert result.exit_code == 0, result.output
-    assert [value for _, value in captured.points(WAIT_METRIC)] == [
+    assert [value for _, value in otlp.points(WAIT_METRIC)] == [
         pytest.approx(DEFAULT_CI_GATE_POLL_SECONDS)
     ]
     assert f"Total Elapsed: {format_duration(0.0)}" in result.output

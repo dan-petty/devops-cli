@@ -29,7 +29,7 @@ from devops_cli.telemetry.tracer import get_recent_spans
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.keyring import FakeKeyring
-from tests.support.telemetry_capture import Captured
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
@@ -1135,7 +1135,7 @@ def test_an_ollama_batch_records_the_tokens_its_reply_counted(
 
 
 def test_an_ollama_batch_names_its_server_without_the_password_of_its_url(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, captured: Captured
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, otlp: FakeCollector
 ) -> None:
     """A configured URL with userinfo names its server by host and port in the ledger, the
     counters and the batch span, and no record holds the password."""
@@ -1158,7 +1158,7 @@ def test_an_ollama_batch_names_its_server_without_the_password_of_its_url(
         if a["key"].startswith("server.")
     }
     counter_servers = {
-        attrs["server"] for attrs, _value in captured.points("devops_cli_ai_requests_total")
+        attrs["server"] for attrs, _value in otlp.points("devops_cli_ai_requests_total")
     }
     assert (rows, counter_servers, span_server) == (
         [("example.com:11434", "ollama (example.com:11434)")],
@@ -1650,33 +1650,33 @@ def test_probe_ollama_embed_dimension_sends_num_ctx_option(
 # =============================================================================
 
 
-def _lookups(captured: Captured) -> list[tuple[dict[str, Any], float]]:
+def _lookups(otlp: FakeCollector) -> list[tuple[dict[str, Any], float]]:
     """The points of the embedding cache lookup counter, hits before misses."""
     return sorted(
-        captured.points(EMBEDDING_CACHE_LOOKUPS_TOTAL.name), key=lambda point: point[0]["result"]
+        otlp.points(EMBEDDING_CACHE_LOOKUPS_TOTAL.name), key=lambda point: point[0]["result"]
     )
 
 
 def test_an_embedding_request_counts_each_text_once_by_its_cache_result(
-    monkeypatch: pytest.MonkeyPatch, captured: Captured
+    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
 ) -> None:
     """Three texts that the memory cache holds and two that it does not are three hits and two
     misses, each sent one time."""
     _serve(monkeypatch, _gateway_reply)
     engine = _gateway_engine()
     engine.embed_texts(["first", "second", "third"])
-    captured.clear()
+    otlp.clear()
 
     engine.embed_texts(["first", "second", "third", "fourth", "fifth"])
 
-    assert _lookups(captured) == [
+    assert _lookups(otlp) == [
         ({"result": "hit", "tier": "memory"}, 3.0),
         ({"result": "miss"}, 2.0),
     ]
 
 
 def test_a_text_that_only_valkey_holds_counts_as_a_valkey_hit(
-    monkeypatch: pytest.MonkeyPatch, captured: Captured, valkey_client: ValkeyClient
+    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector, valkey_client: ValkeyClient
 ) -> None:
     """A second process finds the text in Valkey and not in its own memory cache."""
     _serve(monkeypatch, _gateway_reply)
@@ -1684,13 +1684,13 @@ def test_a_text_that_only_valkey_holds_counts_as_a_valkey_hit(
     EmbeddingsEngine(config, api_key="sk-gateway", valkey_client=valkey_client).embed_texts(
         ["shared chunk"]
     )
-    captured.clear()
+    otlp.clear()
 
     EmbeddingsEngine(config, api_key="sk-gateway", valkey_client=valkey_client).embed_texts(
         ["shared chunk"]
     )
 
-    assert _lookups(captured) == [({"result": "hit", "tier": "valkey"}, 1.0)]
+    assert _lookups(otlp) == [({"result": "hit", "tier": "valkey"}, 1.0)]
 
 
 def test_an_openai_engine_without_a_key_reads_it_from_the_keyring(

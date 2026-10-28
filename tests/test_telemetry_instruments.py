@@ -31,6 +31,7 @@ from devops_cli.ai.spend.pricing import get_pricing_registry
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import tracer as tracer_module
+from devops_cli.telemetry.exporter import OtlpSignal
 from devops_cli.telemetry.instruments import (
     INSTRUMENTS,
     PROJECT_ITEM_LABELS,
@@ -42,8 +43,8 @@ from devops_cli.telemetry.instruments import (
     emit,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.paths import REPO_ROOT
-from tests.support.telemetry_capture import Captured
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
@@ -613,15 +614,17 @@ def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> No
     assert (len(duration_panels), missing) == (5, [])
 
 
-def test_counters_are_monotonic_deltas_from_the_host_not_the_process(captured: Captured) -> None:
+def test_counters_are_monotonic_deltas_from_the_host_not_the_process(otlp: FakeCollector) -> None:
     """Verify a counter is a delta sum whose resource names the host and no process, so the
     collector adds up every command's deltas into one series per host."""
     tracer_module.get_tracer().increment_counter("devops_cli_command_total", 1, attributes={})
 
-    (metric,) = captured.metrics
+    (metric,) = otlp.metrics
     resource = {
         a["key"]: a["value"]["stringValue"]
-        for a in captured.payloads[0]["resourceMetrics"][0]["resource"]["attributes"]
+        for a in otlp.payloads(OtlpSignal.METRICS)[0]["resourceMetrics"][0]["resource"][
+            "attributes"
+        ]
     }
     point = metric["sum"]["dataPoints"][0]
 
@@ -640,14 +643,14 @@ def test_flushes_from_two_threads_send_their_deltas_in_the_order_they_collected_
     added to the series. The Service's lane workers flush at the same time, so a flush collects
     only when the export of the flush before it is done (#1629)."""
     client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
-    sink = Captured()
+    sent_payloads: list[dict[str, Any]] = []
     first_in_export, release_first = threading.Event(), threading.Event()
 
     def send(path: str, payload: dict[str, Any]) -> None:
         if not first_in_export.is_set():
             first_in_export.set()
             release_first.wait(THREAD_HANDOFF_BOUND_SECONDS)
-        sink(path, payload)
+        sent_payloads.append(payload)
 
     monkeypatch.setattr(client, "_send_payload", send)
     client.increment_counter("devops_cli_ai_requests_total", 1, attributes={})
@@ -667,14 +670,14 @@ def test_flushes_from_two_threads_send_their_deltas_in_the_order_they_collected_
     # This short window checks that the second flush sends nothing while the first export is
     # held. It opens only once the second thread is at its flush, so it times the flush's lock,
     # not a thread start-up.
-    sent_during_first = wait_until(lambda: bool(sink.payloads), bound=0.2)
+    sent_during_first = wait_until(lambda: bool(sent_payloads), bound=0.2)
     release_first.set()
     first.join(THREAD_HANDOFF_BOUND_SECONDS)
     second.join(THREAD_HANDOFF_BOUND_SECONDS)
 
     sent = [
         float(point["asDouble"])
-        for payload in sink.payloads
+        for payload in sent_payloads
         for resource in payload["resourceMetrics"]
         for scope in resource["scopeMetrics"]
         for metric in scope["metrics"]
@@ -688,11 +691,11 @@ def test_flushes_from_two_threads_send_their_deltas_in_the_order_they_collected_
     )
 
 
-def test_a_histogram_observation_lands_in_its_bucket(captured: Captured) -> None:
+def test_a_histogram_observation_lands_in_its_bucket(otlp: FakeCollector) -> None:
     """Verify an exponential histogram buckets a 992 s review within 10% relative width (#792)."""
     emit(REVIEW_DURATION, 992.0, {"target_type": "pr"})
 
-    (metric,) = captured.metrics
+    (metric,) = otlp.metrics
     exp_hist = metric["exponentialHistogram"]
     point = exp_hist["dataPoints"][0]
     scale = int(point["scale"])
@@ -713,7 +716,7 @@ def test_a_histogram_observation_lands_in_its_bucket(captured: Captured) -> None
 
 
 def test_ai_calls_count_requests_tokens_and_spend_by_backend(
-    captured: Captured, tmp_path: Path
+    otlp: FakeCollector, tmp_path: Path
 ) -> None:
     """Verify each call counts a request, its prompt and completion tokens, and its spend, by
     serving backend; a cached reply counts as cached and costs nothing. The gateway names
@@ -731,9 +734,9 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
             ledger=ledger,
         )
 
-    requests = captured.points("devops_cli_ai_requests_total")
-    tokens = captured.points("devops_cli_ai_tokens_total")
-    spend = captured.points("devops_cli_ai_spend_usd_total")
+    requests = otlp.points("devops_cli_ai_requests_total")
+    tokens = otlp.points("devops_cli_ai_tokens_total")
+    spend = otlp.points("devops_cli_ai_spend_usd_total")
 
     assert (
         [(a["backend"], a["cached"], v) for a, v in requests],
@@ -757,7 +760,7 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
     ids=["local-backend", "hosted-backend", "local-host", "hosted-host"],
 )
 def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
-    captured: Captured,
+    otlp: FakeCollector,
     spend_ledger: SpendLedger,
     server: str,
     served_by: str | None,
@@ -778,13 +781,13 @@ def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
     )
 
     assert (
-        [v > 0 for _, v in captured.points("devops_cli_ai_spend_usd_total")],
-        {a["local"] for a, _ in captured.points("devops_cli_ai_tokens_total")},
+        [v > 0 for _, v in otlp.points("devops_cli_ai_spend_usd_total")],
+        {a["local"] for a, _ in otlp.points("devops_cli_ai_tokens_total")},
     ) == ([spent], {str(saved).lower()})
 
 
 def test_a_call_priced_at_its_deployment_model_keeps_the_route_name_as_its_model_label(
-    captured: Captured, spend_ledger: SpendLedger
+    otlp: FakeCollector, spend_ledger: SpendLedger
 ) -> None:
     """Verify a hosted gateway call is priced at the deployment model that the gateway names,
     and its points keep the model that the client asked for, so the dashboards still group by
@@ -800,14 +803,14 @@ def test_a_call_priced_at_its_deployment_model_keeps_the_route_name_as_its_model
     )
 
     assert (
-        [(a["model"], v) for a, v in captured.points("devops_cli_ai_spend_usd_total")],
-        {a["model"] for a, _ in captured.points("devops_cli_ai_tokens_total")},
-        [a["model"] for a, _ in captured.points("devops_cli_ai_requests_total")],
+        [(a["model"], v) for a, v in otlp.points("devops_cli_ai_spend_usd_total")],
+        {a["model"] for a, _ in otlp.points("devops_cli_ai_tokens_total")},
+        [a["model"] for a, _ in otlp.points("devops_cli_ai_requests_total")],
     ) == ([("devops-chat", 2.5)], {"devops-chat"}, ["devops-chat"])
 
 
 def test_a_price_override_leaves_a_local_call_in_local_savings(
-    captured: Captured, spend_ledger: SpendLedger
+    otlp: FakeCollector, spend_ledger: SpendLedger
 ) -> None:
     """Verify a custom price for a local model or server books no spend: the call adds a spend
     point of 0, and its tokens count as local, so the dashboard prices them as savings (#1631)."""
@@ -824,13 +827,13 @@ def test_a_price_override_leaves_a_local_call_in_local_savings(
     )
 
     assert (
-        [v for _, v in captured.points("devops_cli_ai_spend_usd_total")],
-        sorted((a["type"], a["local"]) for a, _ in captured.points("devops_cli_ai_tokens_total")),
+        [v for _, v in otlp.points("devops_cli_ai_spend_usd_total")],
+        sorted((a["type"], a["local"]) for a, _ in otlp.points("devops_cli_ai_tokens_total")),
     ) == ([0.0], [("completion", "true"), ("prompt", "true")])
 
 
 def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
-    captured: Captured, spend_ledger: SpendLedger, monkeypatch: pytest.MonkeyPatch
+    otlp: FakeCollector, spend_ledger: SpendLedger, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify a second identical chat, which the cache answers, counts as one cached request
     that adds no tokens and no spend, and writes a cached ledger row costing nothing (#816)."""
@@ -848,9 +851,7 @@ def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
 
     replies = [client.chat("system", "user", use_cache=True).cached for _ in range(2)]
 
-    hit_tokens = [
-        v for a, v in captured.points("devops_cli_ai_tokens_total") if a["server"] == "cache"
-    ]
+    hit_tokens = [v for a, v in otlp.points("devops_cli_ai_tokens_total") if a["server"] == "cache"]
     with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
         rows = conn.execute(
             "SELECT server, cached, prompt_tokens, completion_tokens, cost_usd"
@@ -858,9 +859,9 @@ def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
         ).fetchall()
     assert (
         (replies, len(sent)),
-        [(a["server"], a["cached"], v) for a, v in captured.points("devops_cli_ai_requests_total")],
+        [(a["server"], a["cached"], v) for a, v in otlp.points("devops_cli_ai_requests_total")],
         sum(hit_tokens),
-        [a["server"] for a, _ in captured.points("devops_cli_ai_spend_usd_total")],
+        [a["server"] for a, _ in otlp.points("devops_cli_ai_spend_usd_total")],
         rows[1],
     ) == (
         ([False, True], 1),
@@ -872,7 +873,7 @@ def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
 
 
 def test_response_cache_lookups_and_writes_send_no_metric_of_their_own(
-    captured: Captured,
+    otlp: FakeCollector,
 ) -> None:
     """Verify a cache write, hit and miss send nothing: the requests counter's `cached` label
     carries the hits, and a gauge of 1 from a short-lived process counted nothing (#816)."""
@@ -882,11 +883,11 @@ def test_response_cache_lookups_and_writes_send_no_metric_of_their_own(
     cache.set(valid_key, "openai", "gpt-4o", "system", "user", "reply")
     lookups = (cache.get(valid_key) is not None, cache.get(missing_key) is None)
 
-    assert (lookups, captured.metrics) == ((True, True), [])
+    assert (lookups, otlp.metrics) == ((True, True), [])
 
 
 def test_a_local_call_sends_its_tokens_as_local_and_no_price_of_its_own(
-    captured: Captured, tmp_path: Path
+    otlp: FakeCollector, tmp_path: Path
 ) -> None:
     """Verify a local AI call sends its tokens with `local="true"` and one spend point of 0, so the
     spend series exists before the first hosted call (#1631). It sends no savings in USD: the
@@ -903,13 +904,13 @@ def test_a_local_call_sends_its_tokens_as_local_and_no_price_of_its_own(
         ledger=ledger,
     )
 
-    tokens = captured.points("devops_cli_ai_tokens_total")
-    spend = captured.points("devops_cli_ai_spend_usd_total")
+    tokens = otlp.points("devops_cli_ai_tokens_total")
+    spend = otlp.points("devops_cli_ai_spend_usd_total")
 
     assert (
         sorted((a["backend"], a["provider"], a["type"], a["local"], v) for a, v in tokens),
         [(a["backend"], a["provider"], v) for a, v in spend],
-        sorted({metric["name"] for metric in captured.metrics}),
+        sorted({metric["name"] for metric in otlp.metrics}),
     ) == (
         [
             ("ollama-0", "ollama", "completion", "true", 200.0),
@@ -925,7 +926,7 @@ def test_a_local_call_sends_its_tokens_as_local_and_no_price_of_its_own(
 
 
 def test_ai_calls_count_requests_and_tokens_by_operation(
-    captured: Captured, spend_ledger: SpendLedger
+    otlp: FakeCollector, spend_ledger: SpendLedger
 ) -> None:
     """Verify a chat call counts as the `chat` operation and an embedding request as the
     `embeddings` operation, with its input tokens as prompt tokens (#1623)."""
@@ -943,12 +944,9 @@ def test_ai_calls_count_requests_and_tokens_by_operation(
         )
 
     assert (
-        [
-            (a["model"], a["operation"], v)
-            for a, v in captured.points("devops_cli_ai_requests_total")
-        ],
+        [(a["model"], a["operation"], v) for a, v in otlp.points("devops_cli_ai_requests_total")],
         sorted(
-            (a["operation"], a["type"], v) for a, v in captured.points("devops_cli_ai_tokens_total")
+            (a["operation"], a["type"], v) for a, v in otlp.points("devops_cli_ai_tokens_total")
         ),
     ) == (
         [("qwen3:8b", "chat", 1.0), ("bge-m3:latest", "embeddings", 1.0)],
@@ -961,7 +959,7 @@ def test_ai_calls_count_requests_and_tokens_by_operation(
     )
 
 
-def _local_call_points(captured: Captured) -> list[tuple[str, list[tuple[str, Any]], float]]:
+def _local_call_points(otlp: FakeCollector) -> list[tuple[str, list[tuple[str, Any]], float]]:
     """The points that one local chat call and one local embedding request send."""
     for model, request_type in (("qwen3:8b", "chat"), ("bge-m3:latest", "embedding")):
         track_request_spend(
@@ -974,32 +972,32 @@ def _local_call_points(captured: Captured) -> list[tuple[str, list[tuple[str, An
         )
     points = [
         (name, sorted(attributes.items()), value)
-        for name in sorted({metric["name"] for metric in captured.metrics})
-        for attributes, value in captured.points(name)
+        for name in sorted({metric["name"] for metric in otlp.metrics})
+        for attributes, value in otlp.points(name)
     ]
-    captured.payloads.clear()
+    otlp.clear()
     return points
 
 
 def test_two_processes_with_different_references_send_the_same_local_series(
-    captured: Captured, spend_ledger: SpendLedger, config: Callable[..., Path]
+    otlp: FakeCollector, spend_ledger: SpendLedger, config: Callable[..., Path]
 ) -> None:
     """Verify the points of a local call do not depend on `ai.reference_model` or
     `ai.reference_embedding_model`. The workstation priced its savings at gpt-4o and the Service
     at gpt-4o-mini, and the dashboard added the two; now each process sends the same tokens and
     no price, and the prices of the dashboard price them (#1672, #2194)."""
     config(ai={"reference_model": "gpt-4o", "reference_embedding_model": "text-embedding-3-large"})
-    workstation = _local_call_points(captured)
+    workstation = _local_call_points(otlp)
     config(
         ai={"reference_model": "gpt-4o-mini", "reference_embedding_model": "text-embedding-3-small"}
     )
-    service = _local_call_points(captured)
+    service = _local_call_points(otlp)
 
     assert (len(workstation) > 0, workstation) == (True, service)
 
 
 def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status(
-    captured: Captured,
+    otlp: FakeCollector,
 ) -> None:
     """Verify findings are counted once per persona, severity and status, and failed personas
     contribute none."""
@@ -1019,9 +1017,9 @@ def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status
     _record_review_metrics(results, 312.5, "path")
 
     assert (
-        captured.points("devops_cli_review_duration_seconds"),
+        otlp.points("devops_cli_review_duration_seconds"),
         sorted(
-            (a["severity"], a["status"], v) for a, v in captured.points("devops_cli_findings_total")
+            (a["severity"], a["status"], v) for a, v in otlp.points("devops_cli_findings_total")
         ),
     ) == (
         [({"target_type": "path"}, 312.5)],
@@ -1056,15 +1054,15 @@ def test_backends_are_named_by_their_hosts_first_label(served_by: str | None, na
     assert backend_name(served_by) == name
 
 
-def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None:
+def test_gauges_are_recorded_as_instantaneous_values(otlp: FakeCollector) -> None:
     """Verify gauge metrics emit instantaneous point-in-time values rather than accumulating deltas."""
     emit(PROJECT_ITEMS, 120.0, attributes={"milestone": "2026-11", "state": "closed"})
     tracer_module.get_tracer().flush()
     emit(PROJECT_ITEMS, 115.0, attributes={"milestone": "2026-11", "state": "closed"})
     emit(PROJECT_ITEMS, 125.0, attributes={"milestone": "2026-11", "state": "closed"})
 
-    points = captured.points("devops_cli_project_items")
-    metric_entry = captured.metrics[0]
+    points = otlp.points("devops_cli_project_items")
+    metric_entry = otlp.metrics[0]
 
     assert (
         "gauge" in metric_entry,

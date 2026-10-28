@@ -12,7 +12,7 @@ Workstation Telemetry & Observability in `devops-cli` provides comprehensive vis
 graph LR
     A[CLI Invocations / devops serve] --> B[trace_span Instrumentation]
     B --> C[Prometheus Metrics Scrape /metrics]
-    B --> D[OTLP Trace Exporter HTTP/gRPC]
+    B --> D[OTLP Exporter HTTP]
     C --> E[Prometheus Server :9090]
     D --> F[Tempo Tracing :3200]
     E --> G[Grafana Dashboards :3000]
@@ -59,8 +59,8 @@ curl -s http://localhost:8000/metrics
 
 ## 6. General Standards & Reference Guidelines
 
-- **OTLP HTTP Endpoint**: Default `http://localhost:4318/v1/traces`.
-- **OTLP gRPC Endpoint**: Default `http://localhost:4317`.
+- **OTLP HTTP Endpoint**: Default `http://localhost:4318`; the exporter posts to its `/v1/traces`, `/v1/metrics` and `/v1/logs` paths.
+- **OTLP gRPC**: devops-cli sends no OTLP over gRPC. A gRPC protocol or an endpoint on port `4317` turns export off with a warning that names the setting.
 
 ---
 

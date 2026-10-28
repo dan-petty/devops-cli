@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -25,8 +24,10 @@ from devops_cli.k8s.node_port import ServiceNotReachableError
 from devops_cli.main import app
 from devops_cli.telemetry import tracer
 from devops_cli.telemetry.collector import collector_endpoint
+from devops_cli.telemetry.exporter import CONNECT_FAILED, OtlpSignal
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 from tests.support.config_writes import written_keys
+from tests.support.fakes.otlp import FakeCollector
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -135,25 +136,30 @@ def test_connect_keeps_the_configuration_when_the_collector_does_not_answer(
 
 
 def test_failed_exports_are_counted_and_reported_once_a_day(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    refusing_port: int,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Verify a collector that never answers is reported to an interactive user, once."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     reset_settings_cache()
-    client = OTelTelemetryClient(endpoint=f"http://127.0.0.1:{refusing_port}")
-    client._send_payload_sync("/v1/traces", {"resourceSpans": []})
+    collector = FakeCollector()
+    collector.refuse()
+    client = collector.client()
+    with client.span("unanswered"):
+        pass
+    client.flush()
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
     tracer._warn_if_exports_failed(client)
     tracer._warn_if_exports_failed(client)
 
     warnings = capsys.readouterr().err
-    assert (client.export_failures, client.export_successes) == (1, 0)
-    assert warnings.count(f"Telemetry could not reach http://127.0.0.1:{refusing_port}") == 1
-    assert "devops telemetry connect" in warnings
+    assert (
+        client.export_failures,
+        client.export_successes,
+        warnings.count(f"Telemetry could not reach {collector.endpoint}"),
+        f"({CONNECT_FAILED})" in warnings,
+        "devops telemetry connect" in warnings,
+    ) == (1, 0, 1, True, True)
 
 
 def test_non_interactive_runs_stay_quiet(
@@ -161,108 +167,97 @@ def test_non_interactive_runs_stay_quiet(
 ) -> None:
     """Verify CI and tests, which have no terminal, get no warning."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
-    client.export_failures = 3
+    collector = FakeCollector()
+    collector.refuse()
+    client = collector.client()
+    with client.span("unanswered"):
+        pass
+    client.flush()
 
     tracer._warn_if_exports_failed(client)
 
-    assert capsys.readouterr().err == ""
+    assert (client.export_failures, capsys.readouterr().err) == (1, "")
 
 
-def test_exports_in_flight_are_drained_at_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify spans queued at a command's end are sent, not cancelled, when the tool exits."""
-    delivered = threading.Event()
+class _SlowCollector(FakeCollector):
+    """A collector that takes a moment to answer, as one across a network does."""
 
-    def slow_send(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:
+    def export(self, signal: OtlpSignal, body: bytes, content_type: str) -> None:
         time.sleep(0.2)
-        delivered.set()
+        super().export(signal, body, content_type)
 
-    monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", slow_send)
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
 
-    client._send_payload("/v1/traces", {"resourceSpans": []})
+def test_exports_in_flight_are_drained_at_shutdown() -> None:
+    """Verify spans queued at a command's end are sent, not cancelled, when the tool exits."""
+    collector = _SlowCollector()
+    client = collector.client()
+    with client.span("last_span"):
+        pass
+
     client.shutdown()
 
-    assert delivered.is_set()
+    assert [export.signal for export in collector.exports] == [OtlpSignal.TRACES]
 
 
 def test_a_dry_run_exports_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     """A dry run makes no external request (#412's amendment), the collector export included."""
-    sent: list[str] = []
-
-    def record(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:
-        sent.append(path)
-
-    monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", record)
+    collector = FakeCollector()
+    client = collector.client()
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
-
-    client._send_payload("/v1/traces", {"resourceSpans": []})
-    client._send_payload("/v1/metrics", {"resourceMetrics": []})
-    client.shutdown()
+    with client.span("dry_run_span"):
+        client.increment_counter("devops_cli_dry_run_total", 1, attributes={})
+    client.flush()
     monkeypatch.delenv("DEVOPS_CLI_DRY_RUN")
-    client._send_payload("/v1/traces", {"resourceSpans": []})
-    client.shutdown()
+    with client.span("real_run_span"):
+        pass
 
-    assert sent == ["/v1/traces"]
+    assert [span.name for span in collector.spans] == ["real_run_span"]
+    assert [export.signal for export in collector.exports] == [OtlpSignal.TRACES]
 
 
-def test_a_commands_own_dry_run_exports_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_commands_own_dry_run_exports_nothing() -> None:
     """`devops k8s push-secrets --dry-run` leaves the dry-run state off, but the invocation
     is a dry run, so its command span and metrics are not exported either."""
     from devops_cli.dry_run.state import mark_dry_run_invocation
 
-    sent: list[str] = []
-    monkeypatch.setattr(
-        OTelTelemetryClient, "_send_payload_sync", lambda self, path, payload: sent.append(path)
-    )
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+    collector = FakeCollector()
+    client = collector.client()
     mark_dry_run_invocation(True)
-    client._send_payload("/v1/traces", {"resourceSpans": []})
-    client.shutdown()
+    with client.span("push_secrets_span"):
+        pass
 
-    assert sent == []
+    assert collector.spans == []
 
 
-def test_warning_and_error_logs_export_to_v1_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_warning_and_error_logs_export_to_v1_logs() -> None:
     """Verify WARNING and ERROR log records export to /v1/logs with trace correlation (#813)."""
-    sent: list[tuple[str, dict[str, Any]]] = []
+    collector = FakeCollector()
+    client = collector.client()
 
-    def record(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:
-        sent.append((path, payload))
+    client.export_log_record(
+        {
+            "timeUnixNano": "1000",
+            "observedTimeUnixNano": "1000",
+            "severityNumber": 13,
+            "severityText": "WARN",
+            "body": {"stringValue": "test warning"},
+            "attributes": [],
+            "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+            "spanId": "00f067aa0ba902b7",
+        }
+    )
 
-    monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", record)
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
-
-    log_record = {
-        "timeUnixNano": "1000",
-        "observedTimeUnixNano": "1000",
-        "severityNumber": 13,
-        "severityText": "WARN",
-        "body": {"stringValue": "test warning"},
-        "attributes": [],
-        "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
-        "spanId": "00f067aa0ba902b7",
-    }
-    client.export_log_record(log_record)
-    client.shutdown()
-
-    assert len(sent) == 1
-    path, payload = sent[0]
-    assert path == "/v1/logs"
-    assert "resourceLogs" in payload
-    rl = payload["resourceLogs"][0]
-    assert rl["scopeLogs"][0]["logRecords"][0]["traceId"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert [(record["traceId"], record["body"]) for record in collector.log_records] == [
+        ("4bf92f3577b34da6a3ce929d0e0e4736", {"stringValue": "test warning"})
+    ]
+    assert [export.signal for export in collector.exports] == [OtlpSignal.LOGS]
 
 
 def test_dry_run_exports_no_logs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify dry run suppresses log export to /v1/logs (#813)."""
-    sent: list[str] = []
-    monkeypatch.setattr(
-        OTelTelemetryClient, "_send_payload_sync", lambda self, path, p: sent.append(path)
-    )
+    collector = FakeCollector()
+    client = collector.client()
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
-    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
 
     client.export_log_record(
         {
@@ -272,6 +267,5 @@ def test_dry_run_exports_no_logs(monkeypatch: pytest.MonkeyPatch) -> None:
             "body": {"stringValue": "dry run warn"},
         }
     )
-    client.shutdown()
 
-    assert sent == []
+    assert collector.log_records == []

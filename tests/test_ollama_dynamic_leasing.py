@@ -18,7 +18,7 @@ from devops_cli.ai.client.network import (
     reset_ollama_slots,
 )
 from devops_cli.telemetry.instruments import AI_OLLAMA_SLOT_WAIT
-from tests.support.telemetry_capture import Captured
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 NODE = "http://example.com:11434"
@@ -144,10 +144,10 @@ def test_acquire_ollama_slot_effective_timeout_defaults() -> None:
         )
 
 
-def _slot_waits(captured: Captured) -> dict[tuple[str, str], tuple[int, float]]:
+def _slot_waits(otlp: FakeCollector) -> dict[tuple[str, str], tuple[int, float]]:
     """The observations of the Ollama slot wait sent, as (count, seconds) by (priority, outcome)."""
     waits: dict[tuple[str, str], tuple[int, float]] = {}
-    for metric in captured.metrics:
+    for metric in otlp.metrics:
         if metric["name"] != AI_OLLAMA_SLOT_WAIT.name:
             continue
         for point in metric["exponentialHistogram"]["dataPoints"]:
@@ -164,7 +164,7 @@ def _counts(waits: dict[tuple[str, str], tuple[int, float]]) -> dict[tuple[str, 
     return {labels: count for labels, (count, _) in waits.items()}
 
 
-def test_a_call_with_a_free_slot_observes_its_wait_by_priority(captured: Captured) -> None:
+def test_a_call_with_a_free_slot_observes_its_wait_by_priority(otlp: FakeCollector) -> None:
     """A call that finds a free slot sends one observation with the priority it asked for, or
     the priority of its context when it names none."""
     with acquire_ollama_slot([NODE], priority=RequestPriority.HIGH):
@@ -172,7 +172,7 @@ def test_a_call_with_a_free_slot_observes_its_wait_by_priority(captured: Capture
     with acquire_ollama_slot([NODE]):
         pass
 
-    assert _counts(_slot_waits(captured)) == {("high", "ok"): 1, ("normal", "ok"): 1}
+    assert _counts(_slot_waits(otlp)) == {("high", "ok"): 1, ("normal", "ok"): 1}
 
 
 def _lease_once(priority: RequestPriority) -> str:
@@ -182,7 +182,7 @@ def _lease_once(priority: RequestPriority) -> str:
         return leased_url
 
 
-def test_a_call_that_waits_for_a_held_slot_observes_the_wait(captured: Captured) -> None:
+def test_a_call_that_waits_for_a_held_slot_observes_the_wait(otlp: FakeCollector) -> None:
     """A normal call queued behind a held slot sends one `ok` observation once the holder
     releases, and its wait is above 0 s."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -191,7 +191,7 @@ def test_a_call_that_waits_for_a_held_slot_observes_the_wait(captured: Captured)
             queued = wait_until(lambda: get_ollama_waiting_counts()["normal"] == 1)
         leased_url = waiter.result(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
-    waits = _slot_waits(captured)
+    waits = _slot_waits(otlp)
     assert (queued, leased_url, _counts(waits), waits.get(("normal", "ok"), (0, 0.0))[1] > 0) == (
         True,
         NODE,
@@ -200,7 +200,7 @@ def test_a_call_that_waits_for_a_held_slot_observes_the_wait(captured: Captured)
     )
 
 
-def test_an_as_available_call_with_no_free_slot_observes_a_timeout(captured: Captured) -> None:
+def test_an_as_available_call_with_no_free_slot_observes_a_timeout(otlp: FakeCollector) -> None:
     """An as-available call finds the only slot held, fails at once and sends one `timeout`
     observation."""
     with acquire_ollama_slot([NODE], max_parallel=1, priority=RequestPriority.HIGH):
@@ -208,4 +208,4 @@ def test_an_as_available_call_with_no_free_slot_observes_a_timeout(captured: Cap
             with acquire_ollama_slot([NODE], max_parallel=1, priority=RequestPriority.AS_AVAILABLE):
                 pass
 
-    assert _counts(_slot_waits(captured)) == {("high", "ok"): 1, ("as_available", "timeout"): 1}
+    assert _counts(_slot_waits(otlp)) == {("high", "ok"): 1, ("as_available", "timeout"): 1}

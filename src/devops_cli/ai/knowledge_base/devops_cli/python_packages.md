@@ -229,11 +229,11 @@ async with MCPToolset(url="http://localhost:8000/sse") as mcp:
 - **Codebase Integration**:
   - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and an SSE event stream.
 
-#### `opentelemetry-exporter-otlp-proto-grpc` ([Dedicated Manual](libraries/opentelemetry.md))
-- **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.45.1`
-- **Ecosystem Role**: OpenTelemetry collector exporter transmitting distributed trace spans over gRPC.
+#### `opentelemetry-sdk` ([Dedicated Manual](libraries/opentelemetry.md))
+- **Pinned Version**: `opentelemetry-sdk==1.45.1`
+- **Ecosystem Role**: The OpenTelemetry SDK: the `MeterProvider` that aggregates metrics as deltas before export.
 - **Codebase Integration**:
-  - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to the OpenTelemetry Collector and Tempo.
+  - `devops_cli.telemetry.tracer`: Builds the spans, metrics and logs of CLI subcommands, multi-agent review stages and tool executions; `devops_cli.telemetry.exporter` posts them over OTLP/HTTP to the OpenTelemetry Collector.
 
 #### `PyYAML` & `jinja2` ([Dedicated Manual](libraries/pyyaml_jinja2.md))
 - **Pinned Versions**: `PyYAML==6.0.3`, `jinja2==3.1.6`

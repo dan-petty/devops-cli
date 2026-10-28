@@ -46,7 +46,7 @@ from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.telemetry.instruments import PROJECT_ITEM_LABELS, PROJECT_ITEMS
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
-from tests.support.telemetry_capture import Captured
+from tests.support.fakes.otlp import FakeCollector
 
 runner = CliRunner()
 REPO = "example/test-repo"
@@ -501,14 +501,14 @@ def _snapshot(*items: ItemCountMetric) -> ProjectMetricsReport:
     )
 
 
-def _sent_items(captured: Captured, already_read: int = 0) -> dict[tuple[str, ...], float]:
+def _sent_items(otlp: FakeCollector, already_read: int = 0) -> dict[tuple[str, ...], float]:
     """The value of each items series that the client sent after the first `already_read`
     points, by its label values in the order of `PROJECT_ITEM_LABELS`."""
-    points = captured.points(PROJECT_ITEMS.name)[already_read:]
+    points = otlp.points(PROJECT_ITEMS.name)[already_read:]
     return {tuple(attrs[label] for label in PROJECT_ITEM_LABELS): value for attrs, value in points}
 
 
-def test_the_items_gauge_is_sent_with_the_labels_of_its_description(captured: Captured) -> None:
+def test_the_items_gauge_is_sent_with_the_labels_of_its_description(otlp: FakeCollector) -> None:
     """The gauge carries the labels that its instrument names, and an item in no milestone has
     an empty `milestone`."""
     emit_project_metrics_telemetry(
@@ -519,26 +519,26 @@ def test_the_items_gauge_is_sent_with_the_labels_of_its_description(captured: Ca
     )
 
     assert PROJECT_ITEM_LABELS == ("milestone", "state", "type", "priority")
-    assert _sent_items(captured) == {
+    assert _sent_items(otlp) == {
         ("", "open", "bug", "P1-High"): 2.0,
         (PLANNED, "closed", "feature", ""): 5.0,
     }
 
 
-def test_a_label_set_with_no_items_is_sent_as_zero_once(captured: Captured) -> None:
+def test_a_label_set_with_no_items_is_sent_as_zero_once(otlp: FakeCollector) -> None:
     """A series that is not sent again keeps its last value in `last_over_time`, so an item
     that closes would stay in the open count. The set it left is sent as 0, once."""
     opened = ItemCountMetric(state="open", type="bug", count=1)
     closed = ItemCountMetric(state="closed", type="bug", count=1)
 
     emit_project_metrics_telemetry(_snapshot(opened))
-    first = _sent_items(captured)
-    sent = len(captured.points(PROJECT_ITEMS.name))
+    first = _sent_items(otlp)
+    sent = len(otlp.points(PROJECT_ITEMS.name))
     emit_project_metrics_telemetry(_snapshot(closed))
-    second = _sent_items(captured, sent)
-    sent = len(captured.points(PROJECT_ITEMS.name))
+    second = _sent_items(otlp, sent)
+    sent = len(otlp.points(PROJECT_ITEMS.name))
     emit_project_metrics_telemetry(_snapshot(closed))
-    third = _sent_items(captured, sent)
+    third = _sent_items(otlp, sent)
 
     assert (first, second, third) == (
         {("", "open", "bug", ""): 1.0},

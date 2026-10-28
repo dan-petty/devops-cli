@@ -34,6 +34,30 @@ class LogfireConfigurationError(TelemetryError):
         super().__init__(message=message, error_code=error_code, exit_code=exit_code)
 
 
+class OtlpExportError(TelemetryError):
+    """Raised when the collector does not take an OTLP export, with the failure as its message."""
+
+    def __init__(
+        self,
+        message: str = "The collector did not take the export",
+        error_code: str = CONST_ERROR_CODE_TELEMETRY,
+        exit_code: int = 1,
+    ) -> None:
+        super().__init__(message=message, error_code=error_code, exit_code=exit_code)
+
+
+class OtlpProtocolError(TelemetryError, ValueError):
+    """Raised when the OTLP protocol or endpoint asks for gRPC, which devops-cli does not send."""
+
+    def __init__(
+        self,
+        message: str = "devops-cli sends OTLP over HTTP only",
+        error_code: str = CONST_ERROR_CODE_TELEMETRY,
+        exit_code: int = 1,
+    ) -> None:
+        super().__init__(message=message, error_code=error_code, exit_code=exit_code)
+
+
 class ServiceStatusError(TelemetryError):
     """Raised when querying upstream published service status fails."""
 

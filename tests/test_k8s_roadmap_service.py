@@ -13,9 +13,9 @@ from devops_cli.config.constants import WebhookExposure
 from devops_cli.config.env import CREDENTIALS
 from devops_cli.config.settings import Settings
 from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
-from devops_cli.telemetry.tracer import OTelTelemetryClient
+from devops_cli.telemetry.exporter import OtlpSignal
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.paths import REPO_ROOT
-from tests.support.telemetry_capture import Captured
 
 K8S_DIR = REPO_ROOT / "k8s"
 DEVOPS_DIR = K8S_DIR / "devops"
@@ -149,15 +149,11 @@ def test_every_pod_of_the_deployment_exports_its_metrics_under_one_series_identi
     pods = ("roadmap-service-5557bc6b97-4m96n", "roadmap-service-7fcb98569d-2szh4")
     identities = []
     for pod in pods:
-        client = OTelTelemetryClient(
-            endpoint="http://127.0.0.1:9", service_name=env["OTEL_SERVICE_NAME"]
-        )
+        collector = FakeCollector()
+        client = collector.client(service_name=env["OTEL_SERVICE_NAME"])
         client.host_name = pod
-        sink = Captured()
-        monkeypatch.setattr(client, "_send_payload", sink)
         client.increment_counter("devops_cli_ai_requests_total", 1, attributes={})
-        client.flush()
-        (payload,) = sink.payloads
+        (payload,) = collector.payloads(OtlpSignal.METRICS)
         resource = {
             a["key"]: next(iter(a["value"].values()))
             for a in payload["resourceMetrics"][0]["resource"]["attributes"]
