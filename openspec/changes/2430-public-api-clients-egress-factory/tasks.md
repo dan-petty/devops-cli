@@ -12,7 +12,7 @@
 
 ## 3. The Cloudflare API client
 
-- [ ] Build the client of `CloudflareClient._request` with `new_http_client` at the public level and a 30 s read timeout
+- [x] Build the client of `CloudflareClient._request` with `new_http_client` at the public level and a 30 s read timeout
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_cloudflare_commands.py`
 
 ## 4. Documentation
