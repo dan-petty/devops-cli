@@ -22,12 +22,14 @@ _RUN_MESSAGES_CAPTURE: ContextVar[list[Any] | None] = ContextVar(
 class ModelNotAllowedError(DevOpsCLIError):
     """Raised when a non-test model request is attempted while ALLOW_MODEL_REQUESTS is False."""
 
+    error_code = "MODEL_REQUESTS_DISABLED"
+
     def __init__(
         self,
         message: str = "Real model requests are disabled during testing (ALLOW_MODEL_REQUESTS=False)",
         **kwargs: Any,
     ) -> None:
-        super().__init__(message=message, error_code="MODEL_REQUESTS_DISABLED", **kwargs)
+        super().__init__(message=message, **kwargs)
 
 
 @contextmanager

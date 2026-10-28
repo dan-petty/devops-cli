@@ -1001,29 +1001,6 @@ class DocGenerator:
                     "A missing optional dependency now fails the docs stage, by design."
                 ) from exc
 
-    @staticmethod
-    def _instantiate_error_for_catalog(err_cls: type[Exception]) -> tuple[str, int]:
-        """Instantiate a DevOpsCLIError subclass with dummy required arguments to read its codes."""
-        import inspect
-
-        params = list(inspect.signature(err_cls).parameters.values())
-        pos_args = [
-            "error"
-            for p in params
-            if p.default is inspect.Parameter.empty
-            and p.kind
-            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        ]
-        kw_args = {
-            p.name: "error"
-            for p in params
-            if p.default is inspect.Parameter.empty and p.kind == inspect.Parameter.KEYWORD_ONLY
-        }
-        inst = err_cls(*pos_args, **kw_args)
-        return str(getattr(inst, "error_code", err_cls.__name__)), int(
-            getattr(inst, "exit_code", 1)
-        )
-
     def generate_error_catalog_docs(self) -> str:
         """Programmatically generate Exit Code and Error Taxonomy catalog from DevOpsCLIError hierarchy."""
         from devops_cli.exceptions.base import DevOpsCLIError
@@ -1052,9 +1029,9 @@ class DocGenerator:
             "An error code may be shared by a base class and its subclasses; the exception column",
             "names the class each row describes. One code never maps to two exit statuses.",
             "",
-            "The Exit Code column is the exception's `exit_code` attribute. Only `devops cloudflare`, "
-            "`devops valkey` and `devops sandbox` exit with it today; other commands exit 1 when one "
-            "of these exceptions escapes.",
+            "Each exception class declares its `error_code` and `exit_code`. A command that a "
+            "`DevOpsCLIError` ends prints one error line and exits with the exception's `exit_code`; "
+            "an exception raised for a failed subprocess can carry that subprocess's own status instead.",
             "",
             "| Exception | Error Code | Exit Code | Domain | Description |",
             "|---|---|---|---|---|",
@@ -1071,14 +1048,13 @@ class DocGenerator:
 
         for err_cls in all_errs:
             doc = (err_cls.__doc__ or "").strip().split("\n")[0]
-            err_code, exit_code = self._instantiate_error_for_catalog(err_cls)
             domain = (
                 err_cls.__module__.replace("devops_cli.exceptions.", "")
                 .replace("devops_cli.exceptions", "core")
                 .capitalize()
             )
             lines.append(
-                f"| `{err_cls.__name__}` | `{err_code}` | `{exit_code}` | {domain} | "
+                f"| `{err_cls.__name__}` | `{err_cls.error_code}` | `{err_cls.exit_code}` | {domain} | "
                 f"{doc or err_cls.__name__} |"
             )
 

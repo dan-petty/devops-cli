@@ -15,11 +15,6 @@ from devops_cli.ai.controller.models import (
     QuiesceSnapshot,
     QuiesceState,
 )
-from devops_cli.exceptions.ai import (
-    ConstellationFailoverError,
-    ConstellationQuiesceError,
-    ConstellationResumeError,
-)
 from devops_cli.main import app
 
 runner = CliRunner()
@@ -36,19 +31,6 @@ def test_the_flag_holds_no_tasks() -> None:
     assert ({"tasks"} & snapshot_fields, {"tasks", "suspended_task_count"} & status_fields) == (
         set(),
         set(),
-    )
-
-
-def test_domain_exceptions() -> None:
-    q_err = ConstellationQuiesceError("Failed quiescing", reason="timeout")
-    f_err = ConstellationFailoverError(
-        "Failed failover", target_provider="ollama", target_model="qwen"
-    )
-    r_err = ConstellationResumeError("Failed resuming")
-    assert (q_err.details["reason"], f_err.details["target_provider"], str(r_err)) == (
-        "timeout",
-        "ollama",
-        "Failed resuming",
     )
 
 

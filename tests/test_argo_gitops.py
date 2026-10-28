@@ -12,7 +12,6 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.argo import app
 from devops_cli.config.settings import Settings
-from devops_cli.exceptions.k8s import GitOpsSyncError
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -46,14 +45,6 @@ def test_gitops_models() -> None:
     assert dumped["app_name"] == "root-app"
     assert dumped["status"] == "Synced"
     assert dumped["success"] is True
-
-
-def test_gitops_sync_error_taxonomy() -> None:
-    """Ensure GitOpsSyncError follows taxonomy and bounds details."""
-    err = GitOpsSyncError("Sync failed", app_name="a" * 300)
-    assert err.details is not None
-    assert len(err.details.get("app_name", "")) <= 256
-    assert err.error_code == "GITOPS_SYNC_ERROR"
 
 
 def test_compute_manifest_state(tmp_path: Path) -> None:

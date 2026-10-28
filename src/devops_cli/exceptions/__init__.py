@@ -35,7 +35,6 @@ from devops_cli.exceptions.k8s import (
     ClusterJobError,
     ClusterSecretPushError,
     ClusterSecretWriteError,
-    GitOpsSyncError,
     KubernetesContextError,
     KubernetesDeployError,
     KubernetesError,
@@ -56,7 +55,6 @@ from devops_cli.exceptions.sandbox import (
 )
 from devops_cli.exceptions.security import (
     KeyringUnavailableError,
-    SecretExposureError,
     SecurityError,
     SSRFBlockedError,
 )
@@ -74,7 +72,6 @@ from devops_cli.exceptions.tools import (
 )
 from devops_cli.exceptions.validation import (
     InvalidURLError,
-    InvalidVersionError,
     ValidationError,
 )
 from devops_cli.exceptions.valkey import (
@@ -123,10 +120,8 @@ __all__ = [
     "GitHubUnauthenticatedError",
     "GitHubUnreadError",
     "GitOperationError",
-    "GitOpsSyncError",
     "InvalidBranchNameError",
     "InvalidURLError",
-    "InvalidVersionError",
     "KeyringUnavailableError",
     "KubernetesContextError",
     "KubernetesDeployError",
@@ -143,7 +138,6 @@ __all__ = [
     "SandboxPortAllocationError",
     "SandboxUnavailableError",
     "SandboxValidationError",
-    "SecretExposureError",
     "SecurityError",
     "ServiceStatusError",
     "SubprocessError",

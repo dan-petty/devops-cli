@@ -10,11 +10,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.review_schema import FileReviewPayload, ReviewSessionPayload, SavedFinding
-from devops_cli.config.constants import (
-    CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
-    CONST_ERROR_CODE_SECURITY,
-    CONST_EXIT_FAILURE,
-)
+from devops_cli.config.constants import CONST_EXIT_FAILURE
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ReviewSessionExistsError
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
@@ -87,7 +83,7 @@ def test_the_store_root_refuses_a_directory_a_session_may_not_be_kept_in(
 
     assert (refused.value.exit_code, refused.value.error_code) == (
         CONST_EXIT_FAILURE,
-        CONST_ERROR_CODE_SECURITY,
+        "SECURITY_ERROR",
     )
 
 
@@ -218,7 +214,7 @@ def test_publishing_a_name_that_is_already_published_is_refused(
         (second.staging / "findings.json").is_file(),
     ) == (
         CONST_EXIT_FAILURE,
-        CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
+        "REVIEW_SESSION_EXISTS",
         _payload("First").model_dump_json(indent=2),
         True,
     )

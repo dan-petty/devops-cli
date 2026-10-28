@@ -5,20 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
-    CONST_ERROR_CODE_CAPABILITY_DEGRADATION,
-    CONST_ERROR_CODE_CONSTELLATION_FAILOVER,
-    CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
-    CONST_ERROR_CODE_CONSTELLATION_RESUME,
-    CONST_ERROR_CODE_DOCS_INGESTION,
-    CONST_ERROR_CODE_HARNESS_VALIDATION,
-    CONST_ERROR_CODE_LIBRARY_INGESTION,
-    CONST_ERROR_CODE_LIBRARY_NOT_FOUND,
-    CONST_ERROR_CODE_LLM_INFERENCE,
-    CONST_ERROR_CODE_MODEL_BUNDLE,
-    CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
-    CONST_ERROR_CODE_REVIEW_HAND_OFF_REFUSED,
-    CONST_ERROR_CODE_REVIEW_POOL,
-    CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
     CONST_EXIT_ERROR_INFERENCE,
     CONST_EXIT_FAILURE,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -29,27 +15,29 @@ from devops_cli.exceptions.base import DevOpsCLIError
 class LLMInferenceError(DevOpsCLIError, ValueError):
     """Base exception for LLM provider invocation failures."""
 
+    error_code = "LLM_INFERENCE_ERROR"
+    exit_code = CONST_EXIT_ERROR_INFERENCE
+
     def __init__(
         self,
         message: str,
         *,
         provider: str | None = None,
         model: str | None = None,
-        exit_code: int = CONST_EXIT_ERROR_INFERENCE,
-        error_code: str = CONST_ERROR_CODE_LLM_INFERENCE,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"provider": provider, "model": model}
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
 
 
 class ModelGatewayUnreachableError(LLMInferenceError):
     """Raised when a model call through the gateway fails, so the command decided and wrote nothing."""
 
-    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE
-    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
+    error_code = "MODEL_GATEWAY_UNREACHABLE"
+    exit_code = CONST_EXIT_FAILURE
 
     def __init__(self, gateway: str, cause: Exception, *, consequence: str) -> None:
         from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
@@ -59,8 +47,6 @@ class ModelGatewayUnreachableError(LLMInferenceError):
         super().__init__(
             f"The model gateway {safe_gateway} did not answer ({type(cause).__name__}: "
             f"{safe_cause}), so {consequence}. Run it again once the gateway answers.",
-            exit_code=CONST_EXIT_FAILURE,
-            error_code=CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
             details={"gateway": safe_gateway[:256]},
         )
 
@@ -68,8 +54,7 @@ class ModelGatewayUnreachableError(LLMInferenceError):
 class CapabilityDegradationError(DevOpsCLIError, ValueError):
     """Raised when a fallback or failover model breaches minimum capability tier requirements."""
 
-    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_CAPABILITY_DEGRADATION
-    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
+    error_code = "CAPABILITY_DEGRADATION"
 
     def __init__(
         self,
@@ -89,123 +74,72 @@ class CapabilityDegradationError(DevOpsCLIError, ValueError):
         }
         if details:
             err_details.update(details)
-        super().__init__(
-            message,
-            exit_code=self.DEFAULT_EXIT_CODE,
-            error_code=self.DEFAULT_ERROR_CODE,
-            details=err_details,
-        )
+        super().__init__(message, details=err_details)
 
 
 class ModelBundleError(DevOpsCLIError, ValueError):
     """Raised when an AI model bundle cannot be located, resolved, or loaded."""
+
+    error_code = "MODEL_BUNDLE_ERROR"
 
     def __init__(
         self,
         message: str,
         *,
         bundle_path: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_MODEL_BUNDLE,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"bundle_path": bundle_path}
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
 
 
 class HarnessValidationError(DevOpsCLIError, ValueError):
     """Raised when an AI evaluation or harness schema validation fails."""
+
+    error_code = "HARNESS_VALIDATION_ERROR"
 
     def __init__(
         self,
         message: str,
         *,
         field_name: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_HARNESS_VALIDATION,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"field_name": field_name}
         if details:
             err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
-
-
-class ConstellationQuiesceError(DevOpsCLIError, RuntimeError):
-    """Raised when constellation quiesce suspension fails."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        reason: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        err_details = {"reason": reason}
-        if details:
-            err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
-
-
-class ConstellationFailoverError(DevOpsCLIError, RuntimeError):
-    """Raised when emergency failover routing fails."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        target_provider: str | None = None,
-        target_model: str | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_CONSTELLATION_FAILOVER,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        err_details = {"target_provider": target_provider, "target_model": target_model}
-        if details:
-            err_details.update(details)
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
-
-
-class ConstellationResumeError(DevOpsCLIError, RuntimeError):
-    """Raised when resuming suspended constellation tasks fails."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_CONSTELLATION_RESUME,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
 
 
 class ReviewPoolError(DevOpsCLIError, RuntimeError):
     """Raised when an error occurs during parallel review worker pool execution."""
 
+    error_code = "REVIEW_POOL_ERROR"
+
     def __init__(
         self,
-        message: str = "Parallel review worker pool execution failed",
+        message: str,
         *,
         errors: list[Exception] | None = None,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_REVIEW_POOL,
+        exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = details or {}
         if errors:
             err_details["error_count"] = len(errors)
             err_details["errors"] = [str(e) for e in errors]
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        super().__init__(message, exit_code=exit_code, details=err_details)
         self.errors = errors or []
 
 
 class ReviewSessionExistsError(DevOpsCLIError):
     """Raised when a review is published under the name of a session that is already published."""
+
+    error_code = "REVIEW_SESSION_EXISTS"
 
     def __init__(self, name: str, *, staging: str) -> None:
         bounded_name = name[:CONST_MAX_ERROR_DETAIL_LENGTH]
@@ -213,7 +147,6 @@ class ReviewSessionExistsError(DevOpsCLIError):
         super().__init__(
             f"Review session {bounded_name} was not published: a session of that name already "
             f"exists. The review's files are in {bounded_staging}.",
-            error_code=CONST_ERROR_CODE_REVIEW_SESSION_EXISTS,
             details={"session": bounded_name, "staging": bounded_staging},
         )
 
@@ -221,77 +154,34 @@ class ReviewSessionExistsError(DevOpsCLIError):
 class ReviewHandOffRefusedError(DevOpsCLIError):
     """Raised when `devops review intake` refuses a session that is not on merged code."""
 
+    error_code = "REVIEW_HAND_OFF_REFUSED"
+
     def __init__(self, message: str, *, session: str) -> None:
-        super().__init__(
-            message,
-            error_code=CONST_ERROR_CODE_REVIEW_HAND_OFF_REFUSED,
-            details={"session": session[:CONST_MAX_ERROR_DETAIL_LENGTH]},
-        )
+        super().__init__(message, details={"session": session[:CONST_MAX_ERROR_DETAIL_LENGTH]})
 
 
 class LibraryIngestionError(DevOpsCLIError):
     """Base exception for package introspection and library ingestion errors."""
 
-    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_LIBRARY_INGESTION
-    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
-
-    def __init__(
-        self,
-        message: str = "Library ingestion failed",
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_LIBRARY_INGESTION,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "LIBRARY_INGESTION_ERROR"
 
 
 class LibraryNotFoundError(LibraryIngestionError):
     """Raised when target package could not be loaded or found in the environment."""
 
-    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_LIBRARY_NOT_FOUND
-    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
-
-    def __init__(
-        self,
-        message: str = "Target library was not found in environment",
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_LIBRARY_NOT_FOUND,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "LIBRARY_NOT_FOUND_ERROR"
 
 
 class DocsIngestionError(DevOpsCLIError):
     """Base exception for documentation ingestion errors."""
 
-    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_DOCS_INGESTION
-    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
-
-    def __init__(
-        self,
-        message: str = "Documentation ingestion failed",
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_DOCS_INGESTION,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "DOCS_INGESTION_ERROR"
 
 
 class StructuredOutputSchemaError(DevOpsCLIError, ValueError):
     """Raised when a schema class is missing or invalid for structured LLM output generation."""
 
-    def __init__(
-        self,
-        message: str = "A schema model class must be provided.",
-        *,
-        exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = "STRUCTURED_OUTPUT_SCHEMA_INVALID",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+    error_code = "STRUCTURED_OUTPUT_SCHEMA_INVALID"
 
 
 _PYDANTIC_AI_NAMES: frozenset[str] = frozenset(
@@ -330,9 +220,6 @@ __all__ = [
     "ApprovalRequired",
     "CallDeferred",
     "CapabilityDegradationError",
-    "ConstellationFailoverError",
-    "ConstellationQuiesceError",
-    "ConstellationResumeError",
     "DocsIngestionError",
     "HarnessValidationError",
     "LLMInferenceError",

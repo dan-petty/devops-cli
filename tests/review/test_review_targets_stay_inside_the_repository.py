@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli.config.constants import CONST_ERROR_CODE_SECURITY, CONST_EXIT_FAILURE
+from devops_cli.config.constants import CONST_EXIT_FAILURE
 from devops_cli.exceptions import SecurityError
 from devops_cli.review.targets import find_repo_files
 
@@ -55,7 +55,7 @@ def test_a_target_outside_the_repository_root_is_refused(tmp_path: Path, kind: s
     assert (refused.value.message, refused.value.exit_code, refused.value.error_code) == (
         "target must be a sub-path of the repository root",
         CONST_EXIT_FAILURE,
-        CONST_ERROR_CODE_SECURITY,
+        "SECURITY_ERROR",
     )
 
 
