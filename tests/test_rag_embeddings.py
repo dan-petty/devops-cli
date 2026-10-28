@@ -29,6 +29,7 @@ from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 from tests.support.telemetry_capture import Captured
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -59,10 +60,7 @@ def test_no_provider_configured_raises_and_caches_nothing() -> None:
 
 
 def _ollama_engine(monkeypatch: pytest.MonkeyPatch, nodes: list[str]) -> EmbeddingsEngine:
-    """An Ollama engine over `nodes` whose URLs are not resolved."""
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
-    )
+    """An Ollama engine over `nodes`."""
     ai_cfg = AIConfig(provider="ollama", ollama_urls=nodes, allow_private_network=True)
     ai_cfg.tasks.embedding.model = "bge-m3"
     return EmbeddingsEngine(ai_cfg, valkey_client=None)
@@ -156,9 +154,6 @@ def test_gateway_failures_raise_naming_model_endpoint_and_error(
             raise reply
         return reply
 
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
-    )
     monkeypatch.setattr(httpx2.Client, "post", fake_post)
     backoffs: list[float] = []
     monkeypatch.setattr("time.sleep", backoffs.append)
@@ -210,9 +205,6 @@ def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_dynamic_probe_openai_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
-    )
 
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.1] * 1536}]})
@@ -266,9 +258,6 @@ def test_openai_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
             json={"data": [{"index": 0, "embedding": [0.2] * 1536}]},
         )
 
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
-    )
     monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
     engine = EmbeddingsEngine(ai_cfg, api_key="mock-test-key")
@@ -728,9 +717,6 @@ def test_an_engine_whose_valkey_refuses_embeds_and_dials_it_once_in_each_cooldow
 
 def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
     """Record (url, authorization, model) for each embeddings POST and answer with a vector."""
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
-    )
     calls: list[tuple[str, str, str]] = []
 
     def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
@@ -979,9 +965,6 @@ def _serve(
     httpx2's own `MockTransport` stands behind every client the engine opens, so each reply
     passes through the real client: its headers, JSON body and status reach the engine as sent.
     """
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
-    )
     queued = list(replies)
     sent: list[httpx2.Request] = []
 
@@ -1312,10 +1295,12 @@ def _dial_gateway(
 ) -> _Gateway:
     """Connect each dial of the HTTP client of the engine to one `_Gateway`.
 
-    The httpx2 client of the engine and the connection pool of httpcore2 stay real. Only the
-    socket under each connection is the gateway's.
+    The httpx2 client of the engine, its egress check and the connection pool of httpcore2 stay
+    real. The host of the gateway URL answers a public address to the lookup of the connect, and
+    only the socket under each connection is the gateway's.
     """
     gateway = _Gateway(answer)
+    scripted_resolver(monkeypatch, {httpx2.URL(_GATEWAY_URL).host: [[PUBLIC_ADDRESS]]})
     monkeypatch.setattr(
         httpcore2.SyncBackend,
         "connect_tcp",

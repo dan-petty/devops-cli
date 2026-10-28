@@ -19,7 +19,6 @@ import httpx
 import httpx2
 import pytest
 
-from devops_cli.ai.rag import embeddings as embeddings_module
 from devops_cli.ai.rag import qdrant as qdrant_module
 from devops_cli.ai.rag import retriever as retriever_module
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
@@ -436,7 +435,6 @@ def test_the_rag_histogram_tops_out_past_the_query_paths_timeouts(
             read_timeouts.append(float(self.timeout.read or 0))
         return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [1.0, 0.0]}]})
 
-    monkeypatch.setattr(embeddings_module, "validate_configured_service_url", lambda *a, **k: None)
     monkeypatch.setattr(httpx2.Client, "post", gateway_post)
     gateway = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
     EmbeddingsEngine(gateway, api_key="test-key", valkey_client=None).embed_query("retry policy")

@@ -16,7 +16,7 @@
 
 ## 3. The embeddings engine
 
-- [ ] Give the batch client, the Ollama batch and the two dimension probes factory clients at the configured level, and delete the four `validate_configured_service_url` calls
+- [x] Give the batch client, the Ollama batch and the two dimension probes factory clients at the configured level, and delete the four `validate_configured_service_url` calls
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_rag_embeddings.py tests/test_rag_loopback_policy.py`
 
 ## 4. The pricing fetch and the documentation crawler

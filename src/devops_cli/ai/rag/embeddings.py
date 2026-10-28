@@ -64,9 +64,10 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.core import clock
-from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import configured_level
 from devops_cli.lang import ERRORS
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
@@ -447,6 +448,14 @@ class EmbeddingsEngine:
         self._http_client: httpx2.Client | None = None
         self._http_lock = threading.Lock()
 
+    def _new_http_client(self, timeout: httpx2.Timeout) -> httpx2.Client:
+        """A client at the configured level of the engine's AI configuration.
+
+        The URLs come from that configuration: loopback, or private when `ai.allow_private_network`
+        is set. The connect checks each address, and refuses one that the level does not admit.
+        """
+        return new_http_client(level=configured_level(self.ai_config), timeout=timeout)
+
     def _get_http_client(self) -> httpx2.Client:
         """The one HTTP client of the engine's batches, made at the first request.
 
@@ -457,7 +466,7 @@ class EmbeddingsEngine:
         with self._http_lock:
             if self._http_client is None:
                 client_timeout = httpx2.Timeout(self.batch_timeout, connect=2.0)
-                self._http_client = httpx2.Client(timeout=client_timeout)
+                self._http_client = self._new_http_client(client_timeout)
             return self._http_client
 
     def close(self) -> None:
@@ -684,10 +693,7 @@ class EmbeddingsEngine:
 
     def _probe_single_ollama_url(self, base_url: str, timeout: httpx2.Timeout) -> int | None:
         try:
-            validate_configured_service_url(
-                base_url, "Ollama", allow_private=self.ai_config.allow_private_network
-            )
-            with httpx2.Client(timeout=timeout) as client:
+            with self._new_http_client(timeout) as client:
                 return self._parse_ollama_node_metadata(client, base_url)
         except Exception as exc:
             logger.debug("Probing Ollama node %s failed: %s", base_url, exc)
@@ -764,13 +770,7 @@ class EmbeddingsEngine:
     def _probe_openai_dimension(self) -> int | None:
         """Probe OpenAI-compatible endpoint for actual embedding vector dimension."""
         base_url = self._openai_compatible_base_url().rstrip("/")
-        is_gateway = self._is_gateway_provider()
         try:
-            validate_configured_service_url(
-                base_url,
-                "LLM gateway" if is_gateway else "OpenAI",
-                allow_private=self.ai_config.allow_private_network,
-            )
             headers: dict[str, str] = {"Content-Type": "application/json"}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
@@ -781,7 +781,7 @@ class EmbeddingsEngine:
             )
             client_timeout = httpx2.Timeout(min(self.timeout, 5.0), connect=min(self.timeout, 2.0))
             texts = ["probe"]
-            with httpx2.Client(timeout=client_timeout) as client:
+            with self._new_http_client(client_timeout) as client:
                 started = time.monotonic()
                 res = client.post(
                     endpoint,
@@ -904,9 +904,6 @@ class EmbeddingsEngine:
 
     def _query_ollama_node_batch(self, base_url: str, batch_texts: list[str]) -> list[list[float]]:
         """Embed a batch on one Ollama node; raise when the node refuses, fails or misanswers."""
-        validate_configured_service_url(
-            base_url, "Ollama", allow_private=self.ai_config.allow_private_network
-        )
         endpoint = _ollama_embed_endpoint(base_url)
         with trace_span(
             "ai.rag.ollama_embed_batch",
@@ -918,7 +915,7 @@ class EmbeddingsEngine:
         ):
             start_t = clock.monotonic()
             client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 2.0))
-            with httpx2.Client(timeout=client_timeout) as client:
+            with self._new_http_client(client_timeout) as client:
                 res = client.post(endpoint, json=self._ollama_embed_payload(batch_texts))
             seconds = clock.monotonic() - start_t
             embs = _reply_vectors(res, endpoint, len(batch_texts), _ollama_reply_vectors)
@@ -1140,11 +1137,6 @@ class EmbeddingsEngine:
 
         endpoint, model = self._resolve_openai_endpoint_and_model(base_url, is_gateway)
         try:
-            validate_configured_service_url(
-                base_url,
-                "LLM gateway" if is_gateway else "OpenAI",
-                allow_private=self.ai_config.allow_private_network,
-            )
             batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, self._current_batch_size)
             batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
             if len(batches) <= 1:
