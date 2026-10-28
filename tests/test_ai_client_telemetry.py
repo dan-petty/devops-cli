@@ -15,7 +15,7 @@ from devops_cli.ai.client import network
 from devops_cli.ai.client import openai as openai_client
 from devops_cli.ai.client import unified as unified_client
 from devops_cli.ai.client.models import LLMResponse, RequestPriority, genai_provider_name
-from devops_cli.ai.client.unified import LLMClient, _server_span_attributes
+from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, Instrument
@@ -211,27 +211,53 @@ def test_claude_spans_name_the_provider_anthropic(
     ] == [["anthropic"], ["anthropic"], ["anthropic"]]
 
 
-def test_server_attributes_come_from_one_backend_netloc() -> None:
-    """The host becomes server.address, a port server.port, and a host list neither."""
-    netlocs = (
-        "example.com:11434",
-        "example.com",
-        "[::1]:11434",
-        "example.com:11434, example.com:11435",
-        "example.com:port",
-        "",
-        "unknown",
-    )
+@pytest.mark.parametrize(
+    ("ollama_urls", "reply_url", "server"),
+    [
+        (
+            ["http://example.com:11434"],
+            "http://example.com:11435",
+            {"server.address": "example.com", "server.port": 11435},
+        ),
+        (
+            ["http://example.com:11434"],
+            "https://example.com",
+            {"server.address": "example.com", "server.port": 443},
+        ),
+        (
+            ["http://example.com:11434"],
+            None,
+            {"server.address": "example.com", "server.port": 11434},
+        ),
+        (["http://example.com:11434", "http://example.com:11435"], None, {}),
+    ],
+    ids=["reply-origin", "scheme-default-port", "one-configured-host", "host-list"],
+)
+def test_server_attributes_come_from_the_reply_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    sent_spans: list[dict[str, Any]],
+    ollama_urls: list[str],
+    reply_url: str | None,
+    server: dict[str, Any],
+) -> None:
+    """The reply's origin gives server.address and server.port, with its scheme's default port.
 
-    assert [_server_span_attributes(netloc) for netloc in netlocs] == [
-        {"server.address": "example.com", "server.port": 11434},
-        {"server.address": "example.com"},
-        {"server.address": "::1", "server.port": 11434},
-        {},
-        {},
-        {},
-        {},
-    ]
+    A reply with no origin takes the one configured origin, and a host list names no server.
+    """
+
+    def answer(*args: Any, **kwargs: Any) -> LLMResponse:
+        origin = httpx2.URL(reply_url).origin if reply_url else None
+        return LLMResponse("OK", origin=origin, prompt_tokens=12, completion_tokens=3)
+
+    monkeypatch.setattr(LLMClient, "_ollama_messages", answer)
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+    cfg = AIConfig(provider="ollama", model="test-model", ollama_urls=ollama_urls)
+
+    LLMClient(cfg).chat("system instructions", "hello", use_cache=False)
+
+    (dispatch,) = _spans(sent_spans, "ai.llm.dispatch")
+    attrs = _attributes(dispatch)
+    assert {key: value for key, value in attrs.items() if key.startswith("server.")} == server
 
 
 def test_provider_names_follow_the_conventions_well_known_values() -> None:

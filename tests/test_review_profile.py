@@ -455,19 +455,27 @@ def test_benchmark_fails_when_no_review_was_profiled(
 
 
 def test_backend_labels_drop_the_cluster_dns_suffix() -> None:
-    """Verify in-cluster backends are labelled by pod or service, other backends by host."""
+    """Verify in-cluster backends are labelled by pod or service, other backends by host.
+
+    A bare authority shows its host without userinfo, and a value that names no server shows
+    `unknown`.
+    """
     assert [
         _backend_host("http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434"),
         _backend_host("http://OLLAMA-16GIB.llm.svc.cluster.local.:11434"),
         _backend_host("http://evil-svc.cluster.local.evil.com:11434"),
         _backend_host("http://[::1]:11434"),
         _backend_host(REMOTE),
+        _backend_host("u:pw@example.com:11434"),
+        _backend_host("example.com:"),
     ] == [
         "ollama-0",
         "ollama-16gib",
         "evil-svc.cluster.local.evil.com",
         "::1",
         "remote.example.com",
+        "example.com",
+        "unknown",
     ]
 
 

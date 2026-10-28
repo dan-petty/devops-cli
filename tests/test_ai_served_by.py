@@ -264,3 +264,34 @@ def test_cost_command_breaks_spend_down_by_backend(
         "ollama-0.example.com:11434" in table.output,
         [b["served_by"] for b in json.loads(as_json.output)["backends"]],
     ) == (0, True, True, [REMOTE, OLLAMA])
+
+
+@pytest.mark.parametrize(
+    ("served_by", "label"),
+    [
+        pytest.param(REMOTE, "remote.example.com:8000", id="url"),
+        pytest.param("http://user:pw@example.com:11434", "example.com:11434", id="url-userinfo"),
+        pytest.param("example.com:11434", "example.com:11434", id="bare-authority"),
+        pytest.param("example.com:", "unknown", id="no-server"),
+    ],
+)
+def test_cost_command_names_a_serving_backend_by_its_host_and_port(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, served_by: str, label: str
+) -> None:
+    """`devops ai cost report --by backend` shows the host and port of a serving backend.
+
+    It never shows the userinfo of a stored URL, and it shows `unknown` for a stored value that
+    names no server.
+    """
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    _record(ledger, served_by, 100)
+    monkeypatch.setattr("devops_cli.commands.ai_cost.get_spend_ledger", lambda: ledger)
+
+    table = runner.invoke(cost_app, ["report", "--by", "backend"], env={"COLUMNS": "200"})
+
+    shown = [
+        line.split("devops-review")[0].strip()
+        for line in table.output.splitlines()
+        if "devops-review" in line
+    ]
+    assert (table.exit_code, shown) == (0, [label])
