@@ -1,11 +1,16 @@
-"""Unit tests for the unified Docker Engine API socket service."""
+"""Unit tests for the unified Docker Engine API socket service.
+
+The service runs over `docker_daemon`, the in-memory engine of `tests/support/fakes/docker_engine.py`
+(#1316), or over a `DockerEngineFake` whose factory a test gives the service, so the service's own
+endpoint checks, projections, cache and error mapping run for real.
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 from docker.errors import DockerException
@@ -15,6 +20,7 @@ from devops_cli.commands.docker import app as docker_app
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
 )
+from devops_cli.config.defaults import DEFAULT_DOCKER_CACHE_TTL_SECONDS
 from devops_cli.docker.engine import (
     DockerEngineService,
     build_cache_report,
@@ -25,6 +31,7 @@ from devops_cli.docker.engine import (
 )
 from devops_cli.exceptions.docker import DockerDaemonUnavailableError, DockerEngineError
 from devops_cli.models.docker import EngineSecurityInfo
+from tests.support.fakes.docker_engine import UNREACHABLE_MESSAGE, DockerEngineFake, EngineCall
 
 runner = CliRunner()
 
@@ -127,24 +134,25 @@ def test_resolve_host_leaves_unix_socket_unvalidated(docker_endpoint_env: Any) -
     )
 
 
-def test_client_is_cached_across_calls(docker_endpoint_env: Any) -> None:
+def test_one_negotiated_sdk_connection_serves_every_call(docker_endpoint_env: Any) -> None:
     """The negotiated Engine API client is reused instead of re-handshaking per call."""
-    engine = DockerEngineService()
-    with patch("docker.DockerClient", return_value=MagicMock()) as mock_client:
-        first = engine.client()
-        second = engine.client()
+    fake = DockerEngineFake()
+    engine = DockerEngineService(fake.client_factory)
+    first = engine.client()
+    second = engine.client()
 
-    assert (first is second, mock_client.call_count) == (True, 1)
+    assert (first is second, len(fake.factory_params)) == (True, 1)
 
 
-def test_client_failure_raises_daemon_unavailable(docker_endpoint_env: Any) -> None:
+def test_a_failed_dial_raises_daemon_unavailable(docker_endpoint_env: Any) -> None:
     """An unreachable daemon raises a typed, host-annotated failure."""
-    engine = DockerEngineService()
-    with patch("docker.DockerClient", side_effect=RuntimeError("no such file")):
-        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
-            engine.client()
+    fake = DockerEngineFake()
+    fake.unreachable = True
+    engine = DockerEngineService(fake.client_factory)
+    with pytest.raises(DockerDaemonUnavailableError) as exc_info:
+        engine.client()
 
-    assert "/var/run/docker.sock: no such file" in str(exc_info.value)
+    assert str(exc_info.value).startswith(f"/var/run/docker.sock: {UNREACHABLE_MESSAGE}")
 
 
 @pytest.mark.parametrize(
@@ -164,12 +172,12 @@ def test_endpoint_table_refused_network_endpoints(
 ) -> None:
     """Prohibited private/TEST-NET endpoints are refused before building any client."""
     monkeypatch.setenv("DOCKER_HOST", docker_host)
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
-            engine.client()
+    fake = DockerEngineFake()
+    engine = DockerEngineService(fake.client_factory)
+    with pytest.raises(DockerDaemonUnavailableError) as exc_info:
+        engine.client()
 
-    assert (mock_client.called, "DOCKER_HOST" in str(exc_info.value)) == (False, True)
+    assert (fake.factory_params, "DOCKER_HOST" in str(exc_info.value)) == ([], True)
 
 
 def test_endpoint_table_allowed_network_endpoint(
@@ -178,30 +186,25 @@ def test_endpoint_table_allowed_network_endpoint(
     """When private networks are permitted, tcp:// normalises to http:// for client dialling."""
     monkeypatch.setenv("DOCKER_HOST", "tcp://192.0.2.1:2375")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    fake = DockerEngineFake()
 
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        engine.client()
+    DockerEngineService(fake.client_factory).client()
 
-    assert (mock_client.called, mock_client.call_args.kwargs.get("base_url")) == (
-        True,
-        "http://192.0.2.1:2375",
-    )
+    assert [params.get("base_url") for params in fake.factory_params] == ["http://192.0.2.1:2375"]
 
 
-def test_endpoint_table_unix_socket_reaches_client(
+def test_endpoint_table_unix_socket_reaches_the_sdk(
     docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Unix socket addresses reach the SDK client directly without egress validation."""
     monkeypatch.setenv("DOCKER_HOST", "unix:///run/user/1000/docker.sock")
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        engine.client()
+    fake = DockerEngineFake()
 
-    assert (mock_client.called, mock_client.call_args.kwargs.get("base_url")) == (
-        True,
-        "http+unix:///run/user/1000/docker.sock",
-    )
+    DockerEngineService(fake.client_factory).client()
+
+    assert [params.get("base_url") for params in fake.factory_params] == [
+        "http+unix:///run/user/1000/docker.sock"
+    ]
 
 
 def test_endpoint_table_ssh_raises_daemon_unavailable(
@@ -247,13 +250,12 @@ def test_context_current_context_refused_on_private_network(
     docker_endpoint_env("myctx", "tcp://192.0.2.10:2376")
     config_file = tmp_path / "config.json"
     config_file.write_text(json.dumps({"currentContext": "myctx"}), encoding="utf-8")
+    fake = DockerEngineFake()
 
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
-            engine.client()
+    with pytest.raises(DockerDaemonUnavailableError) as exc_info:
+        DockerEngineService(fake.client_factory).client()
 
-    assert (mock_client.called, "myctx" in str(exc_info.value)) == (False, True)
+    assert (fake.factory_params, "myctx" in str(exc_info.value)) == ([], True)
 
 
 def test_context_docker_context_env_refused_on_private_network(
@@ -262,31 +264,26 @@ def test_context_docker_context_env_refused_on_private_network(
     """A context selected via DOCKER_CONTEXT is validated against SSRF."""
     docker_endpoint_env("myctx", "tcp://192.0.2.10:2376")
     monkeypatch.setenv("DOCKER_CONTEXT", "myctx")
+    fake = DockerEngineFake()
 
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
-            engine.client()
+    with pytest.raises(DockerDaemonUnavailableError) as exc_info:
+        DockerEngineService(fake.client_factory).client()
 
-    assert (mock_client.called, "myctx" in str(exc_info.value)) == (False, True)
+    assert (fake.factory_params, "myctx" in str(exc_info.value)) == ([], True)
 
 
-def test_context_private_network_allowed_reaches_client(
+def test_context_private_network_allowed_reaches_the_sdk(
     docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With allow_private_network enabled, the context endpoint reaches DockerClient."""
+    """With allow_private_network enabled, the context endpoint reaches the SDK client."""
     docker_endpoint_env("myctx", "tcp://192.0.2.10:2376")
     monkeypatch.setenv("DOCKER_CONTEXT", "myctx")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    fake = DockerEngineFake()
 
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        engine.client()
+    DockerEngineService(fake.client_factory).client()
 
-    assert (mock_client.called, mock_client.call_args.kwargs.get("base_url")) == (
-        True,
-        "http://192.0.2.10:2376",
-    )
+    assert [params.get("base_url") for params in fake.factory_params] == ["http://192.0.2.10:2376"]
 
 
 def test_context_tls_verify_and_cert_path_applies_https(
@@ -304,16 +301,13 @@ def test_context_tls_verify_and_cert_path_applies_https(
     (cert_dir / "key.pem").write_text("", encoding="utf-8")
     monkeypatch.setenv("DOCKER_TLS_VERIFY", "1")
     monkeypatch.setenv("DOCKER_CERT_PATH", str(cert_dir))
+    fake = DockerEngineFake()
 
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        engine.client()
+    DockerEngineService(fake.client_factory).client()
 
-    assert (
-        mock_client.called,
-        mock_client.call_args.kwargs.get("base_url"),
-        "tls" in mock_client.call_args.kwargs,
-    ) == (True, "https://192.0.2.10:2376", True)
+    assert [(params.get("base_url"), "tls" in params) for params in fake.factory_params] == [
+        ("https://192.0.2.10:2376", True)
+    ]
 
 
 def test_context_precedence_and_overrides(
@@ -352,28 +346,22 @@ def test_context_missing_context_errors(
     """Missing context in DOCKER_CONTEXT or currentContext raises typed error naming context."""
     import json
 
+    fake = DockerEngineFake()
     monkeypatch.setenv("DOCKER_CONTEXT", "nope")
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
-            engine.resolve_host()
-    assert (mock_client.called, 'context "nope": context not found' in str(exc_info.value)) == (
-        False,
-        True,
-    )
+    with pytest.raises(DockerDaemonUnavailableError) as env_context:
+        DockerEngineService(fake.client_factory).client()
 
     monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
     config_file = tmp_path / "config.json"
     config_file.write_text(json.dumps({"currentContext": "gone"}), encoding="utf-8")
-    DockerEngineService.reset_instance()
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
-            engine.resolve_host()
-    assert (mock_client.called, 'context "gone": context not found' in str(exc_info.value)) == (
-        False,
-        True,
-    )
+    with pytest.raises(DockerDaemonUnavailableError) as current_context:
+        DockerEngineService(fake.client_factory).client()
+
+    assert (
+        'context "nope": context not found' in str(env_context.value),
+        'context "gone": context not found' in str(current_context.value),
+        fake.factory_params,
+    ) == (True, True, [])
 
 
 def test_docker_host_env_overrides_context(
@@ -434,11 +422,10 @@ def test_endpoint_container_connection_set_raises_configuration_error(
 ) -> None:
     """CONTAINER_CONNECTION set raises configuration error naming CONTAINER_HOST."""
     monkeypatch.setenv("CONTAINER_CONNECTION", "dev")
-    engine = DockerEngineService()
-    with patch("docker.DockerClient") as mock_client:
-        with pytest.raises(DockerEngineError, match="CONTAINER_HOST"):
-            engine.resolve_host()
-    assert mock_client.called is False
+    fake = DockerEngineFake()
+    with pytest.raises(DockerEngineError, match="CONTAINER_HOST"):
+        DockerEngineService(fake.client_factory).client()
+    assert fake.factory_params == []
 
 
 def test_endpoint_container_host_ssh_raises_daemon_unavailable(
@@ -584,65 +571,72 @@ def test_endpoint_default_dial_failure_message_mentions_systemctl_podman(
     docker_endpoint_env: Any,
 ) -> None:
     """Docker default socket failure appends guidance to set CONTAINER_HOST or enable podman.socket."""
-    engine = DockerEngineService()
-    with patch("docker.DockerClient", side_effect=RuntimeError("connection refused")):
-        with pytest.raises(DockerDaemonUnavailableError) as exc_info:
-            engine.client()
+    fake = DockerEngineFake()
+    fake.unreachable = True
+    with pytest.raises(DockerDaemonUnavailableError) as exc_info:
+        DockerEngineService(fake.client_factory).client()
 
-    assert (
+    assert str(exc_info.value).endswith(
         "; set CONTAINER_HOST or DOCKER_HOST, or run systemctl --user enable --now podman.socket"
-        in str(exc_info.value)
     )
 
 
-def test_close_releases_socket_and_clears_cache() -> None:
-    """Closing the service releases the socket and drops memoised responses."""
-    engine = DockerEngineService()
-    mock_client = MagicMock()
-    engine._client = mock_client
-    engine._set_cached("disk_usage", {"BuildCache": []})
-
+def test_close_releases_socket_and_clears_cache(docker_daemon: DockerEngineFake) -> None:
+    """Closing the service closes the client and drops memoised responses, so the next call
+    builds a new client and reads the engine again."""
+    engine = get_engine()
+    engine.build_cache()
     engine.close()
+    closed = docker_daemon.closed
+    engine.build_cache()
 
-    assert (mock_client.close.called, engine._client, engine._cache) == (True, None, {})
+    assert (closed, docker_daemon.call_names().count("df"), len(docker_daemon.factory_params)) == (
+        True,
+        2,
+        2,
+    )
 
 
 def test_singleton_instance_reuse_and_reset() -> None:
     """The engine singleton is shared process-wide and resettable for test isolation."""
     DockerEngineService.reset_instance()
     first = get_engine()
-    assert first is DockerEngineService.get_instance()
-
+    shared = first is get_engine()
     DockerEngineService.reset_instance()
-    assert get_engine() is not first
+
+    assert (shared, get_engine() is first) == (True, False)
 
 
-def test_ping_caches_reachability(docker_engine: Any) -> None:
+def test_ping_caches_reachability(docker_daemon: DockerEngineFake) -> None:
     """Daemon liveness probes are TTL-cached so repeated commands avoid extra round-trips."""
-    mock_client = MagicMock()
-    mock_client.ping.return_value = True
-
-    with docker_engine(mock_client) as engine:
-        assert (engine.ping(), engine.ping()) == (True, True)
-
-    assert mock_client.ping.call_count == 1
+    engine = get_engine()
+    assert ((engine.ping(), engine.ping()), docker_daemon.call_names().count("ping")) == (
+        (True, True),
+        1,
+    )
 
 
-def test_ping_returns_false_when_daemon_down(docker_engine: Any) -> None:
+def test_ping_returns_false_when_daemon_down(docker_daemon: DockerEngineFake) -> None:
     """A failing socket ping reports the daemon as unreachable rather than raising."""
-    mock_client = MagicMock()
-    mock_client.ping.side_effect = RuntimeError("connection refused")
-
-    with docker_engine(mock_client) as engine:
-        assert engine.ping() is False
+    docker_daemon.fail("ping", RuntimeError("connection refused"))
+    assert get_engine().ping() is False
 
 
-def test_cache_entry_expires(docker_engine: Any) -> None:
-    """A memoised response is discarded once its TTL elapses."""
-    mock_client = MagicMock()
-    with docker_engine(mock_client) as engine:
-        engine._set_cached("probe", "value", ttl=0.0)
-        assert engine._get_cached("probe") is None
+def test_cache_entry_expires(
+    docker_daemon: DockerEngineFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A memoised ping is asked again once its TTL elapses."""
+    now = [1000.0]
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
+    engine = get_engine()
+    engine.ping()
+    now[0] += DEFAULT_DOCKER_CACHE_TTL_SECONDS - 0.1
+    engine.ping()
+    within = docker_daemon.call_names().count("ping")
+    now[0] += 0.2
+    engine.ping()
+
+    assert (within, docker_daemon.call_names().count("ping")) == (1, 2)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -778,120 +772,93 @@ def test_decode_stream_replaces_invalid_utf8() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_list_and_inspect_containers(docker_engine: Any) -> None:
+def test_list_and_inspect_containers(docker_daemon: DockerEngineFake) -> None:
     """Containers are listed and inspected as typed state models."""
-    mock_container = MagicMock()
-    mock_container.attrs = {
-        "Id": "cid-1",
-        "Name": "/svc",
-        "State": {"Status": "running", "Running": True},
-    }
-    mock_client = MagicMock()
-    mock_client.containers.list.return_value = [mock_container]
-    mock_client.containers.get.return_value = mock_container
+    container_id = docker_daemon.add_container("svc")
+    docker_daemon.add_container("other")
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        listed = engine.list_containers(name="svc")
-        inspected = engine.inspect_container("cid-1")
+    listed = engine.list_containers(name="svc")
+    inspected = engine.inspect_container(container_id)
 
-    assert (len(listed), listed[0].name, inspected.running) == (1, "svc", True)
-    assert mock_client.containers.list.call_args.kwargs["filters"] == {"name": "svc"}
+    assert (
+        [state.name for state in listed],
+        inspected.running,
+        [call.kwargs for call in docker_daemon.calls if call.name == "containers.list"],
+    ) == (["svc"], True, [{"all": False, "filters": {"name": "svc"}}])
 
 
-def test_list_containers_failure_is_typed(docker_engine: Any) -> None:
+def test_list_containers_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
     """A daemon listing failure surfaces as a typed engine error."""
-    mock_client = MagicMock()
-    mock_client.containers.list.side_effect = RuntimeError("daemon busy")
+    docker_daemon.fail("containers.list", RuntimeError("daemon busy"))
 
-    with docker_engine(mock_client) as engine:
-        with pytest.raises(DockerEngineError, match="Container listing failed"):
-            engine.list_containers()
+    with pytest.raises(DockerEngineError, match="Container listing failed"):
+        get_engine().list_containers()
 
 
-def test_container_stats_and_stream(docker_engine: Any) -> None:
+def test_container_stats_and_stream(docker_daemon: DockerEngineFake) -> None:
     """Single-shot and streamed stats both yield typed resource samples."""
     frame = {"pids_stats": {"current": 3}, "memory_stats": {"usage": 100, "limit": 1000}}
-    mock_container = MagicMock()
-    mock_container.name = "svc"
-    mock_container.stats.side_effect = [frame, iter([frame, frame, frame])]
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
+    container_id = docker_daemon.add_container("svc")
+    docker_daemon.script_stats("svc", [frame, frame, frame])
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        single = engine.container_stats("cid-1")
-        streamed = list(engine.stream_container_stats("cid-1", samples=2))
+    single = engine.container_stats(container_id)
+    streamed = list(engine.stream_container_stats(container_id, samples=2))
 
     assert (single.pids_count, len(streamed), streamed[0].name) == (3, 2, "svc")
 
 
-def test_stream_container_stats_unbounded_drains_source(docker_engine: Any) -> None:
-    """Without a sample cap, the stats stream is drained to exhaustion."""
+def test_stream_container_stats_unbounded_drains_source(docker_daemon: DockerEngineFake) -> None:
+    """Without a sample cap, the stats stream is drained to exhaustion after its first frame."""
     frame = {"pids_stats": {"current": 1}}
-    mock_container = MagicMock()
-    mock_container.name = "svc"
-    mock_container.stats.return_value = iter([frame, frame, frame])
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
+    container_id = docker_daemon.add_container("svc")
+    docker_daemon.script_stats("svc", [frame, frame, frame])
 
-    with docker_engine(mock_client) as engine:
-        assert len(list(engine.stream_container_stats("cid-1"))) == 2
+    assert len(list(get_engine().stream_container_stats(container_id))) == 2
 
 
-def test_engine_kind_podman_and_docker(docker_engine: Any) -> None:
+def test_engine_kind_podman_and_docker(docker_daemon: DockerEngineFake) -> None:
     """kind() identifies Podman Engine via Components or falls back to Docker."""
-    mock_client = MagicMock()
-    mock_client.version.return_value = {
-        "Components": [{"Name": "Podman Engine", "Version": "5.0.0"}]
-    }
+    docker_engine_kind = (get_engine().kind(), get_engine().is_podman())
+    podman = DockerEngineFake()
+    podman.set_podman()
+    DockerEngineService.install(podman.client_factory)
 
-    with docker_engine(mock_client) as engine:
-        assert (engine.kind(), engine.is_podman()) == ("Podman", True)
-
-    DockerEngineService.reset_instance()
-    mock_client_docker = MagicMock()
-    mock_client_docker.version.return_value = {
-        "Components": [{"Name": "Docker Engine - Community", "Version": "27.0.0"}]
-    }
-
-    with docker_engine(mock_client_docker) as engine:
-        assert (engine.kind(), engine.is_podman()) == ("Docker", False)
+    assert (docker_engine_kind, (get_engine().kind(), get_engine().is_podman())) == (
+        ("Docker", False),
+        ("Podman", True),
+    )
 
 
-def test_engine_is_rootless(docker_engine: Any) -> None:
+@pytest.mark.parametrize(
+    ("security_options", "rootless"),
+    [(["name=rootless", "name=seccomp"], True), (["name=apparmor"], False)],
+    ids=["rootless", "rootful"],
+)
+def test_engine_is_rootless(
+    docker_daemon: DockerEngineFake, security_options: list[str], rootless: bool
+) -> None:
     """is_rootless() checks info()['SecurityOptions'] for name=rootless."""
-    mock_client = MagicMock()
-    mock_client.info.return_value = {"SecurityOptions": ["name=rootless", "name=seccomp"]}
+    docker_daemon.info_data["SecurityOptions"] = security_options
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        assert (engine.is_rootless(), engine.security_options()) == (
-            True,
-            ["name=rootless", "name=seccomp"],
-        )
-
-    DockerEngineService.reset_instance()
-    mock_client_rootful = MagicMock()
-    mock_client_rootful.info.return_value = {"SecurityOptions": ["name=apparmor"]}
-
-    with docker_engine(mock_client_rootful) as engine:
-        assert (engine.is_rootless(), engine.security_options()) == (
-            False,
-            ["name=apparmor"],
-        )
+    assert (engine.is_rootless(), engine.security_options()) == (rootless, security_options)
 
 
-def test_engine_facts_memoized(docker_engine: Any) -> None:
+def test_engine_facts_memoized(docker_daemon: DockerEngineFake) -> None:
     """Engine facts (kind, is_rootless) are fetched once and memoized."""
-    mock_client = MagicMock()
-    mock_client.version.return_value = {"Components": [{"Name": "Podman Engine"}]}
-    mock_client.info.return_value = {"SecurityOptions": ["name=rootless"]}
+    docker_daemon.set_podman()
+    docker_daemon.info_data["SecurityOptions"] = ["name=rootless"]
+    engine = get_engine()
+    for _ in range(2):
+        engine.kind()
+        engine.is_rootless()
 
-    with docker_engine(mock_client) as engine:
-        _ = engine.kind()
-        _ = engine.kind()
-        _ = engine.is_rootless()
-        _ = engine.is_rootless()
-
-    assert (mock_client.version.call_count, mock_client.info.call_count) == (1, 1)
+    assert (
+        docker_daemon.call_names().count("version"),
+        docker_daemon.call_names().count("info"),
+    ) == (1, 1)
 
 
 _BUILTIN_SECCOMP = "name=seccomp,profile=builtin"
@@ -940,15 +907,13 @@ _BUILTIN_SECCOMP = "name=seccomp,profile=builtin"
     ],
 )
 def test_security_info_reports_what_the_daemon_declares(
-    docker_engine: Any, daemon_info: dict[str, Any], reported: EngineSecurityInfo
+    docker_daemon: DockerEngineFake, daemon_info: dict[str, Any], reported: EngineSecurityInfo
 ) -> None:
     """The daemon's security options and pids-limit support are reported, and a key the daemon
     omits stays unreported rather than reading as a negative."""
-    mock_client = MagicMock()
-    mock_client.info.return_value = daemon_info
+    docker_daemon.info_data = daemon_info
 
-    with docker_engine(mock_client) as engine:
-        assert engine.security_info() == reported
+    assert get_engine().security_info() == reported
 
 
 @pytest.mark.parametrize(
@@ -961,70 +926,63 @@ def test_security_info_reports_what_the_daemon_declares(
     ids=["socket-error", "docker-sdk-error", "daemon-unavailable"],
 )
 def test_security_info_never_raises_and_bounds_the_reason(
-    docker_engine: Any, failure: Exception
+    docker_daemon: DockerEngineFake, failure: Exception
 ) -> None:
     """A daemon that cannot answer yields the reason, capped at 256 characters, and no facts."""
-    mock_client = MagicMock()
-    mock_client.info.side_effect = failure
+    docker_daemon.fail("info", failure)
 
-    with docker_engine(mock_client) as engine:
-        report = engine.security_info()
+    report = get_engine().security_info()
 
-    assert report == EngineSecurityInfo(error=str(failure)[:256])
-    assert len(str(report.error)) <= 256
-
-
-def test_one_info_call_serves_the_security_facts(docker_engine: Any) -> None:
-    """security_info(), security_options() and is_rootless() read one cached info() answer."""
-    mock_client = MagicMock()
-    mock_client.info.return_value = {"SecurityOptions": ["name=rootless"], "PidsLimit": True}
-
-    with docker_engine(mock_client) as engine:
-        security_info = engine.security_info()
-        security_options = engine.security_options()
-        rootless = engine.is_rootless()
-
-    assert security_info == EngineSecurityInfo(
-        options=("name=rootless",), pids_limit_supported=True
+    assert (report, len(str(report.error)) <= 256) == (
+        EngineSecurityInfo(error=str(failure)[:256]),
+        True,
     )
-    assert security_options == ["name=rootless"]
-    assert rootless is True
-    assert mock_client.info.call_count == 1
+
+
+def test_one_info_call_serves_the_security_facts(docker_daemon: DockerEngineFake) -> None:
+    """security_info(), security_options() and is_rootless() read one cached info() answer."""
+    docker_daemon.info_data = {"SecurityOptions": ["name=rootless"], "PidsLimit": True}
+    engine = get_engine()
+
+    assert (
+        engine.security_info(),
+        engine.security_options(),
+        engine.is_rootless(),
+        docker_daemon.call_names().count("info"),
+    ) == (
+        EngineSecurityInfo(options=("name=rootless",), pids_limit_supported=True),
+        ["name=rootless"],
+        True,
+        1,
+    )
 
 
 def test_an_unreachable_daemon_reports_no_security_options_and_not_rootless(
-    docker_engine: Any,
+    docker_daemon: DockerEngineFake,
 ) -> None:
     """Callers that only want the options or rootless flag keep the empty answer on failure."""
-    mock_client = MagicMock()
-    mock_client.info.side_effect = OSError("down")
+    docker_daemon.fail("info", OSError("down"))
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        assert engine.security_options() == []
-        assert engine.is_rootless() is False
+    assert (engine.security_options(), engine.is_rootless()) == ([], False)
 
 
 def test_security_info_failure_is_retried_after_two_seconds_and_success_after_the_ttl(
-    docker_engine: Any, monkeypatch: pytest.MonkeyPatch
+    docker_daemon: DockerEngineFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A failed answer is remembered for 2 s, like a failed ping, and a good one for the normal
     cache lifetime."""
     now = [1000.0]
     monkeypatch.setattr("time.monotonic", lambda: now[0])
-    mock_client = MagicMock()
-    mock_client.info.side_effect = [
-        OSError("down"),
-        {"SecurityOptions": [_BUILTIN_SECCOMP], "PidsLimit": True},
-        {"SecurityOptions": [], "PidsLimit": False},
-    ]
+    docker_daemon.fail("info", OSError("down"), times=1)
+    docker_daemon.info_data = {"SecurityOptions": [_BUILTIN_SECCOMP], "PidsLimit": True}
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        reads: list[tuple[float, bool, int]] = []
-        for elapsed in (0.0, 1.9, 2.1, 4.0, 5.2, 7.5):
-            now[0] = 1000.0 + elapsed
-            reads.append(
-                (elapsed, engine.security_info().error is None, mock_client.info.call_count)
-            )
+    reads: list[tuple[float, bool, int]] = []
+    for elapsed in (0.0, 1.9, 2.1, 4.0, 5.2, 7.5):
+        now[0] = 1000.0 + elapsed
+        error = engine.security_info().error
+        reads.append((elapsed, error is None, docker_daemon.call_names().count("info")))
 
     assert reads == [
         (0.0, False, 1),
@@ -1036,8 +994,8 @@ def test_security_info_failure_is_retried_after_two_seconds_and_success_after_th
     ]
 
 
-def test_container_stats_two_frames_first_empty_precpu(docker_engine: Any) -> None:
-    """container_stats discards 1st frame and uses 2nd frame when streamed."""
+def test_container_stats_two_frames_first_empty_precpu(docker_daemon: DockerEngineFake) -> None:
+    """container_stats discards the 1st frame, uses the 2nd, and closes the stream."""
     frame1 = {
         "pids_stats": {"current": 1},
         "cpu_stats": {"cpu_usage": {"total_usage": 1000}},
@@ -1056,104 +1014,104 @@ def test_container_stats_two_frames_first_empty_precpu(docker_engine: Any) -> No
         },
         "memory_stats": {"usage": 512, "limit": 1024},
     }
-    mock_stream = MagicMock()
-    mock_stream.__iter__.return_value = iter([frame1, frame2])
-    mock_container = MagicMock()
-    mock_container.name = "svc"
-    mock_container.stats.return_value = mock_stream
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
+    container_id = docker_daemon.add_container("svc")
+    docker_daemon.script_stats("svc", [frame1, frame2])
 
-    with docker_engine(mock_client) as engine:
-        stats = engine.container_stats("cid-1")
+    stats = get_engine().container_stats(container_id)
 
-    assert (stats.pids_count, stats.cpu_percentage > 0.0, mock_stream.close.called) == (
-        2,
-        True,
-        True,
+    assert (
+        stats.pids_count,
+        stats.cpu_percentage > 0.0,
+        "container.stats.close" in docker_daemon.call_names(),
+    ) == (2, True, True)
+
+
+def test_lifecycle_operations_use_direct_api_calls(docker_daemon: DockerEngineFake) -> None:
+    """Stop, remove, exec, wait, and logs reach the engine, and stop and remove use the
+    low-level calls that take the container ID."""
+    running = docker_daemon.add_container("svc")
+    docker_daemon.script_exec("svc", ["ls"], output=b"output\n")
+    docker_daemon.script_run("job", stdout=b"log line\n", exit_code=7)
+    engine = get_engine()
+    job = engine.create_container(image="alpine:3", command=["sh"], name="job")
+    job.start()
+
+    exec_result = engine.exec_in_container(running, ["ls"], workdir="/app")
+    exit_code = engine.wait_container(job.id, timeout=30)
+    logs = engine.container_logs(job.id, tail=10)
+    engine.stop_container(running, timeout=3)
+    engine.remove_container(job.id)
+
+    removal = {"v": False, "link": False, "force": True}
+    assert (
+        exec_result,
+        exit_code,
+        logs,
+        [call for call in docker_daemon.calls if call.name.startswith("api.")],
+        docker_daemon.container_state,
+    ) == (
+        (0, "output\n"),
+        7,
+        "log line\n",
+        [
+            EngineCall("api.stop", (running,), {"timeout": 3}),
+            EngineCall("api.remove_container", (running,), removal),
+            EngineCall("api.remove_container", (job.id,), removal),
+        ],
+        {},
     )
 
 
-def test_lifecycle_operations_use_direct_api_calls(docker_engine: Any) -> None:
-    """Stop, remove, exec, wait, and logs issue direct Engine API calls."""
-    mock_container = MagicMock()
-    mock_container.exec_run.return_value = (0, b"output\n")
-    mock_container.wait.return_value = {"StatusCode": 7}
-    mock_container.logs.return_value = b"log line\n"
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-
-    with docker_engine(mock_client) as engine:
-        engine.stop_container("cid-1", timeout=3)
-        engine.remove_container("cid-2")
-        exec_result = engine.exec_in_container("cid-1", ["ls"], workdir="/app")
-        exit_code = engine.wait_container("cid-1", timeout=30)
-        logs = engine.container_logs("cid-1", tail=10)
-
-    assert (exec_result, exit_code, logs) == ((0, "output\n"), 7, "log line\n")
-    mock_client.api.stop.assert_called_once_with("cid-1", timeout=3)
-    assert mock_client.api.remove_container.call_count == 2
-
-
-def test_exec_in_container_hands_its_environment_to_the_exec(docker_engine: Any) -> None:
+def test_exec_in_container_hands_its_environment_to_the_exec(
+    docker_daemon: DockerEngineFake,
+) -> None:
     """An exec's environment reaches the Engine API, and none is sent when the caller has none."""
     traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-    mock_container = MagicMock()
-    mock_container.exec_run.return_value = (0, b"")
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
+    running = docker_daemon.add_container("svc")
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        engine.exec_in_container("cid-1", ["env"], environment={"TRACEPARENT": traceparent})
-        engine.exec_in_container("cid-1", ["env"], workdir="/app")
+    engine.exec_in_container(running, ["env"], environment={"TRACEPARENT": traceparent})
+    engine.exec_in_container(running, ["env"], workdir="/app")
 
-    assert mock_container.exec_run.call_args_list == [
-        call(["env"], workdir=None, environment={"TRACEPARENT": traceparent}),
-        call(["env"], workdir="/app", environment=None),
+    assert [call.kwargs for call in docker_daemon.calls if call.name == "container.exec_run"] == [
+        {"workdir": None, "environment": {"TRACEPARENT": traceparent}},
+        {"workdir": "/app", "environment": None},
     ]
 
 
-def test_remove_container_tolerates_already_reaped(docker_engine: Any) -> None:
+def test_remove_container_tolerates_already_reaped(docker_daemon: DockerEngineFake) -> None:
     """Removing a container the daemon already reclaimed is not an error."""
-    mock_client = MagicMock()
-    mock_client.api.remove_container.side_effect = RuntimeError("no such container")
+    get_engine().remove_container("gone")
 
-    with docker_engine(mock_client) as engine:
-        engine.remove_container("gone")  # Must not raise.
+    assert docker_daemon.call_names()[-1] == "api.remove_container"
 
 
-def test_stop_container_failure_is_typed(docker_engine: Any) -> None:
+def test_stop_container_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
     """A rejected stop surfaces as a typed, container-annotated engine error."""
-    mock_client = MagicMock()
-    mock_client.api.stop.side_effect = RuntimeError("container unresponsive")
+    with pytest.raises(DockerEngineError, match="Container termination failed") as exc_info:
+        get_engine().stop_container("missing")
 
-    with docker_engine(mock_client) as engine:
-        with pytest.raises(DockerEngineError, match="Container termination failed"):
-            engine.stop_container("cid-1")
+    assert exc_info.value.details.get("container_id") == "missing"
 
 
-def test_create_container_failure_records_image(docker_engine: Any) -> None:
+def test_create_container_failure_records_image(docker_daemon: DockerEngineFake) -> None:
     """A failed creation annotates the offending image in the typed error."""
-    mock_client = MagicMock()
-    mock_client.containers.create.side_effect = RuntimeError("no such image")
+    with pytest.raises(DockerEngineError) as exc_info:
+        get_engine().create_container(image="missing:latest")
 
-    with docker_engine(mock_client) as engine:
-        with pytest.raises(DockerEngineError) as exc_info:
-            engine.create_container(image="missing:latest")
+    assert (
+        exc_info.value.details.get("image"),
+        "No such image: missing:latest" in str(exc_info.value),
+    ) == ("missing:latest", True)
 
-    assert exc_info.value.details.get("image") == "missing:latest"
 
-
-def test_container_logs_failure_is_typed(docker_engine: Any) -> None:
+def test_container_logs_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
     """A log retrieval failure surfaces as a typed engine error."""
-    mock_container = MagicMock()
-    mock_container.logs.side_effect = RuntimeError("stream closed")
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
+    container_id = docker_daemon.add_container("svc")
+    docker_daemon.fail("container.logs", RuntimeError("stream closed"))
 
-    with docker_engine(mock_client) as engine:
-        with pytest.raises(DockerEngineError, match="Container log retrieval failed"):
-            engine.container_logs("cid-1")
+    with pytest.raises(DockerEngineError, match="Container log retrieval failed"):
+        get_engine().container_logs(container_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1161,48 +1119,51 @@ def test_container_logs_failure_is_typed(docker_engine: Any) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_ensure_internal_network_accepts_conforming_network(docker_engine: Any) -> None:
+def test_ensure_internal_network_accepts_conforming_network(
+    docker_daemon: DockerEngineFake,
+) -> None:
     """An existing internal bridge network is accepted without being recreated."""
-    mock_network = MagicMock()
-    mock_network.attrs = {"Internal": True}
-    mock_client = MagicMock()
-    mock_client.networks.get.return_value = mock_network
+    docker_daemon.add_network(CONST_SANDBOX_DOCKER_INTERNAL_NET, internal=True)
 
-    with docker_engine(mock_client) as engine:
-        assert engine.ensure_internal_network(CONST_SANDBOX_DOCKER_INTERNAL_NET) is True
-
-    assert mock_client.networks.create.called is False
+    assert (
+        get_engine().ensure_internal_network(CONST_SANDBOX_DOCKER_INTERNAL_NET),
+        "networks.create" in docker_daemon.call_names(),
+    ) == (True, False)
 
 
-def test_ensure_internal_network_recreates_drifted_network(docker_engine: Any) -> None:
+def test_ensure_internal_network_recreates_drifted_network(docker_daemon: DockerEngineFake) -> None:
     """A network that lost its internal (egress-denied) flag is removed and recreated."""
-    mock_network = MagicMock()
-    mock_network.attrs = {"Internal": False}
-    mock_client = MagicMock()
-    mock_client.networks.get.return_value = mock_network
+    docker_daemon.add_network(CONST_SANDBOX_DOCKER_INTERNAL_NET, internal=False)
 
-    with docker_engine(mock_client) as engine:
-        assert engine.ensure_internal_network(CONST_SANDBOX_DOCKER_INTERNAL_NET) is True
+    ensured = get_engine().ensure_internal_network(CONST_SANDBOX_DOCKER_INTERNAL_NET)
 
-    assert mock_network.remove.called
-    assert mock_client.networks.create.call_args.kwargs == {"driver": "bridge", "internal": True}
+    assert (
+        ensured,
+        [call.name for call in docker_daemon.calls if call.name.startswith("network")],
+        docker_daemon.calls[-1].kwargs,
+        docker_daemon.find_network(CONST_SANDBOX_DOCKER_INTERNAL_NET)["Internal"],
+    ) == (
+        True,
+        ["networks.get", "network.remove", "networks.create"],
+        {"driver": "bridge", "internal": True},
+        True,
+    )
 
 
-def test_ensure_internal_network_reports_creation_failure(docker_engine: Any) -> None:
+def test_ensure_internal_network_reports_creation_failure(docker_daemon: DockerEngineFake) -> None:
     """A refused network creation reports failure rather than raising."""
-    mock_client = MagicMock()
-    mock_client.networks.get.side_effect = RuntimeError("not found")
-    mock_client.networks.create.side_effect = RuntimeError("permission denied")
+    docker_daemon.fail("networks.create", RuntimeError("permission denied"))
 
-    with docker_engine(mock_client) as engine:
-        assert engine.ensure_internal_network("net") is False
+    assert get_engine().ensure_internal_network("net") is False
 
 
-def test_ensure_internal_network_handles_unavailable_daemon() -> None:
+def test_ensure_internal_network_handles_unavailable_daemon(
+    docker_daemon: DockerEngineFake,
+) -> None:
     """An unreachable daemon reports network provisioning failure without raising."""
-    engine = DockerEngineService()
-    with patch("docker.DockerClient", side_effect=RuntimeError("socket missing")):
-        assert engine.ensure_internal_network("net") is False
+    docker_daemon.unreachable = True
+
+    assert get_engine().ensure_internal_network("net") is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1261,113 +1222,103 @@ def test_build_cache_report_tolerates_unknown_record_type() -> None:
     assert report.records[0].cache_type == "future.kind"
 
 
-def test_engine_build_cache_reads_disk_usage(docker_engine: Any) -> None:
+def test_engine_build_cache_reads_disk_usage(docker_daemon: DockerEngineFake) -> None:
     """The build cache report is sourced from the Engine API disk-usage endpoint."""
-    mock_client = MagicMock()
-    mock_client.df.return_value = {"BuildCache": _CACHE_ENTRIES, "Images": []}
+    docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        report = engine.build_cache()
-        engine.build_cache()
+    report = engine.build_cache()
+    engine.build_cache()
 
     # The second call is served from the response cache.
-    assert (report.total_bytes, mock_client.df.call_count) == (400, 1)
+    assert (report.total_bytes, docker_daemon.call_names().count("df")) == (400, 1)
 
 
-def test_engine_disk_usage_failure_is_typed(docker_engine: Any) -> None:
+def test_engine_disk_usage_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
     """A failing disk-usage query surfaces as a typed engine error."""
-    mock_client = MagicMock()
-    mock_client.df.side_effect = RuntimeError("endpoint unavailable")
+    docker_daemon.fail("df", RuntimeError("endpoint unavailable"))
 
-    with docker_engine(mock_client) as engine:
-        with pytest.raises(DockerEngineError, match="Engine disk usage query failed"):
-            engine.disk_usage()
+    with pytest.raises(DockerEngineError, match="Engine disk usage query failed"):
+        get_engine().disk_usage()
 
 
-def test_prune_build_cache_invalidates_cached_usage(docker_engine: Any) -> None:
-    """Pruning reports reclaimed bytes and invalidates the memoised disk-usage response."""
-    mock_client = MagicMock()
-    mock_client.df.return_value = {"BuildCache": _CACHE_ENTRIES}
-    mock_client.api.prune_builds.return_value = {"SpaceReclaimed": 4096}
+def test_prune_build_cache_invalidates_cached_usage(docker_daemon: DockerEngineFake) -> None:
+    """Pruning removes the unused records, reports their bytes, and invalidates the memoised
+    disk-usage response."""
+    docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
+    engine = get_engine()
 
-    with docker_engine(mock_client) as engine:
-        engine.build_cache()
-        reclaimed = engine.prune_build_cache()
-        engine.build_cache()
+    engine.build_cache()
+    reclaimed = engine.prune_build_cache()
+    after = engine.build_cache()
 
-    assert (reclaimed, mock_client.df.call_count) == (4096, 2)
+    assert (
+        reclaimed,
+        [record.cache_id for record in after.records],
+        docker_daemon.call_names().count("df"),
+    ) == (100, ["cache-a"], 2)
 
 
-def test_prune_build_cache_failure_is_typed(docker_engine: Any) -> None:
+def test_prune_build_cache_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
     """A refused prune surfaces as a typed engine error."""
-    mock_client = MagicMock()
-    mock_client.api.prune_builds.side_effect = RuntimeError("prune unsupported")
+    docker_daemon.fail("api.prune_builds", RuntimeError("prune unsupported"))
 
-    with docker_engine(mock_client) as engine:
-        with pytest.raises(DockerEngineError, match="Build cache prune failed"):
-            engine.prune_build_cache()
+    with pytest.raises(DockerEngineError, match="Build cache prune failed"):
+        get_engine().prune_build_cache()
 
 
-def test_engine_prune_calls_collections_in_order(docker_engine: Any, docker_client: Any) -> None:
+def test_engine_prune_calls_collections_in_order(docker_daemon: DockerEngineFake) -> None:
     """DockerEngineService.prune calls containers, networks, and images in order."""
-    with docker_engine(docker_client) as engine:
-        engine.prune()
+    get_engine().prune()
 
-    assert docker_client.mock_calls == [
-        call.containers.prune(),
-        call.networks.prune(),
-        call.images.prune(),
+    assert [name for name in docker_daemon.call_names() if name.endswith(".prune")] == [
+        "containers.prune",
+        "networks.prune",
+        "images.prune",
     ]
 
 
-def test_engine_prune_with_volumes(docker_engine: Any, docker_client: Any) -> None:
+def test_engine_prune_with_volumes(docker_daemon: DockerEngineFake) -> None:
     """DockerEngineService.prune with volumes=True calls volumes.prune."""
-    with docker_engine(docker_client) as engine:
-        engine.prune(volumes=True)
+    get_engine().prune(volumes=True)
 
-    assert docker_client.mock_calls == [
-        call.containers.prune(),
-        call.networks.prune(),
-        call.images.prune(),
-        call.volumes.prune(),
+    assert [name for name in docker_daemon.call_names() if name.endswith(".prune")] == [
+        "containers.prune",
+        "networks.prune",
+        "images.prune",
+        "volumes.prune",
     ]
 
 
-def test_engine_prune_reclaimed_bytes_sum(docker_engine: Any, docker_client: Any) -> None:
-    """DockerEngineService.prune sums SpaceReclaimed across collection responses."""
-    docker_client.containers.prune.return_value = {"SpaceReclaimed": 500}
-    docker_client.networks.prune.return_value = {"NetworksDeleted": ["n1"]}
-    docker_client.images.prune.return_value = {"SpaceReclaimed": 300}
-    docker_client.volumes.prune.return_value = {"SpaceReclaimed": 200}
+def test_engine_prune_reclaimed_bytes_sum(docker_daemon: DockerEngineFake) -> None:
+    """DockerEngineService.prune sums SpaceReclaimed across the prunes, and a volume prune adds
+    the anonymous volumes."""
+    docker_daemon.add_container("old", running=False, size=500)
+    docker_daemon.add_image(size=300)
+    docker_daemon.add_volume("anonymous", anonymous=True, size=200)
+    engine = get_engine()
 
-    with docker_engine(docker_client) as engine:
-        reclaimed_no_vol = engine.prune()
-        reclaimed_vol = engine.prune(volumes=True)
-
-    assert (reclaimed_no_vol, reclaimed_vol) == (800, 1000)
+    assert (engine.prune(), engine.prune(volumes=True)) == (800, 200)
 
 
-def test_engine_prune_invalidates_disk_usage_cache(docker_engine: Any, docker_client: Any) -> None:
+def test_engine_prune_invalidates_disk_usage_cache(docker_daemon: DockerEngineFake) -> None:
     """Pruning invalidates the memoised disk-usage response."""
-    docker_client.df.return_value = {"BuildCache": []}
+    engine = get_engine()
+    engine.build_cache()
+    engine.prune()
+    engine.build_cache()
 
-    with docker_engine(docker_client) as engine:
-        engine.build_cache()
-        engine.prune()
-        engine.build_cache()
-
-    assert docker_client.df.call_count == 2
+    assert docker_daemon.call_names().count("df") == 2
 
 
-def test_engine_prune_failure_is_typed(docker_engine: Any, docker_client: Any) -> None:
+def test_engine_prune_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
     """A collection prune failure surfaces as a typed DockerEngineError."""
     from docker.errors import APIError
 
-    docker_client.containers.prune.side_effect = APIError("daemon error")
+    docker_daemon.fail("containers.prune", APIError("daemon error"))
 
-    with docker_engine(docker_client) as engine:
-        with pytest.raises(DockerEngineError, match="daemon error"):
-            engine.prune()
+    with pytest.raises(DockerEngineError, match="daemon error"):
+        get_engine().prune()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1375,42 +1326,39 @@ def test_engine_prune_failure_is_typed(docker_engine: Any, docker_client: Any) -
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_cli_docker_cache_table(docker_engine: Any) -> None:
+def test_cli_docker_cache_table(docker_daemon: DockerEngineFake) -> None:
     """The cache command renders BuildKit records with a reuse summary."""
-    mock_client = MagicMock()
-    mock_client.df.return_value = {"BuildCache": _CACHE_ENTRIES}
+    docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
 
-    with docker_engine(mock_client):
-        result = runner.invoke(docker_app, ["cache"])
+    result = runner.invoke(docker_app, ["cache"])
 
-    assert result.exit_code == 0
-    assert "cache-a" in result.output
-    assert "reclaimable" in result.output
+    assert (result.exit_code, "cache-a" in result.output, "reclaimable" in result.output) == (
+        0,
+        True,
+        True,
+    )
 
 
-def test_cli_docker_cache_json(docker_engine: Any) -> None:
+def test_cli_docker_cache_json(docker_daemon: DockerEngineFake) -> None:
     """The cache command emits the typed report as JSON on demand."""
-    mock_client = MagicMock()
-    mock_client.df.return_value = {"BuildCache": _CACHE_ENTRIES}
+    docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
 
-    with docker_engine(mock_client):
-        result = runner.invoke(docker_app, ["cache", "--json"])
+    result = runner.invoke(docker_app, ["cache", "--json"])
 
-    assert result.exit_code == 0
-    assert '"reclaimable_bytes"' in result.output
+    assert (result.exit_code, '"reclaimable_bytes"' in result.output) == (0, True)
 
 
-def test_cli_docker_cache_prune(docker_engine: Any) -> None:
+def test_cli_docker_cache_prune(docker_daemon: DockerEngineFake) -> None:
     """The --prune flag reclaims unused records after reporting them."""
-    mock_client = MagicMock()
-    mock_client.df.return_value = {"BuildCache": _CACHE_ENTRIES}
-    mock_client.api.prune_builds.return_value = {"SpaceReclaimed": 1048576}
+    docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
 
-    with docker_engine(mock_client):
-        result = runner.invoke(docker_app, ["cache", "--prune"])
+    result = runner.invoke(docker_app, ["cache", "--prune"])
 
-    assert result.exit_code == 0
-    assert mock_client.api.prune_builds.called
+    assert (
+        result.exit_code,
+        "api.prune_builds" in docker_daemon.call_names(),
+        [entry["ID"] for entry in docker_daemon.build_cache],
+    ) == (0, True, ["cache-a"])
 
 
 def test_cli_docker_cache_dry_run() -> None:
@@ -1420,19 +1368,15 @@ def test_cli_docker_cache_dry_run() -> None:
     assert "docker_build_cache_introspect" in result.output
 
 
-def test_cli_docker_cache_podman_engine(docker_engine: Any) -> None:
+def test_cli_docker_cache_podman_engine(docker_daemon: DockerEngineFake) -> None:
     """The cache command on Podman informs user and exits 1 without prune_builds or df."""
-    mock_client = MagicMock()
-    mock_client.version.return_value = {
-        "Components": [{"Name": "Podman Engine", "Version": "5.0.0"}]
-    }
+    docker_daemon.set_podman()
 
-    with docker_engine(mock_client):
-        result = runner.invoke(docker_app, ["cache"])
+    result = runner.invoke(docker_app, ["cache"])
 
     assert (
         result.exit_code,
         "Podman keeps no BuildKit cache; its build layers are images" in result.output,
-        mock_client.df.called,
-        mock_client.api.prune_builds.called,
+        "df" in docker_daemon.call_names(),
+        "api.prune_builds" in docker_daemon.call_names(),
     ) == (1, True, False, False)
