@@ -602,6 +602,10 @@ def audit_stream(
 # Command: devops config audit-keys
 # =============================================================================
 
+# The audit refuses the errors that the settings load refuses (#1468), and an error that stops the
+# read of the file.
+_AUDIT_READ_ERRORS: tuple[type[Exception], ...] = (*_YAML_LOAD_ERRORS, OSError)
+
 
 def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
     """Return each secret-named key that holds a value in ``cfg_file``, as ``<path>:<section>.<key>``,
@@ -617,9 +621,9 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
     secret_options = secret_keys()
     try:
         raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
-    except (*_YAML_LOAD_ERRORS, OSError) as err:
-        # The audit refuses the errors that the settings load refuses (#1468). Their message and
-        # the mark of a YAML error quote the file's content, which may hold the value.
+    except _AUDIT_READ_ERRORS as err:
+        # The message of the error and the mark of a YAML error quote the file's content, which
+        # may hold the value.
         where = _yaml_error_location(err)
         logger.warning("Could not audit config file %s: %s%s", cfg_file, type(err).__name__, where)
         return None
