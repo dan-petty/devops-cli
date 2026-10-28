@@ -8,9 +8,9 @@ metadata:
 spec:
   project: homelab
   sources:
-  - repoURL: https://grafana.github.io/helm-charts
+  - repoURL: https://grafana-community.github.io/helm-charts
     chart: loki
-    targetRevision: 7.3.0
+    targetRevision: 20.0.2
     helm:
       valueFiles:
       - $values/k8s/logging/loki-values.yaml

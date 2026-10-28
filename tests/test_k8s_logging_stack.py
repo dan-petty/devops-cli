@@ -16,6 +16,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _MANIFESTS_BY_STACK,
     VALID_STACKS,
 )
+from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -40,7 +41,7 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
         local_loki_url,
     ) == (
         ("loki",),
-        ("grafana",),
+        ("grafana-community",),
         True,
         "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
     )
@@ -49,6 +50,26 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
     assert ("logging" in VALID_STACKS, any("networkpolicy.yaml" in p for p in manifest_paths)) == (
         True,
         True,
+    )
+
+
+def test_deploy_stack_installs_loki_from_the_grafana_community_chart() -> None:
+    """The logging stack of deploy-stack installs the chart that the Argo CD Application pins,
+    `grafana-community/loki` 20.0.2, which runs Loki 3.7.9 and so is out of reach of
+    CVE-2026-21729 (#1632). It adds only the grafana-community repository, and gives the chart
+    only the values file. The invariant test of the Application and the values is in
+    tests/invariants/test_k8s_manifests.py."""
+    (release,) = _HELM_RELEASES_BY_STACK["logging"]
+
+    assert (release, _HELM_REPOS_BY_STACK["logging"]) == (
+        {
+            "name": "loki",
+            "chart": "grafana-community/loki",
+            "namespace": "logging",
+            "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+            "version": "20.0.2",
+        },
+        {"grafana-community": "https://grafana-community.github.io/helm-charts"},
     )
 
 

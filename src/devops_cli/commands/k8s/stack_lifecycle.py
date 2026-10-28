@@ -86,7 +86,7 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "qdrant": "https://qdrant.github.io/qdrant-helm",
     },
     "logging": {
-        "grafana": "https://grafana.github.io/helm-charts",
+        "grafana-community": "https://grafana-community.github.io/helm-charts",
     },
     "gitea": {
         "gitea-charts": "https://dl.gitea.com/charts/",
@@ -205,10 +205,10 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "logging": [
         {
             "name": "loki",
-            "chart": "grafana/loki",
+            "chart": "grafana-community/loki",
             "namespace": "logging",
             "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
-            "version": "7.3.0",
+            "version": "20.0.2",
         },
     ],
     # The internal forge and container registry (#1081). Its pod waits for Secret gitea-admin,
