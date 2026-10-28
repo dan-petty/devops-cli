@@ -11,4 +11,5 @@
 ## Workflow follow-up
 
 - One exit seam that reports a `DevOpsCLIError` with no traceback for every command is #1006.
+- The config paths that do not load the settings and can still show text of a config file are #2451.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

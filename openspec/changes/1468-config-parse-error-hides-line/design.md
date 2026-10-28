@@ -13,7 +13,8 @@
 
 **Non-Goals:**
 - One exit seam for every command group. #1006 owns that change. Until then, a command other than `devops config get` and `devops config unset` prints a traceback for a `ConfigurationError`, but that traceback holds no text of the file.
-- A change to `devops config audit-keys`, which already reports a file that does not parse with no text (#1022).
+- A change to `devops config audit-keys`, which already reports a `yaml.YAMLError` with no text (#1022).
+- The config paths that do not load the settings: the audit record of a config write (`write_history._mapping`), the round-trip of `config set` and `config unset` (`round_trip`), and the `KeyError` of `!!bool <text>` in `devops config audit-keys`. They can still show text of a file that PyYAML or ruamel.yaml cannot load. #2451 owns them.
 - The validation errors of pydantic for a value of the wrong type. They are a different error path.
 
 ## Decisions
