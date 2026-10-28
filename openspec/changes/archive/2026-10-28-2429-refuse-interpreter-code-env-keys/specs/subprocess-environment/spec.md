@@ -1,10 +1,14 @@
 ## MODIFIED Requirements
 
 ### Requirement: A caller override that loads code into the child is refused
-`build_subprocess_env` SHALL raise `SecurityError` with the message "Prohibited dangerous environment variable override: '<key>'" and the error code `SECURITY_ERROR` when the upper-case form of a key of the caller override is `LD_AUDIT`, `LD_LIBRARY_PATH`, `LD_ORIGIN_PATH`, `LD_PRELOAD`, `GCONV_PATH`, `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PS4`, `ZDOTDIR`, `FPATH`, `NULLCMD`, `READNULLCMD`, `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `PYTHONUSERBASE`, `PYTHONPLATLIBDIR`, `PYTHONPYCACHEPREFIX`, `NODE_OPTIONS`, `NODE_PATH`, `NODE_COMPILE_CACHE`, `NODE_REPL_EXTERNAL_MODULE`, `PERL5OPT`, `PERL5LIB`, `PERLLIB`, `PERL5DB`, `RUBYOPT`, `RUBYLIB`, `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS` or `CLASSPATH`, or starts with `DYLD_` or `BASH_FUNC_`. It SHALL do this with environment isolation on and off.
+`build_subprocess_env` SHALL raise `SecurityError` with the message "Prohibited dangerous environment variable override: '<key>'" and the error code `SECURITY_ERROR` when the upper-case form of a key of the caller override is a loader, gconv, shell or interpreter key that a scenario of this requirement names, or starts with `DYLD_` or `BASH_FUNC_`. It SHALL do this with environment isolation on and off.
 
 #### Scenario: A glibc audit library
 - **WHEN** a caller builds a child environment with the override `LD_AUDIT` or `ld_audit`
+- **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
+
+#### Scenario: A glibc loader path or preload
+- **WHEN** a caller builds a child environment with the override `LD_LIBRARY_PATH`, `LD_ORIGIN_PATH` or `LD_PRELOAD`, in upper or lower case
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
 
 #### Scenario: A glibc gconv module path
@@ -17,6 +21,10 @@
 
 #### Scenario: An exported bash function
 - **WHEN** a caller builds a child environment with the override `BASH_FUNC_x%%`, `bash_func_x%%`, `BASH_FUNC_x()` or `BASH_FUNC_git%%`
+- **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
+
+#### Scenario: A shell start-up file
+- **WHEN** a caller builds a child environment with the override `BASH_ENV` or `ENV`, in upper or lower case
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key, with the error code `SECURITY_ERROR`
 
 #### Scenario: A bash option or trace prompt
