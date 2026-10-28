@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.1](https://github.com/dan-petty/devops-cli/compare/v0.10.0...v0.10.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **ai:** a reply names its server by the origin of the URL called, so a password in an AI URL stays out of every record ([#2488](https://github.com/dan-petty/devops-cli/issues/2488)) ([3ec083f](https://github.com/dan-petty/devops-cli/commit/3ec083f7ace66ba7cfaa44c4806be7806e1958b0)), closes [#1110](https://github.com/dan-petty/devops-cli/issues/1110)
+* **ai:** the AI service clients dial through the egress-checked factory and check the address at the connect ([#2484](https://github.com/dan-petty/devops-cli/issues/2484)) ([08d70ca](https://github.com/dan-petty/devops-cli/commit/08d70ca6e2fa70254f333f79201c5897072d027b))
+
+
+### Code Refactoring
+
+* **config:** each setting declares its variable on its settings field, and the option, variable and secret registries are derived from it ([#2466](https://github.com/dan-petty/devops-cli/issues/2466)) ([daaffc6](https://github.com/dan-petty/devops-cli/commit/daaffc62f8ca99b96949f2c13e9dcdd5bc781351))
+
 ## [0.10.0](https://github.com/dan-petty/devops-cli/compare/v0.9.0...v0.10.0) (2026-10-28)
 
 
