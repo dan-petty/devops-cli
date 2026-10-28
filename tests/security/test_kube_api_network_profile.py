@@ -28,6 +28,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.sandbox import SandboxError, SandboxUnavailableError
 from devops_cli.sandbox.host import HostSandbox
+from devops_cli.sandbox.kube_api import kube_api_relay
 from devops_cli.security.registry import ScannerRegistry
 from devops_cli.security.tool_executor import (
     DirectToolExecutor,
@@ -285,6 +286,22 @@ def test_a_kube_api_run_reaches_the_api_server_only_through_kubectl_proxy_and_so
         True,
         str(socket.parent / "kubeconfig.json"),
     )
+
+
+def test_a_relay_runs_only_with_a_request_that_selects_the_kube_api_profile(
+    tree: Path, bwrap: Path, user_kubeconfig: Path, process_fake: ProcessFake
+) -> None:
+    """The command of a request that selects no network profile gets no relay, so no other tool
+    reaches the API server through a relay that a caller gives it. A request that selects
+    `kube-api` gets no command without its relay. Neither starts a process."""
+    executor = SandboxToolExecutor(HostSandbox(bwrap_binary=bwrap))
+
+    with kube_api_relay(None) as relay, pytest.raises(SandboxError, match="gitleaks"):
+        executor.command(_request(tree, "gitleaks"), relay)
+    with pytest.raises(SandboxError, match="kube-api"):
+        executor.command(_request(tree, network=KubeApiNetwork()))
+
+    assert [_is_config_view(call) for call in process_fake.calls] == [True]
 
 
 def test_the_proxy_refuses_every_method_that_writes_and_every_path_past_the_api_server() -> None:

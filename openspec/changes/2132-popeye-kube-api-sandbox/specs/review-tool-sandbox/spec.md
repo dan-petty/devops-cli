@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Only Popeye selects the kube-api network profile
-The sandbox SHALL have one network profile, `kube-api`, which a `ToolRequest` selects with `network`. A request SHALL be refused when it selects `kube-api` for a tool other than `popeye`, or when it selects `kube-api` and names a `program`.
+The sandbox SHALL have one network profile, `kube-api`, which a `ToolRequest` selects with `network`. A request SHALL be refused when it selects `kube-api` for a tool other than `popeye`, or when it selects `kube-api` and names a `program`. The sandbox executor SHALL refuse to build the command of a request that selects no network profile with a relay to the API server, and of a request that selects `kube-api` with no relay.
 
 #### Scenario: Another tool selects the profile
 - **WHEN** a request for the tool of any scanner of the scanner registry other than Popeye selects `kube-api`
@@ -10,6 +10,10 @@ The sandbox SHALL have one network profile, `kube-api`, which a `ToolRequest` se
 #### Scenario: Popeye from another program
 - **WHEN** a request for `popeye` selects `kube-api` and names a program
 - **THEN** the request is refused
+
+#### Scenario: A relay for a request with no profile
+- **WHEN** the sandbox executor builds the command of a Gitleaks request with the relay of a `kube-api` run
+- **THEN** it raises `SandboxError` and starts nothing
 
 ### Requirement: Each scanner names the network of its scan
 Every scanner of the scanner registry other than Popeye SHALL select no network. Popeye SHALL select `kube-api` for the context of its scan, and for the current context when the scan names none or names `current`.

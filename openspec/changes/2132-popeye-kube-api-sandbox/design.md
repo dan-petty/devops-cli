@@ -73,9 +73,9 @@ The kubernetes Python client (`list_kube_config_contexts`) is not used. Its modu
 
 ### 5. Only Popeye selects the profile
 
-`ToolRequest.network` is `KubeApiNetwork | None`. A validator refuses a `KubeApiNetwork` for a tool other than `popeye` (`CONST_TOOL_KUBE_API_TOOL`), and for a request that names a `program`, because a `program` can start another binary under the name `popeye`. `BaseSecurityScanner.tool_network` gives `None`, and `PopeyeScanner.tool_network` gives the profile for the context of the scan. `_run_built_command` gives that network to the request of the scan. A test runs every scanner of the registry and holds each to these rules.
+`ToolRequest.network` is `KubeApiNetwork | None`. A validator refuses a `KubeApiNetwork` for a tool other than `popeye` (`CONST_TOOL_KUBE_API_TOOL`), and for a request that names a `program`, because a `program` can start another binary under the name `popeye`. `BaseSecurityScanner.tool_network` gives `None`, and `PopeyeScanner.tool_network` gives the profile for the context of the scan. `_run_built_command` gives that network to the request of the scan. A test runs every scanner of the registry and holds each to these rules. `SandboxToolExecutor.command` refuses a relay for a request that selects no profile, and a `kube-api` request with no relay. So a caller that holds a relay cannot give it to another tool.
 
-`DirectToolExecutor` refuses a request that selects a network profile, with `SandboxError`. The direct executor gives a tool the whole network of the host, so it cannot give a profile, and a silent run with more network is a fail open.
+`DirectToolExecutor` refuses a request that selects a network profile, with `SandboxError`. The direct executor gives a tool the whole network of the host, so it cannot give a profile, and a silent run with more network is a fail open. The refusal is in `record_tool_run`, for each executor that names a network of its own. So `ToolExecutorFake` with `network=host`, the fake that stands in for the direct executor, refuses the request in the same way, and the contract suite holds both to it.
 
 ### 6. The record names the network
 

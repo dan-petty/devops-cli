@@ -692,7 +692,21 @@ class SandboxToolExecutor:
         sandbox, and bubblewrap, with no network of its own, starts the relay in the sandbox before
         `prlimit` and the tool. The sandbox binds the scratch directory of the relay read-only, and
         `KUBECONFIG` names the kubeconfig in it. Without a relay, the tool has no network.
+
+        A relay for a request that selects no network profile raises `SandboxError`: only the
+        request that selects `kube-api`, which only Popeye can select, reaches the API server. A
+        request that selects `kube-api` with no relay raises it too.
         """
+        if relay is not None and request.network is None:
+            raise SandboxError(
+                f"The review tool {request.tool} selects no network profile, so it cannot run "
+                "through a relay to the Kubernetes API server"
+            )
+        if relay is None and request.network is not None:
+            raise SandboxError(
+                f"The review tool {request.tool} selects the network profile "
+                f"{request.network.name}, which runs only through its relay"
+            )
         if request.program is not None and not request.program.is_file():
             raise SandboxError(
                 f"The program {request.program} of the review tool {request.tool} is not a file "
