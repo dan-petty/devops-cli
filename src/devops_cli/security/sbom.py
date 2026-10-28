@@ -9,7 +9,6 @@ from devops_cli.config.commands import build_trivy_sbom_cmd
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
-    DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
 )
 from devops_cli.exceptions.tools import DependencyError, ToolExecutionError
@@ -26,7 +25,7 @@ class TrivySbomScanner(TrivyScanner):
     def build_command(
         self,
         target_path: Path,
-        scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
+        scan_type: str | None = None,
         severity: str = DEFAULT_TRIVY_SEVERITIES,
         **kwargs: Any,
     ) -> list[str]:
