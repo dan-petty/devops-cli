@@ -11,6 +11,8 @@ os.environ["PYDANTIC_DISABLE_PLUGINS"] = (
     if _existing_plugins and "logfire-plugin" not in _existing_plugins.split(",")
     else (_existing_plugins or "logfire-plugin")
 )
+# The CLI owns its output, so pydantic-ai prints no first-run banner in it (#2398).
+os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
 from devops_cli.dry_run.state import (  # noqa: E402
     is_dry_run_requested,

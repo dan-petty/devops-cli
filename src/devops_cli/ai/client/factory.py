@@ -133,3 +133,21 @@ def get_llm_client(
 
 
 build_llm_client = get_llm_client
+
+
+def get_task_model(task: str, *, settings: Settings | None = None) -> Any:
+    """The pydantic-ai model that serves `task` (#2398): the client override when it is a
+    pydantic-ai `Model` (#1001, ADR 0007), else the task's model resolved with the task's own
+    configuration, so its provider and gateway URL are the ones `get_llm_client(task)` uses."""
+    from pydantic_ai.models import Model
+
+    if isinstance(_client_override, Model):
+        return _client_override
+
+    from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+    from devops_cli.config.settings import load_settings
+
+    active_settings = settings or load_settings()
+    task_config = active_settings.ai.for_task(task)
+    task_settings = active_settings.model_copy(update={"ai": task_config})
+    return resolve_pydantic_ai_model(task_config.model, settings=task_settings)

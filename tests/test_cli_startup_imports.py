@@ -556,3 +556,18 @@ def test_cli_dry_run_imports_only_plan_dependencies(
     probe = _probe_startup_imports(argv)
     loaded = [m for m in forbidden if m in probe.loaded]
     assert loaded == [], f"{argv} eagerly imported forbidden modules: {loaded}"
+
+
+def test_entry_turns_off_the_pydantic_ai_banner() -> None:
+    """Verify the entry point sets PYDANTIC_AI_NO_BANNER, so pydantic-ai prints no first-run banner
+    into the CLI's output (#2398)."""
+    code = 'import os, devops_cli.entry\nprint("__RESULT__" + os.environ.get("PYDANTIC_AI_NO_BANNER", ""))\n'
+    env = _clean_subprocess_env()
+    env.pop("PYDANTIC_AI_NO_BANNER", None)
+    proc = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+    )
+
+    assert [line for line in proc.stdout.splitlines() if line.startswith("__RESULT__")] == [
+        "__RESULT__1"
+    ]

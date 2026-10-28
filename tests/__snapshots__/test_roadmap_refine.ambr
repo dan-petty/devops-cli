@@ -3,6 +3,7 @@
   list([
     '''
       # Refinement plan for example/roadmap
+      Web search is off: the repository is private.
       ## Waiting on a person
       - #2 New P1-High (refined in this round)
         - Which store holds the record? (missing verified source)
@@ -16,6 +17,7 @@
     ''',
     '''
       # Refinement plan for example/roadmap
+      Web search is off: the repository is private.
       ## Refined to Ready
       - #5 New P1-High (refined in this round)
       ## Waiting on a person

@@ -144,9 +144,9 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Service Configuration (`service`)",
         "In-cluster webhook receiver and background job runner settings.",
     ),
-    "tavily": (
-        "Tavily Search Configuration (`tavily`)",
-        "Tavily web search API authentication settings.",
+    "firecrawl": (
+        "Firecrawl Configuration (`firecrawl`)",
+        "Firecrawl web search API authentication settings.",
     ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
@@ -2844,6 +2844,17 @@ CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS: Final[int] = 1024
 # The most paths refine records as the cause of an item's block. A later round reads the newest
 # commit of each one while the item waits, so the cap bounds those reads (#2005).
 CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS: Final[int] = 5
+# The budget of one item's investigation (#2398): its model requests and tool calls, the calls
+# one turn can make (the function tools go when fewer are left), and the lines and characters of
+# one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two
+# calls in each turn and needed more than 12 calls for the open facts of #2234.
+CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS: Final[int] = 12
+CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS: Final[int] = 20
+CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
+# The retries the model gets for a tool call or an answer that breaks its schema.
+CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
+CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 120
+CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 4000
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"

@@ -19,7 +19,7 @@ import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.common_tools import tavily_search
+from devops_cli.ai.common_tools import firecrawl_search
 from devops_cli.commands.install_tools import _download
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
@@ -660,7 +660,7 @@ def _caller_calls(flag: bool) -> dict[str, Callable[[], Any]]:
         "k8s direct": lambda: service_http.get_json("http://example.com:9090", "api/v1/query"),
         "k8s proxy": _k8s_proxy_call,
         "ai shared client": _ai_shared_call(flag),
-        "tavily": lambda: tavily_search("devops", api_key="tvly-test"),
+        "firecrawl": lambda: firecrawl_search("devops", api_key="fc-test"),
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
     }
 
@@ -677,12 +677,12 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
         "k8s direct": PRIVATE,
         "k8s proxy": PRIVATE,
         "ai shared client": PRIVATE if flag else LOOPBACK,
-        "tavily": PUBLIC,
+        "firecrawl": PUBLIC,
         "statuspage": PUBLIC,
     }
 
 
-_CALLER_HOSTS = ("example.com", "api.tavily.com")
+_CALLER_HOSTS = ("example.com", "api.firecrawl.dev")
 
 _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True): PRIVATE}
 """A level, by whether a loopback answer and an RFC 1918 answer reached the dial."""

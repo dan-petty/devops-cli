@@ -132,7 +132,7 @@ SERVICE_DRAIN_TIMEOUT_SECONDS = "service.drain_timeout_seconds"
 SERVICE_WEBHOOK_SECRETS = "service.webhook_secrets"
 
 # Search Provider Configuration
-TAVILY_API_KEY = "tavily.api_key"
+FIRECRAWL_API_KEY = "firecrawl.api_key"
 
 # CI Gate Configuration
 CI_GATE_SLOTS = "ci.gate_slots"
@@ -236,7 +236,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     SERVICE_POLL_INTERVAL_SECONDS,
     SERVICE_DRAIN_TIMEOUT_SECONDS,
     SERVICE_WEBHOOK_SECRETS,
-    TAVILY_API_KEY,
+    FIRECRAWL_API_KEY,
     CI_GATE_SLOTS,
 )
 
@@ -256,7 +256,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         CLOUDFLARE_TUNNEL_TOKEN,
         SERVICE_WEBHOOK_SECRETS,
         SERVICE_GITHUB_APP_PRIVATE_KEY,
-        TAVILY_API_KEY,
+        FIRECRAWL_API_KEY,
     }
 )
 
@@ -275,5 +275,5 @@ KEYRING_KEYS: dict[str, str] = {
     CLOUDFLARE_TUNNEL_TOKEN: "cloudflare_tunnel_token",
     SERVICE_WEBHOOK_SECRETS: "service_webhook_secrets",
     SERVICE_GITHUB_APP_PRIVATE_KEY: "service_github_app_private_key",
-    TAVILY_API_KEY: "tavily_api_key",
+    FIRECRAWL_API_KEY: "firecrawl_api_key",
 }

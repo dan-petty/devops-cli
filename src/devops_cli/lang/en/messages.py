@@ -1615,6 +1615,11 @@ class RoadmapMessages:
     refine_held_status: str = "Status {status}: refine changes only open New and Ready items."
     refine_held_closed: str = "The issue is closed: refine changes only open items."
     refine_title: str = "# Refinement plan for {repo}"
+    # Why a refine round had no web search (#2398).
+    refine_web_search_off: str = "Web search is off: {reason}."
+    refine_web_off_private: str = "the repository is private"
+    refine_web_off_no_key: str = "no Firecrawl key is set"
+    refine_web_off_unread: str = "the repository's visibility could not be read"
     refine_none: str = "No items to refine."
     # The report's groups, by next step, in the order the report shows them (#1758).
     refine_step_headings: dict[str, str] = field(

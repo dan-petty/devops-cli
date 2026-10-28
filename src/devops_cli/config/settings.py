@@ -833,7 +833,7 @@ class DataConfig(BaseModel):
         return self
 
 
-class TavilyConfig(BaseModel):
+class FirecrawlConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     api_key: str | None = None
@@ -871,7 +871,7 @@ class Settings(BaseSettings):
     open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()
     service: ServiceConfig = ServiceConfig()
-    tavily: TavilyConfig = TavilyConfig()
+    firecrawl: FirecrawlConfig = FirecrawlConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)
@@ -1485,10 +1485,10 @@ def get_service_webhook_secrets(settings: Settings) -> str | None:
     return _resolve(opt.SERVICE_WEBHOOK_SECRETS, settings)
 
 
-def get_tavily_api_key(settings: Settings | None = None) -> str | None:
-    """Resolve the Tavily search API key."""
+def get_firecrawl_api_key(settings: Settings | None = None) -> str | None:
+    """Resolve the Firecrawl web search API key."""
     active_settings = settings or load_settings()
-    return _resolve(opt.TAVILY_API_KEY, active_settings)
+    return _resolve(opt.FIRECRAWL_API_KEY, active_settings)
 
 
 def _canonical_key(key: str) -> str:

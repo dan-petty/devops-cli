@@ -1,4 +1,4 @@
-"""Unit tests for `tavily_search`, the one search call the roadmap refinement research step makes."""
+"""Unit tests for `firecrawl_search`, the web search of the roadmap refinement investigation."""
 
 from __future__ import annotations
 
@@ -8,98 +8,85 @@ from typing import Any
 import httpx2
 import pytest
 
-from devops_cli.ai.common_tools import tavily_search
-from devops_cli.config.defaults import DEFAULT_TAVILY_MAX_RESULTS
+from devops_cli.ai.common_tools import firecrawl_search
+from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_LIMIT
 from tests.web_fakes import StubWeb
 
-_TAVILY_URL = "https://api.tavily.com/search"
+_FIRECRAWL_URL = "https://api.firecrawl.dev/v2/search"
 _RESULTS = [
     {
         "title": "Pydantic AI",
         "url": "https://example.com/pydantic-ai",
-        "content": "Agent framework for Python.",
+        "description": "Agent framework for Python.",
+        "position": 1,
     },
-    {"title": "Ruff", "url": "https://example.com/ruff", "content": "A Python linter."},
+    {
+        "title": "Ruff",
+        "url": "https://example.com/ruff",
+        "description": "A Python linter.",
+        "position": 2,
+    },
 ]
 
 
-def _serve_tavily(stub_web: StubWeb, reply: Any) -> None:
-    """Answer Tavily's search endpoint with `reply` serialised as JSON."""
-    stub_web.content(_TAVILY_URL, json.dumps(reply).encode())
+def _serve_firecrawl(stub_web: StubWeb, reply: Any) -> None:
+    """Answer Firecrawl's search endpoint with `reply` serialised as JSON."""
+    stub_web.content(_FIRECRAWL_URL, json.dumps(reply).encode())
 
 
-def test_tavily_search_posts_the_query_and_returns_the_results(stub_web: StubWeb) -> None:
-    _serve_tavily(stub_web, {"query": "pydantic ai", "results": _RESULTS})
+def test_firecrawl_search_posts_the_query_with_the_key_and_returns_the_web_results(
+    stub_web: StubWeb,
+) -> None:
+    _serve_firecrawl(stub_web, {"success": True, "data": {"web": _RESULTS}, "creditsUsed": 2})
 
-    results = tavily_search("pydantic ai", api_key="test-key")
+    results = firecrawl_search("pydantic ai", api_key="fc-test")
 
     assert (
         results,
         [(request.method, str(request.url)) for request in stub_web.sent],
+        [request.headers["Authorization"] for request in stub_web.sent],
         [json.loads(request.content) for request in stub_web.sent],
     ) == (
         _RESULTS,
-        [("POST", _TAVILY_URL)],
-        [
-            {
-                "api_key": "test-key",
-                "query": "pydantic ai",
-                "max_results": DEFAULT_TAVILY_MAX_RESULTS,
-            }
-        ],
+        [("POST", _FIRECRAWL_URL)],
+        ["Bearer fc-test"],
+        [{"query": "pydantic ai", "limit": DEFAULT_FIRECRAWL_SEARCH_LIMIT}],
     )
 
 
-def test_tavily_search_sends_the_result_cap_and_both_domain_filters(stub_web: StubWeb) -> None:
-    _serve_tavily(stub_web, {"results": []})
+def test_firecrawl_search_sends_the_result_cap(stub_web: StubWeb) -> None:
+    _serve_firecrawl(stub_web, {"success": True, "data": {"web": []}})
 
-    results = tavily_search(
-        "linters",
-        api_key="test-key",
-        max_results=2,
-        include_domains=["example.com"],
-        exclude_domains=["example.org"],
-    )
+    results = firecrawl_search("linters", api_key="fc-test", limit=2)
 
-    assert (results, [json.loads(request.content) for request in stub_web.sent]) == (
+    assert (results, [json.loads(request.content)["limit"] for request in stub_web.sent]) == (
         [],
-        [
-            {
-                "api_key": "test-key",
-                "query": "linters",
-                "max_results": 2,
-                "include_domains": ["example.com"],
-                "exclude_domains": ["example.org"],
-            }
-        ],
+        [2],
     )
 
 
-def test_tavily_search_without_a_key_sends_an_empty_one(stub_web: StubWeb) -> None:
-    _serve_tavily(stub_web, {"results": []})
-
-    tavily_search("linters")
-
-    assert [json.loads(request.content)["api_key"] for request in stub_web.sent] == [""]
-
-
-def test_tavily_search_raises_on_http_error(stub_web: StubWeb) -> None:
+def test_firecrawl_search_raises_on_http_error(stub_web: StubWeb) -> None:
     """A status the stub has no page for is a 404, which `raise_for_status` turns into an error."""
     with pytest.raises(httpx2.HTTPStatusError):
-        tavily_search("test query", api_key="test-key")
+        firecrawl_search("test query", api_key="fc-test")
 
-    assert stub_web.requested == [_TAVILY_URL]
+    assert stub_web.requested == [_FIRECRAWL_URL]
 
 
 @pytest.mark.parametrize(
     "reply",
-    [{"query": "test query"}, {"results": "none"}, ["not", "an", "object"]],
-    ids=["no-results-key", "results-not-a-list", "reply-not-an-object"],
+    [
+        {"success": True},
+        {"success": True, "data": {"news": []}},
+        {"success": True, "data": {"web": "none"}},
+        ["not", "an", "object"],
+    ],
+    ids=["no-data", "no-web-results", "web-not-a-list", "reply-not-an-object"],
 )
-def test_tavily_search_raises_on_a_reply_without_a_results_list(
+def test_firecrawl_search_raises_on_a_reply_without_a_web_results_list(
     stub_web: StubWeb, reply: Any
 ) -> None:
-    _serve_tavily(stub_web, reply)
+    _serve_firecrawl(stub_web, reply)
 
-    with pytest.raises(ValueError, match="results"):
-        tavily_search("test query", api_key="test-key")
+    with pytest.raises(ValueError, match=r"data\.web"):
+        firecrawl_search("test query", api_key="fc-test")
