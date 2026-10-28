@@ -477,8 +477,8 @@ class LLMClient(
     ) -> None:
         """Record response attributes, spend calculation, and OpenTelemetry metrics.
 
-        The server is the reply's origin. A reply with no origin, such as one from a test fake,
-        names the configured endpoints.
+        The server is the reply's origin. A reply with no origin, such as one from an adapter
+        that sets none, names the configured endpoints.
         """
         _set_response_span_attributes(span_handle, res, p, self._configured_origin)
         srv = origin_label(res.origin) if res.origin is not None else self.backend_host

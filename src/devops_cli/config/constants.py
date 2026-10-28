@@ -895,8 +895,9 @@ CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
     "claude": CONST_URL_ANTHROPIC_API_BASE,
     "copilot": CONST_URL_GITHUB_COPILOT_API_BASE,
 }
-# What `backend_host` reports for a provider with no configured or default endpoint. It names
-# no server, so LLM spans write no `server.address` for it.
+# What `backend_host` reports for a provider with no configured or default endpoint, or for an
+# endpoint URL with no httpx2 origin, and what a served_by display shows for a value that names no
+# server. It is never the text of the URL, so it never holds userinfo.
 CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 # The `backend_info` of a reply the response cache answered, and the server its spend-ledger row
 # names: no backend served it, so spend reports leave it out of their server counts (#816).

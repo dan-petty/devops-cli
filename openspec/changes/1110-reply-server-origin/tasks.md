@@ -30,5 +30,7 @@
 
 ## Workflow follow-up
 
+- The `qdrant.upsert_points` span writes the full Qdrant URL as `server.address`: #2459.
+- `devops ai cost report` stops in `pricing.is_local` on a stored served_by that `urlsplit` cannot read: #2462.
 - Pending a person: if `ai.ollama_urls`, `ai.gateway_url` or `ai.api_base_url` held `user:password` before this change, change that password, then run `devops ai cost reset` and `devops ai cache clear`. Ledger rows, response-cache entries and exported counter series from before this change hold it.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

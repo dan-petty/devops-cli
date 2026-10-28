@@ -40,7 +40,7 @@ None.
 
 - `src/devops_cli/ai/client/models.py`, `unified.py`, `ollama.py`, `openai.py`, `claude.py`, `network.py`.
 - `src/devops_cli/ai/rag/embeddings.py`.
-- `src/devops_cli/commands/ai_cost.py`, `src/devops_cli/commands/review.py`.
+- `src/devops_cli/commands/ai_cost.py`, `src/devops_cli/commands/review.py`, `src/devops_cli/config/constants.py`.
 - `src/devops_cli/docs/generator.py` and the `docs/TELEMETRY.md` that it writes.
 - `tests/ai/client/test_reply_server.py`, `tests/test_ai_client_telemetry.py`, `tests/test_telemetry.py`, `tests/test_ai_served_by.py`, `tests/test_review_profile.py`, `tests/test_rag_embeddings.py`.
 
