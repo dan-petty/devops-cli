@@ -18,7 +18,7 @@
 
 ## 3. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1641-k8s-tunnel-command`
 - Pending a person: from off the home network, run `devops k8s tunnel start --context`, complete the Access login, then `kubectl --context <cluster>-tunnel get nodes`.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
