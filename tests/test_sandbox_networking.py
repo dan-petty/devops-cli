@@ -867,7 +867,8 @@ def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
 
     `model_construct` skips the whitelist validators, so the refusal comes from the builder. The
     public builder checks at the public egress level. The local builder checks at the private
-    level, then admits only a private or loopback address. The refusal names the host.
+    level, then admits only a private or loopback address. The refusal names the host, and also
+    the answer when the builder refuses an answer.
     """
     field, host, answer, lookups, cause = _BUILDER_REFUSALS[case]
     resolver = scripted_resolver(monkeypatch, {host: [[answer]]})
@@ -880,9 +881,17 @@ def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
         refusal.value.exit_code,
         refusal.value.error_code,
         f"'{host}'" in str(refusal.value),
+        answer in str(refusal.value),
         type(refusal.value.__cause__) if refusal.value.__cause__ else None,
         resolver.lookups,
-    ) == (CONST_EXIT_FAILURE, CONST_ERROR_CODE_SANDBOX_VALIDATION, True, cause, {host: lookups})
+    ) == (
+        CONST_EXIT_FAILURE,
+        CONST_ERROR_CODE_SANDBOX_VALIDATION,
+        True,
+        lookups == 1,
+        cause,
+        {host: lookups},
+    )
 
 
 @pytest.mark.parametrize(
@@ -903,17 +912,19 @@ def test_a_whitelist_name_that_does_not_resolve_is_refused(
         config.to_k8s_network_policy()
 
     assert (
+        refusal.value.exit_code,
         refusal.value.error_code,
         f"'{host}'" in str(refusal.value),
         [name for name, flags in failed_lookups if not flags & socket.AI_NUMERICHOST],
-    ) == (CONST_ERROR_CODE_SANDBOX_VALIDATION, True, [host])
+    ) == (CONST_EXIT_FAILURE, CONST_ERROR_CODE_SANDBOX_VALIDATION, True, [host])
 
 
 def test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses(
     cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A public whitelist name that answers a private address gets no policy, and the error names
-    the name. The refusal comes from the one lookup of the policy builder."""
+    the name and its answer. Only the one lookup of the policy builder gives the answer: the
+    whitelist validators look up no name."""
     resolver = scripted_resolver(monkeypatch, {"example.com": [[_LOCAL_ANSWER]]})
 
     res = cli(
@@ -928,9 +939,10 @@ def test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses(
     assert (
         res.exit_code,
         "'example.com'" in res.output,
+        _LOCAL_ANSWER in res.output,
         "NetworkPolicy" in res.stdout,
         resolver.lookups,
-    ) == (CONST_EXIT_FAILURE, True, False, {"example.com": 1})
+    ) == (CONST_EXIT_FAILURE, True, True, False, {"example.com": 1})
 
 
 # =============================================================================
