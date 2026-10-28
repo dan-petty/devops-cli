@@ -16,6 +16,7 @@ recorded canary output, through the default executor and as the executor that a 
 
 from __future__ import annotations
 
+import json
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -28,11 +29,13 @@ from devops_cli.security.bandit import run_bandit_scan
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.gitleaks import run_gitleaks_scan
 from devops_cli.security.osv_scanner import run_osv_scan
+from devops_cli.security.registry import ScannerRegistry
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.tool_executor import DirectToolExecutor, ToolRequest
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.scanners import ScannerFake, ScannerRun
 from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer
+from tests.support.paths import FIXTURES
 
 ReviewScan = Callable[[Path, Path], ScanOutcome]
 
@@ -89,6 +92,41 @@ def test_each_recording_is_of_the_version_the_tools_lock_pins(scanner_fake: Scan
     assert {tool: run.version for tool, run in scanner_fake.recorded.items()} == {
         tool: locked[tool].version for tool in scanner_fake.recorded
     }
+
+
+def test_each_run_with_findings_is_of_the_version_the_tools_lock_pins() -> None:
+    """A tool bumped in the lock has its run with findings recorded again (#2214)."""
+    runs = json.loads((FIXTURES / "scanner_runs" / "runs_with_findings.json").read_text())
+    locked = load_tools_lock().tools()
+
+    assert {tool: run["version"] for tool, run in runs.items()} == {
+        tool: locked[tool].version for tool in runs
+    }
+
+
+def test_a_registry_scan_whose_pinned_program_is_missing_runs_no_built_in_patterns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scanner whose program `tools.lock` pins runs that program, and with no program on PATH
+    its scan gives no result: no hand-written check stands in for the pinned tool (#2214)."""
+    pinned = {command for tool in load_tools_lock().tools().values() for command in tool.commands}
+    registry = ScannerRegistry(auto_load_defaults=True)
+    names = [
+        name
+        for name in registry.list_scanners()
+        if (scanner := registry.get(name)) is not None and scanner.binary_name in pinned
+    ]
+    no_programs = tmp_path / "no-programs"
+    no_programs.mkdir()
+    monkeypatch.setenv("PATH", str(no_programs))
+    (tmp_path / "deploy.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
+
+    outcomes = registry.scan_all(tmp_path, names=names)
+
+    assert "kubeconform" in outcomes
+    assert [
+        name for name, outcome in outcomes.items() if outcome.status == "built-in patterns"
+    ] == []
 
 
 def test_the_fake_finds_and_answers_only_the_recorded_scanners(

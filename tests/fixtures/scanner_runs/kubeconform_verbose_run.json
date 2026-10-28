@@ -1,0 +1,19 @@
+{
+  "version": "0.8.0",
+  "argv": [
+    "kubeconform",
+    "-output",
+    "json",
+    "-kubernetes-version",
+    "master",
+    "-strict",
+    "-verbose",
+    "-skip",
+    "ConfigMap",
+    "{tree}/k8s"
+  ],
+  "cwd": "{tree}/k8s",
+  "returncode": 1,
+  "stdout": "{\n  \"resources\": [\n    {\n      \"filename\": \"{tree}/k8s/app.yaml\",\n      \"kind\": \"ConfigMap\",\n      \"name\": \"settings\",\n      \"version\": \"v1\",\n      \"status\": \"statusSkipped\",\n      \"msg\": \"\"\n    },\n    {\n      \"filename\": \"{tree}/k8s/app.yaml\",\n      \"kind\": \"Widget\",\n      \"name\": \"blue\",\n      \"version\": \"example.com/v1\",\n      \"status\": \"statusError\",\n      \"msg\": \"could not find schema for Widget\"\n    },\n    {\n      \"filename\": \"{tree}/k8s/app.yaml\",\n      \"kind\": \"Service\",\n      \"name\": \"web\",\n      \"version\": \"v1\",\n      \"status\": \"statusInvalid\",\n      \"msg\": \"problem validating schema. Check JSON formatting: jsonschema validation failed with 'https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/master-standalone-strict/service-v1.json#' - at '/spec/ports/0/port': got string, want integer\",\n      \"validationErrors\": [\n        {\n          \"path\": \"/spec/ports/0/port\",\n          \"msg\": \"got string, want integer\"\n        }\n      ]\n    },\n    {\n      \"filename\": \"{tree}/k8s/app.yaml\",\n      \"kind\": \"Deployment\",\n      \"name\": \"web\",\n      \"version\": \"apps/v1\",\n      \"status\": \"statusValid\",\n      \"msg\": \"\"\n    }\n  ]\n}\n",
+  "stderr": ""
+}

@@ -21,10 +21,12 @@ from devops_cli.ai.tools.builtin_tools import (
     git_status,
     k8s_pods,
     k8s_tempo_status,
+    k8s_validate_manifests,
     list_files,
     read_file,
     scan_bandit,
     scan_gitleaks,
+    scan_iac,
     scan_kubelinter,
     scan_osv,
     scan_pluto,
@@ -34,7 +36,7 @@ from devops_cli.ai.tools.builtin_tools import (
     scan_uv_audit,
     search_code,
 )
-from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS
+from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS, DEFAULT_TRIVY_SEVERITIES
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.scanners import ScannerFake
@@ -601,6 +603,66 @@ def test_the_agent_uv_audit_tool_over_a_directory_that_does_not_exist_gives_no_r
     )
 
 
+def test_the_agent_manifest_tool_reports_each_resource_that_kubeconform_finds_invalid(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`k8s_validate_manifests` runs the kubeconform adapter over its target and replies with the
+    outcome, one line for each resource that kubeconform reports (#2214)."""
+    manifests = tmp_path / "k8s"
+    manifests.mkdir()
+    monkeypatch.chdir(tmp_path)
+    recorded = scanner_fake.script_run_with_findings("kubeconform", tree=tmp_path)
+
+    reply = k8s_validate_manifests(str(manifests))
+
+    fix_invalid = "Correct the resource to match its schema"
+    assert (scanner_fake.runs, reply) == (
+        [recorded],
+        "\n".join(
+            [
+                "Kubeconform scan status: ok",
+                "Findings (3):",
+                "- [HIGH] app.yaml:Widget/blue: [Kubeconform statusError] Widget 'blue' could not "
+                "be validated (Correct the resource so that kubeconform can read it, or give "
+                "kubeconform a schema for its kind.)",
+                "- [HIGH] app.yaml:ConfigMap/settings: [Kubeconform statusInvalid] ConfigMap "
+                f"'settings' does not match its schema ({fix_invalid}: additional properties "
+                "'replicas' not allowed.)",
+                "- [HIGH] app.yaml:Service/web: [Kubeconform statusInvalid] Service 'web' does "
+                f"not match its schema ({fix_invalid}: /spec/ports/0/port: got string, want "
+                "integer.)",
+            ]
+        ),
+    )
+
+
+def test_the_agent_iac_tool_runs_the_misconfiguration_scan_of_trivy(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`scan_iac` runs Trivy's misconfiguration scan over its target, in place of Checkov, and
+    replies as `scan_trivy` does (#2214)."""
+    scanner_fake.script("trivy", _trivy_run([]))
+    monkeypatch.chdir(tmp_path)
+
+    reply = scan_iac(str(tmp_path))
+
+    assert ([run.argv for run in scanner_fake.runs], reply) == (
+        [
+            [
+                "trivy",
+                "config",
+                str(tmp_path),
+                "--severity",
+                DEFAULT_TRIVY_SEVERITIES,
+                "--format",
+                "json",
+                "--quiet",
+            ]
+        ],
+        "Trivy scan status: ok\nNo findings.",
+    )
+
+
 def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -701,6 +763,8 @@ _ADAPTER_SCAN_TOOLS = [
     pytest.param(scan_gitleaks, "Gitleaks", "gitleaks", id="gitleaks"),
     pytest.param(scan_semgrep, "Semgrep", "semgrep", id="semgrep"),
     pytest.param(scan_uv_audit, "uv audit", "uv", id="uv-audit"),
+    pytest.param(scan_iac, "Trivy", "trivy", id="trivy-config"),
+    pytest.param(k8s_validate_manifests, "Kubeconform", "kubeconform", id="kubeconform"),
 ]
 
 
