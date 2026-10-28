@@ -175,6 +175,10 @@ def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> s
 
 
 def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Replacement], ...]:
+    # A keyword and its value sit on one line. Between them, a pattern allows whitespace
+    # other than a line break, `[^\S\r\n]`, and never `\s`: with `\s`, a line that ends with
+    # a keyword took the first word of the next line as its value, so a terminal transcript
+    # lost the first word of an output line.
     return (
         (
             # GitHub documents six token prefixes; the only length it states is the legacy
@@ -192,7 +196,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         ),
         (
             re.compile(
-                r"\b(?:password|passwd|pwd)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
+                r"\b(?:password|passwd|pwd)[^\S\r\n]*[:=][^\S\r\n]*(?P<quote>[\"']?)(?!<masked-)"
                 r"(?P<value>[^\s\"',;]{8,})[\"']?",
                 re.IGNORECASE,
             ),
@@ -213,7 +217,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
         (
             re.compile(
-                r"\b(?:token|auth_token)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
+                r"\b(?:token|auth_token)[^\S\r\n]*[:=][^\S\r\n]*(?P<quote>[\"']?)(?!<masked-)"
                 r"(?P<value>[^\s\"',;]{8,})[\"']?",
                 re.IGNORECASE,
             ),
@@ -221,13 +225,15 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         ),
         (
             re.compile(
-                r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*[\"']?[A-Za-z0-9/+=]{40}[\"']?"
+                r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[^\S\r\n]*[:=][^\S\r\n]*"
+                r"[\"']?[A-Za-z0-9/+=]{40}[\"']?"
             ),
             "aws_secret_access_key=<masked-aws-secret>",
         ),
         (
             re.compile(
-                r"(?:client_secret|client-secret|AZURE_CLIENT_SECRET)\s*[:=]\s*[\"']?[A-Za-z0-9_\-~.]{20,}[\"']?"
+                r"(?:client_secret|client-secret|AZURE_CLIENT_SECRET)[^\S\r\n]*[:=][^\S\r\n]*"
+                r"[\"']?[A-Za-z0-9_\-~.]{20,}[\"']?"
             ),
             "client_secret=<masked-client-secret>",
         ),
@@ -239,7 +245,9 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         ),
         (
             re.compile(
-                r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)\s*[:=]\s*(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-.]{20,}\b(?!\s*\())",
+                r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)"
+                r"[^\S\r\n]*[:=][^\S\r\n]*"
+                r"(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-.]{20,}\b(?!\s*\())",
                 re.IGNORECASE,
             ),
             "api_key=<masked-api-key>",
@@ -250,14 +258,15 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         ),
         (
             re.compile(
-                r"((?:[:=]\s*[\"']?|\bBearer\s+|\btoken\s+|[\"']))secret_[A-Za-z0-9_]{10,}\b",
+                r"((?:[:=][^\S\r\n]*[\"']?|\bBearer[^\S\r\n]+|\btoken[^\S\r\n]+|[\"']))"
+                r"secret_[A-Za-z0-9_]{10,}\b",
                 re.IGNORECASE,
             ),
             r"\g<1><masked-secret>",
         ),
         (
             re.compile(
-                r"\b(?:token|bearer|secret|password|api_key)\s+([A-Za-z0-9_\-.]{10,})\b",
+                r"\b(?:token|bearer|secret|password|api_key)[^\S\r\n]+([A-Za-z0-9_\-.]{10,})\b",
                 re.IGNORECASE,
             ),
             _mask_credential_like_value,
