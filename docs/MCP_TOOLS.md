@@ -126,7 +126,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`scan_sbom`](#scan-sbom) | `true` | Generate Software Bill of Materials (SBOM) using Trivy (#1439). |
 | [`scan_secrets`](#scan-secrets) | `true` | Run Gitleaks secret pre-filter scan across workspace or targets. |
 | [`scan_trivy`](#scan-trivy) | `true` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
-| [`scan_uv_audit`](#scan-uv-audit) | `true` | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
+| [`scan_uv_audit`](#scan-uv-audit) | `true` | Audit the packages that the uv.lock of a project pins, as it is, for known vulnerabilities and adverse project statuses, with uv audit. |
 | [`security_intel_network`](#security-intel-network) | `true` | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
 | [`security_intel_package`](#security-intel-package) | `true` | Query the OSV.dev vulnerability database for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | `true` | List the managed SSH keys of the project prefix with their age and rotation status. |
@@ -2086,7 +2086,7 @@ Run Aqua Trivy vulnerability, secret, and misconfiguration scan.
 
 ### `scan_uv_audit`
 
-Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs.
+Audit the packages that the uv.lock of a project pins, as it is, for known vulnerabilities and adverse project statuses, with uv audit.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2095,7 +2095,6 @@ Run uv dependency audit / pip-audit to check workspace Python dependencies for k
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `directory` | `string` | No | `.` | - |
-| `requirements_file` | `string` | No | `` | - |
 
 ### `security_intel_network`
 

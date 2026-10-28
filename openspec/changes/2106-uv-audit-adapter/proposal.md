@@ -44,7 +44,7 @@ None.
 - Command output, uv 0.12.23: `uv audit --output-format json` on a project whose `pyproject.toml` no longer agreed with its `uv.lock` rewrote the lockfile (its SHA-256 changed). With `--frozen`, the lockfile did not change.
 - Command output, uv 0.12.23: with no `uv.lock`, `uv audit --frozen --output-format json` exited 1 with no stdout, and wrote two preview warnings (about 270 characters) before the error on stderr. `ScanOutcome` cuts its reason at `CONST_MAX_ERROR_DETAIL_LENGTH`, 256 characters, so the reason held only the warnings. With `--quiet`, stderr held only the error, and the JSON report was still written. With an advisory service that refused the connection, uv exited 2 with no stdout and "error: Request failed after 3 retries".
 - `BaseSecurityScanner` reads a run with no JSON on stdout and a non-zero exit code as `failed`, and a JSON report with findings as `ran` (`_handle_non_json_output`, `_handle_json_output` in `src/devops_cli/security/base.py`). Thus exit code 1 with no report is a failure, and is not read as a finding.
-- On `origin/main` at `86d5bce9`, the new tests failed: the agent and MCP tools started a real `uv audit` outside the tool executor, which the test floor refused, and `build_uv_audit_cmd` returned `["uv", "audit"]`.
+- `devops ci fail-to-pass --base origin/main`, on `origin/main` at `d739a472`: the new tests failed. The agent and MCP tools started a real `uv audit` outside the tool executor, which the test floor refused, `build_uv_audit_cmd` returned `["uv", "audit"]`, and the test module of the adapter did not import.
 
 ## Existing Tool Considered
 

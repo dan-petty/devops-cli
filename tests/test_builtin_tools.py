@@ -205,9 +205,6 @@ def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
     argo_apps()
     assert called_cmds[-1][:3] == ["argocd", "app", "list"]
 
-    scan_uv_audit(".")
-    assert called_cmds[-1][:2] == ["uv", "audit"]
-
 
 def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify scan_osv and check_threat_intel functions."""
