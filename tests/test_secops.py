@@ -14,8 +14,9 @@ from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter
 from devops_cli.security.pluto import parse_pluto_json, run_pluto_scan
 from devops_cli.security.popeye import run_popeye_scan
 from devops_cli.security.registry import ScannerRegistry
+from devops_cli.security.tool_executor import KubeApiNetwork
 from devops_cli.security.trivy import parse_trivy_json, run_trivy_scan
-from tests.support.fakes.scanners import ScannerFake, ScannerRun
+from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 
 
@@ -130,9 +131,9 @@ def test_kubelinter_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert [f.title for f in findings] == ["[DRY-RUN] Simulated Kube-linter Manifest Audit"]
 
 
-def test_popeye_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_popeye_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
-    findings = run_popeye_scan(workdir=tmp_path)
+    findings = run_popeye_scan()
     assert [f.title for f in findings] == ["[DRY-RUN] Simulated Popeye Kubernetes Cluster Scan"]
 
 
@@ -197,7 +198,7 @@ def test_secops_scanners_dry_run(tmp_path: Path) -> None:
         assert len(run_pluto_scan(tmp_path)) == 1
 
     with patch("devops_cli.security.popeye.is_dry_run", return_value=True):
-        assert len(run_popeye_scan(workdir=tmp_path)) == 1
+        assert len(run_popeye_scan()) == 1
 
 
 def test_kubelinter_locations_are_relative_to_the_nested_worktree(
@@ -388,16 +389,16 @@ def test_pluto_reads_a_file_path_that_climbs_out_of_its_working_directory(tmp_pa
 
 
 def test_popeye_reports_each_issue_of_its_report_at_warn_level(
-    scanner_fake: ScannerFake, tmp_path: Path
+    scanner_fake: ScannerFake,
 ) -> None:
-    """Popeye runs at warn level over the namespace that it gets, from the directory that the
-    command gives (#2098). Each issue of its report is a finding at its linter, resource and
-    container, with the severity of its level (#1434)."""
-    workdir = tmp_path / "command-directory"
-    workdir.mkdir()
-    recorded = scanner_fake.script_run_with_findings("popeye", workdir=workdir)
+    """Popeye runs at warn level over the namespace that it gets, with the network profile
+    `kube-api`, from a new empty directory that does not stay after the scan (#2132). Each issue
+    of its report is a finding at its linter, resource and container, with the severity of its
+    level (#1434)."""
+    scanner_fake.snapshot_workdirs = True
+    recorded = scanner_fake.script_run_with_findings("popeye")
 
-    outcome = run_popeye_scan(namespace="argocd", workdir=workdir)
+    outcome = run_popeye_scan(namespace="argocd")
 
     deployment = "argocd/argocd-applicationset-controller"
     pod = "argocd/argocd-application-controller-0"
@@ -408,8 +409,19 @@ def test_popeye_reports_each_issue_of_its_report_at_warn_level(
         "app.kubernetes.io/name=argocd-applicationset-controller,app.kubernetes.io/instance=argocd"
     )
     memory = "[POP-110] Memory Current/Request (791Mi/256Mi) reached user 80% threshold (308%)"
-    assert (scanner_fake.runs, outcome.status, outcome.findings) == (
-        [recorded],
+    (run,) = scanner_fake.runs
+    assert (
+        run.argv,
+        run.workdir_files,
+        Path(run.cwd).exists(),
+        [request.network for request in scanner_fake.requests],
+        outcome.status,
+        outcome.findings,
+    ) == (
+        recorded.argv,
+        {},
+        False,
+        [KubeApiNetwork()],
         "ran",
         [
             Finding(
@@ -468,13 +480,12 @@ def test_popeye_reports_each_issue_of_its_report_at_warn_level(
 
 
 def test_popeye_scans_the_whole_cluster_when_it_gets_no_namespace(
-    scanner_fake: ScannerFake, tmp_path: Path
+    scanner_fake: ScannerFake,
 ) -> None:
-    """With no namespace, Popeye runs at warn level over every namespace of the current context."""
-    scanner_fake.script_run_with_findings("popeye", workdir=tmp_path)
+    """With no namespace, Popeye runs at warn level over every namespace of the current context,
+    with `-A`."""
+    scanner_fake.script_run_with_findings("popeye")
 
-    run_popeye_scan(workdir=tmp_path)
+    run_popeye_scan()
 
-    assert scanner_fake.runs == [
-        ScannerRun(["popeye", "-o", "json", "-l", "warn", "-A"], str(tmp_path))
-    ]
+    assert [run.argv for run in scanner_fake.runs] == [["popeye", "-o", "json", "-l", "warn", "-A"]]

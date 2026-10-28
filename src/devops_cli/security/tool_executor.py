@@ -10,13 +10,18 @@ review and gives it to the orchestrator, which gives it to every analyzer, evide
 A review has no way to run its tools outside the sandbox (decision 1 of #772).
 `DirectToolExecutor` starts the tool as a child process of devops-cli, with no sandbox and no limit
 but the wall clock. It is the executor that a scanner gets when nobody gives it another, as the
-scans of `devops scan`, `devops k8s audit` and the agent tools do. Those are not reviews.
+scans of `devops scan` and the agent tools do. Those are not reviews. Popeye is the exception: it
+reads the Kubernetes API, and it runs in the sandbox with the network profile `kube-api`
+(`KubeApiNetwork`, decision 2 of #772, #2132). Only Popeye can select that profile, and the direct
+executor refuses it. The record of each run names the network of the tool.
 
 `SandboxToolExecutor` does not confine or limit a process itself. It builds one command from three
 programs that already do this work:
 
 - bubblewrap, through `HostSandbox`. It gives no network, a cleared environment, a read-only tree,
-  read-only inputs and a private temporary HOME. When the sandbox process ends, the process tree
+  read-only inputs and a private temporary HOME. A request with the network profile `kube-api`
+  reaches the Kubernetes API server through `kubectl proxy` outside the sandbox and `socat` in it
+  (`devops_cli.sandbox.kube_api`). When the sandbox process ends, the process tree
   in it ends (`--die-with-parent` and the process namespace of the sandbox). No code here ends a
   process.
 - `prlimit` from util-linux. It sets the CPU limit and the address space limit of the tool. No code
@@ -62,8 +67,8 @@ so the export does not write these names:
   `-dirty` identifies no revision of the files that the tool scanned.
 
 The config, ruleset and targets digests have no SARIF name. A SARIF hash is the hash of one artifact
-(section 3.24.11), and each of these digests covers a group of files. `executor` has no SARIF name:
-it says whether the run was confined.
+(section 3.24.11), and each of these digests covers a group of files. `executor` and `network` have
+no SARIF name: they say whether the run was confined, and which network the tool had.
 
 `RecordingToolExecutor` wraps another executor and keeps the `ToolRun` of every run. A review gives
 its scanners one, and shows the records in its profile, in `review.md` and in `findings.sarif`.
@@ -71,6 +76,7 @@ its scanners one, and shows the records in its profile, in `review.md` and in `f
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import stat
@@ -78,7 +84,7 @@ import subprocess
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -93,7 +99,11 @@ from devops_cli.config.constants import (
     CONST_TOOL_EXECUTOR_SANDBOX,
     CONST_TOOL_GO_MEMORY_LIMIT,
     CONST_TOOL_HOST_READ_ONLY_PATHS,
+    CONST_TOOL_KUBE_API_TOOL,
     CONST_TOOL_MIN_ADDRESS_SPACE_BYTES,
+    CONST_TOOL_NETWORK_HOST,
+    CONST_TOOL_NETWORK_KUBE_API,
+    CONST_TOOL_NETWORK_NONE,
     CONST_TOOL_PRLIMIT_BINARY,
     CONST_TOOL_RULESET_PLACEHOLDER,
     CONST_TOOL_SANDBOX_CHECK_TIMEOUT_SECONDS,
@@ -115,6 +125,7 @@ from devops_cli.review.canary import resolve_tool_binary, resolve_tool_version_a
 
 if TYPE_CHECKING:
     from devops_cli.sandbox.host import HostSandbox
+    from devops_cli.sandbox.kube_api import KubeApiRelay
 
 
 class _Frozen(BaseModel):
@@ -147,6 +158,18 @@ class ToolLimits(_Frozen):
         )
 
 
+class KubeApiNetwork(_Frozen):
+    """The network profile `kube-api` of the sandbox (#2132). The tool reaches the Kubernetes API
+    server of one context, only to read, through `kubectl proxy` outside the sandbox
+    (`devops_cli.sandbox.kube_api`).
+
+    `context` names a context of the kubeconfig of the user. None is the current context.
+    """
+
+    name: ClassVar[str] = CONST_TOOL_NETWORK_KUBE_API
+    context: str | None = Field(default=None, min_length=1)
+
+
 class ToolRequest(_Frozen):
     """One run of a review tool.
 
@@ -171,6 +194,10 @@ class ToolRequest(_Frozen):
     `workdir` is the tree. The tool starts in `cwd`, and in the tree when `cwd` is none. A scan that
     must not read the config files of the tree starts in a scratch directory of its own. The
     sandbox binds a `cwd` outside the tree read-only.
+
+    `network` selects the network profile of the sandbox. None gives the tool no network. Only
+    Popeye (`CONST_TOOL_KUBE_API_TOOL`) can select `KubeApiNetwork`, and only by its name on the
+    PATH: a `program` could start another binary under that name.
     """
 
     tool: str = Field(min_length=1)
@@ -185,12 +212,30 @@ class ToolRequest(_Frozen):
     writable_dirs: tuple[Path, ...] = ()
     env: dict[str, str] = Field(default_factory=dict)
     limits: ToolLimits = Field(default_factory=ToolLimits)
+    network: KubeApiNetwork | None = None
 
     @model_validator(mode="after")
     def _program_is_absolute(self) -> ToolRequest:
         """A relative program would start another program in each directory a run starts in."""
         if self.program is not None and not self.program.is_absolute():
             raise ValueError(f"the program {self.program} of a tool is no absolute path")
+        return self
+
+    @model_validator(mode="after")
+    def _only_popeye_selects_the_network(self) -> ToolRequest:
+        """No tool but Popeye, started by its name, gets the network profile `kube-api`."""
+        if self.network is None:
+            return self
+        if self.tool != CONST_TOOL_KUBE_API_TOOL:
+            raise ValueError(
+                f"only {CONST_TOOL_KUBE_API_TOOL} can select the network profile "
+                f"{self.network.name}, not {self.tool}"
+            )
+        if self.program is not None:
+            raise ValueError(
+                f"a request that names the program {self.program} cannot select the network "
+                f"profile {self.network.name}"
+            )
         return self
 
 
@@ -208,6 +253,9 @@ class ToolRun(_Frozen):
     target, a config file or a ruleset file, so the same scan records the same template. It starts
     with the tool, or with the file name of the program of the request when it names one.
 
+    `network` says which network the tool had: `host` under the direct executor, `none` in the
+    sandbox, and the name of the network profile, `kube-api`, in the sandbox with that profile.
+
     `commit` is the commit of the checkout that holds the tree. It ends with `-dirty` when a target
     holds a change that the commit does not. A tree outside any git checkout has no commit, and
     neither has a checkout that holds no commit yet. The sandbox executor refuses a checkout that
@@ -219,6 +267,7 @@ class ToolRun(_Frozen):
     version: str
     binary_sha256: str
     executor: str = Field(min_length=1)
+    network: str = Field(min_length=1)
     config_digest: str
     ruleset_digest: str
     argv_template: tuple[str, ...]
@@ -410,6 +459,7 @@ def record_tool_run(
     version: str,
     binary_sha256: str,
     executor: str,
+    network: str | None = None,
     require_commit: bool = True,
     require_files: bool = True,
 ) -> ToolRun:
@@ -417,18 +467,28 @@ def record_tool_run(
     started by the executor that `executor` names.
 
     Every executor builds its record here. So every executor refuses a request, and reads its
-    digests and its commit, in the same way. A checkout that git cannot read raises `SandboxError`,
-    unless `require_commit` is false. Then the record holds no commit. A config file or a ruleset
-    file that cannot be read as a regular file raises `SandboxValidationError`, unless
-    `require_files` is false. Then its digest is `unavailable`.
+    digests and its commit, in the same way. The network is the network profile of the request,
+    else `none`. An executor that gives every tool a network of its own names it in `network`: the
+    direct executor gives the network of the host. Such an executor cannot run a network profile,
+    so a request that selects one raises `SandboxError`. A checkout that git cannot read raises
+    `SandboxError`, unless `require_commit` is false. Then the record holds no commit. A config
+    file or a ruleset file that cannot be read as a regular file raises `SandboxValidationError`,
+    unless `require_files` is false. Then its digest is `unavailable`.
     """
+    if network is not None and request.network is not None:
+        raise SandboxError(
+            f"The {executor} executor gives {request.tool} the network {network}, so it cannot run "
+            f"the network profile {request.network.name}"
+        )
     targets = _resolved_targets(request)
     root = request.workdir.resolve()
+    profile = request.network.name if request.network else CONST_TOOL_NETWORK_NONE
     return ToolRun(
         tool=request.tool,
         version=version,
         binary_sha256=binary_sha256,
         executor=executor,
+        network=network or profile,
         config_digest=_files_digest(request.config_files, required=require_files),
         ruleset_digest=_files_digest(request.ruleset_files, required=require_files),
         argv_template=_argv_template(request, targets),
@@ -498,8 +558,8 @@ class DirectToolExecutor:
     """Starts each tool as a child process of devops-cli, through `run_subprocess`.
 
     There is no sandbox, and the only limit is the wall clock of the request. It is the executor
-    of a scanner that nobody gave another: the scans of `devops scan`, `devops k8s audit` and the
-    agent tools, which are not reviews. A review never runs its tools here. A scan must end as it
+    of a scanner that nobody gave another, except Popeye: the scans of `devops scan` and the agent
+    tools, which are not reviews. A review never runs its tools here. A scan must end as it
     ended before the seam existed, so a checkout that git cannot read does not stop it: the
     record of the run holds no commit. Otherwise the record is built as the sandbox executor
     builds it.
@@ -508,8 +568,10 @@ class DirectToolExecutor:
     def run(self, request: ToolRequest) -> ToolResult:
         """Start the tool of `request` and answer how it ended and what ran.
 
-        A target outside the tree raises `SandboxError` before anything starts. The tool starts
-        from the program of the request, else by its name on the PATH of the host.
+        A target outside the tree raises `SandboxError` before anything starts. So does a request
+        that selects a network profile (`record_tool_run`): a child process has the whole network
+        of the host, so a run here would give the tool more network than the profile. The tool
+        starts from the program of the request, else by its name on the PATH of the host.
         """
         version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
         run = record_tool_run(
@@ -517,6 +579,7 @@ class DirectToolExecutor:
             version=version,
             binary_sha256=binary_sha256,
             executor=CONST_TOOL_EXECUTOR_DIRECT,
+            network=CONST_TOOL_NETWORK_HOST,
             require_commit=False,
             require_files=False,
         )
@@ -616,14 +679,34 @@ class SandboxToolExecutor:
         if self._refusal is not None:
             raise SandboxUnavailableError(self._refusal)
 
-    def command(self, request: ToolRequest) -> list[str]:
+    def command(self, request: ToolRequest, relay: KubeApiRelay | None = None) -> list[str]:
         """The whole command that runs `request`: bubblewrap, its options, `prlimit` and the tool.
 
         The tool starts from the program of the request, by its path, else from the binary of the
         tool on the PATH of the host. The sandbox binds the program (`_program_binds`), the paths
         of the host that the tool reads when it starts (`_host_paths`), the read-only binds of the
         request, its config and ruleset files, and its writable directories read-write.
+
+        A request that selects the network profile `kube-api` runs through the `relay` of its run
+        (`devops_cli.sandbox.kube_api`). The command then starts `kubectl proxy` outside the
+        sandbox, and bubblewrap, with no network of its own, starts the relay in the sandbox before
+        `prlimit` and the tool. The sandbox binds the scratch directory of the relay read-only, and
+        `KUBECONFIG` names the kubeconfig in it. Without a relay, the tool has no network.
+
+        A relay for a request that selects no network profile raises `SandboxError`: only the
+        request that selects `kube-api`, which only Popeye can select, reaches the API server. A
+        request that selects `kube-api` with no relay raises it too.
         """
+        if relay is not None and request.network is None:
+            raise SandboxError(
+                f"The review tool {request.tool} selects no network profile, so it cannot run "
+                "through a relay to the Kubernetes API server"
+            )
+        if relay is None and request.network is not None:
+            raise SandboxError(
+                f"The review tool {request.tool} selects the network profile "
+                f"{request.network.name}, which runs only through its relay"
+            )
         if request.program is not None and not request.program.is_file():
             raise SandboxError(
                 f"The program {request.program} of the review tool {request.tool} is not a file "
@@ -649,37 +732,57 @@ class SandboxToolExecutor:
             *request.config_files,
             *request.ruleset_files,
         )
-        return self._sandbox.build_bwrap_args(
+        env = {**request.env, "GOMEMLIMIT": CONST_TOOL_GO_MEMORY_LIMIT}
+        if relay is not None:
+            tool_command = relay.sandbox_command(tool_command)
+            inputs = (*inputs, *relay.read_only_binds)
+            env = {**env, **relay.env}
+        command = self._sandbox.build_bwrap_args(
             tool_command,
             request.cwd or root,
             repo_root=root,
-            env={**request.env, "GOMEMLIMIT": CONST_TOOL_GO_MEMORY_LIMIT},
+            env=env,
             read_only_binds=list(dict.fromkeys(inputs)),
             writable_binds=request.writable_dirs,
         )
+        return command if relay is None else relay.host_command(command)
+
+    @staticmethod
+    def _relay(request: ToolRequest) -> contextlib.AbstractContextManager[KubeApiRelay | None]:
+        """The relay of the run of `request` to the API server, when it selects `kube-api`."""
+        if request.network is None:
+            return contextlib.nullcontext()
+        from devops_cli.sandbox.kube_api import kube_api_relay
+
+        return kube_api_relay(request.network.context)
 
     def run(self, request: ToolRequest) -> ToolResult:
         """Run the tool of `request` in the sandbox and answer how it ended and what ran.
 
         A request that cannot run raises `SandboxError` before anything starts: a tool that the
-        host lacks, a target outside the tree, or a bind that the sandbox refuses. A host that
-        cannot start the sandbox raises `SandboxUnavailableError` with the cause, and runs no
-        tool.
+        host lacks, a target outside the tree, a bind that the sandbox refuses, or a context of
+        `kube-api` that the kubeconfig of the user does not have. A host that cannot start the
+        sandbox raises `SandboxUnavailableError` with the cause, and runs no tool. A host without
+        a program of the `kube-api` relay raises it too, and runs no `kube-api` request. Its
+        `refusal` does not change: the host can still run the tools that need no network.
         """
-        try:
-            command = self.command(request)
-            self._check_host()
-        except SandboxUnavailableError as refused:
-            self._refusal = refused.message
-            raise
-        version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
-        run = record_tool_run(
-            request,
-            version=version,
-            binary_sha256=binary_sha256,
-            executor=CONST_TOOL_EXECUTOR_SANDBOX,
-        )
-        return _start(run, command, cwd=request.workdir, wall_seconds=request.limits.wall_seconds)
+        with self._relay(request) as relay:
+            try:
+                command = self.command(request, relay)
+                self._check_host()
+            except SandboxUnavailableError as refused:
+                self._refusal = refused.message
+                raise
+            version, binary_sha256 = resolve_tool_version_and_sha(request.tool, request.program)
+            run = record_tool_run(
+                request,
+                version=version,
+                binary_sha256=binary_sha256,
+                executor=CONST_TOOL_EXECUTOR_SANDBOX,
+            )
+            return _start(
+                run, command, cwd=request.workdir, wall_seconds=request.limits.wall_seconds
+            )
 
 
 class RecordingToolExecutor:
@@ -709,6 +812,7 @@ class RecordingToolExecutor:
 
 __all__ = [
     "DirectToolExecutor",
+    "KubeApiNetwork",
     "RecordingToolExecutor",
     "SandboxToolExecutor",
     "ToolExecutor",

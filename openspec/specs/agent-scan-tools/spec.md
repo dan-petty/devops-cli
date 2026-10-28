@@ -72,11 +72,11 @@ The MCP tool `scan_sast` SHALL scan with `DEFAULT_SEMGREP_CONFIG` when the calle
 - **THEN** the first Semgrep run names the cached file of `p/default` as its config, and the second run names `./rules`
 
 ### Requirement: The Popeye tool runs the Popeye adapter over the namespace
-The agent tool `scan_popeye` SHALL run the Popeye adapter of `devops_cli.security` over the namespace that the agent names, or over every namespace when the agent names none, from the workspace as its working directory. It SHALL keep no command line of its own, and SHALL reply as the other agent scan tools reply.
+The agent tool `scan_popeye` SHALL run the Popeye adapter of `devops_cli.security` over the namespace that the agent names, or over every namespace when the agent names none. Popeye SHALL start in a new empty directory, in the sandbox with the network profile `kube-api`. The tool SHALL keep no command line of its own, and SHALL reply as the other agent scan tools reply.
 
 #### Scenario: Popeye finds issues in a namespace
 - **WHEN** the agent calls `scan_popeye("argocd")`, and Popeye reports six issues at warn and error level
-- **THEN** Popeye starts in the workspace with `popeye -o json -l warn -n argocd`, and the reply is `Popeye scan status: ok`, then `Findings (6):`, then one line for each finding
+- **THEN** Popeye starts in an empty directory with `popeye -o json -l warn -n argocd`, and the reply is `Popeye scan status: ok`, then `Findings (6):`, then one line for each finding
 
 ### Requirement: The uv audit tool runs the uv audit adapter over a directory
 The agent tool `scan_uv_audit` and the MCP tool `scan_uv_audit` SHALL take only `directory`, a path inside the workspace, and SHALL run the uv audit adapter of `devops_cli.security` there. They SHALL keep no command line of their own, and SHALL reply as the other agent scan tools reply, with the scanner named `uv audit`.

@@ -38,6 +38,7 @@ from devops_cli.ai.tools.builtin_tools import (
 )
 from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS, DEFAULT_TRIVY_SEVERITIES
 from devops_cli.review.rules_pack import RULE_PACK_DIR
+from devops_cli.security.tool_executor import KubeApiNetwork
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
@@ -500,12 +501,13 @@ def _semgrep_directory_scan(target: Path, *configs: str) -> list[str]:
 
 
 def test_the_agent_popeye_tool_runs_the_popeye_adapter_over_the_namespace(
-    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    scanner_fake: ScannerFake,
 ) -> None:
-    """`scan_popeye` runs Popeye through its adapter, at warn level over the namespace, from the
-    workspace, and replies with the outcome of the scan (#1434)."""
-    monkeypatch.chdir(tmp_path)
-    recorded = scanner_fake.script_run_with_findings("popeye", workdir=tmp_path)
+    """`scan_popeye` runs Popeye through its adapter, at warn level over the namespace, with the
+    network profile `kube-api`, from a new empty directory that does not stay (#2132), and replies
+    with the outcome of the scan (#1434)."""
+    scanner_fake.snapshot_workdirs = True
+    recorded = scanner_fake.script_run_with_findings("popeye")
 
     reply = scan_popeye("argocd")
 
@@ -513,8 +515,18 @@ def test_the_agent_popeye_tool_runs_the_popeye_adapter_over_the_namespace(
     pod = "argocd/argocd-application-controller-0"
     fix_deployment = f"(Review and adjust Kubernetes specification for {deployment})"
     fix_pod = f"(Review and adjust Kubernetes specification for {pod})"
-    assert (scanner_fake.runs, reply) == (
-        [recorded],
+    (run,) = scanner_fake.runs
+    assert (
+        run.argv,
+        run.workdir_files,
+        Path(run.cwd).exists(),
+        [request.network for request in scanner_fake.requests],
+        reply,
+    ) == (
+        recorded.argv,
+        {},
+        False,
+        [KubeApiNetwork()],
         "\n".join(
             [
                 "Popeye scan status: ok",

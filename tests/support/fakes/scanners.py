@@ -2,8 +2,9 @@
 `scanner_fake` fixture that installs the fake (#1666, #1982, ADR 0007).
 
 A scanner starts its tool through a `ToolExecutor` (`devops_cli.security.tool_executor`). A
-scanner that nobody gives an executor gets a `DirectToolExecutor`, and a review that gets no
-executor runs its tools in a `SandboxToolExecutor` (#2096). `ScannerFake` is the shared fake of
+scanner that nobody gives an executor gets a `DirectToolExecutor`, except Popeye, which gets a
+`SandboxToolExecutor` (#2132), and a review that gets no executor runs its tools in a
+`SandboxToolExecutor` (#2096). `ScannerFake` is the shared fake of
 that seam, `ToolExecutorFake`, scripted with the recorded run of each scanner. It answers a request
 for a scanner it holds with the exit code, the standard output and the standard error of that run,
 and starts nothing. A test that needs another answer, such as a failed scan, scripts it with
@@ -13,7 +14,9 @@ of each scanner of the global registry. So every scan that gets no executor of i
 fake, and no sandbox starts. A request for any other tool goes on to the `run` that the fixture
 replaced: git runs, and the floor of the suite refuses a real scanner and a real sandbox. The fake
 records each run as the direct executor does: a checkout that git cannot read has no commit, and a
-file that it cannot digest has the digest `unavailable`.
+file that it cannot digest has the digest `unavailable`. It records the network profile of the
+request, else `none`, as the sandbox executor does, also for a run that it answers in place of the
+direct executor, whose record names `host`.
 
 A review runs the canary of each tool before its scans, in a working directory named with
 `CONST_CANARY_WORKDIR_PREFIX`, on the tool executor of the review (#1978). The fake answers each

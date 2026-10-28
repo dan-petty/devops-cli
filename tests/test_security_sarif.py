@@ -1706,6 +1706,7 @@ def _record(tool: str = "gitleaks", version: str = "8.21.2", **changes: Any) -> 
         "version": version,
         "binary_sha256": hashlib.sha256(tool.encode()).hexdigest(),
         "executor": "direct",
+        "network": "host",
         "config_digest": "0123456789abcdef",
         "ruleset_digest": "4f53cda18c2baa0c",
         "argv_template": (tool, "detect", "--config", "{config}", "{targets}"),

@@ -10,9 +10,10 @@ tests skip it where bubblewrap is missing.
 `DirectToolExecutor` starts the tool itself, as a review did before the sandbox. The floor of the
 suite allows git and no other program, so its cases start git as the tool, in a temporary
 repository. They check what the sandbox cases check of the start: the directory, the standard
-input, the arguments and the environment. The two cases of a record that the direct executor
-cannot complete also run over the fake with `require_commit=False` and `require_files=False`. That
-fake stands in for the direct executor, as `scanner_fake` does, and must record as it does.
+input, the arguments and the environment. The cases of a record that the direct executor cannot
+complete, and of the network of a direct run, also run over the fake with `require_commit=False`,
+`require_files=False` and `network=CONST_TOOL_NETWORK_HOST`. That fake stands in for the direct
+executor and must record as it does.
 
 The cases after the shared ones hold the real executor to what it promises. They check the
 confinement that it asks bubblewrap for, and the limits that the tool runs under. They also check
@@ -42,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
     CONST_TOOL_DIGEST_UNAVAILABLE,
     CONST_TOOL_EXECUTOR_DIRECT,
+    CONST_TOOL_NETWORK_HOST,
 )
 from devops_cli.config.defaults import DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 from devops_cli.exceptions.sandbox import (
@@ -52,6 +54,7 @@ from devops_cli.exceptions.sandbox import (
 from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
 from devops_cli.security.tool_executor import (
     DirectToolExecutor,
+    KubeApiNetwork,
     SandboxToolExecutor,
     ToolExecutor,
     ToolLimits,
@@ -650,7 +653,9 @@ def direct_executor(request: pytest.FixtureRequest) -> ToolExecutor:
     """The direct executor, then the fake that stands in for it and records as it does."""
     if request.param == "direct":
         return DirectToolExecutor()
-    return ToolExecutorFake(require_commit=False, require_files=False)
+    return ToolExecutorFake(
+        require_commit=False, require_files=False, network=CONST_TOOL_NETWORK_HOST
+    )
 
 
 def _git_request(scenario: Scenario, *arguments: str, **fields: object) -> ToolRequest:
@@ -771,6 +776,35 @@ def test_the_direct_executor_records_a_file_it_cannot_digest_and_still_starts_th
         CONST_TOOL_DIGEST_UNAVAILABLE if unreadable == "config_files" else config,
         CONST_TOOL_DIGEST_UNAVAILABLE if unreadable == "ruleset_files" else ruleset,
     )
+
+
+def test_the_direct_executor_records_the_network_of_the_host(
+    direct_executor: ToolExecutor, scenario: Scenario
+) -> None:
+    """A tool that the direct executor starts has the whole network of the host, and the record
+    says so. The fake that stands in for the direct executor records it in the same way."""
+    result = direct_executor.run(_git_request(scenario, "--version"))
+
+    assert (result.exit_code, result.run.network) == (0, CONST_TOOL_NETWORK_HOST)
+
+
+def test_the_direct_executor_refuses_a_network_profile_before_it_starts_the_tool(
+    direct_executor: ToolExecutor, scenario: Scenario
+) -> None:
+    """The direct executor gives a tool the whole network of the host, so it cannot give the tool
+    a network profile. It refuses the request before the tool starts, and so does the fake that
+    stands in for it. The floor of the suite refuses to start Popeye, so a start raises another
+    error."""
+    request = ToolRequest(
+        tool="popeye",
+        arguments=("version",),
+        workdir=scenario.tree,
+        targets=(scenario.target,),
+        network=KubeApiNetwork(),
+    )
+
+    with pytest.raises(SandboxError, match="cannot run the network profile kube-api"):
+        direct_executor.run(request)
 
 
 def test_each_executor_names_itself_in_the_record_of_its_run(scenario: Scenario) -> None:
