@@ -27,6 +27,6 @@
 
 ## 4. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 817-metrics-through-instruments`
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
