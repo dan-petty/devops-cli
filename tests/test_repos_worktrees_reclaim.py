@@ -8,6 +8,7 @@ pull requests the GitHub fake answers for.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -237,4 +238,33 @@ def test_the_worktree_of_the_current_directory_is_kept(
     report = json.loads(result.stdout)
     assert (result.exit_code, merged.exists(), github_api.requested) == (0, True, [])
     assert report["reclaimed"] == []
+    assert new_dir.is_dir()
+
+
+def test_add_succeeds_when_merged_worktree_file_is_deleted_during_reclaim(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    tmp_path: Path,
+    github_api: GitHubApiFake,
+    new_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worktrees add succeeds when a file in a merged worktree is deleted during reclaim."""
+    merged = tmp_path / "wt_merged"
+    tip = _worktree(git, repo, "fix/2100-old", merged)
+    _merged(github_api, tip)
+
+    real_lstat = os.lstat
+
+    def deleting_lstat(path: Any, *args: Any, **kwargs: Any) -> Any:
+        work_file = merged / "work.txt"
+        if str(path).endswith("work.txt") and work_file.exists():
+            work_file.unlink()
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", deleting_lstat)
+    result = _add(cli, repo)
+
+    assert result.exit_code == 0
     assert new_dir.is_dir()

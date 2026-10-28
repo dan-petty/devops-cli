@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -13,6 +14,7 @@ import pytest
 
 from devops_cli.git.worktree_inventory import (
     count_dirty_paths,
+    directory_size,
     parse_worktree_porcelain_z,
 )
 from devops_cli.output import format_bytes
@@ -619,3 +621,26 @@ def test_a_worktree_whose_directory_is_gone_has_no_size(
     report = json.loads(result.stdout)
     sizes = {Path(i["path"]).name: i["size_bytes"] for i in report["items"]}
     assert (result.exit_code, sizes["wt_gone"], report["total_bytes"]) == (0, None, 0)
+
+
+def test_directory_size_ignores_file_deleted_during_walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file deleted after directory listing contributes zero bytes and raises no error."""
+    measured = tmp_path / "measured"
+    measured.mkdir()
+    f1 = measured / "f1.txt"
+    f2 = measured / "f2.txt"
+    f1.write_text("hello", encoding="utf-8")
+    f2.write_text("world", encoding="utf-8")
+
+    real_lstat = os.lstat
+
+    def deleting_lstat(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if str(path).endswith("f2.txt") and f2.exists():
+            f2.unlink()
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", deleting_lstat)
+    size = directory_size(measured)
+    assert size == len(b"hello")

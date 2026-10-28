@@ -321,12 +321,18 @@ def inventory_worktrees(
     return [enrich_worktree_entry(effective_root, info, base_ref=base_ref) for info in infos]
 
 
+def _file_size(path: str) -> int:
+    """The size of one file in bytes, or 0 when the file is gone."""
+    try:
+        return os.lstat(path).st_size
+    except FileNotFoundError:
+        return 0
+
+
 def directory_size(path: Path) -> int:
     """The bytes of every file under `path`, links counted as links and not followed."""
     return sum(
-        os.lstat(os.path.join(top, name)).st_size
-        for top, _dirs, names in os.walk(path)
-        for name in names
+        _file_size(os.path.join(top, name)) for top, _dirs, names in os.walk(path) for name in names
     )
 
 
