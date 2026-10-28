@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0](https://github.com/dan-petty/devops-cli/compare/v0.9.0...v0.10.0) (2026-10-28)
+
+
+### Features
+
+* **review:** devops review intake hands the findings of a session on merged code to roadmap intake ([#2455](https://github.com/dan-petty/devops-cli/issues/2455)) ([a5c7b82](https://github.com/dan-petty/devops-cli/commit/a5c7b82c8725fd5d4d389ecbf2075db7d8fc36e1))
+* **security:** devops k8s audit runs Popeye in the tool sandbox with a kube-api network profile that only reads the API server ([#2467](https://github.com/dan-petty/devops-cli/issues/2467)) ([e02c3fb](https://github.com/dan-petty/devops-cli/commit/e02c3fb0332dd5917fc5c79890269f252c3ce2dc))
+* **security:** the App's installation tokens carry only the permissions the roadmap jobs use ([#2482](https://github.com/dan-petty/devops-cli/issues/2482)) ([9599ef2](https://github.com/dan-petty/devops-cli/commit/9599ef2826447facf12ae65c9d76152436b4e39d)), closes [#2473](https://github.com/dan-petty/devops-cli/issues/2473)
+
+
+### Bug Fixes
+
+* **config:** a config file that is not valid YAML stops the load with an error that quotes none of its text ([#2468](https://github.com/dan-petty/devops-cli/issues/2468)) ([91fe5dc](https://github.com/dan-petty/devops-cli/commit/91fe5dce0eea97c67e0b86f1348772a4e6d66924))
+* **config:** config set reports an unknown key as unknown, not as a key that needs a value ([#2465](https://github.com/dan-petty/devops-cli/issues/2465)) ([8b650a6](https://github.com/dan-petty/devops-cli/commit/8b650a649d02134c8816f2f976c4ae7943adeef8))
+* **devcontainer:** run the checkout's devops in devcontainer terminals ([#2460](https://github.com/dan-petty/devops-cli/issues/2460)) ([abd2d41](https://github.com/dan-petty/devops-cli/commit/abd2d41bccfe28d60297af7fb7520369b51e5723))
+* **k8s:** loki runs from the grafana-community chart on loki 3.7.9, out of reach of CVE-2026-21729 ([#2470](https://github.com/dan-petty/devops-cli/issues/2470)) ([96c50c9](https://github.com/dan-petty/devops-cli/commit/96c50c989961242125ed59e133d87461be864f29))
+* **security:** a credential keyword at the end of a line no longer masks the first word of the next line ([#2461](https://github.com/dan-petty/devops-cli/issues/2461)) ([b754a73](https://github.com/dan-petty/devops-cli/commit/b754a73a775953331c7aec2f1d8e9a857462677e))
+* **security:** a credential value is masked also when the next line starts with a parenthesis ([#2477](https://github.com/dan-petty/devops-cli/issues/2477)) ([ece25ca](https://github.com/dan-petty/devops-cli/commit/ece25ca5ee6e01eaa4b3779693d2f85ac7be10cf)), closes [#2471](https://github.com/dan-petty/devops-cli/issues/2471)
+* **security:** pin kubeconform and replace Checkov with Trivy's misconfiguration scan ([#2464](https://github.com/dan-petty/devops-cli/issues/2464)) ([960e357](https://github.com/dan-petty/devops-cli/commit/960e3573da1f45b342fd4d85a5cdcfefbae608f6))
+* **security:** refuse GCONV_PATH, SHELLOPTS, BASHOPTS and PS4 from a caller, and archive the merged security changes ([#2453](https://github.com/dan-petty/devops-cli/issues/2453)) ([1f9231d](https://github.com/dan-petty/devops-cli/commit/1f9231d24978c934b37496c81d209620852df217))
+
+
+### Code Refactoring
+
+* **ai:** chat_structured is the one structured-output path ([#2452](https://github.com/dan-petty/devops-cli/issues/2452)) ([3509732](https://github.com/dan-petty/devops-cli/commit/350973281ac8be81f9fadc2a23df86616576798c))
+* **github:** pr check-readiness reads one merge-readiness verdict from github/ ([#2456](https://github.com/dan-petty/devops-cli/issues/2456)) ([16442c4](https://github.com/dan-petty/devops-cli/commit/16442c4ebb6ce1273396d5fd4f86830fdfcbeb1a))
+
 ## [0.9.0](https://github.com/dan-petty/devops-cli/compare/v0.8.3...v0.9.0) (2026-10-28)
 
 
