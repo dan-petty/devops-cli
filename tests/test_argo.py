@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,7 @@ from devops_cli.commands.argo import app as argo_app
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.main import app as main_app
+from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -572,3 +574,72 @@ def test_cd_apps_sync_payload_structure() -> None:
             "strategy": {"apply": {"force": True}},
         }
         assert "sync" not in payload
+
+
+_ARGOCD_COMMANDS = [["list"], ["sync", "web"], ["status", "web"]]
+
+
+@pytest.mark.parametrize("command", _ARGOCD_COMMANDS, ids=["list", "sync", "status"])
+def test_a_refused_address_in_the_argocd_token_mint_ends_the_command_with_the_cause(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, command: list[str]
+) -> None:
+    """Old vs new (#2424): a failed token mint ends the command with its cause and no traceback.
+
+    With the admin password and no token, the command mints a token before its request. The
+    connect of the mint refuses the private answer without the flag, and the mint fails with the
+    refusal as its cause. Before, the mint error came out of the command with a traceback.
+    """
+    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    recorder = record_connects(monkeypatch, [])
+
+    result = cli(
+        "argo",
+        "cd",
+        "apps",
+        *command,
+        env={
+            "DEVOPS_CLI_ARGOCD_URL": "http://example.com:8080",
+            "DEVOPS_CLI_ARGOCD_PASSWORD": "admin-pw",
+            "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "false",
+        },
+    )
+
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "token mint" in result.output,
+        "the loopback egress level refuses" in result.output,
+        recorder.dialled,
+    ) == (1, SystemExit, True, True, [])
+
+
+@pytest.mark.parametrize("command", _ARGOCD_COMMANDS, ids=["list", "sync", "status"])
+def test_a_k8s_address_in_the_argocd_url_stops_the_command_before_the_token_mint(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, command: list[str]
+) -> None:
+    """Old vs new (#2424): the URL check runs before the token mint, and it names the setting.
+
+    Before, the command minted the token first, and the URL error of the mint came out of the
+    command with a traceback.
+    """
+    resolver = scripted_resolver(monkeypatch, {"argocd": [[PUBLIC_ADDRESS]]})
+    recorder = record_connects(monkeypatch, [])
+
+    result = cli(
+        "argo",
+        "cd",
+        "apps",
+        *command,
+        env={
+            "DEVOPS_CLI_ARGOCD_URL": "k8s://argocd/argocd-server:80",
+            "DEVOPS_CLI_ARGOCD_PASSWORD": "admin-pw",
+        },
+    )
+
+    assert (
+        result.exit_code,
+        type(result.exception),
+        "argocd.url" in result.output,
+        resolver.lookups["argocd"],
+        recorder.dialled,
+    ) == (1, SystemExit, True, 0, [])

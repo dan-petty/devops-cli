@@ -36,11 +36,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.options import ARGOCD_URL
 from devops_cli.config.settings import load_settings
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_command, is_dry_run
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.exceptions.argo import ArgoError
+from devops_cli.exceptions.k8s import StackCredentialError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
 from devops_cli.http.urls import service_base_url
@@ -171,23 +172,25 @@ def _rollout_status_table(state: ArgoRolloutState) -> TablePayload:
 def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
     """Return (base_url, headers) for Argo CD API requests.
 
-    The URL check reads only the URL. The client of `_argocd_client` checks the address at the
-    connect.
+    The URL check reads only the URL, and it runs before the token mint. A failed mint, also one
+    whose address the egress level refused, ends the command with its cause. The client of
+    `_argocd_client` checks the address at the connect.
     """
     from devops_cli.argo.credentials import resolve_argocd_server_and_token
 
-    url, token = resolve_argocd_server_and_token(settings)
-    if not url:
+    if not settings.argocd.url:
         print_error(
             MESSAGES.argo.url_not_configured,
             prefix=False,
         )
         raise typer.Exit(1)
     try:
-        base = service_base_url(url, ARGOCD_URL)
+        base = service_base_url(settings.argocd.url, ARGOCD_URL)
     except ValueError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
+    with exit_on_error(StackCredentialError):
+        _, token = resolve_argocd_server_and_token(settings)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
