@@ -36,4 +36,4 @@ data:
       github_app:
         app_id: 1
         installation_id: 1
-        slug: devops-roadmap
+        slug: devops-cli-service
