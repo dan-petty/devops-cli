@@ -6,7 +6,7 @@ import pytest
 
 from devops_cli.ai.agents.embeddings import Embedder
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, OllamaEmbeddingModel
-from devops_cli.config.settings import AIConfig, AITaskOverride, Settings
+from devops_cli.config.settings import AIConfig, AIEmbeddingTaskOverride, Settings
 
 pytestmark = pytest.mark.usefixtures("mock_keyring")
 
@@ -35,7 +35,7 @@ def test_embeddings_engine_defaults_to_active_settings(
 def test_embeddings_engine_respects_task_override() -> None:
     """Verify that EmbeddingsEngine prioritizes ai.tasks.embedding.model if configured."""
     ai_cfg = AIConfig()
-    ai_cfg.tasks.embedding = AITaskOverride(model="custom-task-embed:v1")
+    ai_cfg.tasks.embedding = AIEmbeddingTaskOverride(model="custom-task-embed:v1")
 
     engine = EmbeddingsEngine(ai_cfg)
     assert engine.model == "custom-task-embed:v1"

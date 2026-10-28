@@ -860,6 +860,17 @@ class DocGenerator:
             "4. **Global User Configuration** (`~/.config/devops-cli/config.yaml`)",
             "5. **System Defaults**",
             "",
+            "`setting_sources` in `src/devops_cli/config/settings.py` declares the order of items "
+            "2 to 5 one time, as pydantic-settings sources. A setting takes the value of the first "
+            "source that holds it, and only that value is checked against the type of the setting: "
+            "a value that a variable replaces is not checked. A null in the project file is no "
+            "value, so the value of the global file stays. A config file whose document is not a "
+            "mapping of keys to values stops the load with an error that names the file. "
+            "`DEVOPS_CLI_DATA_DIR` also moves each data path that no variable of its own sets into "
+            "that directory, so the data paths of a config file do not apply. A credential "
+            "resolves in its own order: the OS keyring, Vault, its variable, and last the config "
+            "file, for a credential that a config file can hold.",
+            "",
             "A `devops review` command reads a tree it does not own. Started in a repository "
             "other than devops-cli's own, it looks for no project configuration, reading only the "
             "file `DEVOPS_CLI_CONFIG` names, and it resolves a relative data path under "

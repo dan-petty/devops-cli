@@ -30,7 +30,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
@@ -117,6 +117,8 @@ from devops_cli.lang import ERRORS
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 
 if typing.TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
+
     from devops_cli.models.config import ConfigKeyRemoval
 
 logger = logging.getLogger(__name__)
@@ -576,6 +578,16 @@ class AITaskOverride(BaseModel):
     )
 
 
+class AIEmbeddingTaskOverride(AITaskOverride):
+    """The embedding task's override. Its model is the embedding model until a source sets another,
+    so a variable or a config file that sets only another field of the task keeps it."""
+
+    model: str | None = Field(
+        default=DEFAULT_RAG_EMBEDDING_MODEL,
+        description="AI model of this task, in place of `ai.model`",
+    )
+
+
 # The fields of a task that a variable sets, such as `DEVOPS_CLI_AI_TASK_CHAT_MODEL`.
 _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
 
@@ -592,9 +604,9 @@ class AITasksConfig(BaseModel):
     analysis: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = AITaskOverride()
     verification: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
-    embedding: Annotated[AITaskOverride, Variable(fields=(*_TASK_VARIABLES, "timeout"))] = Field(
-        default_factory=lambda: AITaskOverride(model=DEFAULT_RAG_EMBEDDING_MODEL)
-    )
+    embedding: Annotated[
+        AIEmbeddingTaskOverride, Variable(fields=(*_TASK_VARIABLES, "timeout"))
+    ] = AIEmbeddingTaskOverride()
 
 
 class AIConfig(BaseModel):
@@ -801,22 +813,6 @@ _DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
 )
 
 
-_DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
-    "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
-    "reviews_dir": DEFAULT_REVIEWS_DATA_DIR,
-    "logs_dir": DEFAULT_LOGS_DATA_DIR,
-    "models_dir": DEFAULT_MODELS_DATA_DIR,
-    "cache_dir": DEFAULT_CACHE_DATA_DIR,
-    "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
-    "rag_dir": DEFAULT_RAG_DATA_DIR,
-    "samples_dir": DEFAULT_SAMPLES_DATA_DIR,
-    "runs_dir": DEFAULT_RUNS_DATA_DIR,
-    "tls_dir": DEFAULT_TLS_DATA_DIR,
-    "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
-    "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
-}
-
-
 class GitHubAppConfig(BaseModel):
     """The GitHub App that the roadmap Service and the cluster jobs act as (ADR 0015).
 
@@ -975,11 +971,24 @@ class FirecrawlConfig(BaseModel):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="DEVOPS_CLI_",
         extra="ignore",
         frozen=False,
         hide_input_in_errors=True,
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """`Settings(...)` holds its arguments and the defaults, and reads no variable and no file.
+        `load_settings` builds the settings from the sources that `setting_sources` declares."""
+        return (init_settings,)
+
     github: GitHubConfig = GitHubConfig()
     ssh: SSHConfig = SSHConfig()
     repos: ReposConfig = ReposConfig()
@@ -1169,59 +1178,78 @@ def set_keyring_secret(key: str, value: str) -> bool:
         return False
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
-    """Merge override into base in-place; override wins on conflict, None skipped."""
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            _deep_merge(base[key], value)
-        elif value is not None:
-            base[key] = value
+def _key_field(key: str) -> FieldInfo:
+    """The settings field that the dotted `key` of a declared setting names."""
+    model: type[BaseModel] = Settings
+    *path, name = key.split(".")
+    for part in path:
+        model = typing.cast(type[BaseModel], model.model_fields[part].annotation)
+    return model.model_fields[name]
 
 
-def _apply_env_overrides(settings: Settings, option_keys: Iterable[str] | None = None) -> None:
-    """Allow devcontainer and shell environment variables to override file config."""
-    variables = setting_variables()
-    env_data_dir = os.environ.get(variables["data.dir"])
-    if env_data_dir:
-        settings.data.dir = Path(env_data_dir)
-
-    for option_key in variables if option_keys is None else option_keys:
-        env_var = variables[option_key]
-        env_value = os.environ.get(env_var)
-        if env_value in (None, ""):
-            continue
-        try:
-            dotted_set(settings, option_key, env_value)
-        except (AttributeError, ValueError) as exc:
-            # An override that cannot apply is an error, not a silent no-op.
-            raise ConfigurationError(
-                f"Environment variable {env_var} cannot set {option_key}: {exc}", key=option_key
-            ) from exc
+def _nested(values: dict[str, Any], key: str, value: Any) -> None:
+    """Put `value` at the dotted `key` of the nested mapping `values`."""
+    *path, name = key.split(".")
+    for part in path:
+        values = values.setdefault(part, {})
+    values[name] = value
 
 
-def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> DataConfig:
-    """Resolve DataConfig with environment variable and explicit YAML overrides."""
-    variables = setting_variables()
-    env_data_dir = os.environ.get(variables["data.dir"])
-    explicit_data: dict[str, Any] = {"dir": current_data_dir}
+class SettingVariables(PydanticBaseSettingsSource):
+    """The settings that their variables set (`config/env.py`), as a settings source.
 
-    for field_name in _DEFAULT_CHILD_DATA_MAP:
-        env_val = os.environ.get(variables[f"data.{field_name}"])
-        if env_val:
-            explicit_data[field_name] = Path(env_val)
-        elif field_name in raw_data and not env_data_dir:
-            raw_path = Path(raw_data[field_name])
-            if (
-                current_data_dir == DEFAULT_DATA_DIR
-                or raw_path != _DEFAULT_CHILD_DATA_MAP[field_name]
-            ):
-                explicit_data[field_name] = raw_path
+    An empty variable sets nothing. A list setting takes a JSON list or comma-separated values.
+    `DEVOPS_CLI_DATA_DIR` also sets each data path that no variable of its own sets, under that
+    directory, so the data paths of a config file do not apply.
+    """
 
-    return DataConfig.model_validate(explicit_data)
+    def __init__(self, settings_cls: type[BaseSettings], keys: Iterable[str] | None = None) -> None:
+        super().__init__(settings_cls)
+        variables = setting_variables()
+        # The variable that gave each key, so a value that does not validate names its variable.
+        self.variables_set: dict[str, str] = {}
+        self._values: dict[str, Any] = {}
+        for key in variables if keys is None else keys:
+            value = os.environ.get(variables[key])
+            if value:
+                is_list = _is_list_annotation(_key_field(key).annotation)
+                self._set(key, _coerce_setting_value(value, is_list), variables[key])
+        data_dir = self._values.get("data", {}).get("dir")
+        if data_dir:
+            for field_name, _default, relative in _DEFAULT_CHILD_DATA_PATHS:
+                if f"data.{field_name}" not in self.variables_set:
+                    self._set(
+                        f"data.{field_name}", Path(data_dir) / relative, variables["data.dir"]
+                    )
+
+    def _set(self, key: str, value: Any, variable: str) -> None:
+        _nested(self._values, key, value)
+        self.variables_set[key] = variable
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        return self._values.get(field_name), field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return copy.deepcopy(self._values)
+
+
+class MappingSource(PydanticBaseSettingsSource):
+    """The settings that one mapping holds, as a settings source: a config file as one load read
+    it, or a fixed layer."""
+
+    def __init__(self, settings_cls: type[BaseSettings], values: dict[str, Any]) -> None:
+        super().__init__(settings_cls)
+        self._values = values
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        return self._values.get(field_name), field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return self._values
 
 
 _FileStamp = tuple[str, int, int]
-_ConfigCacheEntry = tuple[Path | None, tuple[_FileStamp, _FileStamp], dict[str, Any]]
+_ConfigCacheEntry = tuple[tuple[_FileStamp, _FileStamp], "ConfigLayers"]
 
 _CONFIG_CACHE_LOCK = threading.Lock()
 # Keyed on everything that selects which files are read -- the global path (tests rebind
@@ -1297,18 +1325,36 @@ def _yaml_error_location(exc: Exception) -> str:
     return ERRORS.config.not_yaml_location.format(line=mark.line + 1, column=mark.column + 1)
 
 
-def _read_config_layers(project_path: Path | None) -> dict[str, Any]:
-    """Merge the global configuration file with the project layer, the project winning."""
-    raw: dict[str, Any] = {}
-    if CONFIG_PATH.exists():
-        raw = _read_config_file(CONFIG_PATH)
-    if project_path and project_path.exists():
-        _deep_merge(raw, _read_config_file(project_path))
-    return raw
+class ConfigLayers(typing.NamedTuple):
+    """The config files of one load, each as its file holds it."""
+
+    project_path: Path | None
+    project: dict[str, Any]
+    global_config: dict[str, Any]
 
 
-def _merged_config_data() -> dict[str, Any]:
-    """Return the merged file configuration, re-reading only when a source file changed.
+def _read_config_mapping(path: Path | None) -> dict[str, Any]:
+    """The mapping of the config file `path`; `{}` when it is absent or empty."""
+    if path is None or not path.exists():
+        return {}
+    data = _read_config_file(path)
+    if not isinstance(data, dict):
+        raise ConfigurationError(ERRORS.config.not_mapping.format(path=path))
+    return data
+
+
+def _without_none(values: dict[str, Any]) -> dict[str, Any]:
+    """`values` without the keys whose value is None, at any depth: a project file's null is no
+    value, so the global file's value of the key stays."""
+    return {
+        key: _without_none(value) if isinstance(value, dict) else value
+        for key, value in values.items()
+        if value is not None
+    }
+
+
+def _config_layers() -> ConfigLayers:
+    """Return the config files, re-reading them only when one of them changed.
 
     Settings are consulted from per-request paths, yet each call otherwise walked the
     directory tree hunting for a project config and re-parsed both YAML layers to arrive
@@ -1319,7 +1365,7 @@ def _merged_config_data() -> dict[str, Any]:
     first load is picked up once the cache is reset, because a stamp of a file that did
     not exist cannot report where a new one appeared.
 
-    The caller receives a copy, since the settings built from this mapping are mutable and
+    The caller receives a copy, since the settings built from these mappings are mutable and
     a caller editing one before saving must not rewrite what every later load sees.
     """
     cache_key = (
@@ -1331,22 +1377,67 @@ def _merged_config_data() -> dict[str, Any]:
     with _CONFIG_CACHE_LOCK:
         entry = _CONFIG_CACHE.get(cache_key)
     if entry is not None:
-        cached_path, cached_stamps, cached_data = entry
-        if cached_stamps == (_file_stamp(CONFIG_PATH), _file_stamp(cached_path)):
-            return copy.deepcopy(cached_data)
+        cached_stamps, cached_layers = entry
+        if cached_stamps == (_file_stamp(CONFIG_PATH), _file_stamp(cached_layers.project_path)):
+            return copy.deepcopy(cached_layers)
 
     # Stamped before the read, so a write that races the read leaves a stamp that looks
     # older than the content held -- which costs a re-read, never a stale answer.
     project_path = _find_project_config_path()
     stamps = (_file_stamp(CONFIG_PATH), _file_stamp(project_path))
-    data = _read_config_layers(project_path)
+    layers = ConfigLayers(
+        project_path,
+        _without_none(_read_config_mapping(project_path)),
+        _read_config_mapping(CONFIG_PATH),
+    )
     if _stamps_are_settled(stamps):
         with _CONFIG_CACHE_LOCK:
             # A different key means a different working directory or configuration path,
             # which strands the previous entry; keeping it would grow without bound.
             _CONFIG_CACHE.clear()
-            _CONFIG_CACHE[cache_key] = (project_path, stamps, copy.deepcopy(data))
-    return data
+            _CONFIG_CACHE[cache_key] = (stamps, copy.deepcopy(layers))
+    return layers
+
+
+def setting_sources(layers: ConfigLayers) -> tuple[PydanticBaseSettingsSource, ...]:
+    """The order in which every setting resolves, the first source that holds it winning: its
+    variable, then the project config file, then the global config file. A setting that no source
+    holds keeps the default of its field. A credential resolves in its own chain, which
+    `security.secrets.build_default_resolver` declares: the keyring, Vault, its variable, then the
+    config file."""
+    return (
+        SettingVariables(Settings),
+        MappingSource(Settings, layers.project),
+        MappingSource(Settings, layers.global_config),
+    )
+
+
+def _variable_error(
+    exc: ValidationError, sources: Iterable[PydanticBaseSettingsSource]
+) -> ConfigurationError | None:
+    """The error of the first value that does not validate and that a variable gave, if one did."""
+    variables = next((s.variables_set for s in sources if isinstance(s, SettingVariables)), {})
+    for error in exc.errors(include_url=False, include_input=False):
+        location = ".".join(str(part) for part in error["loc"])
+        key = next((k for k in variables if location == k or location.startswith(f"{k}.")), None)
+        if key is not None:
+            reason = error["msg"].removeprefix("Value error, ")
+            return ConfigurationError(
+                f"Environment variable {variables[key]} cannot set {key}: {location}: {reason}",
+                key=key,
+            )
+    return None
+
+
+def _settings_from(sources: tuple[PydanticBaseSettingsSource, ...]) -> Settings:
+    """The settings that `sources` give, the first source that holds a key winning."""
+    try:
+        return Settings(_build_sources=(sources, {}))
+    except ValidationError as exc:
+        refused = _variable_error(exc, sources)
+        if refused is None:
+            raise
+        raise refused from exc
 
 
 def reset_settings_cache() -> None:
@@ -1361,16 +1452,16 @@ def clear_ephemeral_ci_secrets() -> None:
 
 
 def load_settings() -> Settings:
-    """Load settings: global config → project config → env vars (each layer wins).
+    """Load the settings from the sources that `setting_sources` declares.
 
     While a command that reads a tree it does not own runs, such as a review, from a repository
     other than devops-cli's own, the project layer is only the file `DEVOPS_CLI_CONFIG` names
-    (`_find_project_config_path`, #972).
+    (`_find_project_config_path`, #972). The variables stay outside the cache of the files: they
+    cost microseconds to read, and a variable exported after the first load must still take effect.
     """
-    raw = _merged_config_data()
-
+    layers = _config_layers()
     try:
-        settings = Settings.model_validate(raw)
+        settings = _settings_from(setting_sources(layers))
     except ValidationError as exc:
         # A key that a section refuses gets its file, its line and the command that removes it,
         # which the error of pydantic does not give (#2201).
@@ -1379,18 +1470,12 @@ def load_settings() -> Settings:
         refused = unknown_keys.refused_keys(exc)
         if not refused:
             raise
-        project_path = _find_project_config_path()
         raise unknown_keys.unknown_keys_error(
-            refused, (project_path, CONFIG_PATH), active=project_path or CONFIG_PATH
+            refused,
+            (layers.project_path, CONFIG_PATH),
+            active=layers.project_path or CONFIG_PATH,
         ) from exc
-    # Environment overrides stay outside the cache: they cost microseconds to reapply, and
-    # a variable exported after the first load must still take effect.
-    _apply_env_overrides(settings)
-
-    raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
-    settings.data = _resolve_data_config(raw_data, settings.data.dir)
     settings._loaded = settings.model_dump(mode="json")
-
     return settings
 
 
@@ -1401,10 +1486,12 @@ def telemetry_from_environment() -> TelemetryConfig:
     turning export off, so export stays off unless `DEVOPS_CLI_TELEMETRY_ENABLED` turns it on: an
     opt-out never fails open to the default (#956).
     """
+    sources = (
+        SettingVariables(Settings, _TELEMETRY_ENV_OPTIONS),
+        MappingSource(Settings, {"telemetry": {"enabled": False}}),
+    )
     try:
-        fallback = Settings.model_validate({"telemetry": {"enabled": False}})
-        _apply_env_overrides(fallback, _TELEMETRY_ENV_OPTIONS)
-        return fallback.telemetry
+        return _settings_from(sources).telemetry
     except ConfigurationError, ValidationError:
         return TelemetryConfig(enabled=False)
 

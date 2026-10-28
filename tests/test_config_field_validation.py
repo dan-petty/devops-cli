@@ -277,7 +277,12 @@ def test_http_url_with_credentials_does_not_leak_secret() -> None:
 def test_telemetry_endpoint_refuses_grpc_and_bare(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint: str
 ) -> None:
-    """telemetry.endpoint refuses grpc:// and bare host:port values, naming the key."""
+    """telemetry.endpoint refuses grpc:// and bare host:port values, naming the key.
+
+    The floor's `DEVOPS_CLI_TELEMETRY_ENDPOINT` is unset, so the value of the file applies: a value
+    that a variable replaces is not checked.
+    """
+    monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", raising=False)
     _set_project_config(tmp_path, monkeypatch, f"telemetry:\n  endpoint: '{endpoint}'\n")
     with pytest.raises(ValidationError) as exc_info:
         load_settings()
