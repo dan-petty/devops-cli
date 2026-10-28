@@ -11,7 +11,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 2494-roadmap-service-one-replica`
 - Pending a person: set each managed repository's webhook to the Issues event only (`k8s/README.md`, Roadmap service, step 8).
 - Pending a person: after Argo CD syncs the deployment, do the go-live check in `k8s/README.md`, Roadmap service.
