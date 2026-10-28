@@ -1,0 +1,26 @@
+# Design
+
+## Decisions
+
+- **The level of each caller comes from the table of #2422.** A URL from the configuration of the person dials at the configured level, read with `configured_level(ai_config)` where the caller has an `AIConfig`. `fetch_model_info` takes the flag as a `bool` from three callers outside this change (`ai/gateway_tune.py`, `ai/run_store.py` and the router), so it maps the flag to the level in the same way as `create_pydantic_ai_provider`: private with the flag, loopback without it. The `devops ai gateway connect` probe dials at the private level, because its address is a node address from the Kubernetes API and the command sets `ai.allow_private_network` itself. The default pricing registry and the documentation crawler dial at the public level.
+- **`prometheus_query` takes the level from its caller.** The #898 table gives the pool-load query the private level and the Prometheus commands the configured level. `devops ai gateway load` is the only caller of `prometheus_query`, so the caller gives the level and the command gives the configured level, as the issue says.
+- **The timeouts stay the same.** Each moved client gets `timeout=httpx2.Timeout(t)` for the bound `t` that its raw client had, so the connect keeps the same bound. The engine keeps its `httpx2.Timeout` objects.
+- **The Ollama provider builds its own factory client.** `create_ollama_provider` gives `OllamaProvider` a client from `new_async_http_client` at `configured_level(ai_config)` when the caller gives no `openai_client` and no `http_client`. `create_ollama_model` takes the same `ai_config` and gives it to the provider. The bridge gives the settings in use. So the one place that builds the client also decides its level.
+- **A refusal is not a configuration error at build time.** Before, `create_pydantic_ai_provider` checked the base URL with a DNS lookup, and the bridge turned the refusal into a `ConfigurationError` that named the setting. With the check at the connect, nothing refuses when the model is built. The first request raises `SSRFBlockedError`, which names the egress level. openai 3.26.1 does not retry or wrap it. The settings model still refuses a URL whose scheme is not http or https when the setting is written, so the bridge needs no early syntax check.
+- **Early checks that read only the URL stay where a command needs them.** `normalize_ollama_base_url` keeps its scheme and authority check. `devops ai benchmark --servers` checks each URL with `HttpUrlStr`, the type of `ai.ollama_urls`, inside the `exit_on_error(ValidationError)` block of the command. Before, the command copied the URLs into the settings with `model_copy`, which does not validate, so the deleted `validate_service_url` was the only early check of the option.
+- **The pricing fetch has one path for a URL.** `UpdatePrices.url` always has a value in genai-prices 0.1.9, so the branch that called `UpdatePrices.fetch()` never ran. The change deletes it, and fetches the default URL (`UpdatePrices().url`) with a public-level factory client.
+- **Two tests show the defect.** `test_each_caller_dials_at_its_level` gets a row for each caller of the table, with and without the flag, and now also fails when a caller host name reaches the dial. A raw client gives the name to the socket, which resolves it again. The new `test_each_ai_service_caller_dials_the_address_it_checked` is the reproduction of the issue: each host answers a public address at the first lookup and cloud metadata at each later lookup. A caller passes when the socket gets neither the name nor the metadata address. This test is the failing case of the documentation crawler, whose pre-flight check refused both addresses of the level test.
+
+## Rejected alternatives
+
+- **Keep a lookup-free address check before the connect, for an early error.** The issue allows a check of the scheme and the syntax only. An address check before the connect is the path that #1381 deletes, and the connect makes the same decision for the address that it dials.
+- **Change `fetch_model_info` to take an `EgressLevel` or an `AIConfig`.** That changes `ai/gateway_tune.py` and `ai/run_store.py`, which are outside the scope of this part. The `bool` of the three callers maps to one level.
+- **Give `prometheus_query` the private level.** The command reads `prometheus.url` from the configuration of the person. The configured level is what #898 gives the other Prometheus commands, and the issue asks for it.
+- **Keep the `ConfigurationError` branch of the bridge for a later refusal.** The refusal happens inside the request of pydantic-ai, after the bridge returns the model. A branch that catches it at build time never runs.
+- **Pass `http_client` from the bridge and also build a default in `create_ollama_provider`.** That builds the client in two places with two sources of the flag.
+
+## Non-goals
+
+- `ai/client/*`, which #1110 changes. Part 5 (#2437) removes the pre-flight check of the AI client and the clients around an injected transport.
+- `_resolve_host_ips` and `_enforce_non_private_ssrf` in `core/validation.py`. Part 5 deletes them.
+- The general statement that every HTTP client is checked at the connect. Part 5 writes it when it is true.
