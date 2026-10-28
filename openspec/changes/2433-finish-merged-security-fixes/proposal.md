@@ -47,8 +47,8 @@ None.
 - glibc 2.43 (Debian 2.43-7): a directory held a `gconv-modules` file and an `x.so` with a constructor that prints `GCONV-CODE-RAN`. `iconv -f PWN -t UTF-8`, with the environment that `build_subprocess_env(env={"GCONV_PATH": <dir>})` returned, printed `GCONV-CODE-RAN`. The `iconv(1)` page says that `iconv_open(3)` searches the directories in `GCONV_PATH` for the configuration and loads the gconv modules.
 - glibc also lists `GETCONF_DIR` among the keys that it removes in secure-execution mode. `GETCONF_DIR=<dir> getconf -v POSIX_V7_ILP32_OFF32 PATH` ran no program from `<dir>` on this system, so the change does not add it.
 - zsh 5.9.2 ran `$ZDOTDIR/.zshenv` for `zsh -c true`. Python 3.14.10, node v24.22.1 and perl v5.42.3 ran code from `PYTHONPATH`, `NODE_OPTIONS` and `PERL5OPT`. These keys are outside the loader, glibc and bash families of #2205, so #2429 tracks them.
-- A mutant of `CONST_CODE_LOADING_ENV_PATTERNS` with only the five named `DYLD_` keys and `BASH_FUNC_*%%` passed every test of `tests/test_subprocess_env_boundary.py` on `origin/main` (review of PR #2405).
-- `tests/test_service_image_gh.py` on `origin/main` keeps only the whitespace-split tokens that start with `https://github.com/cli/cli/releases/download/`. A Dockerfile copy with a quoted `curl` of v2.102.0 passed it (review of PR #2402).
+- A mutant of `CONST_CODE_LOADING_ENV_PATTERNS` with only the five named `DYLD_` keys and `BASH_FUNC_*%%` passed every test of `tests/test_subprocess_env_boundary.py` on `origin/main` (review of the pull request of #2205).
+- `tests/test_service_image_gh.py` on `origin/main` keeps only the whitespace-split tokens that start with `https://github.com/cli/cli/releases/download/`. A Dockerfile copy with a quoted `curl` of v2.102.0 passed it (review of the pull request of #1492).
 
 ## Existing Tool Considered
 
