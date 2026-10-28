@@ -19,7 +19,7 @@
 
 ## 2. Archive
 
-- [ ] Archive the change
+- [x] Archive the change
   - Verification: `uv run devops openspec archive 1315-kubernetes-api-seam`
 - Pending a person: capture the recorded responses in `tests/fixtures/kubernetes/` once from a disposable local cluster, scrubbed to `example.com` names and documentation-range addresses, and commit them with the commands that captured them.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
