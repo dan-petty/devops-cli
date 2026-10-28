@@ -8,9 +8,9 @@
 
 ## 2. Traefik limits the deliveries of the webhook route
 
-- [ ] 2.1 Write the failing test `test_each_webhook_ingress_names_the_rate_limit_that_the_devops_stack_renders` in `tests/test_k8s_roadmap_service.py`, count six manifests in `test_kustomizations_list_manifests_and_directory`, count eleven native manifests with `middleware.yaml` before `ingress.yaml` in `tests/test_k8s_devops_stack.py`, and see them fail with `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_stack.py`
-- [ ] 2.2 Add `k8s/devops/roadmap-service/middleware.yaml`, list it in the kustomization of `roadmap-service` and in the native `devops` stack before `ingress.yaml` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), and name the Middleware in the Ingress `devops/roadmap-service` of `k8s/devops/roadmap-service/ingress.yaml` and `k8s/ingress/ingress-routes.yaml`; verify with `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_stack.py tests/test_k8s_argocd_apps.py tests/test_k8s_networking.py`
-- [ ] 2.3 Give the rate limit in the subsection Webhook route and the Middleware in the folder tree of `k8s/README.md`; verify with `uv run devops docs check`
+- [x] 2.1 Write the failing test `test_each_webhook_ingress_names_the_rate_limit_that_the_devops_stack_renders` in `tests/test_k8s_roadmap_service.py`, count six manifests in `test_kustomizations_list_manifests_and_directory`, count eleven native manifests with `middleware.yaml` before `ingress.yaml` in `tests/test_k8s_devops_stack.py`, and see them fail with `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_stack.py`
+- [x] 2.2 Add `k8s/devops/roadmap-service/middleware.yaml`, list it in the kustomization of `roadmap-service` and in the native `devops` stack before `ingress.yaml` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), and name the Middleware in the Ingress `devops/roadmap-service` of `k8s/devops/roadmap-service/ingress.yaml` and `k8s/ingress/ingress-routes.yaml`; verify with `uv run devops ci test tests/test_k8s_roadmap_service.py tests/test_k8s_devops_stack.py tests/test_k8s_argocd_apps.py tests/test_k8s_networking.py`
+- [x] 2.3 Give the rate limit in the subsection Webhook route and the Middleware in the folder tree of `k8s/README.md`; verify with `uv run devops docs check`
 
 ## 3. A burst of rejected webhook deliveries warns
 
