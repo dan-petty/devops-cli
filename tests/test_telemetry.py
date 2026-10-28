@@ -4,6 +4,7 @@ import os
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx2
 import pytest
 
 from devops_cli.ai.client.models import LLMResponse
@@ -285,6 +286,7 @@ def test_response_span_attributes_and_semantic_conventions(
     reply = LLMResponse(
         "ok",
         backend_info="ollama (example.com:11434)",
+        origin=httpx2.URL("http://example.com:11434").origin,
         prompt_tokens=500,
         completion_tokens=150,
         total_tokens=650,
@@ -653,11 +655,13 @@ def test_a_new_tracer_starts_no_process(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_response_span_attributes_enriched(collector: str) -> None:
-    """The reply's model and serving backend are recorded; a port-less host sets no port."""
+    """The reply's model and serving backend are recorded; a URL with no port sets the default
+    port of its scheme."""
     client = OTelTelemetryClient(endpoint=collector, enabled=True)
     reply = LLMResponse(
         "ok",
         backend_info="openai (example.com)",
+        origin=httpx2.URL("https://example.com").origin,
         model="gpt-4o-2024-08-06",
         served_by="ollama-48gib",
         completion_tokens=60,
@@ -670,9 +674,9 @@ def test_response_span_attributes_enriched(collector: str) -> None:
             handle._attributes.get("llm.served_by"),
             handle._attributes.get("llm.tokens_per_second"),
             handle._attributes.get("server.address"),
-            "server.port" in handle._attributes,
+            handle._attributes.get("server.port"),
             "gen_ai.server.served_by" in handle._attributes,
-        ) == ("gpt-4o-2024-08-06", "ollama-48gib", 30.0, "example.com", False, False)
+        ) == ("gpt-4o-2024-08-06", "ollama-48gib", 30.0, "example.com", 443, False)
 
 
 def test_a_reset_lets_no_export_of_the_dropped_tracer_run_on(

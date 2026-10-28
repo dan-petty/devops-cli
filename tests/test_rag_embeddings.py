@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.telemetry.instruments import EMBEDDING_CACHE_LOOKUPS_TOTAL
+from devops_cli.telemetry.tracer import get_recent_spans
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 from tests.support.telemetry_capture import Captured
@@ -1130,6 +1131,39 @@ def test_an_ollama_batch_records_the_tokens_its_reply_counted(
     assert _ledger_rows(spend_ledger) == [
         ("ollama", "example.com:11434", "bge-m3", 10, 0, 0, "embedding", None)
     ]
+
+
+def test_an_ollama_batch_names_its_server_without_the_password_of_its_url(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, captured: Captured
+) -> None:
+    """A configured URL with userinfo names its server by host and port in the ledger, the
+    counters and the batch span, and no record holds the password."""
+    _serve(monkeypatch, _ollama_reply)
+    ai_cfg = AIConfig(
+        provider="ollama",
+        ollama_urls=["http://user:pw@example.com:11434"],
+        allow_private_network=True,
+    )
+    ai_cfg.tasks.embedding.model = "bge-m3"
+
+    EmbeddingsEngine(ai_cfg, valkey_client=None).embed_texts(["one"])
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute("SELECT server, backend_info FROM ai_spend_records").fetchall()
+    (span,) = [s for s in get_recent_spans() if s["name"] == "ai.rag.ollama_embed_batch"]
+    span_server = {
+        a["key"]: next(iter(a["value"].values()))
+        for a in span["attributes"]
+        if a["key"].startswith("server.")
+    }
+    counter_servers = {
+        attrs["server"] for attrs, _value in captured.points("devops_cli_ai_requests_total")
+    }
+    assert (rows, counter_servers, span_server) == (
+        [("example.com:11434", "ollama (example.com:11434)")],
+        {"example.com:11434"},
+        {"server.address": "example.com", "server.port": "11434"},
+    )
 
 
 def test_a_call_the_cache_answers_records_no_request(

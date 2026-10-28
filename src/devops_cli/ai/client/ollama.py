@@ -7,7 +7,6 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import as_completed
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx2
 
@@ -16,6 +15,7 @@ from devops_cli.ai.client.models import (
     AIClientError,
     LLMResponse,
     RequestPriority,
+    origin_label,
     provider_finish_reason,
 )
 from devops_cli.ai.client.network import (
@@ -367,14 +367,13 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         eval_dur_ms = (eval_ns / 1_000_000.0) if eval_ns else None
         prompt_eval_dur_ms = (prompt_eval_ns / 1_000_000.0) if prompt_eval_ns else None
 
-        parsed = urlparse(base)
-        host_str = parsed.netloc or parsed.path or base
-        b_info = f"ollama ({host_str})"
+        origin = httpx2.URL(base).origin
         return LLMResponse(
             text,
             processing_seconds=proc_sec,
             wall_seconds=wall_elapsed,
-            backend_info=b_info,
+            backend_info=f"ollama ({origin_label(origin)})",
+            origin=origin,
             thinking=thinking_str,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
@@ -432,9 +431,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                     remaining_candidates, max_parallel=max_par, priority=priority
                 ) as leased_url:
                     base = self._validate_base_url(leased_url, purpose="Ollama")
-                    if leased_url:
-                        host_str = urlparse(leased_url).netloc or leased_url
-                        stream_server.set(host_str)
+                    stream_server.set(httpx2.URL(base).origin)
                     yield from self._try_single_ollama_stream(
                         base, leased_url, system, messages, enable_thinking
                     )

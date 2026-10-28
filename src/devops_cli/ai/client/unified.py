@@ -6,8 +6,8 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Generator
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse, urlsplit
 
 import httpx2
 
@@ -21,6 +21,8 @@ from devops_cli.ai.client.models import (
     RequestPriority,
     _is_json_error_payload,
     genai_provider_name,
+    origin_label,
+    origin_span_attributes,
 )
 from devops_cli.ai.client.network import validate_base_url
 from devops_cli.ai.client.ollama import OllamaProviderMixin
@@ -47,6 +49,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.ai import LLMInferenceError
 from devops_cli.http.client import request_timeout
+from devops_cli.http.urls import get_url_origin
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import get_tracer, trace_span
 from devops_cli.telemetry.instruments import AI_CHAT_DURATION, emit
@@ -55,38 +58,6 @@ if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
 
 logger = logging.getLogger(__name__)
-
-
-def _extract_server_from_backend_info(backend_info: str | None, default_host: str) -> str:
-    """Extract host/address from formatted backend_info string, e.g. 'ollama (localhost:11434)'."""
-    if not backend_info:
-        return default_host
-    if "(" in backend_info and ")" in backend_info:
-        return backend_info.split("(", 1)[1].split(")", 1)[0].strip()
-    return backend_info.strip()
-
-
-def _server_span_attributes(netloc: str) -> dict[str, Any]:
-    """Split one backend's `host[:port]` into `server.address` and `server.port`.
-
-    A comma-joined host list names no single server, and neither does the placeholder
-    `backend_host` gives a provider with no endpoint, so both yield neither. A netloc without
-    a port yields no `server.port`: `backend_info` drops the URL scheme, so a default port
-    would be a guess.
-    """
-    if not netloc or "," in netloc or netloc == CONST_AI_BACKEND_HOST_UNKNOWN:
-        return {}
-    parts = urlsplit(f"//{netloc}")
-    try:
-        port = parts.port
-    except ValueError:
-        return {}
-    if not parts.hostname:
-        return {}
-    attributes: dict[str, Any] = {"server.address": parts.hostname}
-    if port is not None:
-        attributes["server.port"] = port
-    return attributes
 
 
 def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
@@ -136,14 +107,16 @@ def _response_event_payload(res: LLMResponse, p: str) -> dict[str, Any]:
     return event_payload
 
 
-def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) -> None:
+def _set_response_span_attributes(
+    span_handle: Any, res: LLMResponse, p: str, configured: httpx2.Origin | None = None
+) -> None:
     """Set the reply's GenAI attributes on the `ai.llm.dispatch` inference span.
 
     This is the only writer of the usage and response model keys, so a request's tokens are
-    counted once, on the span that made it.
+    counted once, on the span that made it. The server is the reply's origin, else
+    ``configured``, the one origin that the client is configured with.
     """
-    netloc = _extract_server_from_backend_info(res.backend_info, "")
-    for key, value in _server_span_attributes(netloc).items():
+    for key, value in origin_span_attributes(res.origin or configured).items():
         span_handle.set_attribute(key, value)
     if getattr(res, "served_by", None):
         span_handle.set_attribute("llm.served_by", res.served_by)
@@ -295,16 +268,18 @@ class LLMClient(
         p = getattr(self._config, "provider", "ollama")
         return str(p) if isinstance(p, str) else "mock"
 
-    @property
-    def backend_host(self) -> str:
-        """Return the endpoint host for the current AI provider."""
+    def _configured_urls(self) -> list[str]:
+        """The endpoint URLs that the configuration gives the current provider."""
         p = str(getattr(self._config, "provider", "ollama") or "ollama")
         if p == "ollama":
-            return self._resolve_ollama_backend_host()
+            urls = getattr(self._config, "get_ollama_urls", [])
+            if not isinstance(urls, (list, tuple)):
+                return []
+            return [u for u in urls if isinstance(u, str) and u]
         base_url = getattr(self._config, "api_base_url", None) if p != "gateway" else None
         if not isinstance(base_url, str) or not base_url:
             if p == "openai":
-                base_url = str(self._openai_client().base_url).rstrip("/")
+                base_url = str(self._openai_client().base_url)
             else:
                 provider_defaults = {
                     "claude": CONST_URL_ANTHROPIC_API_BASE,
@@ -312,20 +287,35 @@ class LLMClient(
                     "gateway": getattr(self._config, "gateway_url", None),
                 }
                 base_url = provider_defaults.get(p)
-        if isinstance(base_url, str) and base_url:
-            parsed = urlparse(base_url)
-            return str(parsed.netloc or parsed.path or base_url)
-        return CONST_AI_BACKEND_HOST_UNKNOWN
+        return [base_url] if isinstance(base_url, str) and base_url else []
 
-    def _resolve_ollama_backend_host(self) -> str:
-        """Resolve comma-separated backend host string for configured Ollama endpoints."""
-        urls = getattr(self._config, "get_ollama_urls", [])
-        if not isinstance(urls, (list, tuple)):
-            urls = []
-        hosts = [
-            urlparse(u).netloc or urlparse(u).path or u for u in urls if isinstance(u, str) and u
+    @cached_property
+    def _configured_origins(self) -> tuple[httpx2.Origin | None, ...]:
+        """The origin of each configured endpoint URL, read once; None for a URL with none."""
+        return tuple(get_url_origin(url) for url in self._configured_urls())
+
+    @property
+    def _configured_origin(self) -> httpx2.Origin | None:
+        """The origin of the one configured endpoint; None when there are several or none."""
+        origins = self._configured_origins
+        return origins[0] if len(origins) == 1 else None
+
+    @property
+    def backend_host(self) -> str:
+        """The `host[:port]` text of each configured endpoint, joined with ", ".
+
+        It holds no userinfo. An endpoint URL with no origin shows as `unknown`, and an Ollama
+        provider with no URL as `unconfigured`.
+        """
+        labels = [
+            origin_label(origin) if origin is not None else CONST_AI_BACKEND_HOST_UNKNOWN
+            for origin in self._configured_origins
         ]
-        return ", ".join(hosts) or "unconfigured"
+        if labels:
+            return ", ".join(labels)
+        if str(getattr(self._config, "provider", "ollama") or "ollama") == "ollama":
+            return "unconfigured"
+        return CONST_AI_BACKEND_HOST_UNKNOWN
 
     @property
     def backend_info(self) -> str:
@@ -485,9 +475,13 @@ class LLMClient(
         system: str,
         duration: float,
     ) -> None:
-        """Record response attributes, spend calculation, and OpenTelemetry metrics."""
-        _set_response_span_attributes(span_handle, res, p)
-        srv = _extract_server_from_backend_info(res.backend_info, self.backend_host)
+        """Record response attributes, spend calculation, and OpenTelemetry metrics.
+
+        The server is the reply's origin. A reply with no origin, such as one from an adapter
+        that sets none, names the configured endpoints.
+        """
+        _set_response_span_attributes(span_handle, res, p, self._configured_origin)
+        srv = origin_label(res.origin) if res.origin is not None else self.backend_host
         from devops_cli.ai.context_budget import count_tokens
         from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
 
@@ -971,7 +965,7 @@ class LLMClient(
             "llm.request.enable_thinking": enable_thinking,
             "llm.stream.sanitize": sanitize,
         }
-        stream_attrs.update(_server_span_attributes(self.backend_host))
+        stream_attrs.update(origin_span_attributes(self._configured_origin))
         with (
             trace_span(
                 "ai.llm.stream", attributes=stream_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
@@ -1060,9 +1054,8 @@ class LLMClient(
         from devops_cli.ai.context_budget import count_tokens
         from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
 
-        srv = network.stream_server.get() or _extract_server_from_backend_info(
-            self.backend_info, self.backend_host
-        )
+        leased = network.stream_server.get()
+        srv = origin_label(leased) if leased is not None else self.backend_host
         usage = network.stream_usage.get()
         if (
             usage is not None

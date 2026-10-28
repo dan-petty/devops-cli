@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import urlparse
 
 import typer
 import yaml
 
 from devops_cli.ai.spend import get_pricing_registry, get_spend_ledger
 from devops_cli.ai.spend.models import HardwarePayoffSummary, LifetimeSpendReport
+from devops_cli.config.constants import CONST_AI_BACKEND_HOST_UNKNOWN
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import MESSAGES
 from devops_cli.output import (
@@ -208,6 +208,15 @@ def _render_providers_table(report: LifetimeSpendReport) -> None:
     print_table(title="AI Spend & Usage by Provider", columns=cols, rows=rows)
 
 
+def _served_by_label(served_by: str) -> str:
+    """The `host[:port]` of a stored serving backend, never its userinfo; `unknown` when the
+    value names no server."""
+    from devops_cli.ai.client.models import served_by_authority
+
+    authority = served_by_authority(served_by)
+    return authority.label if authority is not None else CONST_AI_BACKEND_HOST_UNKNOWN
+
+
 def _render_backends_table(report: LifetimeSpendReport) -> None:
     """Render gateway calls by the backend that served them."""
     if not report.backends:
@@ -226,7 +235,7 @@ def _render_backends_table(report: LifetimeSpendReport) -> None:
     ]
     rows: list[list[str]] = [
         [
-            urlparse(b.served_by).netloc or b.served_by,
+            _served_by_label(b.served_by),
             ", ".join(b.models),
             f"{b.request_count:,}",
             f"{b.prompt_tokens:,}",

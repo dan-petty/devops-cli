@@ -4,6 +4,7 @@ inference time."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Generator, Iterator
 from typing import Any
 
@@ -15,13 +16,20 @@ from devops_cli.ai.client import network
 from devops_cli.ai.client import openai as openai_client
 from devops_cli.ai.client import unified as unified_client
 from devops_cli.ai.client.models import LLMResponse, RequestPriority, genai_provider_name
-from devops_cli.ai.client.unified import LLMClient, _server_span_attributes
+from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, Instrument
 from devops_cli.telemetry.semconv import load_genai_snapshot
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
-from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, route_client
+from tests.llm_stream_fakes import (
+    NDJSON,
+    OPENAI_DONE,
+    ollama_line,
+    openai_chunk,
+    reply,
+    route_client,
+)
 
 INFERENCE_REQUIRED = load_genai_snapshot()["spans"]["gen_ai.inference.client"]["required"]
 
@@ -211,27 +219,93 @@ def test_claude_spans_name_the_provider_anthropic(
     ] == [["anthropic"], ["anthropic"], ["anthropic"]]
 
 
-def test_server_attributes_come_from_one_backend_netloc() -> None:
-    """The host becomes server.address, a port server.port, and a host list neither."""
-    netlocs = (
-        "example.com:11434",
-        "example.com",
-        "[::1]:11434",
-        "example.com:11434, example.com:11435",
-        "example.com:port",
-        "",
-        "unknown",
-    )
+OLLAMA_CHAT_REPLY = {
+    "model": "test-model",
+    "message": {"role": "assistant", "content": "OK"},
+    "done": True,
+    "done_reason": "stop",
+    "prompt_eval_count": 12,
+    "eval_count": 3,
+}
+REFUSED_PORT = 11434
 
-    assert [_server_span_attributes(netloc) for netloc in netlocs] == [
-        {"server.address": "example.com", "server.port": 11434},
-        {"server.address": "example.com"},
-        {"server.address": "::1", "server.port": 11434},
-        {},
-        {},
-        {},
-        {},
-    ]
+
+def _ollama_server(request: httpx2.Request) -> httpx2.Response:
+    """An Ollama that refuses each connection to port 11434 and answers a chat call on others.
+
+    It streams the reply when the request asks for a stream.
+    """
+    if request.url.port == REFUSED_PORT:
+        raise httpx2.ConnectError("connection refused", request=request)
+    if not request.url.path.endswith("/api/chat"):
+        return httpx2.Response(404, json={"error": "not found"})
+    if json.loads(request.content).get("stream"):
+        return reply([ollama_line("O"), ollama_line("K", done=True, eval_count=1)], NDJSON)
+    return httpx2.Response(200, json=OLLAMA_CHAT_REPLY)
+
+
+def _chat(client: LLMClient) -> None:
+    client.chat("system instructions", "hello", use_cache=False)
+
+
+def _stream(client: LLMClient) -> None:
+    list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize(
+    ("call", "span_name", "ollama_urls", "server"),
+    [
+        pytest.param(
+            _chat,
+            "ai.llm.dispatch",
+            ["http://example.com:11434", "http://example.com:11435"],
+            {"server.address": "example.com", "server.port": 11435},
+            id="dispatch-server-that-answered",
+        ),
+        pytest.param(
+            _chat,
+            "ai.llm.dispatch",
+            ["https://example.com"],
+            {"server.address": "example.com", "server.port": 443},
+            id="dispatch-scheme-default-port",
+        ),
+        pytest.param(
+            _stream,
+            "ai.llm.stream",
+            ["http://example.com:11435"],
+            {"server.address": "example.com", "server.port": 11435},
+            id="stream-one-host",
+        ),
+        pytest.param(
+            _stream,
+            "ai.llm.stream",
+            ["http://example.com:11434", "http://example.com:11435"],
+            {},
+            id="stream-host-list",
+        ),
+    ],
+)
+def test_server_attributes_come_from_the_origin_of_the_url_called(
+    sent_spans: list[dict[str, Any]],
+    call: Callable[[LLMClient], None],
+    span_name: str,
+    ollama_urls: list[str],
+    server: dict[str, Any],
+) -> None:
+    """The dispatch span names the server that answered, by the origin of the URL called.
+
+    `server.port` is the default port of the scheme when the URL has none. The stream span opens
+    before the client leases a server, so it names a server only when one server is configured.
+    """
+    cfg = AIConfig(provider="ollama", model="test-model", ollama_urls=ollama_urls)
+    client = LLMClient(cfg, transport=httpx2.MockTransport(_ollama_server))
+
+    call(client)
+
+    (span,) = _spans(sent_spans, span_name)
+    attrs = _attributes(span)
+    assert {key: value for key, value in attrs.items() if key.startswith("server.")} == server
 
 
 def test_provider_names_follow_the_conventions_well_known_values() -> None:

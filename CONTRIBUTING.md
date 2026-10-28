@@ -17,7 +17,7 @@ These rules apply to every contributor. [`AGENTS.md`](AGENTS.md) sends agents he
 - **Closed Lists and Standard Parsers**:
   - Match a value against a list of strings only when the list covers a closed domain, such as one that an RFC or a language grammar defines.
   - For an open domain, use a parser (`ast`, `tokenize`, `urllib.parse`, `ipaddress`, `packaging`) or an official registry, such as the Public Suffix List through `tldextract`.
-  - Declare each list, tuple or frozen set that matches, classifies or filters values in `src/devops_cli/config/constants.py` or `src/devops_cli/config/defaults.py`.
+  - Declare each list, tuple or frozen set that matches, classifies or filters values as a named module-level table beside its one owner: the module that reads it, or the `constants.py` of its package when several modules of one package read it. Move the table to `src/devops_cli/config/constants.py` or `src/devops_cli/config/defaults.py` only when a module of a second package imports it. When you change the owner of a table in `config/` that only one package reads, move the table to its owner in the same pull request.
 - **Names**: Name each file, module, class and function for its responsibility. Do not use a placeholder name, such as `temp_util.py`. Ruff `N` checks the form.
 - **Line Breaks Belong to Source Files**: Hard-wrap text only in source files and Markdown documents. Write emitted text (terminal messages, Rich renderables, log records, `lang/en/` strings) as continuous paragraphs. Split a long string in the source with implicit string concatenation.
 - **Strongly Typed Domain Exceptions**:
@@ -121,7 +121,7 @@ This table holds the naming rules of the project. Each rule names the check that
 | Pull request title and commit subject | `<type>(<scope>): <summary>` | The `Semantic PR title` check for the title. None for a commit on a branch. |
 | Change folder | `<issue>-<slug>`, archived as `<YYYY-MM-DD>-<issue>-<slug>` | `devops openspec check` and `tests/test_change_folders.py`. |
 | Python module, class, function and variable | PEP 8 | Ruff `N`. |
-| Constant | `CONST_<NAME>` in `config/constants.py`; `DEFAULT_<NAME>` for a tunable value in `config/defaults.py` | None. |
+| Constant | `_<NAME>` in the one module that reads it. `<NAME>` in the `constants.py` of a package when several of its modules read it. `CONST_<NAME>` in `config/constants.py`, or `DEFAULT_<NAME>` for a tunable value in `config/defaults.py`, when modules of two or more packages import it ("Closed Lists and Standard Parsers" above) | None. |
 | Test file and test function | The behavior it checks, in the terms of [CONTEXT.md](CONTEXT.md) ([docs/TESTING.md](docs/TESTING.md#names-and-assertions)) | None. |
 | `devops` command and option | Lowercase words joined by hyphens | None. |
 | Environment variable | `DEVOPS_CLI_` and the setting's dotted key in upper case, with `_` for `.`. A settings field declares its variable with a `Variable` marker (`src/devops_cli/config/env.py`) and its description with `Field(description=...)`; a credential is one entry of `CREDENTIALS` in the same module | `tests/test_config_declarations.py` holds the set of variables and keyring entries. `devops config show`, `devops config env` and `docs/ENV_VARS.md` are generated from the declarations. |
