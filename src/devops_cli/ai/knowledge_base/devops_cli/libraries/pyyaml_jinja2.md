@@ -59,15 +59,23 @@ In `devops-cli`:
 ## 5. Common & Advanced Usage Examples
 
 ### Safe YAML Parsing
+
+The message of a PyYAML error quotes the line where the parser stopped, and the `buffer` of its `problem_mark` holds the full text of the document. A file can hold a credential, so the error that you raise names the type of the PyYAML error and its position, and quotes no text. Raise it after the `except` block: then it has no cause and no context that holds the PyYAML error. `config/settings.py::_read_config_file` reads the config files this way.
+
 ```python
+from pathlib import Path
+
 import yaml
 
 
-def load_k8s_manifest(manifest_text: str) -> dict:
+def load_yaml_file(path: Path) -> dict:
     try:
-        return yaml.safe_load(manifest_text) or {}
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid YAML syntax: {exc}")
+        mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
+        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        error_type = type(exc).__name__
+    raise ValueError(f"{path} is not valid YAML ({error_type}){where}.")
 ```
 
 ### Rendering a Dynamic DevContainer Configuration

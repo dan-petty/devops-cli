@@ -30,7 +30,7 @@ None.
 - `src/devops_cli/commands/config.py`: `devops config get` reports the error with `exit_on_error(ConfigurationError)`.
 - `src/devops_cli/main.py`: `_delegate` raises the non-zero exit of a command outside its `except` clauses.
 - `tests/config/test_config_file_that_is_not_yaml.py`, `tests/commands/test_config.py` and `tests/test_config_env_overrides.py`.
-- The knowledge base page `src/devops_cli/ai/knowledge_base/devops_cli/configuration_and_settings.md`.
+- The knowledge base pages `src/devops_cli/ai/knowledge_base/devops_cli/configuration_and_settings.md` and `src/devops_cli/ai/knowledge_base/devops_cli/libraries/pyyaml_jinja2.md`. The YAML example of the second page quoted the text of the PyYAML error in the error that it raised.
 
 ## Feasibility
 
