@@ -7,8 +7,11 @@ arrived. An answer that cannot be read at all raises `ValueError` or `LookupErro
 decoding: a body that is not the JSON or text it claims, a charset Python does not know, a status
 outside `http.HTTPStatus`, or rate-limit headers that are not numbers. `classify_http_error` maps
 each onto the project's `GitHubOperationError` classes, so a caller tells a missing scope from a
-rate limit or a missing resource by type. Nothing here reads a response's message text: GitHub
-words its messages for people, and the status and headers are what its REST documentation
+rate limit or a missing resource by type. A 403 to a write whose answer carries no `x-ratelimit-*`
+header is a refused identity, as a 401 is: GitHub sends those headers with each answer it counts
+against an identity's quota, and its refusal of the identity, such as of a suspended App
+installation's token, counts against none (#2474). Nothing here reads a response's message text:
+GitHub words its messages for people, and the status and headers are what its REST documentation
 specifies. Every error carries the request's path, at most `CONST_MAX_ERROR_DETAIL_LENGTH`
 characters, and an HTTP failure its status as an int, so a caller can treat a 422 as it needs to.
 
@@ -40,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_GH_UNKNOWN_OWNER_TYPE,
     CONST_GITHUB_HEADER_ACCEPTED_OAUTH_SCOPES,
     CONST_GITHUB_HEADER_OAUTH_SCOPES,
+    CONST_GITHUB_HEADER_RATE_LIMIT_PREFIX,
     CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE,
     CONST_GITHUB_HEADER_RETRY_AFTER,
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
@@ -57,6 +61,7 @@ from devops_cli.exceptions.git import (
     GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
+from devops_cli.github.request_classifier import GitHubRequest, is_write_request
 
 _OPERATION: Final[str] = "github_request"
 _GH_OPERATION: Final[str] = "gh_command"
@@ -140,14 +145,30 @@ def missing_scopes(error: HTTPException) -> frozenset[str]:
     return frozenset() if accepted & _scopes(error, CONST_GITHUB_HEADER_OAUTH_SCOPES) else accepted
 
 
-def _status_is(status: HTTPStatus) -> Callable[[HTTPException], bool]:
+def _status_is(status: HTTPStatus) -> Callable[[HTTPException, FailedRequest], bool]:
     """A predicate true of an answer with `status`."""
-    return lambda error: error.status_code == status
+    return lambda error, _request: error.status_code == status
 
 
-def _unanswered(error: HTTPException) -> bool:
+def _unanswered(error: HTTPException, _request: FailedRequest) -> bool:
     """Whether the answer holds nothing to read: a 5xx, or a 3xx that was not followed."""
     return is_server_error(error) or isinstance(error, RedirectionException)
+
+
+def _reports_no_quota(error: HTTPException) -> bool:
+    """Whether the answer carries no `x-ratelimit-*` header, so GitHub counted the request
+    against no identity's quota."""
+    prefix = CONST_GITHUB_HEADER_RATE_LIMIT_PREFIX
+    return not any(name.lower().startswith(prefix) for name in error.headers)
+
+
+def _refused_write(error: HTTPException, request: FailedRequest) -> bool:
+    """Whether GitHub refused a write with a 403 that it counted against no quota (#2474)."""
+    return (
+        error.status_code == HTTPStatus.FORBIDDEN
+        and is_write_request(GitHubRequest(request.method, request.path))
+        and _reports_no_quota(error)
+    )
 
 
 def _rate_limit_error(error: HTTPException, request: FailedRequest) -> GitHubOperationError:
@@ -177,6 +198,16 @@ def _unauthenticated_error(error: HTTPException, request: FailedRequest) -> GitH
     )
 
 
+def _refused_identity_error(error: HTTPException, request: FailedRequest) -> GitHubOperationError:
+    reason = str(error)[:CONST_MAX_ERROR_DETAIL_LENGTH]
+    return GitHubUnauthenticatedError(
+        f"GitHub refused the identity for {request} (HTTP 403, with no rate-limit header): "
+        f"{reason}",
+        operation=_OPERATION,
+        details=request.details(error),
+    )
+
+
 def _not_found_error(error: HTTPException, request: FailedRequest) -> GitHubOperationError:
     return GitHubNotFoundError(
         f"GitHub has nothing at {request} (HTTP 404)", details=request.details(error)
@@ -201,11 +232,15 @@ def _refused_error(error: HTTPException, request: FailedRequest) -> GitHubOperat
 
 _Classifier = Callable[[HTTPException, FailedRequest], GitHubOperationError]
 
-# In order: a 403 may be a rate limit or a missing scope, and a rate limit wins.
-_HTTP_CLASSES: Final[tuple[tuple[Callable[[HTTPException], bool], _Classifier], ...]] = (
-    (is_rate_limited, _rate_limit_error),
-    (lambda error: bool(missing_scopes(error)), _scope_error),
+# In order: a 403 may be a rate limit, a missing scope or a refused identity, and a rate limit
+# wins.
+_HTTP_CLASSES: Final[
+    tuple[tuple[Callable[[HTTPException, FailedRequest], bool], _Classifier], ...]
+] = (
+    (lambda error, _request: is_rate_limited(error), _rate_limit_error),
+    (lambda error, _request: bool(missing_scopes(error)), _scope_error),
     (_status_is(HTTPStatus.UNAUTHORIZED), _unauthenticated_error),
+    (_refused_write, _refused_identity_error),
     (_status_is(HTTPStatus.NOT_FOUND), _not_found_error),
     (_unanswered, _unread_error),
 )
@@ -223,7 +258,9 @@ def classify_http_error(
             f"GitHub gave no readable answer to {request}: {type(error).__name__}",
             details=request.details(),
         )
-    classify = next((build for matches, build in _HTTP_CLASSES if matches(error)), _refused_error)
+    classify = next(
+        (build for matches, build in _HTTP_CLASSES if matches(error, request)), _refused_error
+    )
     return classify(error, request)
 
 

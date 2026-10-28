@@ -61,7 +61,6 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     MODEL_LANE_ROWS,
-    SERVICE_JOBS,
     STATUS_LANE_ROWS,
     JobOutcome,
     JobRow,
@@ -73,6 +72,7 @@ from devops_cli.roadmap.run import (
     read_intake_record,
     run_due_jobs,
     service_job,
+    service_jobs,
 )
 from devops_cli.roadmap.store import (
     CloseReason,
@@ -580,7 +580,7 @@ def test_service_wiring(
 
     batch = TriggerBatch(repo=REPO, counts={OPENED: 1}, first_at=NOW, last_at=NOW)
     with patch("devops_cli.roadmap.run.run_due_jobs") as mock_run:
-        for lane_job in SERVICE_JOBS.values():
+        for lane_job in fastapi_app.state.jobs.values():
             lane_job(batch)
 
     lanes = [
@@ -589,15 +589,13 @@ def test_service_wiring(
     ]
     assert (
         res.exit_code,
-        fastapi_app.state.jobs is SERVICE_JOBS,
-        list(SERVICE_JOBS),
+        list(fastapi_app.state.jobs),
         fastapi_app.state.pause_until is no_round_pause,
         REPO in roadmap_store_repos,
         lanes,
         [[row.name for row in rows] for rows in (STATUS_LANE_ROWS, MODEL_LANE_ROWS)],
     ) == (
         0,
-        True,
         [CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_MODEL],
         True,
         True,
@@ -1402,7 +1400,6 @@ def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
 
 DEFAULT_JOB_NAMES = ("metrics", "intake", "refine")
 POLL = TriggerBatch(repo=REPO, counts={POLL_KEY: 1}, first_at=NOW, last_at=NOW)
-model_lane_round = SERVICE_JOBS[CONST_SERVICE_LANE_MODEL]
 
 
 def _service_github(events: list[dict[str, Any]]) -> GitHubFake:
@@ -1484,7 +1481,7 @@ def test_a_status_lane_poll_reads_no_change_and_sends_no_request(
     interval, the round sends no request, and reads no roadmap file as it opens the store."""
     github = _service_github(_labeled(2, "alice"))
     _serve_over(tmp_path, monkeypatch, github)
-    SERVICE_JOBS[CONST_SERVICE_LANE_STATUS](POLL)
+    service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL)
     assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
 
 

@@ -3,31 +3,34 @@
 The due table runs the status lane's row, metrics, before the model lane's, intake and refine,
 so a burst of candidates never holds back the metrics (#1360). `devops roadmap run` runs the
 whole table in one round. The Service runs each lane in its own worker and its own clone
-(`SERVICE_JOBS`), so a status-lane round never waits for a model-bound one (#1532); both lanes
-read and write the repository's one `schedule.json`. Each row is due by its interval, by a
-webhook hint in the batch, or by its due rule, which judges the changes made since the row last
-succeeded: intake's is an issue reopened, or a fresh candidate its last round left
-(`IntakeRecord`, kept beside `schedule.json`). A round's intake decides at most
-`DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first run, and in a
-round where intake placed a critical fix or a P0 item (#1515). Every clone tracks origin's
-default branch.
+(`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
+read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
+kept beside the repositories' schedules (`service_state_dir`), so a restart keeps it (#2474).
+Each row is due by its interval, by a webhook hint in the batch, or by its due rule, which
+judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
+candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
+decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour, on a first
+run, and in a round where intake placed a critical fix or a P0 item (#1515). Every clone tracks
+origin's default branch.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import shlex
 import subprocess
 import threading
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
 from devops_cli.config.constants import (
@@ -38,6 +41,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
+    CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_SOURCE_POLL,
@@ -71,7 +75,12 @@ from devops_cli.roadmap.intake import (
 )
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
-from devops_cli.server.service import LaneJob, TriggerBatch
+from devops_cli.server.service import (
+    LaneJob,
+    TriggerBatch,
+    keep_state_record,
+    read_state_record,
+)
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.intake_model import IntakeModel
@@ -590,62 +599,85 @@ def _simulate_dry_run(rows: Sequence[JobRow], initially_due: Mapping[str, bool])
     return tuple(due_list)
 
 
+_FailedRounds = TypeAdapter(list[tuple[str, str, int, str]])
+"""A ledger record: each repository and job with the rounds it failed in a row and the input of
+the last."""
+
+
 class FailureLedger:
     """How many rounds in a row each roadmap job failed, and the input it failed on (#2161).
 
     A job that fails `limit` rounds in a row does not run again until its input is not the one it
     failed on: a webhook trigger, or a change to an item the job reads. A poll alone brings no
     new input, so a failing job stops costing GitHub requests at every round. A success clears
-    the job's record.
+    the job's record. With a `record`, the ledger is kept in that file at each change and read
+    back when the ledger is made, so a restart of the Service keeps it (#2474).
     """
 
-    def __init__(self, limit: int = DEFAULT_SERVICE_MAX_FAILED_ROUNDS) -> None:
+    def __init__(
+        self, limit: int = DEFAULT_SERVICE_MAX_FAILED_ROUNDS, record: Path | None = None
+    ) -> None:
         self._limit = limit
+        self._record = record
         self._lock = threading.Lock()
-        self._failed: dict[tuple[str, str], tuple[int, Hashable]] = {}
+        kept = [] if record is None else read_state_record(record, _FailedRounds, [])
+        self._failed: dict[tuple[str, str], tuple[int, str]] = {
+            (repo, job): (rounds, failed_on) for repo, job, rounds, failed_on in kept
+        }
 
     @property
     def limit(self) -> int:
         """How many failed rounds in a row suspend a job."""
         return self._limit
 
-    def suspended(self, repo: str, job: str, current: Hashable) -> bool:
+    def suspended(self, repo: str, job: str, current: str) -> bool:
         """Whether `job` failed `limit` rounds in a row on this same input."""
         with self._lock:
             rounds, failed_on = self._failed.get((repo, job), (0, None))
             return rounds >= self._limit and failed_on == current
 
-    def failed(self, repo: str, job: str, current: Hashable) -> int:
+    def failed(self, repo: str, job: str, current: str) -> int:
         """Count a failed round on `current`; the rounds in a row, which restart at 1 when the
         input is not the one of the last failure."""
         with self._lock:
             rounds, failed_on = self._failed.get((repo, job), (0, None))
             rounds = rounds + 1 if failed_on == current or rounds < self._limit else 1
             self._failed[(repo, job)] = (rounds, current)
+            self._keep_locked()
             return rounds
 
     def succeeded(self, repo: str, job: str) -> None:
         """Clear the record of `job`."""
         with self._lock:
-            self._failed.pop((repo, job), None)
+            if self._failed.pop((repo, job), None) is not None:
+                self._keep_locked()
+
+    def _keep_locked(self) -> None:
+        """Write the ledger to its record, if it has one; the caller holds the lock."""
+        if self._record is not None:
+            kept = [(repo, job, *entry) for (repo, job), entry in self._failed.items()]
+            keep_state_record(self._record, _FailedRounds.dump_python(kept, mode="json"))
 
 
-SERVICE_FAILURES = FailureLedger()
-"""The ledger of the Service's rounds, which all repositories and lanes share."""
+def service_state_dir(data_dir: Path | str | None = None) -> Path:
+    """Where the Service keeps what a restart must not clear (#2474): the `roadmap` directory of
+    the data directory, which holds each repository's `schedule.json`, on the Service's volume."""
+    return _resolve_data_dir(data_dir) / "roadmap"
 
 
 def _round_input(
     changes: Sequence[Change], batch: Mapping[tuple[str, str, str], int], at: datetime
-) -> Hashable:
-    """What the round's jobs read, as one value: the changes since the oldest last success and,
-    when the batch holds a trigger other than a poll, the time of the round, so such a trigger is
-    new input to every job."""
-    seen = tuple((change.kind, change.number, change.at) for change in changes)
+) -> str:
+    """What the round's jobs read, as one digest a ledger record can keep: the changes since the
+    oldest last success and, when the batch holds a trigger other than a poll, the time of the
+    round, so such a trigger is new input to every job."""
+    seen = [(change.kind.value, change.number, change.at.isoformat()) for change in changes]
     pushed = any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
-    return (seen, at if pushed else None)
+    read = json.dumps([seen, at.isoformat() if pushed else None])
+    return hashlib.sha256(read.encode("utf-8")).hexdigest()
 
 
-def _count_failure(failures: FailureLedger, repo: str, job: str, current: Hashable) -> None:
+def _count_failure(failures: FailureLedger, repo: str, job: str, current: str) -> None:
     """Count a failed round of `job`, and log once when it reaches the limit."""
     rounds = failures.failed(repo, job, current)
     if rounds == failures.limit:
@@ -814,11 +846,17 @@ def run_due_jobs(
     )
 
 
-def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: str) -> None:
+def service_job(
+    batch: TriggerBatch,
+    *,
+    table: Sequence[JobRow],
+    clone_dirname: str,
+    failures: FailureLedger | None = None,
+) -> None:
     """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
     `clone_dirname` for a coalesced trigger batch, on the roadmap store of the batch's
-    repository. The store reads no repository file: a repository needs no roadmap
-    configuration (ADR 0016)."""
+    repository, counting its failed rounds in `failures`. The store reads no repository file: a
+    repository needs no roadmap configuration (ADR 0016)."""
     from devops_cli.roadmap import store as roadmap_store
 
     repo = batch.repo
@@ -828,27 +866,34 @@ def service_job(batch: TriggerBatch, *, table: Sequence[JobRow], clone_dirname: 
         batch=batch,
         table=table,
         clone_dirname=clone_dirname,
-        failures=SERVICE_FAILURES,
+        failures=failures,
     )
 
 
-SERVICE_JOBS: Mapping[str, LaneJob] = {
-    CONST_SERVICE_LANE_STATUS: partial(
-        service_job, table=STATUS_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME
-    ),
-    CONST_SERVICE_LANE_MODEL: partial(
-        service_job, table=MODEL_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
-    ),
-}
-"""Each lane's job, which `devops serve --service` runs in one worker per lane of each
-repository (#1532)."""
+def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
+    """Each lane's job, which `devops serve --service` runs in one worker per lane of each
+    repository (#1532). Every lane of every repository shares one ledger of failed rounds, kept
+    in `state_dir`, so a restart keeps it (#2474)."""
+    failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
+    return {
+        CONST_SERVICE_LANE_STATUS: partial(
+            service_job,
+            table=STATUS_LANE_ROWS,
+            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+            failures=failures,
+        ),
+        CONST_SERVICE_LANE_MODEL: partial(
+            service_job,
+            table=MODEL_LANE_ROWS,
+            clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+            failures=failures,
+        ),
+    }
 
 
 __all__ = [
     "DEFAULT_DUE_TABLE",
     "MODEL_LANE_ROWS",
-    "SERVICE_FAILURES",
-    "SERVICE_JOBS",
     "STATUS_LANE_ROWS",
     "FailureLedger",
     "JobOutcome",
@@ -859,4 +904,6 @@ __all__ = [
     "parse_due_tuple",
     "run_due_jobs",
     "service_job",
+    "service_jobs",
+    "service_state_dir",
 ]

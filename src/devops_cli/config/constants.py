@@ -863,12 +863,17 @@ CONST_GITHUB_SCOPE_PATTERNS: tuple[str, ...] = (
     "read:project",
     "oauth scope",
 )
-# No login, one GitHub refused (HTTP 401), or an account GitHub suspended (HTTP 403, #2161).
+# No login, one GitHub refused (HTTP 401), an account GitHub suspended (HTTP 403, #2161), or a
+# GitHub App installation that its owner suspended (HTTP 403, #2474): GitHub refuses the request
+# for a token with "This installation has been suspended", and a request with a token minted
+# before with "This installation owned by <owner> suspended your access at <time>".
 CONST_GITHUB_UNAUTHENTICATED_PATTERNS: tuple[str, ...] = (
     "not logged in",
     "http 401",
     "bad credentials",
     "account was suspended",
+    "installation has been suspended",
+    "suspended your access",
 )
 # gh's exit status for a command that requires authentication (`gh help exit-codes`).
 CONST_GH_AUTH_REQUIRED_EXIT_CODE: Final[int] = 4
@@ -927,6 +932,9 @@ CONST_URI_TEMPLATE_EXPRESSION_DELIMITERS: Final[str] = "{}"
 # Response headers the session's error classifier and quota ledger read, named as GitHub's REST
 # documentation names them ("Rate limits for the REST API", "Scopes for OAuth apps").
 CONST_GITHUB_HEADER_RATE_LIMIT_RESOURCE: Final[str] = "x-ratelimit-resource"
+# What every rate-limit header's name starts with: GitHub sends them with each answer it counts
+# against an identity's quota.
+CONST_GITHUB_HEADER_RATE_LIMIT_PREFIX: Final[str] = "x-ratelimit-"
 CONST_GITHUB_HEADER_RETRY_AFTER: Final[str] = "retry-after"
 CONST_GITHUB_HEADER_OAUTH_SCOPES: Final[str] = "x-oauth-scopes"
 CONST_GITHUB_HEADER_ACCEPTED_OAUTH_SCOPES: Final[str] = "x-accepted-oauth-scopes"
@@ -1436,11 +1444,19 @@ CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )
 CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
-# Counts each time GitHub refused the Service's identity and every round stopped (#2161). The
-# `identity` label names the account, as the refusal does.
+# Counts each time GitHub refused the Service's identity and every round stopped (#2161), and
+# each start that finds the halt kept from before, so the count stays above 0 while the Service
+# is halted (#2474). The `identity` label names the account, as the refusal does.
 CONST_SERVICE_METRIC_IDENTITY_REFUSED: Final[str] = "devops_cli_service_identity_refused_total"
 # The Service's window for its GitHub request budget (#2161).
 CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
+# What the Service keeps on its volume so that a restart does not clear it (#2474), each a file in
+# the `roadmap` directory of the data directory, beside each repository's `schedule.json`: the
+# halt after GitHub refused the identity, the requests of the budget window, and the ledger of
+# failed rounds. A GitHub login has no dot, so no file name is a repository owner's directory.
+CONST_SERVICE_HALT_FILENAME: Final[str] = "service-halt.json"
+CONST_SERVICE_BUDGET_FILENAME: Final[str] = "service-budget.json"
+CONST_SERVICE_FAILURES_FILENAME: Final[str] = "service-failures.json"
 # The Service's lanes (#1532): each repository has one worker per lane. The status lane runs the
 # job that refreshes the metrics, the model lane those that call the model, so a status-lane round
 # never waits for a model-lane round. A service app given no jobs runs its logging job in the

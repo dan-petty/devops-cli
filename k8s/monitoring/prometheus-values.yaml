@@ -637,7 +637,7 @@ serverFiles:
               severity: critical
             annotations:
               summary: "GitHub refused the identity {{ $labels.identity }} of the roadmap Service"
-              description: "The roadmap Service stopped all rounds and starts no round until its pod restarts. Its health check stays healthy. Repair the GitHub App, then restart the Service (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service stopped all rounds and starts no round, also after a restart, until a person removes its halt record. Its health check stays healthy. Repair the GitHub App, remove the halt record, then restart the Service (k8s/README.md, Roadmap service)."
           # Each sample is a throttle, so one sample in 15 minutes fires. increase() needs two
           # samples in its window and does not see one throttle alone.
           - alert: RoadmapServiceGitHubThrottled

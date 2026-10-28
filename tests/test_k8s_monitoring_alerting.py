@@ -821,8 +821,9 @@ def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_vo
     jobs fail or a lane stalls, when the pod restarts or is unavailable, and when its GitHub or
     model requests in an hour are high (#2472).
 
-    A refused identity stops every round until the pod restarts, and the refusal counter stays
-    above 0 for as long, so the critical alert holds for the whole stop. A throttle sample is
+    A refused identity stops every round until a person removes the halt record, and the
+    refusal counter stays above 0 for as long, a restart included, so the critical alert holds
+    for the whole stop (#2474). A throttle sample is
     written only when the Service sends one, so a sample in 15 minutes is a throttle; increase()
     needs two samples. An error series that starts in its hour adds its first value, which
     increase() does not count.

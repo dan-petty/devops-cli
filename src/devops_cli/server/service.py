@@ -12,16 +12,20 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable, Coroutine, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic import ValidationError as MalformedRecordError
 
 from devops_cli import __version__
 from devops_cli.config.constants import (
+    CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_BUDGET_WINDOW_SECONDS,
+    CONST_SERVICE_HALT_FILENAME,
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_SECONDS,
@@ -104,15 +108,50 @@ def process_request_count() -> int:
     return get_github_rate_limiter().get_global_request_count()
 
 
+_RoundsSent = TypeAdapter(list[tuple[datetime, int]])
+"""A budget record: the end of each round in the window and the requests sent since the round
+before it."""
+
+
+def read_state_record[T](record: Path, adapter: TypeAdapter[T], empty: T) -> T:
+    """What the Service kept in `record` before it last stopped, or `empty` when there is no
+    record. A record that can't be read raises, naming it and the remedy, rather than reading as
+    empty: an empty one would let the Service send what the record holds back (#2474)."""
+    if not record.exists():
+        return empty
+    try:
+        return adapter.validate_json(record.read_bytes())
+    except (OSError, MalformedRecordError) as exc:
+        reason = str(exc).splitlines()[0][:200]
+        raise RoadmapRunError(
+            MESSAGES.serve.state_unreadable.format(record=record, reason=reason),
+            details={"path": str(record)[:256]},
+        ) from exc
+
+
+def keep_state_record(record: Path, payload: object) -> None:
+    """Write `payload` to `record` atomically. A record that can't be written is one error log
+    line: the Service goes on with what it holds in memory, which a restart does not keep."""
+    from devops_cli.output.file_writer import write_json_file
+
+    try:
+        write_json_file(record, payload, indent=2, atomic=True)
+    except OSError as exc:
+        logger.error(
+            MESSAGES.serve.state_unkept.format(record=record, kind=type(exc).__name__, error=exc)
+        )
+
+
 class RequestBudget:
     """The GitHub requests the Service may send in any one hour, all repositories and lanes
     together (#2161).
 
-    The budget reads the count of requests at the end of each round and keeps one sample for each
-    of them for an hour. The requests of the last hour are the newest count minus the count at the
-    newest sample that is at least an hour old. A round that sent requests past the budget ends
-    first, so the budget can be passed by the cost of one round per worker. The cost of a round
-    sets the poll cadence: the Service polls no faster than the budget pays for.
+    The budget reads the count of requests at the end of each round and keeps, for an hour, the
+    end of the round and the requests sent since the round before. The requests of the last hour
+    are the sum of those that ended in it. A round that sent requests past the budget ends first,
+    so the budget can be passed by the cost of one round per worker. The cost of a round sets the
+    poll cadence: the Service polls no faster than the budget pays for. With a `record`, the
+    rounds of the window are kept in that file, and a restart reads them back (#2474).
     """
 
     def __init__(
@@ -121,17 +160,20 @@ class RequestBudget:
         limit: int,
         counter: RequestCounter = process_request_count,
         window_seconds: int = CONST_SERVICE_BUDGET_WINDOW_SECONDS,
+        record: Path | None = None,
     ) -> None:
         self._clock = clock
         self._limit = limit
         self._counter = counter
         self._window = timedelta(seconds=window_seconds)
+        self._record = record
         self._lock = threading.Lock()
         start = counter()
         self._first = start
         self._latest = start
         self._rounds = 0
-        self._samples: deque[tuple[datetime, int]] = deque([(clock(), start)])
+        kept = [] if record is None else read_state_record(record, _RoundsSent, [])
+        self._sent: deque[tuple[datetime, int]] = deque(kept)
         self._holding = False
 
     @property
@@ -140,18 +182,23 @@ class RequestBudget:
         return self._limit
 
     def record_round(self) -> None:
-        """Take the count of requests at the end of a round."""
+        """Take the count of requests at the end of a round, and keep the window's rounds in the
+        record."""
         count = self._counter()
         with self._lock:
             self._rounds += 1
+            self._sent.append((self._clock(), count - self._latest))
             self._latest = count
-            self._samples.append((self._clock(), count))
+            self._spent_locked()
+            if self._record is not None:
+                kept = _RoundsSent.dump_python(list(self._sent), mode="json")
+                keep_state_record(self._record, kept)
 
     def _spent_locked(self) -> int:
         cutoff = self._clock() - self._window
-        while len(self._samples) > 1 and self._samples[1][0] <= cutoff:
-            self._samples.popleft()
-        return self._latest - self._samples[0][1]
+        while self._sent and self._sent[0][0] <= cutoff:
+            self._sent.popleft()
+        return sum(sent for _, sent in self._sent)
 
     def spent(self) -> int:
         """The requests the Service sent in the last hour, as of its last round."""
@@ -185,9 +232,12 @@ class RoundPause:
     """The time before which no worker starts a round, shared by every repository's worker in
     every lane (#1400, #1532).
 
-    A round that fails with a refusal of the identity (#2161) halts every worker for good: no
-    round starts again until a person restarts the Service, and the halt is one error log line
-    and one count of the refusal metric. An hourly request budget holds the rounds too.
+    A round that fails with a refusal of the identity (#2161) halts every worker for good, and
+    the halt is one error log line and one count of the refusal metric. With a `halt_record`, the
+    halt is also that file, and a restart that finds the file starts halted, with one error log
+    line and one count of the metric, so the metric's alert holds through the restart (#2474):
+    no round starts again until a person removes the file and restarts the Service. An hourly
+    request budget holds the rounds too.
 
     A failed round can name a time to wait for, which `reader` reads from its error: the roadmap
     Service names a GraphQL budget refusal's reset, because the budget is the identity's, the
@@ -202,15 +252,25 @@ class RoundPause:
         refusal: IdentityReader = no_identity_refusal,
         budget: RequestBudget | None = None,
         identity: str = "unknown",
+        halt_record: Path | None = None,
     ) -> None:
         self._clock = clock
         self._reader = reader
         self._refusal = refusal
         self._budget = budget
         self._identity = identity
+        self._halt_record = halt_record
         self._lock = threading.Lock()
         self._until: datetime | None = None
-        self._halted = False
+        self._halted = halt_record is not None and halt_record.exists()
+        if self._halted:
+            logger.error(
+                MESSAGES.serve.identity_refused_kept.format(identity=identity, record=halt_record),
+                extra={"identity": identity},
+            )
+            GLOBAL_METRICS.increment_counter(
+                CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": identity}
+            )
 
     def round_ended(self) -> None:
         """Count the requests a round sent against the budget."""
@@ -223,7 +283,8 @@ class RoundPause:
             return self._halted
 
     def _halt(self, exc: Exception, repo: str) -> None:
-        """Stop every round for good and report the refusal once."""
+        """Stop every round for good, keep the halt in the record, and report the refusal
+        once."""
         with self._lock:
             first = not self._halted
             self._halted = True
@@ -237,6 +298,14 @@ class RoundPause:
             GLOBAL_METRICS.increment_counter(
                 CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": self._identity}
             )
+            if self._halt_record is not None:
+                halt = {
+                    "identity": self._identity,
+                    "repo": repo,
+                    "kind": type(exc).__name__,
+                    "at": self._clock().isoformat(),
+                }
+                keep_state_record(self._halt_record, halt)
 
     def after(self, exc: Exception, repo: str) -> None:
         """Hold every round until the time `exc`, the error of `repo`'s round, names, and log
@@ -471,7 +540,8 @@ class RepoWorker:
 class ServiceManager:
     """Coordinates the background workers, one per lane of each repository, the polling loop,
     and the lifecycle. Every trigger goes to each lane of its repository, so a round in one lane
-    never waits for another lane's (#1532)."""
+    never waits for another lane's (#1532). With a `state_dir`, the halt and the budget window
+    are kept there, and a restart reads them back (#2474)."""
 
     def __init__(
         self,
@@ -483,6 +553,7 @@ class ServiceManager:
         pause_until: PauseReader = no_round_pause,
         identity_refused: IdentityReader = no_identity_refusal,
         request_counter: RequestCounter = process_request_count,
+        state_dir: Path | None = None,
     ) -> None:
         self.config = config
         self.secrets = secrets
@@ -492,13 +563,19 @@ class ServiceManager:
         self.managed_repos: set[str] = set(config.repos)
         self.bot_login: str | None = config.github_app.bot_login
         self.delivery_cache = DeliveryLRUCache()
-        self.budget = RequestBudget(clock, config.github_requests_per_hour, request_counter)
+        self.budget = RequestBudget(
+            clock,
+            config.github_requests_per_hour,
+            request_counter,
+            record=None if state_dir is None else state_dir / CONST_SERVICE_BUDGET_FILENAME,
+        )
         self.pause = RoundPause(
             clock,
             pause_until,
             identity_refused,
             self.budget,
             identity=config.github_app.bot_login or "unknown",
+            halt_record=None if state_dir is None else state_dir / CONST_SERVICE_HALT_FILENAME,
         )
         self.workers: dict[tuple[str, str], RepoWorker] = {
             (repo, lane): RepoWorker(repo, lane, job, clock, self.pause)
@@ -681,14 +758,15 @@ def create_service_app(
     pause_until: PauseReader | None = None,
     identity_refused: IdentityReader | None = None,
     consumers: Sequence[WebhookConsumer] | None = None,
+    state_dir: Path | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
     `pause_until` reads the time a failed round's error names, before which no lane of any
     repository starts a round; `identity_refused` reads whether that error says GitHub refused
-    the Service's identity, which stops every round until a person restarts the Service;
-    `consumers` take the webhook events, the roadmap consumer when
-    none are given."""
+    the Service's identity, which stops every round for good; `consumers` take the webhook
+    events, the roadmap consumer when none are given; `state_dir` keeps the halt and the budget
+    window across a restart, which then keeps the halt until a person removes its record."""
     active_settings = settings or load_settings()
     service_secrets = _resolve_service_secrets(active_settings, secrets)
     service_clock = clock or (lambda: datetime.now(UTC))
@@ -708,6 +786,7 @@ def create_service_app(
         sleep_func=service_sleep,
         pause_until=pause_reader,
         identity_refused=identity_refused or no_identity_refusal,
+        state_dir=state_dir,
     )
 
     @asynccontextmanager

@@ -201,6 +201,30 @@ def test_a_retry_wait_past_the_limit_names_the_request_and_its_status(
     assert (details["status"], details["path"], len(github_api.sent)) == (429, _PATH, 1)
 
 
+@pytest.mark.parametrize(
+    ("headers", "error"),
+    [
+        pytest.param(dict, GitHubUnauthenticatedError, id="no-quota-headers"),
+        pytest.param(lambda: quota_headers(4000), GitHubOperationError, id="quota-headers"),
+    ],
+)
+def test_a_403_to_a_write_that_reports_no_quota_is_a_refused_identity(
+    github_api: GitHubApiFake,
+    headers: Callable[[], dict[str, str]],
+    error: type[GitHubOperationError],
+) -> None:
+    """GitHub sends `x-ratelimit-*` with each answer it counts against an identity's quota, and
+    its refusal of an identity counts against none (#2474). A 403 to a read with no such header
+    stays a plain failure (`403-whose-message-says-rate-limit-without-its-headers` above)."""
+    github_api.route(
+        "POST", _PATH, github_json({"message": "Forbidden"}, status=403, headers=headers())
+    )
+    with pytest.raises(GitHubOperationError) as raised:
+        get_github_session().rest("POST", _PATH, body={"title": "laptop", "key": "ssh-ed25519 A"})
+    details = raised.value.details
+    assert (type(raised.value), details["status"], details["path"]) == (error, 403, _PATH)
+
+
 def test_a_long_path_is_bounded_in_the_details(github_api: GitHubApiFake) -> None:
     """The path a classified error carries is at most 256 characters."""
     path = f"/repos/octo/repo/contents/{'a' * 400}"
@@ -292,6 +316,14 @@ _GH_FAILURES: dict[tuple[str, int], type[GitHubOperationError] | None] = {
     ("gh: Requires authentication (HTTP 401)", 1): GitHubUnauthenticatedError,
     # GitHub's 403 for a suspended account, as the Service's log shows it (#2161).
     ("gh: Sorry. Your account was suspended. (HTTP 403)", 1): GitHubUnauthenticatedError,
+    # GitHub's 403 for a suspended App installation: to the request for a token, and to a request
+    # with a token minted before the suspension, as probot/probot#1482 shows them (#2474).
+    ("gh: This installation has been suspended (HTTP 403)", 1): GitHubUnauthenticatedError,
+    (
+        "gh: Sorry. This installation owned by example-org suspended your access at "
+        "2021-03-02T22:29:29Z. (HTTP 403)",
+        1,
+    ): GitHubUnauthenticatedError,
     # A proxy that wants credentials answers 407, which Go's net/http names by its reason phrase:
     # no GitHub login failure.
     ('Post "https://api.github.com/graphql": Proxy Authentication Required', 1): None,
