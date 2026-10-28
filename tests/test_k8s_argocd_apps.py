@@ -376,7 +376,6 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
         ("", "ConfigMap", "devops-cli-config"),
         ("", "Secret", "argocd-initial-admin-secret"),
         ("", "Secret", "argocd-redis"),
-        ("", "Secret", "sh.helm.release.v1.*"),
         ("", "Secret", "agent-grant-*"),
         ("", "PersistentVolumeClaim", ""),
         ("batch", "Job", "devops-cli-*"),
@@ -384,6 +383,8 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
         ("argoproj.io", "AppProject", "default"),
     }
     assert expected_ignored.issubset(ignored_tuples)
+    # A Helm release record left after Argo CD adopted its chart is reported, not hidden (#1644).
+    assert ("", "Secret", "sh.helm.release.v1.*") not in ignored_tuples
 
     destinations = {
         (d.get("server", ""), d.get("namespace", "")) for d in homelab.get("destinations", [])

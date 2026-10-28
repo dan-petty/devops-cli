@@ -401,6 +401,7 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
             ("ai", "test"),
             ("ai", "token-count"),
             ("argo", "cd", "apps", "bootstrap-gitops"),
+            ("argo", "cd", "apps", "retire-helm-records"),
             ("argo", "cd", "apps", "sync"),
             ("argo", "cd", "fleet", "sync"),
             ("argo", "cd", "gitops", "drift"),

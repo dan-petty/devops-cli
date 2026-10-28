@@ -682,6 +682,10 @@ class ArgoCommandHelp:
     wait: str = "Wait for sync operation to finish."
     watch: str = "Watch application status changes live."
     interval: str = "Auto-refresh polling interval in seconds."
+    retire_helm_records_confirm: str = (
+        "Delete the records of each release that qualifies. Without it, the command prints the "
+        "plan and deletes nothing."
+    )
 
 
 @dataclass(frozen=True)
