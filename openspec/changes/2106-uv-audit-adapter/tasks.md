@@ -4,7 +4,7 @@
 
 - [x] Add failing tests in `tests/test_security_uv_audit.py`: the adapter starts `uv audit --frozen --quiet --output-format json` in the project directory and reads each vulnerability and adverse status as a finding, a report with no finding is a clean scan, a run with no lockfile is a failed scan with the error of uv, and a report of another layout is a failed scan. Change the expected `build_uv_audit_cmd` in `tests/test_command_builders.py`
   - Verification: `uv run devops ci test tests/test_security_uv_audit.py tests/test_command_builders.py` fails on `origin/main`
-- [ ] Add `src/devops_cli/security/uv_audit.py` with `UvAuditScanner`, `parse_uv_audit_json` and `run_uv_audit_scan`, and make `build_uv_audit_cmd` return the audit command with `--frozen`, `--quiet` and `--output-format json`
+- [x] Add `src/devops_cli/security/uv_audit.py` with `UvAuditScanner`, `parse_uv_audit_json` and `run_uv_audit_scan`, and make `build_uv_audit_cmd` return the audit command with `--frozen`, `--quiet` and `--output-format json`
   - Verification: `uv run devops ci test tests/test_security_uv_audit.py tests/test_command_builders.py`
 
 ## 2. The agent and MCP tools run the adapter
