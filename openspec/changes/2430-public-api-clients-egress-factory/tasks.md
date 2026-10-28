@@ -7,7 +7,7 @@
 
 ## 2. The OSV, Shodan InternetDB and Cloudflare Radar clients
 
-- [ ] Build the three lookup clients with `new_http_client` at the public level and a 1 s connect timeout, and delete the `transport` argument of `CloudflareRadarClient` with its raw client
+- [x] Build the three lookup clients with `new_http_client` at the public level and a 1 s connect timeout, and delete the `transport` argument of `CloudflareRadarClient` with its raw client
   - Verification: `uv run devops ci test tests/test_http_egress.py tests/test_vulnerability_lookup.py tests/test_security_threat_intel.py`
 
 ## 3. The Cloudflare API client
