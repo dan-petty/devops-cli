@@ -772,19 +772,14 @@ def test_a_server_url_that_is_not_http_is_refused_before_the_run() -> None:
 
     The check reads the URL only: the client of each benchmark call checks the address at the
     connect (#2422). Before, the settings copy did not validate the URLs, so this check is the
-    only early error for the option.
+    only early error for the option. The command stops at the check, so no benchmark starts.
     """
-    with (
-        patch("devops_cli.commands.benchmark._execute_tasks_benchmark") as tasks,
-        patch("devops_cli.commands.benchmark._execute_embedding_benchmark") as embedding,
-    ):
-        res = runner.invoke(
-            ai_app, ["benchmark", "--servers", "http://example.com:11434,ftp://example.com:21"]
-        )
+    res = runner.invoke(
+        ai_app, ["benchmark", "--servers", "http://example.com:11434,ftp://example.com:21"]
+    )
 
     assert (
         res.exit_code,
         "--servers holds 'ftp://example.com:21', which is not an http or https URL." in res.output,
-        tasks.called,
-        embedding.called,
-    ) == (1, True, False, False)
+        "Starting AI Model Benchmark" in res.output,
+    ) == (1, True, False)

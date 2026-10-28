@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import os
 import socket
 import ssl
@@ -38,6 +39,7 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
 )
 from devops_cli.config.settings import AIConfig, Settings
+from devops_cli.core.process import reset_process_runner, set_process_runner
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.http.broker import HttpClientBroker
 from devops_cli.http.client import new_async_http_client, new_http_client
@@ -58,6 +60,7 @@ from devops_cli.security.vault_lease import _post
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
 from devops_cli.telemetry.waterfall import query_tempo_trace
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.web_fakes import (
     PUBLIC_ADDRESS,
     http_response,
@@ -677,12 +680,33 @@ def _ai_config(flag: bool, **fields: Any) -> AIConfig:
     return AIConfig(allow_private_network=flag, max_retries=1, **fields)
 
 
-def _ollama_config(flag: bool) -> AIConfig:
-    return _ai_config(flag, provider="ollama", ollama_urls=["http://example.com:11434"])
+def _ollama_config(flag: bool, **fields: Any) -> AIConfig:
+    return _ai_config(flag, provider="ollama", ollama_urls=["http://example.com:11434"], **fields)
 
 
-def _gateway_config(flag: bool) -> AIConfig:
-    return _ai_config(flag, provider="gateway", gateway_url="https://example.com/v1")
+def _gateway_config(flag: bool, **fields: Any) -> AIConfig:
+    return _ai_config(flag, provider="gateway", gateway_url="https://example.com/v1", **fields)
+
+
+_GATEWAY_SERVICE = {
+    "spec": {"type": "NodePort", "ports": [{"name": "http", "port": 4000, "nodePort": 30400}]}
+}
+
+
+def _gateway_connect_call() -> None:
+    """`devops ai gateway connect`, with kubectl answering a gateway NodePort on example.com."""
+    kubectl = ProcessFake()
+    kubectl.answer(
+        lambda call: "service" in call.argv, ProcessAnswer(stdout=json.dumps(_GATEWAY_SERVICE))
+    )
+    kubectl.answer(
+        lambda call: "config" in call.argv, ProcessAnswer(stdout="https://example.com:6443")
+    )
+    set_process_runner(kubectl)
+    try:
+        ai_gateway.connect_cmd(timeout=1.0)
+    finally:
+        reset_process_runner()
 
 
 def _pool_load_call() -> None:
@@ -729,16 +753,29 @@ def _benchmark_chat_call(flag: bool) -> Callable[[], Any]:
     return call
 
 
+_UNKNOWN_EMBEDDING_MODEL = "probe-embedding"
+"""A model with no known dimension: a failed probe caches no dimension, so each run probes again."""
+
+
+_PROBING_TASKS = {"embedding": {"model": _UNKNOWN_EMBEDDING_MODEL}}
+
+
+def _dimension_probe_call(config: AIConfig, **engine_options: Any) -> Callable[[], Any]:
+    """The dimension of a new engine for a model with no known dimension: the engine probes it."""
+    return lambda: EmbeddingsEngine(config, valkey_client=None, **engine_options).dimension
+
+
 def _benchmark_embedding_call(flag: bool) -> Callable[[], Any]:
-    """The dimension probe of the engine that the embedding benchmark builds for a server."""
+    """The run of one model of the embedding benchmark on a server."""
     settings = Settings(ai=_ollama_config(flag))
 
     def call() -> None:
         runner = EmbeddingBenchmarkRunner(
-            models=["qwen3-embedding:0.6b"], settings=settings, is_dry_run=False
+            models=[_UNKNOWN_EMBEDDING_MODEL], settings=settings, is_dry_run=False
         )
-        engine = runner._engine_for_model("qwen3-embedding:0.6b", "http://example.com:11434")
-        engine._probe_ollama_dimension()
+        runner.evaluate_model(
+            _UNKNOWN_EMBEDDING_MODEL, [], ["probe"], server_url="http://example.com:11434"
+        )
 
     return call
 
@@ -754,9 +791,7 @@ def _ai_service_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]
         "backend probe": lambda: GatewayRouter(
             _ai_config(flag), state_file=tmp_path / "gateway.json"
         ).probe_backend("ollama", backend_url="http://example.com:11434"),
-        "gateway connect probe": lambda: ai_gateway._probe_gateway_liveliness_and_models(
-            "http://example.com:4000", {}, 1.0
-        ),
+        "gateway connect probe": _gateway_connect_call,
         "pool load query": _pool_load_call,
         "embeddings ollama": lambda: EmbeddingsEngine(
             _ollama_config(flag), valkey_client=None
@@ -764,12 +799,10 @@ def _ai_service_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]
         "embeddings openai": lambda: EmbeddingsEngine(
             _gateway_config(flag), api_key="sk-test", valkey_client=None
         ).embed_texts(["probe"]),
-        "embedding probe ollama": lambda: EmbeddingsEngine(
-            _ollama_config(flag), valkey_client=None
-        )._probe_ollama_dimension(),
-        "embedding probe openai": lambda: EmbeddingsEngine(
-            _gateway_config(flag), api_key="sk-test", valkey_client=None
-        )._probe_openai_dimension(),
+        "embedding probe ollama": _dimension_probe_call(_ollama_config(flag, tasks=_PROBING_TASKS)),
+        "embedding probe openai": _dimension_probe_call(
+            _gateway_config(flag, tasks=_PROBING_TASKS), api_key="sk-test"
+        ),
         "pricing source": lambda: PricingRegistry(data_dir=tmp_path).update_from_remote(
             source_url="https://example.com/prices.json", timeout=1.0
         ),
