@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from devops_cli.ai.review_schema import DefectClass
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.uv_audit import run_uv_audit_scan
@@ -124,6 +126,30 @@ def test_uv_audit_that_finds_nothing_is_a_clean_scan(
     scanner_fake.script("uv", ToolAnswer(stdout=json.dumps(clean)))
 
     assert run_uv_audit_scan(tmp_path) == ScanOutcome("ran", [])
+
+
+@pytest.mark.parametrize(
+    "target", [Path("services", "api-typo"), Path("uv.lock")], ids=["missing", "file"]
+)
+def test_uv_audit_of_a_path_that_is_not_a_directory_gives_no_result(
+    target: Path, scanner_fake: ScannerFake, tmp_path: Path
+) -> None:
+    """uv finds the project from the directory that it starts in and from each parent directory. A
+    scan of a path that is not a directory, such as a directory that does not exist, does not start
+    uv, so it does not audit the project of a parent directory as the project of that path."""
+    project = tmp_path.resolve()
+    (project / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    scanner_fake.script("uv", ToolAnswer(stdout=json.dumps(_REPORT)))
+    path = project / target
+
+    assert (run_uv_audit_scan(path), scanner_fake.runs) == (
+        ScanOutcome(
+            "not_applicable",
+            [],
+            f"{path} is not a directory. uv audit audits the project of a directory.",
+        ),
+        [],
+    )
 
 
 def test_uv_audit_with_no_lockfile_is_a_failed_scan_that_names_the_cause(

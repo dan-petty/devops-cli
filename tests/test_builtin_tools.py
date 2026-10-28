@@ -579,6 +579,28 @@ def test_the_agent_uv_audit_tool_runs_the_uv_audit_adapter_over_the_directory(
     )
 
 
+def test_the_agent_uv_audit_tool_over_a_directory_that_does_not_exist_gives_no_result(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The workspace holds a uv project, and the agent names a directory of it that does not exist.
+    uv does not start, so the reply does not give the audit of the workspace project as the audit
+    of that directory (#2106)."""
+    workspace = tmp_path.resolve()
+    (workspace / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    monkeypatch.chdir(workspace)
+    scanner_fake.script_run_with_findings("uv", tree=workspace)
+
+    reply = scan_uv_audit("services/api-typo")
+
+    assert (reply, scanner_fake.runs) == (
+        "uv audit scan status: not_applicable\n"
+        f"Reason: {workspace / 'services' / 'api-typo'} is not a directory. uv audit audits the "
+        "project of a directory.\n"
+        "The scan gave no result. Do not report the target as clean.",
+        [],
+    )
+
+
 def test_the_agent_semgrep_tool_sends_no_metrics_and_runs_the_rule_pack(
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
