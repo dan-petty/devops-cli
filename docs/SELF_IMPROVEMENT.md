@@ -94,11 +94,19 @@ change touches (`review/suppression.py:95-125`, `ai/review/runner.py:2123`,
 
 ### The Feedback Dataset
 
-`devops review export-feedback` (`commands/review.py:2526`) appends to one JSONL file,
+`devops review export-feedback` (`commands/review.py:2566`) appends to one JSONL file,
 `.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`; `ai/review/exporter.py`), each
 verdict in `findings.json` and `candidates.json` that the file does not hold yet. Without
 `--status` it exports the INVALIDATED verdicts only; `--status ALL` exports every verdict. A
 record's `verified_by` names its labeller, and only a person's verdict is labelled `human`.
+
+A subject reviewed more than once is exported once (#877). The sessions of one subject share
+their findings by fingerprint v2, and each finding is exported with one verdict: the newest
+verdict a person gave it in any of those sessions, or else the verdict of the session that review
+history counts for the subject. `--status` selects by that verdict, so a verdict that a person
+later overturned is not exported. Each record carries its `subject_key` and `fingerprint_v2`. A
+session that records no subject is a subject of its own, and a finding with no fingerprint v2 is
+matched only in its own session, never by its title or location.
 
 One command reads the dataset: `devops ai prompt-eval` (`commands/ai.py:1868`,
 `ai/prompt_eval.py:104`). It counts the recorded INVALIDATED and VERIFIED verdicts of one persona's
