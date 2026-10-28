@@ -2543,6 +2543,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Install OpenSpec",
         ): "Installs the pinned openspec the gate's openspec row runs, with the lock's installer",
         (
+            "static",
+            "Install Trivy",
+        ): "Installs the pinned Trivy that the Security Scan step runs, with the lock's installer",
+        (
             "rule-pack",
             "Detect Changed Rule Pack Files",
         ): "Git diff to check whether src/devops_cli/review/rules/** changed",
@@ -2648,12 +2652,33 @@ def test_ci_workflow_publishes_scanner_sarif_to_code_scanning() -> None:
         upload_step.get("if"),
     ) == (
         "write",
-        "uv run devops scan report --sarif .data/scan.sarif --skip bandit",
+        "uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy",
         "always()",
         True,
         ".data/scan.sarif",
         "/devops-scan",
         "always()",
+    )
+
+
+def test_ci_security_scan_installs_the_pinned_trivy_for_its_iac_scan() -> None:
+    """Trivy's misconfiguration scan, `trivy-config`, took the place of Checkov in the scanner
+    registry (#2214). So the static job installs the pinned Trivy before its security scan, and the
+    scan checks the IaC files. The scan skips Trivy's filesystem scan, `trivy`, which took 194 s
+    over this tree."""
+    import yaml
+
+    workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["static"]["steps"]
+    runs = [str(step.get("run", "")) for step in steps]
+    install = next(
+        (i for i, run in enumerate(runs) if "devops install-tools --tool trivy " in run), None
+    )
+    scan = next(i for i, step in enumerate(steps) if step.get("name") == "Security Scan")
+
+    assert (install is not None and install < scan, runs[scan]) == (
+        True,
+        "uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy",
     )
 
 

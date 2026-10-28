@@ -62,12 +62,19 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           uv run devops install-tools --tool openspec --only-missing
 
+      # The pinned Trivy runs `trivy-config`, the IaC scan of the Security Scan step, which took the
+      # place of Checkov (#2214).
+      - name: Install Trivy
+        run: uv run devops install-tools --tool trivy --only-missing
+
       - name: Static Analysis Quality Gate
         run: uv run devops ci --check --no-cache --skip test,outdated
 
+      # The scan skips Trivy's filesystem scan, `trivy`, which took 194 s over this tree. The audit
+      # row of the quality gate checks the dependencies.
       - name: Security Scan
         if: always()
-        run: uv run devops scan report --sarif .data/scan.sarif --skip bandit
+        run: uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy
 
       - name: Upload Security Scan SARIF
         if: always()

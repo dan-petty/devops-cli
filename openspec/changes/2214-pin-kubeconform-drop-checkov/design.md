@@ -44,6 +44,7 @@ The evidence is in the proposal's Feasibility: Trivy, which is pinned, has a che
 
 - `devops scan iac` goes. `devops scan trivy --type config <target>` scans IaC files, and the MCP tool `scan_trivy` takes the same `scan_type`.
 - The registry holds `TrivyConfigScanner`, named `trivy-config`, in the place of `CheckovScanner`. It is the Trivy adapter with `config` as its default scan type, so `devops scan report` runs `trivy config` over the target beside `trivy fs`. The registry still holds 14 scanners.
+- The static job of CI installs the pinned Trivy before its security scan. Before, the Checkov fallback was the IaC check of that scan, and its findings went to code scanning. Now `trivy-config` checks the IaC files there. Over this tree it found the privileged container and the root user that the Checkov fallback found, and 46 more findings, in 23 s. The scan skips `trivy`, the filesystem scan, which took 194 s over this tree. The audit row of the quality gate checks the dependencies.
 - The agent tool `scan_iac` runs `run_trivy_scan` with the scan type `config`, and replies as `scan_trivy` does.
 
 Rejected: pin Checkov as a Python tool and read `severity`, with a fixed level for `null`. Each Checkov finding then has the same level, because Checkov writes `null` for each check without an API key. The pin adds 97 packages and a recording for each of about two releases a week. A run without phone-home also needs `--skip-download`, which drops the guideline links, and an environment variable that the scanner base cannot pass to a tool.
