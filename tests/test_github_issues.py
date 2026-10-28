@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
+from typer.testing import CliRunner
 
+from devops_cli.commands.gh import app
 from devops_cli.exceptions.git import (
     GitHubNotFoundError,
     GitHubOperationError,
@@ -29,6 +32,26 @@ from devops_cli.github.issues import (
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+
+runner = CliRunner()
+
+
+def _rate_limit_payload() -> str:
+    """A /rate_limit answer with a live core, graphql and search quota for `run_gh` refreshes."""
+    return json.dumps(
+        {
+            "resources": {
+                name: {
+                    "limit": 5000,
+                    "used": 10,
+                    "remaining": 4990,
+                    "reset": int(time.time()) + 600,
+                }
+                for name in ("core", "graphql", "search")
+            }
+        }
+    )
 
 
 def test_github_issue_model() -> None:
@@ -107,6 +130,96 @@ def test_create_repository_issue_success() -> None:
         )
         assert issue.number == 84
         assert issue.title == "fix(ci): improve timeout"
+
+
+def test_create_repository_issue_reports_no_milestone_when_the_patch_fails(
+    process_fake: ProcessFake,
+) -> None:
+    """When the create cannot add the milestone, the fallback create succeeds, and the PATCH that
+    would set the milestone fails, the issue reports no milestone rather than the one requested
+    (#2158)."""
+    process_fake.answer(
+        lambda call: True,
+        ProcessAnswer(returncode=1, stderr="Unable to change milestone"),
+    )
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=0, stdout=_rate_limit_payload()),
+    )
+    process_fake.answer(
+        ["gh", "issue", "create", "--repo", "octo/repo", "--title", "Bug", "--body", "See #123"],
+        ProcessAnswer(returncode=0, stdout="https://github.com/octo/repo/issues/123"),
+    )
+    process_fake.answer(
+        [
+            "gh",
+            "issue",
+            "create",
+            "--repo",
+            "octo/repo",
+            "--title",
+            "Bug",
+            "--body",
+            "See #123",
+            "--milestone",
+        ],
+        ProcessAnswer(returncode=1, stderr="could not add to milestone"),
+    )
+    created = create_repository_issue(repo="octo/repo", title="Bug", body="See #123", milestone="5")
+    assert created.number == 123
+    assert created.milestone is None
+    assert sum("PATCH" in call.argv for call in process_fake.calls) == 1
+
+
+def test_gh_issues_create_says_the_milestone_was_not_set_when_the_patch_fails(
+    process_fake: ProcessFake,
+) -> None:
+    """A failed milestone PATCH leaves the issue with no milestone, and the command says so (#2158)."""
+    process_fake.answer(
+        lambda call: True,
+        ProcessAnswer(returncode=1, stderr="Unable to change milestone"),
+    )
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=0, stdout=_rate_limit_payload()),
+    )
+    process_fake.answer(
+        ["gh", "issue", "create", "--repo", "octo/repo", "--title", "Bug", "--body", "See #123"],
+        ProcessAnswer(returncode=0, stdout="https://github.com/octo/repo/issues/123"),
+    )
+    process_fake.answer(
+        [
+            "gh",
+            "issue",
+            "create",
+            "--repo",
+            "octo/repo",
+            "--title",
+            "Bug",
+            "--body",
+            "See #123",
+            "--milestone",
+        ],
+        ProcessAnswer(returncode=1, stderr="could not add to milestone"),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "issues",
+            "create",
+            "--repo",
+            "octo/repo",
+            "--title",
+            "Bug",
+            "--body",
+            "See #123",
+            "--milestone",
+            "5",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Created issue #123" in result.output
+    assert "Milestone '5' was not set" in result.output
 
 
 def test_audit_issues_triage() -> None:
@@ -228,6 +341,79 @@ def test_triage_backlog_item_without_milestone_is_not_flagged() -> None:
     assert audit.issues_missing_priority == []
 
 
+def test_audit_reports_no_missing_priority_when_there_is_no_board(
+    process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """With no board, an issue has no Priority until intake gives it one, so the audit checks type
+    and scope only, and says Priority was not checked rather than flagging every issue (#2158)."""
+    process_fake.answer(
+        ["gh", "issue", "list"],
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "number": 1,
+                        "title": "Typed and scoped",
+                        "state": "open",
+                        "labels": [{"name": "type/bug"}, {"name": "scope/cli"}],
+                    },
+                    {
+                        "number": 2,
+                        "title": "Typed only",
+                        "state": "open",
+                        "labels": [{"name": "type/bug"}],
+                    },
+                ]
+            ),
+        ),
+    )
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    )
+    audit = audit_issues_triage("octo/repo", awaiting_intake=())
+    assert audit.priority_not_checked is True
+    assert audit.issues_missing_priority == []
+    assert audit.issues_missing_scope == [2]
+    assert audit.issues_missing_type == []
+    assert audit.valid_count == 1
+
+
+def test_gh_issues_triage_says_priority_was_not_checked_with_no_board(
+    process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """With no board the triage says Priority was not checked, rather than flagging every issue (#2158)."""
+    process_fake.answer(
+        ["gh", "issue", "list"],
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "number": 1,
+                        "title": "Typed and scoped",
+                        "state": "open",
+                        "labels": [{"name": "type/bug"}, {"name": "scope/cli"}],
+                    },
+                    {
+                        "number": 2,
+                        "title": "Typed only",
+                        "state": "open",
+                        "labels": [{"name": "type/bug"}],
+                    },
+                ]
+            ),
+        ),
+    )
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    )
+    result = runner.invoke(app, ["issues", "triage", "--repo", "octo/repo"])
+    assert result.exit_code == 0
+    assert "Not checked" in result.output
+    assert "no board" in result.output
+
+
 def test_get_issues_summary() -> None:
     """get_issues_summary produces breakdown aggregates using board Priority."""
     store = InMemoryRoadmapStore(
@@ -257,6 +443,45 @@ def test_get_issues_summary() -> None:
     assert summary["by_type"]["type/bug"] == 1
     assert summary["by_type"]["type/feature"] == 1
     assert summary["by_milestone"]["2026-11"] == 2
+
+
+def test_get_issues_summary_no_board_is_the_whole_dictionary(
+    process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """With no board, get_issues_summary reports the whole aggregate: no Priority, and the type
+    and milestone counts of the open issues (#2158)."""
+    process_fake.answer(
+        ["gh", "issue", "list"],
+        ProcessAnswer(
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "number": 1,
+                        "title": "A",
+                        "labels": [{"name": "type/bug"}],
+                        "milestone": {"title": "2026-12"},
+                    },
+                    {"number": 2, "title": "B", "labels": [{"name": "type/bug"}]},
+                    {
+                        "number": 3,
+                        "title": "C",
+                        "labels": [{"name": "type/feature"}],
+                        "milestone": {"title": "2026-12"},
+                    },
+                ]
+            ),
+        ),
+    )
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=0, stdout=_rate_limit_payload())
+    )
+    assert get_issues_summary("octo/repo") == {
+        "total_open": 3,
+        "by_priority": {},
+        "by_type": {"type/bug": 2, "type/feature": 1},
+        "by_milestone": {"2026-12": 2, "no-milestone": 1},
+    }
 
 
 def test_create_repository_issue_failure_bounds_title_in_error_details() -> None:

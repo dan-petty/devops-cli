@@ -1946,6 +1946,10 @@ class RoadmapMessages:
     triage_awaiting_intake: str = (
         "Issues awaiting intake get their type and Priority from `devops roadmap intake`."
     )
+    triage_priority_not_checked: str = (
+        "Priority is not checked: this repository has no roadmap board, so an issue has no "
+        "Priority until intake gives it one."
+    )
     intake_title_needs_body: str = "Pass --title and --body-file together."
     intake_secret: str = (
         "The candidate's {part} holds what looks like a secret, so intake sent it to no model "

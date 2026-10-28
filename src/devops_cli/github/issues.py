@@ -49,6 +49,7 @@ class IssueTriageAudit(BaseModel):
     issues_missing_scope: list[int] = Field(default_factory=list)
     issues_missing_priority: list[int] = Field(default_factory=list)
     issues_awaiting_intake: list[int] = Field(default_factory=list)
+    priority_not_checked: bool = False
 
     @property
     def compliance_rate(self) -> float:
@@ -330,7 +331,9 @@ def create_repository_issue(
                     "-F",
                     f"milestone={m_num}",
                 ]
-                run_gh(patch_cmd, check=False, quiet=True)
+                patch_res = run_gh(patch_cmd, check=False, quiet=True)
+                if patch_res.returncode != 0:
+                    assigned_milestone = None
             else:
                 assigned_milestone = None
     if res.returncode != 0:
@@ -403,7 +406,7 @@ def _audit_rest_issues(
     open_issues: list[GitHubIssue], awaiting_intake: Collection[int] | None
 ) -> IssueTriageAudit:
     """Evaluate REST queried open issues when no roadmap board is present."""
-    audit = IssueTriageAudit(total_open=len(open_issues))
+    audit = IssueTriageAudit(total_open=len(open_issues), priority_not_checked=True)
     awaiting_set = set(awaiting_intake or ())
 
     for issue in open_issues:
@@ -412,7 +415,6 @@ def _audit_rest_issues(
             continue
         has_type = any(lbl.startswith("type/") for lbl in issue.labels)
         has_scope = any(lbl.startswith("scope/") for lbl in issue.labels)
-        has_priority = False
 
         is_valid = True
         if not has_type:
@@ -420,9 +422,6 @@ def _audit_rest_issues(
             is_valid = False
         if not has_scope:
             audit.issues_missing_scope.append(issue.number)
-            is_valid = False
-        if not has_priority:
-            audit.issues_missing_priority.append(issue.number)
             is_valid = False
 
         if is_valid:
