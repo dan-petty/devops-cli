@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.0](https://github.com/dan-petty/devops-cli/compare/v0.10.1...v0.11.0) (2026-10-28)
+
+
+### Features
+
+* **monitoring:** the roadmap Service's identity refusals, failing and stalled jobs, restarts, and GitHub and model request volume raise alerts ([#2496](https://github.com/dan-petty/devops-cli/issues/2496)) ([0137f23](https://github.com/dan-petty/devops-cli/commit/0137f231e910896d8805b527baeae6e0be13e090)), closes [#2472](https://github.com/dan-petty/devops-cli/issues/2472)
+* **service:** roadmap-service runs at one replica, and each model call in the cluster is sent at most two times ([#2500](https://github.com/dan-petty/devops-cli/issues/2500)) ([2d32dae](https://github.com/dan-petty/devops-cli/commit/2d32daea17234ef27195f49dc64d2fddf700d478)), closes [#2494](https://github.com/dan-petty/devops-cli/issues/2494)
+
+
+### Bug Fixes
+
+* **cli:** every command reports a DevOpsCLIError through one exit seam ([#2502](https://github.com/dan-petty/devops-cli/issues/2502)) ([eadd55f](https://github.com/dan-petty/devops-cli/commit/eadd55f1f1caf6d110ac37995e993b806c81f39f)), closes [#2487](https://github.com/dan-petty/devops-cli/issues/2487)
+* **github:** pr monitor waits until the checks settle and names every blocker, and pr ready reads the merge-readiness verdict ([#2498](https://github.com/dan-petty/devops-cli/issues/2498)) ([43326ea](https://github.com/dan-petty/devops-cli/commit/43326eadc7cc20e05979f5ab50d0bed2a275648c))
+* **k8s:** a pod that does not call the Kubernetes API mounts no service account token ([#2522](https://github.com/dan-petty/devops-cli/issues/2522)) ([305d3ba](https://github.com/dan-petty/devops-cli/commit/305d3ba0f7795b2af8d3ca16d0917cc322ac2a9b))
+* **k8s:** the cloudflared tunnel replicas prefer different nodes and keep one up through a drain ([#2499](https://github.com/dan-petty/devops-cli/issues/2499)) ([d4edaf6](https://github.com/dan-petty/devops-cli/commit/d4edaf6fecdf88c40c1e0e781ccee86832901899)), closes [#1023](https://github.com/dan-petty/devops-cli/issues/1023)
+* **k8s:** the grafana, prometheus, argo cd and loki clients dial through the egress-checked factory, and their pre-flight address checks go ([#2497](https://github.com/dan-petty/devops-cli/issues/2497)) ([e7ca1d5](https://github.com/dan-petty/devops-cli/commit/e7ca1d52faaf25b085a28bf60c32a59686b70750))
+* **monitoring:** the roadmap Service alerts count a series that starts in the hour, and a lane of a new pod can stall ([#2514](https://github.com/dan-petty/devops-cli/issues/2514)) ([c7692b2](https://github.com/dan-petty/devops-cli/commit/c7692b286ed6fa7cb741d4a3af354faaf6f1d14c)), closes [#2505](https://github.com/dan-petty/devops-cli/issues/2505)
+* **review:** a review's scanners leave out the rules that never gave a valid finding here ([#2508](https://github.com/dan-petty/devops-cli/issues/2508)) ([fe953ac](https://github.com/dan-petty/devops-cli/commit/fe953ac43788767f6563368be35d7ed421b53d1f))
+* **roadmap:** a refine round leaves an outside account issue to a person, and refine neutralizes comment openers, www links and cross-repository references ([#2507](https://github.com/dan-petty/devops-cli/issues/2507)) ([e6230dc](https://github.com/dan-petty/devops-cli/commit/e6230dcf6a6299776d9c6feca56422ac8615468e)), closes [#2478](https://github.com/dan-petty/devops-cli/issues/2478)
+* **sandbox:** the metrics scrape and the whitelist NetworkPolicy resolve each host one time, through the egress check ([#2521](https://github.com/dan-petty/devops-cli/issues/2521)) ([7c01426](https://github.com/dan-petty/devops-cli/commit/7c0142691056ac085d5de2e889b46848b6c4bee5))
+* **security:** the subprocess environment guard refuses the zsh and interpreter keys that make a child run code ([#2510](https://github.com/dan-petty/devops-cli/issues/2510)) ([459621a](https://github.com/dan-petty/devops-cli/commit/459621a6b7fc8151d0c2289943ea3e0fd495aa25))
+* **service:** a restart keeps the halt, the budget window and the failure ledger, and a rate limit or a suspended installation stops every worker ([#2515](https://github.com/dan-petty/devops-cli/issues/2515)) ([3630de1](https://github.com/dan-petty/devops-cli/commit/3630de162aea9a63b69ebe11cd8f93d389f60d12)), closes [#2474](https://github.com/dan-petty/devops-cli/issues/2474)
+
+
+### Code Refactoring
+
+* **config:** settings resolve in one declared order through pydantic-settings sources ([#2518](https://github.com/dan-petty/devops-cli/issues/2518)) ([6a5447a](https://github.com/dan-petty/devops-cli/commit/6a5447a5cdccd105196d52f6327dfad1daa5f445)), closes [#2445](https://github.com/dan-petty/devops-cli/issues/2445)
+
 ## [0.10.1](https://github.com/dan-petty/devops-cli/compare/v0.10.0...v0.10.1) (2026-10-28)
 
 
