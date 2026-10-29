@@ -2459,7 +2459,6 @@ other commands would use comes from, and why a stored token is not used for this
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `vault_addr` | `string` | No | - | Vault cluster HTTP API address |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `vault_sync`
