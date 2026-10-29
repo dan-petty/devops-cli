@@ -2041,6 +2041,10 @@ class RoadmapMessages:
         "service.github_app.token_repository to {repo}; it is now {scoped}. Without it the token "
         "covers every repository of the installation. This process ran no step."
     )
+    implement_leftover_processes: str = (
+        "A process that the agent's shell started is still alive after the step: {names}. The job "
+        "runs no program with the GitHub token while such a process lives, so it stops the item."
+    )
     implement_job_runner_refused: str = (
         "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
         "true there. The shell of the agent is no security boundary, so the runner is the "

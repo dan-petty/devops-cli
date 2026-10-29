@@ -67,7 +67,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import drain_events, model_call_error, record_run_spend
@@ -723,13 +725,24 @@ def _commit(source: Path, message: str) -> tuple[str, str]:
 # ── The step ──────────────────────────────────────────────────────────────────────────────
 
 
+def _end_agent_processes() -> None:
+    """End every process the agent's shell left, in a runner, before the job runs a program that
+    gets the session's token. A `git` or `gh` child holds the token in its environment, and a
+    process of the same user could read it. Raises `RoadmapImplementError` when one survives."""
+    if load_settings().roadmap.implement.in_runner:
+        end_leftover_processes()
+
+
 def _attempt(
     source: Path, model: Any, window: int, inputs: StepInputs, item: int, start: str
 ) -> StepOutcome:
     """Run the agent, then judge the exit and commit."""
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
         agent = build_agent(model, source, inputs.instructions, window, Path(home))
-        run = _run_agent(agent, model, inputs.message)
+        try:
+            run = _run_agent(agent, model, inputs.message)
+        finally:
+            _end_agent_processes()
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,

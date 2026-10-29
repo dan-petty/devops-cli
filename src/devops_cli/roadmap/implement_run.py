@@ -48,7 +48,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import acts_as_github_app, run_subprocess
-from devops_cli.core.process_hardening import deny_environment_reads
+from devops_cli.core.process_hardening import adopt_orphans, deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
@@ -502,6 +502,7 @@ def apply_implement(
     of an agent, which runs as the same user (`deny_environment_reads`)."""
     require_runner(plan.repo)
     deny_environment_reads()
+    adopt_orphans()
     checkout = Path(source)
     ready: list[int] = []
     stopped: list[int] = []
