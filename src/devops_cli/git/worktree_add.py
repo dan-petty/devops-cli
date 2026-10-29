@@ -369,4 +369,4 @@ def issue_holder(repo_root: Path, issue: int, remote_heads: str) -> str | None:
     if not pushed:
         return None
     names = ", ".join(f"origin/{branch.name}" for branch in pushed)
-    return MESSAGES.repos.worktrees_add_held_by_branches.format(issue=issue, branches=names)
+    return MESSAGES.repos.worktrees_add_held_by_pushed.format(issue=issue, branches=names)

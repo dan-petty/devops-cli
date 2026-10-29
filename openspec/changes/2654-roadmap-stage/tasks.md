@@ -3,7 +3,7 @@
 ## 1. The selection and the settings
 
 - [x] 1.1 Write `tests/test_roadmap_stage_selection.py` (the default filter, repeated values, an unknown family, each reason to leave an item out, the limit and `--item`), and verify that `uv run devops ci test tests/test_roadmap_stage_selection.py` fails on the base: the module `devops_cli.roadmap.stage` does not exist
-- [x] 1.2 Add `StageRecordKey` in `src/devops_cli/roadmap/store.py`, the constants, defaults and the `roadmap.stage.step_tokens` setting, the messages, the exception `RoadmapStageError`, `read_remote_heads` and `issue_holder` in `src/devops_cli/git/worktree_add.py`, `body_dependencies` in `src/devops_cli/roadmap/refine.py`, and the selection in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_selection.py` passes
+- [x] 1.2 Add `StageRecordKey` in `src/devops_cli/roadmap/store.py`, the constants, defaults and the `roadmap.stage.step_tokens` setting, the messages, the exception `RoadmapStageError`, `read_remote_heads`, `remote_branches` and `issue_holder` in `src/devops_cli/git/worktree_add.py`, `body_dependencies` in `src/devops_cli/roadmap/refine.py`, and the selection in `src/devops_cli/roadmap/stage.py`, and verify that `uv run devops ci test tests/test_roadmap_stage_selection.py` passes
 - [x] 1.3 Regenerate the configuration documents, and verify that `uv run devops docs generate --sync-readme` leaves no diff after a second run
 
 ## 2. The plan of one item
@@ -33,5 +33,4 @@
 ## Workflow follow-up
 
 - The Service row of the stage job and the pinned OpenSpec in the Service image are #2659.
-- The take-over of a staged branch by `devops repos worktrees add` is #2657.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

@@ -2,20 +2,20 @@
 
 ## Context
 
-Refine sets an item Ready with a design, but nothing turns that design into a branch, an OpenSpec change and a draft pull request. #2653 asks for a job that does this for the Ready P0 and P1 bugs, and for task groups that fit one context window of 128k tokens. This change delivers the command. The Service row (#2659) and the take-over of a staged branch by `worktrees add` (#2657) come after it.
+Refine sets an item Ready with a design, but nothing turns that design into a branch, an OpenSpec change and a draft pull request. #2653 asks for a job that does this for the Ready P0 and P1 bugs, and for task groups that fit one context window of 128k tokens. This change delivers the command. The Service row (#2659) comes after it.
 
 ## Decisions
 
 - **Plan first, write after.** `plan_stage` selects the items, calls the model, measures the groups and validates the change in a scratch directory. It writes to no ref and to no GitHub object. `apply_stage` makes the branch, the commit, the push, the pull request, the comment and the record. This is the shape of refine, so `--plan` shows what `--confirm` writes, and a failed validation never leaves a wrong file on a branch.
 - **Three model calls at most for one item.** The first call plans the change. A second call replaces the groups when one is over budget. A third call corrects a validation failure. Each of the last two runs at most once for one reply of the model, so the cost of one item has a bound.
 - **The measure is the inputs of one step.** For each group the job adds the tokens of the group's task text, of the item (title and body), of every file of the change folder, and of the group's named files packed by `ContextPacker`. A file that does not exist is a file the group creates and costs nothing to read. The packer truncates a file at the budget, so one file over the budget still makes the group over it.
-- **The held rule is the rule of `worktrees add`.** `worktree_add.py` holds the check of the worktrees of the clone and of the branches of `origin`. It gets two public functions, and the stage job calls them. An open pull request has a pushed head branch of the form, so the check of branches covers it, and the job makes no request to GitHub for it.
+- **The held rule is the rule of `worktrees add`.** `worktree_add.py` holds the check of the worktrees of the clone and of the branches of `origin`. It gets three public functions, and the stage job calls them. `add_worktree` takes over a staged branch, and the stage job still leaves a held item alone. An open pull request has a pushed head branch of the form, so the check of branches covers it, and the job makes no request to GitHub for it.
 - **The pull request goes through the GitHub session.** The job calls `POST /repos/{repo}/pulls` with `draft` true through `GitHubClient`. The command `devops pr create` runs `gh pr create` in a child process, and the job would start a program of its own to open a pull request.
 - **The worktree lives for one item.** `add_worktree` makes the branch on a worktree of the clone, so the HEAD of the clone stays on the default branch. After the push the job removes the worktree and the local branch.
 - **The record decides what a run does again.** An item with `stage.needs_split` is left out until a person clears the key or names the item with `--item`. A staged item is held by its pushed branch. So a second run does not call the model again for an item it has done.
 - **The slug comes from the title.** The job lower-cases the summary of the title, keeps the ASCII letters and digits, and joins the first six words with hyphens. `is_valid_slug` checks the result. A title with no such word is left out.
 - **The pull request body is the permanent what and why.** It holds `Plans #<issue>`, the reason and the list of changes of the proposal, passed through `sanitize_text` so a handle or a link in the model's text pings no one. A text with a closing keyword that is followed by an issue reference stops the item. The person who lands the code rewrites the line to `Closes #<issue>`.
-- **Reconcile reads git.** A closed item with `stage.branch` is checked with `git log --format=%ae origin/<default>..origin/<branch>`. The branch is removed only when every author is the identity of the session.
+- **Reconcile reads git.** A closed item with `stage.branch` is checked with `git log --format=%an origin/<default>..origin/<branch>`, the read that `worktrees add` makes when it takes a staged branch over. The branch is removed only when every author name is the user name of the clone, which is the identity of the session.
 
 ## Rejected alternatives
 

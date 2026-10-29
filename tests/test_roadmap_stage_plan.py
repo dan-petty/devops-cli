@@ -456,7 +456,7 @@ def test_the_clone_tells_who_holds_an_issue(stage_repo: StageRepo, tmp_path: Pat
 
     assert (
         issue_holder(stage_repo.clone, 7, heads)
-        == "Issue 7 is held by the branch origin/fix/7-pushed-work."
+        == "Issue 7 is held by a pushed branch: origin/fix/7-pushed-work."
     )
     assert "feat/8-local-work" in (issue_holder(stage_repo.clone, 8, heads) or "")
     assert issue_holder(stage_repo.clone, 9, heads) is None

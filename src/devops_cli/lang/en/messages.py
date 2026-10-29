@@ -505,6 +505,7 @@ class RepoMessages:
         "Issue {issue} is held by the branch origin/{branch}. It has no commit past "
         "origin/main, so nothing shows that the App staged it."
     )
+    worktrees_add_held_by_pushed: str = "Issue {issue} is held by a pushed branch: {branches}."
     worktrees_add_held_by_branches: str = (
         "Issue {issue} is held by more than one branch of origin: {branches}."
     )

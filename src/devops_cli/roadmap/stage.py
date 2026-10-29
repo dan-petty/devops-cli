@@ -642,11 +642,12 @@ def _default_branch(source: Path) -> str:
 
 def _foreign_commits(source: Path, branch: str) -> int:
     """How many commits `origin/<branch>` holds past the default branch whose author is not the
-    identity the clone commits as."""
-    own = _git(source, "config", "user.email")
+    identity the clone commits as. The author is the name of the commit, as `worktrees add` reads
+    it when it takes a staged branch over."""
+    own = _git(source, "config", "user.name")
     _git(source, "fetch", "-q", "origin", branch)
     authors = _git(
-        source, "log", "--format=%ae", f"origin/{_default_branch(source)}..origin/{branch}"
+        source, "log", "--format=%an", f"origin/{_default_branch(source)}..origin/{branch}"
     )
     return sum(1 for author in authors.splitlines() if author != own)
 

@@ -18,6 +18,7 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
 
 STAGE_REPO = "example/roadmap"
+STAGE_NAME = "devops-roadmap[bot]"
 STAGE_EMAIL = "1+devops-roadmap[bot]@users.noreply.github.com"
 SAMPLE_SOURCE = "def keep(comments):\n    return comments[:-1]\n"
 
@@ -43,15 +44,15 @@ class StageRepo:
         """`git <args>` in `origin`."""
         return run_git(self.origin, *args)
 
-    def push_branch(self, branch: str, *, email: str = "person@example.com") -> None:
-        """Push one more commit by `email` to `branch` of `origin`, as another clone does; the
+    def push_branch(self, branch: str, *, author: str = "Person") -> None:
+        """Push one more commit by `author` to `branch` of `origin`, as another clone does; the
         branch starts at `main` when `origin` has none."""
         exists = bool(self.git("ls-remote", "--heads", "origin", branch))
         self.git("switch", "-q", "-c", branch, *([f"origin/{branch}"] if exists else []))
-        name = f"{branch}-{email}".replace("/", "-")
+        name = f"{branch}-{author}".replace("/", "-").replace(" ", "-")
         (self.clone / f"{name}.txt").write_text(name, encoding="utf-8")
         self.git("add", "-A")
-        self.git("-c", f"user.email={email}", "commit", "-q", "-m", "work")
+        self.git("-c", f"user.name={author}", "commit", "-q", "-m", "work")
         self.git("push", "-q", "origin", branch)
         self.git("switch", "-q", "main")
         self.git("branch", "-q", "-D", branch)
@@ -66,7 +67,7 @@ def stage_repo(tmp_path: Path) -> StageRepo:
     clone = tmp_path / "clone"
     run_git(tmp_path, "clone", "-q", str(origin), str(clone))
     for key, value in (
-        ("user.name", "devops-roadmap[bot]"),
+        ("user.name", STAGE_NAME),
         ("user.email", STAGE_EMAIL),
         ("commit.gpgsign", "false"),
     ):

@@ -12,7 +12,7 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StagePlan, apply_stage, parse_filters, plan_stage
 from devops_cli.roadmap.store import GitHubState, ItemField, StageRecordKey
 from tests.support.fakes.github import API, github_json
-from tests.support.roadmap_stage import STAGE_EMAIL, STAGE_REPO, StageRepo
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -76,7 +76,7 @@ def _branches(repo: StageRepo) -> list[str]:
 def test_a_closed_item_loses_a_branch_that_only_the_app_wrote_to(
     stage_repo: StageRepo, closed_pull: GitHubApiFake
 ) -> None:
-    stage_repo.push_branch(BRANCH, email=STAGE_EMAIL)
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
     store = _staged_item()
 
     plan = _plan(store, stage_repo)
@@ -93,8 +93,8 @@ def test_a_closed_item_loses_a_branch_that_only_the_app_wrote_to(
 def test_a_closed_item_keeps_a_branch_that_holds_a_commit_of_another_author(
     stage_repo: StageRepo, closed_pull: GitHubApiFake
 ) -> None:
-    stage_repo.push_branch(BRANCH, email=STAGE_EMAIL)
-    stage_repo.push_branch(BRANCH, email="person@example.com")
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    stage_repo.push_branch(BRANCH, author="Person")
     store = _staged_item()
 
     plan = _plan(store, stage_repo)
@@ -125,7 +125,7 @@ def test_a_closed_item_whose_branch_is_gone_loses_its_record_and_costs_no_reques
 def test_an_open_item_keeps_its_staged_branch(
     stage_repo: StageRepo, closed_pull: GitHubApiFake
 ) -> None:
-    stage_repo.push_branch(BRANCH, email=STAGE_EMAIL)
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
     store = _staged_item(GitHubState.OPEN)
 
     plan = _plan(store, stage_repo)

@@ -12,10 +12,10 @@ Issue #2654, a part of #2653: no command makes a Ready item Staged. An agent mak
 - Each task group is measured with tiktoken and `ai/context_packer.py`. The budget is `roadmap.stage.step_tokens` (default 40000), a new setting. `--step-tokens` overrides it for one run.
 - `src/devops_cli/github/client.py` gets the calls that open a draft pull request and close a pull request.
 - `src/devops_cli/roadmap/store.py` gets `StageRecordKey`: `stage.branch`, `stage.pr`, `stage.sha`, `stage.groups` and `stage.needs_split`.
-- `src/devops_cli/git/worktree_add.py` gets two public functions, `read_remote_heads` and `issue_holder`, so the stage job applies the held-issue rule of `worktrees add` and does not copy it.
+- `src/devops_cli/git/worktree_add.py` gets three public functions, `read_remote_heads`, `remote_branches` and `issue_holder`, so the stage job applies the held-issue rule of `worktrees add` and does not copy it.
 - `CONTEXT.md` gets the terms Staged and Step.
 - The command, its options, its messages and its setting are observable, so the change carries a spec delta for the new capability `roadmap-stage`.
-- The change fits one pull request. The Service row for the job (#2659) and the take-over of a staged branch by `worktrees add` (#2657) are separate items.
+- The change fits one pull request. The Service row for the job (#2659) is a separate item.
 
 ## Capabilities
 
