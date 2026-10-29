@@ -223,6 +223,32 @@ def test_a_group_still_over_the_budget_after_the_split_stops_the_item(
     assert stopped.worst.tokens > 6000
 
 
+@pytest.mark.usefixtures("openspec")
+def test_a_corrected_reply_over_the_budget_does_not_ask_for_a_second_split(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    write_big_file(stage_repo)
+    heavy = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/big.py"]})
+    light = heavy.model_copy(update={"title": "Light", "reads": []})
+    openspec.script_sequence(VALIDATE, (1, "ERROR: a requirement has no scenario\n"), VALID)
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy]),
+        StageSplit(groups=[light]),
+        make_stage_proposal(groups=[heavy]),
+    )
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    (stopped,) = plan.over_budget
+    assert plan.ready == ()
+    assert model_fake.call_count == 3
+    assert stopped.worst.group.title == "Keep the last comment"
+
+
 # ── The checks of the change ──────────────────────────────────────────────────
 
 

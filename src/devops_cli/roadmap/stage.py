@@ -464,10 +464,14 @@ class _Planner:
         self._window = window
         self._tool = tool
         self._today: date = datetime.now(UTC).date()
+        # Whether the model split the groups of the item in hand: it does so once for each item.
+        self._split_asked = False
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes
-        back to the model once, with the problem."""
+        back to the model once, with the problem. The model splits the groups at most once, so an
+        item costs three model calls at most."""
+        self._split_asked = False
         request = self._request(target)
         proposal = self._ask(StageProposal, _CHANGE_TASK, request)
         outcome = self._settle(target, proposal)
@@ -536,10 +540,12 @@ class _Planner:
         self, target: StageTarget, proposal: StageProposal
     ) -> tuple[StageProposal, dict[str, str], list[MeasuredGroup]]:
         """The proposal with its groups measured. When a group is over the budget, the model
-        splits the groups once and the new groups are measured."""
+        splits the groups once for the item and the new groups are measured. After that split, a
+        group over the budget stays over it."""
         files, measured = self._build(target, proposal)
-        if all(m.tokens <= self._budget for m in measured):
+        if self._split_asked or all(m.tokens <= self._budget for m in measured):
             return proposal, files, measured
+        self._split_asked = True
         asked = {
             "number": target.item.number,
             "title": target.item.title,
