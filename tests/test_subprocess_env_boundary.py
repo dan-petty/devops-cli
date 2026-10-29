@@ -325,19 +325,21 @@ def test_a_caller_override_outside_the_refused_families_reaches_the_child(
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
-def test_a_git_key_that_devops_cli_sets_reaches_the_child(isolate_env: bool) -> None:
-    """The five git keys that callers set and that run no program, a key of git that has no
-    underscore after `GIT`, a key that only contains a refused git name, and `XDG_CONFIG_HOME`,
-    which `devops openspec` sets, reach the child with their values (#2483)."""
+def test_a_git_key_that_devops_cli_sets_reaches_the_child(
+    isolate_env: bool, tmp_path: Path
+) -> None:
+    """The five git keys that callers set and that run no program, a key that starts with `GIT`
+    and has no underscore after it, a key that only contains a refused git name, and
+    `XDG_CONFIG_HOME`, which `devops openspec` sets, reach the child with their values (#2483)."""
     override = {
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_AUTHOR_NAME": "Example Author",
         "GIT_AUTHOR_EMAIL": "author@example.com",
         "GIT_COMMITTER_NAME": "Example Committer",
         "GIT_COMMITTER_EMAIL": "committer@example.com",
-        "GITHUB_STEP_SUMMARY": "/tmp/example-summary",
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
         "EXAMPLE_GIT_SSH_COMMAND": "example",
-        "XDG_CONFIG_HOME": "/tmp/example-config",
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
     }
 
     env = build_subprocess_env(env=override, isolate_env=isolate_env)
