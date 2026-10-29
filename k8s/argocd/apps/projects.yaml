@@ -81,9 +81,6 @@ spec:
         name: argocd-redis
       - group: ''
         kind: Secret
-        name: sh.helm.release.v1.*
-      - group: ''
-        kind: Secret
         name: agent-grant-*
       - group: ''
         kind: PersistentVolumeClaim

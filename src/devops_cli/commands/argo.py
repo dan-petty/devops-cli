@@ -17,6 +17,13 @@ import httpx2
 import typer
 
 from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service, is_not_found_error
+from devops_cli.argo.helm_records import (
+    HelmRelease,
+    RetirementPlan,
+    dry_run_helm_record_retirement,
+    plan_helm_record_retirement,
+    retire_helm_records,
+)
 from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.constants import (
     CONST_ARGO_DEFAULT_LOG_CONTAINER,
@@ -38,6 +45,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_command, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.argo import ArgoError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
@@ -412,6 +420,102 @@ def cd_apps_bootstrap_gitops(
         raise typer.Exit(1) from exc
 
     print_success(f"GitOps root Application '{applied.name}' applied from {root_app_path}")
+
+
+# =============================================================================
+# Command: devops argo cd apps retire-helm-records
+# =============================================================================
+
+
+def _print_retirement_plan(plan: RetirementPlan) -> None:
+    """One row for each release that an Application renders, then what Argo CD did not apply."""
+    m = MESSAGES.argo
+    if plan.releases:
+        print_table(
+            m.helm_records_table_title,
+            ["Release", "Namespace", "Application", "Result"],
+            [
+                [
+                    release.name,
+                    release.namespace,
+                    release.application,
+                    m.helm_records_qualifies.format(count=len(release.records))
+                    if release.qualifies
+                    else m.helm_records_refused.format(count=len(release.unapplied)),
+                ]
+                for release in plan.releases
+            ],
+        )
+    else:
+        print_info(m.helm_records_none, prefix=False)
+    for release in plan.releases:
+        for ref in release.unapplied:
+            print_info(
+                m.helm_records_unapplied.format(
+                    release=release.name,
+                    namespace=release.namespace,
+                    object=ref,
+                    application=release.application,
+                ),
+                prefix=False,
+                safe=True,
+            )
+    if plan.kept:
+        print_info(m.helm_records_kept.format(releases=", ".join(plan.kept)), prefix=False)
+
+
+@cd_apps_app.command("retire-helm-records")
+def cd_apps_retire_helm_records(
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help=HELP.argo.retire_helm_records_confirm)
+    ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+) -> None:
+    """Delete the Helm release records of the charts that Argo CD renders.
+
+    Helm then forgets those releases, and every object stays. A release qualifies when Argo CD
+    applied each of its objects. Without --confirm the command prints the plan only.
+    """
+    from devops_cli.commands.k8s.cluster_runtime import resolve_effective_context
+    from devops_cli.core.validation import validate_k8s_context_name
+
+    effective_context = resolve_effective_context(context)
+    if effective_context:
+        validate_k8s_context_name(effective_context, "context")
+    if dry_run or is_dry_run():
+        render_request_plan(
+            MESSAGES.argo.helm_records_dry_run_heading,
+            dry_run_helm_record_retirement(effective_context),
+            (MESSAGES.dry_run.placeholders_note,),
+        )
+        return
+    plan = plan_helm_record_retirement(effective_context)
+    _print_retirement_plan(plan)
+    qualifying = plan.qualifying
+    if not qualifying:
+        return
+    if not confirm:
+        print_info(
+            MESSAGES.argo.helm_records_confirm_hint.format(
+                count=sum(len(release.records) for release in qualifying),
+                releases=len(qualifying),
+            ),
+            prefix=False,
+        )
+        return
+
+    def _retired(release: HelmRelease) -> None:
+        print_success(
+            MESSAGES.argo.helm_records_retired.format(
+                count=len(release.records), release=release.name, namespace=release.namespace
+            )
+        )
+
+    retired = retire_helm_records(plan, effective_context, progress=_retired)
+    print_success(MESSAGES.argo.helm_records_done.format(releases=len(retired)))
 
 
 # =============================================================================

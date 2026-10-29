@@ -1287,6 +1287,32 @@ class ArgoMessages:
     workflow_wait_timeout: str = (
         "Timed out after {seconds:.0f}s waiting for workflow '{name}' to reach a terminal phase."
     )
+    helm_records_request_failed: str = "`{request}` failed: {detail}"
+    helm_records_request_timeout: str = "`{request}` did not answer in {seconds:g} s."
+    helm_records_dry_run_heading: str = (
+        "Dry run: no request was made. Retiring the Helm release records would make these "
+        "requests, in order:"
+    )
+    helm_records_table_title: str = "Helm release records of charts that Argo CD renders"
+    helm_records_none: str = "No Helm release record belongs to a chart that Argo CD renders."
+    helm_records_qualifies: str = "retire {count} record(s)"
+    helm_records_refused: str = "keep: Argo CD did not apply {count} object(s)"
+    helm_records_unapplied: str = (
+        "Release {release} in {namespace}: Argo CD did not apply {object}. Sync Application "
+        "{application}, then run this command again."
+    )
+    helm_records_kept: str = (
+        "Kept, because no Application renders the release or an operator owns the record: "
+        "{releases}"
+    )
+    helm_records_confirm_hint: str = (
+        "Nothing was deleted. Run the command again with --confirm to delete the {count} "
+        "record(s) of the {releases} release(s) that qualify."
+    )
+    helm_records_retired: str = "Deleted {count} record(s) of release {release} in {namespace}."
+    helm_records_done: str = (
+        "Helm forgets {releases} release(s). Every object stays, and Argo CD keeps applying it."
+    )
 
 
 @dataclass(frozen=True)

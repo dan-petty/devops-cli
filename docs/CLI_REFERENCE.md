@@ -2264,6 +2264,27 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+##### `devops argo cd apps retire-helm-records`
+
+**Delete the Helm release records of the charts that Argo CD renders.**
+
+Delete the Helm release records of the charts that Argo CD renders.
+
+Helm then forgets those releases, and every object stays. A release qualifies when Argo CD
+applied each of its objects. Without --confirm the command prints the plan only.
+
+```bash
+devops argo cd apps retire-helm-records [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--confirm` | `boolean` | - | Delete the records of each release that qualifies. Without it, the command prints the plan and deletes nothing. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+
 ### `devops argo workflows`
 
 ```bash

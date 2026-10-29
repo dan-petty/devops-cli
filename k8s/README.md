@@ -900,7 +900,13 @@ devops argo cd apps bootstrap-gitops
 # Once `cluster` has created the Applications devops and ingress, set the homelab hosts and ConfigMap
 kubectl -n argocd get application devops ingress
 devops k8s deploy-stack --stack devops
+
+# Once the Applications have synced, retire the Helm release records of the charts they adopted
+devops argo cd apps retire-helm-records            # the plan: it reads only
+devops argo cd apps retire-helm-records --confirm
 ```
+
+A chart that `helm upgrade --install` deployed before Argo CD adopted it keeps its Helm release records: Secrets labelled `owner=helm`, such as `sh.helm.release.v1.prometheus.v48`. Argo CD only renders a chart with `helm template`, so `helm list` still shows the release as `deployed`, and `helm rollback` or `helm uninstall` would act on objects that Argo CD owns. `retire-helm-records` deletes the records of a release when an Application renders it and Argo CD applied each of its top-level objects: the object carries the Application's tracking id, or names the field manager `argocd-controller` (Argo CD writes no tracking id on a CustomResourceDefinition). Every object stays. For a release that does not qualify, the plan names each object that Argo CD did not apply; sync that Application, then run the command again. A record with an owner reference, such as those of the Alloy operator, stays. AppProject `homelab` does not ignore `sh.helm.release.v1.*` Secrets, so Argo CD shows a record that is left over as an orphaned resource.
 
 ### Recovery
 
@@ -916,6 +922,9 @@ devops argo cd apps bootstrap-gitops
 # 3. Once `cluster` has recreated the Applications devops and ingress, set the homelab hosts and ConfigMap
 kubectl -n argocd get application devops ingress
 devops k8s deploy-stack --stack devops
+
+# 4. Once Application argocd has synced, retire the release record that step 1 wrote
+devops argo cd apps retire-helm-records --confirm
 ```
 
 ### Drift Detection & Sync Commands

@@ -4,7 +4,7 @@ applies_to:
 sources:
   - "https://helm.sh/"
   - "https://github.com/helm/helm"
-reviewed: "2026-10-15"
+reviewed: "2026-10-28"
 tags:
   - "helm"
   - "k8s"
@@ -16,6 +16,8 @@ tags:
 ## 1. Overview & Purpose
 
 Helm is the standard package manager for Kubernetes, enabling developers and DevOps teams to define, install, upgrade, and version complex Kubernetes applications using reusable packages called Charts. In the `devops-cli` ecosystem, Helm powers automated stack deployment (`devops k8s deploy-stack`), managing Prometheus, Grafana, ArgoCD, Tempo, and OpenTelemetry collector charts.
+
+On a cluster that Argo CD manages, such as the homelab, Argo CD renders these charts with `helm template` and owns their objects. Helm keeps no release there. `devops argo cd apps retire-helm-records` deletes the release records that an earlier `helm upgrade --install` left (`k8s/README.md`, Bootstrap & Adoption).
 
 ---
 
@@ -45,12 +47,12 @@ devops k8s teardown-stack --stack infra
 ### Standard & Advanced Helm Commands
 ```bash
 # Add and update Helm repositories
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add example https://charts.example.com
 helm repo update
 
 # Install or upgrade a release with atomic rollback on failure
-helm upgrade --install prometheus prometheus-community/prometheus \
-  --namespace monitoring \
+helm upgrade --install example-app example/example-app \
+  --namespace example \
   --create-namespace \
   --values values.yaml \
   --atomic \
@@ -60,16 +62,16 @@ helm upgrade --install prometheus prometheus-community/prometheus \
 helm list --all-namespaces
 
 # Inspect active user-supplied values of a release
-helm get values prometheus -n monitoring
+helm get values example-app -n example
 
 # View complete rendered manifest of a release
-helm get manifest prometheus -n monitoring
+helm get manifest example-app -n example
 
 # Rollback a release to a previous revision
-helm rollback prometheus 1 -n monitoring
+helm rollback example-app 1 -n example
 
 # Uninstall a release
-helm uninstall prometheus -n monitoring
+helm uninstall example-app -n example
 ```
 
 ---
@@ -80,6 +82,7 @@ helm uninstall prometheus -n monitoring
 2. **Deterministic Chart Versions**: Always lock chart versions (`--version <semver>`) in production scripts rather than pulling floating latest charts.
 3. **Template Validation**: Run `helm template <release> <chart> -f values.yaml | kubelinter lint -` to lint generated manifests prior to applying them to live clusters.
 4. **Separate Values from Code**: Maintain environment-specific values files (`values-local.yaml`, `values-prod.yaml`) outside core application logic.
+5. **No Helm Command on a Release That Argo CD Renders**: Do not run `helm upgrade`, `helm rollback` or `helm uninstall` against a release that an Application in `k8s/argocd/apps/` renders. A rollback or an uninstall acts on objects that Argo CD owns, and an uninstall can delete a chart's PersistentVolumeClaim and its data. Change the chart version or the values in git, and Argo CD syncs the change (`devops argo cd apps sync <application>`). To undo a change, revert its commit.
 
 ---
 
