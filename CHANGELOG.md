@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.3](https://github.com/dan-petty/devops-cli/compare/v0.16.2...v0.16.3) (2026-10-29)
+
+
+### Bug Fixes
+
+* **security:** a failed shodan internetdb lookup is no ok record ([#2647](https://github.com/dan-petty/devops-cli/issues/2647)) ([ca9c1ad](https://github.com/dan-petty/devops-cli/commit/ca9c1ad7c59236b2d9894a07329010cdb163026d)), closes [#2504](https://github.com/dan-petty/devops-cli/issues/2504)
+
 ## [0.16.2](https://github.com/dan-petty/devops-cli/compare/v0.16.1...v0.16.2) (2026-10-29)
 
 
